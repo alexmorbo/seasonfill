@@ -1,0 +1,15 @@
+{
+  "id": 14,
+  "name": "Any 2160p",
+  "upgradeAllowed": true,
+  "cutoff": 19,
+  "items": [
+    {"allowed": false, "quality": {"id": 0, "name": "Unknown"}},
+    {"allowed": false, "quality": {"id": 1, "name": "SDTV"}},
+    {"allowed": false, "quality": {"id": 2, "name": "DVD"}},
+    {"allowed": true,  "quality": {"id": 3, "name": "WEBDL-1080p"}},
+    {"allowed": true,  "quality": {"id": 19, "name": "WEBDL-2160p"}}
+  ],
+  "minFormatScore": 0,
+  "cutoffFormatScore": 10000
+}

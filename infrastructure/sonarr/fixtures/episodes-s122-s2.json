@@ -1,0 +1,10 @@
+[
+  {"id": 9001, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 1, "title": "Episode 1", "airDateUtc": "2026-04-15T00:00:00Z", "monitored": true, "hasFile": true,  "episodeFileId": 5001},
+  {"id": 9002, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 2, "title": "Episode 2", "airDateUtc": "2026-04-22T00:00:00Z", "monitored": true, "hasFile": true,  "episodeFileId": 5002},
+  {"id": 9003, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 3, "title": "Episode 3", "airDateUtc": "2026-04-29T00:00:00Z", "monitored": true, "hasFile": true,  "episodeFileId": 5003},
+  {"id": 9004, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 4, "title": "Episode 4", "airDateUtc": "2026-05-06T00:00:00Z", "monitored": true, "hasFile": false, "episodeFileId": 0},
+  {"id": 9005, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 5, "title": "Episode 5", "airDateUtc": "2026-05-13T00:00:00Z", "monitored": true, "hasFile": false, "episodeFileId": 0},
+  {"id": 9006, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 6, "title": "Episode 6", "airDateUtc": "2026-05-20T00:00:00Z", "monitored": true, "hasFile": false, "episodeFileId": 0},
+  {"id": 9007, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 7, "title": "Episode 7", "airDateUtc": "2026-05-27T00:00:00Z", "monitored": true, "hasFile": false, "episodeFileId": 0},
+  {"id": 9008, "seriesId": 122, "seasonNumber": 2, "episodeNumber": 8, "title": "Episode 8", "airDateUtc": "2026-06-03T00:00:00Z", "monitored": true, "hasFile": false, "episodeFileId": 0}
+]

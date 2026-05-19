@@ -1,0 +1,54 @@
+log:
+  level: ${LOG_LEVEL:-info}
+  format: json
+
+http:
+  bind: ":8080"
+  read_timeout: 15s
+  write_timeout: 30s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+  auth:
+    enabled: true
+    api_key: ${SEASONFILL_API_KEY}
+
+cron:
+  enabled: true
+  schedule: "0 */6 * * *"
+  on_start: false
+  jitter: 1m
+
+database:
+  driver: ${DB_DRIVER:-sqlite}
+  sqlite:
+    path: ${SQLITE_PATH:-./data/seasonfill.db}
+  postgres:
+    dsn: ${POSTGRES_DSN}
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 5m
+
+dry_run: true
+
+scan:
+  shutdown_grace: 60s
+
+sonarr_instances:
+  - name: sonarr-main
+    url: ${SONARR_MAIN_URL}
+    api_key: ${SONARR_MAIN_API_KEY}
+    timeout: 30s
+    tags:
+      mode: all
+      include: []
+      exclude: []
+    search:
+      require_all_aired: false
+      skip_specials: true
+      skip_anime: true
+      min_custom_format_score: 0
+    ranking:
+      indexer_priority_enabled: true
+      origin_bonus: 1.0
+    limits:
+      scan_max_series: 100

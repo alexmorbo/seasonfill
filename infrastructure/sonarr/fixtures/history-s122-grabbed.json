@@ -1,0 +1,25 @@
+{
+  "page": 1,
+  "pageSize": 50,
+  "totalRecords": 1,
+  "records": [
+    {
+      "eventType": "grabbed",
+      "episode": {
+        "id": 9001,
+        "seriesId": 122,
+        "seasonNumber": 2,
+        "episodeNumber": 1,
+        "title": "Episode 1",
+        "airDateUtc": "2026-04-15T00:00:00Z",
+        "monitored": true,
+        "hasFile": true,
+        "episodeFileId": 5001
+      },
+      "data": {
+        "guid": "rt-1",
+        "indexer": "RuTracker (Prowlarr)"
+      }
+    }
+  ]
+}

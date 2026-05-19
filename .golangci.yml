@@ -1,0 +1,66 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - bodyclose
+    - noctx
+    - errorlint
+    - nilerr
+    - revive
+    - gocritic
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    gocritic:
+      enabled-checks:
+        - appendAssign
+        - argOrder
+        - badCall
+        - badCond
+        - dupArg
+        - dupBranchBody
+        - dupCase
+        - emptyFallthrough
+        - exitAfterDefer
+        - flagDeref
+        - nilValReturn
+        - sloppyLen
+        - sortSlice
+        - unnecessaryDefer
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+      - path: fixtures
+        linters:
+          - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/alexmorbo/seasonfill
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
