@@ -1,0 +1,42 @@
+# Local design documentation — kept locally, not pushed
+/documentation/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+*.coverprofile
+coverage.out
+coverage.html
+vendor/
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Runtime data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/data/
+/var/
+
+# Env / local config
+.env
+.env.local
+.env.*.local
+config.local.yaml
+config.local.yml
