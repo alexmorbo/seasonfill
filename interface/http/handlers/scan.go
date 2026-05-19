@@ -47,6 +47,13 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 			})
 			return
 		}
+		if errors.Is(err, scan.ErrUnknownInstance) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":    "unknown instance",
+				"instance": req.Instance,
+			})
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

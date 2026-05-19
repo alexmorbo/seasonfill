@@ -172,6 +172,156 @@ func TestScan_RunSuccess(t *testing.T) {
 	assert.NotEmpty(t, decRepo.d)
 }
 
+type tagFakeSonarr struct {
+	fakeSonarr
+	tags []ports.Tag
+	err  error
+}
+
+func (f *tagFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
+	return f.tags, f.err
+}
+
+func TestBuildTagFilter(t *testing.T) {
+	ctx := context.Background()
+	t.Run("empty config returns empty filter", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{Name: "x"},
+			Client: &fakeSonarr{name: "x"},
+		}
+		f, err := buildTagFilter(ctx, inst)
+		require.NoError(t, err)
+		assert.Empty(t, f.include)
+		assert.Empty(t, f.exclude)
+	})
+
+	t.Run("resolves labels to ids", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{
+					Mode:    "any",
+					Include: []string{"keep"},
+					Exclude: []string{"skip"},
+				},
+			},
+			Client: &tagFakeSonarr{
+				tags: []ports.Tag{{ID: 1, Label: "keep"}, {ID: 2, Label: "skip"}},
+			},
+		}
+		f, err := buildTagFilter(ctx, inst)
+		require.NoError(t, err)
+		_, hasKeep := f.include[1]
+		_, hasSkip := f.exclude[2]
+		assert.True(t, hasKeep)
+		assert.True(t, hasSkip)
+	})
+
+	t.Run("unknown labels ignored", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{Include: []string{"missing"}},
+			},
+			Client: &tagFakeSonarr{tags: []ports.Tag{{ID: 1, Label: "keep"}}},
+		}
+		f, err := buildTagFilter(ctx, inst)
+		require.NoError(t, err)
+		assert.Empty(t, f.include)
+	})
+
+	t.Run("propagates list tags error", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{Include: []string{"any"}},
+			},
+			Client: &tagFakeSonarr{err: errors.New("boom")},
+		}
+		_, err := buildTagFilter(ctx, inst)
+		require.Error(t, err)
+	})
+}
+
+func TestDominantIndexer(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		history []ports.HistoryEvent
+		want    string
+	}{
+		{name: "empty returns empty", history: nil, want: ""},
+		{name: "single record", history: []ports.HistoryEvent{{IndexerName: "RT"}}, want: "RT"},
+		{
+			name: "majority wins",
+			history: []ports.HistoryEvent{
+				{IndexerName: "RT"},
+				{IndexerName: "RT"},
+				{IndexerName: "KZ"},
+			},
+			want: "RT",
+		},
+		{
+			name: "blank indexer skipped",
+			history: []ports.HistoryEvent{
+				{IndexerName: ""},
+				{IndexerName: "KZ"},
+			},
+			want: "KZ",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := dominantIndexer(tt.history)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestTagFilter_Skip(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mode    string
+		include []int
+		exclude []int
+		tags    []int
+		skip    bool
+	}{
+		{name: "no filter passes", tags: []int{1, 2}, skip: false},
+		{name: "exclude hit skips", exclude: []int{1}, tags: []int{1, 2}, skip: true},
+		{name: "exclude miss passes", exclude: []int{99}, tags: []int{1, 2}, skip: false},
+		{name: "include any hit passes", mode: "any", include: []int{1, 5}, tags: []int{1}, skip: false},
+		{name: "include any miss skips", mode: "any", include: []int{5, 6}, tags: []int{1}, skip: true},
+		{name: "include all subset skips", mode: "all", include: []int{1, 2, 3}, tags: []int{1, 2}, skip: true},
+		{name: "include all match passes", mode: "all", include: []int{1, 2}, tags: []int{1, 2, 3}, skip: false},
+		{name: "exclude beats include", mode: "any", include: []int{1}, exclude: []int{2}, tags: []int{1, 2}, skip: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := tagFilter{mode: tt.mode}
+			if len(tt.include) > 0 {
+				f.include = make(map[int]struct{}, len(tt.include))
+				for _, id := range tt.include {
+					f.include[id] = struct{}{}
+				}
+			}
+			if len(tt.exclude) > 0 {
+				f.exclude = make(map[int]struct{}, len(tt.exclude))
+				for _, id := range tt.exclude {
+					f.exclude[id] = struct{}{}
+				}
+			}
+			_, skipped := f.skip(tt.tags)
+			assert.Equal(t, tt.skip, skipped)
+		})
+	}
+}
+
 func TestScan_ConcurrentSameInstanceReturnsConflict(t *testing.T) {
 	uc, _, _ := makeUseCase(t)
 

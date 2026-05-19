@@ -7,19 +7,27 @@ import (
 )
 
 type RankInput struct {
-	Releases    []release.Release
-	Missing     []int
-	OriginGUID  string
-	OriginBonus float64
+	Releases          []release.Release
+	Missing           []int
+	OriginGUID        string
+	OriginIndexerName string
+	OriginBonus       float64
 }
 
 func Rank(in RankInput) []release.Scored {
 	scored := make([]release.Scored, 0, len(in.Releases))
 	for _, r := range in.Releases {
+		isOrigin := false
+		if in.OriginGUID != "" && r.GUID == in.OriginGUID {
+			isOrigin = true
+		}
+		if !isOrigin && in.OriginIndexerName != "" && r.IndexerName == in.OriginIndexerName {
+			isOrigin = true
+		}
 		s := release.Scored{
 			Release:          r,
 			Coverage:         r.Coverage(in.Missing),
-			IsOriginRelease:  in.OriginGUID != "" && r.GUID == in.OriginGUID,
+			IsOriginRelease:  isOrigin,
 			OriginBonusValue: in.OriginBonus,
 		}
 		scored = append(scored, s)

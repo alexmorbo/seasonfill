@@ -14,6 +14,7 @@ type FilterInput struct {
 	Releases             []release.Release
 	Missing              []int
 	Have                 []series.Episode
+	Episodes             []series.Episode
 	Profile              ports.QualityProfile
 	MinCustomFormatScore int
 	RequireAllAired      bool
@@ -133,8 +134,34 @@ func Filter(in FilterInput) FilterResult {
 			continue
 		}
 
+		if in.RequireAllAired && hasUnairedMappedEpisode(r, in.Episodes, in.NowUTC) {
+			fc.Reason = string(decision.ReasonFilterAirDateNotReady)
+			res.FilteredOut = append(res.FilteredOut, fc)
+			continue
+		}
+
 		res.Kept = append(res.Kept, r)
 	}
 
 	return res
+}
+
+func hasUnairedMappedEpisode(r release.Release, episodes []series.Episode, now time.Time) bool {
+	if len(r.MappedEpisodeNumbers) == 0 || len(episodes) == 0 {
+		return false
+	}
+	air := make(map[int]time.Time, len(episodes))
+	for _, ep := range episodes {
+		air[ep.Number] = ep.AirDateUTC
+	}
+	for _, n := range r.MappedEpisodeNumbers {
+		date, ok := air[n]
+		if !ok || date.IsZero() {
+			continue
+		}
+		if date.After(now) {
+			return true
+		}
+	}
+	return false
 }

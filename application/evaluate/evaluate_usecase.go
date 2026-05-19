@@ -2,7 +2,6 @@ package evaluate
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
@@ -24,6 +22,7 @@ type Input struct {
 	Season               series.Season
 	Profile              ports.QualityProfile
 	OriginGUID           string
+	OriginIndexerName    string
 	OriginBonus          float64
 	MinCustomFormatScore int
 	RequireAllAired      bool
@@ -105,6 +104,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 		Releases:             releases,
 		Missing:              missing,
 		Have:                 have,
+		Episodes:             in.Season.Episodes,
 		Profile:              in.Profile,
 		MinCustomFormatScore: in.MinCustomFormatScore,
 		RequireAllAired:      in.RequireAllAired,
@@ -122,10 +122,11 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 	}
 
 	scored := Rank(RankInput{
-		Releases:    filterRes.Kept,
-		Missing:     missing,
-		OriginGUID:  in.OriginGUID,
-		OriginBonus: in.OriginBonus,
+		Releases:          filterRes.Kept,
+		Missing:           missing,
+		OriginGUID:        in.OriginGUID,
+		OriginIndexerName: in.OriginIndexerName,
+		OriginBonus:       in.OriginBonus,
 	})
 	best := scored[0]
 	d.Selected = &best
@@ -214,8 +215,6 @@ func (u *UseCase) emitLog(ctx context.Context, d decision.Decision, in Input) {
 		level = slog.LevelError
 	}
 	u.logger.Log(ctx, level, "season_evaluated", attrs...)
-	_ = release.Scored{}
-	_ = errors.New
 }
 
 func maxAlt(total int) int {

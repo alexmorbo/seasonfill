@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
@@ -25,10 +26,15 @@ type Client struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 	logger  *slog.Logger
 }
 
 func New(name, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
+	return NewWithLimiter(name, baseURL, apiKey, timeout, ratelimit.New(0, 0), logger)
+}
+
+func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger) *Client {
 	return &Client{
 		name:    name,
 		baseURL: baseURL,
@@ -36,7 +42,8 @@ func New(name, baseURL, apiKey string, timeout time.Duration, logger *slog.Logge
 		http: &http.Client{
 			Timeout: timeout,
 		},
-		logger: logger,
+		limiter: limiter,
+		logger:  logger,
 	}
 }
 
@@ -54,6 +61,12 @@ func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
 	req.Header.Set("Accept", "application/json")
+
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
+		}
+	}
 
 	start := time.Now()
 	resp, err := c.http.Do(req)
@@ -256,8 +269,13 @@ func (c *Client) GrabHistory(ctx context.Context, seriesID int) ([]ports.History
 		if v, ok := r.Data["guid"].(string); ok {
 			ev.GUID = v
 		}
-		if v, ok := r.Data["indexer"].(string); ok {
-			ev.IndexerName = v
+		switch {
+		case r.Indexer != "":
+			ev.IndexerName = r.Indexer
+		default:
+			if v, ok := r.Data["indexer"].(string); ok {
+				ev.IndexerName = v
+			}
 		}
 		out = append(out, ev)
 	}

@@ -96,6 +96,7 @@ type historyResponse struct {
 
 type historyRecord struct {
 	EventType string                 `json:"eventType"`
+	Indexer   string                 `json:"indexer,omitempty"`
 	Episode   *episodeDTO            `json:"episode,omitempty"`
 	Data      map[string]interface{} `json:"data"`
 }

@@ -64,14 +64,20 @@ type ScanConfig struct {
 }
 
 type SonarrInstance struct {
-	Name    string        `koanf:"name"`
-	URL     string        `koanf:"url"`
-	APIKey  string        `koanf:"api_key"`
-	Timeout time.Duration `koanf:"timeout"`
-	Tags    TagsConfig    `koanf:"tags"`
-	Search  SearchConfig  `koanf:"search"`
-	Ranking RankingConfig `koanf:"ranking"`
-	Limits  LimitsConfig  `koanf:"limits"`
+	Name      string          `koanf:"name"`
+	URL       string          `koanf:"url"`
+	APIKey    string          `koanf:"api_key"`
+	Timeout   time.Duration   `koanf:"timeout"`
+	Tags      TagsConfig      `koanf:"tags"`
+	Search    SearchConfig    `koanf:"search"`
+	Ranking   RankingConfig   `koanf:"ranking"`
+	Limits    LimitsConfig    `koanf:"limits"`
+	RateLimit RateLimitConfig `koanf:"rate_limit"`
+}
+
+type RateLimitConfig struct {
+	RPS   float64 `koanf:"rps"`
+	Burst int     `koanf:"burst"`
 }
 
 type TagsConfig struct {

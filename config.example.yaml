@@ -52,3 +52,6 @@ sonarr_instances:
       origin_bonus: 1.0
     limits:
       scan_max_series: 100
+    rate_limit:
+      rps: 5
+      burst: 10

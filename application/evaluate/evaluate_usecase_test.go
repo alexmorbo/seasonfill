@@ -275,6 +275,79 @@ func TestFilter_QualityDowngradeBlocked(t *testing.T) {
 	assert.Equal(t, string(decision.ReasonFilterQualityDowngrade), res.FilteredOut[0].Reason)
 }
 
+func TestFilter_RequireAllAired_FiltersUnaired(t *testing.T) {
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	episodes := []series.Episode{
+		{Number: 1, AirDateUTC: time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
+		{Number: 2, AirDateUTC: time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
+		{Number: 3, AirDateUTC: time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
+		{Number: 4, AirDateUTC: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC), Monitored: true},
+		{Number: 5, AirDateUTC: time.Date(2026, 5, 13, 0, 0, 0, 0, time.UTC), Monitored: true},
+		{Number: 6, AirDateUTC: time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC), Monitored: true},
+		{Number: 7, AirDateUTC: time.Date(2026, 5, 27, 0, 0, 0, 0, time.UTC), Monitored: true},
+		{Number: 8, AirDateUTC: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Monitored: true},
+	}
+	in := FilterInput{
+		Profile:  makeProfile(),
+		Have:     episodes[:3],
+		Missing:  []int{4, 5, 6, 7, 8},
+		Episodes: episodes,
+		Releases: []release.Release{
+			{
+				GUID:                 "full-pack-with-unaired",
+				QualityID:            19,
+				QualityName:          "WEBDL-2160p",
+				CustomFormatScore:    500,
+				MappedEpisodeNumbers: []int{1, 2, 3, 4, 5, 6, 7, 8},
+				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
+			},
+			{
+				GUID:                 "partial-only-aired",
+				QualityID:            19,
+				QualityName:          "WEBDL-2160p",
+				CustomFormatScore:    500,
+				MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
+			},
+		},
+		RequireAllAired: true,
+		NowUTC:          now,
+	}
+	res := Filter(in)
+	require.Len(t, res.Kept, 1)
+	assert.Equal(t, "partial-only-aired", res.Kept[0].GUID)
+	require.Len(t, res.FilteredOut, 1)
+	assert.Equal(t, string(decision.ReasonFilterAirDateNotReady), res.FilteredOut[0].Reason)
+	assert.Equal(t, "full-pack-with-unaired", res.FilteredOut[0].GUID)
+}
+
+func TestFilter_RequireAllAired_OffByDefault(t *testing.T) {
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	episodes := []series.Episode{
+		{Number: 1, AirDateUTC: time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
+		{Number: 6, AirDateUTC: time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC), Monitored: true},
+	}
+	in := FilterInput{
+		Profile:  makeProfile(),
+		Have:     episodes[:1],
+		Missing:  []int{6},
+		Episodes: episodes,
+		Releases: []release.Release{
+			{
+				GUID:                 "covers-unaired",
+				QualityID:            19,
+				CustomFormatScore:    500,
+				MappedEpisodeNumbers: []int{1, 6},
+				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
+			},
+		},
+		RequireAllAired: false,
+		NowUTC:          now,
+	}
+	res := Filter(in)
+	require.Len(t, res.Kept, 1)
+}
+
 func TestRank_OriginAsTieBreaker(t *testing.T) {
 	rels := []release.Release{
 		{GUID: "a", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
@@ -283,4 +356,16 @@ func TestRank_OriginAsTieBreaker(t *testing.T) {
 	scored := Rank(RankInput{Releases: rels, Missing: []int{1, 2, 3}, OriginGUID: "b", OriginBonus: 1.0})
 	require.Len(t, scored, 2)
 	assert.Equal(t, "b", scored[0].Release.GUID)
+}
+
+func TestRank_OriginIndexerNameStickiness(t *testing.T) {
+	rels := []release.Release{
+		{GUID: "kz-99", IndexerName: "Kinozal", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
+		{GUID: "rt-99", IndexerName: "RuTracker", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
+	}
+	scored := Rank(RankInput{Releases: rels, Missing: []int{1, 2, 3}, OriginIndexerName: "RuTracker", OriginBonus: 1.0})
+	require.Len(t, scored, 2)
+	assert.Equal(t, "rt-99", scored[0].Release.GUID, "release from origin indexer should rank first on ties")
+	assert.True(t, scored[0].IsOriginRelease)
+	assert.False(t, scored[1].IsOriginRelease)
 }

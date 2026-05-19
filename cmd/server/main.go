@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
@@ -68,7 +69,15 @@ func run() error {
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		c := sonarr.New(sc.Name, sc.URL, sc.APIKey, sc.Timeout, log)
+		rps, burst := sc.RateLimit.RPS, sc.RateLimit.Burst
+		if rps == 0 {
+			rps = 5
+		}
+		if burst == 0 {
+			burst = 10
+		}
+		limiter := ratelimit.New(rps, burst)
+		c := sonarr.NewWithLimiter(sc.Name, sc.URL, sc.APIKey, sc.Timeout, limiter, log)
 		sonarrClients = append(sonarrClients, c)
 		scanInstances = append(scanInstances, scan.Instance{Config: sc, Client: c})
 	}

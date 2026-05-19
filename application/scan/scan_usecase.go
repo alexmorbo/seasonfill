@@ -17,7 +17,10 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
-var ErrScanAlreadyRunning = errors.New("scan already running for instance")
+var (
+	ErrScanAlreadyRunning = errors.New("scan already running for instance")
+	ErrUnknownInstance    = errors.New("unknown instance")
+)
 
 type Trigger string
 
@@ -112,7 +115,7 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 			return u.runOne(parent, inst, trigger)
 		}
 	}
-	return RunResult{}, fmt.Errorf("unknown instance: %s", name)
+	return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
 }
 
 func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger) (RunResult, error) {
@@ -158,11 +161,18 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, fmt.Errorf("list series: %w", err)
 	}
 
-	profileCache := make(map[int]ports.QualityProfile)
-
 	processed := 0
 	candidates := 0
 	errorsCount := 0
+
+	tagFilter, err := buildTagFilter(ctx, inst)
+	if err != nil {
+		u.logger.WarnContext(ctx, "resolve tags failed", slog.String("error", err.Error()))
+		errorsCount++
+	}
+
+	profileCache := make(map[int]ports.QualityProfile)
+
 	maxSeries := inst.Config.Limits.ScanMaxSeries
 	if maxSeries <= 0 {
 		maxSeries = len(seriesList)
@@ -174,6 +184,15 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		}
 		if err := ctx.Err(); err != nil {
 			break
+		}
+
+		if reason, ok := tagFilter.skip(s.TagIDs); ok {
+			u.logger.DebugContext(ctx, "series skipped by tag filter",
+				slog.Int("series_id", s.ID),
+				slog.String("title", s.Title),
+				slog.String("reason", reason),
+			)
+			continue
 		}
 
 		seasons := s.MonitoredSeasons()
@@ -200,6 +219,26 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 			profile = p
 		}
 
+		fileQuality, ferr := inst.Client.ListEpisodeFiles(ctx, s.ID)
+		if ferr != nil {
+			u.logger.WarnContext(ctx, "list episode files failed",
+				slog.Int("series_id", s.ID),
+				slog.String("error", ferr.Error()),
+			)
+			errorsCount++
+			continue
+		}
+
+		originIndexer := ""
+		if history, herr := inst.Client.GrabHistory(ctx, s.ID); herr == nil {
+			originIndexer = dominantIndexer(history)
+		} else {
+			u.logger.WarnContext(ctx, "fetch grab history failed",
+				slog.Int("series_id", s.ID),
+				slog.String("error", herr.Error()),
+			)
+		}
+
 		for _, season := range seasons {
 			episodes, eerr := inst.Client.ListEpisodes(ctx, s.ID, season.Number)
 			if eerr != nil {
@@ -207,15 +246,6 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 					slog.Int("series_id", s.ID),
 					slog.Int("season", season.Number),
 					slog.String("error", eerr.Error()),
-				)
-				errorsCount++
-				continue
-			}
-			fileQuality, ferr := inst.Client.ListEpisodeFiles(ctx, s.ID)
-			if ferr != nil {
-				u.logger.WarnContext(ctx, "list episode files failed",
-					slog.Int("series_id", s.ID),
-					slog.String("error", ferr.Error()),
 				)
 				errorsCount++
 				continue
@@ -234,6 +264,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 				Series:               s,
 				Season:               season,
 				Profile:              profile,
+				OriginIndexerName:    originIndexer,
 				OriginBonus:          inst.Config.Ranking.OriginBonus,
 				MinCustomFormatScore: inst.Config.Search.MinCustomFormatScore,
 				RequireAllAired:      inst.Config.Search.RequireAllAired,
@@ -297,4 +328,99 @@ func (u *UseCase) release(instance string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	delete(u.inflight, instance)
+}
+
+type tagFilter struct {
+	mode    string
+	include map[int]struct{}
+	exclude map[int]struct{}
+}
+
+func (t tagFilter) skip(seriesTags []int) (string, bool) {
+	if len(t.exclude) > 0 {
+		for _, id := range seriesTags {
+			if _, ok := t.exclude[id]; ok {
+				return "tag_excluded", true
+			}
+		}
+	}
+	if len(t.include) == 0 {
+		return "", false
+	}
+	seriesSet := make(map[int]struct{}, len(seriesTags))
+	for _, id := range seriesTags {
+		seriesSet[id] = struct{}{}
+	}
+	switch t.mode {
+	case "all":
+		for id := range t.include {
+			if _, ok := seriesSet[id]; !ok {
+				return "tag_include_missing", true
+			}
+		}
+		return "", false
+	default: // "any" or unset
+		for id := range t.include {
+			if _, ok := seriesSet[id]; ok {
+				return "", false
+			}
+		}
+		return "tag_no_include_match", true
+	}
+}
+
+func dominantIndexer(history []ports.HistoryEvent) string {
+	if len(history) == 0 {
+		return ""
+	}
+	counts := make(map[string]int, 4)
+	for _, h := range history {
+		if h.IndexerName == "" {
+			continue
+		}
+		counts[h.IndexerName]++
+	}
+	best := ""
+	bestCount := 0
+	for name, count := range counts {
+		if count > bestCount {
+			best = name
+			bestCount = count
+		}
+	}
+	return best
+}
+
+func buildTagFilter(ctx context.Context, inst Instance) (tagFilter, error) {
+	include := inst.Config.Tags.Include
+	exclude := inst.Config.Tags.Exclude
+	if len(include) == 0 && len(exclude) == 0 {
+		return tagFilter{mode: inst.Config.Tags.Mode}, nil
+	}
+	tags, err := inst.Client.ListTags(ctx)
+	if err != nil {
+		return tagFilter{mode: inst.Config.Tags.Mode}, fmt.Errorf("list tags: %w", err)
+	}
+	byLabel := make(map[string]int, len(tags))
+	for _, t := range tags {
+		byLabel[t.Label] = t.ID
+	}
+	f := tagFilter{mode: inst.Config.Tags.Mode}
+	if len(include) > 0 {
+		f.include = make(map[int]struct{}, len(include))
+		for _, label := range include {
+			if id, ok := byLabel[label]; ok {
+				f.include[id] = struct{}{}
+			}
+		}
+	}
+	if len(exclude) > 0 {
+		f.exclude = make(map[int]struct{}, len(exclude))
+		for _, label := range exclude {
+			if id, ok := byLabel[label]; ok {
+				f.exclude[id] = struct{}{}
+			}
+		}
+	}
+	return f, nil
 }

@@ -133,7 +133,12 @@ func TestScanHandler_Trigger_UnknownInstance(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var body404 map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body404))
+	assert.Equal(t, "unknown instance", body404["error"])
+	assert.Equal(t, "does-not-exist", body404["instance"])
 }
 
 func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
