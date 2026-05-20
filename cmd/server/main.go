@@ -104,7 +104,8 @@ func run() error {
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
-		WithOrigins(originRepo)
+		WithOrigins(originRepo).
+		WithHealthRegistry(checker.Registry())
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, checker, log)
 

@@ -14,8 +14,10 @@ import (
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
+	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -45,6 +47,14 @@ type Instance struct {
 	Client ports.SonarrClient
 }
 
+// HealthRegistry is the (small) subset of instance.Registry the scan loop
+// needs. Keeping it as an interface lets tests inject a fake without pulling
+// the real registry's listener machinery.
+type HealthRegistry interface {
+	Get(name string) (instance.Snapshot, bool)
+	MarkUnavailable(name string, state instance.Health, lastErr string, at time.Time) (instance.Health, bool)
+}
+
 type UseCase struct {
 	instances []Instance
 	evaluator *evaluate.UseCase
@@ -52,6 +62,7 @@ type UseCase struct {
 	grabUC    *grab.UseCase
 	cooldowns ports.CooldownRepository
 	origins   ports.OriginReleaseRepository
+	health    HealthRegistry
 	logger    *slog.Logger
 	dryRun    bool
 
@@ -78,18 +89,11 @@ func NewUseCase(
 	}
 }
 
-// WithGrabUseCase wires the (optional) real-grab path. Without it, scans
-// behave as in Phase 1 (no POST).
-func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase { u.grabUC = g; return u }
-
-// WithCooldowns wires the (optional) cooldown repository.
-func (u *UseCase) WithCooldowns(c ports.CooldownRepository) *UseCase { u.cooldowns = c; return u }
-
-// WithOrigins wires the (optional) origin_releases repository.
+func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase             { u.grabUC = g; return u }
+func (u *UseCase) WithCooldowns(c ports.CooldownRepository) *UseCase    { u.cooldowns = c; return u }
 func (u *UseCase) WithOrigins(o ports.OriginReleaseRepository) *UseCase { u.origins = o; return u }
-
-// WithBarrier injects a test-only synchronization hook.
-func (u *UseCase) WithBarrier(b Barrier) *UseCase { u.barrier = b; return u }
+func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase         { u.health = r; return u }
+func (u *UseCase) WithBarrier(b Barrier) *UseCase                       { u.barrier = b; return u }
 
 type RunResult struct {
 	ScanRunID    uuid.UUID
@@ -162,6 +166,19 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 	scanID := uuid.New()
 	ctx := logger.WithTraceID(parent, scanID.String())
 
+	// Pre-scan health gate (D-2.3). Skip when the registry says Unavailable*.
+	if u.health != nil {
+		if snap, ok := u.health.Get(inst.Config.Name); ok && !snap.Health.IsAvailable() {
+			u.logger.InfoContext(ctx, "instance_unavailable, skipping scan",
+				slog.String("instance", inst.Config.Name),
+				slog.String("state", string(snap.Health)),
+			)
+			return RunResult{InstanceName: inst.Config.Name, Status: "skipped"},
+				fmt.Errorf("%w: %s state=%s",
+					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
+		}
+	}
+
 	if err := u.acquire(inst.Config.Name, scanID); err != nil {
 		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
 	}
@@ -197,11 +214,17 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 
 	seriesList, err := inst.Client.ListSeries(ctx)
 	if err != nil {
+		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+			return u.finalizeScanAborted(ctx, rec, inst, started, err)
+		}
 		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
 	}
 
 	tagFilter, tagErr := buildTagFilter(ctx, inst)
 	if tagErr != nil {
+		if errors.Is(tagErr, domain.ErrInstanceUnauthorized) {
+			return u.finalizeScanAborted(ctx, rec, inst, started, tagErr)
+		}
 		// D-2.5 / M-new-2: fail-CLOSED when include is non-empty.
 		if len(inst.Config.Tags.Include) > 0 {
 			u.logger.ErrorContext(ctx, "tag filter failed, aborting scan (fail-closed)",
@@ -263,6 +286,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		} else {
 			p, perr := inst.Client.GetQualityProfile(ctx, s.QualityProfile)
 			if perr != nil {
+				if errors.Is(perr, domain.ErrInstanceUnauthorized) {
+					return u.finalizeScanAborted(ctx, rec, inst, started, perr)
+				}
 				u.logger.WarnContext(ctx, "fetch quality profile failed",
 					slog.Int("series_id", s.ID),
 					slog.Int("profile_id", s.QualityProfile),
@@ -277,6 +303,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 
 		fileQuality, ferr := inst.Client.ListEpisodeFiles(ctx, s.ID)
 		if ferr != nil {
+			if errors.Is(ferr, domain.ErrInstanceUnauthorized) {
+				return u.finalizeScanAborted(ctx, rec, inst, started, ferr)
+			}
 			u.logger.WarnContext(ctx, "list episode files failed",
 				slog.Int("series_id", s.ID),
 				slog.String("error", ferr.Error()),
@@ -318,6 +347,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 
 			episodes, eerr := inst.Client.ListEpisodes(ctx, s.ID, season.Number)
 			if eerr != nil {
+				if errors.Is(eerr, domain.ErrInstanceUnauthorized) {
+					return u.finalizeScanAborted(ctx, rec, inst, started, eerr)
+				}
 				u.logger.WarnContext(ctx, "list episodes failed",
 					slog.Int("series_id", s.ID),
 					slog.Int("season", season.Number),
@@ -346,6 +378,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 					if history, herr := inst.Client.GrabHistory(ctx, s.ID); herr == nil {
 						liveOriginIndexer = dominantIndexer(history)
 					} else {
+						if errors.Is(herr, domain.ErrInstanceUnauthorized) {
+							return u.finalizeScanAborted(ctx, rec, inst, started, herr)
+						}
 						u.logger.WarnContext(ctx, "fetch grab history failed",
 							slog.Int("series_id", s.ID),
 							slog.String("error", herr.Error()),
@@ -375,6 +410,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 				Cooldowns:            u.cooldowns,
 			})
 			if evErr != nil {
+				if errors.Is(evErr, domain.ErrInstanceUnauthorized) {
+					return u.finalizeScanAborted(ctx, rec, inst, started, evErr)
+				}
 				errorsCount++
 			}
 			if d.CandidatesCount > 0 {
@@ -414,8 +452,21 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 					grabsFailed++
 					consecutiveGrabFails++
 					errorsCount++
+					if errors.Is(out.Err, domain.ErrInstanceUnauthorized) {
+						rec.GrabsPerformed = grabsDone
+						rec.GrabsFailed = grabsFailed
+						rec.ErrorsCount = errorsCount
+						rec.SeriesScanned = processed
+						rec.CandidatesFound = candidates
+						return u.finalizeScanAborted(ctx, rec, inst, started, out.Err)
+					}
 					if consecutiveGrabFails >= 3 {
-						// D-2.4: abort scan after 3 consecutive grab_failed.
+						// D-2.4: transition the instance to UnavailableUnknown,
+						// then finalize this scan as `failed`.
+						if u.health != nil {
+							u.health.MarkUnavailable(inst.Config.Name, instance.HealthUnavailableUnknown,
+								"3 consecutive grab_failed", time.Now().UTC())
+						}
 						rec.GrabsPerformed = grabsDone
 						rec.GrabsFailed = grabsFailed
 						rec.ErrorsCount = errorsCount
@@ -464,6 +515,40 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		GrabsFailed:  grabsFailed,
 		Errors:       errorsCount,
 	}, nil
+}
+
+// finalizeScanAborted marks the scan as `aborted` (mid-scan auth abort per
+// D-2.3) and transitions the instance to UnavailableAuth.
+func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
+	rec.Status = "aborted"
+	if cause != nil {
+		rec.ErrorMessage = cause.Error()
+	}
+	finish := time.Now().UTC()
+	rec.FinishedAt = &finish
+	_ = u.scans.Update(ctx, rec)
+	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
+	observability.ScanCompleted(inst.Config.Name, "aborted")
+	if u.health != nil {
+		u.health.MarkUnavailable(inst.Config.Name, instance.HealthUnavailableAuth, cause.Error(), finish)
+	}
+	u.logger.ErrorContext(ctx, "scan_aborted_unauthorized",
+		slog.String("instance", inst.Config.Name),
+		slog.String("action_required", "verify SEASONFILL_API_KEY or sonarr_instances.api_key"),
+		slog.String("error", cause.Error()),
+	)
+	return RunResult{
+		ScanRunID:    rec.ID,
+		InstanceName: inst.Config.Name,
+		Status:       "aborted",
+		Started:      started,
+		Finished:     finish,
+		Series:       rec.SeriesScanned,
+		Candidates:   rec.CandidatesFound,
+		Grabs:        rec.GrabsPerformed,
+		GrabsFailed:  rec.GrabsFailed,
+		Errors:       rec.ErrorsCount,
+	}, cause
 }
 
 func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
