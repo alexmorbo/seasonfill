@@ -149,10 +149,11 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 }
 
 // instanceDryRun decides the effective dry-run flag for one instance.
-// Instance override wins per D-2.6.
+// Instance override wins per D-2.6. Reads the per-instance *bool directly —
+// nil means "no override, use global".
 func (u *UseCase) instanceDryRun(inst Instance) bool {
-	if inst.Config.DryRun != nil && inst.Config.DryRun.Set {
-		return inst.Config.DryRun.Value
+	if inst.Config.DryRun != nil {
+		return *inst.Config.DryRun
 	}
 	return u.dryRun
 }
@@ -576,6 +577,19 @@ func dominantIndexer(history []ports.HistoryEvent) string {
 	return best
 }
 
+// buildTagFilter resolves the configured `tags.include` / `tags.exclude`
+// label lists to Sonarr tag IDs.
+//
+// M-6 fail-CLOSED rule: if `Include` is non-empty AND none of the configured
+// labels resolved to a Sonarr tag ID (typos, Sonarr-side renames, empty tag
+// list), return an error rather than a permissive empty include filter. The
+// scan-loop call-site already aborts the scan with `Status=failed` when
+// `Include` is non-empty AND `buildTagFilter` errors. Without this rule the
+// include filter silently degraded to "no include filter" -> scanned every
+// series, identical blast-radius risk to D-1.4 / D-2.5.
+//
+// Exclude-only and unconfigured filters stay fail-open: a flaky tag endpoint
+// or missing exclude label cannot expand scope in those modes.
 func buildTagFilter(ctx context.Context, inst Instance) (tagFilter, error) {
 	include := inst.Config.Tags.Include
 	exclude := inst.Config.Tags.Exclude
@@ -597,6 +611,10 @@ func buildTagFilter(ctx context.Context, inst Instance) (tagFilter, error) {
 			if id, ok := byLabel[label]; ok {
 				f.include[id] = struct{}{}
 			}
+		}
+		if len(f.include) == 0 {
+			return tagFilter{mode: inst.Config.Tags.Mode},
+				fmt.Errorf("tag include filter is non-empty but no labels matched any sonarr tag: %v", include)
 		}
 	}
 	if len(exclude) > 0 {

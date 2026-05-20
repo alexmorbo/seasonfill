@@ -64,35 +64,19 @@ type ScanConfig struct {
 	CooldownSweep time.Duration `koanf:"cooldown_sweep"`
 }
 
-// DryRunPtr is a nullable bool so YAML can distinguish "unset" from "false".
-// Per D-2.6 the instance-level override wins if present; otherwise we fall
+// SonarrInstance — per-instance Sonarr configuration.
+//
+// DryRun is a nullable bool so YAML can distinguish "unset" from "false".
+// koanf handles `*bool` natively for bare YAML bools (`dry_run: true`,
+// `dry_run: false`) and leaves the pointer nil when the key is absent.
+// Per D-2.6 the instance-level override wins if non-nil; otherwise we fall
 // back to the global `Config.DryRun`.
-type DryRunPtr struct {
-	Set   bool
-	Value bool
-}
-
-func (d *DryRunPtr) UnmarshalText(text []byte) error {
-	s := string(text)
-	switch s {
-	case "true", "True", "TRUE", "1":
-		d.Set = true
-		d.Value = true
-	case "false", "False", "FALSE", "0":
-		d.Set = true
-		d.Value = false
-	default:
-		return fmt.Errorf("invalid dry_run %q: expected true|false", s)
-	}
-	return nil
-}
-
 type SonarrInstance struct {
 	Name      string          `koanf:"name"`
 	URL       string          `koanf:"url"`
 	APIKey    string          `koanf:"api_key"`
 	Timeout   time.Duration   `koanf:"timeout"`
-	DryRun    *DryRunPtr      `koanf:"dry_run"`
+	DryRun    *bool           `koanf:"dry_run"`
 	Tags      TagsConfig      `koanf:"tags"`
 	Search    SearchConfig    `koanf:"search"`
 	Ranking   RankingConfig   `koanf:"ranking"`
@@ -145,12 +129,18 @@ type RetryConfig struct {
 // DryRunFor returns the effective dry-run flag for one instance.
 // Instance override (if set) wins over the global flag, per D-2.6.
 func (c *Config) DryRunFor(inst SonarrInstance) bool {
-	if inst.DryRun != nil && inst.DryRun.Set {
-		return inst.DryRun.Value
+	if inst.DryRun != nil {
+		return *inst.DryRun
 	}
 	return c.DryRun
 }
 
+// Defaults — sane defaults baked into the binary.
+//
+// DryRun defaults to TRUE so a first-run user pulling the image does NOT
+// issue real grabs without explicit opt-in. Operators set `dry_run: false`
+// (globally or per-instance) only after verifying scan decisions in logs
+// or in the `decisions` DB table.
 func Defaults() *Config {
 	return &Config{
 		Log: LogConfig{Level: "info", Format: "json"},
@@ -177,7 +167,7 @@ func Defaults() *Config {
 				ConnMaxLifetime: 5 * time.Minute,
 			},
 		},
-		DryRun: false,
+		DryRun: true,
 		Scan: ScanConfig{
 			ShutdownGrace: 60 * time.Second,
 			CooldownSweep: 15 * time.Minute,

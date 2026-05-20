@@ -22,6 +22,10 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
+// boolPtr is a tiny helper to take the address of a literal bool value
+// when populating *bool config fields in tests.
+func boolPtr(b bool) *bool { return &b }
+
 type fakeSonarr struct {
 	name     string
 	series   []series.Series
@@ -269,7 +273,7 @@ func TestBuildTagFilter(t *testing.T) {
 		assert.True(t, hasSkip)
 	})
 
-	t.Run("unknown labels ignored", func(t *testing.T) {
+	t.Run("all include labels unresolved errors fail-closed", func(t *testing.T) {
 		inst := Instance{
 			Config: config.SonarrInstance{
 				Name: "x",
@@ -277,9 +281,49 @@ func TestBuildTagFilter(t *testing.T) {
 			},
 			Client: &fakeSonarr{name: "x", tags: []ports.Tag{{ID: 1, Label: "keep"}}},
 		}
+		_, err := buildTagFilter(ctx, inst)
+		require.Error(t, err, "M-6: all include labels unresolved must fail-closed")
+		assert.Contains(t, err.Error(), "no labels matched")
+	})
+
+	t.Run("partial include match still resolves (one label hits)", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{Include: []string{"keep", "missing"}},
+			},
+			Client: &fakeSonarr{name: "x", tags: []ports.Tag{{ID: 1, Label: "keep"}}},
+		}
 		f, err := buildTagFilter(ctx, inst)
 		require.NoError(t, err)
-		assert.Empty(t, f.include)
+		_, hasKeep := f.include[1]
+		assert.True(t, hasKeep)
+		assert.Len(t, f.include, 1, "only the matched label is included")
+	})
+
+	t.Run("exclude only with unresolved label is fail-open", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{Exclude: []string{"ghost"}},
+			},
+			Client: &fakeSonarr{name: "x", tags: []ports.Tag{{ID: 1, Label: "keep"}}},
+		}
+		f, err := buildTagFilter(ctx, inst)
+		require.NoError(t, err)
+		assert.Empty(t, f.exclude, "unresolved exclude is harmless — can't expand scope")
+	})
+
+	t.Run("empty sonarr tag list with non-empty include errors fail-closed", func(t *testing.T) {
+		inst := Instance{
+			Config: config.SonarrInstance{
+				Name: "x",
+				Tags: config.TagsConfig{Include: []string{"any"}},
+			},
+			Client: &fakeSonarr{name: "x", tags: nil},
+		}
+		_, err := buildTagFilter(ctx, inst)
+		require.Error(t, err)
 	})
 
 	t.Run("propagates list tags error", func(t *testing.T) {
@@ -540,10 +584,49 @@ func TestInstanceDryRun_OverrideWins(t *testing.T) {
 	t.Parallel()
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	uc := NewUseCase(nil, nil, &fakeScanRepo{}, lg, true) // global dry-run=true
-	override := &config.DryRunPtr{Set: true, Value: false}
-	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: override}}
+
+	// Instance override = false: real grab for this instance only.
+	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(false)}}
 	assert.False(t, uc.instanceDryRun(inst))
 
+	// No override: inherits global dry-run=true.
 	inst2 := Instance{Config: config.SonarrInstance{Name: "x"}}
 	assert.True(t, uc.instanceDryRun(inst2))
+
+	// Explicit override = true is also honored (matches global, still bound).
+	inst3 := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(true)}}
+	assert.True(t, uc.instanceDryRun(inst3))
+}
+
+// TestScan_TagFilter_AllIncludeLabelsUnresolved covers M-6 (fail-CLOSED) at
+// the scan-loop level: when none of the configured `tags.include` labels
+// resolve to any Sonarr tag ID, the scan must abort with `Status=failed`
+// rather than silently expanding scope to every series.
+func TestScan_TagFilter_AllIncludeLabelsUnresolved(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{
+		name: "main",
+		// Sonarr returns tags, but none of them match `include`.
+		tags: []ports.Tag{{ID: 1, Label: "other-label"}},
+		series: []series.Series{
+			{ID: 1, Title: "X", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
+				Seasons: []series.Season{{Number: 1, Monitored: true}}},
+		},
+	}
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			Tags:   config.TagsConfig{Include: []string{"typo-label"}},
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.Error(t, err)
+	assert.Equal(t, "failed", res.Status)
+	assert.Contains(t, err.Error(), "no labels matched")
 }

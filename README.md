@@ -41,6 +41,27 @@ Decide by *episode coverage*, not by Custom Format score:
 The algorithm avoids the recursive deadlock the CF-score workaround eventually
 hits (see design discussion).
 
+## Safe by default
+
+Seasonfill ships with `dry_run: true`. On first run it scans your Sonarr
+instances and logs the season packs it *would* grab, but it does NOT issue
+any `POST /api/v3/release` calls. Inspect the decisions in the logs (or in
+the `decisions` DB table), confirm they look right, then opt in to real
+grabs by setting `dry_run: false` — globally or per-instance:
+
+```yaml
+dry_run: false                # global opt-in
+sonarr_instances:
+  - name: sonarr-main
+    # this instance now grabs for real
+  - name: sonarr-4k
+    dry_run: true             # keep this one in dry-run
+```
+
+Instance overrides win over the global flag, so rollouts can proceed one
+Sonarr at a time. See `documentation/00-design-thoughts.md` §7.1 for the
+full design rationale.
+
 ## Scope
 
 - ✅ Regular TV series.

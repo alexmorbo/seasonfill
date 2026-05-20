@@ -28,7 +28,11 @@ database:
     max_idle_conns: 5
     conn_max_lifetime: 5m
 
-# Global default. Each instance can override via sonarr_instances[N].dry_run.
+# WARN: dry_run defaults to TRUE in code so a freshly-pulled image does NOT
+# issue real grabs without explicit opt-in. Setting `dry_run: false` enables
+# real POST /api/v3/release calls to Sonarr — verify decisions in your logs
+# (or the `decisions` DB table) look correct before flipping this. Each
+# instance can override via `sonarr_instances[N].dry_run`; instance wins.
 dry_run: false
 
 scan:
