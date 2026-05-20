@@ -27,4 +27,8 @@ var (
 	// ErrInstanceNetwork wraps DNS / connect / timeout / persistent network
 	// errors. 004b/004c promote instances seeing this to UnavailableNetwork.
 	ErrInstanceNetwork = errors.New("sonarr instance network error")
+
+	// ErrInstanceUnavailable is returned by the scan loop (004c) when a scan
+	// is requested for an instance in an Unavailable* state.
+	ErrInstanceUnavailable = errors.New("sonarr instance unavailable")
 )

@@ -78,3 +78,6 @@ sonarr_instances:
       max_attempts: 3
       initial_backoff: 1s
       max_backoff: 30s
+    health_check:
+      recheck_interval_auth: 5m
+      recheck_interval_network: 1m

@@ -80,18 +80,28 @@ type ScanConfig struct {
 // Per D-2.6 the instance-level override wins if non-nil; otherwise we fall
 // back to the global `Config.DryRun`.
 type SonarrInstance struct {
-	Name      string          `koanf:"name"`
-	URL       string          `koanf:"url"`
-	APIKey    string          `koanf:"api_key"`
-	Timeout   time.Duration   `koanf:"timeout"`
-	DryRun    *bool           `koanf:"dry_run"`
-	Tags      TagsConfig      `koanf:"tags"`
-	Search    SearchConfig    `koanf:"search"`
-	Ranking   RankingConfig   `koanf:"ranking"`
-	Limits    LimitsConfig    `koanf:"limits"`
-	RateLimit RateLimitConfig `koanf:"rate_limit"`
-	Cooldown  CooldownConfig  `koanf:"cooldown"`
-	Retry     RetryConfig     `koanf:"retry"`
+	Name        string            `koanf:"name"`
+	URL         string            `koanf:"url"`
+	APIKey      string            `koanf:"api_key"`
+	Timeout     time.Duration     `koanf:"timeout"`
+	DryRun      *bool             `koanf:"dry_run"`
+	Tags        TagsConfig        `koanf:"tags"`
+	Search      SearchConfig      `koanf:"search"`
+	Ranking     RankingConfig     `koanf:"ranking"`
+	Limits      LimitsConfig      `koanf:"limits"`
+	RateLimit   RateLimitConfig   `koanf:"rate_limit"`
+	Cooldown    CooldownConfig    `koanf:"cooldown"`
+	Retry       RetryConfig       `koanf:"retry"`
+	HealthCheck HealthCheckConfig `koanf:"health_check"`
+}
+
+// HealthCheckConfig — per-instance watchdog recheck intervals (D-2.3).
+// RecheckIntervalAuth applies to UnavailableAuth (needs human action, default
+// 5m). RecheckIntervalNetwork applies to UnavailableNetwork and
+// UnavailableUnknown (transient, may recover quickly, default 1m).
+type HealthCheckConfig struct {
+	RecheckIntervalAuth    time.Duration `koanf:"recheck_interval_auth"`
+	RecheckIntervalNetwork time.Duration `koanf:"recheck_interval_network"`
 }
 
 type RateLimitConfig struct {
@@ -211,6 +221,12 @@ func (c *Config) ApplyInstanceDefaults() {
 		}
 		if inst.Limits.MaxGrabsPerScan == 0 {
 			inst.Limits.MaxGrabsPerScan = 10
+		}
+		if inst.HealthCheck.RecheckIntervalAuth == 0 {
+			inst.HealthCheck.RecheckIntervalAuth = 5 * time.Minute
+		}
+		if inst.HealthCheck.RecheckIntervalNetwork == 0 {
+			inst.HealthCheck.RecheckIntervalNetwork = time.Minute
 		}
 	}
 }

@@ -7,25 +7,55 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStatus_Constants(t *testing.T) {
+func TestHealth_Constants(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, Status("unknown"), StatusUnknown)
-	assert.Equal(t, Status("available"), StatusAvailable)
-	assert.Equal(t, Status("unavailable"), StatusUnavailable)
+	assert.Equal(t, Health("Available"), HealthAvailable)
+	assert.Equal(t, Health("UnavailableAuth"), HealthUnavailableAuth)
+	assert.Equal(t, Health("UnavailableNetwork"), HealthUnavailableNetwork)
+	assert.Equal(t, Health("UnavailableUnknown"), HealthUnavailableUnknown)
 }
 
-func TestHealth_StructFields(t *testing.T) {
+func TestHealth_IsAvailable(t *testing.T) {
 	t.Parallel()
+	assert.True(t, HealthAvailable.IsAvailable())
+	assert.False(t, HealthUnavailableAuth.IsAvailable())
+	assert.False(t, HealthUnavailableNetwork.IsAvailable())
+	assert.False(t, HealthUnavailableUnknown.IsAvailable())
+}
 
+func TestHealth_IsUnavailable(t *testing.T) {
+	t.Parallel()
+	assert.False(t, HealthAvailable.IsUnavailable())
+	assert.True(t, HealthUnavailableAuth.IsUnavailable())
+	assert.True(t, HealthUnavailableNetwork.IsUnavailable())
+	assert.True(t, HealthUnavailableUnknown.IsUnavailable())
+}
+
+func TestSnapshot_Fields(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
-	h := Health{
-		Name:      "main",
-		Status:    StatusAvailable,
-		LastError: "",
-		CheckedAt: now,
+	s := Snapshot{
+		Name:             "main",
+		Health:           HealthAvailable,
+		LastCheckAt:      now,
+		LastError:        "",
+		TransitionsCount: 1,
 	}
-	assert.Equal(t, "main", h.Name)
-	assert.Equal(t, StatusAvailable, h.Status)
-	assert.Empty(t, h.LastError)
-	assert.Equal(t, now, h.CheckedAt)
+	assert.Equal(t, "main", s.Name)
+	assert.Equal(t, HealthAvailable, s.Health)
+	assert.Equal(t, now, s.LastCheckAt)
+	assert.Empty(t, s.LastError)
+	assert.Equal(t, 1, s.TransitionsCount)
+}
+
+func TestLegacyAliases(t *testing.T) {
+	t.Parallel()
+	// Old code that uses StatusAvailable / StatusUnknown / StatusUnavailable
+	// must still compile against the new types.
+	var s = StatusAvailable
+	assert.Equal(t, HealthAvailable, s)
+	s = StatusUnknown
+	assert.Equal(t, HealthUnavailableUnknown, s)
+	s = StatusUnavailable
+	assert.Equal(t, HealthUnavailableUnknown, s)
 }

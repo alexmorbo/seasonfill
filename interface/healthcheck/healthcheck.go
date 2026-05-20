@@ -2,12 +2,13 @@ package healthcheck
 
 import (
 	"context"
-	"sync"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
@@ -15,41 +16,64 @@ import (
 type Checker struct {
 	db        *gorm.DB
 	instances []ports.SonarrClient
-
-	mu     sync.RWMutex
-	health map[string]instance.Health
+	registry  *instance.Registry
 }
 
 func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
-	c := &Checker{
-		db:        db,
-		instances: instances,
-		health:    make(map[string]instance.Health, len(instances)),
-	}
+	names := make([]string, 0, len(instances))
 	for _, inst := range instances {
-		c.health[inst.Name()] = instance.Health{Name: inst.Name(), Status: instance.StatusUnknown}
+		names = append(names, inst.Name())
 	}
-	return c
+	reg := instance.NewRegistry(names).WithListener(metricsListener{})
+	return &Checker{db: db, instances: instances, registry: reg}
 }
 
+// Registry returns the underlying health registry. The watchdog and the
+// `/api/v1/instances` handler (004d) share it.
+func (c *Checker) Registry() *instance.Registry { return c.registry }
+
+// Preflight loops every known instance and updates the registry.
 func (c *Checker) Preflight(ctx context.Context) {
 	for _, inst := range c.instances {
-		name := inst.Name()
-		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := inst.SystemStatus(callCtx)
-		cancel()
-		c.mu.Lock()
-		if err != nil {
-			c.health[name] = instance.Health{Name: name, Status: instance.StatusUnavailable, LastError: err.Error(), CheckedAt: time.Now().UTC()}
-			observability.SetInstanceAvailable(name, false)
-		} else {
-			c.health[name] = instance.Health{Name: name, Status: instance.StatusAvailable, CheckedAt: time.Now().UTC()}
-			observability.SetInstanceAvailable(name, true)
-		}
-		c.mu.Unlock()
+		c.checkOne(ctx, inst)
 	}
 }
 
+func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
+	name := client.Name()
+	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, err := client.SystemStatus(callCtx)
+	cancel()
+	now := time.Now().UTC()
+	if err == nil {
+		c.registry.MarkAvailable(name, now)
+		observability.SetInstanceAvailable(name, true)
+		return
+	}
+	state := instance.HealthUnavailableUnknown
+	switch {
+	case errors.Is(err, domain.ErrInstanceUnauthorized):
+		state = instance.HealthUnavailableAuth
+	case errors.Is(err, domain.ErrInstanceNetwork):
+		state = instance.HealthUnavailableNetwork
+	}
+	c.registry.MarkUnavailable(name, state, err.Error(), now)
+	observability.SetInstanceAvailable(name, false)
+}
+
+// RecheckByName runs preflight against a single instance — used by the
+// watchdog when it wants to test recovery for one instance only.
+func (c *Checker) RecheckByName(ctx context.Context, name string) {
+	for _, inst := range c.instances {
+		if inst.Name() == name {
+			c.checkOne(ctx, inst)
+			return
+		}
+	}
+}
+
+// Run starts the periodic preflight loop. It executes one preflight pass
+// immediately so the registry is populated before the ticker fires.
 func (c *Checker) Run(ctx context.Context, period time.Duration) {
 	c.Preflight(ctx)
 	ticker := time.NewTicker(period)
@@ -64,16 +88,7 @@ func (c *Checker) Run(ctx context.Context, period time.Duration) {
 	}
 }
 
-func (c *Checker) AnyInstanceAvailable() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for _, h := range c.health {
-		if h.Status == instance.StatusAvailable {
-			return true
-		}
-	}
-	return false
-}
+func (c *Checker) AnyInstanceAvailable() bool { return c.registry.AnyAvailable() }
 
 func (c *Checker) DatabaseUp(ctx context.Context) bool {
 	sqlDB, err := c.db.DB()
@@ -85,12 +100,17 @@ func (c *Checker) DatabaseUp(ctx context.Context) bool {
 	return sqlDB.PingContext(pctx) == nil
 }
 
-func (c *Checker) Snapshot() []instance.Health {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	out := make([]instance.Health, 0, len(c.health))
-	for _, h := range c.health {
-		out = append(out, h)
-	}
-	return out
+// Snapshot returns the current health entry for every known instance.
+func (c *Checker) Snapshot() []instance.Snapshot { return c.registry.Snapshot() }
+
+// metricsListener is a minimal shim that mirrors the legacy
+// `SetInstanceAvailable` 0/1 gauge so existing dashboards keep working. 004d
+// replaces this with the typed `seasonfill_instance_health` gauge.
+type metricsListener struct{}
+
+func (metricsListener) OnCheck(name string, h instance.Health, _ time.Time) {
+	observability.SetInstanceAvailable(name, h == instance.HealthAvailable)
+}
+
+func (metricsListener) OnTransition(_ string, _, _ instance.Health, _ time.Time, _ string) {
 }

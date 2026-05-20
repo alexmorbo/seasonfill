@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -77,14 +78,15 @@ func run() error {
 
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
+	cfgByName := make(map[string]config.HealthCheckConfig, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		// N-new-1: New(0, 0) returns nil (unlimited). The global limiter is the
-		// defense-in-depth tier when per-instance is unset.
+		// N-new-1: New(0, 0) returns nil (unlimited).
 		instLimiter := ratelimit.New(sc.RateLimit.RPS, sc.RateLimit.Burst)
 		c := sonarr.NewWithOptions(sc.Name, sc.URL, sc.APIKey, sc.Timeout, instLimiter, log,
 			sonarr.WithGlobalLimiter(globalLimiter))
 		sonarrClients = append(sonarrClients, c)
 		scanInstances = append(scanInstances, scan.Instance{Config: sc, Client: c})
+		cfgByName[sc.Name] = sc.HealthCheck
 	}
 
 	checker := healthcheck.New(db, sonarrClients)
@@ -92,6 +94,10 @@ func run() error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 	go checker.Run(rootCtx, 30*time.Second)
+
+	// Watchdog rechecks Unavailable* instances at per-state cadences (D-2.3).
+	wd := watchdog.New(checker.Registry(), checker, log, cfgByName)
+	go wd.Run(rootCtx)
 
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log)
