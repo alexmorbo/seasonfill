@@ -189,16 +189,7 @@ func run() error {
 	rootCancel()
 
 	// M-9: drain background goroutines before closing the DB handle.
-	bgDone := make(chan struct{})
-	go func() {
-		bgWG.Wait()
-		close(bgDone)
-	}()
-	select {
-	case <-bgDone:
-	case <-time.After(10 * time.Second):
-		log.Warn("background goroutines did not exit within 10s")
-	}
+	drainBackground(&bgWG, 10*time.Second, log)
 
 	if sqlDB, err := db.DB(); err == nil {
 		_ = sqlDB.Close()
@@ -223,29 +214,6 @@ func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every 
 			if n > 0 {
 				log.DebugContext(ctx, "cooldown sweep removed expired rows", slog.Int64("rows", n))
 			}
-		}
-	}
-}
-
-func waitForScans(ctx context.Context, uc *scan.UseCase, repo *repositories.ScanRepository, log *slog.Logger, grace time.Duration) {
-	deadline := time.Now().Add(grace)
-	for time.Now().Before(deadline) {
-		if !uc.IsAnyRunning() {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !uc.IsAnyRunning() {
-		return
-	}
-	log.Warn("scans still in flight after grace, marking aborted")
-	for inst, id := range uc.InflightScans() {
-		if err := repo.MarkAborted(ctx, id, "shutdown grace exceeded"); err != nil {
-			log.Error("mark aborted failed",
-				slog.String("instance", inst),
-				slog.String("scan_id", id.String()),
-				slog.String("error", err.Error()),
-			)
 		}
 	}
 }
