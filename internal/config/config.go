@@ -7,13 +7,21 @@ import (
 )
 
 type Config struct {
-	Log             LogConfig        `koanf:"log"`
-	HTTP            HTTPConfig       `koanf:"http"`
-	Cron            CronConfig       `koanf:"cron"`
-	Database        DatabaseConfig   `koanf:"database"`
-	DryRun          bool             `koanf:"dry_run"`
-	Scan            ScanConfig       `koanf:"scan"`
-	SonarrInstances []SonarrInstance `koanf:"sonarr_instances"`
+	Log             LogConfig             `koanf:"log"`
+	HTTP            HTTPConfig            `koanf:"http"`
+	Cron            CronConfig            `koanf:"cron"`
+	Database        DatabaseConfig        `koanf:"database"`
+	DryRun          bool                  `koanf:"dry_run"`
+	Scan            ScanConfig            `koanf:"scan"`
+	GlobalRateLimit GlobalRateLimitConfig `koanf:"global_rate_limit"`
+	SonarrInstances []SonarrInstance      `koanf:"sonarr_instances"`
+}
+
+// GlobalRateLimitConfig — second-tier cross-instance limiter (PRD §8.1).
+// Defaults set in `Defaults()`. Zero values disable the limiter.
+type GlobalRateLimitConfig struct {
+	RPM   int `koanf:"rpm"`
+	Burst int `koanf:"burst"`
 }
 
 type LogConfig struct {
@@ -171,6 +179,10 @@ func Defaults() *Config {
 		Scan: ScanConfig{
 			ShutdownGrace: 60 * time.Second,
 			CooldownSweep: 15 * time.Minute,
+		},
+		GlobalRateLimit: GlobalRateLimitConfig{
+			RPM:   30,
+			Burst: 10,
 		},
 	}
 }

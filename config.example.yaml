@@ -39,6 +39,12 @@ scan:
   shutdown_grace: 60s
   cooldown_sweep: 15m
 
+# Cross-instance protection — applies AFTER each per-instance rate_limit.
+# Set both to 0 to disable (nil limiter — unlimited).
+global_rate_limit:
+  rpm: 30
+  burst: 10
+
 sonarr_instances:
   - name: sonarr-main
     url: ${SONARR_MAIN_URL}

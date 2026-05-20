@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
@@ -20,20 +22,35 @@ import (
 )
 
 type Client struct {
-	name    string
-	baseURL string
-	apiKey  string
-	http    *http.Client
-	limiter *ratelimit.Limiter
-	logger  *slog.Logger
+	name          string
+	baseURL       string
+	apiKey        string
+	http          *http.Client
+	limiter       *ratelimit.Limiter
+	globalLimiter *ratelimit.Limiter
+	logger        *slog.Logger
+}
+
+// Option configures a Client at construction.
+type Option func(*Client)
+
+// WithGlobalLimiter sets the shared global limiter for cross-instance
+// protection. Pass nil for unlimited.
+func WithGlobalLimiter(l *ratelimit.Limiter) Option {
+	return func(c *Client) { c.globalLimiter = l }
 }
 
 func New(name, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
-	return NewWithLimiter(name, baseURL, apiKey, timeout, ratelimit.New(0, 0), logger)
+	return NewWithOptions(name, baseURL, apiKey, timeout, nil, logger)
 }
 
 func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger) *Client {
-	return &Client{
+	return NewWithOptions(name, baseURL, apiKey, timeout, limiter, logger)
+}
+
+// NewWithOptions constructs a Client and applies functional options.
+func NewWithOptions(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger, opts ...Option) *Client {
+	c := &Client{
 		name:    name,
 		baseURL: baseURL,
 		apiKey:  apiKey,
@@ -43,6 +60,10 @@ func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter
 		limiter: limiter,
 		logger:  logger,
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 func (c *Client) Name() string { return c.name }
@@ -54,10 +75,12 @@ func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	if c.limiter != nil {
-		if err := c.limiter.Wait(ctx); err != nil {
-			return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
-		}
+	// Per-instance limiter first, then global. Both nil-safe and honor ctx.
+	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
+		return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
+	}
+	if err := ratelimit.Wait(c.globalLimiter, ctx); err != nil {
+		return fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
 	}
 
 	start := time.Now()
@@ -67,7 +90,12 @@ func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out
 	if err != nil {
 		observability.SonarrAPIRequest(c.name, endpoint, "error")
 		observability.ObserveSonarrAPIDuration(c.name, endpoint, dur)
-		return fmt.Errorf("call %s: %w", endpoint, err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("call %s: %w", endpoint, ctxErr)
+		}
+		// Transport errors (DNS/connect/timeout) join the network sentinel so
+		// the scan/watchdog can classify without re-parsing url.Error.
+		return fmt.Errorf("call %s: %w", endpoint, errors.Join(err, domain.ErrInstanceNetwork))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -76,7 +104,11 @@ func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
+		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return fmt.Errorf("%w: %w", domain.ErrInstanceUnauthorized, se)
+		}
+		return se
 	}
 
 	if out == nil {

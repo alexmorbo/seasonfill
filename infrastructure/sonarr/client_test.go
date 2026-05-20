@@ -16,6 +16,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/domain"
+	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 )
 
 func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *Client) {
@@ -102,22 +105,41 @@ func TestClient_GrabHistory(t *testing.T) {
 	require.NotEmpty(t, hist)
 }
 
-func TestClient_UnauthorizedWhenMissingKey(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
+func TestClient_UnauthorizedMappedToDomainSentinel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	t.Cleanup(srv.Close)
 
-	c := New("t", srv.URL, "", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.SystemStatus(context.Background())
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrInstanceUnauthorized))
+	assert.True(t, IsAuth(err))
 	var se *StatusError
 	assert.True(t, errors.As(err, &se))
 	assert.Equal(t, http.StatusUnauthorized, se.Status)
+}
+
+func TestClient_ForbiddenMappedToDomainSentinel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.SystemStatus(context.Background())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrInstanceUnauthorized))
+	assert.True(t, IsAuth(err))
+}
+
+func TestClient_NetworkErrorMappedToDomainSentinel(t *testing.T) {
+	c := New("t", "http://127.0.0.1:1", "k", 200*time.Millisecond,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.SystemStatus(context.Background())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrInstanceNetwork))
 }
 
 func TestClient_ForceGrab_Success(t *testing.T) {
@@ -165,6 +187,19 @@ func TestClient_ForceGrab_4xx(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, Is4xx(err))
 	assert.False(t, IsTransient(err))
+	assert.False(t, IsAuth(err))
+}
+
+func TestClient_ForceGrab_429IsTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.ForceGrab(context.Background(), "abc", 3)
+	require.Error(t, err)
+	assert.True(t, IsTransient(err), "429 should be transient (H-3)")
 }
 
 func TestClient_ForceGrab_5xx(t *testing.T) {
@@ -190,4 +225,62 @@ func TestClient_ForceGrab_Timeout(t *testing.T) {
 	err := c.ForceGrab(context.Background(), "abc", 3)
 	require.Error(t, err)
 	assert.True(t, IsTransient(err))
+}
+
+func TestClient_GlobalLimiterConsulted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	global := ratelimit.New(1, 1)
+	c := NewWithOptions("test", srv.URL, "k", 5*time.Second, nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithGlobalLimiter(global))
+
+	_, err := c.SystemStatus(context.Background())
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, err = c.SystemStatus(context.Background())
+	require.NoError(t, err)
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, 500*time.Millisecond, "global limiter should delay the second call")
+}
+
+func TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		// block until the client's context is cancelled
+		<-r.Context().Done()
+		time.Sleep(10 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := c.SystemStatus(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded), "expected context.DeadlineExceeded, got: %v", err)
+	assert.False(t, errors.Is(err, domain.ErrInstanceNetwork), "ctx cancel must not be wrapped as network error")
+}
+
+func TestClient_NilLimitersAreNoOp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "k", 2*time.Second, nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithGlobalLimiter(nil))
+
+	for i := 0; i < 5; i++ {
+		_, err := c.SystemStatus(context.Background())
+		require.NoError(t, err)
+	}
 }

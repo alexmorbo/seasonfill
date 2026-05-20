@@ -54,6 +54,8 @@ func run() error {
 		slog.String("driver", cfg.Database.Driver),
 		slog.Int("instances", len(cfg.SonarrInstances)),
 		slog.Bool("dry_run", cfg.DryRun),
+		slog.Int("global_rate_limit_rpm", cfg.GlobalRateLimit.RPM),
+		slog.Int("global_rate_limit_burst", cfg.GlobalRateLimit.Burst),
 	)
 
 	db, err := database.Open(cfg.Database)
@@ -70,18 +72,17 @@ func run() error {
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 
+	// Single shared global limiter (PRD §8.1). Nil = unlimited (N-new-1).
+	globalLimiter := ratelimit.NewFromRPM(cfg.GlobalRateLimit.RPM, cfg.GlobalRateLimit.Burst)
+
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		rps, burst := sc.RateLimit.RPS, sc.RateLimit.Burst
-		if rps == 0 {
-			rps = 5
-		}
-		if burst == 0 {
-			burst = 10
-		}
-		limiter := ratelimit.New(rps, burst)
-		c := sonarr.NewWithLimiter(sc.Name, sc.URL, sc.APIKey, sc.Timeout, limiter, log)
+		// N-new-1: New(0, 0) returns nil (unlimited). The global limiter is the
+		// defense-in-depth tier when per-instance is unset.
+		instLimiter := ratelimit.New(sc.RateLimit.RPS, sc.RateLimit.Burst)
+		c := sonarr.NewWithOptions(sc.Name, sc.URL, sc.APIKey, sc.Timeout, instLimiter, log,
+			sonarr.WithGlobalLimiter(globalLimiter))
 		sonarrClients = append(sonarrClients, c)
 		scanInstances = append(scanInstances, scan.Instance{Config: sc, Client: c})
 	}

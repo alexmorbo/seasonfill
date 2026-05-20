@@ -23,6 +23,8 @@ func TestIsTransient_StatusError(t *testing.T) {
 		{502, true},
 		{503, true},
 		{599, true},
+		{408, true}, // H-3
+		{429, true}, // H-3
 		{400, false},
 		{401, false},
 		{403, false},
@@ -42,9 +44,23 @@ func TestIs4xx_StatusError(t *testing.T) {
 	assert.True(t, Is4xx(&StatusError{Status: 401}))
 	assert.True(t, Is4xx(&StatusError{Status: 403}))
 	assert.True(t, Is4xx(&StatusError{Status: 404}))
+	assert.True(t, Is4xx(&StatusError{Status: 408}))
+	assert.True(t, Is4xx(&StatusError{Status: 429}))
 	assert.False(t, Is4xx(&StatusError{Status: 500}))
 	assert.False(t, Is4xx(&StatusError{Status: 200}))
 	assert.False(t, Is4xx(nil))
+}
+
+func TestIsAuth_StatusError(t *testing.T) {
+	t.Parallel()
+	assert.True(t, IsAuth(&StatusError{Status: 401}))
+	assert.True(t, IsAuth(&StatusError{Status: 403}))
+	assert.False(t, IsAuth(&StatusError{Status: 400}))
+	assert.False(t, IsAuth(&StatusError{Status: 404}))
+	assert.False(t, IsAuth(&StatusError{Status: 408}))
+	assert.False(t, IsAuth(&StatusError{Status: 429}))
+	assert.False(t, IsAuth(&StatusError{Status: 500}))
+	assert.False(t, IsAuth(nil))
 }
 
 func TestIsTransient_NilAndUnknown(t *testing.T) {
@@ -73,7 +89,6 @@ func TestIsTransient_DNSError(t *testing.T) {
 
 func TestIsTransient_URLErrorTimeout(t *testing.T) {
 	t.Parallel()
-	// httptest server that hangs forever; client has tiny timeout.
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		time.Sleep(time.Second)
 	}))
@@ -91,9 +106,27 @@ func TestIsTransient_URLErrorTimeout(t *testing.T) {
 	assert.True(t, errors.As(err, &ue))
 }
 
+func TestIsTransient_UrlErrorContextCanceled(t *testing.T) {
+	t.Parallel()
+	uerr := &url.Error{Op: "Get", URL: "http://example.com", Err: context.Canceled}
+	assert.False(t, IsTransient(uerr), "url.Error wrapping context.Canceled must not be transient")
+}
+
+func TestIsTransient_UrlErrorTimeoutStillTransient(t *testing.T) {
+	t.Parallel()
+	// context.DeadlineExceeded satisfies Timeout() == true so it stays transient
+	uerr := &url.Error{Op: "Get", URL: "http://example.com", Err: context.DeadlineExceeded}
+	assert.True(t, IsTransient(uerr), "url.Error wrapping DeadlineExceeded (timeout) must remain transient")
+}
+
 func TestClassifier_AdapterMethods(t *testing.T) {
 	t.Parallel()
 	c := Classifier{}
 	assert.True(t, c.IsTransient(&StatusError{Status: 502}))
+	assert.True(t, c.IsTransient(&StatusError{Status: 408}))
+	assert.True(t, c.IsTransient(&StatusError{Status: 429}))
 	assert.True(t, c.Is4xx(&StatusError{Status: 404}))
+	assert.True(t, c.IsAuth(&StatusError{Status: 401}))
+	assert.True(t, c.IsAuth(&StatusError{Status: 403}))
+	assert.False(t, c.IsAuth(&StatusError{Status: 404}))
 }
