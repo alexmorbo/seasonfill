@@ -48,7 +48,7 @@ func TestDecisionRepository_Save_WithSelected(t *testing.T) {
 	d := decision.New(uuid.New(), "main", "Hijack", 122, 2)
 	d.Outcome = decision.OutcomeGrab
 	d.Reason = decision.ReasonGrabSelectedDryRun
-	d.WouldGrab = true
+	d.DryRunWouldGrab = true
 	d.CandidatesCount = 1
 	d.ReleasesFound = 4
 	d.Selected = &release.Scored{
@@ -75,6 +75,9 @@ func TestDecisionRepository_Save_WithSelected(t *testing.T) {
 	require.NoError(t, json.Unmarshal(model.SelectedData, &roundTrip))
 	assert.Equal(t, "g1", roundTrip.Release.GUID)
 	assert.Equal(t, 3, roundTrip.Coverage)
+	// Regression guard for deferred-item #7: the DB column stays
+	// `would_grab` even though the Go field was renamed.
+	assert.True(t, model.DryRunWouldGrab, "column would_grab must round-trip into the renamed Go field")
 }
 
 func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {

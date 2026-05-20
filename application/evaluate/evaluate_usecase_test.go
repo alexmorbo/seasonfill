@@ -87,7 +87,7 @@ func TestExecute_GrabDecision_DryRun(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, decision.OutcomeGrab, d.Outcome)
-	assert.True(t, d.WouldGrab)
+	assert.True(t, d.DryRunWouldGrab)
 	require.NotNil(t, d.Selected)
 }
 
@@ -112,7 +112,7 @@ func TestExecute_GrabDecision_RealGrabReturnsScored(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, decision.OutcomeGrab, d.Outcome)
-	assert.False(t, d.WouldGrab) // grab not yet performed; scan loop will fire it
+	assert.False(t, d.DryRunWouldGrab) // real-grab path; grab_records is the audit
 	require.NotNil(t, d.Selected)
 	assert.Equal(t, "g1", d.Selected.Release.GUID)
 }

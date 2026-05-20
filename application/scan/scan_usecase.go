@@ -222,6 +222,9 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 
 	tagFilter, tagErr := buildTagFilter(ctx, inst)
 	if tagErr != nil {
+		// Auth abort wins over D-2.5 fail-CLOSED — a 401/403 means the
+		// instance is unreachable, so no useful work is possible. The
+		// fail-CLOSED gate below is for transient ListTags failures only.
 		if errors.Is(tagErr, domain.ErrInstanceUnauthorized) {
 			return u.finalizeScanAborted(ctx, rec, inst, started, tagErr)
 		}
@@ -314,24 +317,39 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 			continue
 		}
 
+		// Deferred-item #8: batch the series-cooldown lookup. Collect every
+		// season key once, hit the repo once, then read from the local set
+		// inside the inner loop. Shrinks N queries-per-series to 1.
+		seriesCooldownActive := make(map[string]bool, len(seasons))
+		if u.cooldowns != nil {
+			keys := make([]string, 0, len(seasons))
+			for _, season := range seasons {
+				keys = append(keys, cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number))
+			}
+			active, cdErr := u.cooldowns.FilterActive(ctx, cooldown.ScopeSeries, keys, time.Now().UTC())
+			if cdErr != nil {
+				u.logger.WarnContext(ctx, "cooldown lookup failed",
+					slog.String("instance", inst.Config.Name),
+					slog.Int("series_id", s.ID),
+					slog.Int("season_count", len(seasons)),
+					slog.String("error", cdErr.Error()),
+				)
+			} else {
+				for _, a := range active {
+					seriesCooldownActive[a.Key] = true
+				}
+			}
+		}
+
 		// Live history is a fallback when the persistent origin_releases row is absent (M-new-1).
 		// We only consult Sonarr history if no origin row exists for any season we'll evaluate.
 		var liveOriginIndexer string
 		var liveOriginFetched bool
 
 		for _, season := range seasons {
-			// Series cooldown filter at scan-loop level.
 			if u.cooldowns != nil {
 				skey := cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number)
-				active, cdErr := u.cooldowns.FilterActive(ctx, cooldown.ScopeSeries, []string{skey}, time.Now().UTC())
-				if cdErr != nil {
-					u.logger.WarnContext(ctx, "cooldown lookup failed",
-						slog.String("instance", inst.Config.Name),
-						slog.Int("series_id", s.ID),
-						slog.Int("season", season.Number),
-						slog.String("error", cdErr.Error()),
-					)
-				} else if len(active) > 0 {
+				if seriesCooldownActive[skey] {
 					u.logger.InfoContext(ctx, "season_evaluated",
 						slog.String("instance", inst.Config.Name),
 						slog.Int("series_id", s.ID),
@@ -464,6 +482,13 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 						// D-2.4: transition the instance to UnavailableUnknown,
 						// then finalize this scan as `failed`.
 						if u.health != nil {
+							u.logger.WarnContext(ctx, "instance_marked_unavailable",
+								slog.String("instance", inst.Config.Name),
+								slog.Int("series_id", s.ID),
+								slog.Int("consecutive_fails", consecutiveGrabFails),
+								slog.String("transition_to", string(instance.HealthUnavailableUnknown)),
+								slog.String("reason", "3 consecutive grab_failed"),
+							)
 							u.health.MarkUnavailable(inst.Config.Name, instance.HealthUnavailableUnknown,
 								"3 consecutive grab_failed", time.Now().UTC())
 						}

@@ -47,15 +47,3 @@ func TestSnapshot_Fields(t *testing.T) {
 	assert.Empty(t, s.LastError)
 	assert.Equal(t, 1, s.TransitionsCount)
 }
-
-func TestLegacyAliases(t *testing.T) {
-	t.Parallel()
-	// Old code that uses StatusAvailable / StatusUnknown / StatusUnavailable
-	// must still compile against the new types.
-	var s = StatusAvailable
-	assert.Equal(t, HealthAvailable, s)
-	s = StatusUnknown
-	assert.Equal(t, HealthUnavailableUnknown, s)
-	s = StatusUnavailable
-	assert.Equal(t, HealthUnavailableUnknown, s)
-}

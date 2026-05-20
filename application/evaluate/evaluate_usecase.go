@@ -170,12 +170,13 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 	if in.DryRun {
 		d.Outcome = decision.OutcomeGrab
 		d.Reason = decision.ReasonGrabSelectedDryRun
-		d.WouldGrab = true
+		d.DryRunWouldGrab = true
 	} else {
-		// Caller (scan loop) executes the grab and flips WouldGrab to true on success.
+		// Real-grab path. DryRunWouldGrab stays false — the grab record in
+		// grab_records (status=grabbed or grab_failed) is the real audit.
 		d.Outcome = decision.OutcomeGrab
 		d.Reason = decision.ReasonGrabSelected
-		d.WouldGrab = false
+		d.DryRunWouldGrab = false
 	}
 	return u.finalize(ctx, d, in)
 }
@@ -213,7 +214,7 @@ func (u *UseCase) emitLog(ctx context.Context, d decision.Decision, in Input) {
 		slog.String("decision", string(d.Outcome)),
 		slog.String("reason", string(d.Reason)),
 		slog.Bool("dry_run", in.DryRun),
-		slog.Bool("would_grab", d.WouldGrab),
+		slog.Bool("dry_run_would_grab", d.DryRunWouldGrab),
 	}
 
 	if d.Selected != nil {

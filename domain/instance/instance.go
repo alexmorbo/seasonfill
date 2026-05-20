@@ -12,16 +12,6 @@ const (
 	HealthUnavailableUnknown Health = "UnavailableUnknown"
 )
 
-// Legacy aliases — kept so any straggler caller still compiles. New code uses
-// the typed Health* constants directly.
-type Status = Health
-
-const (
-	StatusUnknown     = HealthUnavailableUnknown
-	StatusAvailable   = HealthAvailable
-	StatusUnavailable = HealthUnavailableUnknown
-)
-
 // IsAvailable reports whether scans may proceed for this instance.
 func (h Health) IsAvailable() bool { return h == HealthAvailable }
 

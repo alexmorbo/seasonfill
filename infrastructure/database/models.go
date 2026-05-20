@@ -43,7 +43,7 @@ type DecisionModel struct {
 	FilteredOut     datatypes.JSON
 	SelectedGUID    string `gorm:"size:512"`
 	SelectedData    datatypes.JSON
-	WouldGrab       bool
+	DryRunWouldGrab bool `gorm:"column:would_grab"`
 	CreatedAt       time.Time
 }
 

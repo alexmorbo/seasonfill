@@ -48,7 +48,9 @@ func (w *Watchdog) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
+			seen := make(map[string]struct{}, len(last))
 			for _, snap := range w.reg.Snapshot() {
+				seen[snap.Name] = struct{}{}
 				if snap.Health == instance.HealthAvailable {
 					continue
 				}
@@ -66,6 +68,14 @@ func (w *Watchdog) Run(ctx context.Context) {
 					slog.String("state", string(snap.Health)),
 				)
 				w.checker.RecheckByName(ctx, snap.Name)
+			}
+			// Deferred-item #3: drop names no longer in the registry snapshot
+			// so a future config-reload removing an instance does not leak
+			// the entry forever.
+			for name := range last {
+				if _, ok := seen[name]; !ok {
+					delete(last, name)
+				}
 			}
 		}
 	}

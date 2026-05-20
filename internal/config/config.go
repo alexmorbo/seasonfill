@@ -222,10 +222,14 @@ func (c *Config) ApplyInstanceDefaults() {
 		if inst.Limits.MaxGrabsPerScan == 0 {
 			inst.Limits.MaxGrabsPerScan = 10
 		}
-		if inst.HealthCheck.RecheckIntervalAuth == 0 {
+		// Clamp non-positive recheck intervals to the documented defaults.
+		// Negative values would otherwise cause the watchdog's intervalFor()
+		// to return a negative duration, making the gate `now.Sub(last) < due`
+		// pass on every tick and recheck fire every loop. Deferred-item #2.
+		if inst.HealthCheck.RecheckIntervalAuth <= 0 {
 			inst.HealthCheck.RecheckIntervalAuth = 5 * time.Minute
 		}
-		if inst.HealthCheck.RecheckIntervalNetwork == 0 {
+		if inst.HealthCheck.RecheckIntervalNetwork <= 0 {
 			inst.HealthCheck.RecheckIntervalNetwork = time.Minute
 		}
 	}

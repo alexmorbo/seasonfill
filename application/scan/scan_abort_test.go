@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,18 +29,48 @@ import (
 
 // abortFakeSonarr returns enough monitored series + monitored seasons to
 // exceed the 3-consecutive-grab_failed threshold, and always errors on
-// ForceGrab so every grab attempt fails.
+// ForceGrab so every grab attempt fails. Each Sonarr method increments
+// a public atomic counter so tests can assert "nothing was called".
 type abortFakeSonarr struct {
-	name string
+	name              string
+	systemStatusCalls int64
+	listSeriesCalls   int64
+	getSeriesCalls    int64
+	listEpisodesCalls int64
+	listFilesCalls    int64
+	searchCalls       int64
+	qualityProfCalls  int64
+	listIndexersCalls int64
+	listTagsCalls     int64
+	grabHistoryCalls  int64
+	forceGrabCalls    int64
+}
+
+// totalCalls returns the sum of every Sonarr-method invocation counter.
+// Used by gated-scan tests to assert no method was invoked.
+func (f *abortFakeSonarr) totalCalls() int64 {
+	return atomic.LoadInt64(&f.systemStatusCalls) +
+		atomic.LoadInt64(&f.listSeriesCalls) +
+		atomic.LoadInt64(&f.getSeriesCalls) +
+		atomic.LoadInt64(&f.listEpisodesCalls) +
+		atomic.LoadInt64(&f.listFilesCalls) +
+		atomic.LoadInt64(&f.searchCalls) +
+		atomic.LoadInt64(&f.qualityProfCalls) +
+		atomic.LoadInt64(&f.listIndexersCalls) +
+		atomic.LoadInt64(&f.listTagsCalls) +
+		atomic.LoadInt64(&f.grabHistoryCalls) +
+		atomic.LoadInt64(&f.forceGrabCalls)
 }
 
 func (f *abortFakeSonarr) Name() string { return f.name }
 
 func (f *abortFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
+	atomic.AddInt64(&f.systemStatusCalls, 1)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 
 func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) {
+	atomic.AddInt64(&f.listSeriesCalls, 1)
 	out := make([]series.Series, 0, 5)
 	for i := 1; i <= 5; i++ {
 		out = append(out, series.Series{
@@ -54,10 +85,12 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 }
 
 func (f *abortFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+	atomic.AddInt64(&f.getSeriesCalls, 1)
 	return series.Series{}, nil
 }
 
 func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.Episode, error) {
+	atomic.AddInt64(&f.listEpisodesCalls, 1)
 	return []series.Episode{
 		{ID: 1, Number: 1, SeasonNumber: sn, Title: "e1", Monitored: true, HasFile: true, QualityID: 5, QualityName: "WEB-1080p",
 			AirDateUTC: time.Now().UTC().Add(-14 * 24 * time.Hour)},
@@ -69,10 +102,12 @@ func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.E
 }
 
 func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	atomic.AddInt64(&f.listFilesCalls, 1)
 	return map[int]int{}, nil
 }
 
 func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID, sn int) ([]release.Release, error) {
+	atomic.AddInt64(&f.searchCalls, 1)
 	return []release.Release{{
 		GUID:                 "g",
 		Title:                "T",
@@ -90,21 +125,30 @@ func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID, sn int) ([]rele
 }
 
 func (f *abortFakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
+	atomic.AddInt64(&f.qualityProfCalls, 1)
 	return ports.QualityProfile{
 		ID: 14, Name: "WEB-1080p",
 		Items: []ports.QualityItem{{ID: 5, Name: "WEB-1080p", Order: 1}},
 	}, nil
 }
 
-func (f *abortFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
-func (f *abortFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (f *abortFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) {
+	atomic.AddInt64(&f.listIndexersCalls, 1)
+	return nil, nil
+}
+func (f *abortFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
+	atomic.AddInt64(&f.listTagsCalls, 1)
+	return nil, nil
+}
 func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+	atomic.AddInt64(&f.grabHistoryCalls, 1)
 	return nil, nil
 }
 
 // ForceGrab fails on every call so the scan loop accumulates consecutive
 // grab failures and trips the 3-in-a-row threshold.
 func (f *abortFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) error {
+	atomic.AddInt64(&f.forceGrabCalls, 1)
 	return errors.New("forced failure")
 }
 
@@ -288,7 +332,9 @@ func TestScan_AbortsAfterThreeConsecutiveGrabFails(t *testing.T) {
 
 // TestScan_PreflightGate_SkipsUnavailable — pre-scan gate test. When the
 // registry already reports HealthUnavailableAuth, runOne returns "skipped"
-// without touching the Sonarr client.
+// without touching the Sonarr client. Deferred-item #4: explicitly assert
+// total Sonarr-method invocations == 0 instead of relying on the stateless
+// fake's implicit silence.
 func TestScan_PreflightGate_SkipsUnavailable(t *testing.T) {
 	t.Parallel()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -317,6 +363,8 @@ func TestScan_PreflightGate_SkipsUnavailable(t *testing.T) {
 	assert.True(t, errors.Is(err, domain.ErrInstanceUnavailable))
 	// The scan was skipped before scanRepo.Create was called.
 	assert.Empty(t, scanRepo.FinalStatus())
+	// Deferred-item #4: assert NO Sonarr method was invoked during the gated scan.
+	assert.EqualValues(t, 0, sonarr.totalCalls(), "preflight gate must not call any Sonarr method")
 }
 
 // TestScan_MidScanAuthAbort — when ListSeries returns ErrInstanceUnauthorized,

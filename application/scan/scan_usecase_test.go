@@ -630,3 +630,74 @@ func TestScan_TagFilter_AllIncludeLabelsUnresolved(t *testing.T) {
 	assert.Equal(t, "failed", res.Status)
 	assert.Contains(t, err.Error(), "no labels matched")
 }
+
+// TestScan_SeriesCooldown_BatchesFilterActive — deferred-item #8.
+// One series with 3 monitored seasons must produce a single
+// FilterActive call that includes all three season keys.
+func TestScan_SeriesCooldown_BatchesFilterActive(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{
+		name: "main",
+		series: []series.Series{
+			{ID: 200, Title: "Show", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
+				Seasons: []series.Season{
+					{Number: 1, Monitored: true},
+					{Number: 2, Monitored: true},
+					{Number: 3, Monitored: true},
+				}},
+		},
+	}
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+
+	cdRepo := &batchCountingCDRepo{}
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true).WithCooldowns(cdRepo)
+
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	cdRepo.mu.Lock()
+	defer cdRepo.mu.Unlock()
+	require.Equal(t, 1, cdRepo.calls, "FilterActive must be called exactly once per series for ScopeSeries")
+	require.Len(t, cdRepo.lastKeys, 3, "all three season keys must be in the same batch call")
+	expected := map[string]bool{
+		cooldown.SeriesKey("main", 200, 1): true,
+		cooldown.SeriesKey("main", 200, 2): true,
+		cooldown.SeriesKey("main", 200, 3): true,
+	}
+	for _, k := range cdRepo.lastKeys {
+		require.True(t, expected[k], "unexpected key in batch: %s", k)
+	}
+}
+
+// batchCountingCDRepo records call count + the keys passed in the
+// most-recent ScopeSeries FilterActive call.
+type batchCountingCDRepo struct {
+	mu       sync.Mutex
+	calls    int
+	lastKeys []string
+}
+
+func (r *batchCountingCDRepo) Set(_ context.Context, _ cooldown.Cooldown) error { return nil }
+func (r *batchCountingCDRepo) Get(_ context.Context, _ cooldown.Scope, _ string) (cooldown.Cooldown, bool, error) {
+	return cooldown.Cooldown{}, false, nil
+}
+
+func (r *batchCountingCDRepo) FilterActive(_ context.Context, scope cooldown.Scope, keys []string, _ time.Time) ([]cooldown.Cooldown, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if scope == cooldown.ScopeSeries {
+		r.calls++
+		r.lastKeys = append([]string{}, keys...)
+	}
+	return nil, nil
+}
+
+func (r *batchCountingCDRepo) Sweep(_ context.Context, _ time.Time) (int64, error) { return 0, nil }

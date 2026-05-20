@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,4 +84,47 @@ func TestValidate_UnknownDriver(t *testing.T) {
 	cfg.SonarrInstances = []SonarrInstance{{Name: "x", URL: "u", APIKey: "k"}}
 	err := cfg.Validate()
 	assert.ErrorIs(t, err, ErrUnknownDriver)
+}
+
+func TestApplyInstanceDefaults_HealthCheck_ClampsNegativeIntervals(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		SonarrInstances: []SonarrInstance{
+			{
+				Name: "neg-auth",
+				HealthCheck: HealthCheckConfig{
+					RecheckIntervalAuth:    -1 * time.Hour,
+					RecheckIntervalNetwork: 30 * time.Second,
+				},
+			},
+			{
+				Name: "neg-net",
+				HealthCheck: HealthCheckConfig{
+					RecheckIntervalAuth:    10 * time.Minute,
+					RecheckIntervalNetwork: -1 * time.Second,
+				},
+			},
+		},
+	}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 5*time.Minute, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalAuth,
+		"negative auth interval must clamp to 5m default")
+	assert.Equal(t, 30*time.Second, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalNetwork,
+		"positive network interval must survive defaulting")
+	assert.Equal(t, 10*time.Minute, cfg.SonarrInstances[1].HealthCheck.RecheckIntervalAuth,
+		"positive auth interval must survive defaulting")
+	assert.Equal(t, time.Minute, cfg.SonarrInstances[1].HealthCheck.RecheckIntervalNetwork,
+		"negative network interval must clamp to 1m default")
+}
+
+func TestApplyInstanceDefaults_HealthCheck_ZeroBecomesDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		SonarrInstances: []SonarrInstance{
+			{Name: "zero", HealthCheck: HealthCheckConfig{}},
+		},
+	}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 5*time.Minute, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalAuth)
+	assert.Equal(t, time.Minute, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalNetwork)
 }

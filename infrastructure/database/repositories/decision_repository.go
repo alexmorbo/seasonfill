@@ -49,7 +49,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		FilteredOut:     filteredOut,
 		SelectedGUID:    selectedGUID,
 		SelectedData:    selectedData,
-		WouldGrab:       d.WouldGrab,
+		DryRunWouldGrab: d.DryRunWouldGrab,
 		CreatedAt:       d.CreatedAt,
 	}
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
