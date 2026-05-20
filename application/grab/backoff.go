@@ -3,20 +3,28 @@ package grab
 import "time"
 
 // backoffFor returns the sleep duration before attempt N (1-indexed).
-// Sequence: 1s, 5s, 30s — capped by max. Attempts beyond the third still
-// receive `max` so callers can keep the schedule going if desired.
-func backoffFor(attempt int, max time.Duration) time.Duration {
+// Progression: init → init*5 → init*30, each step capped by max. When init
+// is zero, falls back to the original 1s/5s/30s schedule for back-compat.
+//
+// Tests covering the legacy three-step progression continue to pass when
+// they pass `init=0`. Production code (cmd/server/main.go) passes the
+// per-instance `Retry.InitialBackoff` (default 1s) so the visible behaviour
+// is unchanged unless an operator tunes the knob.
+func backoffFor(attempt int, init, max time.Duration) time.Duration {
 	if max <= 0 {
 		max = 30 * time.Second
+	}
+	if init <= 0 {
+		init = time.Second
 	}
 	var d time.Duration
 	switch attempt {
 	case 0, 1:
-		d = time.Second
+		d = init
 	case 2:
-		d = 5 * time.Second
+		d = init * 5
 	default:
-		d = 30 * time.Second
+		d = init * 30
 	}
 	if d > max {
 		d = max

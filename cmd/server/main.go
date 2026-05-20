@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -93,14 +94,29 @@ func run() error {
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
-	go checker.Run(rootCtx, 30*time.Second)
+
+	// M-9: track every background goroutine so we can wait for them to exit
+	// before closing the DB handle below.
+	var bgWG sync.WaitGroup
+
+	bgWG.Add(1)
+	go func() {
+		defer bgWG.Done()
+		checker.Run(rootCtx, 30*time.Second)
+	}()
 
 	// Watchdog rechecks Unavailable* instances at per-state cadences (D-2.3).
 	wd := watchdog.New(checker.Registry(), checker, log, cfgByName)
-	go wd.Run(rootCtx)
+	bgWG.Add(1)
+	go func() {
+		defer bgWG.Done()
+		wd.Run(rootCtx)
+	}()
 
+	txr := repositories.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
-	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log)
+	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
+		WithTransactor(txr)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
@@ -114,7 +130,11 @@ func run() error {
 	if sweepInterval <= 0 {
 		sweepInterval = 15 * time.Minute
 	}
-	go runCooldownSweep(rootCtx, cooldownRepo, sweepInterval, log)
+	bgWG.Add(1)
+	go func() {
+		defer bgWG.Done()
+		runCooldownSweep(rootCtx, cooldownRepo, sweepInterval, log)
+	}()
 
 	var sched *scheduler.Scheduler
 	if cfg.Cron.Enabled {
@@ -167,6 +187,18 @@ func run() error {
 	}
 	waitForScans(rootCtx, scanUC, scanRepo, log, grace)
 	rootCancel()
+
+	// M-9: drain background goroutines before closing the DB handle.
+	bgDone := make(chan struct{})
+	go func() {
+		bgWG.Wait()
+		close(bgDone)
+	}()
+	select {
+	case <-bgDone:
+	case <-time.After(10 * time.Second):
+		log.Warn("background goroutines did not exit within 10s")
+	}
 
 	if sqlDB, err := db.DB(); err == nil {
 		_ = sqlDB.Close()

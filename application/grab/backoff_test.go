@@ -7,27 +7,34 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBackoffFor(t *testing.T) {
+func TestBackoffFor_DefaultProgression(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name    string
-		attempt int
-		max     time.Duration
-		want    time.Duration
-	}{
-		{"attempt 1", 1, 30 * time.Second, time.Second},
-		{"attempt 2", 2, 30 * time.Second, 5 * time.Second},
-		{"attempt 3", 3, 30 * time.Second, 30 * time.Second},
-		{"attempt 4 stays at cap", 4, 30 * time.Second, 30 * time.Second},
-		{"cap below natural", 2, 2 * time.Second, 2 * time.Second},
-		{"zero max defaults", 1, 0, time.Second},
-		{"attempt zero behaves like 1", 0, 30 * time.Second, time.Second},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, backoffFor(tt.attempt, tt.max))
-		})
-	}
+	// init=0 falls back to 1s/5s/30s.
+	assert.Equal(t, time.Second, backoffFor(1, 0, 30*time.Second))
+	assert.Equal(t, 5*time.Second, backoffFor(2, 0, 30*time.Second))
+	assert.Equal(t, 30*time.Second, backoffFor(3, 0, 30*time.Second))
+	assert.Equal(t, 30*time.Second, backoffFor(10, 0, 30*time.Second))
+}
+
+func TestBackoffFor_HonorsInitialBackoff(t *testing.T) {
+	t.Parallel()
+	// init=2s -> 2s, 10s, 60s (capped by max).
+	assert.Equal(t, 2*time.Second, backoffFor(1, 2*time.Second, 60*time.Second))
+	assert.Equal(t, 10*time.Second, backoffFor(2, 2*time.Second, 60*time.Second))
+	assert.Equal(t, 60*time.Second, backoffFor(3, 2*time.Second, 60*time.Second))
+}
+
+func TestBackoffFor_CapsAtMax(t *testing.T) {
+	t.Parallel()
+	// init=10s, max=15s -> 10s, 15s (capped), 15s (capped).
+	assert.Equal(t, 10*time.Second, backoffFor(1, 10*time.Second, 15*time.Second))
+	assert.Equal(t, 15*time.Second, backoffFor(2, 10*time.Second, 15*time.Second))
+	assert.Equal(t, 15*time.Second, backoffFor(3, 10*time.Second, 15*time.Second))
+}
+
+func TestBackoffFor_ZeroMaxFallsBackTo30s(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, time.Second, backoffFor(1, time.Second, 0))
+	assert.Equal(t, 5*time.Second, backoffFor(2, time.Second, 0))
+	assert.Equal(t, 30*time.Second, backoffFor(3, time.Second, 0))
 }

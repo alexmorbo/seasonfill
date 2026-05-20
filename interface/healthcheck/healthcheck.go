@@ -103,14 +103,31 @@ func (c *Checker) DatabaseUp(ctx context.Context) bool {
 // Snapshot returns the current health entry for every known instance.
 func (c *Checker) Snapshot() []instance.Snapshot { return c.registry.Snapshot() }
 
-// metricsListener is a minimal shim that mirrors the legacy
-// `SetInstanceAvailable` 0/1 gauge so existing dashboards keep working. 004d
-// replaces this with the typed `seasonfill_instance_health` gauge.
+// metricsListener drives the typed health gauges + transitions counter.
+// The legacy `seasonfill_instances_available` gauge is kept up-to-date
+// alongside the new `seasonfill_instance_health` so existing dashboards
+// continue to work during the migration.
 type metricsListener struct{}
 
-func (metricsListener) OnCheck(name string, h instance.Health, _ time.Time) {
+func (metricsListener) OnCheck(name string, h instance.Health, at time.Time) {
 	observability.SetInstanceAvailable(name, h == instance.HealthAvailable)
+	observability.SetInstanceHealth(name, healthCode(h))
+	observability.SetInstanceLastCheck(name, at.Unix())
 }
 
-func (metricsListener) OnTransition(_ string, _, _ instance.Health, _ time.Time, _ string) {
+func (metricsListener) OnTransition(name string, from, to instance.Health, _ time.Time, _ string) {
+	observability.IncInstanceHealthTransition(name, string(from), string(to))
+}
+
+func healthCode(h instance.Health) int {
+	switch h {
+	case instance.HealthAvailable:
+		return 0
+	case instance.HealthUnavailableAuth:
+		return 1
+	case instance.HealthUnavailableNetwork:
+		return 2
+	default:
+		return 3
+	}
 }

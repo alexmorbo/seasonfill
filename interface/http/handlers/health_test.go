@@ -119,6 +119,8 @@ func TestHealthHandler_Ready_AllSonarrDown(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "unavailable", body["status"])
 	assert.Equal(t, false, body["sonarr"])
+	reasons, _ := body["reasons"].([]any)
+	assert.NotEmpty(t, reasons, "reasons array must enumerate the failure cause")
 }
 
 func TestHealthHandler_Ready_DBDown(t *testing.T) {

@@ -30,6 +30,7 @@ func NewServer(cfg config.HTTPConfig, scanUC *scan.UseCase, checker *healthcheck
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC)
+	instancesHandler := handlers.NewInstancesHandler(checker)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
@@ -40,6 +41,7 @@ func NewServer(cfg config.HTTPConfig, scanUC *scan.UseCase, checker *healthcheck
 		api.Use(middleware.APIKeyAuth(cfg.Auth.APIKey))
 	}
 	api.POST("/scan", scanHandler.Trigger)
+	api.GET("/instances", instancesHandler.List)
 
 	srv := &http.Server{
 		Addr:         cfg.Bind,

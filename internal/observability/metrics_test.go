@@ -117,6 +117,26 @@ func TestWritePrometheus_NotEmpty(t *testing.T) {
 	require.NotEmpty(t, buf.Bytes())
 }
 
+func TestSetInstanceHealth(t *testing.T) {
+	SetInstanceHealth("obs_test_health", 0)
+	SetInstanceHealth("obs_test_health", 1)
+	body := writeAndRead(t)
+	assert.Contains(t, body, `seasonfill_instance_health{instance="obs_test_health"}`)
+}
+
+func TestIncInstanceHealthTransition(t *testing.T) {
+	IncInstanceHealthTransition("obs_test_t", "Available", "UnavailableAuth")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_instance_health_transitions_total")
+	assert.Contains(t, body, `instance="obs_test_t"`)
+}
+
+func TestSetInstanceLastCheck(t *testing.T) {
+	SetInstanceLastCheck("obs_test_lc", 1716210000)
+	body := writeAndRead(t)
+	assert.Contains(t, body, `seasonfill_instance_last_check_timestamp{instance="obs_test_lc"}`)
+}
+
 func TestMetricConstants_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 	consts := []string{
@@ -132,6 +152,9 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		MetricInstancesAvailable,
 		MetricActiveScans,
 		MetricCooldownActive,
+		MetricInstanceHealth,
+		MetricInstanceHealthTransitions,
+		MetricInstanceLastCheckTimestamp,
 	}
 	for _, c := range consts {
 		assert.NotEmpty(t, c)

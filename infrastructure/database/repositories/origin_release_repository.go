@@ -22,7 +22,7 @@ func NewOriginReleaseRepository(db *gorm.DB) *OriginReleaseRepository {
 
 func (r *OriginReleaseRepository) Get(ctx context.Context, instance string, seriesID, season int) (ports.OriginRelease, bool, error) {
 	var model database.OriginReleaseModel
-	err := r.db.WithContext(ctx).
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		First(&model, "instance_name = ? AND series_id = ? AND season_number = ?", instance, seriesID, season).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -57,7 +57,7 @@ func (r *OriginReleaseRepository) Upsert(ctx context.Context, rec ports.OriginRe
 		LastSeenAt:   rec.LastSeenAt,
 		LastUsedAt:   rec.LastUsedAt,
 	}
-	res := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instance_name"}, {Name: "series_id"}, {Name: "season_number"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"guid", "indexer_id", "indexer_name", "source", "last_seen_at", "last_used_at",

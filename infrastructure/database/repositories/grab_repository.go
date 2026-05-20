@@ -21,7 +21,7 @@ func NewGrabRepository(db *gorm.DB) *GrabRepository {
 
 func (r *GrabRepository) Create(ctx context.Context, rec grab.Record) error {
 	model := toGrabModel(rec)
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("create grab_record: %w", err)
 	}
 	return nil

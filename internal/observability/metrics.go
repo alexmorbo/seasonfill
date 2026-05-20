@@ -7,18 +7,21 @@ import (
 )
 
 const (
-	MetricScansTotal             = `seasonfill_scans_total`
-	MetricSeriesEvaluatedTotal   = `seasonfill_series_evaluated_total`
-	MetricGrabsTotal             = `seasonfill_grabs_total`
-	MetricGrabAttemptsTotal      = `seasonfill_grab_attempts_total`
-	MetricSonarrAPIRequestsTotal = `seasonfill_sonarr_api_requests_total`
-	MetricScanDurationSeconds    = `seasonfill_scan_duration_seconds`
-	MetricSonarrAPIDuration      = `seasonfill_sonarr_api_duration_seconds`
-	MetricCandidatesFound        = `seasonfill_candidates_found`
-	MetricCoverageCount          = `seasonfill_coverage_count`
-	MetricInstancesAvailable     = `seasonfill_instances_available`
-	MetricActiveScans            = `seasonfill_active_scans`
-	MetricCooldownActive         = `seasonfill_cooldown_active`
+	MetricScansTotal                 = `seasonfill_scans_total`
+	MetricSeriesEvaluatedTotal       = `seasonfill_series_evaluated_total`
+	MetricGrabsTotal                 = `seasonfill_grabs_total`
+	MetricGrabAttemptsTotal          = `seasonfill_grab_attempts_total`
+	MetricSonarrAPIRequestsTotal     = `seasonfill_sonarr_api_requests_total`
+	MetricScanDurationSeconds        = `seasonfill_scan_duration_seconds`
+	MetricSonarrAPIDuration          = `seasonfill_sonarr_api_duration_seconds`
+	MetricCandidatesFound            = `seasonfill_candidates_found`
+	MetricCoverageCount              = `seasonfill_coverage_count`
+	MetricInstancesAvailable         = `seasonfill_instances_available`
+	MetricActiveScans                = `seasonfill_active_scans`
+	MetricCooldownActive             = `seasonfill_cooldown_active`
+	MetricInstanceHealth             = `seasonfill_instance_health`
+	MetricInstanceHealthTransitions  = `seasonfill_instance_health_transitions_total`
+	MetricInstanceLastCheckTimestamp = `seasonfill_instance_last_check_timestamp`
 )
 
 func ScanCompleted(instance, status string) {
@@ -59,6 +62,8 @@ func ObserveCoverageCount(instance string, count int) {
 	metrics.GetOrCreateHistogram(`seasonfill_coverage_count{instance="` + instance + `"}`).Update(float64(count))
 }
 
+// SetInstanceAvailable is retained for back-compat with the legacy dashboard.
+// New code should prefer SetInstanceHealth which carries the typed state.
 func SetInstanceAvailable(instance string, available bool) {
 	g := metrics.GetOrCreateGauge(`seasonfill_instances_available{instance="`+instance+`"}`, nil)
 	if available {
@@ -79,6 +84,23 @@ func DecActiveScans(instance string) {
 // SetCooldownActive records the current count of active cooldowns per scope.
 func SetCooldownActive(instance, scope string, count int) {
 	metrics.GetOrCreateGauge(`seasonfill_cooldown_active{instance="`+instance+`",scope="`+scope+`"}`, nil).Set(float64(count))
+}
+
+// SetInstanceHealth records the numeric health code (0=Available, 1=Auth,
+// 2=Network, 3=Unknown).
+func SetInstanceHealth(instance string, code int) {
+	metrics.GetOrCreateGauge(`seasonfill_instance_health{instance="`+instance+`"}`, nil).Set(float64(code))
+}
+
+// IncInstanceHealthTransition increments the per-transition counter.
+func IncInstanceHealthTransition(instance, from, to string) {
+	metrics.GetOrCreateCounter(`seasonfill_instance_health_transitions_total{instance="` + instance + `",from="` + from + `",to="` + to + `"}`).Inc()
+}
+
+// SetInstanceLastCheck records the Unix-second timestamp of the most recent
+// check.
+func SetInstanceLastCheck(instance string, unixSec int64) {
+	metrics.GetOrCreateGauge(`seasonfill_instance_last_check_timestamp{instance="`+instance+`"}`, nil).Set(float64(unixSec))
 }
 
 func WritePrometheus(w io.Writer) {

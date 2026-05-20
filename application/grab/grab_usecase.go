@@ -18,8 +18,6 @@ import (
 )
 
 // classifier separates transient (retry) from permanent (give-up) Sonarr errors.
-// Implemented in infrastructure/sonarr/errors.go but consumed here only via
-// sentinel `errors.Is` checks against domain sentinels.
 type classifier interface {
 	IsTransient(err error) bool
 	Is4xx(err error) bool
@@ -55,6 +53,7 @@ type UseCase struct {
 	grabs     ports.GrabRepository
 	cooldowns ports.CooldownRepository
 	origins   ports.OriginReleaseRepository
+	tx        ports.Transactor // optional (M-7); nil = direct writes
 	classify  classifier
 	sleep     Sleeper
 	logger    *slog.Logger
@@ -76,6 +75,9 @@ func NewUseCase(
 		logger:    logger,
 	}
 }
+
+// WithTransactor wires the M-7 atomic-success-path transactor.
+func (u *UseCase) WithTransactor(t ports.Transactor) *UseCase { u.tx = t; return u }
 
 // WithSleeper swaps the sleeper for tests.
 func (u *UseCase) WithSleeper(s Sleeper) *UseCase { u.sleep = s; return u }
@@ -99,9 +101,9 @@ type Output struct {
 }
 
 // Execute runs the retry loop, persists a grab_record, and activates the
-// appropriate cooldown on success or final failure. The returned Output
-// always carries a Record (status=grabbed or grab_failed). When the loop
-// exhausts retries Err is wrapped domain.ErrGrabFailed.
+// appropriate cooldown on success or final failure. On success the
+// grab_record + series_cooldown + origin_release writes are executed inside
+// a single DB transaction (M-7).
 func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	rec := domaingrab.Record{
 		ID:                uuid.New(),
@@ -135,16 +137,9 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			rec.Status = domaingrab.StatusGrabbed
 			rec.Attempts = attempt
 			rec.UpdatedAt = time.Now().UTC()
-			if persistErr := u.grabs.Create(ctx, rec); persistErr != nil {
-				u.logger.ErrorContext(ctx, "persist grab_record failed",
-					slog.String("error", persistErr.Error()),
-					slog.String("guid", rec.ReleaseGUID),
-				)
-			}
+			u.persistSuccess(ctx, rec, in)
 			observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "success")
 			observability.GrabAttempt(in.InstanceName, "grabbed")
-			u.activateSeriesCooldown(ctx, in)
-			u.upsertOrigin(ctx, in)
 			u.logger.InfoContext(ctx, "grab_succeeded",
 				slog.String("instance", in.InstanceName),
 				slog.Int("series_id", in.SeriesID),
@@ -158,7 +153,6 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 
 		lastErr = err
 
-		// 4xx is configuration/bug — never retry.
 		if u.classify.Is4xx(err) {
 			u.logger.ErrorContext(ctx, "grab_permanent_failure",
 				slog.String("instance", in.InstanceName),
@@ -170,7 +164,6 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 		}
 
 		if !u.classify.IsTransient(err) {
-			// Unknown classification — be conservative, do not retry.
 			u.logger.ErrorContext(ctx, "grab_unclassified_failure",
 				slog.String("instance", in.InstanceName),
 				slog.String("guid", in.Selected.Release.GUID),
@@ -180,9 +173,8 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			break
 		}
 
-		// Transient — sleep and retry if attempts remain.
 		if attempt < maxAttempts {
-			d := backoffFor(attempt, in.Config.MaxBackoff)
+			d := backoffFor(attempt, in.Config.InitialBackoff, in.Config.MaxBackoff)
 			if sleepErr := u.sleep(ctx, d); sleepErr != nil {
 				lastErr = fmt.Errorf("context cancelled during backoff: %w", sleepErr)
 				break
@@ -217,22 +209,58 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	return Output{Record: rec, Attempts: attempts, Err: fmt.Errorf("%w: %w", domain.ErrGrabFailed, lastErr)}
 }
 
-func (u *UseCase) activateSeriesCooldown(ctx context.Context, in Input) {
-	if in.Config.SeriesCooldown <= 0 {
-		return
+// persistSuccess wraps the three success-side writes in a single transaction
+// when a Transactor is wired. Without one, the calls happen in sequence
+// (003 behaviour preserved).
+func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in Input) {
+	work := func(txCtx context.Context) error {
+		if err := u.grabs.Create(txCtx, rec); err != nil {
+			return fmt.Errorf("persist grab_record: %w", err)
+		}
+		if in.Config.SeriesCooldown > 0 {
+			now := time.Now().UTC()
+			cd := cooldown.Cooldown{
+				Scope:     cooldown.ScopeSeries,
+				Key:       cooldown.SeriesKey(in.InstanceName, in.SeriesID, in.SeasonNumber),
+				ExpiresAt: now.Add(in.Config.SeriesCooldown),
+				Reason:    "series_after_grab",
+				CreatedAt: now,
+			}
+			if err := u.cooldowns.Set(txCtx, cd); err != nil {
+				return fmt.Errorf("set series cooldown: %w", err)
+			}
+		}
+		if u.origins != nil {
+			now := time.Now().UTC()
+			or := ports.OriginRelease{
+				InstanceName: in.InstanceName,
+				SeriesID:     in.SeriesID,
+				SeasonNumber: in.SeasonNumber,
+				GUID:         in.Selected.Release.GUID,
+				IndexerID:    in.Selected.Release.IndexerID,
+				IndexerName:  in.Selected.Release.IndexerName,
+				Source:       "our_grab",
+				FirstSeenAt:  now,
+				LastSeenAt:   now,
+				LastUsedAt:   &now,
+			}
+			if err := u.origins.Upsert(txCtx, or); err != nil {
+				return fmt.Errorf("upsert origin_release: %w", err)
+			}
+		}
+		return nil
 	}
-	now := time.Now().UTC()
-	cd := cooldown.Cooldown{
-		Scope:     cooldown.ScopeSeries,
-		Key:       cooldown.SeriesKey(in.InstanceName, in.SeriesID, in.SeasonNumber),
-		ExpiresAt: now.Add(in.Config.SeriesCooldown),
-		Reason:    "series_after_grab",
-		CreatedAt: now,
+
+	var err error
+	if u.tx != nil {
+		err = u.tx.Transaction(ctx, work)
+	} else {
+		err = work(ctx)
 	}
-	if err := u.cooldowns.Set(ctx, cd); err != nil {
-		u.logger.ErrorContext(ctx, "set series cooldown failed",
+	if err != nil {
+		u.logger.ErrorContext(ctx, "persist grab success-set failed",
 			slog.String("instance", in.InstanceName),
-			slog.Int("series_id", in.SeriesID),
+			slog.String("guid", rec.ReleaseGUID),
 			slog.String("error", err.Error()),
 		)
 	}
@@ -257,32 +285,6 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 		u.logger.ErrorContext(ctx, "set guid cooldown failed",
 			slog.String("instance", in.InstanceName),
 			slog.String("guid", in.Selected.Release.GUID),
-			slog.String("error", err.Error()),
-		)
-	}
-}
-
-func (u *UseCase) upsertOrigin(ctx context.Context, in Input) {
-	if u.origins == nil {
-		return
-	}
-	now := time.Now().UTC()
-	rec := ports.OriginRelease{
-		InstanceName: in.InstanceName,
-		SeriesID:     in.SeriesID,
-		SeasonNumber: in.SeasonNumber,
-		GUID:         in.Selected.Release.GUID,
-		IndexerID:    in.Selected.Release.IndexerID,
-		IndexerName:  in.Selected.Release.IndexerName,
-		Source:       "our_grab",
-		FirstSeenAt:  now,
-		LastSeenAt:   now,
-		LastUsedAt:   &now,
-	}
-	if err := u.origins.Upsert(ctx, rec); err != nil {
-		u.logger.ErrorContext(ctx, "upsert origin_release failed",
-			slog.String("instance", in.InstanceName),
-			slog.Int("series_id", in.SeriesID),
 			slog.String("error", err.Error()),
 		)
 	}
