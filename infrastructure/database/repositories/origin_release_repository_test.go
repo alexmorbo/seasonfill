@@ -1,0 +1,81 @@
+package repositories
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/application/ports"
+)
+
+func TestOriginRelease_Upsert_Get(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewOriginReleaseRepository(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, repo.Upsert(ctx, ports.OriginRelease{
+		InstanceName: "main",
+		SeriesID:     122,
+		SeasonNumber: 2,
+		GUID:         "g1",
+		IndexerName:  "RT",
+		Source:       "our_grab",
+		FirstSeenAt:  now,
+		LastSeenAt:   now,
+		LastUsedAt:   &now,
+	}))
+
+	got, ok, err := repo.Get(ctx, "main", 122, 2)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "g1", got.GUID)
+	assert.Equal(t, "our_grab", got.Source)
+}
+
+func TestOriginRelease_Get_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewOriginReleaseRepository(db)
+	_, ok, err := repo.Get(context.Background(), "main", 999, 1)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func TestOriginRelease_Upsert_Overwrites(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewOriginReleaseRepository(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, repo.Upsert(ctx, ports.OriginRelease{
+		InstanceName: "main", SeriesID: 1, SeasonNumber: 1, GUID: "first",
+		Source: "our_grab", FirstSeenAt: now, LastSeenAt: now,
+	}))
+	later := now.Add(time.Hour)
+	require.NoError(t, repo.Upsert(ctx, ports.OriginRelease{
+		InstanceName: "main", SeriesID: 1, SeasonNumber: 1, GUID: "second",
+		Source: "our_grab", FirstSeenAt: now, LastSeenAt: later,
+	}))
+	got, ok, err := repo.Get(ctx, "main", 1, 1)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "second", got.GUID)
+}
+
+func TestOriginRelease_Upsert_ClosedDB_ReturnsError(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewOriginReleaseRepository(db)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	err = repo.Upsert(context.Background(), ports.OriginRelease{
+		InstanceName: "main", SeriesID: 1, SeasonNumber: 1, GUID: "x", Source: "our_grab",
+		FirstSeenAt: time.Now().UTC(), LastSeenAt: time.Now().UTC(),
+	})
+	require.Error(t, err)
+}

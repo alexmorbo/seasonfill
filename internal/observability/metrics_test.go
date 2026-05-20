@@ -41,6 +41,17 @@ func TestGrabRecorded_RegistersAndIncrements(t *testing.T) {
 	assert.Contains(t, body, `indexer="RT"`)
 }
 
+func TestGrabAttempt_RegistersAndIncrements(t *testing.T) {
+	GrabAttempt("obs_test_attempt", "grabbed")
+	GrabAttempt("obs_test_attempt", "retried")
+	GrabAttempt("obs_test_attempt", "failed")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_grab_attempts_total")
+	assert.Contains(t, body, `status="grabbed"`)
+	assert.Contains(t, body, `status="retried"`)
+	assert.Contains(t, body, `status="failed"`)
+}
+
 func TestSonarrAPIRequest_RegistersAndIncrements(t *testing.T) {
 	SonarrAPIRequest("obs_test_d", "/series", "200")
 	body := writeAndRead(t)
@@ -89,8 +100,16 @@ func TestIncDecActiveScans(t *testing.T) {
 	assert.Contains(t, body, `seasonfill_active_scans{instance="obs_test_j"}`)
 }
 
+func TestSetCooldownActive(t *testing.T) {
+	SetCooldownActive("obs_test_cooldown", "series", 4)
+	SetCooldownActive("obs_test_cooldown", "guid", 11)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_cooldown_active")
+	assert.Contains(t, body, `scope="series"`)
+	assert.Contains(t, body, `scope="guid"`)
+}
+
 func TestWritePrometheus_NotEmpty(t *testing.T) {
-	// Register at least one metric so the export is non-empty regardless of test order.
 	ScanCompleted("obs_test_z", "completed")
 
 	buf := &bytes.Buffer{}
@@ -104,6 +123,7 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		MetricScansTotal,
 		MetricSeriesEvaluatedTotal,
 		MetricGrabsTotal,
+		MetricGrabAttemptsTotal,
 		MetricSonarrAPIRequestsTotal,
 		MetricScanDurationSeconds,
 		MetricSonarrAPIDuration,
@@ -111,6 +131,7 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		MetricCoverageCount,
 		MetricInstancesAvailable,
 		MetricActiveScans,
+		MetricCooldownActive,
 	}
 	for _, c := range consts {
 		assert.NotEmpty(t, c)

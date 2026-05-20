@@ -58,5 +58,6 @@ type SonarrClient interface {
 	ListIndexers(ctx context.Context) ([]Indexer, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	GrabHistory(ctx context.Context, seriesID int) ([]HistoryEvent, error)
+	ForceGrab(ctx context.Context, guid string, indexerID int) error
 	Name() string
 }

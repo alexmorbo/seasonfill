@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
+	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/cooldown"
+	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -30,6 +34,12 @@ const (
 	TriggerStartup Trigger = "startup"
 )
 
+// Barrier is an optional synchronization hook used by tests to make
+// runOne deterministically overlap two goroutines. nil in production.
+type Barrier interface {
+	Reached(instance string)
+}
+
 type Instance struct {
 	Config config.SonarrInstance
 	Client ports.SonarrClient
@@ -39,11 +49,16 @@ type UseCase struct {
 	instances []Instance
 	evaluator *evaluate.UseCase
 	scans     ports.ScanRepository
+	grabUC    *grab.UseCase
+	cooldowns ports.CooldownRepository
+	origins   ports.OriginReleaseRepository
 	logger    *slog.Logger
 	dryRun    bool
 
 	mu       sync.Mutex
 	inflight map[string]uuid.UUID
+
+	barrier Barrier
 }
 
 func NewUseCase(
@@ -63,6 +78,19 @@ func NewUseCase(
 	}
 }
 
+// WithGrabUseCase wires the (optional) real-grab path. Without it, scans
+// behave as in Phase 1 (no POST).
+func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase { u.grabUC = g; return u }
+
+// WithCooldowns wires the (optional) cooldown repository.
+func (u *UseCase) WithCooldowns(c ports.CooldownRepository) *UseCase { u.cooldowns = c; return u }
+
+// WithOrigins wires the (optional) origin_releases repository.
+func (u *UseCase) WithOrigins(o ports.OriginReleaseRepository) *UseCase { u.origins = o; return u }
+
+// WithBarrier injects a test-only synchronization hook.
+func (u *UseCase) WithBarrier(b Barrier) *UseCase { u.barrier = b; return u }
+
 type RunResult struct {
 	ScanRunID    uuid.UUID
 	InstanceName string
@@ -71,6 +99,8 @@ type RunResult struct {
 	Finished     time.Time
 	Series       int
 	Candidates   int
+	Grabs        int
+	GrabsFailed  int
 	Errors       int
 }
 
@@ -118,6 +148,15 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 	return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
 }
 
+// instanceDryRun decides the effective dry-run flag for one instance.
+// Instance override wins per D-2.6.
+func (u *UseCase) instanceDryRun(inst Instance) bool {
+	if inst.Config.DryRun != nil && inst.Config.DryRun.Set {
+		return inst.Config.DryRun.Value
+	}
+	return u.dryRun
+}
+
 func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger) (RunResult, error) {
 	scanID := uuid.New()
 	ctx := logger.WithTraceID(parent, scanID.String())
@@ -127,9 +166,14 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 	}
 	defer u.release(inst.Config.Name)
 
+	if u.barrier != nil {
+		u.barrier.Reached(inst.Config.Name)
+	}
+
 	observability.IncActiveScans(inst.Config.Name)
 	defer observability.DecActiveScans(inst.Config.Name)
 
+	dryRun := u.instanceDryRun(inst)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
 		ID:           scanID,
@@ -137,7 +181,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		Trigger:      string(trigger),
 		StartedAt:    started,
 		Status:       "running",
-		DryRun:       u.dryRun,
+		DryRun:       dryRun,
 	}
 	if err := u.scans.Create(ctx, rec); err != nil {
 		u.logger.ErrorContext(ctx, "create scan record failed", slog.String("error", err.Error()))
@@ -147,36 +191,47 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 	u.logger.InfoContext(ctx, "scan_started",
 		slog.String("instance", inst.Config.Name),
 		slog.String("trigger", string(trigger)),
-		slog.Bool("dry_run", u.dryRun),
+		slog.Bool("dry_run", dryRun),
 	)
 
 	seriesList, err := inst.Client.ListSeries(ctx)
 	if err != nil {
-		rec.Status = "failed"
-		rec.ErrorMessage = err.Error()
-		finish := time.Now().UTC()
-		rec.FinishedAt = &finish
-		_ = u.scans.Update(ctx, rec)
-		observability.ScanCompleted(inst.Config.Name, "failed")
-		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, fmt.Errorf("list series: %w", err)
+		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
+	}
+
+	tagFilter, tagErr := buildTagFilter(ctx, inst)
+	if tagErr != nil {
+		// D-2.5 / M-new-2: fail-CLOSED when include is non-empty.
+		if len(inst.Config.Tags.Include) > 0 {
+			u.logger.ErrorContext(ctx, "tag filter failed, aborting scan (fail-closed)",
+				slog.String("instance", inst.Config.Name),
+				slog.String("error", tagErr.Error()),
+			)
+			return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("tag filter: %w", tagErr))
+		}
+		u.logger.WarnContext(ctx, "tag filter failed (fail-open, include empty)",
+			slog.String("instance", inst.Config.Name),
+			slog.String("error", tagErr.Error()),
+		)
 	}
 
 	processed := 0
 	candidates := 0
+	grabsDone := 0
+	grabsFailed := 0
+	consecutiveGrabFails := 0
 	errorsCount := 0
 
-	tagFilter, err := buildTagFilter(ctx, inst)
-	if err != nil {
-		u.logger.WarnContext(ctx, "resolve tags failed", slog.String("error", err.Error()))
-		errorsCount++
+	maxGrabs := inst.Config.Limits.MaxGrabsPerScan
+	if maxGrabs <= 0 {
+		maxGrabs = 10
 	}
-
-	profileCache := make(map[int]ports.QualityProfile)
-
 	maxSeries := inst.Config.Limits.ScanMaxSeries
 	if maxSeries <= 0 {
 		maxSeries = len(seriesList)
 	}
+
+	profileCache := make(map[int]ports.QualityProfile)
 
 	for _, s := range seriesList {
 		if processed >= maxSeries {
@@ -229,17 +284,37 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 			continue
 		}
 
-		originIndexer := ""
-		if history, herr := inst.Client.GrabHistory(ctx, s.ID); herr == nil {
-			originIndexer = dominantIndexer(history)
-		} else {
-			u.logger.WarnContext(ctx, "fetch grab history failed",
-				slog.Int("series_id", s.ID),
-				slog.String("error", herr.Error()),
-			)
-		}
+		// Live history is a fallback when the persistent origin_releases row is absent (M-new-1).
+		// We only consult Sonarr history if no origin row exists for any season we'll evaluate.
+		var liveOriginIndexer string
+		var liveOriginFetched bool
 
 		for _, season := range seasons {
+			// Series cooldown filter at scan-loop level.
+			if u.cooldowns != nil {
+				skey := cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number)
+				active, cdErr := u.cooldowns.FilterActive(ctx, cooldown.ScopeSeries, []string{skey}, time.Now().UTC())
+				if cdErr != nil {
+					u.logger.WarnContext(ctx, "cooldown lookup failed",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("series_id", s.ID),
+						slog.Int("season", season.Number),
+						slog.String("error", cdErr.Error()),
+					)
+				} else if len(active) > 0 {
+					u.logger.InfoContext(ctx, "season_evaluated",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("series_id", s.ID),
+						slog.String("series_title", s.Title),
+						slog.Int("season_number", season.Number),
+						slog.String("decision", string(decision.OutcomeSkip)),
+						slog.String("reason", string(decision.ReasonSkipSeriesCooldown)),
+					)
+					observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+					continue
+				}
+			}
+
 			episodes, eerr := inst.Client.ListEpisodes(ctx, s.ID, season.Number)
 			if eerr != nil {
 				u.logger.WarnContext(ctx, "list episodes failed",
@@ -257,6 +332,29 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 			}
 			season.Episodes = episodes
 
+			originGUID := ""
+			originIndexer := ""
+			if u.origins != nil {
+				if origin, found, oerr := u.origins.Get(ctx, inst.Config.Name, s.ID, season.Number); oerr == nil && found {
+					originGUID = origin.GUID
+					originIndexer = origin.IndexerName
+				}
+			}
+			if originIndexer == "" {
+				if !liveOriginFetched {
+					if history, herr := inst.Client.GrabHistory(ctx, s.ID); herr == nil {
+						liveOriginIndexer = dominantIndexer(history)
+					} else {
+						u.logger.WarnContext(ctx, "fetch grab history failed",
+							slog.Int("series_id", s.ID),
+							slog.String("error", herr.Error()),
+						)
+					}
+					liveOriginFetched = true
+				}
+				originIndexer = liveOriginIndexer
+			}
+
 			d, evErr := u.evaluator.Execute(ctx, evaluate.Input{
 				ScanRunID:            scanID,
 				Instance:             inst.Config.Name,
@@ -264,20 +362,67 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 				Series:               s,
 				Season:               season,
 				Profile:              profile,
+				OriginGUID:           originGUID,
 				OriginIndexerName:    originIndexer,
 				OriginBonus:          inst.Config.Ranking.OriginBonus,
 				MinCustomFormatScore: inst.Config.Search.MinCustomFormatScore,
 				RequireAllAired:      inst.Config.Search.RequireAllAired,
 				SkipSpecials:         inst.Config.Search.SkipSpecials,
 				SkipAnime:            inst.Config.Search.SkipAnime,
-				DryRun:               u.dryRun,
+				DryRun:               dryRun,
 				Now:                  time.Now().UTC(),
+				Cooldowns:            u.cooldowns,
 			})
 			if evErr != nil {
 				errorsCount++
 			}
 			if d.CandidatesCount > 0 {
 				candidates += d.CandidatesCount
+			}
+
+			// Real-grab path: only if grab UC wired, not dry-run, and evaluator selected a candidate.
+			if !dryRun && u.grabUC != nil && d.Outcome == decision.OutcomeGrab && d.Selected != nil {
+				if grabsDone >= maxGrabs {
+					u.logger.InfoContext(ctx, "max_grabs_per_scan reached, deferring further grabs",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("max_grabs_per_scan", maxGrabs),
+					)
+					continue
+				}
+				out := u.grabUC.Execute(ctx, grab.Input{
+					ScanRunID:    scanID,
+					InstanceName: inst.Config.Name,
+					SeriesID:     s.ID,
+					SeriesTitle:  s.Title,
+					SeasonNumber: season.Number,
+					Selected:     *d.Selected,
+					Coverage:     d.Selected.Coverage,
+					Sonarr:       inst.Client,
+					Config: grab.Config{
+						MaxAttempts:    inst.Config.Retry.MaxAttempts,
+						InitialBackoff: inst.Config.Retry.InitialBackoff,
+						MaxBackoff:     inst.Config.Retry.MaxBackoff,
+						SeriesCooldown: inst.Config.Cooldown.SeriesAfterGrab,
+						GUIDCooldown:   inst.Config.Cooldown.GUIDAfterFailedGrab,
+					},
+				})
+				if out.Err == nil {
+					grabsDone++
+					consecutiveGrabFails = 0
+				} else {
+					grabsFailed++
+					consecutiveGrabFails++
+					errorsCount++
+					if consecutiveGrabFails >= 3 {
+						// D-2.4: abort scan after 3 consecutive grab_failed.
+						rec.GrabsPerformed = grabsDone
+						rec.GrabsFailed = grabsFailed
+						rec.ErrorsCount = errorsCount
+						rec.SeriesScanned = processed
+						rec.CandidatesFound = candidates
+						return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("aborting after 3 consecutive grab_failed: %w", out.Err))
+					}
+				}
 			}
 		}
 	}
@@ -286,6 +431,8 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 	rec.Status = "completed"
 	rec.SeriesScanned = processed
 	rec.CandidatesFound = candidates
+	rec.GrabsPerformed = grabsDone
+	rec.GrabsFailed = grabsFailed
 	rec.ErrorsCount = errorsCount
 	rec.FinishedAt = &finished
 	if err := u.scans.Update(ctx, rec); err != nil {
@@ -298,6 +445,8 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		slog.String("instance", inst.Config.Name),
 		slog.Int("series_scanned", processed),
 		slog.Int("candidates_found", candidates),
+		slog.Int("grabs_performed", grabsDone),
+		slog.Int("grabs_failed", grabsFailed),
 		slog.Int("errors", errorsCount),
 		slog.Float64("duration_seconds", finished.Sub(started).Seconds()),
 	)
@@ -310,8 +459,34 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 		Finished:     finished,
 		Series:       processed,
 		Candidates:   candidates,
+		Grabs:        grabsDone,
+		GrabsFailed:  grabsFailed,
 		Errors:       errorsCount,
 	}, nil
+}
+
+func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
+	rec.Status = "failed"
+	if cause != nil {
+		rec.ErrorMessage = cause.Error()
+	}
+	finish := time.Now().UTC()
+	rec.FinishedAt = &finish
+	_ = u.scans.Update(ctx, rec)
+	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
+	observability.ScanCompleted(inst.Config.Name, "failed")
+	return RunResult{
+		ScanRunID:    rec.ID,
+		InstanceName: inst.Config.Name,
+		Status:       "failed",
+		Started:      started,
+		Finished:     finish,
+		Series:       rec.SeriesScanned,
+		Candidates:   rec.CandidatesFound,
+		Grabs:        rec.GrabsPerformed,
+		GrabsFailed:  rec.GrabsFailed,
+		Errors:       rec.ErrorsCount,
+	}, cause
 }
 
 func (u *UseCase) acquire(instance string, scanID uuid.UUID) error {
@@ -369,6 +544,8 @@ func (t tagFilter) skip(seriesTags []int) (string, bool) {
 	}
 }
 
+// dominantIndexer counts every grabbed history record by IndexerName. Ties are
+// broken deterministically by indexer name ascending (N-new-2).
 func dominantIndexer(history []ports.HistoryEvent) string {
 	if len(history) == 0 {
 		return ""
@@ -380,12 +557,20 @@ func dominantIndexer(history []ports.HistoryEvent) string {
 		}
 		counts[h.IndexerName]++
 	}
+	if len(counts) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	best := ""
-	bestCount := 0
-	for name, count := range counts {
-		if count > bestCount {
+	bestCount := -1
+	for _, name := range names {
+		if counts[name] > bestCount {
 			best = name
-			bestCount = count
+			bestCount = counts[name]
 		}
 	}
 	return best

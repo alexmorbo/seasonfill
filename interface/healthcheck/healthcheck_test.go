@@ -49,6 +49,9 @@ func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { 
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
+func (f *fakeSonarr) ForceGrab(ctx context.Context, guid string, indexerID int) error {
+	return nil
+}
 func (f *fakeSonarr) Name() string { return f.name }
 
 func openDB(t *testing.T) *gorm.DB {

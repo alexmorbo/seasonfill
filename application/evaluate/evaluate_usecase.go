@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -30,6 +31,14 @@ type Input struct {
 	SkipAnime            bool
 	DryRun               bool
 	Now                  time.Time
+	// ExcludeGUIDs is a pre-built guid blacklist supplied by the caller.
+	// When set, it is the authoritative exclude list. When nil and Cooldowns
+	// is set, the evaluator queries the repository for active guid cooldowns.
+	ExcludeGUIDs map[string]struct{}
+	// Cooldowns lets the evaluator filter candidate guids against active
+	// cooldown rows using the FilterActive(scope, keys, now) repo API
+	// (D-2.1). Optional; nil means no DB-backed guid filtering.
+	Cooldowns ports.CooldownRepository
 }
 
 type UseCase struct {
@@ -100,6 +109,31 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 		return u.finalize(ctx, d, in)
 	}
 
+	excludeGUIDs := in.ExcludeGUIDs
+	if excludeGUIDs == nil && in.Cooldowns != nil && len(releases) > 0 {
+		keys := make([]string, 0, len(releases))
+		for _, r := range releases {
+			if r.GUID != "" {
+				keys = append(keys, r.GUID)
+			}
+		}
+		if len(keys) > 0 {
+			active, cdErr := in.Cooldowns.FilterActive(ctx, cooldown.ScopeGUID, keys, in.Now)
+			if cdErr != nil {
+				u.logger.WarnContext(ctx, "guid cooldown lookup failed",
+					slog.String("instance", in.Instance),
+					slog.Int("series_id", in.Series.ID),
+					slog.String("error", cdErr.Error()),
+				)
+			} else if len(active) > 0 {
+				excludeGUIDs = make(map[string]struct{}, len(active))
+				for _, c := range active {
+					excludeGUIDs[c.Key] = struct{}{}
+				}
+			}
+		}
+	}
+
 	filterRes := Filter(FilterInput{
 		Releases:             releases,
 		Missing:              missing,
@@ -109,6 +143,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 		MinCustomFormatScore: in.MinCustomFormatScore,
 		RequireAllAired:      in.RequireAllAired,
 		NowUTC:               in.Now,
+		ExcludeGUIDs:         excludeGUIDs,
 	})
 	d.FilteredOut = filterRes.FilteredOut
 	d.CandidatesCount = len(filterRes.Kept)
@@ -137,6 +172,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 		d.Reason = decision.ReasonGrabSelectedDryRun
 		d.WouldGrab = true
 	} else {
+		// Caller (scan loop) executes the grab and flips WouldGrab to true on success.
 		d.Outcome = decision.OutcomeGrab
 		d.Reason = decision.ReasonGrabSelected
 		d.WouldGrab = false

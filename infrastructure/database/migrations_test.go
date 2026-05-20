@@ -22,6 +22,9 @@ func TestMigrate_CreatesTables(t *testing.T) {
 
 	assert.True(t, db.Migrator().HasTable(&ScanRunModel{}))
 	assert.True(t, db.Migrator().HasTable(&DecisionModel{}))
+	assert.True(t, db.Migrator().HasTable(&GrabRecordModel{}))
+	assert.True(t, db.Migrator().HasTable(&OriginReleaseModel{}))
+	assert.True(t, db.Migrator().HasTable(&CooldownModel{}))
 
 	// Idempotent — running twice must not error.
 	assert.NoError(t, Migrate(db))

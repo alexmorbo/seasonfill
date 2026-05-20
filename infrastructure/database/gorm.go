@@ -1,3 +1,13 @@
+// Package database wires GORM to the chosen driver.
+//
+// IMPORTANT: this package intentionally imports github.com/glebarez/sqlite —
+// the pure-Go SQLite driver backed by modernc.org/sqlite. Do NOT replace it
+// with gorm.io/driver/sqlite. That driver pulls mattn/go-sqlite3 which
+// requires CGO; our Dockerfile and Makefile both build with CGO_ENABLED=0
+// and the binary would crash at gorm.Open with
+// "go-sqlite3 requires cgo to work". The gorm.io/driver/sqlite module
+// lingers as an indirect dependency of gorm.io/datatypes; no .go file
+// imports it, so it cannot be selected at runtime. See Phase 1 delta D-1.1.
 package database
 
 import (

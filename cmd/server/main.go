@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
+	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -65,6 +66,9 @@ func run() error {
 
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := repositories.NewDecisionRepository(db)
+	grabRepo := repositories.NewGrabRepository(db)
+	cooldownRepo := repositories.NewCooldownRepository(db)
+	originRepo := repositories.NewOriginReleaseRepository(db)
 
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
@@ -89,9 +93,20 @@ func run() error {
 	go checker.Run(rootCtx, 30*time.Second)
 
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
-	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun)
+	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log)
+	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
+		WithGrabUseCase(grabUC).
+		WithCooldowns(cooldownRepo).
+		WithOrigins(originRepo)
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, checker, log)
+
+	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
+	sweepInterval := cfg.Scan.CooldownSweep
+	if sweepInterval <= 0 {
+		sweepInterval = 15 * time.Minute
+	}
+	go runCooldownSweep(rootCtx, cooldownRepo, sweepInterval, log)
 
 	var sched *scheduler.Scheduler
 	if cfg.Cron.Enabled {
@@ -150,6 +165,26 @@ func run() error {
 	}
 	log.Info("seasonfill stopped cleanly")
 	return nil
+}
+
+func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every time.Duration, log *slog.Logger) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := repo.Sweep(ctx, time.Now().UTC())
+			if err != nil {
+				log.ErrorContext(ctx, "cooldown sweep failed", slog.String("error", err.Error()))
+				continue
+			}
+			if n > 0 {
+				log.DebugContext(ctx, "cooldown sweep removed expired rows", slog.Int64("rows", n))
+			}
+		}
+	}
 }
 
 func waitForScans(ctx context.Context, uc *scan.UseCase, repo *repositories.ScanRepository, log *slog.Logger, grace time.Duration) {

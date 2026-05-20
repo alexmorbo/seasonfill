@@ -19,6 +19,7 @@ type FilterInput struct {
 	MinCustomFormatScore int
 	RequireAllAired      bool
 	NowUTC               time.Time
+	ExcludeGUIDs         map[string]struct{}
 }
 
 type FilterResult struct {
@@ -96,6 +97,14 @@ func Filter(in FilterInput) FilterResult {
 			Quality:    r.QualityName,
 			Rejections: r.Rejections,
 			Coverage:   r.Coverage(in.Missing),
+		}
+
+		if in.ExcludeGUIDs != nil {
+			if _, blocked := in.ExcludeGUIDs[r.GUID]; blocked {
+				fc.Reason = string(decision.ReasonFilterGUIDCooldown)
+				res.FilteredOut = append(res.FilteredOut, fc)
+				continue
+			}
 		}
 
 		if r.HasRejection("Unknown Series") {

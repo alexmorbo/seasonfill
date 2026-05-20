@@ -49,4 +49,52 @@ type DecisionModel struct {
 
 func (DecisionModel) TableName() string { return "decisions" }
 
+type GrabRecordModel struct {
+	ID                string `gorm:"primaryKey;size:36"`
+	InstanceName      string `gorm:"size:128;index:idx_grab_inst_series,priority:1"`
+	SeriesID          int    `gorm:"index:idx_grab_inst_series,priority:2"`
+	SeriesTitle       string `gorm:"size:512"`
+	SeasonNumber      int    `gorm:"index:idx_grab_inst_series,priority:3"`
+	ReleaseGUID       string `gorm:"size:512;index"`
+	ReleaseTitle      string `gorm:"size:1024"`
+	IndexerID         int
+	IndexerName       string `gorm:"size:256"`
+	CustomFormatScore int
+	Quality           string `gorm:"size:128"`
+	CoverageCount     int
+	Status            string `gorm:"size:32;index"`
+	ErrorMessage      string `gorm:"type:text"`
+	ScanRunID         string `gorm:"size:36;index"`
+	Attempts          int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+func (GrabRecordModel) TableName() string { return "grab_records" }
+
+type OriginReleaseModel struct {
+	InstanceName string `gorm:"primaryKey;size:128"`
+	SeriesID     int    `gorm:"primaryKey"`
+	SeasonNumber int    `gorm:"primaryKey"`
+	GUID         string `gorm:"size:512"`
+	IndexerID    int
+	IndexerName  string `gorm:"size:256"`
+	Source       string `gorm:"size:32"`
+	FirstSeenAt  time.Time
+	LastSeenAt   time.Time
+	LastUsedAt   *time.Time
+}
+
+func (OriginReleaseModel) TableName() string { return "origin_releases" }
+
+type CooldownModel struct {
+	Scope     string    `gorm:"primaryKey;size:16"`
+	Key       string    `gorm:"primaryKey;size:512"`
+	ExpiresAt time.Time `gorm:"index"`
+	Reason    string    `gorm:"size:128"`
+	CreatedAt time.Time
+}
+
+func (CooldownModel) TableName() string { return "cooldowns" }
+
 func NewScanID() string { return uuid.New().String() }

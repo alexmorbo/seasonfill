@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -22,8 +23,15 @@ import (
 )
 
 type fakeSonarr struct {
-	name   string
-	series []series.Series
+	name     string
+	series   []series.Series
+	episodes func(seriesID, season int) []series.Episode
+	releases []release.Release
+	tags     []ports.Tag
+	tagsErr  error
+	grabErr  error
+	grabCnt  int
+	grabMu   sync.Mutex
 }
 
 func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
@@ -33,7 +41,10 @@ func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { re
 func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *fakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.Episode, error) {
+func (f *fakeSonarr) ListEpisodes(_ context.Context, sID, sn int) ([]series.Episode, error) {
+	if f.episodes != nil {
+		return f.episodes(sID, sn), nil
+	}
 	return []series.Episode{
 		{Number: 1, SeasonNumber: sn, Monitored: true, HasFile: true, QualityID: 19, QualityName: "WEBDL-2160p"},
 		{Number: 2, SeasonNumber: sn, Monitored: true, HasFile: true, QualityID: 19, QualityName: "WEBDL-2160p"},
@@ -44,10 +55,14 @@ func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, er
 	return map[int]int{}, nil
 }
 func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	if len(f.releases) > 0 {
+		return f.releases, nil
+	}
 	return []release.Release{
 		{
 			GUID:                 "g1",
 			Title:                "S02 pack",
+			IndexerID:            7,
 			QualityID:            19,
 			QualityName:          "WEBDL-2160p",
 			IndexerName:          "RT",
@@ -67,9 +82,17 @@ func (f *fakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 	}, nil
 }
 func (f *fakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
-func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
+	return f.tags, f.tagsErr
+}
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
+}
+func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) error {
+	f.grabMu.Lock()
+	defer f.grabMu.Unlock()
+	f.grabCnt++
+	return f.grabErr
 }
 func (f *fakeSonarr) Name() string { return f.name }
 
@@ -130,6 +153,38 @@ func (r *fakeDecRepo) Save(_ context.Context, d decision.Decision) error {
 	return nil
 }
 
+type fakeCDRepo struct {
+	mu     sync.Mutex
+	sets   []cooldown.Cooldown
+	active map[string]bool // key = scope + ":" + key
+}
+
+func (r *fakeCDRepo) Set(_ context.Context, c cooldown.Cooldown) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sets = append(r.sets, c)
+	if r.active == nil {
+		r.active = make(map[string]bool)
+	}
+	r.active[string(c.Scope)+":"+c.Key] = true
+	return nil
+}
+func (r *fakeCDRepo) Get(_ context.Context, _ cooldown.Scope, _ string) (cooldown.Cooldown, bool, error) {
+	return cooldown.Cooldown{}, false, nil
+}
+func (r *fakeCDRepo) FilterActive(_ context.Context, scope cooldown.Scope, keys []string, _ time.Time) ([]cooldown.Cooldown, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []cooldown.Cooldown
+	for _, k := range keys {
+		if r.active[string(scope)+":"+k] {
+			out = append(out, cooldown.Cooldown{Scope: scope, Key: k})
+		}
+	}
+	return out, nil
+}
+func (r *fakeCDRepo) Sweep(_ context.Context, _ time.Time) (int64, error) { return 0, nil }
+
 func makeUseCase(t *testing.T) (*UseCase, *fakeScanRepo, *fakeDecRepo) {
 	t.Helper()
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -152,8 +207,14 @@ func makeUseCase(t *testing.T) (*UseCase, *fakeScanRepo, *fakeDecRepo) {
 				SkipSpecials: true,
 				SkipAnime:    true,
 			},
-			Limits:  config.LimitsConfig{ScanMaxSeries: 100},
+			Limits:  config.LimitsConfig{ScanMaxSeries: 100, MaxGrabsPerScan: 10},
 			Ranking: config.RankingConfig{OriginBonus: 1.0},
+			Retry:   config.RetryConfig{MaxAttempts: 3, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond},
+			Cooldown: config.CooldownConfig{
+				Mode:                "smart",
+				SeriesAfterGrab:     24 * time.Hour,
+				GUIDAfterFailedGrab: 72 * time.Hour,
+			},
 		},
 		Client: sonarr,
 	}}, evalUC, scanRepo, lg, true)
@@ -170,16 +231,6 @@ func TestScan_RunSuccess(t *testing.T) {
 	assert.NotEmpty(t, scanRepo.created)
 	assert.NotEmpty(t, scanRepo.updated)
 	assert.NotEmpty(t, decRepo.d)
-}
-
-type tagFakeSonarr struct {
-	fakeSonarr
-	tags []ports.Tag
-	err  error
-}
-
-func (f *tagFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
-	return f.tags, f.err
 }
 
 func TestBuildTagFilter(t *testing.T) {
@@ -205,7 +256,8 @@ func TestBuildTagFilter(t *testing.T) {
 					Exclude: []string{"skip"},
 				},
 			},
-			Client: &tagFakeSonarr{
+			Client: &fakeSonarr{
+				name: "x",
 				tags: []ports.Tag{{ID: 1, Label: "keep"}, {ID: 2, Label: "skip"}},
 			},
 		}
@@ -223,7 +275,7 @@ func TestBuildTagFilter(t *testing.T) {
 				Name: "x",
 				Tags: config.TagsConfig{Include: []string{"missing"}},
 			},
-			Client: &tagFakeSonarr{tags: []ports.Tag{{ID: 1, Label: "keep"}}},
+			Client: &fakeSonarr{name: "x", tags: []ports.Tag{{ID: 1, Label: "keep"}}},
 		}
 		f, err := buildTagFilter(ctx, inst)
 		require.NoError(t, err)
@@ -236,7 +288,7 @@ func TestBuildTagFilter(t *testing.T) {
 				Name: "x",
 				Tags: config.TagsConfig{Include: []string{"any"}},
 			},
-			Client: &tagFakeSonarr{err: errors.New("boom")},
+			Client: &fakeSonarr{name: "x", tagsErr: errors.New("boom")},
 		}
 		_, err := buildTagFilter(ctx, inst)
 		require.Error(t, err)
@@ -268,6 +320,14 @@ func TestDominantIndexer(t *testing.T) {
 				{IndexerName: "KZ"},
 			},
 			want: "KZ",
+		},
+		{
+			name: "tie broken by name ascending",
+			history: []ports.HistoryEvent{
+				{IndexerName: "Zeta"},
+				{IndexerName: "Alpha"},
+			},
+			want: "Alpha",
 		},
 	}
 	for _, tt := range tests {
@@ -322,10 +382,42 @@ func TestTagFilter_Skip(t *testing.T) {
 	}
 }
 
+// barrier parks the first goroutine inside runOne (after acquire, while
+// holding the inflight slot) until the test calls Release. This guarantees
+// goroutine 2's acquire races against a held slot and deterministically
+// returns ErrScanAlreadyRunning regardless of scheduler timing or coverage
+// instrumentation overhead.
+type barrier struct {
+	mu      sync.Mutex
+	entered bool
+	enterCh chan struct{}
+	leaveCh chan struct{}
+}
+
+func newBarrier() *barrier {
+	return &barrier{enterCh: make(chan struct{}), leaveCh: make(chan struct{})}
+}
+
+func (b *barrier) Reached(_ string) {
+	b.mu.Lock()
+	first := !b.entered
+	b.entered = true
+	b.mu.Unlock()
+	if first {
+		close(b.enterCh)
+		<-b.leaveCh
+	}
+}
+
+func (b *barrier) WaitForFirstEntry() { <-b.enterCh }
+func (b *barrier) Release()           { close(b.leaveCh) }
+
 func TestScan_ConcurrentSameInstanceReturnsConflict(t *testing.T) {
 	uc, _, _ := makeUseCase(t)
+	bar := newBarrier()
+	uc.WithBarrier(bar)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var (
@@ -333,12 +425,125 @@ func TestScan_ConcurrentSameInstanceReturnsConflict(t *testing.T) {
 		wg         sync.WaitGroup
 	)
 	wg.Add(2)
-	go func() { defer wg.Done(); _, err1 = uc.RunInstance(ctx, "main", TriggerCron) }()
-	go func() { defer wg.Done(); _, err2 = uc.RunInstance(ctx, "main", TriggerManual) }()
+	go func() {
+		defer wg.Done()
+		_, err1 = uc.RunInstance(ctx, "main", TriggerCron)
+	}()
+	bar.WaitForFirstEntry()
+
+	g2Done := make(chan struct{})
+	go func() {
+		defer wg.Done()
+		defer close(g2Done)
+		_, err2 = uc.RunInstance(ctx, "main", TriggerManual)
+	}()
+	<-g2Done
+	bar.Release()
 	wg.Wait()
 
 	gotConflict := errors.Is(err1, ErrScanAlreadyRunning) || errors.Is(err2, ErrScanAlreadyRunning)
 	gotSuccess := err1 == nil || err2 == nil
 	assert.True(t, gotConflict, "expected one call to fail with ErrScanAlreadyRunning")
 	assert.True(t, gotSuccess, "expected the other call to succeed")
+}
+
+func TestScan_TagFilterFailClosed_WhenIncludeSet(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{
+		name:    "main",
+		tagsErr: errors.New("boom"),
+		series: []series.Series{
+			{ID: 1, Title: "X", Type: series.SeriesTypeStandard, Monitored: true,
+				Seasons: []series.Season{{Number: 1, Monitored: true}}},
+		},
+	}
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			Tags:   config.TagsConfig{Include: []string{"seasonfill"}},
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.Error(t, err)
+	assert.Equal(t, "failed", res.Status)
+}
+
+func TestScan_TagFilterFailOpen_WhenIncludeEmpty(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{
+		name:    "main",
+		tagsErr: errors.New("boom"),
+		series: []series.Series{
+			{ID: 1, Title: "X", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
+				Seasons: []series.Season{{Number: 1, Monitored: true}}},
+		},
+	}
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			Tags:   config.TagsConfig{Exclude: []string{"skip-me"}},
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+}
+
+func TestScan_SeriesCooldown_Skips(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{
+		name: "main",
+		series: []series.Series{
+			{ID: 122, Title: "Hijack", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
+				Seasons: []series.Season{{Number: 2, Monitored: true}}},
+		},
+	}
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+
+	cdRepo := &fakeCDRepo{}
+	_ = cdRepo.Set(context.Background(), cooldown.Cooldown{
+		Scope:     cooldown.ScopeSeries,
+		Key:       cooldown.SeriesKey("main", 122, 2),
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true).WithCooldowns(cdRepo)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+	// Decision NOT persisted via evaluator for a cooldowned season — scan loop skips.
+	assert.Empty(t, decRepo.d, "no evaluator decision should be persisted for a cooldowned season")
+}
+
+func TestInstanceDryRun_OverrideWins(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := NewUseCase(nil, nil, &fakeScanRepo{}, lg, true) // global dry-run=true
+	override := &config.DryRunPtr{Set: true, Value: false}
+	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: override}}
+	assert.False(t, uc.instanceDryRun(inst))
+
+	inst2 := Instance{Config: config.SonarrInstance{Name: "x"}}
+	assert.True(t, uc.instanceDryRun(inst2))
 }

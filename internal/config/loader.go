@@ -57,6 +57,8 @@ func LoadFromBytes(raw []byte) (*Config, error) {
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
+	cfg.ApplyInstanceDefaults()
+
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate: %w", err)
 	}

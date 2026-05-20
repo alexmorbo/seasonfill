@@ -100,3 +100,8 @@ type historyRecord struct {
 	Episode   *episodeDTO            `json:"episode,omitempty"`
 	Data      map[string]interface{} `json:"data"`
 }
+
+type forceGrabRequest struct {
+	GUID      string `json:"guid"`
+	IndexerID int    `json:"indexerId"`
+}

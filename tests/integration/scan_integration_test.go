@@ -25,14 +25,13 @@ import (
 
 func loadFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	// fixtures live in ../../infrastructure/sonarr/fixtures relative to this file
 	path := filepath.Join("..", "..", "infrastructure", "sonarr", "fixtures", name)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return data
 }
 
-func TestIntegration_ScanHijackSeason2_LogsGrabDecision(t *testing.T) {
+func TestIntegration_ScanHijackSeason2_DryRun_LogsGrabDecision(t *testing.T) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -49,7 +48,11 @@ func TestIntegration_ScanHijackSeason2_LogsGrabDecision(t *testing.T) {
 	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(loadFixture(t, "episodefile-s122.json"))
 	})
-	mux.HandleFunc("/api/v3/release", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/v3/release", func(w http.ResponseWriter, r *http.Request) {
+		// In dry-run, only GET is expected. Any POST is a contract violation.
+		if r.Method != http.MethodGet {
+			t.Fatalf("dry-run violation: %s /release", r.Method)
+		}
 		_, _ = w.Write(loadFixture(t, "releases-s122-s2.json"))
 	})
 	mux.HandleFunc("/api/v3/qualityprofile/14", func(w http.ResponseWriter, _ *http.Request) {
@@ -63,10 +66,6 @@ func TestIntegration_ScanHijackSeason2_LogsGrabDecision(t *testing.T) {
 	})
 	mux.HandleFunc("/api/v3/history", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(loadFixture(t, "history-s122-grabbed.json"))
-	})
-
-	mux.HandleFunc("/api/v3/release/", func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("dry-run violation: POST /release called with method %s", r.Method)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -87,6 +86,7 @@ func TestIntegration_ScanHijackSeason2_LogsGrabDecision(t *testing.T) {
 	scanRepo := repositories.NewScanRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 
+	// Explicit dry_run: true to preserve Phase 1 no-POST contract (Q5).
 	uc := scan.NewUseCase([]scan.Instance{{
 		Config: config.SonarrInstance{
 			Name: "test",

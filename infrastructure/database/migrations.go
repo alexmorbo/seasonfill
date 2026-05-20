@@ -10,6 +10,9 @@ func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&ScanRunModel{},
 		&DecisionModel{},
+		&GrabRecordModel{},
+		&OriginReleaseModel{},
+		&CooldownModel{},
 	); err != nil {
 		return fmt.Errorf("auto-migrate: %w", err)
 	}

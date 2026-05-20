@@ -12,6 +12,8 @@ const (
 	ReasonSkipAnime                 Reason = "skip_anime_series"
 	ReasonSkipNoCandidates          Reason = "skip_no_candidates_after_filter"
 	ReasonSkipNoReleases            Reason = "skip_no_releases_returned"
+	ReasonSkipSeriesCooldown        Reason = "skip_series_in_cooldown"
+	ReasonSkipMaxGrabsReached       Reason = "skip_max_grabs_per_scan_reached"
 	ReasonErrorFetchReleases        Reason = "error_fetch_releases"
 	ReasonErrorFetchEpisodes        Reason = "error_fetch_episodes"
 	ReasonErrorFetchEpisodeFiles    Reason = "error_fetch_episode_files"
@@ -23,4 +25,5 @@ const (
 	ReasonFilterRejectionsUnsafe    Reason = "rejection_not_in_safe_list"
 	ReasonFilterCFScoreBelowMin     Reason = "custom_format_score_below_minimum"
 	ReasonFilterAirDateNotReady     Reason = "release_partial_and_require_all_aired"
+	ReasonFilterGUIDCooldown        Reason = "release_in_guid_cooldown"
 )

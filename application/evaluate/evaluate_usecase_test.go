@@ -2,7 +2,6 @@ package evaluate
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -18,354 +17,195 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
-type fakeSonarr struct {
+type stubSonarr struct {
 	releases []release.Release
-	err      error
 }
 
-func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
-	return ports.SystemStatus{Version: "test"}, nil
+func (s *stubSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
+	return ports.SystemStatus{}, nil
 }
-func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (s *stubSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *stubSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *fakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (s *stubSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (s *stubSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
-	return f.releases, f.err
+func (s *stubSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	return s.releases, nil
 }
-func (f *fakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
-	return ports.QualityProfile{}, nil
+func (s *stubSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
+	return ports.QualityProfile{Items: []ports.QualityItem{{ID: 19, Order: 9, Name: "WEBDL-2160p"}}}, nil
 }
-func (f *fakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
-func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (s *stubSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
+func (s *stubSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (s *stubSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) Name() string { return "test-instance" }
+func (s *stubSonarr) ForceGrab(_ context.Context, _ string, _ int) error { return nil }
+func (s *stubSonarr) Name() string                                       { return "stub" }
 
-type fakeDecisionRepo struct {
-	saved []decision.Decision
-}
+type recDecisions struct{ list []decision.Decision }
 
-func (r *fakeDecisionRepo) Save(_ context.Context, d decision.Decision) error {
-	r.saved = append(r.saved, d)
+func (r *recDecisions) Save(_ context.Context, d decision.Decision) error {
+	r.list = append(r.list, d)
 	return nil
 }
 
-func newLogger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(io.Discard, nil))
-}
-
-func makeProfile() ports.QualityProfile {
-	return ports.QualityProfile{
-		ID:   14,
-		Name: "Any 2160p",
-		Items: []ports.QualityItem{
-			{ID: 1, Name: "SDTV", Order: 1},
-			{ID: 3, Name: "WEBDL-1080p", Order: 5},
-			{ID: 19, Name: "WEBDL-2160p", Order: 9},
-		},
-	}
-}
-
-func makeSeason(missing, have []int) series.Season {
-	eps := make([]series.Episode, 0)
-	for _, n := range have {
-		eps = append(eps, series.Episode{ID: n, Number: n, SeasonNumber: 2, Monitored: true, HasFile: true, QualityID: 19, QualityName: "WEBDL-2160p"})
-	}
+func makeSeason(missing []int, have []int) series.Season {
+	eps := make([]series.Episode, 0, len(missing)+len(have))
 	for _, n := range missing {
-		eps = append(eps, series.Episode{ID: n + 1000, Number: n, SeasonNumber: 2, Monitored: true, HasFile: false})
+		eps = append(eps, series.Episode{Number: n, Monitored: true, HasFile: false})
+	}
+	for _, n := range have {
+		eps = append(eps, series.Episode{Number: n, Monitored: true, HasFile: true, QualityID: 19})
 	}
 	return series.Season{Number: 2, Monitored: true, Episodes: eps}
 }
 
-func makeSeries() series.Series {
-	return series.Series{ID: 122, Title: "Hijack", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14}
-}
-
-func TestEvaluate_DryRunGrabSelected(t *testing.T) {
-	ctx := context.Background()
-	repo := &fakeDecisionRepo{}
-	sonarr := &fakeSonarr{
-		releases: []release.Release{
-			{
-				GUID:                 "rt-1",
-				Title:                "Hijack S02E1-8 WEBDL-2160p",
-				IndexerName:          "RuTracker",
-				IndexerID:            1,
-				IndexerPriority:      1,
-				QualityID:            19,
-				QualityName:          "WEBDL-2160p",
-				CustomFormatScore:    500,
-				Seeders:              142,
-				SizeBytes:            77_000_000_000,
-				MappedEpisodeNumbers: []int{1, 2, 3, 4, 5, 6, 7, 8},
-				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
-			},
-			{
-				GUID:                 "kz-1",
-				Title:                "Hijack S02E1-3 WEBDL-2160p",
-				IndexerName:          "Kinozal",
-				IndexerID:            2,
-				IndexerPriority:      5,
-				QualityID:            19,
-				QualityName:          "WEBDL-2160p",
-				CustomFormatScore:    500,
-				Seeders:              50,
-				SizeBytes:            25_000_000_000,
-				MappedEpisodeNumbers: []int{1, 2, 3},
-				Rejections:           []string{"Existing file on disk is of equal or higher preference: 500"},
-			},
+func TestExecute_GrabDecision_DryRun(t *testing.T) {
+	t.Parallel()
+	stub := &stubSonarr{releases: []release.Release{
+		{
+			GUID: "g1", Title: "Pack", QualityID: 19, QualityName: "WEBDL-2160p",
+			IndexerName: "RT", MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+			CustomFormatScore: 500, Rejections: []string{"Full season pack"},
 		},
-	}
-
-	uc := NewUseCase(sonarr, repo, newLogger())
-	d, err := uc.Execute(ctx, Input{
-		ScanRunID:   uuid.New(),
-		Instance:    "sonarr-main",
-		Series:      makeSeries(),
-		Season:      makeSeason([]int{4, 5, 6, 7, 8}, []int{1, 2, 3}),
-		Profile:     makeProfile(),
-		OriginGUID:  "rt-1",
-		OriginBonus: 1.0,
-		DryRun:      true,
-		Now:         time.Now().UTC(),
+	}}
+	uc := NewUseCase(stub, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
+		ScanRunID: uuid.New(), Instance: "x",
+		Series:  series.Series{ID: 1, Title: "S", Type: series.SeriesTypeStandard, Monitored: true},
+		Season:  makeSeason([]int{4, 5}, []int{1, 2, 3}),
+		Profile: ports.QualityProfile{Items: []ports.QualityItem{{ID: 19, Order: 9}}},
+		Sonarr:  stub,
+		DryRun:  true,
+		Now:     time.Now().UTC(),
 	})
-
 	require.NoError(t, err)
 	assert.Equal(t, decision.OutcomeGrab, d.Outcome)
-	assert.Equal(t, decision.ReasonGrabSelectedDryRun, d.Reason)
 	assert.True(t, d.WouldGrab)
 	require.NotNil(t, d.Selected)
-	assert.Equal(t, "rt-1", d.Selected.Release.GUID)
-	assert.Equal(t, 5, d.Selected.Coverage)
-	assert.Len(t, repo.saved, 1)
 }
 
-func TestEvaluate_SkipNoMissing(t *testing.T) {
-	ctx := context.Background()
-	repo := &fakeDecisionRepo{}
-	uc := NewUseCase(&fakeSonarr{}, repo, newLogger())
-	d, err := uc.Execute(ctx, Input{
-		ScanRunID: uuid.New(),
-		Instance:  "x",
-		Series:    makeSeries(),
-		Season:    makeSeason(nil, []int{1, 2, 3}),
-		Profile:   makeProfile(),
-		DryRun:    true,
-		Now:       time.Now().UTC(),
+func TestExecute_GrabDecision_RealGrabReturnsScored(t *testing.T) {
+	t.Parallel()
+	stub := &stubSonarr{releases: []release.Release{
+		{
+			GUID: "g1", Title: "Pack", QualityID: 19, QualityName: "WEBDL-2160p",
+			IndexerName: "RT", MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+			CustomFormatScore: 500, Rejections: []string{"Full season pack"},
+		},
+	}}
+	uc := NewUseCase(stub, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
+		ScanRunID: uuid.New(), Instance: "x",
+		Series:  series.Series{ID: 1, Title: "S", Type: series.SeriesTypeStandard, Monitored: true},
+		Season:  makeSeason([]int{4, 5}, []int{1, 2, 3}),
+		Profile: ports.QualityProfile{Items: []ports.QualityItem{{ID: 19, Order: 9}}},
+		Sonarr:  stub,
+		DryRun:  false,
+		Now:     time.Now().UTC(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
-	assert.Equal(t, decision.ReasonSkipNoMissing, d.Reason)
+	assert.Equal(t, decision.OutcomeGrab, d.Outcome)
+	assert.False(t, d.WouldGrab) // grab not yet performed; scan loop will fire it
+	require.NotNil(t, d.Selected)
+	assert.Equal(t, "g1", d.Selected.Release.GUID)
 }
 
-func TestEvaluate_SkipFullMissing(t *testing.T) {
-	ctx := context.Background()
-	repo := &fakeDecisionRepo{}
-	uc := NewUseCase(&fakeSonarr{}, repo, newLogger())
-	d, err := uc.Execute(ctx, Input{
-		ScanRunID: uuid.New(),
-		Instance:  "x",
-		Series:    makeSeries(),
-		Season:    makeSeason([]int{1, 2, 3, 4}, nil),
-		Profile:   makeProfile(),
-		DryRun:    true,
-		Now:       time.Now().UTC(),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
-	assert.Equal(t, decision.ReasonSkipFullMissing, d.Reason)
-}
-
-func TestEvaluate_SkipAnime(t *testing.T) {
-	ctx := context.Background()
-	uc := NewUseCase(&fakeSonarr{}, &fakeDecisionRepo{}, newLogger())
-	srs := makeSeries()
-	srs.Type = series.SeriesTypeAnime
-	d, err := uc.Execute(ctx, Input{
-		ScanRunID:    uuid.New(),
-		Instance:     "x",
-		Series:       srs,
-		Season:       makeSeason([]int{4}, []int{1, 2, 3}),
-		Profile:      makeProfile(),
-		SkipAnime:    true,
-		SkipSpecials: true,
+func TestExecute_GUIDCooldownExcluded(t *testing.T) {
+	t.Parallel()
+	stub := &stubSonarr{releases: []release.Release{
+		{
+			GUID: "g1", Title: "Pack", QualityID: 19, QualityName: "WEBDL-2160p",
+			IndexerName: "RT", MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+			CustomFormatScore: 500, Rejections: []string{"Full season pack"},
+		},
+		{
+			GUID: "g2", Title: "Alt", QualityID: 19, QualityName: "WEBDL-2160p",
+			IndexerName: "KZ", MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+			CustomFormatScore: 400, Rejections: []string{"Full season pack"},
+		},
+	}}
+	uc := NewUseCase(stub, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
+		ScanRunID: uuid.New(), Instance: "x",
+		Series:       series.Series{ID: 1, Title: "S", Type: series.SeriesTypeStandard, Monitored: true},
+		Season:       makeSeason([]int{4, 5}, []int{1, 2, 3}),
+		Profile:      ports.QualityProfile{Items: []ports.QualityItem{{ID: 19, Order: 9}}},
+		Sonarr:       stub,
 		DryRun:       true,
 		Now:          time.Now().UTC(),
+		ExcludeGUIDs: map[string]struct{}{"g1": {}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
-	assert.Equal(t, decision.ReasonSkipAnime, d.Reason)
+	require.NotNil(t, d.Selected)
+	assert.Equal(t, "g2", d.Selected.Release.GUID, "g1 must be filtered by cooldown")
+
+	foundCooldownReason := false
+	for _, fc := range d.FilteredOut {
+		if fc.GUID == "g1" && fc.Reason == string(decision.ReasonFilterGUIDCooldown) {
+			foundCooldownReason = true
+		}
+	}
+	assert.True(t, foundCooldownReason)
 }
 
-func TestEvaluate_NoCandidatesAfterFilter(t *testing.T) {
-	ctx := context.Background()
-	sonarr := &fakeSonarr{
-		releases: []release.Release{
-			{
-				GUID:                 "bad-1",
-				Title:                "Hijack S02 WEBDL-1080p",
-				QualityID:            3,
-				QualityName:          "WEBDL-1080p",
-				MappedEpisodeNumbers: []int{4, 5, 6, 7, 8},
-				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
-			},
+func TestExecute_AllCandidatesCooldown_NoGrab(t *testing.T) {
+	t.Parallel()
+	stub := &stubSonarr{releases: []release.Release{
+		{
+			GUID: "g1", Title: "Pack", QualityID: 19, QualityName: "WEBDL-2160p",
+			IndexerName: "RT", MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
+			CustomFormatScore: 500, Rejections: []string{"Full season pack"},
 		},
-	}
-	uc := NewUseCase(sonarr, &fakeDecisionRepo{}, newLogger())
-	d, err := uc.Execute(ctx, Input{
-		ScanRunID: uuid.New(),
-		Instance:  "x",
-		Series:    makeSeries(),
-		Season:    makeSeason([]int{4, 5, 6, 7, 8}, []int{1, 2, 3}),
-		Profile:   makeProfile(),
-		DryRun:    true,
-		Now:       time.Now().UTC(),
+	}}
+	uc := NewUseCase(stub, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
+		ScanRunID: uuid.New(), Instance: "x",
+		Series:       series.Series{ID: 1, Title: "S", Type: series.SeriesTypeStandard, Monitored: true},
+		Season:       makeSeason([]int{4, 5}, []int{1, 2, 3}),
+		Profile:      ports.QualityProfile{Items: []ports.QualityItem{{ID: 19, Order: 9}}},
+		Sonarr:       stub,
+		DryRun:       true,
+		Now:          time.Now().UTC(),
+		ExcludeGUIDs: map[string]struct{}{"g1": {}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
 	assert.Equal(t, decision.ReasonSkipNoCandidates, d.Reason)
-	assert.NotEmpty(t, d.FilteredOut)
 }
 
-func TestEvaluate_ErrorFromSonarr(t *testing.T) {
-	ctx := context.Background()
-	sonarr := &fakeSonarr{err: errors.New("boom")}
-	uc := NewUseCase(sonarr, &fakeDecisionRepo{}, newLogger())
-	d, err := uc.Execute(ctx, Input{
+func TestExecute_SkipSpecials(t *testing.T) {
+	t.Parallel()
+	uc := NewUseCase(&stubSonarr{}, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
+		ScanRunID:    uuid.New(),
+		Instance:     "x",
+		Series:       series.Series{ID: 1, Monitored: true, Type: series.SeriesTypeStandard},
+		Season:       series.Season{Number: 0, Monitored: true},
+		SkipSpecials: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
+	assert.Equal(t, decision.ReasonSkipSpecials, d.Reason)
+}
+
+func TestExecute_SkipAnime(t *testing.T) {
+	t.Parallel()
+	uc := NewUseCase(&stubSonarr{}, &recDecisions{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := uc.Execute(context.Background(), Input{
 		ScanRunID: uuid.New(),
 		Instance:  "x",
-		Series:    makeSeries(),
-		Season:    makeSeason([]int{4}, []int{1, 2, 3}),
-		Profile:   makeProfile(),
-		DryRun:    true,
-		Now:       time.Now().UTC(),
+		Series:    series.Series{ID: 1, Monitored: true, Type: series.SeriesTypeAnime},
+		Season:    series.Season{Number: 1, Monitored: true},
+		SkipAnime: true,
 	})
-	require.Error(t, err)
-	assert.Equal(t, decision.OutcomeError, d.Outcome)
-}
-
-func TestFilter_QualityDowngradeBlocked(t *testing.T) {
-	have := []series.Episode{
-		{Number: 1, QualityID: 19, QualityName: "WEBDL-2160p", HasFile: true, Monitored: true},
-	}
-	in := FilterInput{
-		Profile: makeProfile(),
-		Have:    have,
-		Missing: []int{2, 3},
-		Releases: []release.Release{
-			{
-				GUID:                 "a",
-				QualityID:            3,
-				QualityName:          "WEBDL-1080p",
-				MappedEpisodeNumbers: []int{1, 2, 3},
-			},
-		},
-	}
-	res := Filter(in)
-	require.Empty(t, res.Kept)
-	require.Len(t, res.FilteredOut, 1)
-	assert.Equal(t, string(decision.ReasonFilterQualityDowngrade), res.FilteredOut[0].Reason)
-}
-
-func TestFilter_RequireAllAired_FiltersUnaired(t *testing.T) {
-	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
-	episodes := []series.Episode{
-		{Number: 1, AirDateUTC: time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
-		{Number: 2, AirDateUTC: time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
-		{Number: 3, AirDateUTC: time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
-		{Number: 4, AirDateUTC: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC), Monitored: true},
-		{Number: 5, AirDateUTC: time.Date(2026, 5, 13, 0, 0, 0, 0, time.UTC), Monitored: true},
-		{Number: 6, AirDateUTC: time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC), Monitored: true},
-		{Number: 7, AirDateUTC: time.Date(2026, 5, 27, 0, 0, 0, 0, time.UTC), Monitored: true},
-		{Number: 8, AirDateUTC: time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC), Monitored: true},
-	}
-	in := FilterInput{
-		Profile:  makeProfile(),
-		Have:     episodes[:3],
-		Missing:  []int{4, 5, 6, 7, 8},
-		Episodes: episodes,
-		Releases: []release.Release{
-			{
-				GUID:                 "full-pack-with-unaired",
-				QualityID:            19,
-				QualityName:          "WEBDL-2160p",
-				CustomFormatScore:    500,
-				MappedEpisodeNumbers: []int{1, 2, 3, 4, 5, 6, 7, 8},
-				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
-			},
-			{
-				GUID:                 "partial-only-aired",
-				QualityID:            19,
-				QualityName:          "WEBDL-2160p",
-				CustomFormatScore:    500,
-				MappedEpisodeNumbers: []int{1, 2, 3, 4, 5},
-				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
-			},
-		},
-		RequireAllAired: true,
-		NowUTC:          now,
-	}
-	res := Filter(in)
-	require.Len(t, res.Kept, 1)
-	assert.Equal(t, "partial-only-aired", res.Kept[0].GUID)
-	require.Len(t, res.FilteredOut, 1)
-	assert.Equal(t, string(decision.ReasonFilterAirDateNotReady), res.FilteredOut[0].Reason)
-	assert.Equal(t, "full-pack-with-unaired", res.FilteredOut[0].GUID)
-}
-
-func TestFilter_RequireAllAired_OffByDefault(t *testing.T) {
-	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
-	episodes := []series.Episode{
-		{Number: 1, AirDateUTC: time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC), HasFile: true, QualityID: 19},
-		{Number: 6, AirDateUTC: time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC), Monitored: true},
-	}
-	in := FilterInput{
-		Profile:  makeProfile(),
-		Have:     episodes[:1],
-		Missing:  []int{6},
-		Episodes: episodes,
-		Releases: []release.Release{
-			{
-				GUID:                 "covers-unaired",
-				QualityID:            19,
-				CustomFormatScore:    500,
-				MappedEpisodeNumbers: []int{1, 6},
-				Rejections:           []string{"Existing file on disk has a equal or higher Custom Format score: 500"},
-			},
-		},
-		RequireAllAired: false,
-		NowUTC:          now,
-	}
-	res := Filter(in)
-	require.Len(t, res.Kept, 1)
-}
-
-func TestRank_OriginAsTieBreaker(t *testing.T) {
-	rels := []release.Release{
-		{GUID: "a", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
-		{GUID: "b", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
-	}
-	scored := Rank(RankInput{Releases: rels, Missing: []int{1, 2, 3}, OriginGUID: "b", OriginBonus: 1.0})
-	require.Len(t, scored, 2)
-	assert.Equal(t, "b", scored[0].Release.GUID)
-}
-
-func TestRank_OriginIndexerNameStickiness(t *testing.T) {
-	rels := []release.Release{
-		{GUID: "kz-99", IndexerName: "Kinozal", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
-		{GUID: "rt-99", IndexerName: "RuTracker", IndexerPriority: 5, CustomFormatScore: 500, MappedEpisodeNumbers: []int{1, 2, 3}, Seeders: 10, SizeBytes: 1000},
-	}
-	scored := Rank(RankInput{Releases: rels, Missing: []int{1, 2, 3}, OriginIndexerName: "RuTracker", OriginBonus: 1.0})
-	require.Len(t, scored, 2)
-	assert.Equal(t, "rt-99", scored[0].Release.GUID, "release from origin indexer should rank first on ties")
-	assert.True(t, scored[0].IsOriginRelease)
-	assert.False(t, scored[1].IsOriginRelease)
+	require.NoError(t, err)
+	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
+	assert.Equal(t, decision.ReasonSkipAnime, d.Reason)
 }

@@ -1,9 +1,9 @@
 package sonarr
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,8 +18,6 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
-
-var ErrUnexpectedStatus = errors.New("sonarr returned unexpected status")
 
 type Client struct {
 	name    string
@@ -49,18 +47,12 @@ func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter
 
 func (c *Client) Name() string { return c.name }
 
-func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out any) error {
-	full := c.baseURL + endpoint
-	if query != nil {
-		full += "?" + query.Encode()
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
+func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out any) error {
 	req.Header.Set("X-Api-Key", c.apiKey)
 	req.Header.Set("Accept", "application/json")
+	if req.Body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	if c.limiter != nil {
 		if err := c.limiter.Wait(ctx); err != nil {
@@ -84,7 +76,7 @@ func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("%w: %s status=%d body=%s", ErrUnexpectedStatus, endpoint, resp.StatusCode, string(body))
+		return &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
 	}
 
 	if out == nil {
@@ -94,6 +86,31 @@ func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out
 		return fmt.Errorf("decode %s: %w", endpoint, err)
 	}
 	return nil
+}
+
+func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out any) error {
+	full := c.baseURL + endpoint
+	if query != nil {
+		full += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", endpoint, err)
+	}
+	return c.do(ctx, req, endpoint, out)
+}
+
+func (c *Client) post(ctx context.Context, endpoint string, body any, out any) error {
+	full := c.baseURL + endpoint
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode body %s: %w", endpoint, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, full, bytes.NewReader(buf))
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", endpoint, err)
+	}
+	return c.do(ctx, req, endpoint, out)
 }
 
 func (c *Client) SystemStatus(ctx context.Context) (ports.SystemStatus, error) {
@@ -280,6 +297,14 @@ func (c *Client) GrabHistory(ctx context.Context, seriesID int) ([]ports.History
 		out = append(out, ev)
 	}
 	return out, nil
+}
+
+// ForceGrab calls POST /api/v3/release — the endpoint Sonarr UI uses for
+// "Override and add to Download Queue". On success Sonarr returns 2xx; on
+// permanent failure 4xx; on Sonarr internal error 5xx.
+func (c *Client) ForceGrab(ctx context.Context, guid string, indexerID int) error {
+	body := forceGrabRequest{GUID: guid, IndexerID: indexerID}
+	return c.post(ctx, "/api/v3/release", body, nil)
 }
 
 func toSeries(d seriesDTO) series.Series {

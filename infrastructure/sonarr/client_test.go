@@ -2,12 +2,15 @@ package sonarr
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,4 +115,79 @@ func TestClient_UnauthorizedWhenMissingKey(t *testing.T) {
 	c := New("t", srv.URL, "", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.SystemStatus(context.Background())
 	require.Error(t, err)
+	var se *StatusError
+	assert.True(t, errors.As(err, &se))
+	assert.Equal(t, http.StatusUnauthorized, se.Status)
+}
+
+func TestClient_ForceGrab_Success(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		gotBody  forceGrabRequest
+		gotPath  string
+		gotKey   string
+		gotCType string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		_ = json.Unmarshal(body, &gotBody)
+		gotPath = r.URL.Path
+		gotKey = r.Header.Get("X-Api-Key")
+		gotCType = r.Header.Get("Content-Type")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.ForceGrab(context.Background(), "abc", 3)
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "/api/v3/release", gotPath)
+	assert.Equal(t, "abc", gotBody.GUID)
+	assert.Equal(t, 3, gotBody.IndexerID)
+	assert.Equal(t, "secret", gotKey)
+	assert.Equal(t, "application/json", gotCType)
+}
+
+func TestClient_ForceGrab_4xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"bad guid"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.ForceGrab(context.Background(), "abc", 3)
+	require.Error(t, err)
+	assert.True(t, Is4xx(err))
+	assert.False(t, IsTransient(err))
+}
+
+func TestClient_ForceGrab_5xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.ForceGrab(context.Background(), "abc", 3)
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
+	assert.False(t, Is4xx(err))
+}
+
+func TestClient_ForceGrab_Timeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 50*time.Millisecond, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.ForceGrab(context.Background(), "abc", 3)
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
 }

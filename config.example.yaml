@@ -28,16 +28,20 @@ database:
     max_idle_conns: 5
     conn_max_lifetime: 5m
 
-dry_run: true
+# Global default. Each instance can override via sonarr_instances[N].dry_run.
+dry_run: false
 
 scan:
   shutdown_grace: 60s
+  cooldown_sweep: 15m
 
 sonarr_instances:
   - name: sonarr-main
     url: ${SONARR_MAIN_URL}
     api_key: ${SONARR_MAIN_API_KEY}
     timeout: 30s
+    # Optional per-instance override of the global dry_run. Instance wins.
+    # dry_run: false
     tags:
       mode: all
       include: []
@@ -52,6 +56,15 @@ sonarr_instances:
       origin_bonus: 1.0
     limits:
       scan_max_series: 100
+      max_grabs_per_scan: 10
     rate_limit:
       rps: 5
       burst: 10
+    cooldown:
+      mode: smart
+      series_after_grab: 24h
+      guid_after_failed_grab: 72h
+    retry:
+      max_attempts: 3
+      initial_backoff: 1s
+      max_backoff: 30s

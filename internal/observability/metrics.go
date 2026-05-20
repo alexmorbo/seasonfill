@@ -10,6 +10,7 @@ const (
 	MetricScansTotal             = `seasonfill_scans_total`
 	MetricSeriesEvaluatedTotal   = `seasonfill_series_evaluated_total`
 	MetricGrabsTotal             = `seasonfill_grabs_total`
+	MetricGrabAttemptsTotal      = `seasonfill_grab_attempts_total`
 	MetricSonarrAPIRequestsTotal = `seasonfill_sonarr_api_requests_total`
 	MetricScanDurationSeconds    = `seasonfill_scan_duration_seconds`
 	MetricSonarrAPIDuration      = `seasonfill_sonarr_api_duration_seconds`
@@ -17,6 +18,7 @@ const (
 	MetricCoverageCount          = `seasonfill_coverage_count`
 	MetricInstancesAvailable     = `seasonfill_instances_available`
 	MetricActiveScans            = `seasonfill_active_scans`
+	MetricCooldownActive         = `seasonfill_cooldown_active`
 )
 
 func ScanCompleted(instance, status string) {
@@ -28,7 +30,13 @@ func SeriesEvaluated(instance, decision string) {
 }
 
 func GrabRecorded(instance, indexer, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_grabs_total{instance="` + instance + `",indexer="` + indexer + `",status="` + status + `"}`).Inc()
+	metrics.GetOrCreateCounter(`seasonfill_grabs_total{instance="` + instance + `",indexer="` + indexer + `",result="` + status + `"}`).Inc()
+}
+
+// GrabAttempt counts individual force-grab attempts with their classification:
+// "grabbed", "retried", or "failed".
+func GrabAttempt(instance, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_grab_attempts_total{instance="` + instance + `",status="` + status + `"}`).Inc()
 }
 
 func SonarrAPIRequest(instance, endpoint, status string) {
@@ -66,6 +74,11 @@ func IncActiveScans(instance string) {
 
 func DecActiveScans(instance string) {
 	metrics.GetOrCreateGauge(`seasonfill_active_scans{instance="`+instance+`"}`, nil).Dec()
+}
+
+// SetCooldownActive records the current count of active cooldowns per scope.
+func SetCooldownActive(instance, scope string, count int) {
+	metrics.GetOrCreateGauge(`seasonfill_cooldown_active{instance="`+instance+`",scope="`+scope+`"}`, nil).Set(float64(count))
 }
 
 func WritePrometheus(w io.Writer) {
