@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
@@ -22,7 +23,15 @@ type Server struct {
 	logger *slog.Logger
 }
 
-func NewServer(cfg config.HTTPConfig, scanUC *scan.UseCase, checker *healthcheck.Checker, logger *slog.Logger) *Server {
+func NewServer(
+	cfg config.HTTPConfig,
+	scanUC *scan.UseCase,
+	checker *healthcheck.Checker,
+	scanRepo ports.ScanRepository,
+	decisionRepo ports.DecisionRepository,
+	grabRepo ports.GrabRepository,
+	logger *slog.Logger,
+) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -31,6 +40,7 @@ func NewServer(cfg config.HTTPConfig, scanUC *scan.UseCase, checker *healthcheck
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC)
 	instancesHandler := handlers.NewInstancesHandler(checker)
+	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
@@ -42,6 +52,10 @@ func NewServer(cfg config.HTTPConfig, scanUC *scan.UseCase, checker *healthcheck
 	}
 	api.POST("/scan", scanHandler.Trigger)
 	api.GET("/instances", instancesHandler.List)
+	api.GET("/scans", auditHandler.ListScans)
+	api.GET("/scans/:id", auditHandler.GetScan)
+	api.GET("/decisions", auditHandler.ListDecisions)
+	api.GET("/grabs", auditHandler.ListGrabs)
 
 	srv := &http.Server{
 		Addr:         cfg.Bind,

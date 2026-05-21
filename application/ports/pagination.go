@@ -12,6 +12,7 @@ import (
 var (
 	ErrInvalidCursor = errors.New("invalid cursor")
 	ErrInvalidLimit  = errors.New("invalid limit")
+	ErrNotFound      = errors.New("not found")
 )
 
 // MaxListLimit is the hard upper bound on Pagination.Limit at the port edge.

@@ -40,7 +40,7 @@ func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanR
 	var model database.ScanRunModel
 	if err := r.db.WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ScanRecord{}, ErrNotFound
+			return ports.ScanRecord{}, ports.ErrNotFound
 		}
 		return ports.ScanRecord{}, fmt.Errorf("get scan: %w", err)
 	}
@@ -100,8 +100,6 @@ func (r *ScanRepository) List(ctx context.Context, f ports.ScanFilter, p ports.P
 	}
 	return out, next, nil
 }
-
-var ErrNotFound = errors.New("scan not found")
 
 func toScanModel(r ports.ScanRecord) database.ScanRunModel {
 	m := database.ScanRunModel{

@@ -61,7 +61,7 @@ func TestScanRepository_GetByID_NotFound(t *testing.T) {
 
 	_, err := repo.GetByID(context.Background(), uuid.New())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotFound))
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
 }
 
 func TestScanRepository_Update(t *testing.T) {

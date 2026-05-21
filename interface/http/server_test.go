@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/decision"
+	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
@@ -74,6 +75,13 @@ func (noopDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagin
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+type noopGrabRepo struct{}
+
+func (noopGrabRepo) Create(context.Context, grab.Record) error { return nil }
+func (noopGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagination) ([]grab.Record, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
+
 func buildServer(t *testing.T) *Server {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -100,7 +108,7 @@ func buildServer(t *testing.T) *Server {
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
-	}, scanUC, checker, lg)
+	}, scanUC, checker, noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
 }
 
 func TestNewServer_DoesNotPanic(t *testing.T) {

@@ -123,7 +123,7 @@ func run() error {
 		WithOrigins(originRepo).
 		WithHealthRegistry(checker.Registry())
 
-	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, checker, log)
+	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, checker, scanRepo, decisionRepo, grabRepo, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep
