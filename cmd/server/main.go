@@ -26,6 +26,7 @@ import (
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
 func main() {
@@ -75,14 +76,31 @@ func run() error {
 	originRepo := repositories.NewOriginReleaseRepository(db)
 
 	// Single shared global limiter (PRD §8.1). Nil = unlimited (N-new-1).
-	globalLimiter := ratelimit.NewFromRPM(cfg.GlobalRateLimit.RPM, cfg.GlobalRateLimit.Burst)
+	// Observer wires the PRD §9.2 throttle counter at scope="global"; the
+	// limiter itself stays metric-free (dependency rule).
+	globalLimiter := ratelimit.NewFromRPMWithOptions(
+		cfg.GlobalRateLimit.RPM,
+		cfg.GlobalRateLimit.Burst,
+		ratelimit.WithObserver("global", func(scope string) {
+			observability.IncRateLimitThrottled("", scope)
+		}),
+	)
 
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
 	cfgByName := make(map[string]config.HealthCheckConfig, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		// N-new-1: New(0, 0) returns nil (unlimited).
-		instLimiter := ratelimit.New(sc.RateLimit.RPS, sc.RateLimit.Burst)
+		// N-new-1: New(0, 0) returns nil (unlimited). Per-instance observer
+		// binds the instance name to the closure so the limiter can stay
+		// instance-agnostic.
+		instanceName := sc.Name
+		instLimiter := ratelimit.NewWithOptions(
+			sc.RateLimit.RPS,
+			sc.RateLimit.Burst,
+			ratelimit.WithObserver("per_instance", func(scope string) {
+				observability.IncRateLimitThrottled(instanceName, scope)
+			}),
+		)
 		c := sonarr.NewWithOptions(sc.Name, sc.URL, sc.APIKey, sc.Timeout, instLimiter, log,
 			sonarr.WithGlobalLimiter(globalLimiter))
 		sonarrClients = append(sonarrClients, c)

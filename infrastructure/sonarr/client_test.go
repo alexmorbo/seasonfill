@@ -284,3 +284,40 @@ func TestClient_NilLimitersAreNoOp(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestClient_GlobalLimiterObserverFiresOnBlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	var (
+		mu     sync.Mutex
+		calls  int
+		scopes []string
+	)
+	global := ratelimit.NewWithOptions(5, 1, ratelimit.WithObserver("global", func(s string) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		scopes = append(scopes, s)
+	}))
+	require.NotNil(t, global)
+
+	c := NewWithOptions("test", srv.URL, "k", 5*time.Second, nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithGlobalLimiter(global))
+
+	// First call drains the burst — no observer fire.
+	_, err := c.SystemStatus(context.Background())
+	require.NoError(t, err)
+	// Second call must wait ~200 ms — observer fires.
+	_, err = c.SystemStatus(context.Background())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, calls, "observer should fire exactly once for the blocked call")
+	assert.Equal(t, []string{"global"}, scopes)
+}

@@ -137,6 +137,18 @@ func TestSetInstanceLastCheck(t *testing.T) {
 	assert.Contains(t, body, `seasonfill_instance_last_check_timestamp{instance="obs_test_lc"}`)
 }
 
+func TestIncRateLimitThrottled_RegistersAndIncrements(t *testing.T) {
+	IncRateLimitThrottled("obs_test_rl_a", "per_instance")
+	IncRateLimitThrottled("obs_test_rl_a", "per_instance")
+	IncRateLimitThrottled("", "global")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_rate_limit_throttled_total")
+	assert.Contains(t, body, `instance="obs_test_rl_a"`)
+	assert.Contains(t, body, `scope="per_instance"`)
+	assert.Contains(t, body, `instance=""`)
+	assert.Contains(t, body, `scope="global"`)
+}
+
 func TestMetricConstants_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 	consts := []string{
@@ -155,6 +167,7 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		MetricInstanceHealth,
 		MetricInstanceHealthTransitions,
 		MetricInstanceLastCheckTimestamp,
+		MetricRateLimitThrottled,
 	}
 	for _, c := range consts {
 		assert.NotEmpty(t, c)

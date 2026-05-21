@@ -22,6 +22,7 @@ const (
 	MetricInstanceHealth             = `seasonfill_instance_health`
 	MetricInstanceHealthTransitions  = `seasonfill_instance_health_transitions_total`
 	MetricInstanceLastCheckTimestamp = `seasonfill_instance_last_check_timestamp`
+	MetricRateLimitThrottled         = `seasonfill_rate_limit_throttled_total`
 )
 
 func ScanCompleted(instance, status string) {
@@ -101,6 +102,13 @@ func IncInstanceHealthTransition(instance, from, to string) {
 // check.
 func SetInstanceLastCheck(instance string, unixSec int64) {
 	metrics.GetOrCreateGauge(`seasonfill_instance_last_check_timestamp{instance="`+instance+`"}`, nil).Set(float64(unixSec))
+}
+
+// IncRateLimitThrottled records that a rate-limited call would have blocked.
+// scope is "per_instance" or "global"; instance is the Sonarr instance name
+// for the per-instance limiter, or "" for the shared global limiter.
+func IncRateLimitThrottled(instance, scope string) {
+	metrics.GetOrCreateCounter(`seasonfill_rate_limit_throttled_total{instance="` + instance + `",scope="` + scope + `"}`).Inc()
 }
 
 func WritePrometheus(w io.Writer) {
