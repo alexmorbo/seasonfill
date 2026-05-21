@@ -1,0 +1,29 @@
+{{- /*
+PodDisruptionBudget. Default off — for a 1-replica singleton the PDB
+is largely cosmetic: either you allow one pod to be evicted (and the
+service goes down briefly) or you forbid it (and node drains block).
+Operators who want explicit eviction policy for compliance reasons can
+opt in.
+
+Recommended: maxUnavailable: 1 — voluntary disruptions ARE allowed
+(otherwise node drain would never complete). Operators who want zero
+voluntary disruption can set maxUnavailable: 0, but that will block
+node maintenance.
+*/ -}}
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "seasonfill.fullname" . }}
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+spec:
+  {{- if hasKey .Values.podDisruptionBudget "minAvailable" }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "seasonfill.selectorLabels" . | nindent 6 }}
+{{- end }}

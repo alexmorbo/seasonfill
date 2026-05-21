@@ -1,0 +1,54 @@
+{{- /*
+Ingress. Default off. When enabled, .Values.ingress.hosts[0].host is
+required so the operator never accidentally publishes an empty-host
+Ingress that swallows all traffic into the namespace.
+
+The `className` block ships first (Kubernetes 1.18+) so this works on
+modern clusters; the `kubernetes.io/ingress.class` annotation fallback
+is not emitted here — supply it via `ingress.annotations` if needed.
+*/ -}}
+{{- if .Values.ingress.enabled -}}
+{{- $svcName := include "seasonfill.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $svcName }}
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- range . }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- with .secretName }}
+      secretName: {{ . }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ required "ingress.hosts[].host is required when ingress.enabled is true" .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,48 @@
+{{- /*
+Helm test hook. After `helm install` (or `helm upgrade`), running
+  helm test <release-name>
+spins up this Pod, which fires `wget --spider` at the Service's
+/healthz endpoint. Exit code 0 from wget = test passed.
+
+Hook annotations:
+  - "helm.sh/hook": test — registers this Pod as a test hook (not a
+    regular resource that lives with the release).
+  - "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    — clean up between runs and after success. Failed test pods stick
+    around for inspection.
+
+Image: busybox:1.36 (~1.4 MB). `wget --spider` is HEAD-equivalent for
+this purpose — it returns non-zero on any 4xx/5xx. The cluster must
+be able to pull busybox from Docker Hub OR the operator must mirror
+to an internal registry. Air-gapped clusters: see `image` override.
+*/ -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "seasonfill.fullname" . }}-test-connection"
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: "{{ .Values.tests.image.repository | default "busybox" }}:{{ .Values.tests.image.tag | default "1.36" }}"
+      imagePullPolicy: {{ .Values.tests.image.pullPolicy | default "IfNotPresent" }}
+      command:
+        - wget
+      args:
+        - --spider
+        - -S
+        - "http://{{ include "seasonfill.fullname" . }}:{{ .Values.service.port }}/healthz"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        capabilities:
+          drop:
+            - ALL

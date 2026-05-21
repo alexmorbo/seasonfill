@@ -216,3 +216,103 @@ config:
   globalRateLimit:
     rpm: 30
     burst: 10
+
+# ----------------------------------------------------------------------
+# Persistence — ONLY relevant when config.database.driver == "sqlite".
+# When enabled, a ReadWriteOnce PVC backs /data/seasonfill.db so the
+# database survives pod restarts. Postgres mode ignores this block.
+# RWO is intentional: singleton + Recreate strategy from 006d.
+# ----------------------------------------------------------------------
+persistence:
+  enabled: false
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  # -- StorageClass override. Empty = cluster default. "-" = explicit "".
+  storageClass: ""
+  # -- Pre-bound PV name. Empty = dynamic provisioning.
+  volumeName: ""
+  annotations: {}
+
+# ----------------------------------------------------------------------
+# ServiceMonitor — Prometheus/VictoriaMetrics operator scrape config
+# for /metrics. The VM operator accepts monitoring.coreos.com/v1.
+# ----------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  # -- Operator-required selector (e.g. `release: prometheus`).
+  labels: {}
+  annotations: {}
+  path: /metrics
+  interval: 30s
+  scrapeTimeout: 10s
+  honorLabels: ""
+  namespaceSelector: {}
+  metricRelabelings: []
+  relabelings: []
+
+# ----------------------------------------------------------------------
+# Ingress — optional. When enabled, hosts[0].host is required.
+# ----------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  # Example:
+  # hosts:
+  #   - host: seasonfill.example.com
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  tls: []
+  # Example:
+  # tls:
+  #   - secretName: seasonfill-tls
+  #     hosts: [seasonfill.example.com]
+
+# ----------------------------------------------------------------------
+# PodDisruptionBudget — singleton-aware (PDB is informational at best
+# for replicas=1). Default off.
+# ----------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: false
+  # -- Mutually exclusive with minAvailable. 1 = drains allowed.
+  maxUnavailable: 1
+  # minAvailable: 1
+
+# ----------------------------------------------------------------------
+# NetworkPolicy — default-deny ingress + egress with explicit allows.
+# Operator must supply selectors for ingress and for Sonarr/Postgres
+# egress, OR set egress.allowAll: true to short-circuit.
+# ----------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  ingress:
+    from: []
+    # Example:
+    # from:
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    allowAll: false
+    to: []
+    # Example:
+    # to:
+    #   - to:
+    #       - podSelector:
+    #           matchLabels:
+    #             app.kubernetes.io/name: sonarr
+    #     ports:
+    #       - {protocol: TCP, port: 8989}
+
+# ----------------------------------------------------------------------
+# Helm test image — used by templates/tests/test-connection.yaml.
+# ----------------------------------------------------------------------
+tests:
+  image:
+    repository: busybox
+    tag: "1.36"
+    pullPolicy: IfNotPresent

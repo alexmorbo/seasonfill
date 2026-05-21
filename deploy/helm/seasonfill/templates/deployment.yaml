@@ -70,12 +70,21 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
       volumes:
         - name: config
           configMap:
             name: {{ include "seasonfill.fullname" . }}-config
         - name: tmp
           emptyDir: {}
+        - name: data
+          {{- if and .Values.persistence.enabled (eq .Values.config.database.driver "sqlite") }}
+          persistentVolumeClaim:
+            claimName: {{ include "seasonfill.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

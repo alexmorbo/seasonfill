@@ -1,0 +1,54 @@
+{{- /*
+ServiceMonitor for Prometheus / VictoriaMetrics operator scraping.
+
+The homelab cluster runs VictoriaMetrics with the VM operator, which
+understands `monitoring.coreos.com/v1` ServiceMonitor CRDs. If a
+deployment uses native VMServiceScrape resources instead, this template
+should be disabled and a separate VMServiceScrape supplied out of band.
+
+The /metrics endpoint is served by the same HTTP server as /healthz —
+see interface/http/server.go ("r.GET(\"/metrics\", handlers.MetricsHandler())").
+No port split; the named "http" port from the Service is correct.
+*/ -}}
+{{- if .Values.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "seasonfill.fullname" . }}
+  {{- with .Values.serviceMonitor.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "seasonfill.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceMonitor.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.path | default "/metrics" }}
+      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | default "10s" }}
+      {{- with .Values.serviceMonitor.honorLabels }}
+      honorLabels: {{ . }}
+      {{- end }}
+      {{- with .Values.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

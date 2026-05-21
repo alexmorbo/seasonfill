@@ -1,0 +1,76 @@
+{{- /*
+NetworkPolicy. Default off — meaningful only on clusters whose CNI
+enforces NetworkPolicy (Cilium, Calico, etc.). Default-deny ingress +
+egress, with explicit allows.
+
+Ingress: any selectors the operator supplies under
+.Values.networkPolicy.ingress.from. Typical homelab setup: allow from
+the ingress-nginx namespace.
+
+Egress is explicit:
+  - DNS to kube-dns (UDP 53 + TCP 53).
+  - Postgres (TCP 5432) when configured.
+  - Sonarr instances — IPs/CIDRs unknown at chart-render time, so the
+    operator supplies selectors or CIDR blocks. We do NOT try to derive
+    these from .Values.sonarrInstances[].url (URL parsing in Helm is
+    fragile and Sonarr addresses are often Service DNS names whose
+    pods are tagged with arbitrary labels).
+
+If the operator opts in but provides no egress rules, ALL egress is
+denied except DNS — the service will fail to reach Sonarr. The
+operator is expected to supply rules or set
+.Values.networkPolicy.egress.allowAll: true to short-circuit.
+*/ -}}
+{{- if .Values.networkPolicy.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "seasonfill.fullname" . }}
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "seasonfill.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- /*
+  Ingress rules are emitted ONLY when the operator supplies at least one peer
+  selector under networkPolicy.ingress.from. An empty list (the default)
+  produces NO ingress rule: combined with policyTypes: [Ingress, Egress]
+  declared above, this enforces default-deny ingress — no incoming traffic
+  is permitted. Setting from: [] or leaving it unset is intentional and
+  means "block all ingress".
+  */ -}}
+  {{- if .Values.networkPolicy.ingress.from }}
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+  {{- end }}
+  egress:
+    {{- if .Values.networkPolicy.egress.allowAll }}
+    - {}
+    {{- else }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.networkPolicy.egress.to }}
+    {{- range . }}
+    - {{ toYaml . | nindent 6 | trim }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+{{- end }}

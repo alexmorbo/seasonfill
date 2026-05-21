@@ -76,3 +76,12 @@ Example: "sonarr-anime" -> "SONARR_ANIME".
 {{- define "seasonfill.envName" -}}
 {{- . | replace "-" "_" | upper }}
 {{- end }}
+
+{{/*
+Name of the PersistentVolumeClaim backing /data when sqlite persistence
+is enabled. Derived from fullname with a `-data` suffix so it is stable
+across upgrades and easy to identify alongside the Deployment.
+*/}}
+{{- define "seasonfill.pvcName" -}}
+{{- printf "%s-data" (include "seasonfill.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
