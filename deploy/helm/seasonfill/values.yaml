@@ -128,6 +128,14 @@ secrets:
   # -- PostgreSQL DSN used when config.database.driver == "postgres".
   # The chart leaves this empty by default; required only in postgres mode.
   postgresDSN: ""
+  # -- Optional X-Api-Key secret for the Sonarr Connect -> Webhook receiver
+  # (PRD §13.1, story 007c). Empty default = handler accepts ANY source
+  # and logs `webhook_auth_disabled` once at startup (rely on
+  # NetworkPolicy). Set to a value distinct from .Values.secrets.apiKey
+  # for privilege separation. Exposed inside the pod as env var
+  # SEASONFILL_WEBHOOK_SECRET; interpolated into config.yaml's
+  # webhook.secret field.
+  webhookSecret: ""
 
 # ----------------------------------------------------------------------
 # Sonarr instances — one entry per Sonarr server. Each entry produces
@@ -217,6 +225,16 @@ config:
     rpm: 30
     burst: 10
 
+  # -- Inbound Sonarr Connect -> Webhook receiver (story 007c, PRD §13.1).
+  # The auth secret lives in .Values.secrets.webhookSecret so it never
+  # leaks into the ConfigMap; this block holds non-secret knobs.
+  webhook:
+    # -- Defensive allow-list of instance names in the URL `:instance_name`
+    # segment. Empty = accept any (back-compat single-instance). Must
+    # contain every .Values.sonarrInstances[].name webhook traffic targets.
+    # Mismatched names return 404 (per 007c1).
+    allowedInstances: []
+
 # ----------------------------------------------------------------------
 # Persistence — ONLY relevant when config.database.driver == "sqlite".
 # When enabled, a ReadWriteOnce PVC backs /data/seasonfill.db so the
@@ -266,6 +284,12 @@ ingress:
   #     paths:
   #       - path: /
   #         pathType: Prefix
+  #
+  # Privilege-separation toggle: set webhookOnly: true to restrict the
+  # Ingress to ONLY /api/v1/webhook (paths[] ignored). Useful when
+  # exposing publicly for Sonarr delivery but keeping admin routes
+  # internal. Default false preserves 006e behavior.
+  webhookOnly: false
   tls: []
   # Example:
   # tls:
@@ -296,6 +320,17 @@ networkPolicy:
     #   - namespaceSelector:
     #       matchLabels:
     #         kubernetes.io/metadata.name: ingress-nginx
+  # -- Additional ingress sources allowed to reach the webhook endpoint
+  # (TCP 8080). Opt-in (default empty); typical homelab setup allows
+  # the Sonarr namespace. Same peer shape as `ingress.from`. Rendered
+  # as a SEPARATE ingress rule (cosmetic split — kube ORs the rules)
+  # so operator intent is visible in `kubectl describe networkpolicy`.
+  webhookSources: []
+  # Example:
+  # webhookSources:
+  #   - namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: sonarr
   egress:
     allowAll: false
     to: []

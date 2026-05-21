@@ -37,19 +37,34 @@ spec:
     - Egress
   {{- /*
   Ingress rules are emitted ONLY when the operator supplies at least one peer
-  selector under networkPolicy.ingress.from. An empty list (the default)
-  produces NO ingress rule: combined with policyTypes: [Ingress, Egress]
-  declared above, this enforces default-deny ingress — no incoming traffic
-  is permitted. Setting from: [] or leaving it unset is intentional and
-  means "block all ingress".
+  selector under networkPolicy.ingress.from OR networkPolicy.webhookSources.
+  An empty list for both (the default) produces NO ingress rule: combined
+  with policyTypes: [Ingress, Egress] declared above, this enforces
+  default-deny ingress — no incoming traffic is permitted. Setting both
+  empty or unset is intentional and means "block all ingress".
+
+  Two rules render when both lists are non-empty: a general rule for the
+  `ingress.from` peers, and a webhook-only rule for the `webhookSources`
+  peers (e.g., the Sonarr namespace). Both target TCP 8080. The split is
+  cosmetic at the policy level — Kubernetes ORs the two rules — but it
+  documents operator intent: admin operators vs Sonarr webhook callers.
   */ -}}
-  {{- if .Values.networkPolicy.ingress.from }}
+  {{- if or .Values.networkPolicy.ingress.from .Values.networkPolicy.webhookSources }}
   ingress:
+    {{- if .Values.networkPolicy.ingress.from }}
     - from:
         {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
       ports:
         - protocol: TCP
           port: 8080
+    {{- end }}
+    {{- if .Values.networkPolicy.webhookSources }}
+    - from:
+        {{- toYaml .Values.networkPolicy.webhookSources | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
   {{- end }}
   egress:
     {{- if .Values.networkPolicy.egress.allowAll }}

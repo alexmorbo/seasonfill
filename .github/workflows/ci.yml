@@ -149,9 +149,12 @@ jobs:
           cat > /tmp/values-ci.yaml <<'EOF'
           secrets:
             apiKey: ci
+            webhookSecret: testwebhook
           config:
             database:
               driver: sqlite
+            webhook:
+              allowedInstances: [main]
           sonarrInstances:
             - name: main
               url: http://example
@@ -222,6 +225,29 @@ jobs:
           $base --set podDisruptionBudget.enabled=true | grep -q "kind: PodDisruptionBudget"
 
           $base --set networkPolicy.enabled=true | grep -q "kind: NetworkPolicy"
+
+      - name: helm template (webhook keys render)
+        run: |
+          set -e
+          helm template seasonfill-test deploy/helm/seasonfill \
+            -f /tmp/values-ci.yaml > /tmp/render-webhook.yaml
+          grep -q "SEASONFILL_WEBHOOK_SECRET" /tmp/render-webhook.yaml
+          grep -q "allowed_instances:" /tmp/render-webhook.yaml
+          grep -E '^\s+- "main"$' /tmp/render-webhook.yaml
+
+          # webhookOnly Ingress collapses paths to /api/v1/webhook.
+          helm template seasonfill-test deploy/helm/seasonfill \
+            -f /tmp/values-ci.yaml \
+            --set ingress.enabled=true --set ingress.webhookOnly=true \
+            --set ingress.hosts[0].host=seasonfill.example.com \
+            | grep -q "path: /api/v1/webhook"
+
+          # NetworkPolicy webhookSources adds the second ingress rule.
+          helm template seasonfill-test deploy/helm/seasonfill \
+            -f /tmp/values-ci.yaml \
+            --set networkPolicy.enabled=true \
+            --set 'networkPolicy.webhookSources[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=sonarr' \
+            | grep -q "kubernetes.io/metadata.name: sonarr"
 
       - name: helm template (PVC absent in postgres mode even with persistence on)
         run: |

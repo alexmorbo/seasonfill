@@ -46,6 +46,13 @@ data:
       rpm: {{ .Values.config.globalRateLimit.rpm }}
       burst: {{ .Values.config.globalRateLimit.burst }}
 
+    webhook:
+      secret: ${SEASONFILL_WEBHOOK_SECRET}
+      allowed_instances:
+        {{- range .Values.config.webhook.allowedInstances }}
+        - {{ . | quote }}
+        {{- end }}
+
     sonarr_instances:
     {{- range .Values.sonarrInstances }}
       - name: {{ .name | quote }}

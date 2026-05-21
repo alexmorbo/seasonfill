@@ -41,6 +41,15 @@ spec:
     - host: {{ required "ingress.hosts[].host is required when ingress.enabled is true" .host | quote }}
       http:
         paths:
+          {{- if $.Values.ingress.webhookOnly }}
+          - path: /api/v1/webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- else }}
           {{- range .paths }}
           - path: {{ .path }}
             pathType: {{ .pathType | default "Prefix" }}
@@ -49,6 +58,7 @@ spec:
                 name: {{ $svcName }}
                 port:
                   number: {{ $svcPort }}
+          {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

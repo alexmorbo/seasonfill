@@ -62,6 +62,125 @@ Instance overrides win over the global flag, so rollouts can proceed one
 Sonarr at a time. See `documentation/00-design-thoughts.md` §7.1 for the
 full design rationale.
 
+## Webhook setup
+
+Seasonfill receives a Sonarr Connect → Webhook callback so it can close
+the loop on each force-grab: `grabbed → imported` on success, `grabbed
+→ import_failed` (plus a 48h guid cooldown) on failure. Without the
+webhook `grab_records` rows stay in `grabbed` forever and the
+import-failed cooldown never fires — seasonfill may re-grab the same
+broken release on the next scan.
+
+### 1. Deploy with the webhook enabled
+
+Use a webhook secret distinct from `.Values.secrets.apiKey` — the
+admin key and webhook secret authenticate disjoint surfaces (the 007c1
+isolation fix mounts the webhook route outside the admin auth group).
+
+```yaml
+# values.yaml
+secrets:
+  apiKey: "<long-random-admin-key>"
+  webhookSecret: "<different-long-random-webhook-key>"
+
+config:
+  webhook:
+    # Must contain every sonarrInstances[].name you point Sonarr at.
+    # Mismatched names return 404.
+    allowedInstances: [main]
+
+ingress:
+  enabled: true
+  hosts:
+    - host: seasonfill.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: seasonfill-tls
+      hosts: [seasonfill.example.com]
+  # Optional: restrict the public Ingress to ONLY /api/v1/webhook
+  # and keep admin routes reachable only from inside the cluster.
+  # webhookOnly: true
+
+networkPolicy:
+  enabled: true
+  ingress:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+  # Allow Sonarr's namespace to reach :8080 directly (in-cluster,
+  # bypassing the Ingress). Either ingress path is acceptable.
+  webhookSources:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: sonarr
+```
+
+Empty `webhookSecret` is legal: the 007c handler logs
+`webhook_auth_disabled` once at startup and accepts any source. In
+that mode the NetworkPolicy `webhookSources` allow-list is the only
+gate — do NOT combine empty `webhookSecret` with a public Ingress.
+
+### 2. Configure Sonarr Connect → Webhook
+
+In each Sonarr instance: **Settings → Connect → + → Webhook**.
+
+**Name**: e.g., `Seasonfill`.
+
+**Notification Triggers** — enable exactly these three; everything
+else is silently dropped by the 007a mapper:
+
+- [x] **On Grab** — forward-compat; logged and dropped today.
+- [x] **On Import Complete** *(Sonarr v4)* — triggers
+      `grabbed → imported`.
+- [x] **On Manual Interaction Required** — triggers
+      `grabbed → import_failed` + 48h guid cooldown. Internally also
+      aliased to `DownloadFailure` / `ImportFailure` for older Sonarr
+      builds.
+
+**URL**: `https://seasonfill.example.com/api/v1/webhook/sonarr/main`
+(replace `main` with the matching `sonarrInstances[].name` — the URL
+path is the trust boundary, not the JSON body's `instanceName`).
+**Method**: `POST`. **Username/Password**: leave blank.
+
+**Headers** *(Sonarr v4+)* — add one custom header:
+
+| Name | Value |
+|------|-------|
+| `X-Api-Key` | the value of `.Values.secrets.webhookSecret` |
+
+Older Sonarr builds without a Headers tab must rely on NetworkPolicy
+(`webhookSources`) as the gate.
+
+Click **Test** → expect `200 OK {"ok": true}` and a green checkmark.
+**Save**.
+
+### 3. Verify end-to-end
+
+After the next force-grab, watch the seasonfill logs for a
+`webhook_event_received` line followed by `webhook_event_imported`
+(success) or `webhook_event_import_failed` (failure → 48h guid
+cooldown). The `grab_records` row transitions to the terminal state.
+
+If the trigger never fires: check Sonarr's Settings → Connect →
+Webhook → row → Errors tab; confirm the URL `:instance_name` matches
+both `.Values.config.webhook.allowedInstances` and a
+`sonarrInstances[].name` (mismatch returns 404); confirm the
+`X-Api-Key` header matches `.Values.secrets.webhookSecret` (mismatch
+returns 401).
+
+### Security recommendation
+
+Use a webhook secret distinct from the admin API key (set both to
+independently-generated random strings of at least 32 hex chars). The
+combo "Ingress + custom-header X-Api-Key + NetworkPolicy ingress
+allow-list" is defense-in-depth. Empty `webhookSecret` is acceptable
+only when NetworkPolicy restricts ingress to a single trusted
+namespace; do NOT combine empty `webhookSecret` with a public-Internet
+Ingress.
+
 ## Scope
 
 - ✅ Regular TV series.
