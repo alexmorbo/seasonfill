@@ -164,8 +164,9 @@ func TestClient_ForceGrab_Success(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	err := c.ForceGrab(context.Background(), "abc", 3)
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
 	require.NoError(t, err)
+	assert.Equal(t, "", dlID, "empty body should yield empty downloadID")
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, "/api/v3/release", gotPath)
@@ -183,8 +184,9 @@ func TestClient_ForceGrab_4xx(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	err := c.ForceGrab(context.Background(), "abc", 3)
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
 	require.Error(t, err)
+	assert.Equal(t, "", dlID)
 	assert.True(t, Is4xx(err))
 	assert.False(t, IsTransient(err))
 	assert.False(t, IsAuth(err))
@@ -197,8 +199,9 @@ func TestClient_ForceGrab_429IsTransient(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	err := c.ForceGrab(context.Background(), "abc", 3)
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
 	require.Error(t, err)
+	assert.Equal(t, "", dlID)
 	assert.True(t, IsTransient(err), "429 should be transient (H-3)")
 }
 
@@ -209,8 +212,9 @@ func TestClient_ForceGrab_5xx(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	err := c.ForceGrab(context.Background(), "abc", 3)
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
 	require.Error(t, err)
+	assert.Equal(t, "", dlID)
 	assert.True(t, IsTransient(err))
 	assert.False(t, Is4xx(err))
 }
@@ -222,8 +226,9 @@ func TestClient_ForceGrab_Timeout(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := New("test", srv.URL, "secret", 50*time.Millisecond, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	err := c.ForceGrab(context.Background(), "abc", 3)
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
 	require.Error(t, err)
+	assert.Equal(t, "", dlID)
 	assert.True(t, IsTransient(err))
 }
 
@@ -282,6 +287,44 @@ func TestClient_NilLimitersAreNoOp(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_, err := c.SystemStatus(context.Background())
 		require.NoError(t, err)
+	}
+}
+
+func TestClient_ForceGrab_ReturnsDownloadClientID_WhenPresent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"guid":"abc","indexerId":3,"downloadClientId":4242}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	dlID, err := c.ForceGrab(context.Background(), "abc", 3)
+	require.NoError(t, err)
+	assert.Equal(t, "4242", dlID)
+}
+
+func TestClient_ForceGrab_ReturnsEmpty_WhenDownloadClientIDAbsent(t *testing.T) {
+	cases := map[string]string{
+		"absent_key":       `{"guid":"abc"}`,
+		"null_value":       `{"downloadClientId":null}`,
+		"zero_value":       `{"downloadClientId":0}`,
+		"empty_object":     `{}`,
+		"non_json_skipped": `not json — decode error is non-fatal`,
+	}
+	for name, body := range cases {
+		body := body
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(srv.Close)
+
+			c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+			dlID, err := c.ForceGrab(context.Background(), "abc", 3)
+			require.NoError(t, err)
+			assert.Equal(t, "", dlID, "case %s should yield empty downloadID", name)
+		})
 	}
 }
 

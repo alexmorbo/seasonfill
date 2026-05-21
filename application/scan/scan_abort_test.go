@@ -147,9 +147,9 @@ func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.History
 
 // ForceGrab fails on every call so the scan loop accumulates consecutive
 // grab failures and trips the 3-in-a-row threshold.
-func (f *abortFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) error {
+func (f *abortFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	atomic.AddInt64(&f.forceGrabCalls, 1)
-	return errors.New("forced failure")
+	return "", errors.New("forced failure")
 }
 
 // abortFakeScanRepo records the final status of the scan record.
@@ -418,7 +418,9 @@ func (f *authFailFakeSonarrWrapped) ListTags(_ context.Context) ([]ports.Tag, er
 func (f *authFailFakeSonarrWrapped) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (f *authFailFakeSonarrWrapped) ForceGrab(_ context.Context, _ string, _ int) error { return nil }
+func (f *authFailFakeSonarrWrapped) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
 
 func TestScan_MidScanAuthAbort(t *testing.T) {
 	t.Parallel()

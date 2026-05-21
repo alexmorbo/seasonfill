@@ -53,8 +53,10 @@ func (s *stubSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { 
 func (s *stubSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (s *stubSonarr) ForceGrab(_ context.Context, _ string, _ int) error { return nil }
-func (s *stubSonarr) Name() string                                       { return s.name }
+func (s *stubSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
+func (s *stubSonarr) Name() string { return s.name }
 
 type stubScanRepo struct{}
 

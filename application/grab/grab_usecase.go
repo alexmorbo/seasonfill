@@ -132,10 +132,11 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	attempts := 0
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		attempts = attempt
-		err := in.Sonarr.ForceGrab(ctx, in.Selected.Release.GUID, in.Selected.Release.IndexerID)
+		downloadID, err := in.Sonarr.ForceGrab(ctx, in.Selected.Release.GUID, in.Selected.Release.IndexerID)
 		if err == nil {
 			rec.Status = domaingrab.StatusGrabbed
 			rec.Attempts = attempt
+			rec.DownloadID = downloadID
 			rec.UpdatedAt = time.Now().UTC()
 			u.persistSuccess(ctx, rec, in)
 			observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "success")
@@ -146,6 +147,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 				slog.Int("season", in.SeasonNumber),
 				slog.String("guid", in.Selected.Release.GUID),
 				slog.String("indexer", in.Selected.Release.IndexerName),
+				slog.String("download_id", downloadID),
 				slog.Int("attempts", attempt),
 			)
 			return Output{Record: rec, Attempts: attempt}

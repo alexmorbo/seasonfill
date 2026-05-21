@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -331,12 +332,46 @@ func (c *Client) GrabHistory(ctx context.Context, seriesID int) ([]ports.History
 	return out, nil
 }
 
-// ForceGrab calls POST /api/v3/release — the endpoint Sonarr UI uses for
-// "Override and add to Download Queue". On success Sonarr returns 2xx; on
-// permanent failure 4xx; on Sonarr internal error 5xx.
-func (c *Client) ForceGrab(ctx context.Context, guid string, indexerID int) error {
+// ForceGrab calls POST /api/v3/release — the endpoint Sonarr UI uses
+// for "Override and add to Download Queue". 2xx success, 4xx permanent
+// failure, 5xx transient. On 2xx, ForceGrab best-effort extracts the
+// `downloadClientId` integer from the response and base-10-formats it;
+// nil/zero/absent → empty string (the steady-state per 008b).
+// Decode-only errors after a 2xx are intentionally swallowed (DEBUG
+// log + return "", nil) — the grab itself succeeded. Non-2xx and
+// network errors propagate the existing StatusError wrap chain.
+func (c *Client) ForceGrab(ctx context.Context, guid string, indexerID int) (string, error) {
 	body := forceGrabRequest{GUID: guid, IndexerID: indexerID}
-	return c.post(ctx, "/api/v3/release", body, nil)
+	var resp releaseCreateResponse
+	if err := c.post(ctx, "/api/v3/release", body, &resp); err != nil {
+		// Decode-only failures look like "decode /api/v3/release: ..."
+		// and arrive AFTER a 2xx — suppress them. Every other shape
+		// (non-2xx, network, rate-limit, ctx-cancel) wraps a sentinel
+		// the classifier already understands; bubble those up verbatim.
+		if isDecodeOnlyError(err) {
+			c.logger.DebugContext(ctx, "force_grab_response_decode_skipped",
+				slog.String("instance", c.name),
+				slog.String("error", err.Error()),
+			)
+			return "", nil
+		}
+		return "", err
+	}
+	if resp.DownloadClientID == nil || *resp.DownloadClientID == 0 {
+		return "", nil
+	}
+	return strconv.Itoa(*resp.DownloadClientID), nil
+}
+
+// isDecodeOnlyError reports whether the error is the JSON-decode wrap
+// emitted by Client.do after a successful (2xx) response. Compared by
+// the fixed prefix "decode " injected at client.go's decode site —
+// keeping the check string-stable across endpoints.
+func isDecodeOnlyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.HasPrefix(err.Error(), "decode /api/v3/release:")
 }
 
 func toSeries(d seriesDTO) series.Series {

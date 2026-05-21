@@ -92,11 +92,11 @@ func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) error {
+func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	f.grabMu.Lock()
 	defer f.grabMu.Unlock()
 	f.grabCnt++
-	return f.grabErr
+	return "", f.grabErr
 }
 func (f *fakeSonarr) Name() string { return f.name }
 

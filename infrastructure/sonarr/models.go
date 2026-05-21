@@ -105,3 +105,12 @@ type forceGrabRequest struct {
 	GUID      string `json:"guid"`
 	IndexerID int    `json:"indexerId"`
 }
+
+// releaseCreateResponse maps the subset of Sonarr's POST
+// /api/v3/release response we read. `downloadClientId` is nullable +
+// JsonIgnoreWhenDefault on the server, so the wire form is "absent",
+// "null", or an integer. *int decodes all three; nil OR zero coerces
+// to empty string at the callsite. See 008b research note for source.
+type releaseCreateResponse struct {
+	DownloadClientID *int `json:"downloadClientId,omitempty"`
+}

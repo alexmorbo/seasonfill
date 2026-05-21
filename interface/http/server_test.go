@@ -56,8 +56,10 @@ func (n *noopSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { 
 func (n *noopSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (n *noopSonarr) ForceGrab(_ context.Context, _ string, _ int) error { return nil }
-func (n *noopSonarr) Name() string                                       { return n.name }
+func (n *noopSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
+func (n *noopSonarr) Name() string { return n.name }
 
 type noopScanRepo struct{}
 

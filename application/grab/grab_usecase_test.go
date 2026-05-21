@@ -40,11 +40,12 @@ func (f fakeClassifier) Is4xx(err error) bool {
 }
 
 type fakeSonarrGrab struct {
-	mu       sync.Mutex
-	calls    int
-	errors   []error
-	gotGUID  string
-	gotIdxID int
+	mu          sync.Mutex
+	calls       int
+	errors      []error
+	downloadIDs []string // optional, indexed by call number; "" when nil/short
+	gotGUID     string
+	gotIdxID    int
 }
 
 func (f *fakeSonarrGrab) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
@@ -71,17 +72,21 @@ func (f *fakeSonarrGrab) ListTags(_ context.Context) ([]ports.Tag, error)       
 func (f *fakeSonarrGrab) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (f *fakeSonarrGrab) ForceGrab(_ context.Context, guid string, indexerID int) error {
+func (f *fakeSonarrGrab) ForceGrab(_ context.Context, guid string, indexerID int) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gotGUID = guid
 	f.gotIdxID = indexerID
 	idx := f.calls
 	f.calls++
-	if idx >= len(f.errors) {
-		return nil
+	var dlID string
+	if idx < len(f.downloadIDs) {
+		dlID = f.downloadIDs[idx]
 	}
-	return f.errors[idx]
+	if idx >= len(f.errors) {
+		return dlID, nil
+	}
+	return "", f.errors[idx]
 }
 func (f *fakeSonarrGrab) Name() string { return "fake" }
 
@@ -302,4 +307,32 @@ func TestDefaultSleeper_Completes(t *testing.T) {
 	start := time.Now()
 	require.NoError(t, DefaultSleeper(context.Background(), 10*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 10*time.Millisecond)
+}
+
+func TestExecute_Success_PopulatesDownloadID(t *testing.T) {
+	t.Parallel()
+	uc, gr, _, _ := newUC(t)
+	sonarr := &fakeSonarrGrab{downloadIDs: []string{"DL-42"}}
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.NoError(t, out.Err)
+	assert.Equal(t, domaingrab.StatusGrabbed, out.Record.Status)
+	assert.Equal(t, "DL-42", out.Record.DownloadID, "Record must carry the Sonarr-returned downloadID")
+	require.Len(t, gr.recs, 1)
+	assert.Equal(t, "DL-42", gr.recs[0].DownloadID, "persisted row must carry the same downloadID")
+}
+
+func TestExecute_Success_EmptyDownloadIDPersists(t *testing.T) {
+	t.Parallel()
+	uc, gr, _, _ := newUC(t)
+	// fakeSonarrGrab with no downloadIDs slice → ForceGrab returns "" — the
+	// realistic steady-state when Sonarr's response omits downloadClientId.
+	sonarr := &fakeSonarrGrab{}
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.NoError(t, out.Err)
+	assert.Equal(t, domaingrab.StatusGrabbed, out.Record.Status)
+	assert.Equal(t, "", out.Record.DownloadID, "empty downloadID is the legitimate steady-state, not an error")
+	require.Len(t, gr.recs, 1)
+	assert.Equal(t, "", gr.recs[0].DownloadID)
 }

@@ -77,7 +77,12 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 			gotPosts = append(gotPosts, c)
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{}`))
+			// 008b — Sonarr's POST /api/v3/release response carries the
+			// release object back, optionally with downloadClientId set.
+			// Mock the realistic case where it IS present (4242) so the
+			// integration test can verify grab_records.download_id is
+			// populated end-to-end.
+			_, _ = w.Write([]byte(`{"guid":"rt-1","indexerId":1,"downloadClientId":4242}`))
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -145,6 +150,19 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 	var grabCount int64
 	require.NoError(t, db.Table("grab_records").Where("status = ?", "grabbed").Count(&grabCount).Error)
 	assert.GreaterOrEqual(t, grabCount, int64(1), "expected at least one grabbed row in grab_records")
+
+	// 008b — confirm DownloadID round-trips from Sonarr POST response → UC → repo.
+	var downloadIDs []string
+	require.NoError(t, db.Table("grab_records").Where("status = ?", "grabbed").Pluck("download_id", &downloadIDs).Error)
+	require.NotEmpty(t, downloadIDs, "at least one grabbed row required for download_id pluck")
+	foundExpected := false
+	for _, v := range downloadIDs {
+		if v == "4242" {
+			foundExpected = true
+			break
+		}
+	}
+	assert.True(t, foundExpected, "expected at least one grabbed row to carry download_id=4242 from the mock response, got: %v", downloadIDs)
 
 	var originCount int64
 	require.NoError(t, db.Table("origin_releases").Where("source = ?", "our_grab").Count(&originCount).Error)
