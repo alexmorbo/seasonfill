@@ -145,6 +145,10 @@ func (r *fakeScanRepo) MarkAborted(_ context.Context, id uuid.UUID, reason strin
 	return nil
 }
 
+func (r *fakeScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
+
 type fakeDecRepo struct {
 	mu sync.Mutex
 	d  []decision.Decision
@@ -155,6 +159,10 @@ func (r *fakeDecRepo) Save(_ context.Context, d decision.Decision) error {
 	defer r.mu.Unlock()
 	r.d = append(r.d, d)
 	return nil
+}
+
+func (r *fakeDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
 type fakeCDRepo struct {

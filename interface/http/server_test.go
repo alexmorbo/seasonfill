@@ -63,10 +63,16 @@ func (noopScanRepo) GetByID(_ context.Context, _ uuid.UUID) (ports.ScanRecord, e
 	return ports.ScanRecord{}, nil
 }
 func (noopScanRepo) MarkAborted(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (noopScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
 
 type noopDecRepo struct{}
 
 func (noopDecRepo) Save(context.Context, decision.Decision) error { return nil }
+func (noopDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
 
 func buildServer(t *testing.T) *Server {
 	t.Helper()

@@ -15,6 +15,7 @@ type ScanRecord struct {
 	ID              uuid.UUID
 	InstanceName    string
 	Trigger         string
+	CreatedAt       time.Time
 	StartedAt       time.Time
 	FinishedAt      *time.Time
 	Status          string
@@ -27,19 +28,50 @@ type ScanRecord struct {
 	DryRun          bool
 }
 
+// ScanFilter narrows ScanRepository.List. Pointer fields; nil = no filter.
+// From is inclusive, To is exclusive (created_at < To).
+type ScanFilter struct {
+	Instance *string
+	Status   *string
+	From     *time.Time
+	To       *time.Time
+}
+
 type ScanRepository interface {
 	Create(ctx context.Context, rec ScanRecord) error
 	Update(ctx context.Context, rec ScanRecord) error
 	GetByID(ctx context.Context, id uuid.UUID) (ScanRecord, error)
 	MarkAborted(ctx context.Context, id uuid.UUID, reason string) error
+	List(ctx context.Context, f ScanFilter, p Pagination) ([]ScanRecord, *Cursor, error)
+}
+
+type DecisionFilter struct {
+	ScanRunID    *uuid.UUID
+	Instance     *string
+	SeriesID     *int
+	SeasonNumber *int
+	Decision     *string
+	From         *time.Time
+	To           *time.Time
 }
 
 type DecisionRepository interface {
 	Save(ctx context.Context, d decision.Decision) error
+	List(ctx context.Context, f DecisionFilter, p Pagination) ([]decision.Decision, *Cursor, error)
+}
+
+type GrabFilter struct {
+	Instance     *string
+	SeriesID     *int
+	SeasonNumber *int
+	Status       *string
+	From         *time.Time
+	To           *time.Time
 }
 
 type GrabRepository interface {
 	Create(ctx context.Context, rec grab.Record) error
+	List(ctx context.Context, f GrabFilter, p Pagination) ([]grab.Record, *Cursor, error)
 }
 
 type CooldownRepository interface {

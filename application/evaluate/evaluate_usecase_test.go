@@ -55,6 +55,10 @@ func (r *recDecisions) Save(_ context.Context, d decision.Decision) error {
 	return nil
 }
 
+func (r *recDecisions) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
+
 func makeSeason(missing []int, have []int) series.Season {
 	eps := make([]series.Episode, 0, len(missing)+len(have))
 	for _, n := range missing {

@@ -178,6 +178,9 @@ func (r *abortFakeScanRepo) GetByID(_ context.Context, _ uuid.UUID) (ports.ScanR
 }
 
 func (r *abortFakeScanRepo) MarkAborted(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (r *abortFakeScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
 
 func (r *abortFakeScanRepo) FinalStatus() string {
 	r.mu.Lock()
@@ -189,6 +192,9 @@ func (r *abortFakeScanRepo) FinalStatus() string {
 type abortFakeDecisionRepo struct{}
 
 func (abortFakeDecisionRepo) Save(_ context.Context, _ decision.Decision) error { return nil }
+func (abortFakeDecisionRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
 
 // abortFakeGrabRepo discards grab records.
 type abortFakeGrabRepo struct{}
@@ -196,6 +202,9 @@ type abortFakeGrabRepo struct{}
 func (abortFakeGrabRepo) Create(_ context.Context, _ domaingrab.Record) error { return nil }
 func (abortFakeGrabRepo) RecentFailedGUIDs(_ context.Context, _ string, _ int, _ int, _ time.Time) ([]string, error) {
 	return nil, nil
+}
+func (abortFakeGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagination) ([]domaingrab.Record, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
 // abortFakeCooldownRepo lets every guid/series pass.

@@ -47,3 +47,29 @@ func TestMigrate_Error(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "auto-migrate")
 }
+
+func TestMigrate_CreatesAuditCompositeIndexes(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, Migrate(db))
+
+	cases := []struct {
+		table string
+		index string
+	}{
+		{"scan_runs", "idx_scan_runs_created_at_id"},
+		{"decisions", "idx_decisions_created_at_id"},
+		{"grab_records", "idx_grab_records_created_at_id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.index, func(t *testing.T) {
+			assert.True(t, db.Migrator().HasIndex(tc.table, tc.index),
+				"expected %s on %s", tc.index, tc.table)
+		})
+	}
+}

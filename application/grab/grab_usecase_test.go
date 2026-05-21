@@ -101,6 +101,10 @@ func (r *fakeGrabRepo) Create(_ context.Context, rec domaingrab.Record) error {
 	return nil
 }
 
+func (r *fakeGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagination) ([]domaingrab.Record, *ports.Cursor, error) {
+	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

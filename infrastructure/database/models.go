@@ -8,7 +8,7 @@ import (
 )
 
 type ScanRunModel struct {
-	ID              string    `gorm:"primaryKey;size:36"`
+	ID              string    `gorm:"primaryKey;size:36;index:idx_scan_runs_created_at_id,priority:2"`
 	InstanceName    string    `gorm:"size:128;index"`
 	Trigger         string    `gorm:"size:32"`
 	StartedAt       time.Time `gorm:"index"`
@@ -21,14 +21,14 @@ type ScanRunModel struct {
 	ErrorsCount     int
 	ErrorMessage    string `gorm:"type:text"`
 	DryRun          bool
-	CreatedAt       time.Time
+	CreatedAt       time.Time `gorm:"index:idx_scan_runs_created_at_id,priority:1"`
 	UpdatedAt       time.Time
 }
 
 func (ScanRunModel) TableName() string { return "scan_runs" }
 
 type DecisionModel struct {
-	ID              string `gorm:"primaryKey;size:36"`
+	ID              string `gorm:"primaryKey;size:36;index:idx_decisions_created_at_id,priority:2"`
 	ScanRunID       string `gorm:"size:36;index"`
 	InstanceName    string `gorm:"size:128;index"`
 	SeriesID        int    `gorm:"index"`
@@ -43,14 +43,14 @@ type DecisionModel struct {
 	FilteredOut     datatypes.JSON
 	SelectedGUID    string `gorm:"size:512"`
 	SelectedData    datatypes.JSON
-	DryRunWouldGrab bool `gorm:"column:would_grab"`
-	CreatedAt       time.Time
+	DryRunWouldGrab bool      `gorm:"column:would_grab"`
+	CreatedAt       time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
 }
 
 func (DecisionModel) TableName() string { return "decisions" }
 
 type GrabRecordModel struct {
-	ID                string `gorm:"primaryKey;size:36"`
+	ID                string `gorm:"primaryKey;size:36;index:idx_grab_records_created_at_id,priority:2"`
 	InstanceName      string `gorm:"size:128;index:idx_grab_inst_series,priority:1"`
 	SeriesID          int    `gorm:"index:idx_grab_inst_series,priority:2"`
 	SeriesTitle       string `gorm:"size:512"`
@@ -66,7 +66,7 @@ type GrabRecordModel struct {
 	ErrorMessage      string `gorm:"type:text"`
 	ScanRunID         string `gorm:"size:36;index"`
 	Attempts          int
-	CreatedAt         time.Time
+	CreatedAt         time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
 	UpdatedAt         time.Time
 }
 

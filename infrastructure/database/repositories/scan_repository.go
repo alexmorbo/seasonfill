@@ -60,6 +60,47 @@ func (r *ScanRepository) MarkAborted(ctx context.Context, id uuid.UUID, reason s
 	return nil
 }
 
+func (r *ScanRepository) List(ctx context.Context, f ports.ScanFilter, p ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
+		return nil, nil, fmt.Errorf("scan list: %w", ports.ErrInvalidLimit)
+	}
+	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{})
+	if f.Instance != nil {
+		q = q.Where("instance_name = ?", *f.Instance)
+	}
+	if f.Status != nil {
+		q = q.Where("status = ?", *f.Status)
+	}
+	if f.From != nil {
+		q = q.Where("created_at >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("created_at < ?", *f.To)
+	}
+	if p.Cursor != nil {
+		q = q.Where("(created_at, id) < (?, ?)", p.Cursor.Timestamp, p.Cursor.ID)
+	}
+	var models []database.ScanRunModel
+	if err := q.Order("created_at DESC, id DESC").Limit(p.Limit + 1).Find(&models).Error; err != nil {
+		return nil, nil, fmt.Errorf("scan list: %w", err)
+	}
+	var next *ports.Cursor
+	if len(models) > p.Limit {
+		last := models[p.Limit-1]
+		next = &ports.Cursor{Timestamp: last.CreatedAt.UTC(), ID: last.ID}
+		models = models[:p.Limit]
+	}
+	out := make([]ports.ScanRecord, 0, len(models))
+	for _, m := range models {
+		rec, err := toScanRecord(m)
+		if err != nil {
+			return nil, nil, fmt.Errorf("scan list: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, next, nil
+}
+
 var ErrNotFound = errors.New("scan not found")
 
 func toScanModel(r ports.ScanRecord) database.ScanRunModel {
@@ -90,6 +131,7 @@ func toScanRecord(m database.ScanRunModel) (ports.ScanRecord, error) {
 		ID:              id,
 		InstanceName:    m.InstanceName,
 		Trigger:         m.Trigger,
+		CreatedAt:       m.CreatedAt.UTC(),
 		StartedAt:       m.StartedAt,
 		FinishedAt:      m.FinishedAt,
 		Status:          m.Status,
