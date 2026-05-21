@@ -1,0 +1,38 @@
+{
+  "eventType": "ManualInteractionRequired",
+  "instanceName": "Sonarr",
+  "applicationUrl": "http://sonarr:8989",
+  "eventTimestamp": "2026-05-20T20:15:00Z",
+  "release": {
+    "quality": "WEBDL-1080p",
+    "qualityVersion": 1,
+    "releaseGroup": "TEST",
+    "releaseTitle": "Hijack.S02.1080p.WEB-DL.DDP5.1.H.264-TEST",
+    "indexer": "RuTracker (Prowlarr)",
+    "size": 77389275136,
+    "customFormatScore": 50
+  },
+  "series": {
+    "id": 122,
+    "title": "Hijack",
+    "titleSlug": "hijack",
+    "tvdbId": 421623,
+    "type": "standard"
+  },
+  "episodes": [
+    {"id": 1057, "episodeNumber": 1, "seasonNumber": 2, "title": "Episode 1", "seriesId": 122}
+  ],
+  "downloadClient": "qBittorrent",
+  "downloadClientType": "QBittorrent",
+  "downloadId": "ABCDEF1234567890",
+  "downloadStatus": "Warning",
+  "downloadStatusMessages": [
+    {
+      "title": "Import failed",
+      "messages": [
+        "Found potentially dangerous file with extension: '.lnk'",
+        "No files found are eligible for import"
+      ]
+    }
+  ]
+}

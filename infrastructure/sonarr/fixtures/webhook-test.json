@@ -1,0 +1,5 @@
+{
+  "eventType": "Test",
+  "instanceName": "Sonarr",
+  "applicationUrl": "http://sonarr:8989"
+}

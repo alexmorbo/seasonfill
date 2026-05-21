@@ -1,0 +1,16 @@
+{
+  "eventType": "Rename",
+  "instanceName": "Sonarr",
+  "applicationUrl": "http://sonarr:8989",
+  "eventTimestamp": "2026-05-20T21:00:00Z",
+  "series": {
+    "id": 122,
+    "title": "Hijack",
+    "titleSlug": "hijack",
+    "tvdbId": 421623,
+    "type": "standard"
+  },
+  "episodes": [
+    {"id": 1057, "episodeNumber": 1, "seasonNumber": 2, "title": "Episode 1", "seriesId": 122}
+  ]
+}

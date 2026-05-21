@@ -1,0 +1,33 @@
+{
+  "eventType": "Grab",
+  "instanceName": "Sonarr",
+  "applicationUrl": "http://sonarr:8989",
+  "eventTimestamp": "2026-05-20T18:30:00Z",
+  "release": {
+    "quality": "WEBDL-1080p",
+    "qualityVersion": 1,
+    "releaseGroup": "TEST",
+    "releaseTitle": "Hijack.S02.1080p.WEB-DL.DDP5.1.H.264-TEST",
+    "indexer": "RuTracker (Prowlarr)",
+    "size": 77389275136,
+    "customFormatScore": 50,
+    "customFormats": ["x264", "DDP5.1"]
+  },
+  "series": {
+    "id": 122,
+    "title": "Hijack",
+    "titleSlug": "hijack",
+    "tvdbId": 421623,
+    "tvMazeId": 65274,
+    "imdbId": "tt22788584",
+    "type": "standard"
+  },
+  "episodes": [
+    {"id": 1057, "episodeNumber": 1, "seasonNumber": 2, "title": "Episode 1", "seriesId": 122, "tvdbId": 12001},
+    {"id": 1058, "episodeNumber": 2, "seasonNumber": 2, "title": "Episode 2", "seriesId": 122, "tvdbId": 12002},
+    {"id": 1059, "episodeNumber": 3, "seasonNumber": 2, "title": "Episode 3", "seriesId": 122, "tvdbId": 12003}
+  ],
+  "downloadClient": "qBittorrent",
+  "downloadClientType": "QBittorrent",
+  "downloadId": "ABCDEF1234567890"
+}

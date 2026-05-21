@@ -1,0 +1,29 @@
+{
+  "eventType": "Download",
+  "instanceName": "Sonarr",
+  "applicationUrl": "http://sonarr:8989",
+  "eventTimestamp": "2026-05-20T19:45:00Z",
+  "series": {
+    "id": 122,
+    "title": "Hijack",
+    "titleSlug": "hijack",
+    "tvdbId": 421623,
+    "type": "standard"
+  },
+  "episodes": [
+    {"id": 1057, "episodeNumber": 1, "seasonNumber": 2, "title": "Episode 1", "seriesId": 122}
+  ],
+  "episodeFile": {
+    "id": 9876,
+    "relativePath": "Season 2/Hijack.S02E01.1080p.WEB-DL.mkv",
+    "path": "/tv/Hijack/Season 2/Hijack.S02E01.1080p.WEB-DL.mkv",
+    "quality": "WEBDL-1080p",
+    "releaseGroup": "TEST",
+    "sceneName": "Hijack.S02E01.1080p.WEB-DL.DDP5.1.H.264-TEST",
+    "size": 4129275136
+  },
+  "isUpgrade": false,
+  "downloadClient": "qBittorrent",
+  "downloadClientType": "QBittorrent",
+  "downloadId": "ABCDEF1234567890"
+}
