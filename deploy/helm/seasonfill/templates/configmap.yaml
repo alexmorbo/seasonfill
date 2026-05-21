@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "seasonfill.fullname" . }}-config
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    log:
+      level: {{ .Values.config.log.level | quote }}
+      format: {{ .Values.config.log.format | quote }}
+
+    http:
+      bind: {{ .Values.config.http.bind | quote }}
+      read_timeout: {{ .Values.config.http.readTimeout | quote }}
+      write_timeout: {{ .Values.config.http.writeTimeout | quote }}
+      idle_timeout: {{ .Values.config.http.idleTimeout | quote }}
+      shutdown_timeout: {{ .Values.config.http.shutdownTimeout | quote }}
+      auth:
+        enabled: {{ .Values.config.http.auth.enabled }}
+        api_key: ${SEASONFILL_API_KEY}
+
+    cron:
+      enabled: {{ .Values.config.cron.enabled }}
+      schedule: {{ .Values.config.cron.schedule | quote }}
+      on_start: {{ .Values.config.cron.onStart }}
+      jitter: {{ .Values.config.cron.jitter | quote }}
+
+    database:
+      driver: {{ .Values.config.database.driver | quote }}
+      sqlite:
+        path: {{ .Values.config.database.sqlite.path | quote }}
+      postgres:
+        dsn: ${POSTGRES_DSN}
+        max_open_conns: {{ .Values.config.database.postgres.maxOpenConns }}
+        max_idle_conns: {{ .Values.config.database.postgres.maxIdleConns }}
+        conn_max_lifetime: {{ .Values.config.database.postgres.connMaxLifetime | quote }}
+
+    dry_run: {{ .Values.config.dryRun }}
+
+    scan:
+      shutdown_grace: {{ .Values.config.scan.shutdownGrace | quote }}
+      cooldown_sweep: {{ .Values.config.scan.cooldownSweep | quote }}
+
+    global_rate_limit:
+      rpm: {{ .Values.config.globalRateLimit.rpm }}
+      burst: {{ .Values.config.globalRateLimit.burst }}
+
+    sonarr_instances:
+    {{- range .Values.sonarrInstances }}
+      - name: {{ .name | quote }}
+        url: ${SONARR_{{ include "seasonfill.envName" .name }}_URL}
+        api_key: ${SONARR_{{ include "seasonfill.envName" .name }}_API_KEY}
+        timeout: {{ .timeout | quote }}
+        {{- if not (kindIs "invalid" .dryRun) }}
+        dry_run: {{ .dryRun }}
+        {{- end }}
+        tags:
+          mode: {{ .tags.mode | quote }}
+          {{- with .tags.include }}
+          include:
+          {{- range . }}
+            - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          {{- with .tags.exclude }}
+          exclude:
+          {{- range . }}
+            - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+        search:
+          require_all_aired: {{ .search.requireAllAired }}
+          skip_specials: {{ .search.skipSpecials }}
+          skip_anime: {{ .search.skipAnime }}
+          min_custom_format_score: {{ .search.minCustomFormatScore }}
+        ranking:
+          indexer_priority_enabled: {{ .ranking.indexerPriorityEnabled }}
+          origin_bonus: {{ .ranking.originBonus }}
+        limits:
+          scan_max_series: {{ .limits.scanMaxSeries }}
+          max_grabs_per_scan: {{ .limits.maxGrabsPerScan }}
+        rate_limit:
+          rps: {{ .rateLimit.rps }}
+          burst: {{ .rateLimit.burst }}
+        cooldown:
+          mode: {{ .cooldown.mode | quote }}
+          series_after_grab: {{ .cooldown.seriesAfterGrab | quote }}
+          guid_after_failed_grab: {{ .cooldown.guidAfterFailedGrab | quote }}
+        retry:
+          max_attempts: {{ .retry.maxAttempts }}
+          initial_backoff: {{ .retry.initialBackoff | quote }}
+          max_backoff: {{ .retry.maxBackoff | quote }}
+        health_check:
+          recheck_interval_auth: {{ .healthCheck.recheckIntervalAuth | quote }}
+          recheck_interval_network: {{ .healthCheck.recheckIntervalNetwork | quote }}
+    {{- end }}

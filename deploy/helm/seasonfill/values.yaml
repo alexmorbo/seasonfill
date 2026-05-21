@@ -1,0 +1,218 @@
+# Default values for seasonfill.
+# Singleton service: replicaCount is fixed at 1, do not change.
+# Database stores all state; running two replicas creates write contention
+# on the audit tables and the cooldown ledger.
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: alexmorbo/seasonfill
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Deployment strategy. Recreate is the only supported value for a
+# singleton service that owns the DB. Rolling would briefly run two pods
+# that fight over the cooldown ledger and the audit write path.
+updateStrategy:
+  type: Recreate
+
+# -- Grace period for the scan loop to drain on SIGTERM. Must be larger
+# than `config.scan.shutdown_grace` (default 60s) plus a margin.
+terminationGracePeriodSeconds: 90
+
+serviceAccount:
+  # -- Whether the chart creates a dedicated ServiceAccount for the pod.
+  create: true
+  # -- Whether pods using this SA automatically receive an API token.
+  # The service does NOT talk to the Kubernetes API; default is false
+  # to follow least-privilege.
+  automount: false
+  # -- Annotations to add to the ServiceAccount.
+  annotations: {}
+  # -- Override the generated SA name. Empty = derived from fullname.
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# -- Pod-level security context. The image runs as distroless nonroot
+# (UID 65532) by default; this block enforces that and prevents accidental
+# privilege escalation via init containers or sidecars added downstream.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context. Drops all capabilities, forbids
+# privilege escalation, and enforces a read-only root filesystem. The
+# pod gets a writable emptyDir at /tmp to satisfy the readOnly root.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  labels: {}
+
+# -- HTTP probes for the Phase 2 health endpoints. /healthz returns 200
+# when the process is alive; /readyz returns 200 only when DB ping
+# succeeds AND >=1 Sonarr instance reports Available.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# -- Conservative resource defaults. Seasonfill is I/O-bound on Sonarr
+# API calls; CPU spikes only during evaluate.UseCase decision passes.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Extra environment variables (e.g., per-instance Sonarr URL overrides
+# pointed at an in-cluster Sonarr Service DNS name) merged into the
+# container env after envFrom. Format: a list of EnvVar objects.
+extraEnv: []
+
+# -- Extra envFrom sources (e.g., an externally-managed Secret produced
+# by SealedSecrets or ExternalSecrets Operator that supplies the Sonarr
+# API keys without committing them to .Values.secrets).
+extraEnvFrom: []
+
+# ----------------------------------------------------------------------
+# Secrets — operator-supplied credentials. These render into the
+# Secret created by the chart, which is then mounted via envFrom and
+# resolved by the koanf loader's ${VAR} interpolation pass.
+# ----------------------------------------------------------------------
+secrets:
+  # -- Static API key required for X-Api-Key auth on all /api/v1
+  # endpoints. Must be overridden at install time — empty default
+  # causes the chart to fail loudly via the required function.
+  apiKey: ""
+  # -- PostgreSQL DSN used when config.database.driver == "postgres".
+  # The chart leaves this empty by default; required only in postgres mode.
+  postgresDSN: ""
+
+# ----------------------------------------------------------------------
+# Sonarr instances — one entry per Sonarr server. Each entry produces
+# (a) an env-var pair SONARR_<NAME>_URL / SONARR_<NAME>_API_KEY in the
+# generated Secret, and (b) an item in config.sonarr_instances that
+# references those env vars via ${VAR}.
+#
+# The name is converted to upper-snake-case to form the env-var prefix:
+#   "main"        -> SONARR_MAIN_URL,           SONARR_MAIN_API_KEY
+#   "sonarr-anime" -> SONARR_SONARR_ANIME_URL,  SONARR_SONARR_ANIME_API_KEY
+# ----------------------------------------------------------------------
+sonarrInstances:
+  - name: main
+    url: "http://sonarr.media.svc.cluster.local:8989"
+    apiKey: ""
+    timeout: 30s
+    dryRun: null
+    tags:
+      mode: all
+      include: []
+      exclude: []
+    search:
+      requireAllAired: false
+      skipSpecials: true
+      skipAnime: true
+      minCustomFormatScore: 0
+    ranking:
+      indexerPriorityEnabled: true
+      originBonus: 1.0
+    limits:
+      scanMaxSeries: 100
+      maxGrabsPerScan: 10
+    rateLimit:
+      rps: 5
+      burst: 10
+    cooldown:
+      mode: smart
+      seriesAfterGrab: 24h
+      guidAfterFailedGrab: 72h
+    retry:
+      maxAttempts: 3
+      initialBackoff: 1s
+      maxBackoff: 30s
+    healthCheck:
+      recheckIntervalAuth: 5m
+      recheckIntervalNetwork: 1m
+
+# ----------------------------------------------------------------------
+# Application configuration — rendered verbatim into the ConfigMap as
+# config.yaml. Mirrors config.example.yaml. The loader interpolates
+# ${VAR} placeholders from the pod environment at process start.
+# ----------------------------------------------------------------------
+config:
+  log:
+    level: info
+    format: json
+  http:
+    bind: ":8080"
+    readTimeout: 15s
+    writeTimeout: 30s
+    idleTimeout: 60s
+    shutdownTimeout: 10s
+    auth:
+      enabled: true
+  cron:
+    enabled: true
+    schedule: "0 */6 * * *"
+    onStart: false
+    jitter: 1m
+  # -- Database driver. "sqlite" requires a PVC (see story 006e for the
+  # optional PVC template). "postgres" reads its DSN from the secret.
+  database:
+    driver: postgres
+    sqlite:
+      path: /data/seasonfill.db
+    postgres:
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 5m
+  # -- Global dry-run flag. Defaults to true: first install does NOT
+  # grab. Flip to false ONLY after verifying decisions in logs.
+  dryRun: true
+  scan:
+    shutdownGrace: 60s
+    cooldownSweep: 15m
+  globalRateLimit:
+    rpm: 30
+    burst: 10

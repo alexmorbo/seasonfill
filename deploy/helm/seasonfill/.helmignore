@@ -1,0 +1,31 @@
+# Patterns to ignore when building Helm packages.
+# Adapted from the default `helm create` output.
+
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+
+# Various IDEs
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# OS-specific debris
+.DS_Store
+Thumbs.db
+
+# Packaged chart artifacts produced by `helm package`
+*.tgz

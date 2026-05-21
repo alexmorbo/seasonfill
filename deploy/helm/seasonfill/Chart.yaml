@@ -1,0 +1,27 @@
+apiVersion: v2
+name: seasonfill
+description: |
+  Seasonfill — a multi-instance Sonarr backfill controller that scans
+  managed series for incomplete seasons and triggers indexer searches
+  on a schedule. Singleton service; database stores state.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+maintainers:
+  - name: AlexMorbo
+    email: alex@morbo.ru
+sources:
+  - https://github.com/alexmorbo/seasonfill
+home: https://github.com/alexmorbo/seasonfill
+keywords:
+  - sonarr
+  - media
+  - automation
+  - backfill
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: networking
+  artifacthub.io/images: |
+    - name: seasonfill
+      image: ghcr.io/alexmorbo/seasonfill:0.1.0
