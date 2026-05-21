@@ -142,21 +142,23 @@ func run() error {
 		WithOrigins(originRepo).
 		WithHealthRegistry(checker.Registry())
 
-	// Webhook UC reuses grabRepo + cooldownRepo + the shared
-	// transactor. GUIDAfterFailedImport reads from instance #0 for now
-	// — once Helm wires a per-instance webhook section (007d) this
-	// becomes a per-instance lookup. ApplyInstanceDefaults guarantees
-	// a 48h floor when the config doesn't set it.
-	var guidCooldown time.Duration
-	if len(cfg.SonarrInstances) > 0 {
-		guidCooldown = cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport
+	// 008c-#4: per-instance webhook cooldown lookup. Wire-time
+	// construction of a closure that returns 0 for unknown instances.
+	// ApplyInstanceDefaults guarantees a 48h floor on each configured
+	// instance when YAML omits `guid_after_failed_import`. Closure
+	// (not map) keeps internal state immutable.
+	guidCooldownByInstance := make(map[string]time.Duration, len(cfg.SonarrInstances))
+	for _, sc := range cfg.SonarrInstances {
+		guidCooldownByInstance[sc.Name] = sc.Cooldown.GUIDAfterFailedImport
 	}
 	webhookUC := webhookuc.New(webhookuc.Deps{
-		Grabs:                 grabRepo,
-		Cooldowns:             cooldownRepo,
-		Tx:                    txr,
-		GUIDAfterFailedImport: guidCooldown,
-		Logger:                log,
+		Grabs:     grabRepo,
+		Cooldowns: cooldownRepo,
+		Tx:        txr,
+		GUIDCooldownLookup: func(instance string) time.Duration {
+			return guidCooldownByInstance[instance]
+		},
+		Logger: log,
 	})
 
 	httpServer := httpserver.NewServer(cfg.HTTP, cfg.Webhook, scanUC, webhookUC,

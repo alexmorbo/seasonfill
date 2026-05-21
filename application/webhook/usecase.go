@@ -13,43 +13,55 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/webhook"
 )
 
+// GuidCooldownLookup returns the per-instance guid-after-failed-import
+// cooldown duration. Built by the wiring layer (cmd/server/main.go)
+// from cfg.SonarrInstances. A return value of 0 disables the cooldown
+// write for that instance — used both for explicit opt-out and for
+// graceful degradation when a webhook fires from an instance not in
+// our config.
+type GuidCooldownLookup func(instance string) time.Duration
+
 // UseCase processes a Sonarr webhook event end-to-end: it looks up the
 // matching grab_records row, transitions its status, and (on
 // import_failed) adds a guid-scope cooldown. Status update and cooldown
 // write are atomic via the injected Transactor.
 type UseCase struct {
-	grabs        ports.GrabRepository
-	cooldowns    ports.CooldownRepository
-	tx           ports.Transactor
-	guidCooldown time.Duration
-	logger       *slog.Logger
-	now          func() time.Time
+	grabs              ports.GrabRepository
+	cooldowns          ports.CooldownRepository
+	tx                 ports.Transactor
+	guidCooldownLookup GuidCooldownLookup
+	logger             *slog.Logger
+	now                func() time.Time
 }
 
 // Deps groups constructor parameters.
 type Deps struct {
-	Grabs                 ports.GrabRepository
-	Cooldowns             ports.CooldownRepository
-	Tx                    ports.Transactor
-	GUIDAfterFailedImport time.Duration
-	Logger                *slog.Logger
+	Grabs              ports.GrabRepository
+	Cooldowns          ports.CooldownRepository
+	Tx                 ports.Transactor
+	GUIDCooldownLookup GuidCooldownLookup
+	Logger             *slog.Logger
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
-// GUIDAfterFailedImport <= 0 disables the cooldown write (still
-// transitions the row).
+// A nil GUIDCooldownLookup normalises to a closure returning 0 —
+// same behaviour as the pre-008c cooldown-disabled path.
 func New(d Deps) *UseCase {
 	lg := d.Logger
 	if lg == nil {
 		lg = slog.Default()
 	}
+	lookup := d.GUIDCooldownLookup
+	if lookup == nil {
+		lookup = func(string) time.Duration { return 0 }
+	}
 	return &UseCase{
-		grabs:        d.Grabs,
-		cooldowns:    d.Cooldowns,
-		tx:           d.Tx,
-		guidCooldown: d.GUIDAfterFailedImport,
-		logger:       lg,
-		now:          func() time.Time { return time.Now().UTC() },
+		grabs:              d.Grabs,
+		cooldowns:          d.Cooldowns,
+		tx:                 d.Tx,
+		guidCooldownLookup: lookup,
+		logger:             lg,
+		now:                func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -122,20 +134,31 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 		return nil
 	}
 
+	if target == grab.StatusImportFailed && u.guidCooldownLookup(evt.InstanceName) == 0 {
+		u.logger.WarnContext(ctx, "webhook_unknown_instance_no_cooldown",
+			slog.String("instance", evt.InstanceName),
+			slog.String("event_type", string(evt.Type)),
+			slog.String("grab_id", rec.ID.String()),
+			slog.String("reason", "lookup_returned_zero_or_unconfigured"),
+		)
+	}
+
 	work := func(txCtx context.Context) error {
 		if err := u.grabs.UpdateStatus(txCtx, rec.ID, target, evt.Message); err != nil {
 			return fmt.Errorf("update status: %w", err)
 		}
-		if target == grab.StatusImportFailed && u.guidCooldown > 0 {
-			cd := cooldown.Cooldown{
-				Scope:     cooldown.ScopeGUID,
-				Key:       cooldown.GUIDKey(rec.ReleaseGUID),
-				ExpiresAt: evt.OccurredAt.Add(u.guidCooldown),
-				Reason:    "guid_after_failed_import",
-				CreatedAt: evt.OccurredAt.UTC(),
-			}
-			if err := u.cooldowns.Set(txCtx, cd); err != nil {
-				return fmt.Errorf("set guid cooldown: %w", err)
+		if target == grab.StatusImportFailed {
+			if dur := u.guidCooldownLookup(evt.InstanceName); dur > 0 {
+				cd := cooldown.Cooldown{
+					Scope:     cooldown.ScopeGUID,
+					Key:       cooldown.GUIDKey(rec.ReleaseGUID),
+					ExpiresAt: evt.OccurredAt.Add(dur),
+					Reason:    "guid_after_failed_import",
+					CreatedAt: evt.OccurredAt.UTC(),
+				}
+				if err := u.cooldowns.Set(txCtx, cd); err != nil {
+					return fmt.Errorf("set guid cooldown: %w", err)
+				}
 			}
 		}
 		return nil

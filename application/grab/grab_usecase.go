@@ -57,6 +57,7 @@ type UseCase struct {
 	classify  classifier
 	sleep     Sleeper
 	logger    *slog.Logger
+	now       func() time.Time // injectable clock — defaults to time.Now().UTC()
 }
 
 func NewUseCase(
@@ -73,8 +74,13 @@ func NewUseCase(
 		classify:  classify,
 		sleep:     DefaultSleeper,
 		logger:    logger,
+		now:       func() time.Time { return time.Now().UTC() },
 	}
 }
+
+// WithClock swaps the time source — tests-only. Mirrors webhook.UseCase
+// so application-layer tests share a single clock-injection pattern.
+func (u *UseCase) WithClock(f func() time.Time) *UseCase { u.now = f; return u }
 
 // WithTransactor wires the M-7 atomic-success-path transactor.
 func (u *UseCase) WithTransactor(t ports.Transactor) *UseCase { u.tx = t; return u }
@@ -119,8 +125,8 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 		Quality:           in.Selected.Release.QualityName,
 		CoverageCount:     in.Coverage,
 		ScanRunID:         in.ScanRunID,
-		CreatedAt:         time.Now().UTC(),
-		UpdatedAt:         time.Now().UTC(),
+		CreatedAt:         u.now(),
+		UpdatedAt:         u.now(),
 	}
 
 	maxAttempts := in.Config.MaxAttempts
@@ -137,7 +143,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			rec.Status = domaingrab.StatusGrabbed
 			rec.Attempts = attempt
 			rec.DownloadID = downloadID
-			rec.UpdatedAt = time.Now().UTC()
+			rec.UpdatedAt = u.now()
 			u.persistSuccess(ctx, rec, in)
 			observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "success")
 			observability.GrabAttempt(in.InstanceName, "grabbed")
@@ -198,7 +204,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	if lastErr != nil {
 		rec.ErrorMessage = lastErr.Error()
 	}
-	rec.UpdatedAt = time.Now().UTC()
+	rec.UpdatedAt = u.now()
 	if persistErr := u.grabs.Create(ctx, rec); persistErr != nil {
 		u.logger.ErrorContext(ctx, "persist grab_record failed",
 			slog.String("error", persistErr.Error()),
@@ -220,7 +226,7 @@ func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in 
 			return fmt.Errorf("persist grab_record: %w", err)
 		}
 		if in.Config.SeriesCooldown > 0 {
-			now := time.Now().UTC()
+			now := u.now()
 			cd := cooldown.Cooldown{
 				Scope:     cooldown.ScopeSeries,
 				Key:       cooldown.SeriesKey(in.InstanceName, in.SeriesID, in.SeasonNumber),
@@ -233,7 +239,7 @@ func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in 
 			}
 		}
 		if u.origins != nil {
-			now := time.Now().UTC()
+			now := u.now()
 			or := ports.OriginRelease{
 				InstanceName: in.InstanceName,
 				SeriesID:     in.SeriesID,
@@ -272,7 +278,7 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 	if in.Config.GUIDCooldown <= 0 {
 		return
 	}
-	now := time.Now().UTC()
+	now := u.now()
 	if reason == "" {
 		reason = "guid_after_failed_grab"
 	}

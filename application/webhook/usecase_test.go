@@ -120,14 +120,24 @@ func sampleRecord() grab.Record {
 	}
 }
 
+// fixedLookup maps "main" → 48h, other names → 0.
+func fixedLookup() GuidCooldownLookup {
+	return func(instance string) time.Duration {
+		if instance == "main" {
+			return 48 * time.Hour
+		}
+		return 0
+	}
+}
+
 func newUseCase(t *testing.T, g *fakeGrabRepo, c *fakeCooldownRepo, tx *fakeTransactor) *UseCase {
 	t.Helper()
 	return New(Deps{
-		Grabs:                 g,
-		Cooldowns:             c,
-		Tx:                    tx,
-		GUIDAfterFailedImport: 48 * time.Hour,
-		Logger:                quietLogger(),
+		Grabs:              g,
+		Cooldowns:          c,
+		Tx:                 tx,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
 	})
 }
 
@@ -295,7 +305,7 @@ func TestProcess_NilTransactor_DirectWrites(t *testing.T) {
 	c := &fakeCooldownRepo{}
 	uc := New(Deps{
 		Grabs: g, Cooldowns: c, Tx: nil,
-		GUIDAfterFailedImport: 48 * time.Hour, Logger: quietLogger(),
+		GUIDCooldownLookup: fixedLookup(), Logger: quietLogger(),
 	})
 
 	err := uc.Process(context.Background(), domainwebhook.Event{
@@ -314,7 +324,8 @@ func TestProcess_ImportFailed_ZeroCooldown_NoCooldownAdded(t *testing.T) {
 	tx := &fakeTransactor{}
 	uc := New(Deps{
 		Grabs: g, Cooldowns: c, Tx: tx,
-		GUIDAfterFailedImport: 0, Logger: quietLogger(),
+		GUIDCooldownLookup: func(string) time.Duration { return 0 },
+		Logger:             quietLogger(),
 	})
 
 	err := uc.Process(context.Background(), domainwebhook.Event{
@@ -324,4 +335,80 @@ func TestProcess_ImportFailed_ZeroCooldown_NoCooldownAdded(t *testing.T) {
 	assert.Equal(t, 1, g.updateCalls)
 	assert.Empty(t, c.sets)
 	assert.True(t, tx.committed)
+}
+
+// TestProcess_ImportFailed_UnknownInstance_NoCooldownButTransitionApplies —
+// item #4. Webhook for "rogue" (not in our config). Lookup returns 0.
+// Status row still flips; no cooldown row written.
+func TestProcess_ImportFailed_UnknownInstance_NoCooldownButTransitionApplies(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.InstanceName = "rogue"
+	g := &fakeGrabRepo{match: rec}
+	c := &fakeCooldownRepo{}
+	tx := &fakeTransactor{}
+	uc := New(Deps{
+		Grabs: g, Cooldowns: c, Tx: tx,
+		GUIDCooldownLookup: fixedLookup(), Logger: quietLogger(),
+	})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImportFailed, InstanceName: "rogue",
+		DownloadID: rec.DownloadID, Message: "missing audio",
+		OccurredAt: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, g.updateCalls, "status must transition even when instance unknown")
+	assert.Equal(t, grab.StatusImportFailed, g.updateStatus)
+	assert.Empty(t, c.sets, "unknown instance must NOT write a cooldown row")
+	assert.True(t, tx.committed)
+}
+
+// TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure — item #4.
+// Two instances ("a" → 24h, "b" → 72h) produce cooldown rows with the
+// correct per-instance ExpiresAt.
+func TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure(t *testing.T) {
+	t.Parallel()
+	lookup := func(name string) time.Duration {
+		switch name {
+		case "a":
+			return 24 * time.Hour
+		case "b":
+			return 72 * time.Hour
+		default:
+			return 0
+		}
+	}
+	occurred := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		instance string
+		wantDur  time.Duration
+	}{
+		{"a", 24 * time.Hour},
+		{"b", 72 * time.Hour},
+	} {
+		tc := tc
+		t.Run(tc.instance, func(t *testing.T) {
+			t.Parallel()
+			rec := sampleRecord()
+			rec.InstanceName = tc.instance
+			g := &fakeGrabRepo{match: rec}
+			c := &fakeCooldownRepo{}
+			tx := &fakeTransactor{}
+			uc := New(Deps{
+				Grabs: g, Cooldowns: c, Tx: tx,
+				GUIDCooldownLookup: lookup, Logger: quietLogger(),
+			})
+
+			err := uc.Process(context.Background(), domainwebhook.Event{
+				Type: domainwebhook.EventTypeImportFailed, InstanceName: tc.instance,
+				DownloadID: rec.DownloadID, OccurredAt: occurred,
+			})
+			require.NoError(t, err)
+			require.Len(t, c.sets, 1)
+			assert.Equal(t, occurred.Add(tc.wantDur), c.sets[0].ExpiresAt,
+				"ExpiresAt must use the per-instance cooldown from the lookup")
+		})
+	}
 }

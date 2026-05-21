@@ -336,3 +336,50 @@ func TestExecute_Success_EmptyDownloadIDPersists(t *testing.T) {
 	require.Len(t, gr.recs, 1)
 	assert.Equal(t, "", gr.recs[0].DownloadID)
 }
+
+// TestExecute_WithClock_CooldownExpiresAtIsDeterministic — item #5.
+// Fixed clock proves cooldown ExpiresAt and CreatedAt math are
+// predictable to the nanosecond after the six time.Now() → u.now()
+// conversion.
+func TestExecute_WithClock_CooldownExpiresAtIsDeterministic(t *testing.T) {
+	t.Parallel()
+	fixedNow := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return fixedNow }
+
+	t.Run("success path series cooldown", func(t *testing.T) {
+		t.Parallel()
+		uc, _, cr, _ := newUC(t)
+		uc.WithClock(clock)
+		in := newInput(&fakeSonarrGrab{})
+		out := uc.Execute(context.Background(), in)
+		require.NoError(t, out.Err)
+		require.Len(t, cr.cs, 1)
+		assert.Equal(t, cooldown.ScopeSeries, cr.cs[0].Scope)
+		assert.Equal(t, fixedNow.Add(in.Config.SeriesCooldown), cr.cs[0].ExpiresAt)
+		assert.Equal(t, fixedNow, cr.cs[0].CreatedAt)
+	})
+
+	t.Run("failed path guid cooldown", func(t *testing.T) {
+		t.Parallel()
+		uc, _, cr, _ := newUC(t)
+		uc.WithClock(clock)
+		in := newInput(&fakeSonarrGrab{errors: []error{err4xx}})
+		out := uc.Execute(context.Background(), in)
+		require.Error(t, out.Err)
+		require.Len(t, cr.cs, 1)
+		assert.Equal(t, cooldown.ScopeGUID, cr.cs[0].Scope)
+		assert.Equal(t, fixedNow.Add(in.Config.GUIDCooldown), cr.cs[0].ExpiresAt)
+		assert.Equal(t, fixedNow, cr.cs[0].CreatedAt)
+	})
+
+	t.Run("record CreatedAt and UpdatedAt", func(t *testing.T) {
+		t.Parallel()
+		uc, gr, _, _ := newUC(t)
+		uc.WithClock(clock)
+		out := uc.Execute(context.Background(), newInput(&fakeSonarrGrab{}))
+		require.NoError(t, out.Err)
+		require.Len(t, gr.recs, 1)
+		assert.Equal(t, fixedNow, gr.recs[0].CreatedAt)
+		assert.Equal(t, fixedNow, gr.recs[0].UpdatedAt)
+	})
+}

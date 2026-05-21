@@ -24,7 +24,7 @@ type Scheduler struct {
 
 func New(schedule string, jitter time.Duration, logger *slog.Logger) *Scheduler {
 	c := cron.New(cron.WithParser(cron.NewParser(
-		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
+		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 	)))
 	return &Scheduler{
 		cron:     c,
