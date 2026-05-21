@@ -128,3 +128,26 @@ func TestApplyInstanceDefaults_HealthCheck_ZeroBecomesDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalAuth)
 	assert.Equal(t, time.Minute, cfg.SonarrInstances[0].HealthCheck.RecheckIntervalNetwork)
 }
+
+func TestApplyInstanceDefaults_GUIDAfterFailedImport_Defaults(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		SonarrInstances: []SonarrInstance{{
+			Name: "main", URL: "http://sonarr:8989", APIKey: "k",
+		}},
+	}
+	cfg.ApplyInstanceDefaults()
+	require.Equal(t, 48*time.Hour, cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport)
+}
+
+func TestApplyInstanceDefaults_GUIDAfterFailedImport_KeepsExplicit(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		SonarrInstances: []SonarrInstance{{
+			Name: "main", URL: "http://sonarr:8989", APIKey: "k",
+			Cooldown: CooldownConfig{GUIDAfterFailedImport: 6 * time.Hour},
+		}},
+	}
+	cfg.ApplyInstanceDefaults()
+	require.Equal(t, 6*time.Hour, cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport)
+}

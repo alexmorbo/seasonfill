@@ -74,6 +74,7 @@ sonarr_instances:
       mode: smart
       series_after_grab: 24h
       guid_after_failed_grab: 72h
+      guid_after_failed_import: 48h
     retry:
       max_attempts: 3
       initial_backoff: 1s

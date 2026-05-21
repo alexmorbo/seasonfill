@@ -57,6 +57,7 @@ type GrabRecordModel struct {
 	SeasonNumber      int    `gorm:"index:idx_grab_inst_series,priority:3"`
 	ReleaseGUID       string `gorm:"size:512;index"`
 	ReleaseTitle      string `gorm:"size:1024"`
+	DownloadID        string `gorm:"size:128;index;column:download_id"`
 	IndexerID         int
 	IndexerName       string `gorm:"size:256"`
 	CustomFormatScore int

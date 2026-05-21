@@ -207,6 +207,14 @@ func (abortFakeGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Pag
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (abortFakeGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (domaingrab.Record, error) {
+	panic("fake MatchLatest unexpectedly called - this stub is not configured for MatchLatest queries")
+}
+
+func (abortFakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab.Status, _ string) error {
+	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

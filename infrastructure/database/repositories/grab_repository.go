@@ -2,7 +2,9 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -37,6 +39,7 @@ func toGrabModel(r grab.Record) database.GrabRecordModel {
 		SeasonNumber:      r.SeasonNumber,
 		ReleaseGUID:       r.ReleaseGUID,
 		ReleaseTitle:      r.ReleaseTitle,
+		DownloadID:        r.DownloadID,
 		IndexerID:         r.IndexerID,
 		IndexerName:       r.IndexerName,
 		CustomFormatScore: r.CustomFormatScore,
@@ -115,6 +118,7 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		SeasonNumber:      m.SeasonNumber,
 		ReleaseGUID:       m.ReleaseGUID,
 		ReleaseTitle:      m.ReleaseTitle,
+		DownloadID:        m.DownloadID,
 		IndexerID:         m.IndexerID,
 		IndexerName:       m.IndexerName,
 		CustomFormatScore: m.CustomFormatScore,
@@ -127,6 +131,98 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 	}, nil
+}
+
+// MatchLatest implements the (downloadId-first, fallback-tuple) lookup
+// described on ports.MatchKey. Two sequential SELECTs: the primary path
+// short-circuits as soon as DownloadID resolves a non-terminal row; the
+// fallback runs only when DownloadID is empty OR the primary missed.
+func (r *GrabRepository) MatchLatest(ctx context.Context, key ports.MatchKey) (grab.Record, error) {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	terminal := []string{
+		string(grab.StatusImported),
+		string(grab.StatusImportFailed),
+		string(grab.StatusGrabFailed),
+	}
+
+	if key.DownloadID != "" {
+		var m database.GrabRecordModel
+		err := db.Model(&database.GrabRecordModel{}).
+			Where("download_id = ? AND instance_name = ? AND status NOT IN ?",
+				key.DownloadID, key.InstanceName, terminal).
+			Order("created_at DESC, id DESC").
+			First(&m).Error
+		if err == nil {
+			rec, convErr := toGrabRecord(m)
+			if convErr != nil {
+				return grab.Record{}, fmt.Errorf("match latest: %w", convErr)
+			}
+			return rec, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return grab.Record{}, fmt.Errorf("match latest by download_id: %w", err)
+		}
+		// fall through to fallback
+	}
+
+	if key.ReleaseTitle == "" || key.InstanceName == "" {
+		return grab.Record{}, ports.ErrNotFound
+	}
+
+	var m database.GrabRecordModel
+	err := db.Model(&database.GrabRecordModel{}).
+		Where("release_title = ? AND series_id = ? AND season_number = ? AND instance_name = ? AND status NOT IN ?",
+			key.ReleaseTitle, key.SeriesID, key.SeasonNumber, key.InstanceName, terminal).
+		Order("created_at DESC, id DESC").
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return grab.Record{}, ports.ErrNotFound
+		}
+		return grab.Record{}, fmt.Errorf("match latest by tuple: %w", err)
+	}
+	rec, convErr := toGrabRecord(m)
+	if convErr != nil {
+		return grab.Record{}, fmt.Errorf("match latest: %w", convErr)
+	}
+	return rec, nil
+}
+
+// UpdateStatus writes status + error_message + updated_at. Defence-in-depth
+// guard: reads current status and rejects the write via
+// grab.ErrInvalidStatusTransition when the move is forbidden.
+func (r *GrabRepository) UpdateStatus(ctx context.Context, id uuid.UUID, newStatus grab.Status, message string) error {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	var current database.GrabRecordModel
+	if err := db.Select("id", "status").First(&current, "id = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ports.ErrNotFound
+		}
+		return fmt.Errorf("read grab status: %w", err)
+	}
+
+	if !grab.Status(current.Status).CanTransitionTo(newStatus) {
+		return fmt.Errorf("%w: %q -> %q",
+			grab.ErrInvalidStatusTransition, current.Status, string(newStatus))
+	}
+
+	now := time.Now().UTC()
+	res := db.Model(&database.GrabRecordModel{}).
+		Where("id = ?", id.String()).
+		Updates(map[string]any{
+			"status":        string(newStatus),
+			"error_message": message,
+			"updated_at":    now,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update grab status: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
 }
 
 // Ensure interface compliance at compile time.

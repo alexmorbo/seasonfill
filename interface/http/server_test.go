@@ -82,6 +82,14 @@ func (noopGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Paginati
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (noopGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (grab.Record, error) {
+	panic("fake MatchLatest unexpectedly called - this stub is not configured for MatchLatest queries")
+}
+
+func (noopGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Status, _ string) error {
+	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
+}
+
 func buildServer(t *testing.T) *Server {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

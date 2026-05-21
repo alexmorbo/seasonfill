@@ -69,9 +69,34 @@ type GrabFilter struct {
 	To           *time.Time
 }
 
+// MatchKey selects one grab_records row for a webhook event. Precedence (R-3):
+//
+//  1. DownloadID alone, when non-empty.
+//  2. Fallback tuple (ReleaseTitle, SeriesID, SeasonNumber, InstanceName)
+//     when DownloadID is empty OR step 1 finds nothing.
+//
+// Both queries exclude terminal rows (imported / import_failed /
+// grab_failed) — duplicate Sonarr deliveries cannot rewrite settled state.
+type MatchKey struct {
+	DownloadID   string
+	ReleaseTitle string
+	SeriesID     int
+	SeasonNumber int
+	InstanceName string
+}
+
 type GrabRepository interface {
 	Create(ctx context.Context, rec grab.Record) error
 	List(ctx context.Context, f GrabFilter, p Pagination) ([]grab.Record, *Cursor, error)
+
+	// MatchLatest implements the MatchKey precedence rule. Returns
+	// ErrNotFound when neither key path resolves a non-terminal row.
+	MatchLatest(ctx context.Context, key MatchKey) (grab.Record, error)
+
+	// UpdateStatus writes status + message + updated_at on the row.
+	// Returns ErrNotFound on unknown id and grab.ErrInvalidStatusTransition
+	// when the persisted status forbids the move.
+	UpdateStatus(ctx context.Context, id uuid.UUID, newStatus grab.Status, message string) error
 }
 
 type CooldownRepository interface {

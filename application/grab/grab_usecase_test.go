@@ -105,6 +105,14 @@ func (r *fakeGrabRepo) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagin
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (r *fakeGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (domaingrab.Record, error) {
+	panic("fake MatchLatest unexpectedly called - this stub is not configured for MatchLatest queries")
+}
+
+func (r *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab.Status, _ string) error {
+	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

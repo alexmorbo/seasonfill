@@ -133,9 +133,10 @@ type LimitsConfig struct {
 }
 
 type CooldownConfig struct {
-	Mode                string        `koanf:"mode"`
-	SeriesAfterGrab     time.Duration `koanf:"series_after_grab"`
-	GUIDAfterFailedGrab time.Duration `koanf:"guid_after_failed_grab"`
+	Mode                  string        `koanf:"mode"`
+	SeriesAfterGrab       time.Duration `koanf:"series_after_grab"`
+	GUIDAfterFailedGrab   time.Duration `koanf:"guid_after_failed_grab"`
+	GUIDAfterFailedImport time.Duration `koanf:"guid_after_failed_import"`
 }
 
 type RetryConfig struct {
@@ -209,6 +210,9 @@ func (c *Config) ApplyInstanceDefaults() {
 		}
 		if inst.Cooldown.GUIDAfterFailedGrab == 0 {
 			inst.Cooldown.GUIDAfterFailedGrab = 72 * time.Hour
+		}
+		if inst.Cooldown.GUIDAfterFailedImport == 0 {
+			inst.Cooldown.GUIDAfterFailedImport = 48 * time.Hour
 		}
 		if inst.Retry.MaxAttempts == 0 {
 			inst.Retry.MaxAttempts = 3
