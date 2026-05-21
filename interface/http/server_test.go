@@ -1,11 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
@@ -90,6 +93,12 @@ func (noopGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Status, 
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
+type noopWebhookUC struct{}
+
+func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {
+	panic("fake Process unexpectedly called - this stub is not configured for webhook events")
+}
+
 func buildServer(t *testing.T) *Server {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -116,7 +125,90 @@ func buildServer(t *testing.T) *Server {
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
-	}, scanUC, checker, noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
+	}, config.WebhookConfig{}, scanUC, noopWebhookUC{}, checker,
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
+}
+
+type okWebhookUC struct{}
+
+func (okWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error { return nil }
+
+func buildServerWithAuth(t *testing.T, adminKey, webhookSecret string) *Server {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarrClient := &noopSonarr{name: "main"}
+	evalUC := evaluate.NewUseCase(sonarrClient, noopDecRepo{}, lg)
+	scanUC := scan.NewUseCase(
+		[]scan.Instance{{Config: config.SonarrInstance{Name: "main"}, Client: sonarrClient}},
+		evalUC,
+		noopScanRepo{},
+		lg,
+		true,
+	)
+	checker := healthcheck.New(db, []ports.SonarrClient{sonarrClient})
+
+	return NewServer(config.HTTPConfig{
+		Bind:            "127.0.0.1:0",
+		ReadTimeout:     time.Second,
+		WriteTimeout:    time.Second,
+		IdleTimeout:     time.Second,
+		ShutdownTimeout: time.Second,
+		Auth:            config.AuthConfig{Enabled: adminKey != "", APIKey: adminKey},
+	}, config.WebhookConfig{Secret: webhookSecret}, scanUC, okWebhookUC{}, checker,
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
+}
+
+// TestServer_WebhookAuthIsolation verifies that, when both admin auth and a
+// webhook secret are configured with DIFFERENT keys:
+//  1. Sonarr's webhook key reaches the webhook endpoint → 200.
+//  2. The admin key is REJECTED by the webhook endpoint → 401.
+//  3. The webhook key is REJECTED by admin endpoints → 401.
+//
+// This test would have caught the original bug where the webhook group
+// inherited the admin APIKeyAuth middleware (both keys ran against the same
+// header, causing a deadlock or privilege-confusion when keys differed).
+func TestServer_WebhookAuthIsolation(t *testing.T) {
+	const adminKey = "admin-secret"
+	const webhookKey = "sonarr-secret"
+
+	srv := buildServerWithAuth(t, adminKey, webhookKey)
+	handler := srv.server.Handler
+
+	sonarrPayload := []byte(`{"eventType":"Download","instanceName":"ignored","downloadId":"ABC1","series":{"id":1,"title":"Test"},"episodes":[{"id":1,"seasonNumber":1,"episodeNumber":1}],"episodeFile":{"id":1,"quality":"HDTV-720p"}}`)
+
+	// 1. Webhook key reaches webhook → 200.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/webhook/sonarr/main", bytes.NewReader(sonarrPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Api-Key", webhookKey)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code,
+		"sonarr key must reach webhook when auth is isolated")
+
+	// 2. Admin key is rejected by webhook → 401.
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/webhook/sonarr/main", bytes.NewReader(sonarrPayload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Api-Key", adminKey)
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusUnauthorized, w2.Code,
+		"admin key must NOT bypass webhook secret — privilege isolation must hold")
+
+	// 3. Webhook key is rejected by admin endpoint → 401.
+	req3 := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/api/v1/instances", nil)
+	req3.Header.Set("X-Api-Key", webhookKey)
+	w3 := httptest.NewRecorder()
+	handler.ServeHTTP(w3, req3)
+	require.Equal(t, http.StatusUnauthorized, w3.Code,
+		"webhook key must NOT reach admin routes")
 }
 
 func TestNewServer_DoesNotPanic(t *testing.T) {

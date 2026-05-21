@@ -151,3 +151,43 @@ func TestApplyInstanceDefaults_GUIDAfterFailedImport_KeepsExplicit(t *testing.T)
 	cfg.ApplyInstanceDefaults()
 	require.Equal(t, 6*time.Hour, cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport)
 }
+
+func TestDefaults_WebhookEmpty(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	assert.Empty(t, cfg.Webhook.Secret, "empty secret is the documented fallback (Q-1)")
+	assert.Empty(t, cfg.Webhook.AllowedInstances, "empty allow-list means accept any (Q-8)")
+}
+
+func TestLoadFromBytes_WebhookSection(t *testing.T) {
+	t.Setenv("SEASONFILL_API_KEY", "main-key")
+	t.Setenv("SONARR_URL", "http://sonarr.local")
+	t.Setenv("SONARR_KEY", "k")
+	t.Setenv("SEASONFILL_WEBHOOK_SECRET", "hook-secret-123")
+
+	raw := []byte(`
+http:
+  auth:
+    enabled: true
+    api_key: ${SEASONFILL_API_KEY}
+webhook:
+  secret: ${SEASONFILL_WEBHOOK_SECRET}
+  allowed_instances: [sonarr-main, sonarr-tv]
+sonarr_instances:
+  - name: sonarr-main
+    url: ${SONARR_URL}
+    api_key: ${SONARR_KEY}
+`)
+	cfg, err := LoadFromBytes(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "hook-secret-123", cfg.Webhook.Secret)
+	assert.Equal(t, []string{"sonarr-main", "sonarr-tv"}, cfg.Webhook.AllowedInstances)
+}
+
+func TestValidate_AcceptsEmptyWebhook(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.HTTP.Auth.Enabled = false
+	cfg.SonarrInstances = []SonarrInstance{{Name: "x", URL: "u", APIKey: "k"}}
+	require.NoError(t, cfg.Validate())
+}

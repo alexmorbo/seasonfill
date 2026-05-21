@@ -13,6 +13,14 @@ var (
 	ErrInvalidCursor = errors.New("invalid cursor")
 	ErrInvalidLimit  = errors.New("invalid limit")
 	ErrNotFound      = errors.New("not found")
+
+	// ErrDBUnavailable marks a transient infrastructure failure
+	// (driver connection refused, sql.ErrConnDone, etc.). The
+	// `application/webhook` use case wraps raw repo / transactor
+	// errors with this sentinel so the webhook HTTP handler can
+	// route them to HTTP 500 (Sonarr retries). Repositories do not
+	// need to wrap directly — the wrap happens in the use case.
+	ErrDBUnavailable = errors.New("database unavailable")
 )
 
 // MaxListLimit is the hard upper bound on Pagination.Limit at the port edge.

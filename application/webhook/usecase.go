@@ -103,7 +103,11 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 			)
 			return nil
 		}
-		return fmt.Errorf("match grab record: %w", err)
+		// Wrap raw repo error with ErrDBUnavailable so 007c's
+		// IsTransient classifier maps it to HTTP 500 (Sonarr retries).
+		// ErrNotFound is handled above; everything else here is
+		// driver-level (connection refused, query timeout, etc.).
+		return fmt.Errorf("match grab record: %w: %w", ports.ErrDBUnavailable, err)
 	}
 
 	if !rec.Status.CanTransitionTo(target) {
@@ -150,7 +154,15 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 			slog.String("grab_id", rec.ID.String()),
 			slog.String("error", txErr.Error()),
 		)
-		return txErr
+		// Preserve already-classified sentinels — ErrInvalidStatusTransition
+		// from the repo's defence-in-depth check is a logic error and
+		// must NOT be relabelled as transient. Everything else gets the
+		// ErrDBUnavailable wrap so 007c routes it to HTTP 500.
+		if errors.Is(txErr, grab.ErrInvalidStatusTransition) ||
+			errors.Is(txErr, ports.ErrDBUnavailable) {
+			return txErr
+		}
+		return fmt.Errorf("webhook transaction: %w: %w", ports.ErrDBUnavailable, txErr)
 	}
 
 	u.logger.InfoContext(ctx, "webhook_event_applied",

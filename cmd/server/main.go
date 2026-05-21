@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
+	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
@@ -141,7 +142,25 @@ func run() error {
 		WithOrigins(originRepo).
 		WithHealthRegistry(checker.Registry())
 
-	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, checker, scanRepo, decisionRepo, grabRepo, log)
+	// Webhook UC reuses grabRepo + cooldownRepo + the shared
+	// transactor. GUIDAfterFailedImport reads from instance #0 for now
+	// — once Helm wires a per-instance webhook section (007d) this
+	// becomes a per-instance lookup. ApplyInstanceDefaults guarantees
+	// a 48h floor when the config doesn't set it.
+	var guidCooldown time.Duration
+	if len(cfg.SonarrInstances) > 0 {
+		guidCooldown = cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport
+	}
+	webhookUC := webhookuc.New(webhookuc.Deps{
+		Grabs:                 grabRepo,
+		Cooldowns:             cooldownRepo,
+		Tx:                    txr,
+		GUIDAfterFailedImport: guidCooldown,
+		Logger:                log,
+	})
+
+	httpServer := httpserver.NewServer(cfg.HTTP, cfg.Webhook, scanUC, webhookUC,
+		checker, scanRepo, decisionRepo, grabRepo, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep

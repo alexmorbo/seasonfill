@@ -226,6 +226,9 @@ func TestProcess_TransactorRollsBack_OnCooldownFailure(t *testing.T) {
 		Type: domainwebhook.EventTypeImportFailed, InstanceName: "main", DownloadID: rec.DownloadID,
 	})
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrDBUnavailable,
+		"transactor errors must be wrapped with ports.ErrDBUnavailable "+
+			"so the webhook handler classifies them as transient (007c)")
 	assert.False(t, tx.committed)
 	assert.Equal(t, 1, g.updateCalls)
 	assert.Empty(t, c.sets)

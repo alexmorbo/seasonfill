@@ -149,6 +149,18 @@ func TestIncRateLimitThrottled_RegistersAndIncrements(t *testing.T) {
 	assert.Contains(t, body, `scope="global"`)
 }
 
+func TestIncWebhookProcessingFailures_RegistersAndIncrements(t *testing.T) {
+	IncWebhookProcessingFailures("obs_test_wh_a", "other")
+	IncWebhookProcessingFailures("obs_test_wh_a", "other")
+	IncWebhookProcessingFailures("obs_test_wh_b", "not_found")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_webhook_processing_failures_total")
+	assert.Contains(t, body, `instance="obs_test_wh_a"`)
+	assert.Contains(t, body, `error_kind="other"`)
+	assert.Contains(t, body, `instance="obs_test_wh_b"`)
+	assert.Contains(t, body, `error_kind="not_found"`)
+}
+
 func TestMetricConstants_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 	consts := []string{
@@ -168,6 +180,7 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		MetricInstanceHealthTransitions,
 		MetricInstanceLastCheckTimestamp,
 		MetricRateLimitThrottled,
+		MetricWebhookProcessingFailures,
 	}
 	for _, c := range consts {
 		assert.NotEmpty(t, c)

@@ -25,7 +25,9 @@ type Server struct {
 
 func NewServer(
 	cfg config.HTTPConfig,
+	webhookCfg config.WebhookConfig,
 	scanUC *scan.UseCase,
+	webhookUC handlers.WebhookProcessor,
 	checker *healthcheck.Checker,
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
@@ -41,6 +43,7 @@ func NewServer(
 	scanHandler := handlers.NewScanHandler(scanUC)
 	instancesHandler := handlers.NewInstancesHandler(checker)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo)
+	webhookHandler := handlers.NewWebhookHandler(webhookUC, webhookCfg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
@@ -56,6 +59,21 @@ func NewServer(
 	api.GET("/scans/:id", auditHandler.GetScan)
 	api.GET("/decisions", auditHandler.ListDecisions)
 	api.GET("/grabs", auditHandler.ListGrabs)
+
+	// Webhook is independent of the admin auth chain — it mounts directly
+	// on the root engine so the admin APIKeyAuth middleware is never
+	// inherited. The webhook route applies its own secret-based auth
+	// (or none when Webhook.Secret is empty).
+	wh := r.Group("/api/v1/webhook/sonarr/:instance_name")
+	if webhookCfg.Secret != "" {
+		wh.Use(middleware.APIKeyAuth(webhookCfg.Secret))
+	} else {
+		logger.Warn("webhook_auth_disabled",
+			slog.String("reason",
+				"webhook.secret empty — relying on NetworkPolicy / upstream firewall"),
+		)
+	}
+	wh.POST("", webhookHandler.Handle)
 
 	srv := &http.Server{
 		Addr:         cfg.Bind,

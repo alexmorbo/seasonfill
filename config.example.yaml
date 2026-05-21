@@ -45,6 +45,24 @@ global_rate_limit:
   rpm: 30
   burst: 10
 
+# Inbound Sonarr Connect -> Webhook receiver (PRD §13.1).
+#
+#   POST /api/v1/webhook/sonarr/:instance_name
+#
+# Sonarr v4 supports custom headers in its Connect -> Webhook config.
+# Configure Sonarr to send header `X-Api-Key: <webhook.secret>` and
+# the existing X-Api-Key middleware enforces it. If `secret` is empty
+# (or the block is omitted), the route accepts any source — rely on
+# NetworkPolicy ingress to allow only the Sonarr namespace. The
+# server logs `webhook_auth_disabled` at startup so operators see the
+# missing gate.
+#
+# `allowed_instances` is a defensive list of instance names that may
+# appear in the URL `:instance_name`. Leave empty to accept any.
+webhook:
+  secret: ${SEASONFILL_WEBHOOK_SECRET}
+  allowed_instances: []
+
 sonarr_instances:
   - name: sonarr-main
     url: ${SONARR_MAIN_URL}

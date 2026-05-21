@@ -23,6 +23,7 @@ const (
 	MetricInstanceHealthTransitions  = `seasonfill_instance_health_transitions_total`
 	MetricInstanceLastCheckTimestamp = `seasonfill_instance_last_check_timestamp`
 	MetricRateLimitThrottled         = `seasonfill_rate_limit_throttled_total`
+	MetricWebhookProcessingFailures  = `seasonfill_webhook_processing_failures_total`
 )
 
 func ScanCompleted(instance, status string) {
@@ -109,6 +110,15 @@ func SetInstanceLastCheck(instance string, unixSec int64) {
 // for the per-instance limiter, or "" for the shared global limiter.
 func IncRateLimitThrottled(instance, scope string) {
 	metrics.GetOrCreateCounter(`seasonfill_rate_limit_throttled_total{instance="` + instance + `",scope="` + scope + `"}`).Inc()
+}
+
+// IncWebhookProcessingFailures records a non-transient failure from
+// the webhook UC. Transient (DB-unavailable) failures map to HTTP 500
+// and are NOT counted — Sonarr retries and a successful retry should
+// not pollute the failure rate. `errorKind` is produced by
+// `application/webhook.ErrorKind` (low-cardinality).
+func IncWebhookProcessingFailures(instance, errorKind string) {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_processing_failures_total{instance="` + instance + `",error_kind="` + errorKind + `"}`).Inc()
 }
 
 func WritePrometheus(w io.Writer) {

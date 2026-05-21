@@ -14,6 +14,7 @@ type Config struct {
 	DryRun          bool                  `koanf:"dry_run"`
 	Scan            ScanConfig            `koanf:"scan"`
 	GlobalRateLimit GlobalRateLimitConfig `koanf:"global_rate_limit"`
+	Webhook         WebhookConfig         `koanf:"webhook"`
 	SonarrInstances []SonarrInstance      `koanf:"sonarr_instances"`
 }
 
@@ -22,6 +23,22 @@ type Config struct {
 type GlobalRateLimitConfig struct {
 	RPM   int `koanf:"rpm"`
 	Burst int `koanf:"burst"`
+}
+
+// WebhookConfig — inbound Sonarr Connect -> Webhook receiver (PRD §13.1).
+//
+// Secret is the value Sonarr puts in its custom-header field (header
+// name = X-Api-Key). Empty secret = the handler accepts any source
+// and the server logs `webhook_auth_disabled` once at startup (Q-1
+// fallback — NetworkPolicy is the gate).
+//
+// AllowedInstances is a defensive allow-list of instance names that
+// MUST appear in the URL `:instance_name`. Empty = accept any
+// (back-compat). Per Q-8 we validate the URL path NOT the payload's
+// `instanceName` (operator-set in Sonarr UI, untrustworthy).
+type WebhookConfig struct {
+	Secret           string   `koanf:"secret"`
+	AllowedInstances []string `koanf:"allowed_instances"`
 }
 
 type LogConfig struct {
