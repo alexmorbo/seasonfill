@@ -55,7 +55,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		DryRunWouldGrab: d.DryRunWouldGrab,
 		CreatedAt:       d.CreatedAt,
 	}
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("save decision: %w", err)
 	}
 	return nil

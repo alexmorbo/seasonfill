@@ -40,9 +40,9 @@ func NewServer(
 	r.Use(middleware.RequestLogging(logger))
 
 	healthHandler := handlers.NewHealthHandler(checker)
-	scanHandler := handlers.NewScanHandler(scanUC)
+	scanHandler := handlers.NewScanHandler(scanUC, logger)
 	instancesHandler := handlers.NewInstancesHandler(checker)
-	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo)
+	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, webhookCfg, logger)
 
 	r.GET("/healthz", healthHandler.Live)

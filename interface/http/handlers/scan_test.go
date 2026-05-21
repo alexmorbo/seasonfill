@@ -94,7 +94,8 @@ func newScanUseCase() *scan.UseCase {
 func setupScanRouter(uc *scan.UseCase) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v1/scan", NewScanHandler(uc).Trigger)
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	r.POST("/api/v1/scan", NewScanHandler(uc, lg).Trigger)
 	return r
 }
 

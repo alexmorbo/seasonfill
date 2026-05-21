@@ -22,7 +22,7 @@ func NewScanRepository(db *gorm.DB) *ScanRepository {
 
 func (r *ScanRepository) Create(ctx context.Context, rec ports.ScanRecord) error {
 	model := toScanModel(rec)
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("create scan: %w", err)
 	}
 	return nil
@@ -30,7 +30,7 @@ func (r *ScanRepository) Create(ctx context.Context, rec ports.ScanRecord) error
 
 func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error {
 	model := toScanModel(rec)
-	if err := r.db.WithContext(ctx).Save(&model).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Save(&model).Error; err != nil {
 		return fmt.Errorf("update scan: %w", err)
 	}
 	return nil
@@ -38,7 +38,7 @@ func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error
 
 func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanRecord, error) {
 	var model database.ScanRunModel
-	if err := r.db.WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ports.ScanRecord{}, ports.ErrNotFound
 		}
@@ -48,7 +48,7 @@ func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanR
 }
 
 func (r *ScanRepository) MarkAborted(ctx context.Context, id uuid.UUID, reason string) error {
-	res := r.db.WithContext(ctx).Model(&database.ScanRunModel{}).
+	res := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{}).
 		Where("id = ?", id.String()).
 		Updates(map[string]any{
 			"status":        "aborted",

@@ -143,3 +143,53 @@ func TestScanRepository_Update_ClosedDB_ReturnsError(t *testing.T) {
 	err = repo.Update(context.Background(), newScanRecord(uuid.New()))
 	require.Error(t, err)
 }
+
+// TestScanRepository_TxRollback_OnForcedError is the 008a regression
+// canary for D-3.A.3 applied to ScanRepository. It seeds a scan row
+// (auto-committed outside the tx), then opens a Transactor.Transaction
+// that calls scanRepo.Update inside it, then forces the function to
+// return an error. After the tx rolls back, the row must be observable
+// in its ORIGINAL pre-tx state — the Update must not have escaped the
+// rollback envelope.
+//
+// With the pre-fix code (Update using r.db.WithContext bypassing
+// dbFromContext) the Update would auto-commit on Postgres before the
+// surrounding tx rolled back. On SQLite this test would also fail
+// because the row's status would reflect the in-tx Update rather than
+// the pre-tx state.
+func TestScanRepository_TxRollback_OnForcedError(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewScanRepository(db)
+	tx := NewGormTransactor(db)
+	ctx := context.Background()
+
+	// Seed: one scan in "running" state, persisted outside the tx.
+	id := uuid.New()
+	original := newScanRecord(id)
+	original.Status = "running"
+	require.NoError(t, repo.Create(ctx, original))
+
+	// Compose a tx that updates the scan to "completed", then forces
+	// the function to return an error so the tx rolls back.
+	forced := errors.New("forced tx rollback")
+	txErr := tx.Transaction(ctx, func(txCtx context.Context) error {
+		modified := original
+		modified.Status = "completed"
+		modified.SeriesScanned = 99
+		if err := repo.Update(txCtx, modified); err != nil {
+			return err
+		}
+		return forced
+	})
+	require.Error(t, txErr, "transaction must propagate the forced error")
+	assert.True(t, errors.Is(txErr, forced), "error must wrap the forced sentinel")
+
+	// Assert the scan row is unchanged — Update was rolled back.
+	got, err := repo.GetByID(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, "running", got.Status,
+		"Update inside a rolled-back tx must NOT persist — dbFromContext must route the write through the tx session")
+	assert.Equal(t, 0, got.SeriesScanned,
+		"Update inside a rolled-back tx must NOT persist field changes")
+}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,10 +13,18 @@ import (
 
 type ScanHandler struct {
 	useCase *scan.UseCase
+	logger  *slog.Logger
 }
 
-func NewScanHandler(uc *scan.UseCase) *ScanHandler {
-	return &ScanHandler{useCase: uc}
+// NewScanHandler wires the manual-scan trigger endpoint with the
+// scan use case and a logger. A nil logger falls back to
+// slog.Default() (see writeInternalError); production wiring always
+// passes a real logger.
+func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &ScanHandler{useCase: uc, logger: logger}
 }
 
 type scanResponseItem struct {
@@ -55,7 +64,10 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, h.logger, "scan_trigger_instance_failed", err,
+				slog.String("endpoint", "/api/v1/scan"),
+				slog.String("instance", req.Instance),
+			)
 			return
 		}
 		c.JSON(http.StatusAccepted, []scanResponseItem{toResponseItem(res)})
@@ -64,7 +76,9 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 
 	results, err := h.useCase.Run(c.Request.Context(), scan.TriggerManual)
 	if err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeInternalError(c, h.logger, "scan_trigger_all_failed", err,
+			slog.String("endpoint", "/api/v1/scan"),
+		)
 		return
 	}
 	out := make([]scanResponseItem, 0, len(results))

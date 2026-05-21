@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -21,10 +22,17 @@ type AuditHandler struct {
 	scans     ports.ScanRepository
 	decisions ports.DecisionRepository
 	grabs     ports.GrabRepository
+	logger    *slog.Logger
 }
 
-func NewAuditHandler(scans ports.ScanRepository, decisions ports.DecisionRepository, grabs ports.GrabRepository) *AuditHandler {
-	return &AuditHandler{scans: scans, decisions: decisions, grabs: grabs}
+// NewAuditHandler wires the audit endpoints with their backing repos
+// and a logger. A nil logger falls back to slog.Default() (see
+// writeInternalError); production wiring always passes a real logger.
+func NewAuditHandler(scans ports.ScanRepository, decisions ports.DecisionRepository, grabs ports.GrabRepository, logger *slog.Logger) *AuditHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &AuditHandler{scans: scans, decisions: decisions, grabs: grabs, logger: logger}
 }
 
 // stringPtrFromQuery returns a pointer to the trimmed query value, or
@@ -188,7 +196,9 @@ func (h *AuditHandler) ListScans(c *gin.Context) {
 	}
 	recs, next, err := h.scans.List(c.Request.Context(), filter, ports.Pagination{Limit: limit, Cursor: cursor})
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, err.Error())
+		writeInternalError(c, h.logger, "audit_list_scans_failed", err,
+			slog.String("endpoint", "/api/v1/scans"),
+		)
 		return
 	}
 	out := make([]scanView, 0, len(recs))
@@ -212,7 +222,10 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 			writeError(c, http.StatusNotFound, "scan not found")
 			return
 		}
-		writeError(c, http.StatusInternalServerError, err.Error())
+		writeInternalError(c, h.logger, "audit_get_scan_failed", err,
+			slog.String("endpoint", "/api/v1/scans/:id"),
+			slog.String("scan_id", id.String()),
+		)
 		return
 	}
 	c.JSON(http.StatusOK, toScanView(rec))
@@ -259,7 +272,9 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 	}
 	recs, next, err := h.decisions.List(c.Request.Context(), filter, ports.Pagination{Limit: limit, Cursor: cursor})
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, err.Error())
+		writeInternalError(c, h.logger, "audit_list_decisions_failed", err,
+			slog.String("endpoint", "/api/v1/decisions"),
+		)
 		return
 	}
 	out := make([]decisionView, 0, len(recs))
@@ -302,7 +317,9 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 	}
 	recs, next, err := h.grabs.List(c.Request.Context(), filter, ports.Pagination{Limit: limit, Cursor: cursor})
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, err.Error())
+		writeInternalError(c, h.logger, "audit_list_grabs_failed", err,
+			slog.String("endpoint", "/api/v1/grabs"),
+		)
 		return
 	}
 	out := make([]grabView, 0, len(recs))

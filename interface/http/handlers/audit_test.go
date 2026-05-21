@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +45,8 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	scans := repositories.NewScanRepository(db)
 	decs := repositories.NewDecisionRepository(db)
 	grabs := repositories.NewGrabRepository(db)
-	h := NewAuditHandler(scans, decs, grabs)
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewAuditHandler(scans, decs, grabs, lg)
 
 	r := gin.New()
 	api := r.Group("/api/v1")
