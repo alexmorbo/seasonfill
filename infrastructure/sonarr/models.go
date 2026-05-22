@@ -8,18 +8,27 @@ type systemStatusDTO struct {
 }
 
 type seriesDTO struct {
-	ID             int         `json:"id"`
-	Title          string      `json:"title"`
-	SeriesType     string      `json:"seriesType"`
-	Monitored      bool        `json:"monitored"`
-	QualityProfile int         `json:"qualityProfileId"`
-	Tags           []int       `json:"tags"`
-	Seasons        []seasonDTO `json:"seasons"`
+	ID             int            `json:"id"`
+	Title          string         `json:"title"`
+	SeriesType     string         `json:"seriesType"`
+	Monitored      bool           `json:"monitored"`
+	QualityProfile int            `json:"qualityProfileId"`
+	Tags           []int          `json:"tags"`
+	Seasons        []seasonDTO    `json:"seasons"`
+	Statistics     *statisticsDTO `json:"statistics,omitempty"`
 }
 
 type seasonDTO struct {
-	SeasonNumber int  `json:"seasonNumber"`
-	Monitored    bool `json:"monitored"`
+	SeasonNumber int            `json:"seasonNumber"`
+	Monitored    bool           `json:"monitored"`
+	Statistics   *statisticsDTO `json:"statistics,omitempty"`
+}
+
+// statisticsDTO mirrors Sonarr's nested statistics block. Pointer
+// captures absence cleanly — Sonarr omits this for empty series.
+type statisticsDTO struct {
+	EpisodeCount     int `json:"episodeCount"`
+	EpisodeFileCount int `json:"episodeFileCount"`
 }
 
 type episodeDTO struct {

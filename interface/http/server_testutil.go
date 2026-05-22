@@ -17,5 +17,5 @@ func newServerForTest(t *testing.T, apiKey, cookieSecret string) *Server {
 		Auth: config.AuthConfig{Enabled: true, APIKey: apiKey, CookieSecret: cookieSecret},
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	return NewServer(cfg, config.WebhookConfig{}, nil, nil, nil, nil, nil, nil, logger)
+	return NewServer(cfg, config.WebhookConfig{}, nil, nil, nil, nil, nil, nil, nil, nil, logger)
 }

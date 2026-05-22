@@ -16,6 +16,7 @@ type Series struct {
 	Monitored      bool
 	QualityProfile int
 	Seasons        []Season
+	Statistics     Statistics
 }
 
 func (s Series) MonitoredSeasons() []Season {
@@ -26,4 +27,21 @@ func (s Series) MonitoredSeasons() []Season {
 		}
 	}
 	return out
+}
+
+// Statistics mirrors Sonarr's `series.statistics`. Zero values =
+// "no statistics" (Sonarr omits the field for empty series).
+type Statistics struct {
+	EpisodeCount     int
+	EpisodeFileCount int
+}
+
+// AiredMissing returns aired-but-not-on-disk count, clamped to 0
+// (Sonarr can return inconsistent snapshots mid-import).
+func (s Statistics) AiredMissing() int {
+	d := s.EpisodeCount - s.EpisodeFileCount
+	if d < 0 {
+		return 0
+	}
+	return d
 }

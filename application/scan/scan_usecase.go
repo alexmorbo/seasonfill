@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/instance"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -125,28 +126,44 @@ func (u *UseCase) InflightScans() map[string]uuid.UUID {
 }
 
 func (u *UseCase) Run(parent context.Context, trigger Trigger) ([]RunResult, error) {
-	results := make([]RunResult, len(u.instances))
-	errs := make([]error, len(u.instances))
+	// D43: cron MUST skip manual-mode instances. UI/API triggers
+	// (TriggerManual/Startup) ignore mode — `RunInstance` is the
+	// supported manual path.
+	eligible := make([]int, 0, len(u.instances))
+	for i := range u.instances {
+		if trigger == TriggerCron && u.instances[i].Config.Mode == "manual" {
+			u.logger.InfoContext(parent, "cron_skipped_manual_instance",
+				slog.String("instance", u.instances[i].Config.Name))
+			continue
+		}
+		eligible = append(eligible, i)
+	}
+
+	results := make([]RunResult, len(eligible))
+	errs := make([]error, len(eligible))
 
 	var wg sync.WaitGroup
-	for i := range u.instances {
+	for outIdx, srcIdx := range eligible {
 		wg.Add(1)
-		go func(idx int) {
+		go func(out, src int) {
 			defer wg.Done()
-			res, err := u.runOne(parent, u.instances[idx], trigger)
-			results[idx] = res
-			errs[idx] = err
-		}(i)
+			res, err := u.runOne(parent, u.instances[src], trigger, nil)
+			results[out] = res
+			errs[out] = err
+		}(outIdx, srcIdx)
 	}
 	wg.Wait()
-
 	return results, errors.Join(errs...)
 }
 
-func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigger) (RunResult, error) {
+// RunInstance triggers a scan on the named instance, ignoring `mode`
+// (manual instances are reachable here on purpose — UI/API path).
+// `seriesIDs` narrows ListSeries before evaluate; nil/empty = scan
+// every series. Unknown IDs are dropped with a WARN (Q-010-3).
+func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
 	for _, inst := range u.instances {
 		if inst.Config.Name == name {
-			return u.runOne(parent, inst, trigger)
+			return u.runOne(parent, inst, trigger, seriesIDs)
 		}
 	}
 	return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
@@ -162,7 +179,7 @@ func (u *UseCase) instanceDryRun(inst Instance) bool {
 	return u.dryRun
 }
 
-func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger) (RunResult, error) {
+func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {
 	scanID := uuid.New()
 	ctx := logger.WithTraceID(parent, scanID.String())
 
@@ -218,6 +235,38 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger)
 			return u.finalizeScanAborted(ctx, rec, inst, started, err)
 		}
 		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
+	}
+
+	if len(seriesIDs) > 0 {
+		// Q-010-3: stale UI cache may reference IDs not in this
+		// instance. Skip-with-warn so partial scans still happen.
+		want := make(map[int]struct{}, len(seriesIDs))
+		for _, id := range seriesIDs {
+			want[id] = struct{}{}
+		}
+		filtered := make([]series.Series, 0, len(want))
+		matched := make(map[int]struct{}, len(want))
+		for _, s := range seriesList {
+			if _, ok := want[s.ID]; ok {
+				filtered = append(filtered, s)
+				matched[s.ID] = struct{}{}
+			}
+		}
+		if len(matched) < len(want) {
+			skipped := make([]int, 0, len(want)-len(matched))
+			for id := range want {
+				if _, ok := matched[id]; !ok {
+					skipped = append(skipped, id)
+				}
+			}
+			sort.Ints(skipped)
+			u.logger.WarnContext(ctx, "scan_series_ids_unknown_skipped",
+				slog.String("instance", inst.Config.Name),
+				slog.Int("requested", len(want)),
+				slog.Int("matched", len(matched)),
+				slog.Any("skipped_series_ids", skipped))
+		}
+		seriesList = filtered
 	}
 
 	tagFilter, tagErr := buildTagFilter(ctx, inst)

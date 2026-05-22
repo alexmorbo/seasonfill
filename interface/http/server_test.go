@@ -128,7 +128,7 @@ func buildServer(t *testing.T) *Server {
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
 	}, config.WebhookConfig{}, scanUC, noopWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, lg)
 }
 
 type okWebhookUC struct{}
@@ -167,7 +167,7 @@ func buildServerWithAuth(t *testing.T, adminKey, webhookSecret string) *Server {
 			SecureCookie: false,
 		},
 	}, config.WebhookConfig{Secret: webhookSecret}, scanUC, okWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, lg)
 }
 
 // TestServer_WebhookAuthIsolation verifies that, when both admin auth and a

@@ -1,9 +1,10 @@
 package series
 
 type Season struct {
-	Number    int
-	Monitored bool
-	Episodes  []Episode
+	Number     int
+	Monitored  bool
+	Episodes   []Episode
+	Statistics Statistics
 }
 
 func (s Season) Missing() []Episode {

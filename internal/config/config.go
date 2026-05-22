@@ -111,11 +111,15 @@ type ScanConfig struct {
 // Per D-2.6 the instance-level override wins if non-nil; otherwise we fall
 // back to the global `Config.DryRun`.
 type SonarrInstance struct {
-	Name        string            `koanf:"name"`
-	URL         string            `koanf:"url"`
-	APIKey      string            `koanf:"api_key"`
-	Timeout     time.Duration     `koanf:"timeout"`
-	DryRun      *bool             `koanf:"dry_run"`
+	Name    string        `koanf:"name"`
+	URL     string        `koanf:"url"`
+	APIKey  string        `koanf:"api_key"`
+	Timeout time.Duration `koanf:"timeout"`
+	DryRun  *bool         `koanf:"dry_run"`
+	// Mode = "auto" (default) or "manual". Manual instances are
+	// excluded from the cron sweep but reachable via UI/API
+	// (`RunInstance`).
+	Mode        string            `koanf:"mode"`
 	Tags        TagsConfig        `koanf:"tags"`
 	Search      SearchConfig      `koanf:"search"`
 	Ranking     RankingConfig     `koanf:"ranking"`
@@ -267,6 +271,9 @@ func (c *Config) ApplyInstanceDefaults() {
 		if inst.HealthCheck.RecheckIntervalNetwork <= 0 {
 			inst.HealthCheck.RecheckIntervalNetwork = time.Minute
 		}
+		if inst.Mode == "" {
+			inst.Mode = "auto"
+		}
 	}
 }
 
@@ -275,6 +282,7 @@ var (
 	ErrInstanceURL     = errors.New("sonarr instance url is required")
 	ErrInstanceName    = errors.New("sonarr instance name is required")
 	ErrInstanceAPIKey  = errors.New("sonarr instance api_key is required")
+	ErrInstanceMode    = errors.New("sonarr instance mode must be one of: auto, manual")
 	ErrUnknownDriver   = errors.New("unknown database driver, expected sqlite or postgres")
 	ErrAuthKeyRequired = errors.New("http.auth.api_key is required when auth.enabled=true")
 	ErrPostgresDSN     = errors.New("database.postgres.dsn is required when driver=postgres")
@@ -311,6 +319,11 @@ func (c *Config) Validate() error {
 		}
 		if inst.APIKey == "" {
 			return fmt.Errorf("instance %q: %w", inst.Name, ErrInstanceAPIKey)
+		}
+		switch inst.Mode {
+		case "", "auto", "manual":
+		default:
+			return fmt.Errorf("instance %q: %w (got %q)", inst.Name, ErrInstanceMode, inst.Mode)
 		}
 	}
 	if c.HTTP.Auth.Enabled && c.HTTP.Auth.CookieSecret == "" {

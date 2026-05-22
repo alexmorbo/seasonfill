@@ -374,6 +374,13 @@ func isDecodeOnlyError(err error) bool {
 	return strings.HasPrefix(err.Error(), "decode /api/v3/release:")
 }
 
+func toStatistics(p *statisticsDTO) series.Statistics {
+	if p == nil {
+		return series.Statistics{}
+	}
+	return series.Statistics{EpisodeCount: p.EpisodeCount, EpisodeFileCount: p.EpisodeFileCount}
+}
+
 func toSeries(d seriesDTO) series.Series {
 	st := series.SeriesTypeStandard
 	switch d.SeriesType {
@@ -384,15 +391,15 @@ func toSeries(d seriesDTO) series.Series {
 	}
 	seasons := make([]series.Season, 0, len(d.Seasons))
 	for _, s := range d.Seasons {
-		seasons = append(seasons, series.Season{Number: s.SeasonNumber, Monitored: s.Monitored})
+		seasons = append(seasons, series.Season{
+			Number: s.SeasonNumber, Monitored: s.Monitored,
+			Statistics: toStatistics(s.Statistics),
+		})
 	}
 	return series.Series{
-		ID:             d.ID,
-		Title:          d.Title,
-		Type:           st,
-		Monitored:      d.Monitored,
-		TagIDs:         d.Tags,
-		QualityProfile: d.QualityProfile,
-		Seasons:        seasons,
+		ID: d.ID, Title: d.Title, Type: st,
+		Monitored: d.Monitored, TagIDs: d.Tags,
+		QualityProfile: d.QualityProfile, Seasons: seasons,
+		Statistics: toStatistics(d.Statistics),
 	}
 }

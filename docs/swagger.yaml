@@ -144,6 +144,12 @@ components:
           type: string
         last_error:
           type: string
+        mode:
+          enum:
+          - auto
+          - manual
+          example: auto
+          type: string
         name:
           example: alpha
           type: string
@@ -163,6 +169,42 @@ components:
         api_key:
           example: sf_abc123
           type: string
+      type: object
+    dto.MissingSeasonStat:
+      properties:
+        missing_aired_count:
+          type: integer
+        season_number:
+          type: integer
+      type: object
+    dto.MissingSeries:
+      properties:
+        monitored:
+          example: true
+          type: boolean
+        seasons:
+          items:
+            $ref: '#/components/schemas/dto.MissingSeasonStat'
+          type: array
+          uniqueItems: false
+        series_id:
+          example: 122
+          type: integer
+        title:
+          example: Severance
+          type: string
+        total_missing_aired:
+          type: integer
+      type: object
+    dto.MissingSeriesList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.MissingSeries'
+          type: array
+          uniqueItems: false
+        total:
+          type: integer
       type: object
     dto.OKResponse:
       properties:
@@ -302,6 +344,11 @@ components:
         instance:
           example: alpha
           type: string
+        series_ids:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
       type: object
   securitySchemes:
     ApiKeyAuth:
@@ -582,6 +629,49 @@ paths:
       summary: List Sonarr instance health
       tags:
       - instances
+  /instances/{name}/missing:
+    get:
+      description: |-
+        Monitored series whose aired episode count exceeds
+        the on-disk file count, with per-season breakdown.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MissingSeriesList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List missing-aired series for an instance
+      tags:
+      - instances
   /readyz:
     get:
       description: 200 only when DB AND ≥1 Sonarr instance are healthy.
@@ -605,13 +695,15 @@ paths:
     post:
       description: |-
         Schedules a scan across all configured instances or the
-        named one. Returns 202; clients poll /scans/{id}.
+        named one. Optional `series_ids` narrows a per-instance
+        scan to specific IDs; unknown IDs are silently dropped
+        with a WARN. Returns 202; clients poll /scans/{id}.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/dto.ScanTriggerRequest'
-        description: Optional instance selector
+        description: Optional instance + series filter
       responses:
         "202":
           content:

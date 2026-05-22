@@ -367,6 +367,76 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/missing": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List missing-aired series for an instance
+         * @description Monitored series whose aired episode count exceeds
+         *     the on-disk file count, with per-season breakdown.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MissingSeriesList"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/readyz": {
         readonly parameters: {
             readonly query?: never;
@@ -427,7 +497,9 @@ export type paths = {
         /**
          * Trigger a manual scan
          * @description Schedules a scan across all configured instances or the
-         *     named one. Returns 202; clients poll /scans/{id}.
+         *     named one. Optional `series_ids` narrows a per-instance
+         *     scan to specific IDs; unknown IDs are silently dropped
+         *     with a WARN. Returns 202; clients poll /scans/{id}.
          */
         readonly post: {
             readonly parameters: {
@@ -436,7 +508,7 @@ export type paths = {
                 readonly path?: never;
                 readonly cookie?: never;
             };
-            /** @description Optional instance selector */
+            /** @description Optional instance + series filter */
             readonly requestBody?: {
                 readonly content: {
                     readonly "application/json": components["schemas"]["dto.ScanTriggerRequest"];
@@ -707,6 +779,11 @@ export type components = {
             readonly health?: DtoInstanceHealth;
             readonly last_check_at?: string;
             readonly last_error?: string;
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly mode?: DtoInstanceMode;
             /** @example alpha */
             readonly name?: string;
             readonly transitions_count?: number;
@@ -717,6 +794,24 @@ export type components = {
         readonly "dto.LoginRequest": {
             /** @example sf_abc123 */
             readonly api_key?: string;
+        };
+        readonly "dto.MissingSeasonStat": {
+            readonly missing_aired_count?: number;
+            readonly season_number?: number;
+        };
+        readonly "dto.MissingSeries": {
+            /** @example true */
+            readonly monitored?: boolean;
+            readonly seasons?: readonly components["schemas"]["dto.MissingSeasonStat"][];
+            /** @example 122 */
+            readonly series_id?: number;
+            /** @example Severance */
+            readonly title?: string;
+            readonly total_missing_aired?: number;
+        };
+        readonly "dto.MissingSeriesList": {
+            readonly items?: readonly components["schemas"]["dto.MissingSeries"][];
+            readonly total?: number;
         };
         readonly "dto.OKResponse": {
             /** @example true */
@@ -798,6 +893,7 @@ export type components = {
         readonly "dto.ScanTriggerRequest": {
             /** @example alpha */
             readonly instance?: string;
+            readonly series_ids?: readonly number[];
         };
     };
     responses: never;
@@ -846,6 +942,10 @@ export enum DtoInstanceHealth {
     degraded = "degraded",
     unavailable = "unavailable",
     unknown = "unknown"
+}
+export enum DtoInstanceMode {
+    auto = "auto",
+    manual = "manual"
 }
 export enum DtoReadyStatusStatus {
     ok = "ok",

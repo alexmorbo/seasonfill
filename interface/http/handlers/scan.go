@@ -31,11 +31,13 @@ func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
 //
 // @Summary     Trigger a manual scan
 // @Description Schedules a scan across all configured instances or the
-// @Description named one. Returns 202; clients poll /scans/{id}.
+// @Description named one. Optional `series_ids` narrows a per-instance
+// @Description scan to specific IDs; unknown IDs are silently dropped
+// @Description with a WARN. Returns 202; clients poll /scans/{id}.
 // @Tags        scans
 // @Accept      json
 // @Produce     json
-// @Param       body  body      dto.ScanTriggerRequest  false  "Optional instance selector"
+// @Param       body  body      dto.ScanTriggerRequest  false  "Optional instance + series filter"
 // @Success     202   {array}   dto.ScanTriggerItem
 // @Failure     404   {object}  dto.ScanNotFoundResponse
 // @Failure     409   {object}  dto.ScanConflictResponse  "SCAN_IN_PROGRESS"
@@ -48,7 +50,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	if req.Instance != "" {
-		res, err := h.useCase.RunInstance(c.Request.Context(), req.Instance, scan.TriggerManual)
+		res, err := h.useCase.RunInstance(c.Request.Context(), req.Instance, scan.TriggerManual, req.SeriesIDs...)
 		if errors.Is(err, scan.ErrScanAlreadyRunning) {
 			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
 				Error:    "scan already running",

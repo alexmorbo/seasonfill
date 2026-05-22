@@ -33,6 +33,8 @@ func NewServer(
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
 	grabRepo ports.GrabRepository,
+	sonarrClients map[string]ports.SonarrClient,
+	instanceModes map[string]string,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -42,7 +44,7 @@ func NewServer(
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
-	instancesHandler := handlers.NewInstancesHandler(checker)
+	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, webhookCfg, logger)
 
@@ -83,6 +85,7 @@ func NewServer(
 		apiGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
 		apiGuarded.POST("/scan", scanHandler.Trigger)
 		apiGuarded.GET("/instances", instancesHandler.List)
+		apiGuarded.GET("/instances/:name/missing", instancesHandler.Missing)
 		apiGuarded.GET("/scans", auditHandler.ListScans)
 		apiGuarded.GET("/scans/:id", auditHandler.GetScan)
 		apiGuarded.GET("/decisions", auditHandler.ListDecisions)

@@ -269,3 +269,45 @@ func TestValidate_AcceptsEmptyWebhook(t *testing.T) {
 	cfg.SonarrInstances = []SonarrInstance{{Name: "x", URL: "u", APIKey: "k"}}
 	require.NoError(t, cfg.Validate())
 }
+
+func TestApplyInstanceDefaults_Mode_DefaultsToAuto(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{
+		{Name: "a", URL: "u", APIKey: "k"},
+		{Name: "b", URL: "u", APIKey: "k", Mode: "manual"},
+	}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, "auto", cfg.SonarrInstances[0].Mode)
+	assert.Equal(t, "manual", cfg.SonarrInstances[1].Mode)
+}
+
+func TestValidate_Mode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{name: "auto ok", mode: "auto"},
+		{name: "manual ok", mode: "manual"},
+		{name: "empty ok (defaulted at load)", mode: ""},
+		{name: "unknown rejected", mode: "yolo", wantErr: true},
+		{name: "case-sensitive Auto rejected", mode: "Auto", wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			cfg.HTTP.Auth.Enabled = false
+			cfg.SonarrInstances = []SonarrInstance{{Name: "x", URL: "u", APIKey: "k", Mode: tt.mode}}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrInstanceMode)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -345,6 +346,96 @@ func TestBuildTagFilter(t *testing.T) {
 		_, err := buildTagFilter(ctx, inst)
 		require.Error(t, err)
 	})
+}
+
+type listSeriesCounter struct {
+	*fakeSonarr
+	mu    sync.Mutex
+	calls int
+}
+
+func (l *listSeriesCounter) ListSeries(ctx context.Context) ([]series.Series, error) {
+	l.mu.Lock()
+	l.calls++
+	l.mu.Unlock()
+	return l.fakeSonarr.ListSeries(ctx)
+}
+
+func monSeries(id int, title string) series.Series {
+	return series.Series{ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
+		QualityProfile: 14, Seasons: []series.Season{{Number: 1, Monitored: true}}}
+}
+
+func instCfg(name, mode string) config.SonarrInstance {
+	return config.SonarrInstance{Name: name, Mode: mode,
+		Limits: config.LimitsConfig{ScanMaxSeries: 100, MaxGrabsPerScan: 10}}
+}
+
+// newScanUCFor builds a NewUseCase for the given instances + logger.
+// Always wires fresh fakeDecRepo + fakeScanRepo; first client backs
+// the evaluator (sufficient because tests never cross instances).
+func newScanUCFor(t *testing.T, lg *slog.Logger, insts []Instance) *UseCase {
+	t.Helper()
+	require.NotEmpty(t, insts)
+	evalUC := evaluate.NewUseCase(insts[0].Client, &fakeDecRepo{}, lg)
+	return NewUseCase(insts, evalUC, &fakeScanRepo{}, lg, true)
+}
+
+func TestScan_CronSkipsManualInstance(t *testing.T) {
+	t.Parallel()
+	autoWrap := &listSeriesCounter{fakeSonarr: &fakeSonarr{name: "auto1", series: []series.Series{monSeries(1, "A")}}}
+	manualWrap := &listSeriesCounter{fakeSonarr: &fakeSonarr{name: "manual1", series: []series.Series{monSeries(2, "B")}}}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := newScanUCFor(t, lg, []Instance{
+		{Config: instCfg("auto1", "auto"), Client: autoWrap},
+		{Config: instCfg("manual1", "manual"), Client: manualWrap},
+	})
+
+	results, err := uc.Run(context.Background(), TriggerCron)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "cron must skip the manual instance")
+	assert.Equal(t, "auto1", results[0].InstanceName)
+	assert.Equal(t, 1, autoWrap.calls)
+	assert.Equal(t, 0, manualWrap.calls, "manual instance must be skipped on cron")
+}
+
+func TestScan_ManualTriggerHitsManualInstance(t *testing.T) {
+	t.Parallel()
+	wrap := &listSeriesCounter{fakeSonarr: &fakeSonarr{name: "manual1", series: []series.Series{monSeries(2, "B")}}}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("manual1", "manual"), Client: wrap}})
+
+	res, err := uc.RunInstance(context.Background(), "manual1", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+	assert.Equal(t, 1, wrap.calls)
+}
+
+func TestScan_RespectsSeriesIDsFilter(t *testing.T) {
+	t.Parallel()
+	sn := &fakeSonarr{name: "main", series: []series.Series{
+		monSeries(1, "Keep"), monSeries(2, "Drop"), monSeries(3, "AlsoKeep")}}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual, 1, 3)
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.Series, "filter narrows ListSeries to two series")
+}
+
+func TestScan_SeriesIDsFilter_UnknownIDsSkippedWithWarn(t *testing.T) {
+	t.Parallel()
+	sn := &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "Known")}}
+	var buf strings.Builder
+	lg := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual, 1, 999)
+	require.NoError(t, err, "unknown IDs must not block the scan")
+	assert.Equal(t, "completed", res.Status)
+	assert.Equal(t, 1, res.Series)
+	assert.Contains(t, buf.String(), "scan_series_ids_unknown_skipped")
+	assert.Contains(t, buf.String(), "999")
 }
 
 func TestDominantIndexer(t *testing.T) {

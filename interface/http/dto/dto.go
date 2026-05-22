@@ -40,8 +40,11 @@ type LoginRequest struct {
 }
 
 // ScanTriggerRequest — optional body for POST /scan.
+// SeriesIDs narrows the scan to specific IDs; empty = all. Unknown
+// IDs are skipped with a WARN (Q-010-3); response stays 202.
 type ScanTriggerRequest struct {
-	Instance string `json:"instance,omitempty" example:"alpha"`
+	Instance  string `json:"instance,omitempty"   example:"alpha"`
+	SeriesIDs []int  `json:"series_ids,omitempty"`
 }
 
 // ScanTriggerItem — one row in the 202 array response of POST /scan.
@@ -56,9 +59,11 @@ type ScanTriggerItem struct {
 	Finished     time.Time `json:"finished_at"`
 }
 
-// Instance — Sonarr-instance health snapshot.
+// Instance — Sonarr-instance health snapshot. Mode always emitted
+// (Q-010-1) so the UI doesn't branch on field absence.
 type Instance struct {
 	Name             string     `json:"name"   example:"alpha"`
+	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`
 	Health           string     `json:"health" example:"available" enums:"available,degraded,unavailable,unknown"`
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
@@ -162,4 +167,26 @@ type ReadyStatus struct {
 	Sonarr    bool       `json:"sonarr"   example:"true"`
 	Instances []Instance `json:"instances"`
 	Reasons   []string   `json:"reasons,omitempty"`
+}
+
+// MissingSeasonStat — per-season aired-missing count. Season 0 = specials.
+type MissingSeasonStat struct {
+	SeasonNumber      int `json:"season_number"`
+	MissingAiredCount int `json:"missing_aired_count"`
+}
+
+// MissingSeries — one row of GET /instances/:name/missing.
+// TotalMissingAired is precomputed sum of Seasons[].MissingAiredCount.
+type MissingSeries struct {
+	SeriesID          int                 `json:"series_id"   example:"122"`
+	Title             string              `json:"title"       example:"Severance"`
+	Monitored         bool                `json:"monitored"   example:"true"`
+	TotalMissingAired int                 `json:"total_missing_aired"`
+	Seasons           []MissingSeasonStat `json:"seasons"`
+}
+
+// MissingSeriesList — body of GET /instances/:name/missing.
+type MissingSeriesList struct {
+	Items []MissingSeries `json:"items"`
+	Total int             `json:"total"`
 }

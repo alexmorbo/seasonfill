@@ -46,7 +46,7 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	snap := h.checker.Snapshot()
 	dtos := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		dtos = append(dtos, toInstanceDTO(s))
+		dtos = append(dtos, snapshotToDTO(s, nil))
 	}
 	reasons := []string{}
 	if !dbOK {
