@@ -55,9 +55,23 @@ type HTTPConfig struct {
 	Auth            AuthConfig    `koanf:"auth"`
 }
 
+// AuthConfig holds the admin HTTP auth surface.
+//
+// CookieSecret signs session cookies issued by /api/v1/auth/login.
+// Empty at startup → main.go auto-generates 32 random bytes and
+// logs a WARN; sessions then last only the process lifetime.
+// Production MUST set SEASONFILL_AUTH_COOKIE_SECRET so rolling
+// restarts don't log every user out.
+//
+// SecureCookie sets the cookie's Secure flag — true ONLY when
+// serving over HTTPS (e.g. behind an ingress with TLS terminated).
+// Default false so http://localhost dev works (browsers drop
+// Secure cookies on HTTP). M1 review-fix: do NOT alias Enabled.
 type AuthConfig struct {
-	Enabled bool   `koanf:"enabled"`
-	APIKey  string `koanf:"api_key"`
+	Enabled      bool   `koanf:"enabled"`
+	APIKey       string `koanf:"api_key"`
+	CookieSecret string `koanf:"cookie_secret"`
+	SecureCookie bool   `koanf:"secure_cookie"`
 }
 
 type CronConfig struct {
@@ -298,6 +312,9 @@ func (c *Config) Validate() error {
 		if inst.APIKey == "" {
 			return fmt.Errorf("instance %q: %w", inst.Name, ErrInstanceAPIKey)
 		}
+	}
+	if c.HTTP.Auth.Enabled && c.HTTP.Auth.CookieSecret == "" {
+		return fmt.Errorf("http.auth.cookie_secret is required when http.auth.enabled is true (set SEASONFILL_AUTH_COOKIE_SECRET or let the loader auto-generate)")
 	}
 	return nil
 }

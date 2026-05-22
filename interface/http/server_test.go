@@ -160,7 +160,12 @@ func buildServerWithAuth(t *testing.T, adminKey, webhookSecret string) *Server {
 		WriteTimeout:    time.Second,
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: time.Second,
-		Auth:            config.AuthConfig{Enabled: adminKey != "", APIKey: adminKey},
+		Auth: config.AuthConfig{
+			Enabled:      adminKey != "",
+			APIKey:       adminKey,
+			CookieSecret: "server-test-cookie-secret",
+			SecureCookie: false,
+		},
 	}, config.WebhookConfig{Secret: webhookSecret}, scanUC, okWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, lg)
 }
@@ -211,6 +216,88 @@ func TestServer_WebhookAuthIsolation(t *testing.T) {
 	handler.ServeHTTP(w3, req3)
 	require.Equal(t, http.StatusUnauthorized, w3.Code,
 		"webhook key must NOT reach admin routes")
+}
+
+// doLogin posts to /auth/login and returns the resulting handler +
+// session cookie. Shared helper for login/logout flow tests.
+func doLogin(t *testing.T, adminKey string) (http.Handler, *http.Cookie, *httptest.ResponseRecorder) {
+	t.Helper()
+	srv := buildServerWithAuth(t, adminKey, "")
+	handler := srv.server.Handler
+	body := []byte(`{"api_key":"` + adminKey + `"}`)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var sc *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "seasonfill_session" {
+			sc = c
+			break
+		}
+	}
+	require.NotNil(t, sc, "login must set the session cookie")
+	return handler, sc, w
+}
+
+func TestServer_LoginFlow_EndToEnd(t *testing.T) {
+	const adminKey = "admin-secret"
+	handler, sc, _ := doLogin(t, adminKey)
+	// Cookie alone authenticates admin routes (no X-Api-Key).
+	getReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/api/v1/instances", nil)
+	getReq.AddCookie(sc)
+	getW := httptest.NewRecorder()
+	handler.ServeHTTP(getW, getReq)
+	require.Equal(t, http.StatusOK, getW.Code)
+}
+
+func TestServer_LogoutFlow(t *testing.T) {
+	const adminKey = "admin-secret"
+	handler, sc, _ := doLogin(t, adminKey)
+	// Logout emits a clearing Set-Cookie (Max-Age <= 0).
+	logoutReq := httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
+		"/api/v1/auth/session", nil)
+	logoutReq.AddCookie(sc)
+	logoutW := httptest.NewRecorder()
+	handler.ServeHTTP(logoutW, logoutReq)
+	require.Equal(t, http.StatusNoContent, logoutW.Code)
+	var clearing *http.Cookie
+	for _, c := range logoutW.Result().Cookies() {
+		if c.Name == "seasonfill_session" {
+			clearing = c
+			break
+		}
+	}
+	require.NotNil(t, clearing, "logout must emit a clearing Set-Cookie")
+	require.Empty(t, clearing.Value)
+	require.LessOrEqual(t, clearing.MaxAge, 0)
+}
+
+func TestServer_LoginRoute_NotGuarded(t *testing.T) {
+	// Login route must NOT be wrapped by RequireAuth. Since 009a M4
+	// unified the 401 envelope across middleware + handler, we prove
+	// reachability via a positive signal: valid key (no cookie/header)
+	// → 200 + Set-Cookie. If middleware intercepted, the request 401s
+	// before reaching the handler.
+	const adminKey = "admin-secret"
+	_, _, w := doLogin(t, adminKey)
+	require.NotEmpty(t, w.Header().Get("Set-Cookie"))
+	require.Contains(t, w.Header().Get("Set-Cookie"), "seasonfill_session=")
+}
+
+func TestServer_HeaderAuthBackwardCompat(t *testing.T) {
+	const adminKey = "admin-secret"
+	srv := buildServerWithAuth(t, adminKey, "")
+	// CLI / automation contract: X-Api-Key header alone authenticates.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/api/v1/instances", nil)
+	req.Header.Set("X-Api-Key", adminKey)
+	w := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestNewServer_DoesNotPanic(t *testing.T) {

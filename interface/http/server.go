@@ -50,20 +50,46 @@ func NewServer(
 	r.GET("/metrics", handlers.MetricsHandler())
 
 	api := r.Group("/api/v1")
-	if cfg.Auth.Enabled {
-		api.Use(middleware.APIKeyAuth(cfg.Auth.APIKey))
-	}
-	api.POST("/scan", scanHandler.Trigger)
-	api.GET("/instances", instancesHandler.List)
-	api.GET("/scans", auditHandler.ListScans)
-	api.GET("/scans/:id", auditHandler.GetScan)
-	api.GET("/decisions", auditHandler.ListDecisions)
-	api.GET("/grabs", auditHandler.ListGrabs)
 
-	// Webhook is independent of the admin auth chain — it mounts directly
-	// on the root engine so the admin APIKeyAuth middleware is never
-	// inherited. The webhook route applies its own secret-based auth
-	// (or none when Webhook.Secret is empty).
+	// Admin + auth routes are mounted ONLY when auth is enabled.
+	// 009a's NewAuthHandler panics on empty APIKey (H2 review-fix:
+	// fail-fast on server misconfig), so we MUST NOT construct it
+	// when Enabled=false (which is also when APIKey may be empty,
+	// e.g. test fixtures via buildServer(adminKey="")). The
+	// pre-existing no-auth path keeps producing a server with zero
+	// /api/v1 routes mounted — callers that needed those routes
+	// always supplied an APIKey and toggled Enabled=true.
+	if cfg.Auth.Enabled {
+		// secureCookie is its own knob — auth.enabled toggles the
+		// admin surface; secure_cookie says "are we behind HTTPS?".
+		// Conflating them breaks http://localhost dev (browser drops
+		// Secure cookie on HTTP) — see M1 review-fix.
+		authHandler := handlers.NewAuthHandler(cfg.Auth.APIKey, cfg.Auth.CookieSecret, cfg.Auth.SecureCookie, logger)
+
+		// Auth endpoints. Login MUST NOT require auth (otherwise no one
+		// can log in); Logout DOES (only authenticated browsers clear
+		// their session).
+		auth := api.Group("/auth")
+		auth.POST("/login", authHandler.Login)
+		authGuarded := auth.Group("")
+		authGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
+		authGuarded.DELETE("/session", authHandler.Logout)
+
+		// Existing admin routes: swap APIKeyAuth → RequireAuth.
+		// Strict superset (cookie OR header now accepted).
+		apiGuarded := api.Group("")
+		apiGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
+		apiGuarded.POST("/scan", scanHandler.Trigger)
+		apiGuarded.GET("/instances", instancesHandler.List)
+		apiGuarded.GET("/scans", auditHandler.ListScans)
+		apiGuarded.GET("/scans/:id", auditHandler.GetScan)
+		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
+		apiGuarded.GET("/grabs", auditHandler.ListGrabs)
+	}
+
+	// Webhook is independent — mounted on the root engine so admin
+	// RequireAuth never inherits. Applies its own APIKeyAuth (or
+	// none when Webhook.Secret is empty).
 	wh := r.Group("/api/v1/webhook/sonarr/:instance_name")
 	if webhookCfg.Secret != "" {
 		wh.Use(middleware.APIKeyAuth(webhookCfg.Secret))

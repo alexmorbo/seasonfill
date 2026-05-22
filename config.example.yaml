@@ -11,6 +11,17 @@ http:
   auth:
     enabled: true
     api_key: ${SEASONFILL_API_KEY}
+    # HMAC key used to sign session cookies issued by
+    # `POST /api/v1/auth/login`. Production: set a stable 32+ byte
+    # random string so cookies survive process restarts. Leave empty
+    # only for ephemeral local dev — the server will auto-generate a
+    # secret at startup and log a WARN.
+    cookie_secret: ${SEASONFILL_AUTH_COOKIE_SECRET}
+    # Set to true ONLY when serving over HTTPS (e.g. behind an
+    # ingress with TLS terminated). Default false allows
+    # http://localhost development — browsers refuse to send
+    # Secure-flagged cookies back over HTTP.
+    secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE}
 
 cron:
   enabled: true
