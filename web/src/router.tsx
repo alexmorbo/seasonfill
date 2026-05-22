@@ -1,21 +1,13 @@
-import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { PlaceholderShell } from '@/components/PlaceholderShell';
+import { ProtectedLayout } from '@/components/ProtectedLayout';
+import { Placeholder } from '@/components/Placeholder';
 import { Login } from '@/pages/Login';
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div className="max-w-[1440px] mx-auto p-7">
-      <h1 className="text-[22px] font-semibold tracking-tight">{title}</h1>
-      <p className="text-muted mt-3">Coming in 009d.</p>
-    </div>
-  );
-}
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
   {
-    element: <ProtectedRoute><PlaceholderShell><Outlet /></PlaceholderShell></ProtectedRoute>,
+    element: <ProtectedRoute><ProtectedLayout /></ProtectedRoute>,
     children: [
       { path: '/',          element: <Placeholder title="Dashboard" /> },
       { path: '/scans',     element: <Placeholder title="Scans" /> },

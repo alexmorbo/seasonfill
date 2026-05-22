@@ -7,7 +7,10 @@ export function useAuth(): { state: AuthState; isAuthed: boolean } {
   const q = useQuery({
     queryKey: ['auth', 'session'] as const,
     queryFn: () => api<{ ok: true }>('/auth/session'),
-    retry: (n, err) => !(err instanceof ApiError) || (err.status !== 401 && n < 2),
+    retry: (n, err) => {
+      if (err instanceof ApiError && err.status === 401) return false;
+      return n < 2;
+    },
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });

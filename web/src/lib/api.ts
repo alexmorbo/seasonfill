@@ -25,7 +25,9 @@ export async function api<T>(path: string, init: RequestInitWithJson = {}): Prom
 
   if (res.status === 401) {
     if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.assign('/login');
+      const here = window.location.pathname + window.location.search;
+      const target = here === '/' ? '/login' : '/login?next=' + encodeURIComponent(here);
+      window.location.assign(target);
     }
     throw new ApiError(401, 'unauthorized');
   }

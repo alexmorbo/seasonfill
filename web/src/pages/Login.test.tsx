@@ -6,7 +6,13 @@ import { Login } from './Login';
 import * as auth from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 
-afterEach(() => { vi.restoreAllMocks(); });
+const navigateSpy = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return { ...actual, useNavigate: () => navigateSpy };
+});
+
+afterEach(() => { vi.restoreAllMocks(); navigateSpy.mockReset(); });
 
 describe('<Login />', () => {
   it('shows zod error when api_key is empty', async () => {
@@ -15,12 +21,33 @@ describe('<Login />', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/api key required/i);
   });
 
-  it('calls login() and navigates on success', async () => {
-    const spy = vi.spyOn(auth, 'login').mockResolvedValue(undefined);
+  it('input has autoComplete=off', () => {
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(screen.getByLabelText(/api key/i)).toHaveAttribute('autocomplete', 'off');
+  });
+
+  it('navigates to / on success when no next param', async () => {
+    vi.spyOn(auth, 'login').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login' });
     await userEvent.type(screen.getByLabelText(/api key/i), 'sf_test');
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sf_test'));
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/', { replace: true }));
+  });
+
+  it('navigates to ?next= path on success', async () => {
+    vi.spyOn(auth, 'login').mockResolvedValue(undefined);
+    renderWithProviders(<Login />, { route: '/login?next=%2Fscans%2Fabc' });
+    await userEvent.type(screen.getByLabelText(/api key/i), 'sf_test');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/scans/abc', { replace: true }));
+  });
+
+  it('falls back to / when next is unsafe (//attacker)', async () => {
+    vi.spyOn(auth, 'login').mockResolvedValue(undefined);
+    renderWithProviders(<Login />, { route: '/login?next=%2F%2Fattacker.example' });
+    await userEvent.type(screen.getByLabelText(/api key/i), 'sf_test');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/', { replace: true }));
   });
 
   it('renders server error on 401', async () => {

@@ -7,7 +7,8 @@ describe('api()', () => {
 
   beforeEach(() => {
     Object.defineProperty(window, 'location', {
-      writable: true, value: { ...origLocation, pathname: '/', assign: vi.fn() },
+      writable: true,
+      value: { ...origLocation, pathname: '/', search: '', assign: vi.fn() },
     });
   });
   afterEach(() => {
@@ -27,10 +28,20 @@ describe('api()', () => {
     await expect(api<void>('/auth/session', { method: 'DELETE' })).resolves.toBeUndefined();
   });
 
-  it('redirects on 401 and throws ApiError', async () => {
+  it('redirects to /login (no next) when at /', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 })) as typeof fetch;
     await expect(api('/instances')).rejects.toBeInstanceOf(ApiError);
     expect(window.location.assign).toHaveBeenCalledWith('/login');
+  });
+
+  it('redirects to /login?next=<encoded> when at a deeper route', async () => {
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { ...origLocation, pathname: '/scans/abc', search: '?foo=1', assign: vi.fn() },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 })) as typeof fetch;
+    await expect(api('/scans')).rejects.toBeInstanceOf(ApiError);
+    expect(window.location.assign).toHaveBeenCalledWith('/login?next=' + encodeURIComponent('/scans/abc?foo=1'));
   });
 
   it('does NOT redirect when already on /login', async () => {
