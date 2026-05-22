@@ -20,6 +20,7 @@ import (
 type Server struct {
 	cfg    config.HTTPConfig
 	server *http.Server
+	engine *gin.Engine
 	logger *slog.Logger
 }
 
@@ -108,7 +109,7 @@ func NewServer(
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,
 	}
-	return &Server{cfg: cfg, server: srv, logger: logger}
+	return &Server{cfg: cfg, server: srv, engine: r, logger: logger}
 }
 
 func (s *Server) Start() error {

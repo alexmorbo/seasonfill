@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 )
 
@@ -74,15 +75,24 @@ func NewAuthHandler(apiKey, cookieSecret string, secureCookie bool, logger *slog
 	return h
 }
 
-type loginRequest struct {
-	APIKey string `json:"api_key"`
-}
-
 // Login is POST /api/v1/auth/login. Accepts the API key in the
 // JSON body (only when Content-Type starts with application/json)
 // or via X-Api-Key. Body wins when both are present and non-empty.
 // 401 envelope is identical to middleware/auth.go so a probe
 // cannot distinguish failure source.
+//
+// @Summary     Authenticate and issue a session cookie
+// @Description Validates api_key (body or X-Api-Key header). On success
+// @Description sets HttpOnly seasonfill_session cookie and returns 200.
+// @Tags        auth
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.LoginRequest  false  "API key (alternative to X-Api-Key header)"
+// @Success     200   {object}  dto.OKResponse
+// @Failure     400   {object}  dto.ErrorResponse
+// @Failure     401   {object}  dto.ErrorResponse
+// @Header      200   {string}  Set-Cookie  "HttpOnly session cookie"
+// @Router      /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	candidate := ""
 
@@ -103,7 +113,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			return
 		}
 		if len(raw) > 0 {
-			var body loginRequest
+			var body dto.LoginRequest
 			if err := json.Unmarshal(raw, &body); err != nil {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "malformed body"})
 				return
@@ -148,6 +158,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Logout is DELETE /api/v1/auth/session. 009a1 mounts this behind
 // RequireAuth. Clears the session cookie with Max-Age=-1 and 204.
+//
+// @Summary     Clear the session cookie
+// @Tags        auth
+// @Produce     json
+// @Success     204
+// @Failure     401   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /auth/session [delete]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(

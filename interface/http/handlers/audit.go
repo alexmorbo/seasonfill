@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
 // AuditHandler exposes the four read-only audit endpoints. Constructor
@@ -46,28 +46,11 @@ func stringPtrFromQuery(c *gin.Context, name string) *string {
 	return &v
 }
 
-// --- JSON view structs (framework annotations live in the interface
-// layer; domain and port types stay framework-free).
+// --- DTO mapping helpers (DTOs live in interface/http/dto; domain and
+// port types stay framework-free).
 
-type scanView struct {
-	ID              string     `json:"id"`
-	Instance        string     `json:"instance"`
-	Trigger         string     `json:"trigger"`
-	CreatedAt       time.Time  `json:"created_at"`
-	StartedAt       time.Time  `json:"started_at"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Status          string     `json:"status"`
-	SeriesScanned   int        `json:"series_scanned"`
-	CandidatesFound int        `json:"candidates_found"`
-	GrabsPerformed  int        `json:"grabs_performed"`
-	GrabsFailed     int        `json:"grabs_failed"`
-	ErrorsCount     int        `json:"errors_count"`
-	ErrorMessage    string     `json:"error_message,omitempty"`
-	DryRun          bool       `json:"dry_run"`
-}
-
-func toScanView(r ports.ScanRecord) scanView {
-	return scanView{
+func toScanDTO(r ports.ScanRecord) dto.Scan {
+	return dto.Scan{
 		ID:              r.ID.String(),
 		Instance:        r.InstanceName,
 		Trigger:         r.Trigger,
@@ -85,30 +68,12 @@ func toScanView(r ports.ScanRecord) scanView {
 	}
 }
 
-type decisionView struct {
-	ID              string    `json:"id"`
-	ScanRunID       string    `json:"scan_run_id"`
-	Instance        string    `json:"instance"`
-	SeriesID        int       `json:"series_id"`
-	SeriesTitle     string    `json:"series_title"`
-	SeasonNumber    int       `json:"season_number"`
-	Decision        string    `json:"decision"`
-	Reason          string    `json:"reason"`
-	MissingCount    int       `json:"missing_count"`
-	ExistingCount   int       `json:"existing_count"`
-	ReleasesFound   int       `json:"releases_found"`
-	CandidatesCount int       `json:"candidates_count"`
-	SelectedGUID    string    `json:"selected_guid,omitempty"`
-	DryRunWouldGrab bool      `json:"dry_run_would_grab"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-
-func toDecisionView(d decision.Decision) decisionView {
+func toDecisionDTO(d decision.Decision) dto.Decision {
 	var selectedGUID string
 	if d.Selected != nil {
 		selectedGUID = d.Selected.Release.GUID
 	}
-	return decisionView{
+	return dto.Decision{
 		ID:              d.ID.String(),
 		ScanRunID:       d.ScanRunID.String(),
 		Instance:        d.InstanceName,
@@ -127,29 +92,8 @@ func toDecisionView(d decision.Decision) decisionView {
 	}
 }
 
-type grabView struct {
-	ID                string    `json:"id"`
-	Instance          string    `json:"instance"`
-	SeriesID          int       `json:"series_id"`
-	SeriesTitle       string    `json:"series_title"`
-	SeasonNumber      int       `json:"season_number"`
-	ReleaseGUID       string    `json:"release_guid"`
-	ReleaseTitle      string    `json:"release_title"`
-	IndexerID         int       `json:"indexer_id"`
-	IndexerName       string    `json:"indexer_name"`
-	CustomFormatScore int       `json:"custom_format_score"`
-	Quality           string    `json:"quality"`
-	CoverageCount     int       `json:"coverage_count"`
-	Status            string    `json:"status"`
-	ErrorMessage      string    `json:"error_message,omitempty"`
-	ScanRunID         string    `json:"scan_run_id"`
-	Attempts          int       `json:"attempts"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-}
-
-func toGrabView(r grab.Record) grabView {
-	return grabView{
+func toGrabDTO(r grab.Record) dto.Grab {
+	return dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
 		SeriesID:          r.SeriesID,
@@ -174,6 +118,23 @@ func toGrabView(r grab.Record) grabView {
 // --- handlers -------------------------------------------------------------
 
 // ListScans handles GET /api/v1/scans.
+//
+// @Summary     List scans
+// @Description Keyset-paginated, newest first.
+// @Tags        scans
+// @Produce     json
+// @Param       limit     query  int     false  "Page size (default 50, max 200)"
+// @Param       cursor    query  string  false  "Opaque next_cursor"
+// @Param       instance  query  string  false  "Filter by instance"
+// @Param       status    query  string  false  "Filter by status"  Enums(running,completed,failed,aborted)
+// @Param       from      query  string  false  "RFC3339 lower bound"
+// @Param       to        query  string  false  "RFC3339 upper bound (exclusive)"
+// @Success     200  {object}  dto.ScanList
+// @Failure     400  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /scans [get]
 func (h *AuditHandler) ListScans(c *gin.Context) {
 	limit, err := parseLimit(c)
 	if handleQueryErr(c, err) {
@@ -201,14 +162,26 @@ func (h *AuditHandler) ListScans(c *gin.Context) {
 		)
 		return
 	}
-	out := make([]scanView, 0, len(recs))
+	out := make([]dto.Scan, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, toScanView(r))
+		out = append(out, toScanDTO(r))
 	}
 	writeListResponse(c, out, next)
 }
 
 // GetScan handles GET /api/v1/scans/:id.
+//
+// @Summary     Get scan by ID
+// @Tags        scans
+// @Produce     json
+// @Param       id    path     string  true  "Scan run UUID"
+// @Success     200   {object}  dto.Scan
+// @Failure     400   {object}  dto.ErrorResponse
+// @Failure     404   {object}  dto.ErrorResponse
+// @Failure     500   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /scans/{id} [get]
 func (h *AuditHandler) GetScan(c *gin.Context) {
 	raw := c.Param("id")
 	id, err := uuid.Parse(raw)
@@ -228,10 +201,29 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 		)
 		return
 	}
-	c.JSON(http.StatusOK, toScanView(rec))
+	c.JSON(http.StatusOK, toScanDTO(rec))
 }
 
 // ListDecisions handles GET /api/v1/decisions.
+//
+// @Summary     List decisions
+// @Tags        decisions
+// @Produce     json
+// @Param       limit          query  int     false  "Page size (default 50, max 200)"
+// @Param       cursor         query  string  false  "Opaque next_cursor"
+// @Param       instance       query  string  false  "Filter by instance"
+// @Param       scan_run_id    query  string  false  "Filter by parent scan_run UUID"
+// @Param       series_id      query  int     false  "Filter by series ID"
+// @Param       season_number  query  int     false  "Filter by season"
+// @Param       decision       query  string  false  "Filter by outcome"  Enums(grab,skip,blocked_cooldown,already_optimal,expired)
+// @Param       from           query  string  false  "RFC3339 lower bound"
+// @Param       to             query  string  false  "RFC3339 upper bound"
+// @Success     200  {object}  dto.DecisionList
+// @Failure     400  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /decisions [get]
 func (h *AuditHandler) ListDecisions(c *gin.Context) {
 	limit, err := parseLimit(c)
 	if handleQueryErr(c, err) {
@@ -277,14 +269,32 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 		)
 		return
 	}
-	out := make([]decisionView, 0, len(recs))
+	out := make([]dto.Decision, 0, len(recs))
 	for _, d := range recs {
-		out = append(out, toDecisionView(d))
+		out = append(out, toDecisionDTO(d))
 	}
 	writeListResponse(c, out, next)
 }
 
 // ListGrabs handles GET /api/v1/grabs.
+//
+// @Summary     List grabs
+// @Tags        grabs
+// @Produce     json
+// @Param       limit          query  int     false  "Page size (default 50, max 200)"
+// @Param       cursor         query  string  false  "Opaque next_cursor"
+// @Param       instance       query  string  false  "Filter by instance"
+// @Param       series_id      query  int     false  "Filter by series ID"
+// @Param       season_number  query  int     false  "Filter by season"
+// @Param       status         query  string  false  "Filter by status"  Enums(grabbed,imported,import_failed,grab_failed,expired)
+// @Param       from           query  string  false  "RFC3339 lower bound"
+// @Param       to             query  string  false  "RFC3339 upper bound"
+// @Success     200  {object}  dto.GrabList
+// @Failure     400  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /grabs [get]
 func (h *AuditHandler) ListGrabs(c *gin.Context) {
 	limit, err := parseLimit(c)
 	if handleQueryErr(c, err) {
@@ -322,9 +332,9 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		)
 		return
 	}
-	out := make([]grabView, 0, len(recs))
+	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, toGrabView(r))
+		out = append(out, toGrabDTO(r))
 	}
 	writeListResponse(c, out, next)
 }

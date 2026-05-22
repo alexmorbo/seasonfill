@@ -4,11 +4,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
 type ScanHandler struct {
@@ -27,39 +27,40 @@ func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
 	return &ScanHandler{useCase: uc, logger: logger}
 }
 
-type scanResponseItem struct {
-	ScanRunID    string    `json:"scan_run_id"`
-	InstanceName string    `json:"instance"`
-	Status       string    `json:"status"`
-	Series       int       `json:"series_scanned"`
-	Candidates   int       `json:"candidates_found"`
-	Errors       int       `json:"errors"`
-	Started      time.Time `json:"started_at"`
-	Finished     time.Time `json:"finished_at"`
-}
-
-type scanRequest struct {
-	Instance string `json:"instance"`
-}
-
+// Trigger handles POST /api/v1/scan.
+//
+// @Summary     Trigger a manual scan
+// @Description Schedules a scan across all configured instances or the
+// @Description named one. Returns 202; clients poll /scans/{id}.
+// @Tags        scans
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.ScanTriggerRequest  false  "Optional instance selector"
+// @Success     202   {array}   dto.ScanTriggerItem
+// @Failure     404   {object}  dto.ScanNotFoundResponse
+// @Failure     409   {object}  dto.ScanConflictResponse  "SCAN_IN_PROGRESS"
+// @Failure     500   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /scan [post]
 func (h *ScanHandler) Trigger(c *gin.Context) {
-	var req scanRequest
+	var req dto.ScanTriggerRequest
 	_ = c.ShouldBindJSON(&req)
 
 	if req.Instance != "" {
 		res, err := h.useCase.RunInstance(c.Request.Context(), req.Instance, scan.TriggerManual)
 		if errors.Is(err, scan.ErrScanAlreadyRunning) {
-			c.JSON(http.StatusConflict, gin.H{
-				"error":    "scan already running",
-				"instance": req.Instance,
-				"code":     "SCAN_IN_PROGRESS",
+			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
+				Error:    "scan already running",
+				Instance: req.Instance,
+				Code:     "SCAN_IN_PROGRESS",
 			})
 			return
 		}
 		if errors.Is(err, scan.ErrUnknownInstance) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":    "unknown instance",
-				"instance": req.Instance,
+			c.JSON(http.StatusNotFound, dto.ScanNotFoundResponse{
+				Error:    "unknown instance",
+				Instance: req.Instance,
 			})
 			return
 		}
@@ -70,7 +71,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 			)
 			return
 		}
-		c.JSON(http.StatusAccepted, []scanResponseItem{toResponseItem(res)})
+		c.JSON(http.StatusAccepted, []dto.ScanTriggerItem{toScanTriggerItem(res)})
 		return
 	}
 
@@ -81,15 +82,15 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 		)
 		return
 	}
-	out := make([]scanResponseItem, 0, len(results))
+	out := make([]dto.ScanTriggerItem, 0, len(results))
 	for _, r := range results {
-		out = append(out, toResponseItem(r))
+		out = append(out, toScanTriggerItem(r))
 	}
 	c.JSON(http.StatusAccepted, out)
 }
 
-func toResponseItem(r scan.RunResult) scanResponseItem {
-	return scanResponseItem{
+func toScanTriggerItem(r scan.RunResult) dto.ScanTriggerItem {
+	return dto.ScanTriggerItem{
 		ScanRunID:    r.ScanRunID.String(),
 		InstanceName: r.InstanceName,
 		Status:       r.Status,

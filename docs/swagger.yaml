@@ -1,0 +1,734 @@
+components:
+  schemas:
+    dto.Decision:
+      properties:
+        candidates_count:
+          type: integer
+        created_at:
+          type: string
+        decision:
+          enum:
+          - grab
+          - skip
+          - blocked_cooldown
+          - already_optimal
+          - expired
+          example: grab
+          type: string
+        dry_run_would_grab:
+          type: boolean
+        existing_count:
+          type: integer
+        id:
+          example: dec_001
+          type: string
+        instance:
+          example: alpha
+          type: string
+        missing_count:
+          type: integer
+        reason:
+          example: upgrade_available
+          type: string
+        releases_found:
+          type: integer
+        scan_run_id:
+          type: string
+        season_number:
+          type: integer
+        selected_guid:
+          type: string
+        series_id:
+          type: integer
+        series_title:
+          example: Severance
+          type: string
+      type: object
+    dto.DecisionList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.Decision'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+      type: object
+    dto.ErrorResponse:
+      properties:
+        code:
+          example: UNAUTHORIZED
+          type: string
+        error:
+          example: unauthorized
+          type: string
+      type: object
+    dto.Grab:
+      properties:
+        attempts:
+          type: integer
+        coverage_count:
+          type: integer
+        created_at:
+          type: string
+        custom_format_score:
+          type: integer
+        error_message:
+          type: string
+        id:
+          example: grb_001
+          type: string
+        indexer_id:
+          type: integer
+        indexer_name:
+          example: tracker.x
+          type: string
+        instance:
+          example: alpha
+          type: string
+        quality:
+          example: WEBDL-1080p
+          type: string
+        release_guid:
+          type: string
+        release_title:
+          type: string
+        scan_run_id:
+          type: string
+        season_number:
+          type: integer
+        series_id:
+          type: integer
+        series_title:
+          example: Severance
+          type: string
+        status:
+          enum:
+          - grabbed
+          - imported
+          - import_failed
+          - grab_failed
+          - expired
+          example: imported
+          type: string
+        updated_at:
+          type: string
+      type: object
+    dto.GrabList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.Grab'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+      type: object
+    dto.HealthStatus:
+      properties:
+        status:
+          example: ok
+          type: string
+      type: object
+    dto.Instance:
+      properties:
+        health:
+          enum:
+          - available
+          - degraded
+          - unavailable
+          - unknown
+          example: available
+          type: string
+        last_check_at:
+          type: string
+        last_error:
+          type: string
+        name:
+          example: alpha
+          type: string
+        transitions_count:
+          type: integer
+      type: object
+    dto.InstanceList:
+      properties:
+        instances:
+          items:
+            $ref: '#/components/schemas/dto.Instance'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.LoginRequest:
+      properties:
+        api_key:
+          example: sf_abc123
+          type: string
+      type: object
+    dto.OKResponse:
+      properties:
+        ok:
+          example: true
+          type: boolean
+      type: object
+    dto.ReadyStatus:
+      properties:
+        database:
+          example: true
+          type: boolean
+        instances:
+          items:
+            $ref: '#/components/schemas/dto.Instance'
+          type: array
+          uniqueItems: false
+        reasons:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        sonarr:
+          example: true
+          type: boolean
+        status:
+          enum:
+          - ok
+          - unavailable
+          example: ok
+          type: string
+      type: object
+    dto.Scan:
+      properties:
+        candidates_found:
+          type: integer
+        created_at:
+          type: string
+        dry_run:
+          type: boolean
+        error_message:
+          type: string
+        errors_count:
+          type: integer
+        finished_at:
+          type: string
+        grabs_failed:
+          type: integer
+        grabs_performed:
+          type: integer
+        id:
+          example: 7b3d4a92-1234-4abc-9def-000000000001
+          type: string
+        instance:
+          example: alpha
+          type: string
+        series_scanned:
+          type: integer
+        started_at:
+          type: string
+        status:
+          enum:
+          - running
+          - completed
+          - failed
+          - aborted
+          example: completed
+          type: string
+        trigger:
+          enum:
+          - cron
+          - manual
+          - webhook
+          example: cron
+          type: string
+      type: object
+    dto.ScanConflictResponse:
+      properties:
+        code:
+          example: SCAN_IN_PROGRESS
+          type: string
+        error:
+          example: scan already running
+          type: string
+        instance:
+          example: alpha
+          type: string
+      type: object
+    dto.ScanList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.Scan'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+      type: object
+    dto.ScanNotFoundResponse:
+      properties:
+        error:
+          example: unknown instance
+          type: string
+        instance:
+          example: alpha
+          type: string
+      type: object
+    dto.ScanTriggerItem:
+      properties:
+        candidates_found:
+          type: integer
+        errors:
+          type: integer
+        finished_at:
+          type: string
+        instance:
+          example: alpha
+          type: string
+        scan_run_id:
+          example: 7b3d4a92-1234-4abc-9def-000000000001
+          type: string
+        series_scanned:
+          type: integer
+        started_at:
+          type: string
+        status:
+          enum:
+          - completed
+          - failed
+          - running
+          - aborted
+          example: completed
+          type: string
+      type: object
+    dto.ScanTriggerRequest:
+      properties:
+        instance:
+          example: alpha
+          type: string
+      type: object
+  securitySchemes:
+    ApiKeyAuth:
+      in: cookie
+      name: seasonfill_session
+      type: apiKey
+externalDocs:
+  description: ""
+  url: ""
+info:
+  description: |-
+    REST API for seasonfill — Sonarr season-fill orchestration.
+    Routes accept either X-Api-Key header or a signed
+    seasonfill_session cookie issued by POST /api/v1/auth/login.
+  title: Seasonfill API
+  version: "1.0"
+openapi: 3.1.0
+paths:
+  /auth/login:
+    post:
+      description: |-
+        Validates api_key (body or X-Api-Key header). On success
+        sets HttpOnly seasonfill_session cookie and returns 200.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.LoginRequest'
+        description: API key (alternative to X-Api-Key header)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.OKResponse'
+          description: OK
+          headers:
+            Set-Cookie:
+              description: HttpOnly session cookie
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      summary: Authenticate and issue a session cookie
+      tags:
+      - auth
+  /auth/session:
+    delete:
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Clear the session cookie
+      tags:
+      - auth
+  /decisions:
+    get:
+      parameters:
+      - description: Page size (default 50, max 200)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      - description: Filter by instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      - description: Filter by parent scan_run UUID
+        in: query
+        name: scan_run_id
+        schema:
+          type: string
+      - description: Filter by series ID
+        in: query
+        name: series_id
+        schema:
+          type: integer
+      - description: Filter by season
+        in: query
+        name: season_number
+        schema:
+          type: integer
+      - description: Filter by outcome
+        in: query
+        name: decision
+        schema:
+          enum:
+          - grab
+          - skip
+          - blocked_cooldown
+          - already_optimal
+          - expired
+          type: string
+      - description: RFC3339 lower bound
+        in: query
+        name: from
+        schema:
+          type: string
+      - description: RFC3339 upper bound
+        in: query
+        name: to
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.DecisionList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List decisions
+      tags:
+      - decisions
+  /grabs:
+    get:
+      parameters:
+      - description: Page size (default 50, max 200)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      - description: Filter by instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      - description: Filter by series ID
+        in: query
+        name: series_id
+        schema:
+          type: integer
+      - description: Filter by season
+        in: query
+        name: season_number
+        schema:
+          type: integer
+      - description: Filter by status
+        in: query
+        name: status
+        schema:
+          enum:
+          - grabbed
+          - imported
+          - import_failed
+          - grab_failed
+          - expired
+          type: string
+      - description: RFC3339 lower bound
+        in: query
+        name: from
+        schema:
+          type: string
+      - description: RFC3339 upper bound
+        in: query
+        name: to
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.GrabList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List grabs
+      tags:
+      - grabs
+  /healthz:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.HealthStatus'
+          description: OK
+      summary: Liveness probe
+      tags:
+      - health
+  /instances:
+    get:
+      description: Latest snapshot from the in-memory checker.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List Sonarr instance health
+      tags:
+      - instances
+  /readyz:
+    get:
+      description: 200 only when DB AND ≥1 Sonarr instance are healthy.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ReadyStatus'
+          description: OK
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ReadyStatus'
+          description: Service Unavailable
+      summary: Readiness probe
+      tags:
+      - health
+  /scan:
+    post:
+      description: |-
+        Schedules a scan across all configured instances or the
+        named one. Returns 202; clients poll /scans/{id}.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.ScanTriggerRequest'
+        description: Optional instance selector
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/dto.ScanTriggerItem'
+                type: array
+          description: Accepted
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ScanNotFoundResponse'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ScanConflictResponse'
+          description: SCAN_IN_PROGRESS
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Trigger a manual scan
+      tags:
+      - scans
+  /scans:
+    get:
+      description: Keyset-paginated, newest first.
+      parameters:
+      - description: Page size (default 50, max 200)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      - description: Filter by instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      - description: Filter by status
+        in: query
+        name: status
+        schema:
+          enum:
+          - running
+          - completed
+          - failed
+          - aborted
+          type: string
+      - description: RFC3339 lower bound
+        in: query
+        name: from
+        schema:
+          type: string
+      - description: RFC3339 upper bound (exclusive)
+        in: query
+        name: to
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ScanList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List scans
+      tags:
+      - scans
+  /scans/{id}:
+    get:
+      parameters:
+      - description: Scan run UUID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.Scan'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get scan by ID
+      tags:
+      - scans
+servers:
+- description: Primary API base path
+  url: /api/v1

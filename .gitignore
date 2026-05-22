@@ -41,3 +41,6 @@ vendor/
 .env.*.local
 config.local.yaml
 config.local.yml
+
+# Generated OpenAPI: yaml is committed, json is derived.
+/docs/swagger.json

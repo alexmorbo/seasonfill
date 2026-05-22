@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
 type InstancesHandler struct {
@@ -18,32 +19,34 @@ func NewInstancesHandler(checker *healthcheck.Checker) *InstancesHandler {
 	return &InstancesHandler{checker: checker}
 }
 
-type instanceView struct {
-	Name             string     `json:"name"`
-	Health           string     `json:"health"`
-	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	TransitionsCount int        `json:"transitions_count"`
-}
-
 // List returns the current health snapshot for every configured instance.
 // Behind X-Api-Key (mounted under `/api/v1`).
+//
+// @Summary     List Sonarr instance health
+// @Description Latest snapshot from the in-memory checker.
+// @Tags        instances
+// @Produce     json
+// @Success     200  {object}  dto.InstanceList
+// @Failure     401  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /instances [get]
 func (h *InstancesHandler) List(c *gin.Context) {
 	snap := h.checker.Snapshot()
-	out := make([]instanceView, 0, len(snap))
+	out := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		out = append(out, toInstanceView(s))
+		out = append(out, toInstanceDTO(s))
 	}
-	c.JSON(http.StatusOK, gin.H{"instances": out})
+	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
 }
 
-func toInstanceView(s instance.Snapshot) instanceView {
+func toInstanceDTO(s instance.Snapshot) dto.Instance {
 	var lastCheckAt *time.Time
 	if !s.LastCheckAt.IsZero() {
 		t := s.LastCheckAt
 		lastCheckAt = &t
 	}
-	return instanceView{
+	return dto.Instance{
 		Name:             s.Name,
 		Health:           string(s.Health),
 		LastCheckAt:      lastCheckAt,
