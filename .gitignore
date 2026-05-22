@@ -44,3 +44,10 @@ config.local.yml
 
 # Generated OpenAPI: yaml is committed, json is derived.
 /docs/swagger.json
+
+# Frontend build artifacts
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+web/.eslintcache

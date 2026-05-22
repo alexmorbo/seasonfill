@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage lint run clean tidy docker-build openapi openapi-check help
+.PHONY: build test test-race test-coverage lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -53,3 +53,18 @@ openapi-check:
 	  git diff --exit-code src/api/schema.ts || \
 	  (echo "::error::web/src/api/schema.ts is stale — run \`make openapi\`"; exit 1)
 	cd web && npm run typecheck
+
+web-install:
+	cd web && npm install --no-audit --no-fund
+
+web-dev: web-install
+	cd web && npm run dev
+
+web-build: web-install
+	cd web && npm run build
+
+web-test: web-install
+	cd web && npm run test
+
+web-lint: web-install
+	cd web && npm run lint && npm run typecheck

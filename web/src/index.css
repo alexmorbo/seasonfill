@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base:      0.16 0.005 270;
+    --bg-surface:   0.20 0.006 270;
+    --bg-surface-2: 0.235 0.007 270;
+    --bg-hover:     0.26 0.008 270;
+    --bg-input:     0.18 0.006 270;
+    --border-subtle: 0.30 0.008 270;
+    --border-strong: 0.40 0.010 270;
+    --border-faint:  0.25 0.007 270;
+    --text-primary:   0.96 0.005 270;
+    --text-secondary: 0.78 0.008 270;
+    --text-muted:     0.60 0.010 270;
+    --text-faint:     0.48 0.010 270;
+    --accent:        0.70 0.13 240;
+    --accent-strong: 0.62 0.14 240;
+    --accent-text:   0.16 0.005 270;
+    --status-success: 0.74 0.14 150;
+    --status-warning: 0.78 0.14 75;
+    --status-danger:  0.70 0.16 25;
+    --status-info:    0.74 0.13 230;
+    --status-neutral: 0.65 0.005 270;
+  }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bg text-foreground font-sans antialiased;
+    font-size: 14px; line-height: 1.45; text-rendering: optimizeLegibility;
+  }
+  .mono { @apply font-mono; font-feature-settings: "ss01", "zero"; }
+}
+
+@layer utilities {
+  .chip-dot { @apply inline-block w-1.5 h-1.5 rounded-full; }
+}
