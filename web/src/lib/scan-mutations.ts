@@ -17,9 +17,15 @@ export function useTriggerScan() {
   return useMutation<readonly ScanTriggerItem[], ApiError, ScanTriggerRequest>({
     mutationFn: (req) =>
       api<readonly ScanTriggerItem[]>('/scan', { method: 'POST', body: req }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['scans'] });
       qc.invalidateQueries({ queryKey: ['instances'] });
+      // 010b: when scan targets a specific instance, refresh that
+      // instance's missing-list so post-scan re-evaluation is visible
+      // on the queue page once the user navigates back.
+      if (vars.instance) {
+        qc.invalidateQueries({ queryKey: ['missing', vars.instance] });
+      }
     },
   });
 }

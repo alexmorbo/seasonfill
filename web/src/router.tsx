@@ -4,6 +4,7 @@ import { ProtectedLayout } from '@/components/ProtectedLayout';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
 import { Instances } from '@/pages/Instances';
+import { InstanceQueue } from '@/pages/InstanceQueue';
 import { Scans } from '@/pages/Scans';
 import { ScanDetail } from '@/pages/ScanDetail';
 import { Decisions } from '@/pages/Decisions';
@@ -19,7 +20,8 @@ export const router = createBrowserRouter([
       { path: '/scans/:id', element: <ScanDetail /> },
       { path: '/decisions', element: <Decisions /> },
       { path: '/grabs',     element: <Grabs /> },
-      { path: '/instances', element: <Instances /> },
+      { path: '/instances',             element: <Instances /> },
+      { path: '/instances/:name/queue', element: <InstanceQueue /> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

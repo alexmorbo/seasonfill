@@ -1,13 +1,14 @@
+import { Link } from 'react-router-dom';
 import { useInstances } from '@/lib/instances';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, AlertTriangle } from 'lucide-react';
+import { Info, AlertTriangle, ListOrdered } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { KIND_DOT, statusKind } from '@/lib/badge-variants';
+import { KIND_CLASS, KIND_DOT, statusKind } from '@/lib/badge-variants';
 
 export function Instances() {
   const q = useInstances();
@@ -73,10 +74,22 @@ export function Instances() {
                   )}
                 </h3>
               </CardHeader>
-              <CardContent className="text-[13px]">
+              <CardContent className="text-[13px] flex flex-col gap-3">
                 <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[12.5px]">
                   <dt className="text-faint">Health</dt>
                   <dd className="font-mono">{inst.health ?? 'unknown'}</dd>
+                  <dt className="text-faint">Mode</dt>
+                  <dd>
+                    <span
+                      className={cn(
+                        'inline-flex items-center px-1.5 h-[18px] rounded border font-mono text-[10.5px]',
+                        KIND_CLASS[inst.mode === 'manual' ? 'warning' : 'neutral'],
+                      )}
+                      data-testid={`mode-${inst.name}`}
+                    >
+                      {inst.mode ?? 'auto'}
+                    </span>
+                  </dd>
                   <dt className="text-faint">Last check</dt>
                   <dd className="text-muted">{relativeTime(inst.last_check_at)}</dd>
                   <dt className="text-faint">Transitions</dt>
@@ -97,6 +110,16 @@ export function Instances() {
                     </>
                   )}
                 </dl>
+                {inst.name && (
+                  <Link
+                    to={`/instances/${encodeURIComponent(inst.name)}/queue`}
+                    className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline self-start"
+                    aria-label={`Open queue for ${inst.name}`}
+                  >
+                    <ListOrdered className="w-3.5 h-3.5" />
+                    {inst.mode === 'manual' ? 'Open queue →' : 'View queue →'}
+                  </Link>
+                )}
               </CardContent>
             </Card>
           ))}

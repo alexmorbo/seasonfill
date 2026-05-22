@@ -24,19 +24,21 @@ const wrap = (ui: ReactElement) => (
 );
 
 describe('<Instances />', () => {
-  it('renders one card per instance', async () => {
+  it('renders one card per instance with mode chip + queue link', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           instances: [
             {
               name: 'alpha',
+              mode: 'manual',
               health: 'available',
               last_check_at: new Date().toISOString(),
               transitions_count: 0,
             },
             {
               name: 'beta',
+              mode: 'auto',
               health: 'degraded',
               last_check_at: new Date().toISOString(),
               transitions_count: 3,
@@ -52,6 +54,19 @@ describe('<Instances />', () => {
     expect(await screen.findByText('alpha')).toBeInTheDocument();
     expect(screen.getByText('beta')).toBeInTheDocument();
     expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
+
+    // Mode chips
+    expect(screen.getByTestId('mode-alpha')).toHaveTextContent('manual');
+    expect(screen.getByTestId('mode-beta')).toHaveTextContent('auto');
+
+    // Queue link wording differs by mode but both targets exist
+    const alphaLink = screen.getByRole('link', { name: /open queue for alpha/i });
+    expect(alphaLink).toHaveAttribute('href', '/instances/alpha/queue');
+    expect(alphaLink).toHaveTextContent(/open queue/i);
+
+    const betaLink = screen.getByRole('link', { name: /open queue for beta/i });
+    expect(betaLink).toHaveAttribute('href', '/instances/beta/queue');
+    expect(betaLink).toHaveTextContent(/view queue/i);
   });
 
   it('renders empty state when instances=[]', async () => {
