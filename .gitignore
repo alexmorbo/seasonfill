@@ -1,5 +1,6 @@
 # Local design documentation — kept locally, not pushed
 /documentation/
+/.thoughts
 
 # Go
 *.exe
