@@ -1,0 +1,47 @@
+export type BadgeKind = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
+
+const STATUS: Record<string, BadgeKind> = {
+  grabbed: 'info',
+  imported: 'success',
+  import_failed: 'danger',
+  grab_failed: 'danger',
+  expired: 'neutral',
+  failed: 'danger',
+  running: 'info',
+  completed: 'success',
+  pending: 'warning',
+  aborted: 'warning',
+};
+
+const OUTCOME: Record<string, BadgeKind> = {
+  grab: 'success',
+  force_grab: 'success',
+  skip: 'neutral',
+  already_optimal: 'neutral',
+  blocked_cooldown: 'danger',
+  expired: 'neutral',
+};
+
+export function statusKind(s?: string): BadgeKind {
+  return (s ? STATUS[s] : undefined) ?? 'neutral';
+}
+
+export function outcomeKind(o?: string): BadgeKind {
+  return (o ? OUTCOME[o] : undefined) ?? 'neutral';
+}
+
+export const KIND_CLASS: Record<BadgeKind, string> = {
+  success: 'bg-status-success/15 text-status-success border-status-success/30',
+  danger: 'bg-status-danger/15 text-status-danger border-status-danger/30',
+  warning: 'bg-status-warning/15 text-status-warning border-status-warning/30',
+  info: 'bg-status-info/15 text-status-info border-status-info/30',
+  neutral: 'bg-surface-2 text-foreground-2 border-border-faint',
+};
+
+export const KIND_DOT: Record<BadgeKind, string> = {
+  success: 'bg-status-success',
+  danger: 'bg-status-danger',
+  warning: 'bg-status-warning',
+  info: 'bg-status-info',
+  neutral: 'bg-status-neutral',
+};
