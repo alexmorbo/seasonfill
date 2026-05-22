@@ -18,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Copy, AlertTriangle, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Copy, AlertTriangle, ChevronRight, Activity } from 'lucide-react';
 import { toast } from 'sonner';
+import { Progress } from '@/components/ui/progress';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
@@ -127,6 +128,47 @@ export function ScanDetail() {
           )}
         </div>
       </header>
+
+      {s.status === 'running' && (
+        <Card aria-label="Live scan progress">
+          <CardHeader className="flex flex-row items-center justify-between py-3">
+            <CardTitle className="text-[13px] font-semibold flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-accent animate-pulse" />
+              Live scan
+            </CardTitle>
+            <span className="font-mono text-[11px] text-faint">
+              {s.series_scanned ?? 0} series scanned ·{' '}
+              {s.started_at
+                ? `${Math.max(0, (Date.now() - new Date(s.started_at).getTime()) / 1000).toFixed(0)}s elapsed`
+                : '—'}
+            </span>
+          </CardHeader>
+          <CardContent className="pt-0 pb-4 px-4 flex flex-col gap-3">
+            {/* Indeterminate stripe — backend has no total_series. */}
+            <Progress
+              aria-label="Scan in progress (indeterminate)"
+              className="h-1.5 bg-surface-2 overflow-hidden relative animate-pulse"
+            />
+            {linkedDecisions.length > 0 && (
+              <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto">
+                <span className="text-[10px] uppercase tracking-[0.06em] text-faint">
+                  Latest decisions
+                </span>
+                {linkedDecisions.slice(0, 10).map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex items-center gap-2 text-[12px] font-mono px-2 py-1 rounded bg-surface"
+                  >
+                    <span className="text-faint shrink-0">{relativeTime(d.created_at)}</span>
+                    <span className="truncate flex-1">{d.series_title ?? '—'}</span>
+                    <StatusBadge value={d.decision} mode="outcome" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Series scanned" value={s.series_scanned ?? 0} />
