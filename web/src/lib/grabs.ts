@@ -5,7 +5,11 @@ import type { components } from '@/api/schema';
 
 export type Grab = components['schemas']['dto.Grab'];
 export type GrabList = components['schemas']['dto.GrabList'];
-export type GrabFilters = { status?: string };
+export type GrabFilters = {
+  status?: string;
+  scan_run_id?: string;
+  series_id?: number;
+};
 
 export function useGrabs(filters: GrabFilters = {}) {
   const { filter: instance } = useInstanceFilter();
@@ -21,6 +25,8 @@ export function useGrabs(filters: GrabFilters = {}) {
       const sp = new URLSearchParams();
       if (instance) sp.set('instance', instance);
       if (filters.status) sp.set('status', filters.status);
+      if (filters.scan_run_id) sp.set('scan_run_id', filters.scan_run_id);
+      if (filters.series_id !== undefined) sp.set('series_id', String(filters.series_id));
       if (pageParam) sp.set('cursor', pageParam);
       const qs = sp.toString();
       return api<GrabList>(qs ? `/grabs?${qs}` : '/grabs');

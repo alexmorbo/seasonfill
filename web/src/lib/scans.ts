@@ -39,7 +39,9 @@ export function useScan(id: string | undefined): UseQueryResult<Scan, ApiError> 
     queryKey: ['scan', id] as const,
     queryFn: () => api<Scan>(`/scans/${id}`),
     enabled: Boolean(id),
-    staleTime: 10_000,
+    staleTime: 5_000,
+    refetchInterval: (q) => (q.state.data?.status === 'running' ? 5_000 : false),
+    refetchOnWindowFocus: false,
   });
 }
 
