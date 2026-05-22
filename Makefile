@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint help
+.PHONY: build test test-race test-coverage lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -68,3 +68,21 @@ web-test: web-install
 
 web-lint: web-install
 	cd web && npm run lint && npm run typecheck
+
+# Build the frontend Docker image locally. The context is `web/` so
+# the .dockerignore + Dockerfile co-located with the SPA apply. Pin
+# build args to the current short SHA + version string from
+# package.json so the local image labels match the CI shape.
+web-image:
+	docker build \
+		-f web/Dockerfile \
+		--build-arg VITE_APP_VERSION=$$(node -p "require('./web/package.json').version") \
+		--build-arg GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo dev) \
+		-t seasonfill-web:latest \
+		web/
+
+# Run the built frontend image on host port 8081. Useful for smoke-
+# testing the SPA fallback (`curl localhost:8081/scans`) and the
+# /healthz endpoint without booting the full Helm chart.
+web-image-run: web-image
+	docker run --rm -p 8081:8080 --name seasonfill-web-dev seasonfill-web:latest

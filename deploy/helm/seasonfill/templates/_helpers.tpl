@@ -85,3 +85,47 @@ across upgrades and easy to identify alongside the Deployment.
 {{- define "seasonfill.pvcName" -}}
 {{- printf "%s-data" (include "seasonfill.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
+
+{{/*
+Name of the frontend (web) child resources. Derived from the chart
+name with a `-web` suffix so it pairs visibly with the backend.
+*/}}
+{{- define "seasonfill.webName" -}}
+{{- printf "%s-web" (include "seasonfill.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Fully-qualified name of the frontend Deployment / Service / ConfigMap.
+Pattern matches `seasonfill.fullname` so operators can predict the
+resource names without re-rendering the chart.
+*/}}
+{{- define "seasonfill.webFullname" -}}
+{{- printf "%s-web" (include "seasonfill.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Web selector labels — used in matchLabels and Service selectors. Adds
+`app.kubernetes.io/component: web` to disambiguate from the backend
+pods, which carry the same `name` + `instance` pair. Adding/removing
+keys here is a breaking change for the web Deployment selector.
+*/}}
+{{- define "seasonfill.webSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "seasonfill.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: web
+{{- end }}
+
+{{/*
+Common labels applied to every web resource. Mirrors `seasonfill.labels`
+but with the web selector labels inlined and a `component: web` value
+added under the standard Kubernetes recommended labels.
+*/}}
+{{- define "seasonfill.webLabels" -}}
+helm.sh/chart: {{ include "seasonfill.chart" . }}
+{{ include "seasonfill.webSelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/part-of: {{ .Chart.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}

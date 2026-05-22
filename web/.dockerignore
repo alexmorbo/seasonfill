@@ -1,0 +1,21 @@
+node_modules
+dist
+.vite
+coverage
+.eslintcache
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# Test fixtures and dev-only configs not needed at build time.
+src/test-setup.ts
+src/**/*.test.ts
+src/**/*.test.tsx
+src/**/__tests__/**
+src/mocks/**
+
+# Source-control + editor noise.
+.git
+.gitignore
+.vscode
+.idea

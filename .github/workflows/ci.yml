@@ -151,6 +151,56 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  build-web:
+    name: Build web image
+    runs-on: ubuntu-latest
+    needs: [lint, unit, integration, openapi]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # Same owner, distinct repo path: `<owner>/<repo>-web`.
+          images: ghcr.io/${{ github.repository }}-web
+          tags: |
+            type=sha,format=short
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_APP_VERSION=${{ github.sha }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
   helm-chart:
     name: Helm chart
     runs-on: ubuntu-latest
@@ -277,3 +327,49 @@ jobs:
             --set persistence.enabled=true \
             > /tmp/render-pg.yaml
           ! grep -q "kind: PersistentVolumeClaim" /tmp/render-pg.yaml
+
+      - name: helm template (web fan-out renders)
+        run: |
+          set -e
+          base="helm template seasonfill-test deploy/helm/seasonfill -f /tmp/values-ci.yaml"
+
+          # Default: no web Deployment, no web Service, no fan-out.
+          $base > /tmp/render-no-web.yaml
+          ! grep -E "name: seasonfill-test-web$" /tmp/render-no-web.yaml
+
+          # web.enabled=true: second Deployment + Service + ConfigMap appear.
+          $base --set web.enabled=true > /tmp/render-web.yaml
+          grep -q "name: seasonfill-test-web$" /tmp/render-web.yaml
+          grep -cE "^kind: Deployment$" /tmp/render-web.yaml | grep -q "^2$"
+          grep -cE "^kind: Service$" /tmp/render-web.yaml | grep -q "^2$"
+          grep -q "kind: ConfigMap" /tmp/render-web.yaml
+
+          # Fan-out Ingress: backend prefix list + / catch-all.
+          $base --set web.enabled=true \
+            --set ingress.enabled=true --set ingress.web.enabled=true \
+            --set ingress.hosts[0].host=seasonfill.example.com \
+            > /tmp/render-fanout.yaml
+          grep -q "path: /api" /tmp/render-fanout.yaml
+          grep -q "path: /webhook" /tmp/render-fanout.yaml
+          grep -q "path: /healthz" /tmp/render-fanout.yaml
+          grep -q "path: /readyz" /tmp/render-fanout.yaml
+          grep -q "path: /metrics" /tmp/render-fanout.yaml
+          grep -q "path: /$" /tmp/render-fanout.yaml
+          # Order check: every backend prefix must appear BEFORE the
+          # `/` catch-all line. Capture line numbers, compare.
+          slash_line=$(grep -n "path: /$" /tmp/render-fanout.yaml | head -1 | cut -d: -f1)
+          for p in "path: /api" "path: /webhook" "path: /healthz" "path: /readyz" "path: /metrics"; do
+            pline=$(grep -n "$p" /tmp/render-fanout.yaml | head -1 | cut -d: -f1)
+            [ "$pline" -lt "$slash_line" ] || { echo "Path '$p' appears after / catch-all"; exit 1; }
+          done
+
+          # Mutual exclusivity: webhookOnly + web.enabled fails.
+          if $base --set web.enabled=true \
+            --set ingress.enabled=true --set ingress.web.enabled=true \
+            --set ingress.webhookOnly=true \
+            --set ingress.hosts[0].host=seasonfill.example.com 2>&1 | grep -q "mutually exclusive"; then
+            echo "Mutual-exclusivity guard fired as expected."
+          else
+            echo "Expected mutual-exclusivity error not raised."
+            exit 1
+          fi

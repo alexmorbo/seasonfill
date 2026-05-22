@@ -290,6 +290,16 @@ ingress:
   # exposing publicly for Sonarr delivery but keeping admin routes
   # internal. Default false preserves 006e behavior.
   webhookOnly: false
+  # -- Fan-out the Ingress between backend and frontend Services. When
+  # true (and `web.enabled` is true), the rendered paths list is:
+  #   /api, /webhook, /healthz, /readyz, /metrics → backend
+  #   /                                          → frontend
+  # The user-supplied `hosts[].paths` list is IGNORED in this mode
+  # (the chart owns the path layout). Mutually exclusive with
+  # `webhookOnly: true` — the template fails with a clear message if
+  # both are set.
+  web:
+    enabled: false
   tls: []
   # Example:
   # tls:
@@ -351,3 +361,109 @@ tests:
     repository: busybox
     tag: "1.36"
     pullPolicy: IfNotPresent
+
+# ----------------------------------------------------------------------
+# Frontend (SPA) — nginx-served Vite bundle in a separate Deployment.
+# Disabled by default; existing 007d installs upgrade cleanly with no
+# `--set` changes. Enabling produces a second Deployment + Service +
+# ConfigMap; combined with `ingress.enabled=true` + `ingress.web.enabled
+# =true` the Ingress fan-outs by path prefix (see ingress.yaml).
+# ----------------------------------------------------------------------
+web:
+  enabled: false
+  replicaCount: 2
+
+  image:
+    registry: ghcr.io
+    # Tracked alongside the backend image but on a separate repo path.
+    # CI publishes to `<repo>-web` (e.g. `alexmorbo/seasonfill-web`).
+    repository: alexmorbo/seasonfill-web
+    # -- Override the image tag. Default = chart appVersion (same SHA
+    # the backend uses, since CI tags both images from the same trigger).
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # -- nginx-unprivileged listens on 8080 inside the container.
+  # The Service exposes port 80 → targetPort 8080 by default.
+  containerPort: 8080
+
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+    labels: {}
+
+  # -- Pod-level securityContext. nginx-unprivileged runs as UID 101.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+
+  # -- Container-level securityContext. Drops all caps, forbids
+  # privilege escalation, enforces read-only root filesystem. The
+  # writable paths nginx needs come from emptyDir mounts (see
+  # web-deployment.yaml).
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    capabilities:
+      drop:
+        - ALL
+
+  # -- HTTP probes hit nginx's static /healthz endpoint.
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+  # -- nginx is light. Tiny requests; modest limits.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # -- RollingUpdate is safe for nginx (stateless, content-hashed
+  # assets). 006d's Recreate is a backend-only constraint.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  # -- Preferred anti-affinity to spread replicas across nodes.
+  # Operators can override with required* if a hard guarantee is needed.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: seasonfill
+                app.kubernetes.io/component: web
+            topologyKey: kubernetes.io/hostname

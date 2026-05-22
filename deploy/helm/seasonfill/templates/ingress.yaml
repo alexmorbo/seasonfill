@@ -3,13 +3,27 @@ Ingress. Default off. When enabled, .Values.ingress.hosts[0].host is
 required so the operator never accidentally publishes an empty-host
 Ingress that swallows all traffic into the namespace.
 
-The `className` block ships first (Kubernetes 1.18+) so this works on
-modern clusters; the `kubernetes.io/ingress.class` annotation fallback
-is not emitted here — supply it via `ingress.annotations` if needed.
+Three rendering modes:
+
+  1. .Values.ingress.webhookOnly = true
+     → single path /api/v1/webhook → backend (007d).
+  2. .Values.ingress.web.enabled = true
+     → fan-out: backend prefix list + / catch-all → frontend (009f).
+     The user-supplied .Values.ingress.hosts[].paths list is ignored
+     in this mode (the chart owns the path layout).
+  3. Neither toggle set
+     → render .Values.ingress.hosts[].paths verbatim → backend (006e).
+
+Modes 1 and 2 are mutually exclusive (`fail` if both set).
 */ -}}
 {{- if .Values.ingress.enabled -}}
+{{- if and .Values.ingress.webhookOnly .Values.ingress.web.enabled -}}
+{{- fail "ingress.webhookOnly and ingress.web.enabled are mutually exclusive: webhookOnly collapses the Ingress to /api/v1/webhook only, while web.enabled fans out paths between backend and frontend. Pick one." -}}
+{{- end -}}
 {{- $svcName := include "seasonfill.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
+{{- $webSvcName := include "seasonfill.webFullname" . -}}
+{{- $webSvcPort := .Values.web.service.port -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -49,6 +63,51 @@ spec:
                 name: {{ $svcName }}
                 port:
                   number: {{ $svcPort }}
+          {{- else if $.Values.ingress.web.enabled }}
+          {{- /* Backend prefix list — fixed and ordered before /. */}}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          - path: /webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          - path: /readyz
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- /* SPA catch-all — must come last. */}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $webSvcName }}
+                port:
+                  number: {{ $webSvcPort }}
           {{- else }}
           {{- range .paths }}
           - path: {{ .path }}

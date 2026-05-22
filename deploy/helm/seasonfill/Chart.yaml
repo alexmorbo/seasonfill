@@ -3,10 +3,11 @@ name: seasonfill
 description: |
   Seasonfill — a multi-instance Sonarr backfill controller that scans
   managed series for incomplete seasons and triggers indexer searches
-  on a schedule. Singleton service; database stores state.
+  on a schedule. Singleton service; database stores state. Optional
+  web UI (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -24,4 +25,6 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.1.0
+      image: ghcr.io/alexmorbo/seasonfill:0.2.0
+    - name: seasonfill-web
+      image: ghcr.io/alexmorbo/seasonfill-web:0.2.0
