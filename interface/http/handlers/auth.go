@@ -182,6 +182,22 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Session is GET /api/v1/auth/session — used by browser SPAs to verify
+// the current session is still valid. 009a1 mounts this behind
+// RequireAuth, so reaching the handler at all means auth succeeded.
+//
+// @Summary     Verify the current session
+// @Tags        auth
+// @Produce     json
+// @Success     200   {object}  dto.OKResponse
+// @Failure     401   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /auth/session [get]
+func (h *AuthHandler) Session(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // respondInvalidKey emits the project's standard 401 envelope —
 // matches interface/http/middleware/auth.go:14-17.
 func (h *AuthHandler) respondInvalidKey(c *gin.Context) {

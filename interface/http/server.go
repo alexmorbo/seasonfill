@@ -74,6 +74,7 @@ func NewServer(
 		auth.POST("/login", authHandler.Login)
 		authGuarded := auth.Group("")
 		authGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
+		authGuarded.GET("/session", authHandler.Session)
 		authGuarded.DELETE("/session", authHandler.Logout)
 
 		// Existing admin routes: swap APIKeyAuth → RequireAuth.
