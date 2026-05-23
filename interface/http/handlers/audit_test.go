@@ -86,6 +86,20 @@ func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance 
 	return d
 }
 
+// seedDecisionWithError seeds an error-outcome decision. Distinct
+// helper (vs new param on seedDecision) keeps existing call sites
+// untouched.
+func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, instance string, seriesID, season int, errDetail string, createdAt time.Time) decision.Decision {
+	t.Helper()
+	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
+	d.Outcome = decision.OutcomeError
+	d.Reason = decision.ReasonErrorFetchReleases
+	d.ErrorDetail = errDetail
+	d.CreatedAt = createdAt
+	require.NoError(t, f.decs.Save(context.Background(), d))
+	return d
+}
+
 func (f *auditFixture) seedGrab(t *testing.T, instance string, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
 	rec := grab.Record{
@@ -307,6 +321,38 @@ func TestAuditHandler_ListDecisions_BadQueryParams(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), tc.query)
 		assert.Equal(t, tc.wantMsg, body["error"], tc.query)
 	}
+}
+
+func TestAuditHandler_ListDecisions_SurfacesErrorDetail(t *testing.T) {
+	f := newAuditFixture(t, false)
+	scanRun := uuid.New()
+	base := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	f.seedDecisionWithError(t, scanRun, "main", 100, 1,
+		"sonarr: 503 service unavailable", base)
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "error", body.Items[0]["decision"])
+	assert.Equal(t, "error", body.Items[0]["category"])
+	assert.Equal(t, "sonarr: 503 service unavailable", body.Items[0]["error_detail"])
+}
+
+func TestAuditHandler_ListDecisions_OmitsEmptyErrorDetail(t *testing.T) {
+	// Non-error decisions must NOT emit "error_detail" in the JSON —
+	// the DTO field is omitempty so the wire stays clean.
+	f := newAuditFixture(t, false)
+	scanRun := uuid.New()
+	base := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	f.seedDecision(t, scanRun, "main", 100, 1, decision.OutcomeSkip, base)
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	_, present := body.Items[0]["error_detail"]
+	assert.False(t, present, "error_detail must be omitted on non-error decisions")
 }
 
 // --- /grabs ---------------------------------------------------------------

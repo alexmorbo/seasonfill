@@ -90,6 +90,7 @@ func toDecisionDTO(d decision.Decision) dto.Decision {
 		CandidatesCount: d.CandidatesCount,
 		SelectedGUID:    selectedGUID,
 		DryRunWouldGrab: d.DryRunWouldGrab,
+		ErrorDetail:     d.ErrorDetail,
 		CreatedAt:       d.CreatedAt,
 	}
 }

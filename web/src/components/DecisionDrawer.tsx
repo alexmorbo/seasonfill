@@ -4,7 +4,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { DecisionDetail } from '@/components/DecisionDetail';
 import { Button } from '@/components/ui/button';
-import { Loader2, Zap } from 'lucide-react';
+import { Loader2, Zap, AlertCircle, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGrabDecision } from '@/lib/grab-mutation';
 import { useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
 import { relativeTime } from '@/lib/format';
@@ -48,6 +49,7 @@ export function DecisionDrawer({
           {d ? (
             <>
               <DecisionDetail d={d} />
+              <ErrorDetailSection d={d} />
               <GrabNowSection d={d} />
             </>
           ) : (
@@ -117,6 +119,66 @@ function GrabNowSection({ d }: { d: Decision }) {
             grabbed: {grab.data.id?.slice(0, 8) ?? '—'}
           </span>
         )}
+      </div>
+    </section>
+  );
+}
+
+// ErrorDetailSection renders the raw upstream error string (truncated
+// server-side to ≤256 runes) for error-category decisions. Gated on
+// (category === 'error' && error_detail) — non-error decisions never
+// render even if the field is populated by some future code path
+// (Q-014-3).
+function ErrorDetailSection({ d }: { d: Decision }) {
+  if (d.category !== 'error' || !d.error_detail) return null;
+
+  const onCopy = async () => {
+    // Defensive: navigator.clipboard is undefined in JSDOM by default.
+    // The test environment stubs it; in prod browsers it's always present
+    // under https / localhost. Fall back to a toast instead of throwing.
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard not available');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(d.error_detail ?? '');
+      toast.success('Copied to clipboard');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  return (
+    <section
+      aria-labelledby="error-detail-heading"
+      className="border border-status-danger/30 rounded-md p-4 bg-status-danger/5 flex flex-col gap-2.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-status-danger" aria-hidden="true" />
+          <h4
+            id="error-detail-heading"
+            className="text-[12px] font-semibold uppercase tracking-[0.06em] text-status-danger"
+          >
+            Error detail
+          </h4>
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center gap-1 px-1.5 h-6 rounded border border-border-faint text-[11px] text-muted hover:text-foreground hover:bg-surface-2"
+          aria-label="Copy error detail to clipboard"
+          data-testid="error-detail-copy"
+        >
+          <Copy className="w-3 h-3" aria-hidden="true" />
+          Copy
+        </button>
+      </div>
+      <div
+        className="font-mono text-[12px] bg-surface-2 rounded px-2.5 py-2 break-all whitespace-pre-wrap select-text text-foreground-2"
+        data-testid="error-detail-text"
+      >
+        {d.error_detail}
       </div>
     </section>
   );

@@ -43,8 +43,12 @@ type DecisionModel struct {
 	FilteredOut     datatypes.JSON
 	SelectedGUID    string `gorm:"size:512"`
 	SelectedData    datatypes.JSON
-	DryRunWouldGrab bool      `gorm:"column:would_grab"`
-	CreatedAt       time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
+	DryRunWouldGrab bool `gorm:"column:would_grab"`
+	// ErrorDetail mirrors domain/decision.Decision.ErrorDetail. size:300
+	// is intentional slack above the 256-rune application-layer cap so a
+	// future truncation tweak does not require a schema migration.
+	ErrorDetail string    `gorm:"size:300"`
+	CreatedAt   time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
 }
 
 func (DecisionModel) TableName() string { return "decisions" }

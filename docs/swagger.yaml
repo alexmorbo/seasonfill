@@ -28,6 +28,9 @@ components:
           type: string
         dry_run_would_grab:
           type: boolean
+        error_detail:
+          example: 'sonarr: 503 service unavailable'
+          type: string
         existing_count:
           type: integer
         id:

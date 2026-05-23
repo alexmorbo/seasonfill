@@ -219,3 +219,43 @@ func TestExecute_SkipAnime(t *testing.T) {
 	assert.Equal(t, decision.OutcomeSkip, d.Outcome)
 	assert.Equal(t, decision.ReasonSkipAnime, d.Reason)
 }
+
+// errSonarr returns a fixed error from SearchReleases. All other
+// methods inherit the no-op stubSonarr behaviour (embedded).
+type errSonarr struct {
+	stubSonarr
+	err error
+}
+
+func (e *errSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	return nil, e.err
+}
+
+func TestExecute_PopulatesErrorDetailOnSearchFailure(t *testing.T) {
+	t.Parallel()
+	errStub := &errSonarr{err: errInfra("sonarr: 503 service unavailable")}
+	rec := &recDecisions{}
+	uc := NewUseCase(errStub, rec, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := uc.Execute(context.Background(), Input{
+		ScanRunID: uuid.New(), Instance: "alpha",
+		Series: series.Series{ID: 1, Title: "Severance", Monitored: true},
+		Season: series.Season{Number: 1, Monitored: true,
+			Episodes: []series.Episode{
+				{Number: 1, Monitored: true, HasFile: true, QualityID: 19},
+				{Number: 2, Monitored: true, HasFile: false},
+			}},
+		Now: time.Now(),
+	})
+	require.Error(t, err)
+	require.Len(t, rec.list, 1)
+	saved := rec.list[0]
+	assert.Equal(t, decision.OutcomeError, saved.Outcome)
+	assert.Equal(t, decision.ReasonErrorFetchReleases, saved.Reason)
+	assert.Equal(t, "sonarr: 503 service unavailable", saved.ErrorDetail)
+}
+
+// errInfra is a typed-string error so the assertion above sees exactly
+// the err.Error() output (no wrapper noise).
+type errInfra string
+
+func (e errInfra) Error() string { return string(e) }

@@ -98,6 +98,10 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 	if err != nil {
 		d.Outcome = decision.OutcomeError
 		d.Reason = decision.ReasonErrorFetchReleases
+		// Capture the raw err string so operators see the actual
+		// failure class on /decisions/:id without grepping logs.
+		// Truncation + normalisation centralised in truncateErrorDetail.
+		d.ErrorDetail = truncateErrorDetail(err.Error())
 		_ = u.persist(ctx, d)
 		return d, fmt.Errorf("search releases series=%d season=%d: %w", in.Series.ID, in.Season.Number, err)
 	}

@@ -60,4 +60,30 @@ describe('<SeriesGroup />', () => {
     await userEvent.click(screen.getByRole('button', { name: /open decision for severance season 1/i }));
     expect(onOpen).toHaveBeenCalledWith('d1');
   });
+  it('renders an error icon with title preview on error rows', async () => {
+    const longErr = 'sonarr: 503 service unavailable — '.repeat(10);
+    const errDec: Decision = {
+      ...dec('d-err', 1, DtoDecisionCategory.error),
+      reason: 'error_fetch_releases',
+      error_detail: longErr,
+    };
+    renderG({
+      group: buildGroup({
+        worstCategory: 'error',
+        seasons: [{ seasonNumber: 1, decision: errDec }],
+      }),
+      expanded: true,
+    });
+    const icon = screen.getByTestId('series-row-error-icon');
+    expect(icon).toBeInTheDocument();
+    const title = icon.getAttribute('title') ?? '';
+    expect(title.length).toBeLessThanOrEqual(123); // 120 + "..."
+    expect(title).toContain('sonarr: 503');
+    expect(title.endsWith('...')).toBe(true);
+  });
+
+  it('does not render an error icon on non-error rows', () => {
+    renderG({ expanded: true });
+    expect(screen.queryByTestId('series-row-error-icon')).not.toBeInTheDocument();
+  });
 });

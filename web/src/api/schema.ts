@@ -966,6 +966,8 @@ export type components = {
              */
             readonly decision?: DtoDecisionDecision;
             readonly dry_run_would_grab?: boolean;
+            /** @example sonarr: 503 service unavailable */
+            readonly error_detail?: string;
             readonly existing_count?: number;
             /** @example dec_001 */
             readonly id?: string;

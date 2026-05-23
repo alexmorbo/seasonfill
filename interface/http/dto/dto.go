@@ -110,6 +110,7 @@ type Decision struct {
 	CandidatesCount int       `json:"candidates_count"`
 	SelectedGUID    string    `json:"selected_guid,omitempty"`
 	DryRunWouldGrab bool      `json:"dry_run_would_grab"`
+	ErrorDetail     string    `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

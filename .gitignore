@@ -19,6 +19,9 @@ vendor/
 /bin/
 /dist/
 /build/
+/server
+/cmd_cover.out
+/cover.out
 
 # IDE
 .idea/

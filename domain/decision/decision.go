@@ -53,7 +53,12 @@ type Decision struct {
 	FilteredOut     []FilteredCandidate
 	Selected        *release.Scored
 	DryRunWouldGrab bool
-	CreatedAt       time.Time
+	// ErrorDetail is the underlying error string from the upstream
+	// failure (e.g. "sonarr: 503 service unavailable") when Outcome is
+	// OutcomeError. Empty on non-error decisions. Caller is responsible
+	// for size/normalisation; see application/evaluate.truncateErrorDetail.
+	ErrorDetail string
+	CreatedAt   time.Time
 }
 
 func New(scanRunID uuid.UUID, instance, seriesTitle string, seriesID, season int) Decision {

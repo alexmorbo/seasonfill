@@ -54,6 +54,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		SelectedGUID:    selectedGUID,
 		SelectedData:    selectedData,
 		DryRunWouldGrab: d.DryRunWouldGrab,
+		ErrorDetail:     d.ErrorDetail,
 		CreatedAt:       d.CreatedAt,
 	}
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
@@ -163,6 +164,7 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 		FilteredOut:     filtered,
 		Selected:        selected,
 		DryRunWouldGrab: m.DryRunWouldGrab,
+		ErrorDetail:     m.ErrorDetail,
 		CreatedAt:       m.CreatedAt,
 	}, nil
 }
