@@ -864,7 +864,7 @@ func TestStartInstance_ReturnsBeforeCompletion(t *testing.T) {
 	deadline := time.Now().Add(500 * time.Millisecond)
 	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
 	require.NoError(t, err)
-	assert.Less(t, time.Now().Sub(deadline), 500*time.Millisecond, "StartInstance must return synchronously")
+	assert.Less(t, time.Since(deadline), 500*time.Millisecond, "StartInstance must return synchronously")
 	assert.Equal(t, "running", res.Status)
 	assert.NotEqual(t, uuid.Nil, res.ScanRunID)
 
@@ -1186,10 +1186,10 @@ func TestScan_NormalCompletion_SurvivesCtxCancelDuringFinalize(t *testing.T) {
 	assert.NoError(t, capCtx.Err(),
 		"terminal Update must use detached writeCtx, not the cancellable scan ctx")
 
-	repo.fakeScanRepo.mu.Lock()
-	defer repo.fakeScanRepo.mu.Unlock()
-	require.NotEmpty(t, repo.fakeScanRepo.updated, "no terminal Update recorded")
-	last := repo.fakeScanRepo.updated[len(repo.fakeScanRepo.updated)-1]
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.NotEmpty(t, repo.updated, "no terminal Update recorded")
+	last := repo.updated[len(repo.updated)-1]
 	assert.Equal(t, "completed", last.Status,
 		"row must finalize to completed even when Cancel arrives during terminal Update")
 }
