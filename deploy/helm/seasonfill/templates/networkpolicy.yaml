@@ -5,21 +5,16 @@ egress, with explicit allows.
 
 Ingress: any selectors the operator supplies under
 .Values.networkPolicy.ingress.from. Typical homelab setup: allow from
-the ingress-nginx namespace.
+the ingress-nginx namespace. The webhook used to have a separate
+`webhookSources` entry; from 021c it shares the API auth surface and
+needs no separate ingress rule.
 
 Egress is explicit:
   - DNS to kube-dns (UDP 53 + TCP 53).
-  - Postgres (TCP 5432) when configured.
-  - Sonarr instances — IPs/CIDRs unknown at chart-render time, so the
-    operator supplies selectors or CIDR blocks. We do NOT try to derive
-    these from .Values.sonarrInstances[].url (URL parsing in Helm is
-    fragile and Sonarr addresses are often Service DNS names whose
-    pods are tagged with arbitrary labels).
-
-If the operator opts in but provides no egress rules, ALL egress is
-denied except DNS — the service will fail to reach Sonarr. The
-operator is expected to supply rules or set
-.Values.networkPolicy.egress.allowAll: true to short-circuit.
+  - Operator-supplied entries for Postgres / Sonarr / proxies under
+    .Values.networkPolicy.egress.to.
+  - Or .Values.networkPolicy.egress.allowAll: true to short-circuit
+    when the operator wants to manage egress out-of-band.
 */ -}}
 {{- if .Values.networkPolicy.enabled -}}
 apiVersion: networking.k8s.io/v1
@@ -35,36 +30,13 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  {{- /*
-  Ingress rules are emitted ONLY when the operator supplies at least one peer
-  selector under networkPolicy.ingress.from OR networkPolicy.webhookSources.
-  An empty list for both (the default) produces NO ingress rule: combined
-  with policyTypes: [Ingress, Egress] declared above, this enforces
-  default-deny ingress — no incoming traffic is permitted. Setting both
-  empty or unset is intentional and means "block all ingress".
-
-  Two rules render when both lists are non-empty: a general rule for the
-  `ingress.from` peers, and a webhook-only rule for the `webhookSources`
-  peers (e.g., the Sonarr namespace). Both target TCP 8080. The split is
-  cosmetic at the policy level — Kubernetes ORs the two rules — but it
-  documents operator intent: admin operators vs Sonarr webhook callers.
-  */ -}}
-  {{- if or .Values.networkPolicy.ingress.from .Values.networkPolicy.webhookSources }}
+  {{- with .Values.networkPolicy.ingress.from }}
   ingress:
-    {{- if .Values.networkPolicy.ingress.from }}
     - from:
-        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
       ports:
         - protocol: TCP
           port: 8080
-    {{- end }}
-    {{- if .Values.networkPolicy.webhookSources }}
-    - from:
-        {{- toYaml .Values.networkPolicy.webhookSources | nindent 8 }}
-      ports:
-        - protocol: TCP
-          port: 8080
-    {{- end }}
   {{- end }}
   egress:
     {{- if .Values.networkPolicy.egress.allowAll }}

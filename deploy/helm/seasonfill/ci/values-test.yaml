@@ -1,0 +1,131 @@
+# Values used by CI to render a representative manifest.
+# Mirrors a realistic prod install with `existingSecret`. Used by
+# 021d's helm-lint workflow as `helm template -f ci/values-test.yaml`.
+
+secrets:
+  # Schema requires either `existingSecret` non-empty OR `apiKey`
+  # non-empty. We exercise the prod path here.
+  existingSecret: seasonfill-ci-test
+
+instances:
+  - name: main
+    url: "http://sonarr.media.svc.cluster.local:8989"
+    apiKey: ""              # MUST be empty when existingSecret is set
+    timeout: 30s
+    searchTimeout: 60s
+    tags:
+      mode: all
+      include: []
+      exclude: []
+    search:
+      requireAllAired: false
+      skipSpecials: true
+      skipAnime: true
+      minCustomFormatScore: 0
+    ranking:
+      indexerPriorityEnabled: true
+      originBonus: 1.0
+    limits:
+      scanMaxSeries: 100
+      maxGrabsPerScan: 10
+    rateLimit:
+      rps: 5
+      burst: 10
+    cooldown:
+      mode: smart
+      seriesAfterGrab: 24h
+      guidAfterFailedGrab: 72h
+      guidAfterFailedImport: 48h
+    retry:
+      maxAttempts: 3
+      initialBackoff: 1s
+      maxBackoff: 30s
+    healthCheck:
+      recheckIntervalAuth: 5m
+      recheckIntervalNetwork: 1m
+  # Second instance exercises the name-sanitization path.
+  - name: anime-4k
+    url: "http://anime.media.svc.cluster.local:8989"
+    apiKey: ""
+    timeout: 30s
+    tags:
+      mode: include
+      include: ["anime"]
+      exclude: []
+    search:
+      requireAllAired: false
+      skipSpecials: true
+      skipAnime: false
+      minCustomFormatScore: 0
+    ranking:
+      indexerPriorityEnabled: true
+      originBonus: 1.0
+    limits:
+      scanMaxSeries: 50
+      maxGrabsPerScan: 5
+    rateLimit:
+      rps: 3
+      burst: 6
+    cooldown:
+      mode: smart
+      seriesAfterGrab: 24h
+      guidAfterFailedGrab: 72h
+    retry:
+      maxAttempts: 3
+      initialBackoff: 1s
+      maxBackoff: 30s
+    healthCheck:
+      recheckIntervalAuth: 5m
+      recheckIntervalNetwork: 1m
+
+config:
+  database:
+    driver: postgres
+  dryRun: true
+  http:
+    auth:
+      enabled: true
+      sessionTTL: "12h"
+      secureCookie: true
+
+ingress:
+  enabled: true
+  className: nginx
+  host: seasonfill.example.com
+  tls:
+    enabled: true
+    secretName: seasonfill-tls
+
+networkPolicy:
+  enabled: true
+  ingress:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    allowAll: false
+    to:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: media
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: sonarr
+        ports:
+          - {protocol: TCP, port: 8989}
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: data
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: postgres
+        ports:
+          - {protocol: TCP, port: 5432}
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus

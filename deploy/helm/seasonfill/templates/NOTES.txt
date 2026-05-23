@@ -1,0 +1,80 @@
+Seasonfill {{ .Chart.AppVersion }} is installed in namespace
+"{{ .Release.Namespace }}" as release "{{ .Release.Name }}".
+
+1. Wait for both pods to roll out:
+
+     kubectl --namespace {{ .Release.Namespace }} rollout status deploy/{{ include "seasonfill.fullname" . }}
+     kubectl --namespace {{ .Release.Namespace }} rollout status deploy/{{ include "seasonfill.webFullname" . }}
+
+2. Reach the web UI:
+{{- if .Values.ingress.enabled }}
+
+     {{- if .Values.ingress.tls.enabled }}
+     https://{{ .Values.ingress.host }}/
+     {{- else }}
+     http://{{ .Values.ingress.host }}/
+     {{- end }}
+{{- else }}
+
+     # Ingress is disabled. Port-forward instead:
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "seasonfill.webFullname" . }} 8080:{{ .Values.web.service.port }}
+     # then open http://localhost:8080
+{{- end }}
+
+3. First login.
+
+     The web UI logs in with username + password. The default username
+     is "{{ default "admin" .Values.secrets.webUser }}".
+
+{{- if and (not .Values.secrets.webPassword) (not .Values.secrets.webPasswordHash) (not .Values.secrets.existingSecret) }}
+
+     No password was supplied at install time. The backend generates a
+     random one on first start and prints it ONCE to stdout. Retrieve it:
+
+       kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ include "seasonfill.fullname" . }} | grep -A 1 'FIRST-RUN PASSWORD'
+
+     Change it via Settings -> Security in the UI as soon as you log in
+     (the banner shown on every page reminds you until you do).
+{{- else if .Values.secrets.existingSecret }}
+
+     Password is supplied via the pre-created Secret
+     "{{ .Values.secrets.existingSecret }}". If that Secret doesn't include
+     a "{{ .Values.secrets.keys.webPassword }}" or
+     "{{ .Values.secrets.keys.webPasswordHash }}" entry, the backend will
+     generate one on first start — retrieve via the logs as above.
+{{- else }}
+
+     Password was supplied at install time.
+{{- end }}
+
+4. To rotate the password from the CLI without UI access:
+
+     kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "seasonfill.fullname" . }} -- /app/seasonfill reset-password --print
+     # prints the new plaintext password to stdout once.
+
+5. For a fully-credentialed pre-created Secret (recommended for prod),
+   create it BEFORE `helm install` and pass `secrets.existingSecret`:
+
+     kubectl --namespace {{ .Release.Namespace }} create secret generic seasonfill-prod \
+       --from-literal={{ .Values.secrets.keys.apiKey }}=$(openssl rand -hex 32) \
+       --from-literal={{ .Values.secrets.keys.webUser }}=admin \
+       --from-literal={{ .Values.secrets.keys.webPassword }}='change-me-now-please' \
+       --from-literal={{ .Values.secrets.keys.postgresDSN }}='postgresql://user:pw@postgres.svc:5432/seasonfill?sslmode=require' \
+{{- range .Values.instances }}
+       --from-literal={{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}='<sonarr-{{ .name }}-api-key>' \
+{{- end }}
+       --dry-run=client -o yaml | kubectl apply -f -
+
+     helm upgrade --install {{ .Release.Name }} . \
+       --namespace {{ .Release.Namespace }} \
+       --set secrets.existingSecret=seasonfill-prod
+
+6. Sonarr Connect -> Webhook setup:
+
+     URL:    https://{{ default "<ingress-host>" .Values.ingress.host }}/api/v1/webhook/sonarr/<instance-name>
+     Method: POST
+     Headers:
+       X-Api-Key: <the api-key value from your Secret>
+
+     `<instance-name>` MUST match one of the names configured under
+     `instances` in this chart's values — unknown names return 404.
