@@ -57,6 +57,10 @@ func (r *recDecisions) Save(_ context.Context, d decision.Decision) error {
 	return nil
 }
 
+func (r *recDecisions) GetByID(_ context.Context, _ uuid.UUID) (decision.Decision, error) {
+	return decision.Decision{}, ports.ErrNotFound
+}
+
 func (r *recDecisions) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }

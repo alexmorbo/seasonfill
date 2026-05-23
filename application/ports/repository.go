@@ -57,6 +57,7 @@ type DecisionFilter struct {
 
 type DecisionRepository interface {
 	Save(ctx context.Context, d decision.Decision) error
+	GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error)
 	List(ctx context.Context, f DecisionFilter, p Pagination) ([]decision.Decision, *Cursor, error)
 }
 
@@ -97,6 +98,11 @@ type GrabRepository interface {
 	// Returns ErrNotFound on unknown id and grab.ErrInvalidStatusTransition
 	// when the persisted status forbids the move.
 	UpdateStatus(ctx context.Context, id uuid.UUID, newStatus grab.Status, message string) error
+
+	// FindExisting4Tuple resolves the surviving row after a duplicate-key
+	// INSERT trips the unique (instance, series, season, release_guid)
+	// index. Returns ErrNotFound when no row matches.
+	FindExisting4Tuple(ctx context.Context, instance string, seriesID, season int, guid string) (grab.Record, error)
 }
 
 type CooldownRepository interface {

@@ -51,11 +51,11 @@ func (DecisionModel) TableName() string { return "decisions" }
 
 type GrabRecordModel struct {
 	ID                string `gorm:"primaryKey;size:36;index:idx_grab_records_created_at_id,priority:2"`
-	InstanceName      string `gorm:"size:128;index:idx_grab_inst_series,priority:1"`
-	SeriesID          int    `gorm:"index:idx_grab_inst_series,priority:2"`
+	InstanceName      string `gorm:"size:128;index:idx_grab_inst_series,priority:1;uniqueIndex:idx_grab_dedupe,priority:1"`
+	SeriesID          int    `gorm:"index:idx_grab_inst_series,priority:2;uniqueIndex:idx_grab_dedupe,priority:2"`
 	SeriesTitle       string `gorm:"size:512"`
-	SeasonNumber      int    `gorm:"index:idx_grab_inst_series,priority:3"`
-	ReleaseGUID       string `gorm:"size:512;index"`
+	SeasonNumber      int    `gorm:"index:idx_grab_inst_series,priority:3;uniqueIndex:idx_grab_dedupe,priority:3"`
+	ReleaseGUID       string `gorm:"size:512;index;uniqueIndex:idx_grab_dedupe,priority:4"`
 	ReleaseTitle      string `gorm:"size:1024"`
 	DownloadID        string `gorm:"size:128;index;column:download_id"`
 	IndexerID         int

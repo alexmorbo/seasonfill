@@ -76,6 +76,9 @@ func (noopScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Paginati
 type noopDecRepo struct{}
 
 func (noopDecRepo) Save(context.Context, decision.Decision) error { return nil }
+func (noopDecRepo) GetByID(context.Context, uuid.UUID) (decision.Decision, error) {
+	return decision.Decision{}, ports.ErrNotFound
+}
 func (noopDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
@@ -93,6 +96,10 @@ func (noopGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (grab.Recor
 
 func (noopGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Status, _ string) error {
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
+}
+
+func (noopGrabRepo) FindExisting4Tuple(context.Context, string, int, int, string) (grab.Record, error) {
+	return grab.Record{}, ports.ErrNotFound
 }
 
 type noopWebhookUC struct{}
@@ -128,7 +135,7 @@ func buildServer(t *testing.T) *Server {
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
 	}, config.WebhookConfig{}, scanUC, noopWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, lg)
 }
 
 type okWebhookUC struct{}
@@ -167,7 +174,7 @@ func buildServerWithAuth(t *testing.T, adminKey, webhookSecret string) *Server {
 			SecureCookie: false,
 		},
 	}, config.WebhookConfig{Secret: webhookSecret}, scanUC, okWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, lg)
 }
 
 // TestServer_WebhookAuthIsolation verifies that, when both admin auth and a

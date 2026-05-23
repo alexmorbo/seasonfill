@@ -118,6 +118,10 @@ func (r *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
+func (r *fakeGrabRepo) FindExisting4Tuple(_ context.Context, _ string, _, _ int, _ string) (domaingrab.Record, error) {
+	return domaingrab.Record{}, ports.ErrNotFound
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

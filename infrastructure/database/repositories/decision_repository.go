@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -59,6 +60,18 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		return fmt.Errorf("save decision: %w", err)
 	}
 	return nil
+}
+
+// GetByID returns the decision row by primary key, or ports.ErrNotFound.
+func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error) {
+	var model database.DecisionModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return decision.Decision{}, ports.ErrNotFound
+		}
+		return decision.Decision{}, fmt.Errorf("get decision: %w", err)
+	}
+	return toDecision(model)
 }
 
 func (r *DecisionRepository) List(ctx context.Context, f ports.DecisionFilter, p ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
@@ -153,3 +166,5 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 		CreatedAt:       m.CreatedAt,
 	}, nil
 }
+
+var _ ports.DecisionRepository = (*DecisionRepository)(nil)

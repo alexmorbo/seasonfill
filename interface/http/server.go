@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
@@ -35,6 +36,9 @@ func NewServer(
 	grabRepo ports.GrabRepository,
 	sonarrClients map[string]ports.SonarrClient,
 	instanceModes map[string]string,
+	cooldownRepo ports.CooldownRepository,
+	grabUC *appgrab.UseCase,
+	instancesByName map[string]scan.Instance,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -47,6 +51,7 @@ func NewServer(
 	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, webhookCfg, logger)
+	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instancesByName, logger)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
@@ -90,6 +95,7 @@ func NewServer(
 		apiGuarded.GET("/scans/:id", auditHandler.GetScan)
 		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
 		apiGuarded.GET("/grabs", auditHandler.ListGrabs)
+		apiGuarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
 	}
 
 	// Webhook is independent — mounted on the root engine so admin

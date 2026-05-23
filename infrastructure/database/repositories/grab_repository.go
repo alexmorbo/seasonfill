@@ -22,12 +22,40 @@ func NewGrabRepository(db *gorm.DB) *GrabRepository {
 	return &GrabRepository{db: db}
 }
 
+// ErrGrabDuplicate signals the (instance, series, season, release_guid)
+// unique index trapped a duplicate INSERT. Race-recovery path in the
+// HTTP grab handler resolves the survivor via FindExisting4Tuple.
+var ErrGrabDuplicate = errors.New("grab record already exists for 4-tuple")
+
 func (r *GrabRepository) Create(ctx context.Context, rec grab.Record) error {
 	model := toGrabModel(rec)
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
-		return fmt.Errorf("create grab_record: %w", err)
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error
+	if err == nil {
+		return nil
 	}
-	return nil
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return fmt.Errorf("%w: %s/%d/%d/%s", ErrGrabDuplicate,
+			rec.InstanceName, rec.SeriesID, rec.SeasonNumber, rec.ReleaseGUID)
+	}
+	return fmt.Errorf("create grab_record: %w", err)
+}
+
+// FindExisting4Tuple resolves the surviving row after a duplicate-key INSERT
+// trips the unique index. Returns ports.ErrNotFound when no row matches.
+func (r *GrabRepository) FindExisting4Tuple(ctx context.Context, instance string,
+	seriesID, season int, guid string) (grab.Record, error) {
+	var m database.GrabRecordModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("instance_name = ? AND series_id = ? AND season_number = ? AND release_guid = ?",
+			instance, seriesID, season, guid).
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return grab.Record{}, ports.ErrNotFound
+		}
+		return grab.Record{}, fmt.Errorf("find grab by 4-tuple: %w", err)
+	}
+	return toGrabRecord(m)
 }
 
 func toGrabModel(r grab.Record) database.GrabRecordModel {

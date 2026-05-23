@@ -33,6 +33,7 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
+		TranslateError: true,
 	}
 
 	switch cfg.Driver {

@@ -91,6 +91,7 @@ func run() error {
 	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
 	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
 	sonarrClientsByName := make(map[string]ports.SonarrClient, len(cfg.SonarrInstances))
+	scanInstancesByName := make(map[string]scan.Instance, len(cfg.SonarrInstances))
 	cfgByName := make(map[string]config.HealthCheckConfig, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
 		// N-new-1: New(0, 0) returns nil (unlimited). Per-instance observer
@@ -108,7 +109,9 @@ func run() error {
 			sonarr.WithGlobalLimiter(globalLimiter))
 		sonarrClients = append(sonarrClients, c)
 		sonarrClientsByName[sc.Name] = c
-		scanInstances = append(scanInstances, scan.Instance{Config: sc, Client: c})
+		si := scan.Instance{Config: sc, Client: c}
+		scanInstances = append(scanInstances, si)
+		scanInstancesByName[sc.Name] = si
 		cfgByName[sc.Name] = sc.HealthCheck
 	}
 
@@ -166,7 +169,8 @@ func run() error {
 
 	httpServer := httpserver.NewServer(cfg.HTTP, cfg.Webhook, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
-		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances), log)
+		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
+		cooldownRepo, grabUC, scanInstancesByName, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep

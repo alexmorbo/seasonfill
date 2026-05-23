@@ -4,6 +4,17 @@ components:
       properties:
         candidates_count:
           type: integer
+        category:
+          enum:
+          - all_complete
+          - sonarr_handles
+          - action_taken
+          - blocked
+          - nothing_found
+          - error
+          - unknown
+          example: action_taken
+          type: string
         created_at:
           type: string
         decision:
@@ -519,6 +530,63 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: List decisions
+      tags:
+      - decisions
+  /decisions/{id}/grab:
+    post:
+      description: |-
+        Explicit-confirm path that bypasses global dry_run for
+        one decision. Idempotent on (instance, series, season,
+        release_guid). Eligible only when decision == "grab",
+        selected_guid != "" and dry_run_would_grab == true.
+      parameters:
+      - description: Decision UUID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.Grab'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Grab the release the decision selected
       tags:
       - decisions
   /grabs:

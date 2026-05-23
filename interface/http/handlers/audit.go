@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	appdecision "github.com/alexmorbo/seasonfill/application/decision"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
@@ -82,6 +83,7 @@ func toDecisionDTO(d decision.Decision) dto.Decision {
 		SeasonNumber:    d.SeasonNumber,
 		Decision:        string(d.Outcome),
 		Reason:          string(d.Reason),
+		Category:        string(appdecision.Classify(string(d.Reason))),
 		MissingCount:    d.MissingCount,
 		ExistingCount:   d.ExistingCount,
 		ReleasesFound:   d.ReleasesFound,

@@ -73,6 +73,9 @@ func (r *stubScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagin
 type stubDecRepo struct{}
 
 func (stubDecRepo) Save(context.Context, decision.Decision) error { return nil }
+func (stubDecRepo) GetByID(context.Context, uuid.UUID) (decision.Decision, error) {
+	return decision.Decision{}, ports.ErrNotFound
+}
 func (stubDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }

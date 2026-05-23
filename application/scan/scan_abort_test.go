@@ -192,6 +192,9 @@ func (r *abortFakeScanRepo) FinalStatus() string {
 type abortFakeDecisionRepo struct{}
 
 func (abortFakeDecisionRepo) Save(_ context.Context, _ decision.Decision) error { return nil }
+func (abortFakeDecisionRepo) GetByID(_ context.Context, _ uuid.UUID) (decision.Decision, error) {
+	return decision.Decision{}, ports.ErrNotFound
+}
 func (abortFakeDecisionRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
@@ -213,6 +216,10 @@ func (abortFakeGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (domai
 
 func (abortFakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab.Status, _ string) error {
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
+}
+
+func (abortFakeGrabRepo) FindExisting4Tuple(_ context.Context, _ string, _, _ int, _ string) (domaingrab.Record, error) {
+	return domaingrab.Record{}, ports.ErrNotFound
 }
 
 // abortFakeCooldownRepo lets every guid/series pass.
