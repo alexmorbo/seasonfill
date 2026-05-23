@@ -78,7 +78,17 @@ sonarr_instances:
   - name: sonarr-main
     url: ${SONARR_MAIN_URL}
     api_key: ${SONARR_MAIN_API_KEY}
-    timeout: 30s
+    # Applies to every Sonarr API call EXCEPT release search.
+    # Default 10s — fast enough for health-check fail-fast on
+    # /api/v3/system/status, slow enough for routine listings.
+    timeout: 10s
+    # Applies ONLY to GET /api/v3/release (interactive indexer
+    # search). Sonarr resolves this via Prowlarr → indexers; slow
+    # indexers (e.g. RuTracker) routinely take 20-45s. Default
+    # `timeout * 6` (= 60s on a 10s base). Bump if you see
+    # `error_fetch_releases` with error_detail `context deadline
+    # exceeded` in /scans/:id.
+    search_timeout: 60s
     # Optional per-instance override of the global dry_run. Instance wins.
     # dry_run: false
     tags:

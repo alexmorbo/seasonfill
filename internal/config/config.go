@@ -111,11 +111,22 @@ type ScanConfig struct {
 // Per D-2.6 the instance-level override wins if non-nil; otherwise we fall
 // back to the global `Config.DryRun`.
 type SonarrInstance struct {
-	Name    string        `koanf:"name"`
-	URL     string        `koanf:"url"`
-	APIKey  string        `koanf:"api_key"`
+	Name   string `koanf:"name"`
+	URL    string `koanf:"url"`
+	APIKey string `koanf:"api_key"`
+	// Timeout applies to every Sonarr API call EXCEPT
+	// `SearchReleases` (which uses SearchTimeout). Default 10s
+	// via ApplyInstanceDefaults — fast enough for fail-fast
+	// health checks on /api/v3/system/status.
 	Timeout time.Duration `koanf:"timeout"`
-	DryRun  *bool         `koanf:"dry_run"`
+	// SearchTimeout applies ONLY to `SearchReleases`
+	// (GET /api/v3/release?seriesId=…&seasonNumber=…), which
+	// triggers interactive indexer search via Prowlarr. Slow
+	// indexers (RuTracker) routinely take 20–45s; default is
+	// Timeout*6 (= 60s on a 10s base) via ApplyInstanceDefaults.
+	// Operator may set this independently of Timeout.
+	SearchTimeout time.Duration `koanf:"search_timeout"`
+	DryRun        *bool         `koanf:"dry_run"`
 	// Mode = "auto" (default) or "manual". Manual instances are
 	// excluded from the cron sweep but reachable via UI/API
 	// (`RunInstance`).
@@ -237,6 +248,19 @@ func Defaults() *Config {
 func (c *Config) ApplyInstanceDefaults() {
 	for i := range c.SonarrInstances {
 		inst := &c.SonarrInstances[i]
+		// Timeout default (10s) — fast enough for health checks
+		// against /api/v3/system/status, slow enough for routine
+		// /api/v3/series + /api/v3/episode listings under load.
+		if inst.Timeout <= 0 {
+			inst.Timeout = 10 * time.Second
+		}
+		// SearchTimeout default — `Timeout*6` so the ratio stays
+		// constant if the operator bumps the base. 60s on the
+		// default 10s base covers the observed p99 on a slow
+		// indexer chain (Sonarr → Prowlarr → RuTracker).
+		if inst.SearchTimeout <= 0 {
+			inst.SearchTimeout = inst.Timeout * 6
+		}
 		if inst.Cooldown.Mode == "" {
 			inst.Cooldown.Mode = "smart"
 		}

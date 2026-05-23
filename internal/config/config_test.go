@@ -311,3 +311,95 @@ func TestValidate_Mode(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyInstanceDefaults_Timeout_ZeroBecomesDefault(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 10*time.Second, cfg.SonarrInstances[0].Timeout,
+		"zero Timeout must default to 10s")
+}
+
+func TestApplyInstanceDefaults_Timeout_NegativeClampsToDefault(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "neg", URL: "u", APIKey: "k",
+		Timeout: -5 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 10*time.Second, cfg.SonarrInstances[0].Timeout,
+		"negative Timeout must clamp to 10s default")
+}
+
+func TestApplyInstanceDefaults_Timeout_PreservesExplicit(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+		Timeout: 25 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 25*time.Second, cfg.SonarrInstances[0].Timeout,
+		"explicit Timeout must survive defaulting")
+}
+
+func TestApplyInstanceDefaults_SearchTimeout_DefaultsToSixTimesBase(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+		Timeout: 10 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 60*time.Second, cfg.SonarrInstances[0].SearchTimeout,
+		"unset SearchTimeout must default to Timeout*6")
+}
+
+func TestApplyInstanceDefaults_SearchTimeout_TracksCustomBase(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+		Timeout: 20 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 120*time.Second, cfg.SonarrInstances[0].SearchTimeout,
+		"SearchTimeout default scales with Timeout (Timeout*6)")
+}
+
+func TestApplyInstanceDefaults_SearchTimeout_PreservesExplicit(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+		Timeout:       10 * time.Second,
+		SearchTimeout: 90 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 90*time.Second, cfg.SonarrInstances[0].SearchTimeout,
+		"explicit SearchTimeout must survive defaulting")
+}
+
+func TestApplyInstanceDefaults_SearchTimeout_NegativeClampsToDefault(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "neg", URL: "u", APIKey: "k",
+		Timeout:       10 * time.Second,
+		SearchTimeout: -1 * time.Second,
+	}}}
+	cfg.ApplyInstanceDefaults()
+	require.Equal(t, 60*time.Second, cfg.SonarrInstances[0].SearchTimeout,
+		"negative SearchTimeout must clamp to Timeout*6")
+}
+
+func TestApplyInstanceDefaults_TimeoutThenSearch_ZeroBoth(t *testing.T) {
+	// When both Timeout and SearchTimeout are zero, defaulter must
+	// resolve Timeout first (=10s) and then SearchTimeout (=60s).
+	// Guards against an ordering regression where SearchTimeout is
+	// defaulted off an as-yet-unset (zero) Timeout, yielding 0.
+	t.Parallel()
+	cfg := &Config{SonarrInstances: []SonarrInstance{{
+		Name: "main", URL: "u", APIKey: "k",
+	}}}
+	cfg.ApplyInstanceDefaults()
+	assert.Equal(t, 10*time.Second, cfg.SonarrInstances[0].Timeout)
+	assert.Equal(t, 60*time.Second, cfg.SonarrInstances[0].SearchTimeout)
+}

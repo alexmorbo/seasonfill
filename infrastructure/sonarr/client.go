@@ -23,10 +23,17 @@ import (
 )
 
 type Client struct {
-	name          string
-	baseURL       string
-	apiKey        string
-	http          *http.Client
+	name    string
+	baseURL string
+	apiKey  string
+	// http is the default client (used by every endpoint EXCEPT
+	// SearchReleases). Timeout = SonarrInstance.Timeout.
+	http *http.Client
+	// httpSearch is the long-timeout client used ONLY by
+	// SearchReleases. When WithSearchTimeout is not supplied (or is
+	// zero), httpSearch aliases `http` — i.e. behaviour identical to
+	// the pre-015 single-client model.
+	httpSearch    *http.Client
 	limiter       *ratelimit.Limiter
 	globalLimiter *ratelimit.Limiter
 	logger        *slog.Logger
@@ -41,6 +48,20 @@ func WithGlobalLimiter(l *ratelimit.Limiter) Option {
 	return func(c *Client) { c.globalLimiter = l }
 }
 
+// WithSearchTimeout installs a separate http.Client used ONLY by
+// SearchReleases. Pass 0 (or negative) to keep the base-timeout
+// client for search too — defensive default for operators who don't
+// opt in. The base http.Client (and its connection pool via
+// http.DefaultTransport) is unchanged.
+func WithSearchTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		if d <= 0 {
+			return
+		}
+		c.httpSearch = &http.Client{Timeout: d}
+	}
+}
+
 func New(name, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
 	return NewWithOptions(name, baseURL, apiKey, timeout, nil, logger)
 }
@@ -50,16 +71,19 @@ func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter
 }
 
 // NewWithOptions constructs a Client and applies functional options.
+// Default httpSearch aliases http (= same timeout as every other
+// endpoint). WithSearchTimeout, if applied, overrides httpSearch
+// with a longer-timeout client for SearchReleases only.
 func NewWithOptions(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger, opts ...Option) *Client {
+	base := &http.Client{Timeout: timeout}
 	c := &Client{
-		name:    name,
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		http: &http.Client{
-			Timeout: timeout,
-		},
-		limiter: limiter,
-		logger:  logger,
+		name:       name,
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		http:       base,
+		httpSearch: base, // default alias — overridden by WithSearchTimeout
+		limiter:    limiter,
+		logger:     logger,
 	}
 	for _, o := range opts {
 		o(c)
@@ -70,6 +94,14 @@ func NewWithOptions(name, baseURL, apiKey string, timeout time.Duration, limiter
 func (c *Client) Name() string { return c.name }
 
 func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out any) error {
+	return c.doWithClient(ctx, c.http, req, endpoint, out)
+}
+
+// doWithClient is the workhorse that lets callers pick which
+// http.Client (and therefore which timeout) to use. SearchReleases
+// supplies c.httpSearch; everything else funnels through c.http via
+// the thin `do` wrapper above.
+func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Request, endpoint string, out any) error {
 	req.Header.Set("X-Api-Key", c.apiKey)
 	req.Header.Set("Accept", "application/json")
 	if req.Body != nil {
@@ -85,7 +117,7 @@ func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	dur := time.Since(start).Seconds()
 
 	if err != nil {
@@ -131,6 +163,22 @@ func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out
 		return fmt.Errorf("build request %s: %w", endpoint, err)
 	}
 	return c.do(ctx, req, endpoint, out)
+}
+
+// searchGet is `get` routed through c.httpSearch — the long-timeout
+// client. Only SearchReleases uses it; every other endpoint uses
+// `get`. When WithSearchTimeout was not supplied, c.httpSearch
+// aliases c.http (same behaviour as get).
+func (c *Client) searchGet(ctx context.Context, endpoint string, query url.Values, out any) error {
+	full := c.baseURL + endpoint
+	if query != nil {
+		full += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", endpoint, err)
+	}
+	return c.doWithClient(ctx, c.httpSearch, req, endpoint, out)
 }
 
 func (c *Client) post(ctx context.Context, endpoint string, body any, out any) error {
@@ -217,7 +265,12 @@ func (c *Client) SearchReleases(ctx context.Context, seriesID, seasonNumber int)
 	q.Set("seriesId", strconv.Itoa(seriesID))
 	q.Set("seasonNumber", strconv.Itoa(seasonNumber))
 	var dtos []releaseDTO
-	if err := c.get(ctx, "/api/v3/release", q, &dtos); err != nil {
+	// searchGet (vs get) routes through c.httpSearch — the
+	// long-timeout client. Interactive indexer search (Prowlarr →
+	// RuTracker / others) can take 30s+; the base client's timeout
+	// would surface as `context deadline exceeded` here even though
+	// every other endpoint completes in <1s.
+	if err := c.searchGet(ctx, "/api/v3/release", q, &dtos); err != nil {
 		return nil, err
 	}
 	out := make([]release.Release, 0, len(dtos))

@@ -106,7 +106,9 @@ func run() error {
 			}),
 		)
 		c := sonarr.NewWithOptions(sc.Name, sc.URL, sc.APIKey, sc.Timeout, instLimiter, log,
-			sonarr.WithGlobalLimiter(globalLimiter))
+			sonarr.WithGlobalLimiter(globalLimiter),
+			sonarr.WithSearchTimeout(sc.SearchTimeout),
+		)
 		sonarrClients = append(sonarrClients, c)
 		sonarrClientsByName[sc.Name] = c
 		si := scan.Instance{Config: sc, Client: c}

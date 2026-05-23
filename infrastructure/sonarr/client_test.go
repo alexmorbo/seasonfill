@@ -364,3 +364,130 @@ func TestClient_GlobalLimiterObserverFiresOnBlock(t *testing.T) {
 	assert.Equal(t, 1, calls, "observer should fire exactly once for the blocked call")
 	assert.Equal(t, []string{"global"}, scopes)
 }
+
+// TestClient_SearchReleases_UsesSearchTimeout asserts SearchReleases
+// honours the long-timeout client when WithSearchTimeout is wired up.
+// Strategy: base timeout = 50ms, search timeout = 1s, server sleeps
+// 200ms on /api/v3/release — must succeed.
+func TestClient_SearchReleases_UsesSearchTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "secret",
+		50*time.Millisecond, // base timeout — would time out at 200ms
+		nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithSearchTimeout(1*time.Second), // search timeout — generous
+	)
+	rels, err := c.SearchReleases(context.Background(), 1, 1)
+	require.NoError(t, err, "search timeout must be honoured")
+	assert.Empty(t, rels)
+}
+
+// TestClient_SearchReleases_FallsBackToBaseTimeoutWhenSearchUnset
+// asserts that without WithSearchTimeout, SearchReleases keeps using
+// the base client's timeout. Guards the alias default.
+func TestClient_SearchReleases_FallsBackToBaseTimeoutWhenSearchUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 50*time.Millisecond,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.SearchReleases(context.Background(), 1, 1)
+	require.Error(t, err, "without WithSearchTimeout, base timeout applies to search")
+	assert.True(t, IsTransient(err), "client-side timeout maps to transient")
+}
+
+// TestClient_OtherEndpoints_UseBaseTimeoutNotSearchTimeout asserts
+// that ListSeries / SystemStatus / etc. keep the base timeout even
+// when a longer search timeout is installed. This is the critical
+// non-regression check — a misrouted method would gain unexpected
+// slack on health checks.
+func TestClient_OtherEndpoints_UseBaseTimeoutNotSearchTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "secret",
+		50*time.Millisecond, // base timeout — must fire
+		nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithSearchTimeout(5*time.Second), // long search timeout — must NOT apply here
+	)
+	_, err := c.SystemStatus(context.Background())
+	require.Error(t, err, "SystemStatus must use base timeout, not search timeout")
+	assert.True(t, IsTransient(err))
+}
+
+// TestClient_WithSearchTimeout_ZeroIsNoOp asserts the defensive
+// guard: WithSearchTimeout(0) leaves httpSearch aliasing http.
+func TestClient_WithSearchTimeout_ZeroIsNoOp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "secret",
+		50*time.Millisecond,
+		nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithSearchTimeout(0), // explicitly zero — must be no-op
+	)
+	_, err := c.SearchReleases(context.Background(), 1, 1)
+	require.Error(t, err,
+		"WithSearchTimeout(0) must be a no-op — base 50ms timeout applies")
+	assert.True(t, IsTransient(err))
+}
+
+// TestClient_WithSearchTimeout_NegativeIsNoOp — same as above but
+// negative. Defensive against operators passing a sentinel like -1
+// to mean "unset".
+func TestClient_WithSearchTimeout_NegativeIsNoOp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "secret",
+		50*time.Millisecond,
+		nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithSearchTimeout(-1*time.Second),
+	)
+	_, err := c.SearchReleases(context.Background(), 1, 1)
+	require.Error(t, err, "WithSearchTimeout(<0) must be a no-op")
+	assert.True(t, IsTransient(err))
+}
+
+// TestClient_SearchReleases_ContextDeadlineWinsOverSearchTimeout
+// asserts that a caller-supplied ctx deadline still bounds the
+// search even when WithSearchTimeout is generous. Guards against a
+// future bug where the long-timeout client somehow strips the ctx
+// deadline.
+func TestClient_SearchReleases_ContextDeadlineWinsOverSearchTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewWithOptions("test", srv.URL, "secret",
+		5*time.Second,
+		nil,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		WithSearchTimeout(30*time.Second), // very generous
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := c.SearchReleases(ctx, 1, 1)
+	require.Error(t, err)
+	// ctx-cancel must NOT be wrapped as network error (matches the
+	// pre-015 invariant from TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork).
+}
