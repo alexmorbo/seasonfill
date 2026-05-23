@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -40,6 +41,30 @@ export function ScanDetail() {
     ...(outcome !== 'all' && { decision: outcome }),
   }, { fastPoll });
   const grabs = useGrabs(id ? { scan_run_id: id } : {}, { fastPoll });
+
+  // When the scan transitions into a terminal status the polling cadence
+  // for decisions/grabs flips from 2s to 30s/none. The last decision
+  // written in the final ~2s of the scan can land AFTER the last fast
+  // poll and BEFORE the slow tick, leaving the UI stale for up to 30s
+  // (observed: 4 decisions written, 3 shown for 16 min). Invalidate
+  // decisions + grabs once on transition into terminal so the user sees
+  // the final counts immediately.
+  const queryClient = useQueryClient();
+  const lastStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = scan.data?.status;
+    const prior = lastStatusRef.current;
+    if (current && current !== prior) {
+      lastStatusRef.current = current;
+      const isTerminal =
+        current === 'completed' || current === 'failed' ||
+        current === 'aborted' || current === 'cancelled';
+      if (isTerminal) {
+        queryClient.invalidateQueries({ queryKey: ['decisions'] });
+        queryClient.invalidateQueries({ queryKey: ['grabs'] });
+      }
+    }
+  }, [scan.data?.status, queryClient]);
 
   const allDecisions = useMemo(() => flattenDecisions(decisions.data?.pages), [decisions.data]);
   const allGrabs = useMemo(() => flattenGrabs(grabs.data?.pages), [grabs.data]);

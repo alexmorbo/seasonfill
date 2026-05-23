@@ -153,4 +153,55 @@ describe('<ScanDetail /> rebuild', () => {
     await screen.findByText(/12 series scanned/i);
     expect(screen.queryByTestId('cancel-scan-button')).not.toBeInTheDocument();
   });
+
+  it('refetches decisions and grabs when scan transitions running → completed', async () => {
+    const captured: Captured = { urls: [], methods: [] };
+    let scanBody: unknown = runningScan;
+    globalThis.fetch = fetchStub({
+      '/scans/abc': () => json(scanBody),
+      '/decisions': () => json({ items: [] }),
+      '/grabs': () => json({ items: [] }),
+    }, captured) as typeof fetch;
+    renderWithProviders(wrap(), { route: '/scans/abc' });
+    // Wait for initial running state + at least one decisions/grabs fetch.
+    await waitFor(() => expect(screen.getByText(/polling every 2s/i)).toBeInTheDocument());
+    await waitFor(() => expect(captured.urls.some((u) => u.includes('/decisions'))).toBe(true));
+    const decBefore = captured.urls.filter((u) => u.includes('/decisions')).length;
+    const grabsBefore = captured.urls.filter((u) => u.includes('/grabs')).length;
+    // Flip response → next 2s tick observes terminal status → invalidation
+    // fires → decisions + grabs refetch.
+    scanBody = completedScan;
+    await waitFor(
+      () => expect(screen.queryByText(/polling every 2s/i)).not.toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+    await waitFor(() => {
+      const decAfter = captured.urls.filter((u) => u.includes('/decisions')).length;
+      const grabsAfter = captured.urls.filter((u) => u.includes('/grabs')).length;
+      expect(decAfter).toBeGreaterThan(decBefore);
+      expect(grabsAfter).toBeGreaterThan(grabsBefore);
+    }, { timeout: 4000 });
+  });
+
+  it('does not refetch when scan stays in terminal status across renders', async () => {
+    const captured: Captured = { urls: [], methods: [] };
+    globalThis.fetch = fetchStub({
+      '/scans/abc': () => json(completedScan),
+      '/decisions': () => json({ items: [] }),
+      '/grabs': () => json({ items: [] }),
+    }, captured) as typeof fetch;
+    const { rerender } = renderWithProviders(wrap(), { route: '/scans/abc' });
+    await screen.findByText(/12 series scanned/i);
+    // Let initial mount settle.
+    await waitFor(() => expect(captured.urls.some((u) => u.includes('/decisions'))).toBe(true));
+    const decBefore = captured.urls.filter((u) => u.includes('/decisions')).length;
+    const grabsBefore = captured.urls.filter((u) => u.includes('/grabs')).length;
+    // Rerender without changing status → invalidation MUST NOT re-fire.
+    rerender(wrap());
+    await new Promise((r) => setTimeout(r, 100));
+    const decAfter = captured.urls.filter((u) => u.includes('/decisions')).length;
+    const grabsAfter = captured.urls.filter((u) => u.includes('/grabs')).length;
+    expect(decAfter).toBe(decBefore);
+    expect(grabsAfter).toBe(grabsBefore);
+  });
 });
