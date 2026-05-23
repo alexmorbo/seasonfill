@@ -586,10 +586,12 @@ export type paths = {
         readonly put?: never;
         /**
          * Trigger a manual scan
-         * @description Schedules a scan across all configured instances or the
-         *     named one. Optional `series_ids` narrows a per-instance
-         *     scan to specific IDs; unknown IDs are silently dropped
-         *     with a WARN. Returns 202; clients poll /scans/{id}.
+         * @description Asynchronously schedules a scan across all configured
+         *     instances or the named one. Returns 202 immediately
+         *     with status="running"; clients poll /scans/{id} for
+         *     live progress (series_scanned increments mid-scan).
+         *     Optional `series_ids` narrows a per-instance scan;
+         *     unknown IDs are silently dropped with a WARN.
          */
         readonly post: {
             readonly parameters: {
@@ -779,6 +781,78 @@ export type paths = {
         };
         readonly put?: never;
         readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/scans/{id}/cancel": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Cancel a running scan
+         * @description Signals cancellation of the named scan run. The goroutine
+         *     observes the signal at the next ctx.Err() checkpoint and
+         *     finalises with status="cancelled". Already-collected
+         *     decisions are kept; already-issued grabs are NOT undone.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Scan run UUID */
+                    readonly id: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description Accepted */
+                readonly 202: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description invalid id */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description scan not running */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -1059,7 +1133,8 @@ export enum DtoScanStatus {
     running = "running",
     completed = "completed",
     failed = "failed",
-    aborted = "aborted"
+    aborted = "aborted",
+    cancelled = "cancelled"
 }
 export enum DtoScanTrigger {
     cron = "cron",
@@ -1070,6 +1145,7 @@ export enum DtoScanTriggerItemStatus {
     completed = "completed",
     failed = "failed",
     running = "running",
-    aborted = "aborted"
+    aborted = "aborted",
+    cancelled = "cancelled"
 }
 export type operations = Record<string, never>;

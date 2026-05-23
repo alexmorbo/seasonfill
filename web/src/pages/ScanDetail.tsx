@@ -14,6 +14,7 @@ import { SkeletonRows } from '@/components/SkeletonRows';
 import { ScanProgressBar } from '@/components/ScanProgressBar';
 import { SeriesGroup } from '@/components/SeriesGroup';
 import { DecisionDrawer } from '@/components/DecisionDrawer';
+import { CancelScanDialog } from '@/components/CancelScanDialog';
 import { OUTCOMES } from '@/components/OutcomeChips';
 import { useScan } from '@/lib/scans';
 import { useDecisions, flattenDecisions } from '@/lib/decisions';
@@ -111,7 +112,10 @@ export function ScanDetail() {
           </button>
           <StatusBadge value={s.status} />
           {s.status === 'running' && (
-            <span className="font-mono text-[11px] text-faint" data-testid="poll-indicator">polling every 2s</span>
+            <>
+              <span className="font-mono text-[11px] text-faint" data-testid="poll-indicator">polling every 2s</span>
+              {s.id && <CancelScanDialog scanId={s.id} />}
+            </>
           )}
         </div>
         <div className="text-[12.5px] text-muted flex items-center gap-2 flex-wrap font-mono">

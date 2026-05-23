@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
@@ -104,4 +105,39 @@ func toScanTriggerItem(r scan.RunResult) dto.ScanTriggerItem {
 		Started:      r.Started,
 		Finished:     r.Finished,
 	}
+}
+
+// Cancel handles POST /api/v1/scans/:id/cancel.
+//
+// @Summary     Cancel a running scan
+// @Description Signals cancellation of the named scan run. The goroutine
+// @Description observes the signal at the next ctx.Err() checkpoint and
+// @Description finalises with status="cancelled". Already-collected
+// @Description decisions are kept; already-issued grabs are NOT undone.
+// @Tags        scans
+// @Produce     json
+// @Param       id   path      string  true  "Scan run UUID"
+// @Success     202  {object}  dto.OKResponse
+// @Failure     400  {object}  dto.ErrorResponse  "invalid id"
+// @Failure     404  {object}  dto.ErrorResponse  "scan not running"
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /scans/{id}/cancel [post]
+func (h *ScanHandler) Cancel(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if cerr := h.useCase.Cancel(c.Request.Context(), id); cerr != nil {
+		if errors.Is(cerr, scan.ErrScanNotRunning) {
+			writeError(c, http.StatusNotFound, "scan not running")
+			return
+		}
+		writeInternalError(c, h.logger, "scan_cancel_failed", cerr,
+			slog.String("scan_id", id.String()))
+		return
+	}
+	c.JSON(http.StatusAccepted, dto.OKResponse{OK: true})
 }

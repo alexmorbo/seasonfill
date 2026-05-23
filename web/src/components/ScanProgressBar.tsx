@@ -17,7 +17,7 @@ export function ScanProgressBar({
   const fillClass =
     status === 'completed' ? 'bg-status-success'
     : status === 'failed' ? 'bg-status-danger'
-    : status === 'aborted' ? 'bg-status-warning'
+    : status === 'aborted' || status === 'cancelled' ? 'bg-status-warning'
     : 'bg-status-info';
   const label = determinate
     ? `${seriesScanned}/${seriesTotal} series scanned`

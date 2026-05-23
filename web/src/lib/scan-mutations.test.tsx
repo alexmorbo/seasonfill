@@ -1,8 +1,21 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { firstScanRunId, NoScanStartedError, useTriggerScan } from './scan-mutations';
+import {
+  firstScanRunId, NoScanStartedError, useTriggerScan, useCancelScan,
+} from './scan-mutations';
 import { DtoScanTriggerItemStatus } from '@/api/schema';
+
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+const toastMessage = vi.fn();
+vi.mock('sonner', () => ({
+  toast: {
+    success: (m: string) => toastSuccess(m),
+    error: (m: string) => toastError(m),
+    message: (m: string) => toastMessage(m),
+  },
+}));
 
 describe('firstScanRunId', () => {
   it('returns scan_run_id of the first element', () => {
@@ -25,6 +38,9 @@ describe('firstScanRunId', () => {
 describe('useTriggerScan()', () => {
   const origFetch = globalThis.fetch;
   beforeEach(() => {
+    toastSuccess.mockClear();
+    toastError.mockClear();
+    toastMessage.mockClear();
     Object.defineProperty(window, 'location', {
       writable: true, value: { pathname: '/', assign: vi.fn() },
     });
@@ -80,5 +96,81 @@ describe('useTriggerScan()', () => {
     const parsed = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
     expect(parsed).toEqual({ instance: 'alpha' });
     expect('series_ids' in parsed).toBe(false);
+  });
+});
+
+describe('useCancelScan()', () => {
+  const origFetch = globalThis.fetch;
+  beforeEach(() => {
+    toastSuccess.mockClear();
+    toastError.mockClear();
+    toastMessage.mockClear();
+    Object.defineProperty(window, 'location', {
+      writable: true, value: { pathname: '/', assign: vi.fn() },
+    });
+  });
+  afterEach(() => { globalThis.fetch = origFetch; });
+
+  // Local QC factory captures `invalidateQueries` calls (so the success
+  // test can assert the right queries got nuked). Pattern lifted from
+  // grab-mutation.test.tsx.
+  function wrap() {
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0, staleTime: 0 },
+        mutations: { retry: false },
+      },
+    });
+    const invalidations: unknown[][] = [];
+    const orig = qc.invalidateQueries.bind(qc);
+    qc.invalidateQueries = ((opts?: { queryKey?: readonly unknown[] }) => {
+      if (opts?.queryKey) invalidations.push([...opts.queryKey]);
+      return orig(opts);
+    }) as typeof qc.invalidateQueries;
+    const Wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    return { invalidations, Wrapper };
+  }
+
+  const jsonResp = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  it('POSTs /scans/:id/cancel and invalidates scans + scan keys on success', async () => {
+    const captured: { url?: string; method?: string } = {};
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = typeof u === 'string' ? u : u.toString();
+      if (init?.method) captured.method = init.method;
+      return jsonResp({ ok: true }, 202);
+    }) as typeof fetch;
+
+    const { Wrapper, invalidations } = wrap();
+    const { result } = renderHook(() => useCancelScan(), { wrapper: Wrapper });
+    result.current.mutate({ id: 'scan-abc' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(captured.url).toBe('/api/v1/scans/scan-abc/cancel');
+    expect(captured.method).toBe('POST');
+    expect(toastSuccess).toHaveBeenCalledWith('Scan cancellation requested');
+    expect(invalidations.flat()).toEqual(expect.arrayContaining(['scans', 'scan', 'scan-abc']));
+  });
+
+  it('404 surfaces as informational "already finished" toast (not error)', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResp({ error: 'scan not running' }, 404)) as typeof fetch;
+    const { Wrapper } = wrap();
+    const { result } = renderHook(() => useCancelScan(), { wrapper: Wrapper });
+    result.current.mutate({ id: 'scan-xyz' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastMessage).toHaveBeenCalledWith('Scan already finished');
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('non-404 errors toast as Cancel failed: <message>', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResp({ error: 'database boom' }, 500)) as typeof fetch;
+    const { Wrapper } = wrap();
+    const { result } = renderHook(() => useCancelScan(), { wrapper: Wrapper });
+    result.current.mutate({ id: 'scan-xyz' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastError).toHaveBeenCalledWith('Cancel failed: database boom');
   });
 });

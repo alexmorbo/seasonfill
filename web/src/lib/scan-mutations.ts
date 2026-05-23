@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { api, ApiError } from './api';
 import type { components } from '@/api/schema';
 
@@ -34,4 +35,32 @@ export function firstScanRunId(items: readonly ScanTriggerItem[]): string {
   const first = items[0];
   if (!first?.scan_run_id) throw new NoScanStartedError();
   return first.scan_run_id;
+}
+
+export interface CancelScanInput {
+  readonly id: string;
+}
+
+export function useCancelScan() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, ApiError, CancelScanInput>({
+    mutationFn: ({ id }) =>
+      api<{ ok: true }>(`/scans/${id}/cancel`, { method: 'POST' }),
+    onSuccess: (_data, vars) => {
+      // Polling on /scans/:id picks up status="cancelled" within one
+      // 2 s tick; explicit invalidation makes it instant on detail + list.
+      qc.invalidateQueries({ queryKey: ['scans'] });
+      qc.invalidateQueries({ queryKey: ['scan', vars.id] });
+      toast.success('Scan cancellation requested');
+    },
+    onError: (err) => {
+      if (err.status === 404) {
+        // 2 s poll already transitioned the scan to terminal before the
+        // POST landed — informational, not an error.
+        toast.message('Scan already finished');
+        return;
+      }
+      toast.error(`Cancel failed: ${err.message}`);
+    },
+  });
 }

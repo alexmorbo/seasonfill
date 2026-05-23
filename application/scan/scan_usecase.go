@@ -27,6 +27,9 @@ import (
 var (
 	ErrScanAlreadyRunning = errors.New("scan already running for instance")
 	ErrUnknownInstance    = errors.New("unknown instance")
+	// ErrScanNotRunning: Cancel called on a scan_id not in inflight —
+	// either unknown or already terminal. Caller's 404 either way.
+	ErrScanNotRunning = errors.New("scan not running")
 )
 
 type Trigger string
@@ -46,6 +49,14 @@ type Barrier interface {
 type Instance struct {
 	Config config.SonarrInstance
 	Client ports.SonarrClient
+}
+
+// inflightEntry carries everything Cancel needs to reach a running
+// goroutine: row id + the CancelFunc of the detached ctx. CancelFunc is
+// idempotent per Go context contract; no sync.Once needed.
+type inflightEntry struct {
+	ID     uuid.UUID
+	Cancel context.CancelFunc
 }
 
 // HealthRegistry is the (small) subset of instance.Registry the scan loop
@@ -68,7 +79,7 @@ type UseCase struct {
 	dryRun    bool
 
 	mu       sync.Mutex
-	inflight map[string]uuid.UUID
+	inflight map[string]inflightEntry
 
 	barrier Barrier
 
@@ -92,7 +103,7 @@ func NewUseCase(
 		scans:     scans,
 		logger:    logger,
 		dryRun:    dryRun,
-		inflight:  make(map[string]uuid.UUID),
+		inflight:  make(map[string]inflightEntry),
 	}
 }
 
@@ -130,7 +141,7 @@ func (u *UseCase) InflightScans() map[string]uuid.UUID {
 	defer u.mu.Unlock()
 	out := make(map[string]uuid.UUID, len(u.inflight))
 	for k, v := range u.inflight {
-		out[k] = v
+		out[k] = v.ID
 	}
 	return out
 }
@@ -283,6 +294,8 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		slog.Bool("async", true),
 	)
 
+	ctx, cancel := context.WithCancel(logger.WithTraceID(context.Background(), scanID.String()))
+	u.setInflightCancel(inst.Config.Name, cancel)
 	if u.bgWG != nil {
 		u.bgWG.Add(1)
 	}
@@ -290,8 +303,10 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		if u.bgWG != nil {
 			defer u.bgWG.Done()
 		}
+		// cancel BEFORE release so an in-flight Cancel() under u.mu can't
+		// fire a stale CancelFunc on a slot we've already deleted.
+		defer cancel()
 		defer u.release(inst.Config.Name)
-		ctx := logger.WithTraceID(context.Background(), rec.ID.String())
 		u.runDetached(ctx, inst, rec, trigger, seriesIDs, started, dryRun)
 	}(inst, rec, seriesIDs, started)
 
@@ -711,6 +726,17 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		pendingDelta = u.flushSeriesScannedIfDue(ctx, scanID, pendingDelta)
 	}
 
+	// 012: user-cancel path. Carry partial counters into the cancelled
+	// finalize. Decisions/grabs already written stay.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		rec.SeriesScanned = processed
+		rec.CandidatesFound = candidates
+		rec.GrabsPerformed = grabsDone
+		rec.GrabsFailed = grabsFailed
+		rec.ErrorsCount = errorsCount
+		return u.finalizeScanCancelled(ctx, rec, inst, started)
+	}
+
 	finished := time.Now().UTC()
 	rec.Status = "completed"
 	rec.SeriesScanned = processed
@@ -719,7 +745,11 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 	rec.GrabsFailed = grabsFailed
 	rec.ErrorsCount = errorsCount
 	rec.FinishedAt = &finished
-	if err := u.scans.Update(ctx, rec); err != nil {
+	// Detached writeCtx: a Cancel arriving between the loop-exit ctx.Err()
+	// check and this Update would otherwise make GORM abort with
+	// context.Canceled, leaving the row stuck at status="running".
+	writeCtx := logger.WithTraceID(context.Background(), rec.ID.String())
+	if err := u.scans.Update(writeCtx, rec); err != nil {
 		u.logger.ErrorContext(ctx, "update scan record failed", slog.String("error", err.Error()))
 	}
 	observability.ObserveScanDuration(inst.Config.Name, finished.Sub(started).Seconds())
@@ -758,7 +788,14 @@ func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord,
 	}
 	finish := time.Now().UTC()
 	rec.FinishedAt = &finish
-	_ = u.scans.Update(ctx, rec)
+	// Detached writeCtx: ctx may already be Cancelled — see processScan's
+	// terminal Update for full rationale.
+	writeCtx := logger.WithTraceID(context.Background(), rec.ID.String())
+	if err := u.scans.Update(writeCtx, rec); err != nil {
+		u.logger.ErrorContext(ctx, "finalize_update_failed",
+			slog.String("status", rec.Status),
+			slog.String("error", err.Error()))
+	}
 	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
 	observability.ScanCompleted(inst.Config.Name, "aborted")
 	if u.health != nil {
@@ -790,7 +827,14 @@ func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, 
 	}
 	finish := time.Now().UTC()
 	rec.FinishedAt = &finish
-	_ = u.scans.Update(ctx, rec)
+	// Detached writeCtx: ctx may already be Cancelled — see processScan's
+	// terminal Update for full rationale.
+	writeCtx := logger.WithTraceID(context.Background(), rec.ID.String())
+	if err := u.scans.Update(writeCtx, rec); err != nil {
+		u.logger.ErrorContext(ctx, "finalize_update_failed",
+			slog.String("status", rec.Status),
+			slog.String("error", err.Error()))
+	}
 	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
 	observability.ScanCompleted(inst.Config.Name, "failed")
 	return RunResult{
@@ -807,20 +851,85 @@ func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, 
 	}, cause
 }
 
+func (u *UseCase) finalizeScanCancelled(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time) (RunResult, error) {
+	rec.Status = "cancelled"
+	rec.ErrorMessage = "user requested cancellation"
+	finish := time.Now().UTC()
+	rec.FinishedAt = &finish
+	writeCtx := logger.WithTraceID(context.Background(), rec.ID.String())
+	if err := u.scans.Update(writeCtx, rec); err != nil {
+		u.logger.ErrorContext(ctx, "update scan record failed (cancelled)",
+			slog.String("error", err.Error()))
+		return RunResult{
+			ScanRunID: rec.ID, InstanceName: inst.Config.Name, Status: "cancelled",
+			Started: started, Finished: finish, Series: rec.SeriesScanned,
+			Candidates: rec.CandidatesFound, Grabs: rec.GrabsPerformed,
+			GrabsFailed: rec.GrabsFailed, Errors: rec.ErrorsCount,
+		}, err
+	}
+	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
+	observability.ScanCompleted(inst.Config.Name, "cancelled")
+	u.logger.InfoContext(ctx, "scan_cancelled",
+		slog.String("instance", inst.Config.Name),
+		slog.Int("series_scanned", rec.SeriesScanned),
+		slog.Int("grabs_performed", rec.GrabsPerformed),
+		slog.Float64("duration_seconds", finish.Sub(started).Seconds()),
+	)
+	return RunResult{
+		ScanRunID: rec.ID, InstanceName: inst.Config.Name, Status: "cancelled",
+		Started: started, Finished: finish, Series: rec.SeriesScanned,
+		Candidates: rec.CandidatesFound, Grabs: rec.GrabsPerformed,
+		GrabsFailed: rec.GrabsFailed, Errors: rec.ErrorsCount,
+	}, nil
+}
+
+// acquire grabs the per-instance inflight slot with a no-op CancelFunc.
+// Sync path (runOne) leaves it. Async path swaps in the real
+// CancelFunc via setInflightCancel right after acquire succeeds.
 func (u *UseCase) acquire(instance string, scanID uuid.UUID) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if _, ok := u.inflight[instance]; ok {
 		return fmt.Errorf("%w: %s", ErrScanAlreadyRunning, instance)
 	}
-	u.inflight[instance] = scanID
+	u.inflight[instance] = inflightEntry{ID: scanID, Cancel: func() {}}
 	return nil
+}
+
+func (u *UseCase) setInflightCancel(instance string, cancel context.CancelFunc) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if e, ok := u.inflight[instance]; ok {
+		e.Cancel = cancel
+		u.inflight[instance] = e
+	}
 }
 
 func (u *UseCase) release(instance string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	delete(u.inflight, instance)
+}
+
+// Cancel signals cancellation of the running scan identified by scanID.
+// Returns ErrScanNotRunning when no inflight entry matches (unknown id
+// or scan already terminal). Fires the CancelFunc and returns — does
+// NOT block waiting for the goroutine to observe the signal.
+func (u *UseCase) Cancel(_ context.Context, scanID uuid.UUID) error {
+	u.mu.Lock()
+	var cancel context.CancelFunc
+	for _, e := range u.inflight {
+		if e.ID == scanID {
+			cancel = e.Cancel
+			break
+		}
+	}
+	u.mu.Unlock()
+	if cancel == nil {
+		return fmt.Errorf("%w: %s", ErrScanNotRunning, scanID)
+	}
+	cancel()
+	return nil
 }
 
 type tagFilter struct {

@@ -164,3 +164,48 @@ func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusAccepted, w.Code)
 }
+
+func setupCancelRouter(uc *scan.UseCase) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	r.POST("/api/v1/scans/:id/cancel", NewScanHandler(uc, lg).Cancel)
+	return r
+}
+
+// stubSonarr has no series → StartInstance completes immediately, so
+// Cancel arriving after completion legitimately returns 404. Accept
+// either 202 or 404 to avoid a timing-flake; §2 use-case tests pin the
+// terminal-status path against a controlled stub.
+func TestScanHandler_Cancel_OK(t *testing.T) {
+	uc := newScanUseCase()
+	res, err := uc.StartInstance(t.Context(), "main", scan.TriggerManual)
+	require.NoError(t, err)
+	r := setupCancelRouter(uc)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/scans/"+res.ScanRunID.String()+"/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Contains(t, []int{http.StatusAccepted, http.StatusNotFound}, w.Code, w.Body.String())
+}
+
+func TestScanHandler_Cancel_NotRunning(t *testing.T) {
+	r := setupCancelRouter(newScanUseCase())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/scans/"+uuid.New().String()+"/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "scan not running", body["error"])
+}
+
+func TestScanHandler_Cancel_BadID(t *testing.T) {
+	r := setupCancelRouter(newScanUseCase())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/scans/not-a-uuid/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

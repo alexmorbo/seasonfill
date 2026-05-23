@@ -96,6 +96,7 @@ func NewServer(
 		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
 		apiGuarded.GET("/grabs", auditHandler.ListGrabs)
 		apiGuarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
+		apiGuarded.POST("/scans/:id/cancel", scanHandler.Cancel)
 	}
 
 	// Webhook is independent — mounted on the root engine so admin

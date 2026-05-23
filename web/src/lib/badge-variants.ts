@@ -11,6 +11,9 @@ const STATUS: Record<string, BadgeKind> = {
   completed: 'success',
   pending: 'warning',
   aborted: 'warning',
+  // 012: user-initiated cancel. Same warning kind as aborted; the
+  // literal text differentiates in the badge.
+  cancelled: 'warning',
 };
 
 const OUTCOME: Record<string, BadgeKind> = {

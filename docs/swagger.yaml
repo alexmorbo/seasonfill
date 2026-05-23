@@ -282,6 +282,7 @@ components:
           - completed
           - failed
           - aborted
+          - cancelled
           example: completed
           type: string
         trigger:
@@ -347,6 +348,7 @@ components:
           - failed
           - running
           - aborted
+          - cancelled
           example: completed
           type: string
       type: object
@@ -762,10 +764,12 @@ paths:
   /scan:
     post:
       description: |-
-        Schedules a scan across all configured instances or the
-        named one. Optional `series_ids` narrows a per-instance
-        scan to specific IDs; unknown IDs are silently dropped
-        with a WARN. Returns 202; clients poll /scans/{id}.
+        Asynchronously schedules a scan across all configured
+        instances or the named one. Returns 202 immediately
+        with status="running"; clients poll /scans/{id} for
+        live progress (series_scanned increments mid-scan).
+        Optional `series_ids` narrows a per-instance scan;
+        unknown IDs are silently dropped with a WARN.
       requestBody:
         content:
           application/json:
@@ -907,6 +911,51 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Get scan by ID
+      tags:
+      - scans
+  /scans/{id}/cancel:
+    post:
+      description: |-
+        Signals cancellation of the named scan run. The goroutine
+        observes the signal at the next ctx.Err() checkpoint and
+        finalises with status="cancelled". Already-collected
+        decisions are kept; already-issued grabs are NOT undone.
+      parameters:
+      - description: Scan run UUID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.OKResponse'
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: invalid id
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: scan not running
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Cancel a running scan
       tags:
       - scans
 servers:

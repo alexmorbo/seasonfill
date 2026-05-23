@@ -51,7 +51,7 @@ type ScanTriggerRequest struct {
 type ScanTriggerItem struct {
 	ScanRunID    string    `json:"scan_run_id" example:"7b3d4a92-1234-4abc-9def-000000000001"`
 	InstanceName string    `json:"instance"    example:"alpha"`
-	Status       string    `json:"status"      example:"completed" enums:"completed,failed,running,aborted"`
+	Status       string    `json:"status"      example:"completed" enums:"completed,failed,running,aborted,cancelled"`
 	Series       int       `json:"series_scanned"`
 	Candidates   int       `json:"candidates_found"`
 	Errors       int       `json:"errors"`
@@ -83,7 +83,7 @@ type Scan struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	StartedAt       time.Time  `json:"started_at"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Status          string     `json:"status"           example:"completed" enums:"running,completed,failed,aborted"`
+	Status          string     `json:"status"           example:"completed" enums:"running,completed,failed,aborted,cancelled"`
 	SeriesScanned   int        `json:"series_scanned"`
 	CandidatesFound int        `json:"candidates_found"`
 	GrabsPerformed  int        `json:"grabs_performed"`

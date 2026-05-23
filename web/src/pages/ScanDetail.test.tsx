@@ -134,4 +134,23 @@ describe('<ScanDetail /> rebuild', () => {
     expect(screen.getByText(/401 Unauthorized/i)).toBeInTheDocument();
     expect(screen.getByText(/0 decisions · 0 grabs/i)).toBeInTheDocument();
   });
+
+  it('renders Cancel scan button while status is running', async () => {
+    globalThis.fetch = fetchStub({
+      '/scans/abc': () => json(runningScan),
+      ...emptyLists,
+    }) as typeof fetch;
+    renderWithProviders(wrap(), { route: '/scans/abc' });
+    expect(await screen.findByTestId('cancel-scan-button')).toBeInTheDocument();
+  });
+
+  it('does not render Cancel button on terminal status', async () => {
+    globalThis.fetch = fetchStub({
+      '/scans/abc': () => json(completedScan),
+      ...emptyLists,
+    }) as typeof fetch;
+    renderWithProviders(wrap(), { route: '/scans/abc' });
+    await screen.findByText(/12 series scanned/i);
+    expect(screen.queryByTestId('cancel-scan-button')).not.toBeInTheDocument();
+  });
 });

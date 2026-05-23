@@ -1001,3 +1001,191 @@ func TestStartInstance_BgWaitGroupDrains(t *testing.T) {
 		t.Fatal("WaitGroup did not release after scan completion")
 	}
 }
+
+// cancelOnListSonarr fires Cancel from inside ListSeries, then returns
+// the series. processScan resumes, sees ctx.Canceled at the
+// per-iteration check, breaks the loop, and the post-loop branch
+// (§1.5) routes to finalizeScanCancelled with status="cancelled".
+type cancelOnListSonarr struct {
+	*fakeSonarr
+	uc     *UseCase
+	scanID *uuid.UUID
+	mu     sync.Mutex
+}
+
+func (s *cancelOnListSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
+	s.mu.Lock()
+	id := s.scanID
+	s.mu.Unlock()
+	if id != nil {
+		_ = s.uc.Cancel(context.Background(), *id)
+	}
+	return s.fakeSonarr.ListSeries(ctx)
+}
+
+func TestScan_Cancel_RunningScan(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &slowSonarr{
+		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}},
+		release:    make(chan struct{}),
+	}
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	require.Equal(t, "running", res.Status)
+
+	require.NoError(t, uc.Cancel(context.Background(), res.ScanRunID))
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond, "scan goroutine did not finish")
+	close(sn.release) // unblock for cleanup determinism (no-op if ctx win)
+}
+
+func TestScan_Cancel_TerminalStatusIsCancelled(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	wrap := &cancelOnListSonarr{
+		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{
+			monSeries(1, "A"), monSeries(2, "B"),
+		}},
+	}
+	scanRepo := &fakeScanRepo{}
+	evalUC := evaluate.NewUseCase(wrap, &fakeDecRepo{}, lg)
+	uc := NewUseCase([]Instance{{Config: instCfg("main", "auto"), Client: wrap}},
+		evalUC, scanRepo, lg, true)
+	wrap.uc = uc
+
+	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	wrap.mu.Lock()
+	id := res.ScanRunID
+	wrap.scanID = &id
+	wrap.mu.Unlock()
+
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond)
+
+	scanRepo.mu.Lock()
+	defer scanRepo.mu.Unlock()
+	require.NotEmpty(t, scanRepo.updated)
+	last := scanRepo.updated[len(scanRepo.updated)-1]
+	assert.Equal(t, res.ScanRunID, last.ID)
+	assert.Equal(t, "cancelled", last.Status)
+	assert.Equal(t, "user requested cancellation", last.ErrorMessage)
+	assert.NotNil(t, last.FinishedAt)
+}
+
+func TestScan_Cancel_NotRunning(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := newScanUCFor(t, lg, []Instance{
+		{Config: instCfg("main", "auto"), Client: &fakeSonarr{name: "main"}},
+	})
+	require.ErrorIs(t, uc.Cancel(context.Background(), uuid.New()), ErrScanNotRunning)
+}
+
+func TestScan_Cancel_RaceWithCompletion(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}}
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond)
+
+	// Late Cancel must not panic; must surface ErrScanNotRunning.
+	require.ErrorIs(t, uc.Cancel(context.Background(), res.ScanRunID), ErrScanNotRunning)
+}
+
+// blockingUpdateRepo lets the test pin the goroutine inside the
+// terminal-status Update call so a Cancel can be injected at exactly
+// the gap between the series-loop exit and the Update write. Captures
+// the passed ctx on Update entry so the test can re-check its Err()
+// AFTER releasing the goroutine — proves whether the call uses the
+// detached writeCtx or the cancellable scan ctx.
+type blockingUpdateRepo struct {
+	*fakeScanRepo
+	enterCh    chan struct{} // closed when Update is first reached
+	releaseCh  chan struct{} // closed by the test to let Update proceed
+	once       sync.Once
+	capturedMu sync.Mutex
+	capturedCx context.Context //nolint:containedctx // captured for assertion
+}
+
+func (r *blockingUpdateRepo) Update(ctx context.Context, rec ports.ScanRecord) error {
+	// Only block on the terminal Update (Status != "running"). Earlier
+	// in-progress Updates (if any) shouldn't trip the gate.
+	if rec.Status != "running" {
+		r.once.Do(func() {
+			r.capturedMu.Lock()
+			r.capturedCx = ctx
+			r.capturedMu.Unlock()
+			close(r.enterCh)
+			<-r.releaseCh
+		})
+	}
+	return r.fakeScanRepo.Update(ctx, rec)
+}
+
+// TestScan_NormalCompletion_SurvivesCtxCancelDuringFinalize pins the
+// goroutine inside the terminal Update call, fires Cancel, then
+// releases Update. With the detached-writeCtx fix in place the row
+// must transition to "completed" and Update must see a non-cancelled
+// ctx. Pre-fix, ctx would carry context.Canceled and the row would be
+// stuck at "running" (GORM aborts the write).
+func TestScan_NormalCompletion_SurvivesCtxCancelDuringFinalize(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}}
+	repo := &blockingUpdateRepo{
+		fakeScanRepo: &fakeScanRepo{},
+		enterCh:      make(chan struct{}),
+		releaseCh:    make(chan struct{}),
+	}
+	evalUC := evaluate.NewUseCase(sn, &fakeDecRepo{}, lg)
+	uc := NewUseCase([]Instance{{Config: instCfg("main", "auto"), Client: sn}},
+		evalUC, repo, lg, true)
+
+	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	require.Equal(t, "running", res.Status)
+
+	// Wait for the goroutine to reach the terminal Update.
+	select {
+	case <-repo.enterCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("goroutine never reached terminal Update")
+	}
+
+	// Inject Cancel while the goroutine is parked inside Update. With
+	// the fix the writeCtx is detached, so this Cancel cannot poison
+	// the write. Without the fix the row would stay "running".
+	require.NoError(t, uc.Cancel(context.Background(), res.ScanRunID))
+
+	close(repo.releaseCh)
+
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond, "scan goroutine did not finish")
+
+	// The ctx passed to Update must NOT be cancellable from uc.Cancel.
+	// If processScan handed Update the scan's cancellable ctx, the
+	// Cancel we issued above would have set ctx.Err() != nil by now.
+	// The detached writeCtx is rooted in context.Background() and so
+	// must still be live.
+	repo.capturedMu.Lock()
+	capCtx := repo.capturedCx
+	repo.capturedMu.Unlock()
+	require.NotNil(t, capCtx, "Update was never entered")
+	assert.NoError(t, capCtx.Err(),
+		"terminal Update must use detached writeCtx, not the cancellable scan ctx")
+
+	repo.fakeScanRepo.mu.Lock()
+	defer repo.fakeScanRepo.mu.Unlock()
+	require.NotEmpty(t, repo.fakeScanRepo.updated, "no terminal Update recorded")
+	last := repo.fakeScanRepo.updated[len(repo.fakeScanRepo.updated)-1]
+	assert.Equal(t, "completed", last.Status,
+		"row must finalize to completed even when Cancel arrives during terminal Update")
+}
