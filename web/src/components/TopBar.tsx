@@ -6,6 +6,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/api';
 import { logout } from '@/lib/auth';
 import { useInstances, type Instance } from '@/lib/instances';
@@ -59,16 +60,21 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           const active = filter === name;
           const bg = HEALTH_BG[inst.health ?? 'unknown'];
           return (
-            <button key={name} type="button" onClick={() => setFilter(active ? null : name)}
-              aria-pressed={active} title={`Filter by ${name}`}
-              className={cn(
-                'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[12px] font-mono',
-                'border-border-faint bg-surface text-foreground-2 hover:bg-surface-2 hover:text-foreground',
-                active && 'bg-surface-2 text-foreground border-border-strong',
-              )}>
-              <span className={cn('inline-block w-1.5 h-1.5 rounded-full', bg)} />
-              {name}
-            </button>
+            <Tooltip key={name}>
+              <TooltipTrigger asChild>
+                <button type="button" onClick={() => setFilter(active ? null : name)}
+                  aria-pressed={active}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[12px] font-mono',
+                    'border-border-faint bg-surface text-foreground-2 hover:bg-surface-2 hover:text-foreground',
+                    active && 'bg-surface-2 text-foreground border-border-strong',
+                  )}>
+                  <span className={cn('inline-block w-1.5 h-1.5 rounded-full', bg)} />
+                  {name}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Filter by {name}</TooltipContent>
+            </Tooltip>
           );
         })}
       </div>
