@@ -34,7 +34,14 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
             const d = row.decision;
             const guidShort = d.selected_guid ? d.selected_guid.slice(0, 10) : null;
             return (
-              <li key={d.id} className="flex items-center gap-2 text-[12px] font-mono px-2 py-1.5 rounded bg-surface">
+              <li
+                key={d.id}
+                className={
+                  'flex items-center gap-2 text-[12px] font-mono px-2 py-1.5 rounded bg-surface' +
+                  (d.superseded_by_id ? ' line-through opacity-60' : '')
+                }
+                data-testid={d.superseded_by_id ? 'series-row-superseded' : 'series-row'}
+              >
                 <span className="text-faint shrink-0 w-10">S{String(row.seasonNumber).padStart(2, '0')}</span>
                 <CategoryChip value={d.category} variant="compact" />
                 {d.category === 'error' && d.error_detail && (

@@ -169,3 +169,89 @@ describe('<DecisionDrawer /> error detail', () => {
     expect(writeText).toHaveBeenCalledWith('sonarr: 503 service unavailable');
   });
 });
+
+describe('<DecisionDrawer /> rescan', () => {
+  const rescanable: Decision = {
+    id: 'dec-rescanable',
+    instance: 'alpha',
+    series_title: 'Severance',
+    season_number: 2,
+    decision: DtoDecisionDecision.skip,
+    category: DtoDecisionCategory.nothing_found,
+    reason: 'skip_no_releases',
+    selected_guid: '',
+    dry_run_would_grab: false,
+    candidates_count: 0,
+    releases_found: 0,
+    existing_count: 1,
+    missing_count: 9,
+    scan_run_id: '7b3d4a92-1234-4abc-9def-000000000003',
+    created_at: new Date().toISOString(),
+  };
+
+  it('shows Rescan button for non-superseded decisions', async () => {
+    globalThis.fetch = vi.fn() as typeof fetch;
+    renderDrawer(rescanable);
+    expect(await screen.findByTestId('rescan-button')).toBeInTheDocument();
+  });
+
+  it('hides Rescan button when decision is already superseded', async () => {
+    globalThis.fetch = vi.fn() as typeof fetch;
+    const superseded: Decision = {
+      ...rescanable,
+      superseded_by_id: '11111111-2222-3333-4444-555555555555',
+    };
+    renderDrawer(superseded);
+    // Some other element must render to confirm the drawer is alive;
+    // findByText looks for the always-present DecisionDetail title.
+    expect(await screen.findByText(/decision tree/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('rescan-button')).not.toBeInTheDocument();
+  });
+
+  it('shows "Superseded by" link in header when superseded_by_id is set', async () => {
+    globalThis.fetch = vi.fn() as typeof fetch;
+    const superseded: Decision = {
+      ...rescanable,
+      superseded_by_id: '11111111-2222-3333-4444-555555555555',
+    };
+    renderDrawer(superseded);
+    expect(await screen.findByTestId('superseded-by-link')).toBeInTheDocument();
+    // First 8 chars of the successor UUID rendered.
+    expect(screen.getByTestId('superseded-by-link')).toHaveTextContent('11111111');
+  });
+
+  it('POSTs to /decisions/:id/rescan and shows new id on success', async () => {
+    type Captured = { urls: string[]; methods: string[] };
+    const captured: Captured = { urls: [], methods: [] };
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      captured.urls.push(url);
+      captured.methods.push(init?.method ?? 'GET');
+      if (url.endsWith('/rescan') && init?.method === 'POST') {
+        return jsonResp({
+          id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111',
+          instance: 'alpha', series_title: 'Severance',
+          season_number: 2, decision: 'skip', reason: 'skip_no_releases',
+          category: 'nothing_found', scan_run_id: rescanable.scan_run_id,
+          created_at: new Date().toISOString(),
+        });
+      }
+      return jsonResp({ items: [rescanable], next_cursor: '' });
+    }) as typeof fetch;
+
+    renderDrawer(rescanable);
+    await userEvent.click(await screen.findByTestId('rescan-button'));
+
+    await waitFor(() => {
+      const i = captured.urls.findIndex(
+        (url, idx) =>
+          url.endsWith('/decisions/dec-rescanable/rescan') &&
+          captured.methods[idx] === 'POST',
+      );
+      expect(i).toBeGreaterThanOrEqual(0);
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/new: aaaabbbb/i)).toBeInTheDocument(),
+    );
+  });
+});

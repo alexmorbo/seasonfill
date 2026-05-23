@@ -4,9 +4,10 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { DecisionDetail } from '@/components/DecisionDetail';
 import { Button } from '@/components/ui/button';
-import { Loader2, Zap, AlertCircle, Copy } from 'lucide-react';
+import { Loader2, Zap, AlertCircle, Copy, RotateCcw, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useGrabDecision } from '@/lib/grab-mutation';
+import { useRescanDecision } from '@/lib/rescan-mutation';
 import { useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
 import { relativeTime } from '@/lib/format';
 
@@ -44,12 +45,14 @@ export function DecisionDrawer({
               <span className="text-accent">{(d.scan_run_id ?? '').slice(0, 8)}</span>
             </div>
           )}
+          {d?.superseded_by_id && <SupersededByLine successorId={d.superseded_by_id} />}
         </SheetHeader>
         <div className="px-5 py-4 flex flex-col gap-4">
           {d ? (
             <>
               <DecisionDetail d={d} />
               <ErrorDetailSection d={d} />
+              <RescanSection d={d} />
               <GrabNowSection d={d} />
             </>
           ) : (
@@ -179,6 +182,108 @@ function ErrorDetailSection({ d }: { d: Decision }) {
         data-testid="error-detail-text"
       >
         {d.error_detail}
+      </div>
+    </section>
+  );
+}
+
+// SupersededByLine renders in the drawer header when this decision
+// has been rescanned (017 §3.5). Clicking the link swaps the drawer
+// to the successor by mutating the URL `?drawer=<successor_id>`.
+// We touch window.history directly because DecisionDrawer is
+// router-agnostic (used in both /decisions and /scans/:id pages).
+function SupersededByLine({ successorId }: { successorId: string }) {
+  const onOpenSuccessor = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('drawer', successorId);
+    window.history.replaceState({}, '', url.toString());
+    // useSearchParams in the consumer pages listens to popstate, not
+    // replaceState. Dispatch a synthetic popstate so the parent
+    // re-reads search params and re-renders with the successor.
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+  return (
+    <div className="text-[11.5px] text-status-warning font-mono flex items-center gap-1.5">
+      <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
+      <span>Superseded by</span>
+      <button
+        type="button"
+        onClick={onOpenSuccessor}
+        className="underline underline-offset-2 hover:text-accent"
+        data-testid="superseded-by-link"
+      >
+        {successorId.slice(0, 8)}
+      </button>
+    </div>
+  );
+}
+
+// RescanSection renders the "Rescan" button when the decision is
+// eligible (017 §3.2): not already superseded. The backend further
+// gates on "no grab_records row exists for the 4-tuple" — that gate
+// fires server-side as a 409; the UI shows a toast on 409 and the
+// button remains visible so the operator can retry after fixing
+// upstream state (e.g. clearing the grab record manually).
+//
+// The button is intentionally distinct visually from "Grab now":
+// neutral border (not warning yellow) because rescan is read-mostly
+// (re-evaluates against Sonarr but writes only one decision row +
+// one supersede pointer; no upstream grab POST).
+function RescanSection({ d }: { d: Decision }) {
+  const rescan = useRescanDecision();
+  // Server is authoritative for the "is it already executed?" gate;
+  // here we only hide the section when this row is itself already
+  // superseded. The drawer rendering a section for a row the user
+  // *just rescanned* would be confusing — and the supersede check
+  // is a single field already in hand.
+  if (d.superseded_by_id) return null;
+
+  const onClick = () => {
+    if (!d.id) return;
+    rescan.mutate({ decisionId: d.id });
+  };
+
+  return (
+    <section
+      aria-labelledby="rescan-heading"
+      className="border border-border-faint rounded-md p-4 bg-surface flex flex-col gap-2.5"
+    >
+      <div className="flex items-center gap-2">
+        <RotateCcw className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
+        <h4
+          id="rescan-heading"
+          className="text-[12px] font-semibold uppercase tracking-[0.06em] text-muted"
+        >
+          Rescan
+        </h4>
+      </div>
+      <p className="text-[12.5px] text-muted">
+        Re-evaluate this season against Sonarr (e.g. after re-enabling
+        an indexer). Bypasses cooldowns. The current decision is marked
+        superseded; the new outcome lands in the same scan record.
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={onClick}
+          disabled={rescan.isPending || !d.id}
+          aria-label="Rescan decision"
+          data-testid="rescan-button"
+        >
+          {rescan.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+          )}
+          {rescan.isPending ? 'Rescanning…' : 'Rescan'}
+        </Button>
+        {rescan.isSuccess && rescan.data?.id && (
+          <span className="text-[11.5px] font-mono text-status-success">
+            new: {rescan.data.id.slice(0, 8)}
+          </span>
+        )}
       </div>
     </section>
   );

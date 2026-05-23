@@ -86,4 +86,27 @@ describe('<SeriesGroup />', () => {
     renderG({ expanded: true });
     expect(screen.queryByTestId('series-row-error-icon')).not.toBeInTheDocument();
   });
+
+  it('renders superseded rows with strikethrough', () => {
+    const supersededDec: Decision = {
+      ...dec('d-superseded', 1, DtoDecisionCategory.nothing_found),
+      superseded_by_id: '11111111-2222-3333-4444-555555555555',
+    };
+    renderG({
+      group: buildGroup({
+        seasons: [{ seasonNumber: 1, decision: supersededDec }],
+      }),
+      expanded: true,
+    });
+    const row = screen.getByTestId('series-row-superseded');
+    expect(row).toBeInTheDocument();
+    expect(row.className).toContain('line-through');
+    expect(row.className).toContain('opacity-60');
+  });
+
+  it('renders live rows without strikethrough', () => {
+    renderG({ expanded: true });
+    expect(screen.queryByTestId('series-row-superseded')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('series-row')).toHaveLength(2);
+  });
 });
