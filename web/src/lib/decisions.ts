@@ -17,7 +17,13 @@ function buildQuery(instance: string | null, f: DecisionFilters, cursor: string)
   return qs ? `/decisions?${qs}` : '/decisions';
 }
 
-export function useDecisions(filters: DecisionFilters = {}) {
+export interface UseDecisionsOptions {
+  // Switch to 2s polling cadence while a scan is in-flight. Keep off the
+  // queryKey so cache hits survive the running→completed transition.
+  readonly fastPoll?: boolean;
+}
+
+export function useDecisions(filters: DecisionFilters = {}, opts: UseDecisionsOptions = {}) {
   const { filter: instance } = useInstanceFilter();
   return useInfiniteQuery<
     DecisionList,
@@ -30,7 +36,7 @@ export function useDecisions(filters: DecisionFilters = {}) {
     queryFn: ({ pageParam }) => api<DecisionList>(buildQuery(instance, filters, pageParam)),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    refetchInterval: 30_000,
+    refetchInterval: opts.fastPoll ? 2_000 : 30_000,
     refetchOnWindowFocus: false,
   });
 }

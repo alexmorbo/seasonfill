@@ -218,7 +218,7 @@ export function Decisions() {
             onClick={() => query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
           >
-            {query.isFetchingNextPage ? 'Loading…' : 'Load more'}
+            {query.isFetchingNextPage ? 'Loading…' : 'Show more'}
           </Button>
         </div>
       )}

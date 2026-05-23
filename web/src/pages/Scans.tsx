@@ -204,7 +204,7 @@ export function Scans() {
             onClick={() => q.fetchNextPage()}
             disabled={q.isFetchingNextPage}
           >
-            {q.isFetchingNextPage ? 'Loading…' : 'Load more'}
+            {q.isFetchingNextPage ? 'Loading…' : 'Show more'}
           </Button>
         </div>
       )}

@@ -11,7 +11,13 @@ export type GrabFilters = {
   series_id?: number;
 };
 
-export function useGrabs(filters: GrabFilters = {}) {
+export interface UseGrabsOptions {
+  // Switch to 2s polling cadence while a scan is in-flight. Off the
+  // queryKey so cache hits survive the running→completed transition.
+  readonly fastPoll?: boolean;
+}
+
+export function useGrabs(filters: GrabFilters = {}, opts: UseGrabsOptions = {}) {
   const { filter: instance } = useInstanceFilter();
   return useInfiniteQuery<
     GrabList,
@@ -34,6 +40,7 @@ export function useGrabs(filters: GrabFilters = {}) {
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     staleTime: 30_000,
+    refetchInterval: opts.fastPoll ? 2_000 : false,
     refetchOnWindowFocus: false,
   });
 }

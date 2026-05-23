@@ -30,11 +30,15 @@ export function ScanDetail() {
   const drawerId = params.get('drawer');
 
   const scan = useScan(id);
+  // While the scan is running, decisions + grabs land in pulses — poll
+  // fast (2s) instead of the default 30s/none. Boolean opt-in keeps the
+  // queryKey stable so cache hits survive the running→completed transition.
+  const fastPoll = scan.data?.status === 'running';
   const decisions = useDecisions({
     ...(id && { scan_run_id: id }),
     ...(outcome !== 'all' && { decision: outcome }),
-  });
-  const grabs = useGrabs(id ? { scan_run_id: id } : {});
+  }, { fastPoll });
+  const grabs = useGrabs(id ? { scan_run_id: id } : {}, { fastPoll });
 
   const allDecisions = useMemo(() => flattenDecisions(decisions.data?.pages), [decisions.data]);
   const allGrabs = useMemo(() => flattenGrabs(grabs.data?.pages), [grabs.data]);
@@ -173,7 +177,13 @@ export function ScanDetail() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {decisions.isPending && (<div className="p-4"><SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} /></div>)}
+          {decisions.isPending && (
+            <Table>
+              <TableBody>
+                <SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} />
+              </TableBody>
+            </Table>
+          )}
           {!decisions.isPending && groups.length === 0 && (
             <EmptyState title="No decisions for this scan"
               body="Either the scan made no decisions or none match the current filter." />
@@ -224,7 +234,7 @@ export function ScanDetail() {
       {decisions.hasNextPage && (
         <div className="flex justify-center">
           <Button variant="outline" onClick={() => decisions.fetchNextPage()} disabled={decisions.isFetchingNextPage}>
-            {decisions.isFetchingNextPage ? 'Loading…' : 'Load more decisions'}
+            {decisions.isFetchingNextPage ? 'Loading…' : 'Show more decisions'}
           </Button>
         </div>
       )}

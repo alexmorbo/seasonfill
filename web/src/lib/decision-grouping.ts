@@ -16,13 +16,20 @@ export interface SeriesGroup {
   // Max-priority category among seasons; drives sortGroups + the
   // "default-expand when != all_complete" rule in ScanDetail.
   readonly worstCategory: CategoryKind;
+  // Index of this series' first decision in the input array. Used as
+  // a deterministic tiebreaker in sortGroups so live updates that bump
+  // worstCategory don't shuffle the existing layout (Fix 4).
+  readonly firstSeenIndex: number;
 }
 
 // Reduces a flat decision list into one group per series_id. Stable:
 // seasons sorted ASC by season_number; missing → +Infinity (sort last).
+// Records firstSeenIndex per series so sortGroups can keep render order
+// stable across live polling updates (Fix 4).
 export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGroup[] {
-  const acc = new Map<number, { title: string; seasons: SeasonRow[] }>();
-  for (const d of decisions) {
+  const acc = new Map<number, { title: string; seasons: SeasonRow[]; firstSeenIndex: number }>();
+  for (let i = 0; i < decisions.length; i++) {
+    const d = decisions[i]!;
     const sid = d.series_id ?? -1;
     const row: SeasonRow = { seasonNumber: d.season_number ?? Number.POSITIVE_INFINITY, decision: d };
     const slot = acc.get(sid);
@@ -30,11 +37,11 @@ export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGr
       if (!slot.title && d.series_title) slot.title = d.series_title;
       slot.seasons.push(row);
     } else {
-      acc.set(sid, { title: d.series_title ?? '—', seasons: [row] });
+      acc.set(sid, { title: d.series_title ?? '—', seasons: [row], firstSeenIndex: i });
     }
   }
   const groups: SeriesGroup[] = [];
-  for (const [seriesId, { title, seasons }] of acc) {
+  for (const [seriesId, { title, seasons, firstSeenIndex }] of acc) {
     seasons.sort((a, b) => a.seasonNumber - b.seasonNumber);
     let worst: CategoryKind = 'all_complete';
     let worstPriority = CATEGORY.all_complete.priority;
@@ -43,17 +50,23 @@ export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGr
       const p = CATEGORY[k].priority;
       if (p > worstPriority) { worst = k; worstPriority = p; }
     }
-    groups.push({ seriesId, seriesTitle: title, seasons, worstCategory: worst });
+    groups.push({ seriesId, seriesTitle: title, seasons, worstCategory: worst, firstSeenIndex });
   }
   return groups;
 }
 
-// Sort by worstCategory priority DESC, then title ASC for stable render.
+// Sort by worstCategory priority DESC, then firstSeenIndex ASC so live
+// polling updates that shift a group's worstCategory (e.g. a fresh
+// `error_*` decision lands) keep that group in its existing visual slot
+// relative to siblings sharing the same priority (Fix 4). seriesTitle
+// remains the final deterministic tiebreaker for groups with identical
+// firstSeenIndex (impossible in practice, but keeps the order total).
 export function sortGroups(groups: readonly SeriesGroup[]): readonly SeriesGroup[] {
   return [...groups].sort((a, b) => {
     const pa = CATEGORY[a.worstCategory].priority;
     const pb = CATEGORY[b.worstCategory].priority;
     if (pa !== pb) return pb - pa;
+    if (a.firstSeenIndex !== b.firstSeenIndex) return a.firstSeenIndex - b.firstSeenIndex;
     return a.seriesTitle.localeCompare(b.seriesTitle);
   });
 }

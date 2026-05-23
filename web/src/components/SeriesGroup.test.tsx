@@ -13,7 +13,7 @@ const dec = (id: string, season: number, cat: Decision['category'] = DtoDecision
 });
 
 const buildGroup = (over: Partial<SeriesGroupModel> = {}): SeriesGroupModel => ({
-  seriesId: 1, seriesTitle: 'Severance', worstCategory: 'all_complete',
+  seriesId: 1, seriesTitle: 'Severance', worstCategory: 'all_complete', firstSeenIndex: 0,
   seasons: [
     { seasonNumber: 1, decision: dec('d1', 1) },
     { seasonNumber: 2, decision: dec('d2', 2) },
