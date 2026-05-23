@@ -67,9 +67,7 @@ re-grabbing broken releases.
 | Helm chart (`oci://ghcr.io/alexmorbo/seasonfill`) | shipped |
 | Docker Compose stack | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
-| Settings UI (in-app config CRUD) | planned (Phase 8) |
 | Anime (absolute numbering) | **not supported** |
-| In-app notifications (Telegram/Discord/etc.) | **cancelled** — use Sonarr's native Connections |
 
 ## Configuration overview
 
@@ -120,9 +118,6 @@ itself does not host a live UI for the spec.
   ("Invalid credentials") for both unknown-user and wrong-password.
 - `GET /api/v1/instances` masks Sonarr `api_key` — never returned
   by any read endpoint.
-- Full OWASP-style audit (CSP headers, SSRF guards, govulncheck +
-  npm audit, CSRF Origin check, error-leak review) is deferred until
-  Phase 8 stabilises the attack surface. Track via GitHub Issues.
 
 ## Contributing
 
