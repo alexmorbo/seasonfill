@@ -1,0 +1,100 @@
+name: Helm chart release
+
+on:
+  push:
+    tags:
+      - "chart-v*"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: helm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package + push to GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Resolve tag and chart versions
+        id: ver
+        run: |
+          # github.ref is refs/tags/chart-v0.3.0 — strip the prefix.
+          TAG_VERSION="${GITHUB_REF#refs/tags/chart-v}"
+          CHART_VERSION="$(grep '^version:' deploy/helm/seasonfill/Chart.yaml | awk '{print $2}' | tr -d '\"')"
+          echo "tag=${TAG_VERSION}"     >> "$GITHUB_OUTPUT"
+          echo "chart=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Tag version:   ${TAG_VERSION}"
+          echo "Chart version: ${CHART_VERSION}"
+
+      - name: Verify tag matches Chart.yaml
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          CHART="${{ steps.ver.outputs.chart }}"
+          if [ "$TAG" != "$CHART" ]; then
+            echo "FAIL: tag chart-v${TAG} does not match Chart.yaml version ${CHART}"
+            echo "Refusing to publish."
+            exit 1
+          fi
+          echo "Versions match: ${TAG}"
+
+      - name: helm lint (final guard)
+        run: |
+          helm lint deploy/helm/seasonfill \
+            -f deploy/helm/seasonfill/ci/values-test.yaml
+
+      - name: helm package
+        run: |
+          mkdir -p dist
+          helm package deploy/helm/seasonfill -d dist/
+          ls -la dist/
+
+      - name: helm registry login (GHCR)
+        # NOTE: do NOT use `set -x` here — would leak the token.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io \
+            -u "${{ github.actor }}" \
+            --password-stdin
+
+      - name: helm push (OCI)
+        run: |
+          # Chart artifact will land at:
+          #   oci://ghcr.io/${{ github.repository_owner }}/seasonfill:${CHART}
+          # (helm push uses the chart `name:` field as the artifact name
+          # under the registry path.)
+          helm push "dist/seasonfill-${{ steps.ver.outputs.chart }}.tgz" \
+            "oci://ghcr.io/${{ github.repository_owner }}"
+
+      - name: helm registry logout
+        if: always()
+        run: helm registry logout ghcr.io || true
+
+      - name: Create GitHub Release with chart artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Helm chart ${{ github.ref_name }}"
+          body: |
+            Helm chart published to OCI:
+
+            ```
+            helm install seasonfill \
+              oci://ghcr.io/${{ github.repository_owner }}/seasonfill \
+              --version ${{ steps.ver.outputs.chart }}
+            ```
+
+            See `deploy/helm/seasonfill/` in this tag for sources.
+          files: dist/seasonfill-${{ steps.ver.outputs.chart }}.tgz
+          fail_on_unmatched_files: true
