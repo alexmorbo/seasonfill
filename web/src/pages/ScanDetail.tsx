@@ -1,44 +1,33 @@
-import { useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ArrowLeft, Copy, AlertTriangle, ChevronRight, Activity } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ArrowLeft, Copy, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import { Progress } from '@/components/ui/progress';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
-import { CategoryChip } from '@/components/CategoryChip';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonRows } from '@/components/SkeletonRows';
-import { DecisionDetail } from '@/components/DecisionDetail';
+import { ScanProgressBar } from '@/components/ScanProgressBar';
+import { SeriesGroup } from '@/components/SeriesGroup';
+import { DecisionDrawer } from '@/components/DecisionDrawer';
 import { OUTCOMES } from '@/components/OutcomeChips';
 import { useScan } from '@/lib/scans';
 import { useDecisions, flattenDecisions } from '@/lib/decisions';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { relativeTime, durationMs } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { groupBySeries, sortGroups } from '@/lib/decision-grouping';
+import { readExpanded, writeExpanded } from '@/lib/url-expand';
 
 export function ScanDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [outcome, setOutcome] = useState<string>('all');
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const outcome = params.get('outcome') ?? 'all';
+  const drawerId = params.get('drawer');
 
   const scan = useScan(id);
   const decisions = useDecisions({
@@ -49,51 +38,62 @@ export function ScanDetail() {
 
   const allDecisions = useMemo(() => flattenDecisions(decisions.data?.pages), [decisions.data]);
   const allGrabs = useMemo(() => flattenGrabs(grabs.data?.pages), [grabs.data]);
-  // Defensive client filter — backend support pending (§22 Q-2).
+  // Defensive client filter — backend support pending (§22 Q-2 from 009d1).
   const linkedDecisions = useMemo(
-    () => (id ? allDecisions.filter((d) => d.scan_run_id === id) : allDecisions),
-    [allDecisions, id],
-  );
+    () => (id ? allDecisions.filter((d) => d.scan_run_id === id) : allDecisions), [allDecisions, id]);
   const linkedGrabs = useMemo(
-    () => (id ? allGrabs.filter((g) => g.scan_run_id === id) : allGrabs),
-    [allGrabs, id],
-  );
+    () => (id ? allGrabs.filter((g) => g.scan_run_id === id) : allGrabs), [allGrabs, id]);
+  const groups = useMemo(() => sortGroups(groupBySeries(linkedDecisions)), [linkedDecisions]);
+
+  // Expand-state in URL (Q-011d-3). Absent `?expanded` → synthesise
+  // default (non-all_complete groups) without writing back. Once user
+  // toggles, `writeExpanded` always emits the key (`expanded=` when
+  // empty), so `params.has('expanded')` is the "user has interacted"
+  // signal that suppresses default-expansion (r1: Bug 2).
+  const urlExpanded = useMemo(() => readExpanded(params.toString()), [params]);
+  const hasExplicitExpand = params.has('expanded');
+  const expanded = useMemo<ReadonlySet<string>>(() => {
+    if (hasExplicitExpand) return urlExpanded;
+    const out = new Set<string>();
+    for (const g of groups) if (g.worstCategory !== 'all_complete') out.add(g.seriesTitle);
+    return out;
+  }, [hasExplicitExpand, urlExpanded, groups]);
+
+  const setParam = (k: string, v: string) => {
+    const next = new URLSearchParams(params);
+    if (!v) next.delete(k); else next.set(k, v);
+    setParams(next, { replace: true });
+  };
+  const toggle = (title: string) => {
+    const next = new Set(expanded);
+    if (next.has(title)) next.delete(title); else next.add(title);
+    setParams(new URLSearchParams(writeExpanded(params.toString(), next)), { replace: true });
+  };
+  const openDrawer = (decId: string) => setParam('drawer', decId);
+  const closeDrawer = () => setParam('drawer', '');
 
   const s = scan.data;
   const copy = () => {
-    if (s?.id) {
-      navigator.clipboard?.writeText(s.id);
-      toast.success('Scan id copied');
-    }
+    if (s?.id) { navigator.clipboard?.writeText(s.id); toast.success('Scan id copied'); }
   };
 
-  if (scan.isPending) {
-    return <div className="max-w-[1440px] mx-auto p-6 text-muted">Loading scan…</div>;
-  }
-  if (scan.isError || !s) {
-    return (
-      <div className="max-w-[1440px] mx-auto p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="w-4 h-4" />
-          <AlertTitle>Scan not found</AlertTitle>
-          <AlertDescription>{scan.error?.message ?? 'No scan with that id.'}</AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
+  if (scan.isPending) return <div className="max-w-[1440px] mx-auto p-6 text-muted">Loading scan…</div>;
+  if (scan.isError || !s) return (
+    <div className="max-w-[1440px] mx-auto p-6">
+      <Alert variant="destructive">
+        <AlertTriangle className="w-4 h-4" />
+        <AlertTitle>Scan not found</AlertTitle>
+        <AlertDescription>{scan.error?.message ?? 'No scan with that id.'}</AlertDescription>
+      </Alert>
+    </div>
+  );
   const grabsOk = (s.grabs_performed ?? 0) - (s.grabs_failed ?? 0);
   const grabsFailed = s.grabs_failed ?? 0;
-  const statusVariant =
-    s.status === 'failed' ? 'danger' : s.status === 'completed' ? 'success' : 'default';
+  const statusVariant = s.status === 'failed' ? 'danger' : s.status === 'completed' ? 'success' : 'default';
 
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="self-start -ml-2 h-8"
-        onClick={() => navigate('/scans')}
-      >
+      <Button variant="ghost" size="sm" className="self-start -ml-2 h-8" onClick={() => navigate('/scans')}>
         <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back to scans
       </Button>
 
@@ -102,23 +102,17 @@ export function ScanDetail() {
           <h1 className="text-[22px] font-semibold tracking-tight">
             Scan <span className="font-mono font-medium">{(s.id ?? '').slice(0, 8)}</span>
           </h1>
-          <button
-            onClick={copy}
-            aria-label="Copy full scan id"
-            className="text-muted hover:text-foreground p-1 rounded"
-          >
+          <button onClick={copy} aria-label="Copy full scan id" className="text-muted hover:text-foreground p-1 rounded">
             <Copy className="w-3.5 h-3.5" />
           </button>
           <StatusBadge value={s.status} />
           {s.status === 'running' && (
-            <span className="font-mono text-[11px] text-faint">polling every 5s</span>
+            <span className="font-mono text-[11px] text-faint" data-testid="poll-indicator">polling every 2s</span>
           )}
         </div>
         <div className="text-[12.5px] text-muted flex items-center gap-2 flex-wrap font-mono">
-          <span>{s.instance}</span>
-          <span className="text-faint">·</span>
-          <span>{s.trigger}</span>
-          <span className="text-faint">·</span>
+          <span>{s.instance}</span><span className="text-faint">·</span>
+          <span>{s.trigger}</span><span className="text-faint">·</span>
           <span>{relativeTime(s.started_at)}</span>
           {s.finished_at && (
             <>
@@ -130,62 +124,23 @@ export function ScanDetail() {
         </div>
       </header>
 
-      {s.status === 'running' && (
-        <Card aria-label="Live scan progress">
-          <CardHeader className="flex flex-row items-center justify-between py-3">
-            <CardTitle className="text-[13px] font-semibold flex items-center gap-2">
-              <Activity className="w-3.5 h-3.5 text-accent animate-pulse" />
-              Live scan
-            </CardTitle>
-            <span className="font-mono text-[11px] text-faint">
-              {s.series_scanned ?? 0} series scanned ·{' '}
-              {s.started_at
-                ? `${Math.max(0, (Date.now() - new Date(s.started_at).getTime()) / 1000).toFixed(0)}s elapsed`
-                : '—'}
-            </span>
-          </CardHeader>
-          <CardContent className="pt-0 pb-4 px-4 flex flex-col gap-3">
-            {/* Indeterminate stripe — backend has no total_series. */}
-            <Progress
-              aria-label="Scan in progress (indeterminate)"
-              className="h-1.5 bg-surface-2 overflow-hidden relative animate-pulse"
-            />
-            {linkedDecisions.length > 0 && (
-              <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto">
-                <span className="text-[10px] uppercase tracking-[0.06em] text-faint">
-                  Latest decisions
-                </span>
-                {linkedDecisions.slice(0, 10).map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center gap-2 text-[12px] font-mono px-2 py-1 rounded bg-surface"
-                  >
-                    <span className="text-faint shrink-0">{relativeTime(d.created_at)}</span>
-                    <span className="truncate flex-1">{d.series_title ?? '—'}</span>
-                    <CategoryChip value={d.category} variant="compact" />
-                    <StatusBadge value={d.decision} mode="outcome" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Q-011d-2: progress bar replaces old LiveScan card. */}
+      <ScanProgressBar status={s.status} seriesScanned={s.series_scanned ?? 0}
+        {...(s.started_at && { startedAt: s.started_at })}
+        {...(s.finished_at && { finishedAt: s.finished_at })} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Series scanned" value={s.series_scanned ?? 0} />
         <StatCard label="Candidates" value={s.candidates_found ?? 0} />
-        <StatCard
-          label="Grabs"
-          value={grabsOk}
+        <StatCard label="Grabs" value={grabsOk}
           {...(grabsFailed > 0 ? { suffix: `/ ${grabsFailed} fail` } : {})}
-          variant={grabsFailed > 0 ? 'warning' : 'success'}
-        />
-        <StatCard
-          label="Status"
-          value={<span className="text-[18px] lowercase">{s.status ?? '—'}</span>}
-          variant={statusVariant}
-        />
+          variant={grabsFailed > 0 ? 'warning' : 'success'} />
+        <StatCard label="Status" variant={statusVariant}
+          value={<span className="text-[18px] lowercase">{s.status ?? '—'}</span>} />
+      </div>
+
+      <div className="text-[12px] text-muted font-mono">
+        {linkedDecisions.length} decisions · {linkedGrabs.length} grabs
       </div>
 
       {s.status === 'failed' && s.error_message && (
@@ -201,123 +156,62 @@ export function ScanDetail() {
           <CardTitle className="text-[14px] font-semibold">
             Decisions{' '}
             <span className="text-faint font-mono text-[11px] ml-2">
-              {linkedDecisions.length} loaded
+              {groups.length} series · {linkedDecisions.length} seasons
             </span>
           </CardTitle>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-faint uppercase tracking-[0.06em]">outcome</span>
-            <Select value={outcome} onValueChange={setOutcome}>
+            <Select value={outcome} onValueChange={(v) => setParam('outcome', v === 'all' ? '' : v)}>
               <SelectTrigger className="h-7 w-[160px] text-[12px]" aria-label="Outcome filter">
-                <SelectValue />
+                <SelectValue placeholder="all" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">all</SelectItem>
-                {OUTCOMES.map((o) => (
-                  <SelectItem key={o} value={o}>
-                    {o}
-                  </SelectItem>
-                ))}
+                {OUTCOMES.map((o) => (<SelectItem key={o} value={o}>{o}</SelectItem>))}
               </SelectContent>
             </Select>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {decisions.isPending && (
-            <div className="p-4">
-              <SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} />
-            </div>
+          {decisions.isPending && (<div className="p-4"><SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} /></div>)}
+          {!decisions.isPending && groups.length === 0 && (
+            <EmptyState title="No decisions for this scan"
+              body="Either the scan made no decisions or none match the current filter." />
           )}
-          {!decisions.isPending && linkedDecisions.length === 0 && (
-            <EmptyState
-              title="No decisions for this scan"
-              body="Either the scan made no decisions or none match the current filter."
-            />
-          )}
-          {linkedDecisions.map((d) => {
-            const isOpen = expanded === d.id;
-            return (
-              <div key={d.id} className="border-b border-border-faint last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => setExpanded(isOpen ? null : (d.id ?? null))}
-                  aria-expanded={isOpen}
-                  aria-controls={`dec-body-${d.id}`}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-4 py-3 text-left transition focus:outline-none focus-visible:bg-surface-2',
-                    isOpen ? 'bg-surface-2' : 'hover:bg-surface-2',
-                  )}
-                >
-                  <ChevronRight
-                    className={cn(
-                      'w-3.5 h-3.5 text-muted transition-transform',
-                      isOpen && 'rotate-90',
-                    )}
-                  />
-                  <span className="font-medium min-w-[200px]">
-                    {d.series_title ?? '—'}{' '}
-                    {d.season_number !== undefined && (
-                      <span className="font-mono text-[12px] text-muted">
-                        S{String(d.season_number).padStart(2, '0')}
-                      </span>
-                    )}
-                  </span>
-                  <CategoryChip value={d.category} variant="compact" />
-                  <StatusBadge value={d.decision} mode="outcome" />
-                  <span className="text-[12px] text-muted truncate flex-1">{d.reason ?? ''}</span>
-                  <span className="text-[11px] text-faint font-mono">
-                    {d.candidates_count ?? 0} cand.
-                  </span>
-                </button>
-                {isOpen && (
-                  <div id={`dec-body-${d.id}`} className="px-12 pb-4">
-                    <DecisionDetail d={d} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {groups.map((g) => (
+            <SeriesGroup key={g.seriesId} group={g}
+              expanded={expanded.has(g.seriesTitle)}
+              onToggle={() => toggle(g.seriesTitle)} onOpenDecision={openDrawer} />
+          ))}
         </CardContent>
       </Card>
 
+      {/* Linked grabs card preserved verbatim from current ScanDetail.tsx 282-328. */}
       {linkedGrabs.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between py-3">
             <CardTitle className="text-[14px] font-semibold">Linked grabs</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/grabs')}>
-              All grabs →
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/grabs')}>All grabs →</Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Release</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Indexer</TableHead>
-                  <TableHead>Updated</TableHead>
+                  <TableHead>Release</TableHead><TableHead>Status</TableHead>
+                  <TableHead>Indexer</TableHead><TableHead>Updated</TableHead>
                   <TableHead>Attempts</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {linkedGrabs.map((g) => (
-                  <TableRow
-                    key={g.id}
+                  <TableRow key={g.id} tabIndex={0} role="button"
                     onClick={() => g.id && navigate(`/grabs?drawer=${encodeURIComponent(g.id)}`)}
-                    tabIndex={0}
-                    role="button"
                     aria-label={`Open grab ${g.release_title ?? g.id}`}
-                    className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <TableCell className="font-mono text-[12px] max-w-md truncate">
-                      {g.release_title ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={g.status} />
-                    </TableCell>
+                    className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <TableCell className="font-mono text-[12px] max-w-md truncate">{g.release_title ?? '—'}</TableCell>
+                    <TableCell><StatusBadge value={g.status} /></TableCell>
                     <TableCell className="font-mono text-muted">{g.indexer_name ?? '—'}</TableCell>
-                    <TableCell className="text-muted">
-                      {relativeTime(g.updated_at ?? g.created_at)}
-                    </TableCell>
+                    <TableCell className="text-muted">{relativeTime(g.updated_at ?? g.created_at)}</TableCell>
                     <TableCell className="font-mono">{g.attempts ?? 0}</TableCell>
                   </TableRow>
                 ))}
@@ -329,15 +223,18 @@ export function ScanDetail() {
 
       {decisions.hasNextPage && (
         <div className="flex justify-center">
-          <Button
-            variant="outline"
-            onClick={() => decisions.fetchNextPage()}
-            disabled={decisions.isFetchingNextPage}
-          >
+          <Button variant="outline" onClick={() => decisions.fetchNextPage()} disabled={decisions.isFetchingNextPage}>
             {decisions.isFetchingNextPage ? 'Loading…' : 'Load more decisions'}
           </Button>
         </div>
       )}
+
+      <DecisionDrawer
+        id={drawerId}
+        open={Boolean(drawerId)}
+        onOpenChange={(o) => { if (!o) closeDrawer(); }}
+        rows={linkedDecisions}
+      />
     </div>
   );
 }
