@@ -191,3 +191,24 @@ type MissingSeriesList struct {
 	Items []MissingSeries `json:"items"`
 	Total int             `json:"total"`
 }
+
+// SeriesSearchItem — one row of GET /instances/:name/series. Trimmed
+// to picker-specific fields (Q-013a-3) so 013b's Combobox doesn't have
+// to ignore noise. SeasonCount is monitored-season count; MissingAired
+// is derived from series-level statistics (same source as Missing).
+type SeriesSearchItem struct {
+	SeriesID     int    `json:"series_id"            example:"122"`
+	Title        string `json:"title"                example:"Severance"`
+	Monitored    bool   `json:"monitored"            example:"true"`
+	SeasonCount  int    `json:"season_count"         example:"2"`
+	MissingAired int    `json:"missing_aired_count"  example:"8"`
+}
+
+// SeriesSearchList — body of GET /instances/:name/series. `Total` is
+// the count BEFORE `limit` is applied so 013b can render
+// "showing N of M". `Items` is empty-array-never-null (matches
+// ScanList behaviour for TS codegen).
+type SeriesSearchList struct {
+	Items []SeriesSearchItem `json:"items"`
+	Total int                `json:"total" example:"142"`
+}

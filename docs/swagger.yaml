@@ -363,6 +363,35 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.SeriesSearchItem:
+      properties:
+        missing_aired_count:
+          example: 8
+          type: integer
+        monitored:
+          example: true
+          type: boolean
+        season_count:
+          example: 2
+          type: integer
+        series_id:
+          example: 122
+          type: integer
+        title:
+          example: Severance
+          type: string
+      type: object
+    dto.SeriesSearchList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.SeriesSearchItem'
+          type: array
+          uniqueItems: false
+        total:
+          example: 142
+          type: integer
+      type: object
   securitySchemes:
     ApiKeyAuth:
       in: cookie
@@ -740,6 +769,77 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: List missing-aired series for an instance
+      tags:
+      - instances
+  /instances/{name}/series:
+    get:
+      description: |-
+        Title-substring search with monitored filter. Returns
+        a trimmed picker-specific DTO (series_id, title,
+        monitored, season_count, missing_aired_count). `total`
+        is the pre-limit count; clients narrow by typing more
+        rather than paginating.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Title substring (case-insensitive)
+        in: query
+        name: q
+        schema:
+          type: string
+      - description: true | false | any (default any)
+        in: query
+        name: monitored
+        schema:
+          enum:
+          - "true"
+          - "false"
+          - any
+          type: string
+      - description: 1..100 (default 30)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesSearchList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Search series in a Sonarr instance
       tags:
       - instances
   /readyz:

@@ -527,6 +527,95 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Search series in a Sonarr instance
+         * @description Title-substring search with monitored filter. Returns
+         *     a trimmed picker-specific DTO (series_id, title,
+         *     monitored, season_count, missing_aired_count). `total`
+         *     is the pre-limit count; clients narrow by typing more
+         *     rather than paginating.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Title substring (case-insensitive) */
+                    readonly q?: string;
+                    /** @description true | false | any (default any) */
+                    readonly monitored?: PathsInstancesNameSeriesGetParametersQueryMonitored;
+                    /** @description 1..100 (default 30) */
+                    readonly limit?: number;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesSearchList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/readyz": {
         readonly parameters: {
             readonly query?: never;
@@ -1064,6 +1153,23 @@ export type components = {
             readonly instance?: string;
             readonly series_ids?: readonly number[];
         };
+        readonly "dto.SeriesSearchItem": {
+            /** @example 8 */
+            readonly missing_aired_count?: number;
+            /** @example true */
+            readonly monitored?: boolean;
+            /** @example 2 */
+            readonly season_count?: number;
+            /** @example 122 */
+            readonly series_id?: number;
+            /** @example Severance */
+            readonly title?: string;
+        };
+        readonly "dto.SeriesSearchList": {
+            readonly items?: readonly components["schemas"]["dto.SeriesSearchItem"][];
+            /** @example 142 */
+            readonly total?: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -1085,6 +1191,11 @@ export enum PathsGrabsGetParametersQueryStatus {
     import_failed = "import_failed",
     grab_failed = "grab_failed",
     expired = "expired"
+}
+export enum PathsInstancesNameSeriesGetParametersQueryMonitored {
+    true = "true",
+    false = "false",
+    any = "any"
 }
 export enum PathsScansGetParametersQueryStatus {
     running = "running",

@@ -91,6 +91,7 @@ func NewServer(
 		apiGuarded.POST("/scan", scanHandler.Trigger)
 		apiGuarded.GET("/instances", instancesHandler.List)
 		apiGuarded.GET("/instances/:name/missing", instancesHandler.Missing)
+		apiGuarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
 		apiGuarded.GET("/scans", auditHandler.ListScans)
 		apiGuarded.GET("/scans/:id", auditHandler.GetScan)
 		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
