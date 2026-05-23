@@ -86,6 +86,10 @@ func (noopDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagin
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (noopDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 type noopGrabRepo struct{}
 
 func (noopGrabRepo) Create(context.Context, grab.Record) error { return nil }
@@ -138,7 +142,7 @@ func buildServer(t *testing.T) *Server {
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
 	}, config.WebhookConfig{}, scanUC, noopWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, nil, lg)
 }
 
 type okWebhookUC struct{}
@@ -177,7 +181,7 @@ func buildServerWithAuth(t *testing.T, adminKey, webhookSecret string) *Server {
 			SecureCookie: false,
 		},
 	}, config.WebhookConfig{Secret: webhookSecret}, scanUC, okWebhookUC{}, checker,
-		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, lg)
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{}, nil, nil, nil, nil, nil, nil, lg)
 }
 
 // TestServer_WebhookAuthIsolation verifies that, when both admin auth and a

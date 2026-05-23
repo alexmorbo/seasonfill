@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -63,6 +65,10 @@ func (r *recDecisions) GetByID(_ context.Context, _ uuid.UUID) (decision.Decisio
 
 func (r *recDecisions) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
+}
+
+func (r *recDecisions) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
 }
 
 func makeSeason(missing []int, have []int) series.Season {
@@ -259,3 +265,52 @@ func TestExecute_PopulatesErrorDetailOnSearchFailure(t *testing.T) {
 type errInfra string
 
 func (e errInfra) Error() string { return string(e) }
+
+type recCooldowns struct{ called int32 }
+
+func (r *recCooldowns) Set(context.Context, cooldown.Cooldown) error { return nil }
+func (r *recCooldowns) Get(context.Context, cooldown.Scope, string) (cooldown.Cooldown, bool, error) {
+	return cooldown.Cooldown{}, false, nil
+}
+func (r *recCooldowns) FilterActive(_ context.Context, _ cooldown.Scope, _ []string, _ time.Time) ([]cooldown.Cooldown, error) {
+	atomic.AddInt32(&r.called, 1)
+	return nil, nil
+}
+func (r *recCooldowns) Sweep(context.Context, time.Time) (int64, error) { return 0, nil }
+
+func makeInput(cd ports.CooldownRepository, ignore bool) Input {
+	return Input{
+		ScanRunID: uuid.New(), Instance: "alpha",
+		Series: series.Series{ID: 1, Title: "Severance", Monitored: true},
+		Season: series.Season{Number: 1, Monitored: true,
+			Episodes: []series.Episode{
+				{Number: 1, Monitored: true, HasFile: true, QualityID: 19},
+				{Number: 2, Monitored: true, HasFile: false},
+			}},
+		Now: time.Now(), Cooldowns: cd, IgnoreCooldown: ignore,
+	}
+}
+
+func TestExecute_IgnoreCooldown_BypassesGUIDCooldownLookup(t *testing.T) {
+	t.Parallel()
+	rec := &recDecisions{}
+	cd := &recCooldowns{}
+	stub := &stubSonarr{releases: []release.Release{{GUID: "g1", Title: "rel"}}}
+	uc := NewUseCase(stub, rec, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := uc.Execute(context.Background(), makeInput(cd, true))
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, atomic.LoadInt32(&cd.called),
+		"IgnoreCooldown=true must skip FilterActive entirely")
+}
+
+func TestExecute_IgnoreCooldownFalse_CallsGUIDCooldownLookup(t *testing.T) {
+	t.Parallel()
+	rec := &recDecisions{}
+	cd := &recCooldowns{}
+	stub := &stubSonarr{releases: []release.Release{{GUID: "g1", Title: "rel"}}}
+	uc := NewUseCase(stub, rec, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := uc.Execute(context.Background(), makeInput(cd, false))
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, atomic.LoadInt32(&cd.called),
+		"default IgnoreCooldown=false must call FilterActive once")
+}

@@ -47,8 +47,9 @@ type DecisionModel struct {
 	// ErrorDetail mirrors domain/decision.Decision.ErrorDetail. size:300
 	// is intentional slack above the 256-rune application-layer cap so a
 	// future truncation tweak does not require a schema migration.
-	ErrorDetail string    `gorm:"size:300"`
-	CreatedAt   time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
+	ErrorDetail    string    `gorm:"size:300"`
+	SupersededByID *string   `gorm:"size:36"`
+	CreatedAt      time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
 }
 
 func (DecisionModel) TableName() string { return "decisions" }

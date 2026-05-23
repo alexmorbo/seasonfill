@@ -111,6 +111,7 @@ type Decision struct {
 	SelectedGUID    string    `json:"selected_guid,omitempty"`
 	DryRunWouldGrab bool      `json:"dry_run_would_grab"`
 	ErrorDetail     string    `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
+	SupersededByID  string    `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

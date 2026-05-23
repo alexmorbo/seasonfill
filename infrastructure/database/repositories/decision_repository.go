@@ -55,6 +55,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		SelectedData:    selectedData,
 		DryRunWouldGrab: d.DryRunWouldGrab,
 		ErrorDetail:     d.ErrorDetail,
+		SupersededByID:  supersededByPtr(d.SupersededByID),
 		CreatedAt:       d.CreatedAt,
 	}
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
@@ -73,6 +74,21 @@ func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decisio
 		return decision.Decision{}, fmt.Errorf("get decision: %w", err)
 	}
 	return toDecision(model)
+}
+
+func (r *DecisionRepository) UpdateSupersededBy(ctx context.Context, id, newID uuid.UUID) error {
+	newIDStr := newID.String()
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.DecisionModel{}).
+		Where("id = ?", id.String()).
+		Update("superseded_by_id", &newIDStr)
+	if res.Error != nil {
+		return fmt.Errorf("update superseded_by_id: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
 }
 
 func (r *DecisionRepository) List(ctx context.Context, f ports.DecisionFilter, p ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
@@ -165,8 +181,28 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 		Selected:        selected,
 		DryRunWouldGrab: m.DryRunWouldGrab,
 		ErrorDetail:     m.ErrorDetail,
+		SupersededByID:  parseSupersededByPtr(m.SupersededByID),
 		CreatedAt:       m.CreatedAt,
 	}, nil
+}
+
+func supersededByPtr(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	s := id.String()
+	return &s
+}
+
+func parseSupersededByPtr(s *string) *uuid.UUID {
+	if s == nil || *s == "" {
+		return nil
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 var _ ports.DecisionRepository = (*DecisionRepository)(nil)

@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -144,6 +145,8 @@ func run() error {
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
+	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, evaluator,
+		scanInstancesByName, log)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
@@ -173,7 +176,7 @@ func run() error {
 	httpServer := httpserver.NewServer(cfg.HTTP, cfg.Webhook, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
-		cooldownRepo, grabUC, scanInstancesByName, log)
+		cooldownRepo, grabUC, rescanUC, scanInstancesByName, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep

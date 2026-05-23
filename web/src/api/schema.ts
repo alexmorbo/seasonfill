@@ -302,6 +302,96 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/decisions/{id}/rescan": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Rescan a single decision
+         * @description Re-evaluates (instance, series, season). Bypasses GUID
+         *     cooldowns. New decision shares scan_run_id; original is
+         *     marked superseded. 409 if original already produced a
+         *     grab_records row.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Decision UUID */
+                    readonly id: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.Decision"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/grabs": {
         readonly parameters: {
             readonly query?: never;
@@ -983,6 +1073,8 @@ export type components = {
             readonly series_id?: number;
             /** @example Severance */
             readonly series_title?: string;
+            /** @example 7b3d4a92-1234-4abc-9def-000000000005 */
+            readonly superseded_by_id?: string;
         };
         readonly "dto.DecisionList": {
             readonly items?: readonly components["schemas"]["dto.Decision"][];

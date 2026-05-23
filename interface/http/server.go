@@ -11,6 +11,7 @@ import (
 
 	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	apprescan "github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
@@ -38,6 +39,7 @@ func NewServer(
 	instanceModes map[string]string,
 	cooldownRepo ports.CooldownRepository,
 	grabUC *appgrab.UseCase,
+	rescanUC *apprescan.UseCase,
 	instancesByName map[string]scan.Instance,
 	logger *slog.Logger,
 ) *Server {
@@ -97,6 +99,8 @@ func NewServer(
 		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
 		apiGuarded.GET("/grabs", auditHandler.ListGrabs)
 		apiGuarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
+		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
+		apiGuarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
 		apiGuarded.POST("/scans/:id/cancel", scanHandler.Cancel)
 	}
 

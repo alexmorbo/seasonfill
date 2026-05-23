@@ -63,6 +63,8 @@ type DecisionFilter struct {
 type DecisionRepository interface {
 	Save(ctx context.Context, d decision.Decision) error
 	GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error)
+	// UpdateSupersededBy: ports.ErrNotFound on unknown id.
+	UpdateSupersededBy(ctx context.Context, id, newID uuid.UUID) error
 	List(ctx context.Context, f DecisionFilter, p Pagination) ([]decision.Decision, *Cursor, error)
 }
 

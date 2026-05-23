@@ -56,6 +56,10 @@ func (f *fakeDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pa
 	return nil, nil, nil
 }
 
+func (f *fakeDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 type fakeGrabRepo struct {
 	mu     sync.Mutex
 	stored []grab.Record

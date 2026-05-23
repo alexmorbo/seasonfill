@@ -83,6 +83,10 @@ func (stubDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagin
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (stubDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 func newScanUseCase() *scan.UseCase {
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	sonarr := &stubSonarr{name: "main"}

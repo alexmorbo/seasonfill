@@ -38,7 +38,8 @@ type Input struct {
 	// Cooldowns lets the evaluator filter candidate guids against active
 	// cooldown rows using the FilterActive(scope, keys, now) repo API
 	// (D-2.1). Optional; nil means no DB-backed guid filtering.
-	Cooldowns ports.CooldownRepository
+	Cooldowns      ports.CooldownRepository
+	IgnoreCooldown bool // 017 §3.3: rescan sets true; default false
 }
 
 type UseCase struct {
@@ -114,7 +115,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 	}
 
 	excludeGUIDs := in.ExcludeGUIDs
-	if excludeGUIDs == nil && in.Cooldowns != nil && len(releases) > 0 {
+	if !in.IgnoreCooldown && excludeGUIDs == nil && in.Cooldowns != nil && len(releases) > 0 {
 		keys := make([]string, 0, len(releases))
 		for _, r := range releases {
 			if r.GUID != "" {

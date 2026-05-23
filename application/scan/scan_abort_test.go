@@ -202,6 +202,10 @@ func (abortFakeDecisionRepo) List(_ context.Context, _ ports.DecisionFilter, _ p
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (abortFakeDecisionRepo) UpdateSupersededBy(_ context.Context, _, _ uuid.UUID) error {
+	return nil
+}
+
 // abortFakeGrabRepo discards grab records.
 type abortFakeGrabRepo struct{}
 

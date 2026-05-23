@@ -57,8 +57,9 @@ type Decision struct {
 	// failure (e.g. "sonarr: 503 service unavailable") when Outcome is
 	// OutcomeError. Empty on non-error decisions. Caller is responsible
 	// for size/normalisation; see application/evaluate.truncateErrorDetail.
-	ErrorDetail string
-	CreatedAt   time.Time
+	ErrorDetail    string
+	SupersededByID *uuid.UUID // nil = live; set by rescan (017)
+	CreatedAt      time.Time
 }
 
 func New(scanRunID uuid.UUID, instance, seriesTitle string, seriesID, season int) Decision {

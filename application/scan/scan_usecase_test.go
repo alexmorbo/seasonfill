@@ -195,6 +195,10 @@ func (r *fakeDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pa
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }
 
+func (r *fakeDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 type fakeCDRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

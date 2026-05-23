@@ -91,8 +91,16 @@ func toDecisionDTO(d decision.Decision) dto.Decision {
 		SelectedGUID:    selectedGUID,
 		DryRunWouldGrab: d.DryRunWouldGrab,
 		ErrorDetail:     d.ErrorDetail,
+		SupersededByID:  supersededByIDString(d.SupersededByID),
 		CreatedAt:       d.CreatedAt,
 	}
+}
+
+func supersededByIDString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }
 
 func toGrabDTO(r grab.Record) dto.Grab {
