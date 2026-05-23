@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,10 +13,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
+import { SeriesPicker } from '@/components/SeriesPicker';
 import { ApiError } from '@/lib/api';
 import { useInstances, type Instance } from '@/lib/instances';
 import { firstScanRunId, useTriggerScan } from '@/lib/scan-mutations';
@@ -24,7 +24,6 @@ import { cn } from '@/lib/utils';
 
 const schema = z.object({
   instance: z.string().min(1, 'Select an instance'),
-  series: z.string().optional(),
   dry_run: z.boolean(),
 });
 export type NewScanFormValues = z.infer<typeof schema>;
@@ -58,8 +57,14 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
 
   const form = useForm<NewScanFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { instance: '', series: '', dry_run: true },
+    defaultValues: { instance: '', dry_run: true },
   });
+
+  // Picker selection — Q-013b-5 resets on instance change.
+  const [seriesIds, setSeriesIds] = useState<ReadonlyArray<number>>([]);
+  // Gate submit while picker debounces/fetches (prevents submitting
+  // a half-typed query and getting an all-series scan by mistake).
+  const [pickerLoading, setPickerLoading] = useState(false);
 
   // Re-seed the default when the dialog opens or the instance list arrives.
   useEffect(() => {
@@ -74,13 +79,25 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
   const selected = instances.find((i) => i.name === selectedName);
   const degraded = selected && selected.health && selected.health !== 'available';
 
+  const watchedInstance = form.watch('instance');
+  useEffect(() => { setSeriesIds([]); }, [watchedInstance]);
+
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      const resp = await trigger.mutateAsync({ instance: values.instance });
+      const payload: { instance: string; series_ids?: readonly number[] } = {
+        instance: values.instance,
+      };
+      if (seriesIds.length > 0) payload.series_ids = seriesIds;
+      const resp = await trigger.mutateAsync(payload);
       const id = firstScanRunId(resp);
-      toast.success(`Scan started — ${values.instance}`);
+      toast.success(
+        seriesIds.length > 0
+          ? `Scan started — ${values.instance} (${seriesIds.length} series)`
+          : `Scan started — ${values.instance}`,
+      );
       onOpenChange(false);
-      form.reset({ instance: '', series: '', dry_run: true });
+      form.reset({ instance: '', dry_run: true });
+      setSeriesIds([]);
       navigate(`/scans/${id}`);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -161,19 +178,23 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
             </fieldset>
 
             <fieldset className="flex flex-col gap-1.5">
-              <Label htmlFor="new-scan-series" className="text-[11px] uppercase tracking-[0.06em] text-faint">
+              <Label className="text-[11px] uppercase tracking-[0.06em] text-faint">
                 Series filter (optional)
               </Label>
-              <Input
-                id="new-scan-series"
-                placeholder="e.g. Severance"
-                autoComplete="off"
-                {...form.register('series')}
+              <SeriesPicker
+                instance={selectedName}
+                value={seriesIds}
+                onChange={setSeriesIds}
+                onLoadingChange={setPickerLoading}
+                disabled={!selectedName}
+                placeholder="Type to find series in this instance…"
+                helperText={
+                  <>
+                    Leave empty to scan every monitored series. Pick one or more
+                    to scope the scan. Selection resets when the instance changes.
+                  </>
+                }
               />
-              <p className="text-[11px] text-muted">
-                Leave empty to scan every monitored series on the instance. Server-side
-                filtering arrives in a later phase; the field is preserved for that.
-              </p>
             </fieldset>
 
             <Label
@@ -198,8 +219,14 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={trigger.isPending || instances.length === 0}>
-              {trigger.isPending ? 'Starting…' : 'Start scan'}
+            <Button
+              type="submit"
+              disabled={trigger.isPending || instances.length === 0 || pickerLoading}
+              data-testid="new-scan-submit"
+            >
+              {pickerLoading
+                ? 'Searching…'
+                : trigger.isPending ? 'Starting…' : 'Start scan'}
             </Button>
           </DialogFooter>
         </form>
