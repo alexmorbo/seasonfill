@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
 import { SeriesGroup } from './SeriesGroup';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { SeriesGroup as SeriesGroupModel } from '@/lib/decision-grouping';
 import type { Decision } from '@/lib/decisions';
 import { DtoDecisionCategory, DtoDecisionDecision } from '@/api/schema';
@@ -21,14 +22,20 @@ const buildGroup = (over: Partial<SeriesGroupModel> = {}): SeriesGroupModel => (
   ...over,
 });
 
+// Local provider with delayDuration=0 keeps tooltip-open semantics
+// in unit tests synchronous-ish (a hover() → await findByRole opens
+// without the production 150ms wait). The provider in production
+// lives in main.tsx; component tests bring their own.
 const renderG = (props: Partial<React.ComponentProps<typeof SeriesGroup>> = {}) =>
   render(
-    <SeriesGroup
-      group={props.group ?? buildGroup()}
-      expanded={props.expanded ?? false}
-      onToggle={props.onToggle ?? vi.fn()}
-      onOpenDecision={props.onOpenDecision ?? vi.fn()}
-    />,
+    <TooltipProvider delayDuration={0}>
+      <SeriesGroup
+        group={props.group ?? buildGroup()}
+        expanded={props.expanded ?? false}
+        onToggle={props.onToggle ?? vi.fn()}
+        onOpenDecision={props.onOpenDecision ?? vi.fn()}
+      />
+    </TooltipProvider>,
   );
 
 describe('<SeriesGroup />', () => {
@@ -60,7 +67,7 @@ describe('<SeriesGroup />', () => {
     await userEvent.click(screen.getByRole('button', { name: /open decision for severance season 1/i }));
     expect(onOpen).toHaveBeenCalledWith('d1');
   });
-  it('renders an error icon with title preview on error rows', async () => {
+  it('renders an error trigger button that opens a tooltip with full error_detail on hover', async () => {
     const longErr = 'sonarr: 503 service unavailable — '.repeat(10);
     const errDec: Decision = {
       ...dec('d-err', 1, DtoDecisionCategory.error),
@@ -74,12 +81,44 @@ describe('<SeriesGroup />', () => {
       }),
       expanded: true,
     });
-    const icon = screen.getByTestId('series-row-error-icon');
-    expect(icon).toBeInTheDocument();
-    const title = icon.getAttribute('title') ?? '';
-    expect(title.length).toBeLessThanOrEqual(123); // 120 + "..."
-    expect(title).toContain('sonarr: 503');
-    expect(title.endsWith('...')).toBe(true);
+
+    const trigger = screen.getByTestId('series-row-error-icon');
+    expect(trigger).toBeInTheDocument();
+    // Trigger is now a focusable <button>, not a <span>.
+    expect(trigger.tagName).toBe('BUTTON');
+    // aria-label carries the FULL error (no 120-char trim).
+    expect(trigger).toHaveAttribute('aria-label', `Error: ${longErr}`);
+    // Native `title` attribute is gone — sanity-check we didn't leak it.
+    expect(trigger).not.toHaveAttribute('title');
+
+    // Hover the trigger; Radix portals the tooltip into document.body.
+    await userEvent.hover(trigger);
+    const tip = await screen.findByRole('tooltip');
+    // Full error rendered (not truncated). Use textContent because the
+    // tooltip body is the only descendant.
+    expect(tip).toHaveTextContent('sonarr: 503 service unavailable');
+    expect(tip.textContent ?? '').toContain(longErr.trim().slice(0, 200));
+  });
+
+  it('opens the error tooltip on keyboard focus (a11y)', async () => {
+    const errDec: Decision = {
+      ...dec('d-err', 1, DtoDecisionCategory.error),
+      reason: 'error_fetch_releases',
+      error_detail: 'sonarr: 502 bad gateway',
+    };
+    renderG({
+      group: buildGroup({
+        worstCategory: 'error',
+        seasons: [{ seasonNumber: 1, decision: errDec }],
+      }),
+      expanded: true,
+    });
+
+    // Focus the trigger directly — keyboard users get the tooltip too.
+    const trigger = screen.getByTestId('series-row-error-icon');
+    trigger.focus();
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent('sonarr: 502 bad gateway');
   });
 
   it('does not render an error icon on non-error rows', () => {

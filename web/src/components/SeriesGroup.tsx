@@ -2,6 +2,7 @@ import { ChevronRight, ArrowUpRight, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CategoryChip } from '@/components/CategoryChip';
 import { StatusBadge } from '@/components/StatusBadge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SeriesGroup as SeriesGroupModel } from '@/lib/decision-grouping';
 
 export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
@@ -45,14 +46,24 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
                 <span className="text-faint shrink-0 w-10">S{String(row.seasonNumber).padStart(2, '0')}</span>
                 <CategoryChip value={d.category} variant="compact" />
                 {d.category === 'error' && d.error_detail && (
-                  <span
-                    title={errorTooltipPreview(d.error_detail)}
-                    aria-label={`Error: ${errorTooltipPreview(d.error_detail)}`}
-                    data-testid="series-row-error-icon"
-                    className="inline-flex items-center text-status-danger shrink-0 cursor-help"
-                  >
-                    <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Error: ${d.error_detail}`}
+                        data-testid="series-row-error-icon"
+                        className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-none focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      className="max-w-md whitespace-pre-wrap font-mono text-[11px]"
+                    >
+                      {d.error_detail}
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 <StatusBadge value={d.decision} mode="outcome" />
                 <span className="text-muted truncate flex-1">{d.reason ?? ''}</span>
@@ -70,14 +81,4 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
       )}
     </div>
   );
-}
-
-// errorTooltipPreview trims the persisted error_detail for the
-// title attribute. Backend already caps at 256 runes; the tooltip
-// preview is shorter (120 chars) because native `title` rendering
-// across browsers prefers a compact one-liner.
-const errorTooltipMax = 120;
-function errorTooltipPreview(detail: string): string {
-  if (detail.length <= errorTooltipMax) return detail;
-  return detail.slice(0, errorTooltipMax) + '...';
 }
