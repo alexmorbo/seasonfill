@@ -71,6 +71,12 @@ type UseCase struct {
 	inflight map[string]uuid.UUID
 
 	barrier Barrier
+
+	// bgWG (optional) is incremented before spawning an async scan
+	// goroutine and decremented when it exits. cmd/server wires the
+	// process-wide WaitGroup here so SIGTERM-drain blocks on
+	// outstanding scans. nil in tests that don't care about drain.
+	bgWG *sync.WaitGroup
 }
 
 func NewUseCase(
@@ -95,6 +101,10 @@ func (u *UseCase) WithCooldowns(c ports.CooldownRepository) *UseCase    { u.cool
 func (u *UseCase) WithOrigins(o ports.OriginReleaseRepository) *UseCase { u.origins = o; return u }
 func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase         { u.health = r; return u }
 func (u *UseCase) WithBarrier(b Barrier) *UseCase                       { u.barrier = b; return u }
+
+// WithWaitGroup wires the process-wide background wait group so
+// async scan goroutines block graceful shutdown's drainBackground.
+func (u *UseCase) WithWaitGroup(wg *sync.WaitGroup) *UseCase { u.bgWG = wg; return u }
 
 type RunResult struct {
 	ScanRunID    uuid.UUID
@@ -169,6 +179,130 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 	return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
 }
 
+// StartInstance schedules a scan on the named instance and returns
+// immediately with status="running". The actual work runs in a
+// detached goroutine that:
+//   - Builds its own ctx from context.Background() so the HTTP
+//     request's cancellation doesn't kill the scan when Gin writes 202.
+//   - Re-applies WithTraceID(scanID) so structured logs stay correlated.
+//   - Holds the per-instance inflight lock until completion (defer release).
+//   - Adds/Done's u.bgWG (if set) so SIGTERM-drain blocks on it.
+//
+// Errors are synchronous-only (validation + lock + Create): once those
+// pass, the returned RunResult carries Status="running" and the
+// goroutine reports terminal status through ScanRecord updates only.
+func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+	var found *Instance
+	for i := range u.instances {
+		if u.instances[i].Config.Name == name {
+			found = &u.instances[i]
+			break
+		}
+	}
+	if found == nil {
+		return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
+	}
+	return u.startOne(parent, *found, trigger, seriesIDs)
+}
+
+// Start schedules scans on every eligible instance (cron-mode rules
+// from D43 apply: TriggerCron skips manual instances). Returns one
+// RunResult per spawned scan, each with Status="running". Failures
+// from the prelude (lock contention, ScanRecord create) appear in
+// the joined error and have a non-running Status in their RunResult.
+func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, error) {
+	eligible := make([]int, 0, len(u.instances))
+	for i := range u.instances {
+		if trigger == TriggerCron && u.instances[i].Config.Mode == "manual" {
+			u.logger.InfoContext(parent, "cron_skipped_manual_instance",
+				slog.String("instance", u.instances[i].Config.Name))
+			continue
+		}
+		eligible = append(eligible, i)
+	}
+	results := make([]RunResult, 0, len(eligible))
+	errs := make([]error, 0, len(eligible))
+	for _, idx := range eligible {
+		res, err := u.startOne(parent, u.instances[idx], trigger, nil)
+		results = append(results, res)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return results, errors.Join(errs...)
+}
+
+// startOne owns the synchronous prelude. Returns RunResult with
+// ScanRunID set and Status="running" as soon as the goroutine is
+// launched. The goroutine itself calls runOne (existing body) and
+// updates ScanRecord on completion.
+func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {
+	scanID := uuid.New()
+
+	if u.health != nil {
+		if snap, ok := u.health.Get(inst.Config.Name); ok && !snap.Health.IsAvailable() {
+			u.logger.InfoContext(parent, "instance_unavailable, skipping scan",
+				slog.String("instance", inst.Config.Name),
+				slog.String("state", string(snap.Health)),
+			)
+			return RunResult{InstanceName: inst.Config.Name, Status: "skipped"},
+				fmt.Errorf("%w: %s state=%s",
+					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
+		}
+	}
+
+	if err := u.acquire(inst.Config.Name, scanID); err != nil {
+		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
+	}
+
+	dryRun := u.instanceDryRun(inst)
+	started := time.Now().UTC()
+	rec := ports.ScanRecord{
+		ID:           scanID,
+		InstanceName: inst.Config.Name,
+		Trigger:      string(trigger),
+		StartedAt:    started,
+		Status:       "running",
+		DryRun:       dryRun,
+	}
+	// Detached ctx for the persistent create — re-uses the request's
+	// trace_id (via WithTraceID below) but won't die when Gin writes 202.
+	createCtx := logger.WithTraceID(context.Background(), scanID.String())
+	if err := u.scans.Create(createCtx, rec); err != nil {
+		u.release(inst.Config.Name)
+		u.logger.ErrorContext(parent, "create scan record failed",
+			slog.String("instance", inst.Config.Name),
+			slog.String("error", err.Error()))
+		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, err
+	}
+
+	u.logger.InfoContext(createCtx, "scan_started",
+		slog.String("instance", inst.Config.Name),
+		slog.String("trigger", string(trigger)),
+		slog.Bool("dry_run", dryRun),
+		slog.Bool("async", true),
+	)
+
+	if u.bgWG != nil {
+		u.bgWG.Add(1)
+	}
+	go func(inst Instance, rec ports.ScanRecord, seriesIDs []int, started time.Time) {
+		if u.bgWG != nil {
+			defer u.bgWG.Done()
+		}
+		defer u.release(inst.Config.Name)
+		ctx := logger.WithTraceID(context.Background(), rec.ID.String())
+		u.runDetached(ctx, inst, rec, trigger, seriesIDs, started, dryRun)
+	}(inst, rec, seriesIDs, started)
+
+	return RunResult{
+		ScanRunID:    scanID,
+		InstanceName: inst.Config.Name,
+		Status:       "running",
+		Started:      started,
+	}, nil
+}
+
 // instanceDryRun decides the effective dry-run flag for one instance.
 // Instance override wins per D-2.6. Reads the per-instance *bool directly —
 // nil means "no override, use global".
@@ -195,7 +329,6 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
 		}
 	}
-
 	if err := u.acquire(inst.Config.Name, scanID); err != nil {
 		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
 	}
@@ -205,29 +338,48 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 		u.barrier.Reached(inst.Config.Name)
 	}
 
-	observability.IncActiveScans(inst.Config.Name)
-	defer observability.DecActiveScans(inst.Config.Name)
-
 	dryRun := u.instanceDryRun(inst)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
-		ID:           scanID,
-		InstanceName: inst.Config.Name,
-		Trigger:      string(trigger),
-		StartedAt:    started,
-		Status:       "running",
-		DryRun:       dryRun,
+		ID: scanID, InstanceName: inst.Config.Name,
+		Trigger: string(trigger), StartedAt: started,
+		Status: "running", DryRun: dryRun,
 	}
 	if err := u.scans.Create(ctx, rec); err != nil {
 		u.logger.ErrorContext(ctx, "create scan record failed", slog.String("error", err.Error()))
 		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, err
 	}
-
 	u.logger.InfoContext(ctx, "scan_started",
 		slog.String("instance", inst.Config.Name),
 		slog.String("trigger", string(trigger)),
 		slog.Bool("dry_run", dryRun),
 	)
+
+	return u.processScan(ctx, inst, rec, trigger, seriesIDs, started, dryRun)
+}
+
+// runDetached is the goroutine body for the async path. Prelude (lock,
+// Create) ran in startOne; this function trusts the lock + record already
+// exist and dives straight into processScan. The barrier hook runs here so
+// existing concurrency tests can still observe entry from an async path.
+func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) {
+	if u.barrier != nil {
+		u.barrier.Reached(inst.Config.Name)
+	}
+	if _, err := u.processScan(ctx, inst, rec, trigger, seriesIDs, started, dryRun); err != nil {
+		// Terminal state is already persisted by finalize*; logging here is
+		// just so an operator tailing slog sees the cause without GETing the
+		// scan record.
+		u.logger.WarnContext(ctx, "async_scan_terminated_with_error",
+			slog.String("instance", inst.Config.Name),
+			slog.String("error", err.Error()))
+	}
+}
+
+func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) (RunResult, error) {
+	observability.IncActiveScans(inst.Config.Name)
+	defer observability.DecActiveScans(inst.Config.Name)
+	scanID := rec.ID // 011c: was `scanID := uuid.New()` in old runOne — now reuse rec.ID
 
 	seriesList, err := inst.Client.ListSeries(ctx)
 	if err != nil {
@@ -297,6 +449,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 	grabsFailed := 0
 	consecutiveGrabFails := 0
 	errorsCount := 0
+	pendingDelta := 0 // 011c: batched series_scanned delta (Q-011-5)
 
 	maxGrabs := inst.Config.Limits.MaxGrabsPerScan
 	if maxGrabs <= 0 {
@@ -331,6 +484,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 			continue
 		}
 		processed++
+		pendingDelta++ // 011c: count series committed to evaluation
 
 		var profile ports.QualityProfile
 		if cached, ok := profileCache[s.QualityProfile]; ok {
@@ -347,6 +501,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 					slog.String("error", perr.Error()),
 				)
 				errorsCount++
+				pendingDelta = u.flushSeriesScannedIfDue(ctx, scanID, pendingDelta) // 011c: keep progress visible across transient errors
 				continue
 			}
 			profileCache[s.QualityProfile] = p
@@ -363,6 +518,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 				slog.String("error", ferr.Error()),
 			)
 			errorsCount++
+			pendingDelta = u.flushSeriesScannedIfDue(ctx, scanID, pendingDelta) // 011c: keep progress visible across transient errors
 			continue
 		}
 
@@ -551,6 +707,8 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 				}
 			}
 		}
+		// 011c: flush incremental progress every N=5 series.
+		pendingDelta = u.flushSeriesScannedIfDue(ctx, scanID, pendingDelta)
 	}
 
 	finished := time.Now().UTC()
@@ -734,6 +892,26 @@ func dominantIndexer(history []ports.HistoryEvent) string {
 		}
 	}
 	return best
+}
+
+// flushSeriesScannedIfDue commits pending series_scanned delta when it
+// reaches N=5. Returns the new (post-flush or unchanged) delta. Errors
+// are WARN-logged — they don't fail the scan (the final Update rewrites
+// the full row anyway). Threshold is a code-internal write-batching
+// knob, not user-tunable surface.
+const scanProgressFlushEvery = 5
+
+func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pending int) int {
+	if pending < scanProgressFlushEvery {
+		return pending
+	}
+	if err := u.scans.IncrementSeriesScanned(ctx, id, pending); err != nil {
+		u.logger.WarnContext(ctx, "increment_series_scanned_failed",
+			slog.String("scan_id", id.String()),
+			slog.Int("delta", pending),
+			slog.String("error", err.Error()))
+	}
+	return 0
 }
 
 // buildTagFilter resolves the configured `tags.include` / `tags.exclude`

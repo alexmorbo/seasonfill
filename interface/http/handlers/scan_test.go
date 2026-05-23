@@ -66,6 +66,9 @@ func (r *stubScanRepo) GetByID(_ context.Context, _ uuid.UUID) (ports.ScanRecord
 	return ports.ScanRecord{}, nil
 }
 func (r *stubScanRepo) MarkAborted(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (r *stubScanRepo) IncrementSeriesScanned(_ context.Context, _ uuid.UUID, _ int) error {
+	return nil
+}
 func (r *stubScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }

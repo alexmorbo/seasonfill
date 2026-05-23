@@ -42,6 +42,11 @@ type ScanRepository interface {
 	Update(ctx context.Context, rec ScanRecord) error
 	GetByID(ctx context.Context, id uuid.UUID) (ScanRecord, error)
 	MarkAborted(ctx context.Context, id uuid.UUID, reason string) error
+	// IncrementSeriesScanned atomically adds `by` to the persisted
+	// series_scanned counter for the row. Used by the in-progress
+	// scan goroutine so `GET /scans/{id}` reflects live progress
+	// without rewriting every counter field. ErrNotFound on unknown id.
+	IncrementSeriesScanned(ctx context.Context, id uuid.UUID, by int) error
 	List(ctx context.Context, f ScanFilter, p Pagination) ([]ScanRecord, *Cursor, error)
 }
 

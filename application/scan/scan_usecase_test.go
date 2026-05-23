@@ -3,10 +3,12 @@ package scan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,6 +146,29 @@ func (r *fakeScanRepo) MarkAborted(_ context.Context, id uuid.UUID, reason strin
 		}
 	}
 	return nil
+}
+
+func (r *fakeScanRepo) IncrementSeriesScanned(_ context.Context, id uuid.UUID, by int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Mirror real repo semantics: mutate the most recent matching row in
+	// `updated` (or `created` as a fallback) so test assertions see the
+	// running counter, not just the final Update snapshot.
+	for i := len(r.updated) - 1; i >= 0; i-- {
+		if r.updated[i].ID == id {
+			r.updated[i].SeriesScanned += by
+			return nil
+		}
+	}
+	for i := len(r.created) - 1; i >= 0; i-- {
+		if r.created[i].ID == id {
+			r.created[i].SeriesScanned += by
+			// Promote to updated so subsequent GetByID lookups read the new value.
+			r.updated = append(r.updated, r.created[i])
+			return nil
+		}
+	}
+	return ports.ErrNotFound
 }
 
 func (r *fakeScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
@@ -804,3 +829,175 @@ func (r *batchCountingCDRepo) FilterActive(_ context.Context, scope cooldown.Sco
 }
 
 func (r *batchCountingCDRepo) Sweep(_ context.Context, _ time.Time) (int64, error) { return 0, nil }
+
+// slowSonarr blocks ListSeries until release is closed, then returns the
+// series list. Used to assert StartInstance returns before completion.
+type slowSonarr struct {
+	*fakeSonarr
+	release   chan struct{}
+	listCalls atomic.Int32
+}
+
+func (s *slowSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
+	s.listCalls.Add(1)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return s.fakeSonarr.ListSeries(ctx)
+}
+
+func TestStartInstance_ReturnsBeforeCompletion(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &slowSonarr{
+		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}},
+		release:    make(chan struct{}),
+	}
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Less(t, time.Now().Sub(deadline), 500*time.Millisecond, "StartInstance must return synchronously")
+	assert.Equal(t, "running", res.Status)
+	assert.NotEqual(t, uuid.Nil, res.ScanRunID)
+
+	close(sn.release)
+	// Wait for the async goroutine to finish so test cleanup is deterministic.
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond, "scan goroutine did not finish")
+}
+
+func TestStart_AllInstancesParallel(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	n := 3
+	rels := make([]chan struct{}, n)
+	insts := make([]Instance, n)
+	for i := 0; i < n; i++ {
+		rels[i] = make(chan struct{})
+		insts[i] = Instance{
+			Config: instCfg(fmt.Sprintf("inst%d", i), "auto"),
+			Client: &slowSonarr{
+				fakeSonarr: &fakeSonarr{name: fmt.Sprintf("inst%d", i),
+					series: []series.Series{monSeries(1+i, "X")}},
+				release: rels[i],
+			},
+		}
+	}
+	uc := newScanUCFor(t, lg, insts)
+
+	start := time.Now()
+	results, err := uc.Start(context.Background(), TriggerManual)
+	require.NoError(t, err)
+	require.Len(t, results, n)
+	assert.Less(t, time.Since(start), 200*time.Millisecond, "Start must not wait for any scan")
+	for _, r := range results {
+		assert.Equal(t, "running", r.Status)
+	}
+
+	// All three goroutines must already be blocked inside slowSonarr.ListSeries.
+	require.Eventually(t, func() bool { return len(uc.InflightScans()) == n },
+		1*time.Second, 10*time.Millisecond, "all instances should be inflight")
+
+	for _, ch := range rels {
+		close(ch)
+	}
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond, "scans did not all drain")
+}
+
+func TestIncrementSeriesScanned_BatchedWrites(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// 12 series → expected flushes at 5 and 10; residue (2) lands via final Update.
+	sers := make([]series.Series, 0, 12)
+	for i := 1; i <= 12; i++ {
+		sers = append(sers, monSeries(i, fmt.Sprintf("S%d", i)))
+	}
+	sn := &fakeSonarr{name: "main", series: sers}
+
+	// Spying repo wraps fakeScanRepo to count IncrementSeriesScanned calls.
+	spy := &incSpyScanRepo{fakeScanRepo: &fakeScanRepo{}}
+	evalUC := evaluate.NewUseCase(sn, &fakeDecRepo{}, lg)
+	uc := NewUseCase([]Instance{{Config: instCfg("main", "auto"), Client: sn}},
+		evalUC, spy, lg, true)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+	assert.Equal(t, 12, res.Series)
+	assert.Equal(t, 2, int(spy.incCalls.Load()),
+		"expected 2 IncrementSeriesScanned flushes for 12 series at N=5")
+	// Final Update writes the full row including the residue, so the persisted
+	// counter ends at exactly 12.
+	require.NotEmpty(t, spy.updated)
+	last := spy.updated[len(spy.updated)-1]
+	assert.Equal(t, 12, last.SeriesScanned)
+}
+
+// incSpyScanRepo wraps fakeScanRepo to count IncrementSeriesScanned calls.
+type incSpyScanRepo struct {
+	*fakeScanRepo
+	incCalls atomic.Int32
+}
+
+func (s *incSpyScanRepo) IncrementSeriesScanned(ctx context.Context, id uuid.UUID, by int) error {
+	s.incCalls.Add(1)
+	return s.fakeScanRepo.IncrementSeriesScanned(ctx, id, by)
+}
+
+func TestStartInstance_ConflictWhenInflight(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &slowSonarr{
+		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}},
+		release:    make(chan struct{}),
+	}
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+
+	res1, err1 := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err1)
+	assert.Equal(t, "running", res1.Status)
+
+	// Second call before the first goroutine releases the lock.
+	_, err2 := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.ErrorIs(t, err2, ErrScanAlreadyRunning)
+
+	close(sn.release)
+	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
+		2*time.Second, 10*time.Millisecond)
+}
+
+func TestStartInstance_BgWaitGroupDrains(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sn := &slowSonarr{
+		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{monSeries(1, "A")}},
+		release:    make(chan struct{}),
+	}
+	uc := newScanUCFor(t, lg, []Instance{{Config: instCfg("main", "auto"), Client: sn}})
+	var wg sync.WaitGroup
+	uc.WithWaitGroup(&wg)
+
+	_, err := uc.StartInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	// wg.Wait() must NOT return before we release the slow Sonarr — i.e. the
+	// goroutine genuinely holds wg.Add(1) for its full lifetime.
+	doneEarly := make(chan struct{})
+	go func() { wg.Wait(); close(doneEarly) }()
+	select {
+	case <-doneEarly:
+		t.Fatal("WaitGroup released before scan finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sn.release)
+	select {
+	case <-doneEarly:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitGroup did not release after scan completion")
+	}
+}

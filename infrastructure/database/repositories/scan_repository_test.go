@@ -193,3 +193,30 @@ func TestScanRepository_TxRollback_OnForcedError(t *testing.T) {
 	assert.Equal(t, 0, got.SeriesScanned,
 		"Update inside a rolled-back tx must NOT persist field changes")
 }
+
+func TestScanRepository_IncrementSeriesScanned_Atomic(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewScanRepository(db)
+	ctx := context.Background()
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(ctx, newScanRecord(id)))
+
+	// Two increments must compose to the sum — atomic update, not read-modify-write.
+	require.NoError(t, repo.IncrementSeriesScanned(ctx, id, 5))
+	require.NoError(t, repo.IncrementSeriesScanned(ctx, id, 3))
+
+	got, err := repo.GetByID(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 8, got.SeriesScanned)
+}
+
+func TestScanRepository_IncrementSeriesScanned_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewScanRepository(db)
+	err := repo.IncrementSeriesScanned(context.Background(), uuid.New(), 1)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound), "got %v", err)
+}

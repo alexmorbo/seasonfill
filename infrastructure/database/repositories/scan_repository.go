@@ -60,6 +60,22 @@ func (r *ScanRepository) MarkAborted(ctx context.Context, id uuid.UUID, reason s
 	return nil
 }
 
+// IncrementSeriesScanned atomically adds `by` to the row's
+// series_scanned column. ErrNotFound when no row matches.
+func (r *ScanRepository) IncrementSeriesScanned(ctx context.Context, id uuid.UUID, by int) error {
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.ScanRunModel{}).
+		Where("id = ?", id.String()).
+		UpdateColumn("series_scanned", gorm.Expr("series_scanned + ?", by))
+	if res.Error != nil {
+		return fmt.Errorf("increment series_scanned: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ScanRepository) List(ctx context.Context, f ports.ScanFilter, p ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
 	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
 		return nil, nil, fmt.Errorf("scan list: %w", ports.ErrInvalidLimit)

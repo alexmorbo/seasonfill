@@ -30,10 +30,12 @@ func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
 // Trigger handles POST /api/v1/scan.
 //
 // @Summary     Trigger a manual scan
-// @Description Schedules a scan across all configured instances or the
-// @Description named one. Optional `series_ids` narrows a per-instance
-// @Description scan to specific IDs; unknown IDs are silently dropped
-// @Description with a WARN. Returns 202; clients poll /scans/{id}.
+// @Description Asynchronously schedules a scan across all configured
+// @Description instances or the named one. Returns 202 immediately
+// @Description with status="running"; clients poll /scans/{id} for
+// @Description live progress (series_scanned increments mid-scan).
+// @Description Optional `series_ids` narrows a per-instance scan;
+// @Description unknown IDs are silently dropped with a WARN.
 // @Tags        scans
 // @Accept      json
 // @Produce     json
@@ -50,7 +52,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	if req.Instance != "" {
-		res, err := h.useCase.RunInstance(c.Request.Context(), req.Instance, scan.TriggerManual, req.SeriesIDs...)
+		res, err := h.useCase.StartInstance(c.Request.Context(), req.Instance, scan.TriggerManual, req.SeriesIDs...)
 		if errors.Is(err, scan.ErrScanAlreadyRunning) {
 			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
 				Error:    "scan already running",
@@ -77,7 +79,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 		return
 	}
 
-	results, err := h.useCase.Run(c.Request.Context(), scan.TriggerManual)
+	results, err := h.useCase.Start(c.Request.Context(), scan.TriggerManual)
 	if err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
 		writeInternalError(c, h.logger, "scan_trigger_all_failed", err,
 			slog.String("endpoint", "/api/v1/scan"),

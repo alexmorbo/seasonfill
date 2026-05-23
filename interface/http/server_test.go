@@ -69,6 +69,9 @@ func (noopScanRepo) GetByID(_ context.Context, _ uuid.UUID) (ports.ScanRecord, e
 	return ports.ScanRecord{}, nil
 }
 func (noopScanRepo) MarkAborted(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (noopScanRepo) IncrementSeriesScanned(_ context.Context, _ uuid.UUID, _ int) error {
+	return nil
+}
 func (noopScanRepo) List(_ context.Context, _ ports.ScanFilter, _ ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
 	panic("fake List unexpectedly called - this stub is not configured for List queries")
 }

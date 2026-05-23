@@ -146,7 +146,8 @@ func run() error {
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
 		WithOrigins(originRepo).
-		WithHealthRegistry(checker.Registry())
+		WithHealthRegistry(checker.Registry()).
+		WithWaitGroup(&bgWG)
 
 	// 008c-#4: per-instance webhook cooldown lookup. Wire-time
 	// construction of a closure that returns 0 for unknown instances.
