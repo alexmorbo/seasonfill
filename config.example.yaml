@@ -11,16 +11,17 @@ http:
   auth:
     enabled: true
     api_key: ${SEASONFILL_API_KEY}
-    # HMAC key used to sign session cookies issued by
-    # `POST /api/v1/auth/login`. Production: set a stable 32+ byte
-    # random string so cookies survive process restarts. Leave empty
-    # only for ephemeral local dev — the server will auto-generate a
-    # secret at startup and log a WARN.
-    cookie_secret: ${SEASONFILL_AUTH_COOKIE_SECRET}
-    # Set to true ONLY when serving over HTTPS (e.g. behind an
-    # ingress with TLS terminated). Default false allows
-    # http://localhost development — browsers refuse to send
-    # Secure-flagged cookies back over HTTP.
+    # Cookie lifetime. Default 12h.
+    session_ttl: 12h
+    # Admin username. Phase 7 ships single-user only.
+    web_user: ${SEASONFILL_WEB_USER:-admin}
+    # ONE OF the two below — never both. Empty + empty DB triggers
+    # the first-run auto-generated password flow (printed once at WARN).
+    web_password: ${SEASONFILL_WEB_PASSWORD}
+    web_password_hash: ${SEASONFILL_WEB_PASSWORD_HASH}
+    # Secure cookie flag — true ONLY when serving over HTTPS.
+    # Browsers refuse Secure cookies over plain HTTP, so leave false
+    # for http://localhost dev.
     secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE}
 
 cron:
@@ -55,24 +56,6 @@ scan:
 global_rate_limit:
   rpm: 30
   burst: 10
-
-# Inbound Sonarr Connect -> Webhook receiver (PRD §13.1).
-#
-#   POST /api/v1/webhook/sonarr/:instance_name
-#
-# Sonarr v4 supports custom headers in its Connect -> Webhook config.
-# Configure Sonarr to send header `X-Api-Key: <webhook.secret>` and
-# the existing X-Api-Key middleware enforces it. If `secret` is empty
-# (or the block is omitted), the route accepts any source — rely on
-# NetworkPolicy ingress to allow only the Sonarr namespace. The
-# server logs `webhook_auth_disabled` at startup so operators see the
-# missing gate.
-#
-# `allowed_instances` is a defensive list of instance names that may
-# appear in the URL `:instance_name`. Leave empty to accept any.
-webhook:
-  secret: ${SEASONFILL_WEBHOOK_SECRET}
-  allowed_instances: []
 
 sonarr_instances:
   - name: sonarr-main

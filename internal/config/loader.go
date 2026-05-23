@@ -1,10 +1,7 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"os"
 	"regexp"
 	"strings"
@@ -61,23 +58,6 @@ func LoadFromBytes(raw []byte) (*Config, error) {
 	}
 
 	cfg.ApplyInstanceDefaults()
-
-	// Auto-gen MUST run before Validate() — see Validate() guard
-	// rejecting Enabled=true + empty CookieSecret. Ephemeral: a
-	// restart invalidates every session. Production MUST set
-	// SEASONFILL_AUTH_COOKIE_SECRET so cookies survive restarts.
-	if cfg.HTTP.Auth.Enabled && cfg.HTTP.Auth.CookieSecret == "" {
-		secret := make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
-			return nil, fmt.Errorf("auto-gen auth cookie secret: %w", err)
-		}
-		cfg.HTTP.Auth.CookieSecret = base64.RawStdEncoding.EncodeToString(secret)
-		slog.Warn("auth.cookie_secret_autogen",
-			slog.String("reason",
-				"SEASONFILL_AUTH_COOKIE_SECRET not set — generated ephemeral "+
-					"secret; sessions will not survive restart"),
-		)
-	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate: %w", err)

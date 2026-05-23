@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -33,6 +34,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
+		if err := runResetPassword(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "reset-password: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
@@ -70,6 +78,15 @@ func run() error {
 	}
 	if err := database.Migrate(db); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+
+	adminRepo := repositories.NewAdminUserRepository(db)
+	if err := authapp.Bootstrap(context.Background(), adminRepo, authapp.BootstrapConfig{
+		WebUser:         cfg.HTTP.Auth.WebUser,
+		WebPassword:     cfg.HTTP.Auth.WebPassword,
+		WebPasswordHash: cfg.HTTP.Auth.WebPasswordHash,
+	}, log); err != nil {
+		return fmt.Errorf("auth bootstrap: %w", err)
 	}
 
 	scanRepo := repositories.NewScanRepository(db)
@@ -173,9 +190,18 @@ func run() error {
 		Logger: log,
 	})
 
-	httpServer := httpserver.NewServer(cfg.HTTP, cfg.Webhook, scanUC, webhookUC,
+	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)
+	webhookLimiter := authapp.NewIPLimiter(authapp.WebhookLimit(), 60)
+	knownInstances := make(map[string]struct{}, len(cfg.SonarrInstances))
+	for _, sc := range cfg.SonarrInstances {
+		knownInstances[sc.Name] = struct{}{}
+	}
+
+	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
+		adminRepo, loginLimiter, webhookLimiter,
 		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
+		knownInstances,
 		cooldownRepo, grabUC, rescanUC, scanInstancesByName, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.

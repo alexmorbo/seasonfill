@@ -11,11 +11,8 @@ import (
 	"time"
 )
 
-// NewSessionCookieName is the D48 cookie. Distinct from the 009a
-// SessionCookieName so a stale browser session from the previous build
-// doesn't accidentally validate against the new format. The old
-// constant stays alive in cookie_token.go for 021a-2 to remove.
-const NewSessionCookieName = "seasonfill_session"
+// SessionCookieName is the HMAC-signed session cookie.
+const SessionCookieName = "seasonfill_session"
 
 // SessionPayload is the cookie body. Exp is unix-second; verifier
 // checks `now <= exp`.

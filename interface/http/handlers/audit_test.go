@@ -51,7 +51,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	r := gin.New()
 	api := r.Group("/api/v1")
 	if withAuth {
-		api.Use(middleware.APIKeyAuth("test-key"))
+		api.Use(middleware.RequireAuth("test-key"))
 	}
 	api.GET("/scans", h.ListScans)
 	api.GET("/scans/:id", h.GetScan)

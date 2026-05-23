@@ -36,9 +36,8 @@ type ScanNotFoundResponse struct {
 
 // LoginRequest — JSON body for POST /auth/login (D48).
 type LoginRequest struct {
-	APIKey   string `json:"api_key,omitempty" example:"sf_..."` // deprecated, removed in 021a-2
-	Username string `json:"username,omitempty" example:"admin"`
-	Password string `json:"password,omitempty" example:"hunter2"`
+	Username string `json:"username" example:"admin"`
+	Password string `json:"password" example:"hunter2"`
 }
 
 // PasswordChangeRequest — JSON body for POST /auth/password.

@@ -414,3 +414,27 @@ func TestSearchSeries_SonarrUnauthorized(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Contains(t, body["error"], "unauthorized")
 }
+
+// TestInstancesList_DoesNotLeakAPIKey locks the contract that
+// GET /instances must never include any variant of an apiKey field.
+// Future careless DTO edits fail here.
+func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	c.Preflight(context.Background())
+	r := gin.New()
+	r.GET("/api/v1/instances",
+		NewInstancesHandler(c, nil, map[string]string{"alpha": "auto"}, nil).List)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/instances", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	body := w.Body.String()
+	assert.NotContains(t, body, "api_key", "GET /instances must not include api_key")
+	assert.NotContains(t, body, "apiKey", "GET /instances must not include apiKey")
+	assert.NotContains(t, body, "apikey", "GET /instances must not include apikey")
+}

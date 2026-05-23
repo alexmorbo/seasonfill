@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/auth"
 	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	apprescan "github.com/alexmorbo/seasonfill/application/rescan"
@@ -28,15 +29,18 @@ type Server struct {
 
 func NewServer(
 	cfg config.HTTPConfig,
-	webhookCfg config.WebhookConfig,
 	scanUC *scan.UseCase,
 	webhookUC handlers.WebhookProcessor,
 	checker *healthcheck.Checker,
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
 	grabRepo ports.GrabRepository,
+	adminRepo ports.AdminUserRepository,
+	loginLimiter *auth.IPLimiter,
+	webhookLimiter *auth.IPLimiter,
 	sonarrClients map[string]ports.SonarrClient,
 	instanceModes map[string]string,
+	knownInstances map[string]struct{},
 	cooldownRepo ports.CooldownRepository,
 	grabUC *appgrab.UseCase,
 	rescanUC *apprescan.UseCase,
@@ -52,7 +56,7 @@ func NewServer(
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
 	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
-	webhookHandler := handlers.NewWebhookHandler(webhookUC, webhookCfg, logger)
+	webhookHandler := handlers.NewWebhookHandler(webhookUC, knownInstances, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instancesByName, logger)
 
 	r.GET("/healthz", healthHandler.Live)
@@ -61,62 +65,39 @@ func NewServer(
 
 	api := r.Group("/api/v1")
 
-	// Admin + auth routes are mounted ONLY when auth is enabled.
-	// 009a's NewAuthHandler panics on empty APIKey (H2 review-fix:
-	// fail-fast on server misconfig), so we MUST NOT construct it
-	// when Enabled=false (which is also when APIKey may be empty,
-	// e.g. test fixtures via buildServer(adminKey="")). The
-	// pre-existing no-auth path keeps producing a server with zero
-	// /api/v1 routes mounted — callers that needed those routes
-	// always supplied an APIKey and toggled Enabled=true.
 	if cfg.Auth.Enabled {
-		// secureCookie is its own knob — auth.enabled toggles the
-		// admin surface; secure_cookie says "are we behind HTTPS?".
-		// Conflating them breaks http://localhost dev (browser drops
-		// Secure cookie on HTTP) — see M1 review-fix.
-		authHandler := handlers.NewAuthHandler(cfg.Auth.APIKey, cfg.Auth.CookieSecret, cfg.Auth.SecureCookie, logger)
-
-		// Auth endpoints. Login MUST NOT require auth (otherwise no one
-		// can log in); Logout DOES (only authenticated browsers clear
-		// their session).
-		auth := api.Group("/auth")
-		auth.POST("/login", authHandler.Login)
-		authGuarded := auth.Group("")
-		authGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
-		authGuarded.GET("/session", authHandler.Session)
-		authGuarded.DELETE("/session", authHandler.Logout)
-
-		// Existing admin routes: swap APIKeyAuth → RequireAuth.
-		// Strict superset (cookie OR header now accepted).
-		apiGuarded := api.Group("")
-		apiGuarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, cfg.Auth.CookieSecret))
-		apiGuarded.POST("/scan", scanHandler.Trigger)
-		apiGuarded.GET("/instances", instancesHandler.List)
-		apiGuarded.GET("/instances/:name/missing", instancesHandler.Missing)
-		apiGuarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
-		apiGuarded.GET("/scans", auditHandler.ListScans)
-		apiGuarded.GET("/scans/:id", auditHandler.GetScan)
-		apiGuarded.GET("/decisions", auditHandler.ListDecisions)
-		apiGuarded.GET("/grabs", auditHandler.ListGrabs)
-		apiGuarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
-		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
-		apiGuarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
-		apiGuarded.POST("/scans/:id/cancel", scanHandler.Cancel)
-	}
-
-	// Webhook is independent — mounted on the root engine so admin
-	// RequireAuth never inherits. Applies its own APIKeyAuth (or
-	// none when Webhook.Secret is empty).
-	wh := r.Group("/api/v1/webhook/sonarr/:instance_name")
-	if webhookCfg.Secret != "" {
-		wh.Use(middleware.APIKeyAuth(webhookCfg.Secret))
-	} else {
-		logger.Warn("webhook_auth_disabled",
-			slog.String("reason",
-				"webhook.secret empty — relying on NetworkPolicy / upstream firewall"),
+		authHandler := handlers.NewAuthHandler(
+			cfg.Auth.APIKey, adminRepo, cfg.Auth.SessionTTL,
+			cfg.Auth.SecureCookie, loginLimiter, logger,
 		)
+		api.POST("/auth/login", authHandler.Login)
+
+		guarded := api.Group("")
+		guarded.Use(middleware.RequireAuth(cfg.Auth.APIKey))
+		guarded.GET("/auth/session", authHandler.Session)
+		guarded.DELETE("/auth/session", authHandler.Logout)
+		guarded.POST("/auth/password", authHandler.PasswordChange)
+		guarded.POST("/scan", scanHandler.Trigger)
+		guarded.GET("/instances", instancesHandler.List)
+		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
+		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
+		guarded.GET("/scans", auditHandler.ListScans)
+		guarded.GET("/scans/:id", auditHandler.GetScan)
+		guarded.GET("/decisions", auditHandler.ListDecisions)
+		guarded.GET("/grabs", auditHandler.ListGrabs)
+		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
+		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
+		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
+		guarded.POST("/scans/:id/cancel", scanHandler.Cancel)
+
+		// Webhook on the shared auth surface + per-instance rate limit.
+		wh := api.Group("/webhook/sonarr/:instance_name")
+		wh.Use(middleware.RequireAuth(cfg.Auth.APIKey))
+		if webhookLimiter != nil {
+			wh.Use(webhookRateLimit(webhookLimiter))
+		}
+		wh.POST("", webhookHandler.Handle)
 	}
-	wh.POST("", webhookHandler.Handle)
 
 	srv := &http.Server{
 		Addr:         cfg.Bind,
@@ -126,6 +107,19 @@ func NewServer(
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 	return &Server{cfg: cfg, server: srv, engine: r, logger: logger}
+}
+
+// webhookRateLimit keys on :instance_name. IP-keyed would be wrong
+// here — Sonarr always comes from the same IP, but per-instance keeps
+// one rogue instance from starving the others.
+func webhookRateLimit(lim *auth.IPLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !lim.Allow(c.Param("instance_name")) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+			return
+		}
+		c.Next()
+	}
 }
 
 func (s *Server) Start() error {

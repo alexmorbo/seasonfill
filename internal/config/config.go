@@ -14,7 +14,6 @@ type Config struct {
 	DryRun          bool                  `koanf:"dry_run"`
 	Scan            ScanConfig            `koanf:"scan"`
 	GlobalRateLimit GlobalRateLimitConfig `koanf:"global_rate_limit"`
-	Webhook         WebhookConfig         `koanf:"webhook"`
 	SonarrInstances []SonarrInstance      `koanf:"sonarr_instances"`
 }
 
@@ -23,22 +22,6 @@ type Config struct {
 type GlobalRateLimitConfig struct {
 	RPM   int `koanf:"rpm"`
 	Burst int `koanf:"burst"`
-}
-
-// WebhookConfig — inbound Sonarr Connect -> Webhook receiver (PRD §13.1).
-//
-// Secret is the value Sonarr puts in its custom-header field (header
-// name = X-Api-Key). Empty secret = the handler accepts any source
-// and the server logs `webhook_auth_disabled` once at startup (Q-1
-// fallback — NetworkPolicy is the gate).
-//
-// AllowedInstances is a defensive allow-list of instance names that
-// MUST appear in the URL `:instance_name`. Empty = accept any
-// (back-compat). Per Q-8 we validate the URL path NOT the payload's
-// `instanceName` (operator-set in Sonarr UI, untrustworthy).
-type WebhookConfig struct {
-	Secret           string   `koanf:"secret"`
-	AllowedInstances []string `koanf:"allowed_instances"`
 }
 
 type LogConfig struct {
@@ -57,12 +40,6 @@ type HTTPConfig struct {
 
 // AuthConfig holds the admin HTTP auth surface.
 //
-// CookieSecret signs session cookies issued by /api/v1/auth/login.
-// Empty at startup → main.go auto-generates 32 random bytes and
-// logs a WARN; sessions then last only the process lifetime.
-// Production MUST set SEASONFILL_AUTH_COOKIE_SECRET so rolling
-// restarts don't log every user out.
-//
 // SecureCookie sets the cookie's Secure flag — true ONLY when
 // serving over HTTPS (e.g. behind an ingress with TLS terminated).
 // Default false so http://localhost dev works (browsers drop
@@ -70,12 +47,11 @@ type HTTPConfig struct {
 type AuthConfig struct {
 	Enabled         bool          `koanf:"enabled"`
 	APIKey          string        `koanf:"api_key"`
-	CookieSecret    string        `koanf:"cookie_secret"`     // deprecated, removed in 021a-2
 	SecureCookie    bool          `koanf:"secure_cookie"`
-	SessionTTL      time.Duration `koanf:"session_ttl"`       // new (D48)
-	WebUser         string        `koanf:"web_user"`          // new (D48)
-	WebPassword     string        `koanf:"web_password"`      // new (D48), mutex with WebPasswordHash
-	WebPasswordHash string        `koanf:"web_password_hash"` // new (D48), mutex with WebPassword
+	SessionTTL      time.Duration `koanf:"session_ttl"`
+	WebUser         string        `koanf:"web_user"`
+	WebPassword     string        `koanf:"web_password"`
+	WebPasswordHash string        `koanf:"web_password_hash"`
 }
 
 type CronConfig struct {
@@ -310,16 +286,16 @@ func (c *Config) ApplyInstanceDefaults() {
 }
 
 var (
-	ErrNoInstances     = errors.New("at least one sonarr instance is required")
-	ErrInstanceURL     = errors.New("sonarr instance url is required")
-	ErrInstanceName    = errors.New("sonarr instance name is required")
-	ErrInstanceAPIKey  = errors.New("sonarr instance api_key is required")
-	ErrInstanceMode    = errors.New("sonarr instance mode must be one of: auto, manual")
-	ErrUnknownDriver   = errors.New("unknown database driver, expected sqlite or postgres")
+	ErrNoInstances       = errors.New("at least one sonarr instance is required")
+	ErrInstanceURL       = errors.New("sonarr instance url is required")
+	ErrInstanceName      = errors.New("sonarr instance name is required")
+	ErrInstanceAPIKey    = errors.New("sonarr instance api_key is required")
+	ErrInstanceMode      = errors.New("sonarr instance mode must be one of: auto, manual")
+	ErrUnknownDriver     = errors.New("unknown database driver, expected sqlite or postgres")
 	ErrAuthKeyRequired   = errors.New("http.auth.api_key is required when auth.enabled=true")
 	ErrAuthPasswordMutex = errors.New("http.auth.web_password and http.auth.web_password_hash are mutually exclusive")
-	ErrPostgresDSN     = errors.New("database.postgres.dsn is required when driver=postgres")
-	ErrSQLitePath      = errors.New("database.sqlite.path is required when driver=sqlite")
+	ErrPostgresDSN       = errors.New("database.postgres.dsn is required when driver=postgres")
+	ErrSQLitePath        = errors.New("database.sqlite.path is required when driver=sqlite")
 )
 
 func (c *Config) Validate() error {
@@ -362,9 +338,6 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("instance %q: %w (got %q)", inst.Name, ErrInstanceMode, inst.Mode)
 		}
-	}
-	if c.HTTP.Auth.Enabled && c.HTTP.Auth.CookieSecret == "" {
-		return fmt.Errorf("http.auth.cookie_secret is required when http.auth.enabled is true (set SEASONFILL_AUTH_COOKIE_SECRET or let the loader auto-generate)")
 	}
 	return nil
 }

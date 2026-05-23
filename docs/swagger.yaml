@@ -183,8 +183,11 @@ components:
       type: object
     dto.LoginRequest:
       properties:
-        api_key:
-          example: sf_abc123
+        password:
+          example: hunter2
+          type: string
+        username:
+          example: admin
           type: string
       type: object
     dto.MissingSeasonStat:
@@ -228,6 +231,15 @@ components:
         ok:
           example: true
           type: boolean
+      type: object
+    dto.PasswordChangeRequest:
+      properties:
+        current:
+          example: hunter22
+          type: string
+        new:
+          example: NewSecretLongEnough
+          type: string
       type: object
     dto.ReadyStatus:
       properties:
@@ -398,6 +410,18 @@ components:
           example: 142
           type: integer
       type: object
+    dto.SessionResponse:
+      properties:
+        auto_generated:
+          example: false
+          type: boolean
+        ok:
+          example: true
+          type: boolean
+        username:
+          example: admin
+          type: string
+      type: object
   securitySchemes:
     ApiKeyAuth:
       in: cookie
@@ -418,14 +442,15 @@ paths:
   /auth/login:
     post:
       description: |-
-        Validates api_key (body or X-Api-Key header). On success
-        sets HttpOnly seasonfill_session cookie and returns 200.
+        Validates username + password. On success sets HttpOnly
+        seasonfill_session cookie and returns 200.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/dto.LoginRequest'
-        description: API key (alternative to X-Api-Key header)
+        description: Username and password
+        required: true
       responses:
         "200":
           content:
@@ -450,7 +475,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Unauthorized
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Too Many Requests
       summary: Authenticate and issue a session cookie
+      tags:
+      - auth
+  /auth/password:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.PasswordChangeRequest'
+        description: Current + new password
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Change the admin password
       tags:
       - auth
   /auth/session:
@@ -476,7 +537,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/dto.OKResponse'
+                $ref: '#/components/schemas/dto.SessionResponse'
           description: OK
         "401":
           content:

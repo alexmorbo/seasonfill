@@ -152,124 +152,6 @@ func TestApplyInstanceDefaults_GUIDAfterFailedImport_KeepsExplicit(t *testing.T)
 	require.Equal(t, 6*time.Hour, cfg.SonarrInstances[0].Cooldown.GUIDAfterFailedImport)
 }
 
-func TestLoadFromBytes_CookieSecretEnv(t *testing.T) {
-	t.Setenv("SEASONFILL_API_KEY", "admin-key")
-	t.Setenv("SEASONFILL_AUTH_COOKIE_SECRET", "from-env-32-bytes-long-secret!")
-	t.Setenv("SONARR_URL", "http://sonarr.local")
-	t.Setenv("SONARR_KEY", "k")
-
-	raw := []byte(`
-http:
-  auth:
-    enabled: true
-    api_key: ${SEASONFILL_API_KEY}
-    cookie_secret: ${SEASONFILL_AUTH_COOKIE_SECRET}
-sonarr_instances:
-  - name: main
-    url: ${SONARR_URL}
-    api_key: ${SONARR_KEY}
-`)
-	cfg, err := LoadFromBytes(raw)
-	require.NoError(t, err)
-	assert.Equal(t, "from-env-32-bytes-long-secret!", cfg.HTTP.Auth.CookieSecret)
-}
-
-func TestDefaults_CookieSecretEmpty(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	assert.Empty(t, cfg.HTTP.Auth.CookieSecret,
-		"empty default triggers the auto-gen fallback in loader.go (Q-2)")
-	assert.False(t, cfg.HTTP.Auth.SecureCookie,
-		"default SecureCookie=false keeps http://localhost dev working (M1)")
-}
-
-func TestLoadFromBytes_SecureCookieEnv(t *testing.T) {
-	t.Setenv("SEASONFILL_API_KEY", "admin-key")
-	t.Setenv("SEASONFILL_AUTH_COOKIE_SECRET", "s")
-	t.Setenv("SEASONFILL_AUTH_SECURE_COOKIE", "true")
-	t.Setenv("SONARR_URL", "http://sonarr.local")
-	t.Setenv("SONARR_KEY", "k")
-
-	raw := []byte(`
-http:
-  auth:
-    enabled: true
-    api_key: ${SEASONFILL_API_KEY}
-    cookie_secret: ${SEASONFILL_AUTH_COOKIE_SECRET}
-    secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE}
-sonarr_instances:
-  - name: main
-    url: ${SONARR_URL}
-    api_key: ${SONARR_KEY}
-`)
-	cfg, err := LoadFromBytes(raw)
-	require.NoError(t, err)
-	assert.True(t, cfg.HTTP.Auth.SecureCookie,
-		"SEASONFILL_AUTH_SECURE_COOKIE=true must flip the field (M1)")
-}
-
-func TestValidate_AuthEnabledRequiresCookieSecret(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	cfg.HTTP.Auth.Enabled = true
-	cfg.HTTP.Auth.APIKey = "k"
-	cfg.HTTP.Auth.CookieSecret = ""
-	cfg.SonarrInstances = []SonarrInstance{{Name: "m", URL: "http://x", APIKey: "k"}}
-	err := cfg.Validate()
-	require.Error(t, err, "Validate must reject Enabled=true with empty CookieSecret (M2)")
-	assert.Contains(t, err.Error(), "cookie_secret")
-}
-
-func TestValidate_AuthEnabledWithCookieSecret_OK(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	cfg.HTTP.Auth.Enabled = true
-	cfg.HTTP.Auth.APIKey = "k"
-	cfg.HTTP.Auth.CookieSecret = "some-secret"
-	cfg.SonarrInstances = []SonarrInstance{{Name: "m", URL: "http://x", APIKey: "k"}}
-	require.NoError(t, cfg.Validate(), "happy path: Enabled=true + non-empty CookieSecret → nil (M2)")
-}
-
-func TestDefaults_WebhookEmpty(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	assert.Empty(t, cfg.Webhook.Secret, "empty secret is the documented fallback (Q-1)")
-	assert.Empty(t, cfg.Webhook.AllowedInstances, "empty allow-list means accept any (Q-8)")
-}
-
-func TestLoadFromBytes_WebhookSection(t *testing.T) {
-	t.Setenv("SEASONFILL_API_KEY", "main-key")
-	t.Setenv("SONARR_URL", "http://sonarr.local")
-	t.Setenv("SONARR_KEY", "k")
-	t.Setenv("SEASONFILL_WEBHOOK_SECRET", "hook-secret-123")
-
-	raw := []byte(`
-http:
-  auth:
-    enabled: true
-    api_key: ${SEASONFILL_API_KEY}
-webhook:
-  secret: ${SEASONFILL_WEBHOOK_SECRET}
-  allowed_instances: [sonarr-main, sonarr-tv]
-sonarr_instances:
-  - name: sonarr-main
-    url: ${SONARR_URL}
-    api_key: ${SONARR_KEY}
-`)
-	cfg, err := LoadFromBytes(raw)
-	require.NoError(t, err)
-	assert.Equal(t, "hook-secret-123", cfg.Webhook.Secret)
-	assert.Equal(t, []string{"sonarr-main", "sonarr-tv"}, cfg.Webhook.AllowedInstances)
-}
-
-func TestValidate_AcceptsEmptyWebhook(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	cfg.HTTP.Auth.Enabled = false
-	cfg.SonarrInstances = []SonarrInstance{{Name: "x", URL: "u", APIKey: "k"}}
-	require.NoError(t, cfg.Validate())
-}
-
 func TestApplyInstanceDefaults_Mode_DefaultsToAuto(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{SonarrInstances: []SonarrInstance{
@@ -408,7 +290,6 @@ func TestValidate_PasswordMutex(t *testing.T) {
 	t.Parallel()
 	cfg := Defaults()
 	cfg.HTTP.Auth.APIKey = "k"
-	cfg.HTTP.Auth.CookieSecret = "c"
 	cfg.SonarrInstances = []SonarrInstance{{Name: "a", URL: "http://x", APIKey: "y"}}
 	cfg.HTTP.Auth.WebPassword = "plain"
 	cfg.HTTP.Auth.WebPasswordHash = "$2a$12$abc"

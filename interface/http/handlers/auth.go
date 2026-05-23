@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,38 +11,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/auth"
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 )
 
-// cookieMaxAgeSeconds matches middleware.VerifyCookie's TTL so
-// the browser and server share one expiry contract.
-const cookieMaxAgeSeconds = 30 * 24 * 60 * 60
+const (
+	loginBodyLimit = 4 << 10
+	jsonPrefix     = "application/json"
+)
 
-// loginRequestBodyLimit caps the JSON payload at 4 KiB.
-const loginRequestBodyLimit = 4 << 10
-
-// jsonContentTypePrefix gates body parsing in Login. Non-JSON
-// Content-Types (e.g. form POSTs — CORS-simple, no preflight)
-// must not exercise the body branch.
-const jsonContentTypePrefix = "application/json"
-
-// AuthHandler serves the session bridge endpoints. Stateless;
-// constructor signature is the interlock with 009a1's server.go.
+// AuthHandler — D48 handler.
 type AuthHandler struct {
 	apiKey       string
-	cookieSecret []byte
+	repo         ports.AdminUserRepository
+	sessionTTL   time.Duration
 	secureCookie bool
+	limiter      *auth.IPLimiter
 	logger       *slog.Logger
 	now          func() time.Time
 }
 
-// AuthOption mirrors the functional-options pattern in
-// application/webhook/usecase.go and application/grab/grab_usecase.go.
 type AuthOption func(*AuthHandler)
 
-// WithClock injects a clock for deterministic tests. Production
-// callers omit it; default is time.Now.
 func WithClock(now func() time.Time) AuthOption {
 	return func(h *AuthHandler) {
 		if now != nil {
@@ -52,22 +43,26 @@ func WithClock(now func() time.Time) AuthOption {
 	}
 }
 
-// NewAuthHandler builds the handler. `secureCookie` should be true
-// in production (HTTPS); 009a1 wires it from cfg.Auth.Enabled.
-// Panics on empty `apiKey` — server-misconfig must fail fast.
-func NewAuthHandler(apiKey, cookieSecret string, secureCookie bool, logger *slog.Logger, opts ...AuthOption) *AuthHandler {
+// NewAuthHandler — panics on empty apiKey or nil repo.
+func NewAuthHandler(
+	apiKey string, repo ports.AdminUserRepository, sessionTTL time.Duration,
+	secureCookie bool, limiter *auth.IPLimiter, logger *slog.Logger, opts ...AuthOption,
+) *AuthHandler {
 	if apiKey == "" {
 		panic("handlers.NewAuthHandler: apiKey must not be empty")
+	}
+	if repo == nil {
+		panic("handlers.NewAuthHandler: repo must not be nil")
+	}
+	if sessionTTL <= 0 {
+		sessionTTL = 12 * time.Hour
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 	h := &AuthHandler{
-		apiKey:       apiKey,
-		cookieSecret: []byte(cookieSecret),
-		secureCookie: secureCookie,
-		logger:       logger,
-		now:          time.Now,
+		apiKey: apiKey, repo: repo, sessionTTL: sessionTTL,
+		secureCookie: secureCookie, limiter: limiter, logger: logger, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -75,135 +70,211 @@ func NewAuthHandler(apiKey, cookieSecret string, secureCookie bool, logger *slog
 	return h
 }
 
-// Login is POST /api/v1/auth/login. Accepts the API key in the
-// JSON body (only when Content-Type starts with application/json)
-// or via X-Api-Key. Body wins when both are present and non-empty.
-// 401 envelope is identical to middleware/auth.go so a probe
-// cannot distinguish failure source.
+// Login is POST /api/v1/auth/login.
 //
 // @Summary     Authenticate and issue a session cookie
-// @Description Validates api_key (body or X-Api-Key header). On success
-// @Description sets HttpOnly seasonfill_session cookie and returns 200.
+// @Description Validates username + password. On success sets HttpOnly
+// @Description seasonfill_session cookie and returns 200.
 // @Tags        auth
 // @Accept      json
 // @Produce     json
-// @Param       body  body      dto.LoginRequest  false  "API key (alternative to X-Api-Key header)"
+// @Param       body  body      dto.LoginRequest  true  "Username and password"
 // @Success     200   {object}  dto.OKResponse
 // @Failure     400   {object}  dto.ErrorResponse
 // @Failure     401   {object}  dto.ErrorResponse
+// @Failure     429   {object}  dto.ErrorResponse
 // @Header      200   {string}  Set-Cookie  "HttpOnly session cookie"
 // @Router      /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
-	candidate := ""
-
-	ct := c.GetHeader("Content-Type")
-	if strings.HasPrefix(ct, jsonContentTypePrefix) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, loginRequestBodyLimit)
-		raw, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				h.respondInvalidKey(c)
-				return
-			}
-			h.logger.ErrorContext(c.Request.Context(), "auth.login.body_read_failed",
-				slog.String("error", err.Error()),
-			)
-			h.respondInvalidKey(c)
-			return
-		}
-		if len(raw) > 0 {
-			var body dto.LoginRequest
-			if err := json.Unmarshal(raw, &body); err != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "malformed body"})
-				return
-			}
-			candidate = body.APIKey
-		}
-	}
-	if candidate == "" {
-		candidate = c.GetHeader("X-Api-Key")
-	}
-
-	// No early return on empty apiKey / candidate — let
-	// subtle.ConstantTimeCompare handle length mismatches uniformly
-	// so the timing profile is identical across all failure modes.
-	if subtle.ConstantTimeCompare([]byte(candidate), []byte(h.apiKey)) != 1 {
-		h.respondInvalidKey(c)
+	ip := c.ClientIP()
+	if h.limiter != nil && !h.limiter.Allow(ip) {
+		h.logger.WarnContext(c.Request.Context(), "auth.login.rate_limited",
+			slog.String("ip", ip))
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			"error": "Invalid credentials", "code": "UNAUTHORIZED",
+		})
 		return
 	}
 
-	token, err := middleware.SignCookie(h.cookieSecret, h.now())
+	username, password, ok := h.readLoginBody(c)
+	if !ok {
+		return
+	}
+
+	user, err := h.repo.Get(c.Request.Context())
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		h.logger.ErrorContext(c.Request.Context(), "auth.login.repo_failed",
+			slog.String("error", err.Error()))
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	usernameMatches := err == nil && user.Username == username
+	hashToCompare := user.PasswordHash
+	if !usernameMatches {
+		hashToCompare = ""
+	}
+	if !auth.ConstantLatencyVerify(hashToCompare, password) {
+		h.logger.WarnContext(c.Request.Context(), "auth.login.failed",
+			slog.String("ip", ip))
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "Invalid credentials", "code": "UNAUTHORIZED",
+		})
+		return
+	}
+
+	exp := h.now().Add(h.sessionTTL)
+	tok, err := middleware.SignSession([]byte(h.apiKey), user.Username, exp)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "auth.login.sign_failed",
-			slog.String("error", err.Error()),
-		)
+			slog.String("error", err.Error()))
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
 	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(
-		middleware.SessionCookieName,
-		token,
-		cookieMaxAgeSeconds,
-		"/",
-		"", // domain — leave blank for host-only
-		h.secureCookie,
-		true, // HttpOnly
-	)
-	h.logger.InfoContext(c.Request.Context(), "auth.login.success")
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.SetCookie(middleware.SessionCookieName, tok,
+		int(h.sessionTTL.Seconds()), "/", "",
+		h.secureCookie || requestIsTLS(c.Request), true)
+	h.logger.InfoContext(c.Request.Context(), "auth.login.success",
+		slog.String("username", user.Username))
+	c.JSON(http.StatusOK, gin.H{
+		"ok": true, "username": user.Username, "auto_generated": user.AutoGenerated,
+	})
 }
 
-// Logout is DELETE /api/v1/auth/session. 009a1 mounts this behind
-// RequireAuth. Clears the session cookie with Max-Age=-1 and 204.
+func (h *AuthHandler) readLoginBody(c *gin.Context) (string, string, bool) {
+	ct := c.GetHeader("Content-Type")
+	if !strings.HasPrefix(ct, jsonPrefix) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "content-type must be application/json",
+		})
+		return "", "", false
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, loginBodyLimit)
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "payload too large"})
+			return "", "", false
+		}
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "cannot read body"})
+		return "", "", false
+	}
+	var body dto.LoginRequest
+	if err := json.Unmarshal(raw, &body); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "malformed body"})
+		return "", "", false
+	}
+	return body.Username, body.Password, true
+}
+
+// Logout clears the session cookie.
 //
 // @Summary     Clear the session cookie
 // @Tags        auth
 // @Produce     json
 // @Success     204
-// @Failure     401   {object}  dto.ErrorResponse
+// @Failure     401  {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
 // @Router      /auth/session [delete]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(
-		middleware.SessionCookieName,
-		"",
-		-1, // Max-Age=-1 → delete
-		"/",
-		"",
-		h.secureCookie,
-		true,
-	)
+	c.SetCookie(middleware.SessionCookieName, "", -1, "/", "",
+		h.secureCookie || requestIsTLS(c.Request), true)
 	h.logger.InfoContext(c.Request.Context(), "auth.logout.success")
 	c.Status(http.StatusNoContent)
 }
 
-// Session is GET /api/v1/auth/session — used by browser SPAs to verify
-// the current session is still valid. 009a1 mounts this behind
-// RequireAuth, so reaching the handler at all means auth succeeded.
+// Session verifies the current session.
 //
 // @Summary     Verify the current session
 // @Tags        auth
 // @Produce     json
-// @Success     200   {object}  dto.OKResponse
-// @Failure     401   {object}  dto.ErrorResponse
+// @Success     200  {object}  dto.SessionResponse
+// @Failure     401  {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
 // @Router      /auth/session [get]
 func (h *AuthHandler) Session(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	username := c.GetString(middleware.UsernameContextKey)
+	autoGen := false
+	if username != "" && username != "api-key" {
+		if u, err := h.repo.Get(c.Request.Context()); err == nil {
+			autoGen = u.AutoGenerated
+		}
+	}
+	c.JSON(http.StatusOK, dto.SessionResponse{
+		OK: true, Username: username, AutoGenerated: autoGen,
+	})
 }
 
-// respondInvalidKey emits the project's standard 401 envelope —
-// matches interface/http/middleware/auth.go:14-17.
-func (h *AuthHandler) respondInvalidKey(c *gin.Context) {
-	h.logger.WarnContext(c.Request.Context(), "auth.login.failed")
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-		"error": "unauthorized",
-		"code":  "UNAUTHORIZED",
-	})
+// PasswordChange replaces the admin password.
+//
+// @Summary     Change the admin password
+// @Tags        auth
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.PasswordChangeRequest  true  "Current + new password"
+// @Success     204
+// @Failure     400  {object}  dto.ErrorResponse
+// @Failure     401  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /auth/password [post]
+func (h *AuthHandler) PasswordChange(c *gin.Context) {
+	ct := c.GetHeader("Content-Type")
+	if !strings.HasPrefix(ct, jsonPrefix) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "content-type must be application/json",
+		})
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, loginBodyLimit)
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "cannot read body"})
+		return
+	}
+	var body dto.PasswordChangeRequest
+	if err := json.Unmarshal(raw, &body); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "malformed body"})
+		return
+	}
+	if len(body.New) < auth.MinPasswordLen {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "password too short (min 8 chars)",
+		})
+		return
+	}
+	user, err := h.repo.Get(c.Request.Context())
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+	if !auth.VerifyPassword(user.PasswordHash, body.Current) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+	newHash, err := auth.HashPassword(body.New)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	if err := h.repo.UpdatePassword(c.Request.Context(), newHash, false); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	h.logger.InfoContext(c.Request.Context(), "auth.password_change.success",
+		slog.String("username", user.Username))
+	c.Status(http.StatusNoContent)
+}
+
+func requestIsTLS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }

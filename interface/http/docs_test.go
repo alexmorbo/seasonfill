@@ -38,7 +38,7 @@ func TestSwaggerYAML_CoversAllRoutes(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(raw, &spec))
 	require.NotEmpty(t, spec.Paths, "swagger.yaml has no paths section")
 
-	srv := newServerForTest(t, "test-key", "test-cookie-secret-32-bytes-min!")
+	srv := newServerForTest(t, "test-key")
 	routes := srv.engine.Routes()
 	require.NotEmpty(t, routes, "engine has no routes")
 
