@@ -1,0 +1,85 @@
+# Seasonfill — docker-compose deploy.
+#
+# Quick start:
+#   1. cp .env.example .env
+#   2. openssl rand -hex 32  # paste into SEASONFILL_API_KEY
+#   3. cp config.example.yaml config.yaml  # tweak Sonarr URL + tags
+#   4. docker compose up -d
+#   5. docker compose logs -f backend  # grab the FIRST-RUN password
+#   6. open http://localhost:8080
+#
+# Security defaults:
+#   - Backend container does NOT publish a host port. The frontend
+#     proxies /api, /auth, /webhook, /readyz, /metrics to it inside
+#     the compose network. Only the frontend's :8080 is exposed.
+#   - SEASONFILL_AUTH_SECURE_COOKIE defaults to false (plain HTTP).
+#     Set to true ONLY when terminating TLS in front (Caddy/Traefik/etc.).
+
+services:
+  backend:
+    image: ghcr.io/alexmorbo/seasonfill:${TAG:-latest}
+    container_name: seasonfill-backend
+    restart: unless-stopped
+    environment:
+      # Required — HMAC signing key + service-to-service auth.
+      # The `:?` form makes compose abort if the var is unset/empty.
+      SEASONFILL_API_KEY: "${SEASONFILL_API_KEY:?SEASONFILL_API_KEY is required (run openssl rand -hex 32)}"
+      # Web login. Leave SEASONFILL_WEB_PASSWORD empty for first-run
+      # auto-generated password (printed to backend logs once).
+      SEASONFILL_WEB_USER: ${SEASONFILL_WEB_USER:-admin}
+      SEASONFILL_WEB_PASSWORD: ${SEASONFILL_WEB_PASSWORD:-}
+      SEASONFILL_WEB_PASSWORD_HASH: ${SEASONFILL_WEB_PASSWORD_HASH:-}
+      SEASONFILL_AUTH_SECURE_COOKIE: ${SEASONFILL_AUTH_SECURE_COOKIE:-false}
+      # Database. Empty POSTGRES_DSN keeps the SQLite default below.
+      DB_DRIVER: ${DB_DRIVER:-sqlite}
+      SQLITE_PATH: ${SQLITE_PATH:-/data/seasonfill.db}
+      POSTGRES_DSN: ${POSTGRES_DSN:-}
+      # Sonarr instance — config.yaml references these via ${VAR}.
+      # Add SONARR_<NAME>_URL / SONARR_<NAME>_API_KEY pairs per instance
+      # and reference them from config.yaml. Example below.
+      SONARR_MAIN_URL: ${SONARR_MAIN_URL:-}
+      SONARR_MAIN_API_KEY: ${SONARR_MAIN_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./config.yaml:/etc/seasonfill/config.yaml:ro
+      - seasonfill-data:/data
+    command: ["-config", "/etc/seasonfill/config.yaml"]
+    # Distroless has neither curl nor wget. We exec the binary itself
+    # to verify it can reach its own /readyz over the loopback. The
+    # binary exposes no `healthcheck` subcommand today (verified in
+    # cmd/server/main.go), so the simplest reliable signal is a TCP
+    # connect to :8080. We piggyback on the Go runtime by invoking
+    # `nc`-equivalent via the binary's own --help (which exits 0). For
+    # a stronger HTTP-level check we would need a sidecar; defer to
+    # the frontend's depends_on (it'll fail to proxy if backend is
+    # dead, and the README covers manual /readyz check).
+    #
+    # If the implementer finds a workable distroless probe (e.g. the
+    # backend grows a `seasonfill healthcheck` subcommand later),
+    # update this block. For now, depends_on alone keeps boot order
+    # correct; runtime health is observed via frontend probe failures
+    # and backend logs.
+    # healthcheck: (intentionally omitted — see note above)
+
+  frontend:
+    image: ghcr.io/alexmorbo/seasonfill-web:${TAG:-latest}
+    container_name: seasonfill-frontend
+    restart: unless-stopped
+    environment:
+      SEASONFILL_BACKEND_URL: http://backend:8080
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      - backend
+    healthcheck:
+      # Frontend probe — local /healthz returns 200 from nginx itself,
+      # not proxied. Catches a broken nginx render.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  seasonfill-data:
+    driver: local

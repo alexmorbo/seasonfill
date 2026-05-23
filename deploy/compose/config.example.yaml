@@ -1,0 +1,89 @@
+# Seasonfill — minimal config for docker-compose deployments.
+#
+# Sensitive values come from env vars (compose `.env` file). The
+# backend resolves `${VAR}` / `${VAR:-default}` at startup
+# (internal/config/loader.go).
+
+log:
+  level: ${LOG_LEVEL:-info}
+  format: json
+
+http:
+  bind: ":8080"
+  read_timeout: 15s
+  write_timeout: 30s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+  auth:
+    enabled: true
+    api_key: ${SEASONFILL_API_KEY}
+    session_ttl: 12h
+    web_user: ${SEASONFILL_WEB_USER:-admin}
+    web_password: ${SEASONFILL_WEB_PASSWORD}
+    web_password_hash: ${SEASONFILL_WEB_PASSWORD_HASH}
+    secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE:-false}
+
+cron:
+  enabled: true
+  schedule: "0 */6 * * *"
+  on_start: false
+  jitter: 1m
+
+database:
+  driver: ${DB_DRIVER:-sqlite}
+  sqlite:
+    path: ${SQLITE_PATH:-/data/seasonfill.db}
+  postgres:
+    dsn: ${POSTGRES_DSN}
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 5m
+
+# Real grabs ON. Flip to `true` during initial smoke if you want to
+# observe decisions without firing releases.
+dry_run: false
+
+scan:
+  shutdown_grace: 60s
+  cooldown_sweep: 15m
+
+global_rate_limit:
+  rpm: 30
+  burst: 10
+
+sonarr_instances:
+  - name: sonarr-main
+    url: ${SONARR_MAIN_URL}
+    api_key: ${SONARR_MAIN_API_KEY}
+    timeout: 10s
+    search_timeout: 60s
+    tags:
+      mode: all
+      include: []
+      exclude: []
+    search:
+      require_all_aired: false
+      skip_specials: true
+      skip_anime: true
+      min_custom_format_score: 0
+    ranking:
+      indexer_priority_enabled: true
+      origin_bonus: 1.0
+    limits:
+      scan_max_series: 100
+      max_grabs_per_scan: 10
+    rate_limit:
+      rps: 5
+      burst: 10
+    cooldown:
+      mode: smart
+      series_after_grab: 24h
+      guid_after_failed_grab: 72h
+      guid_after_failed_import: 48h
+    retry:
+      max_attempts: 3
+      initial_backoff: 1s
+      max_backoff: 30s
+    health_check:
+      recheck_interval_auth: 5m
+      recheck_interval_network: 1m

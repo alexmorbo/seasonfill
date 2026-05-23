@@ -1,0 +1,146 @@
+# Seasonfill SPA — served from /usr/share/nginx/html with try_files
+# fallback to /index.html. nginx-unprivileged listens on 8080 by
+# default; do NOT change the port here without updating values.yaml's
+# web.containerPort and the probes.
+#
+# `${SEASONFILL_BACKEND_URL}` is resolved by envsubst in entrypoint.sh
+# at container start. Default: `http://backend:8080` (compose service
+# name). The Helm chart sets this to the backend Service ClusterIP URL.
+server {
+    listen 8080 default_server;
+    listen [::]:8080 default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Gzip — Vite output is mostly JS + CSS, gzips well.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types
+        application/javascript
+        application/json
+        application/xml
+        text/css
+        text/javascript
+        text/plain
+        text/xml
+        image/svg+xml;
+
+    # Security headers — applied to every response. `always` ensures
+    # they are emitted even on 4xx/5xx so an intermediate proxy doesn't
+    # strip them on error pages.
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # Backend fan-out. The frontend proxies these path prefixes to the
+    # backend container so end users hit a single host:port. The
+    # backend itself stays unexposed (compose: no `ports:` mapping on
+    # the backend service; chart: ClusterIP).
+    #
+    # Order matters — these `location` directives sit BEFORE the SPA
+    # fallback `location /` so they win for matching paths. /healthz
+    # is duplicated below at lower priority as a frontend-only liveness
+    # endpoint; the proxied entries take precedence because the
+    # `location =` (exact match) below is replaced — see note.
+
+    location /api/ {
+        proxy_pass ${SEASONFILL_BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        # SSE/long-poll friendly — /api/v1/scans/:id/events streams.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    # Auth endpoints sit on the backend. Login is rate-limited there
+    # (021a). The proxy forwards the real client IP so the backend's
+    # IP-based limiter sees the actual source.
+    location /auth/ {
+        proxy_pass ${SEASONFILL_BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+
+    # Sonarr webhook surface. X-Api-Key is enforced at the backend
+    # (021a §C3). No CIDR bypass at this layer either.
+    location /webhook {
+        proxy_pass ${SEASONFILL_BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+
+    # Backend probes + metrics — public per 021 §C1.
+    location = /readyz {
+        proxy_pass ${SEASONFILL_BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log off;
+    }
+    location = /metrics {
+        proxy_pass ${SEASONFILL_BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # /metrics is auth'd at the backend per 021 §C1 (only /healthz,
+        # /readyz are fully public; /metrics is public-but-auth'd via
+        # config — see config.example.yaml).
+    }
+
+    # Frontend liveness — INTENTIONALLY local, NOT proxied. Used by
+    # docker/k8s probes against the frontend container itself; a
+    # broken backend should NOT take the frontend probe down (else
+    # both pods crashloop together).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Hashed assets — content-hashed by Vite. Cache for one year and
+    # mark immutable so the browser does not even revalidate.
+    location ^~ /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    location = /robots.txt { try_files $uri =404; access_log off; }
+    location = /favicon.ico { try_files $uri =404; access_log off; }
+    location = /manifest.webmanifest { try_files $uri =404; access_log off; }
+
+    # SPA fallback — every other path returns /index.html so the React
+    # Router takes over. no-cache on the document so a redeploy is
+    # visible on the next fetch without a hard reload.
+    location / {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -29,8 +29,8 @@ RUN npm run build
 # ---------------------------------------------------------------------
 # Stage 2 — serve the bundle via nginx-unprivileged.
 #
-# nginx-unprivileged listens on port 8080 by default, runs as UID 101
-# (nginx), and ships with a /tmp + /var/cache/nginx + /var/run owned by
+# nginx-unprivileged listens on 8080 by default, runs as UID 101
+# (nginx), and ships with /tmp + /var/cache/nginx + /var/run owned by
 # that UID — PSS-Restricted compatible without USER/setcap gymnastics.
 # ---------------------------------------------------------------------
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine
@@ -47,11 +47,18 @@ LABEL org.opencontainers.image.title="seasonfill-web" \
       org.opencontainers.image.version="${VITE_APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
-# Replace the stock site config — we keep nginx.conf upstream and only
-# swap the server block in /etc/nginx/conf.d.
+# `gettext` provides `envsubst`, used by entrypoint.sh to render the
+# nginx template. Stay on root for the install + COPY, drop back to UID
+# 101 for runtime.
 USER root
-RUN rm -f /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/seasonfill.conf
+RUN apk add --no-cache gettext \
+    && rm -f /etc/nginx/conf.d/default.conf \
+    && mkdir -p /etc/nginx/templates
+
+# Template is rendered at container start (see entrypoint.sh).
+COPY nginx.conf.template /etc/nginx/templates/seasonfill.conf.template
+COPY --chmod=0755 entrypoint.sh /entrypoint.sh
+
 USER 101
 
 # Static bundle.
@@ -59,4 +66,4 @@ COPY --from=build --chown=101:101 /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
 
-# Inherit the upstream CMD (`nginx -g 'daemon off;'`) — no override needed.
+ENTRYPOINT ["/entrypoint.sh"]
