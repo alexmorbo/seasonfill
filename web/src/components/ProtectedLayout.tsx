@@ -4,6 +4,7 @@ import { TopBar } from './TopBar';
 import { DesktopSidebar, MobileSidebar } from './Sidebar';
 import { NetBanner } from './NetBanner';
 import { NewScanModal } from './NewScanModal';
+import { AutoGenPasswordBanner } from './AutoGenPasswordBanner';
 import { useCmdK } from '@/lib/use-cmdk';
 import { InstanceFilterProvider } from '@/lib/instance-filter-context';
 
@@ -36,6 +37,7 @@ export function ProtectedLayout() {
     <InstanceFilterProvider>
       <div className="h-screen flex flex-col bg-bg">
         <TopBar onMenuClick={() => setMobileOpen(true)} />
+        <AutoGenPasswordBanner />
         <div className="flex-1 flex min-h-0">
           <DesktopSidebar onNewScan={() => setScanModalOpen(true)} />
           <MobileSidebar

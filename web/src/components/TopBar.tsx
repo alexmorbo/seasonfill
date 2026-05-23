@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Menu, Settings, LogOut, ShieldAlert, WifiOff } from 'lucide-react';
+import { Menu, Settings, LogOut, ShieldAlert, WifiOff, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -8,11 +9,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/api';
-import { logout } from '@/lib/auth';
+import { logout, useSession } from '@/lib/auth';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useDebugActions } from '@/lib/use-debug-actions';
 import { cn } from '@/lib/utils';
+import { PasswordChangeDialog } from './PasswordChangeDialog';
 
 const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
@@ -30,6 +32,8 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const { filter, setFilter } = useInstanceFilter();
   const dbg = useDebugActions();
   const instances = data?.instances ?? [];
+  const { data: session } = useSession();
+  const [pwOpen, setPwOpen] = useState(false);
 
   const onLogout = async () => {
     try { await logout(); toast.success('Signed out'); }
@@ -94,7 +98,13 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[220px]">
-          <DropdownMenuLabel>Account</DropdownMenuLabel>
+          <DropdownMenuLabel>
+            {session?.username ? session.username : 'Account'}
+          </DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => setPwOpen(true)}>
+            <KeyRound className="w-3.5 h-3.5 mr-2" /> Change password
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onLogout}>
             <LogOut className="w-3.5 h-3.5 mr-2" /> Logout
             <span className="ml-auto mono text-[11px] text-faint">⌘⇧Q</span>
@@ -115,6 +125,7 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      <PasswordChangeDialog open={pwOpen} onOpenChange={setPwOpen} />
     </header>
   );
 }
