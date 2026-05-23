@@ -240,7 +240,23 @@ function RescanSection({ d }: { d: Decision }) {
 
   const onClick = () => {
     if (!d.id) return;
-    rescan.mutate({ decisionId: d.id });
+    rescan.mutate(
+      { decisionId: d.id },
+      {
+        // Per-call onSuccess fires AFTER the hook-level onSuccess
+        // (TanStack Query ordering contract), so by this point:
+        //   1. The new decision has been seeded into every
+        //      `['decisions', ...]` cache (rescan-mutation.ts §5.1).
+        //   2. invalidateQueries has been queued.
+        // Both ensure the drawer's flattenDecisions() finds the new
+        // id immediately when we swap the URL param — no "Decision
+        // not found" flash.
+        onSuccess: (fresh) => {
+          if (!fresh.id) return;
+          openDrawerForDecision(fresh.id);
+        },
+      },
+    );
   };
 
   return (
@@ -260,7 +276,8 @@ function RescanSection({ d }: { d: Decision }) {
       <p className="text-[12.5px] text-muted">
         Re-evaluate this season against Sonarr (e.g. after re-enabling
         an indexer). Bypasses cooldowns. The current decision is marked
-        superseded; the new outcome lands in the same scan record.
+        superseded; the new outcome lands in the same scan record. The
+        drawer will switch to the new outcome automatically.
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -287,4 +304,38 @@ function RescanSection({ d }: { d: Decision }) {
       </div>
     </section>
   );
+}
+
+// Swap the consumer page's `?drawer=<id>` to the new decision. We
+// reuse the exact mechanism `SupersededByLine` already uses (lines
+// ~195–219): mutate URL via history.replaceState + dispatch a
+// synthetic popstate so useSearchParams in the parent picks up the
+// new value and re-renders.
+//
+// This stays out of react-router intentionally — DecisionDrawer is
+// rendered in two pages with subtly different router state, and
+// 017b chose the popstate route for the same boundary reason.
+// M-019-1 tracks the future refactor to a shared search-param hook.
+//
+// Defensive notes (019 fix):
+//   - `window.location.href` may be undefined when callers stub
+//     `window.location` in tests; fall back to `pathname + search`.
+//   - `replaceState` is called with a relative path (just
+//     `pathname?query`) instead of a full absolute URL — JSDOM's
+//     same-origin guard rejects absolute URLs whose host differs
+//     from the document's actual origin (the JSDOM default URL is
+//     `about:blank` even when `window.location` has been redefined).
+//     Relative paths sidestep the check entirely and behave the
+//     same way in real browsers.
+function openDrawerForDecision(successorId: string) {
+  const loc = window.location;
+  const base =
+    typeof loc.href === 'string' && loc.href
+      ? loc.href
+      : `http://localhost${loc.pathname ?? ''}${loc.search ?? ''}`;
+  const url = new URL(base);
+  url.searchParams.set('drawer', successorId);
+  const relative = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, '', relative);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }

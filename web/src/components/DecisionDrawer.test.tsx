@@ -254,4 +254,56 @@ describe('<DecisionDrawer /> rescan', () => {
       expect(screen.getByText(/new: aaaabbbb/i)).toBeInTheDocument(),
     );
   });
+
+  it('navigates the drawer URL to the new decision id on success', async () => {
+    // Stable window.location across the test so dispatched popstate
+    // doesn't fight with JSDOM defaults. Match the per-test beforeEach
+    // shape but extend with search params + a writable assign.
+    const newId = 'aaaabbbb-cccc-dddd-eeee-ffff00001111';
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: {
+        href: 'http://localhost/decisions?drawer=dec-rescanable',
+        pathname: '/decisions',
+        search: '?drawer=dec-rescanable',
+        origin: 'http://localhost',
+        assign: vi.fn(),
+      },
+    });
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const popstate = vi.fn();
+    window.addEventListener('popstate', popstate);
+
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.endsWith('/rescan') && init?.method === 'POST') {
+        return jsonResp({
+          id: newId, instance: 'alpha', series_title: 'Severance',
+          season_number: 2, decision: 'skip', reason: 'skip_no_releases',
+          category: 'nothing_found', scan_run_id: rescanable.scan_run_id,
+          created_at: new Date().toISOString(),
+        });
+      }
+      return jsonResp({ items: [rescanable], next_cursor: '' });
+    }) as typeof fetch;
+
+    renderDrawer(rescanable);
+    await userEvent.click(await screen.findByTestId('rescan-button'));
+
+    // replaceState was called with a URL whose ?drawer param is the
+    // new id. popstate fires after, so useSearchParams in the parent
+    // page picks up the change.
+    await waitFor(() => {
+      const calls = replaceState.mock.calls;
+      const matched = calls.some((args) => {
+        const target = args[2];
+        return typeof target === 'string' &&
+          target.includes(`drawer=${encodeURIComponent(newId)}`);
+      });
+      expect(matched).toBe(true);
+    });
+    await waitFor(() => expect(popstate).toHaveBeenCalled());
+
+    window.removeEventListener('popstate', popstate);
+  });
 });

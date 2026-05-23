@@ -15,7 +15,12 @@ vi.mock('sonner', () => ({
 function wrap() {
   const qc = new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: 0, staleTime: 0 },
+      // gcTime must be > 0: pre-seeded ['decisions', ...] caches have
+      // no observers (no component is rendering useDecisions in this
+      // hook-only test), so gcTime:0 would garbage-collect them the
+      // microtask after setQueryData and setQueriesData wouldn't find
+      // anything to update (019 cache-seed test).
+      queries: { retry: false, gcTime: 5 * 60_000, staleTime: 0 },
       mutations: { retry: false },
     },
   });
@@ -71,9 +76,62 @@ describe('useRescanDecision()', () => {
 
     expect(captured.url).toBe('/api/v1/decisions/dec-old/rescan');
     expect(captured.method).toBe('POST');
-    expect(toastSuccess).toHaveBeenCalledWith('Rescan dispatched');
+    expect(toastSuccess).toHaveBeenCalledWith(
+      'Rescan complete — showing new decision',
+    );
     expect(invalidations.flat()).toEqual(
       expect.arrayContaining(['decisions', 'scans', 'scan']),
+    );
+  });
+
+  it('seeds existing decisions infinite-cache with the new row before invalidating', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({
+        id: 'dec-new', instance: 'alpha', series_title: 'Severance',
+        season_number: 2, decision: 'grab', reason: 'grab_selected',
+        category: 'action_taken', scan_run_id: 'scan-1',
+        created_at: new Date().toISOString(),
+      }),
+    ) as typeof fetch;
+
+    const { qc, Wrapper } = wrap();
+    // Pre-seed an infinite-query cache as useDecisions would.
+    qc.setQueryData(['decisions', null, {}], {
+      pages: [{ items: [{ id: 'dec-old' }], next_cursor: '' }],
+      pageParams: [''],
+    });
+
+    const { result } = renderHook(() => useRescanDecision(), { wrapper: Wrapper });
+    result.current.mutate({ decisionId: 'dec-old' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // After success, the new row sits at index 0 of the first page.
+    const cached = qc.getQueryData<{
+      readonly pages: readonly { readonly items: readonly { readonly id: string }[] }[];
+    }>(['decisions', null, {}]);
+    expect(cached?.pages[0]?.items[0]?.id).toBe('dec-new');
+    expect(cached?.pages[0]?.items[1]?.id).toBe('dec-old');
+  });
+
+  it('falls back to plain success toast when response is missing id', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({
+        // id intentionally absent — defensive branch for partial DTOs.
+        instance: 'alpha', series_title: 'Severance', season_number: 2,
+        decision: 'skip', reason: 'skip_no_releases',
+        category: 'nothing_found', scan_run_id: 'scan-1',
+        created_at: new Date().toISOString(),
+      }),
+    ) as typeof fetch;
+
+    const { Wrapper } = wrap();
+    const { result } = renderHook(() => useRescanDecision(), { wrapper: Wrapper });
+    result.current.mutate({ decisionId: 'dec-old' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(toastSuccess).toHaveBeenCalledWith('Rescan complete');
+    expect(toastSuccess).not.toHaveBeenCalledWith(
+      'Rescan complete — showing new decision',
     );
   });
 
