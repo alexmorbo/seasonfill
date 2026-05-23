@@ -13,6 +13,7 @@ func Migrate(db *gorm.DB) error {
 		&GrabRecordModel{},
 		&OriginReleaseModel{},
 		&CooldownModel{},
+		&AdminUserModel{},
 	); err != nil {
 		return fmt.Errorf("auto-migrate: %w", err)
 	}

@@ -403,3 +403,24 @@ func TestApplyInstanceDefaults_TimeoutThenSearch_ZeroBoth(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.SonarrInstances[0].Timeout)
 	assert.Equal(t, 60*time.Second, cfg.SonarrInstances[0].SearchTimeout)
 }
+
+func TestValidate_PasswordMutex(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.HTTP.Auth.APIKey = "k"
+	cfg.HTTP.Auth.CookieSecret = "c"
+	cfg.SonarrInstances = []SonarrInstance{{Name: "a", URL: "http://x", APIKey: "y"}}
+	cfg.HTTP.Auth.WebPassword = "plain"
+	cfg.HTTP.Auth.WebPasswordHash = "$2a$12$abc"
+	err := cfg.Validate()
+	require.ErrorIs(t, err, ErrAuthPasswordMutex)
+}
+
+func TestDefaults_NewAuthFields(t *testing.T) {
+	t.Parallel()
+	d := Defaults()
+	assert.Equal(t, "admin", d.HTTP.Auth.WebUser)
+	assert.Equal(t, 12*time.Hour, d.HTTP.Auth.SessionTTL)
+	assert.Empty(t, d.HTTP.Auth.WebPassword)
+	assert.Empty(t, d.HTTP.Auth.WebPasswordHash)
+}

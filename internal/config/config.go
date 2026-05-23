@@ -68,10 +68,14 @@ type HTTPConfig struct {
 // Default false so http://localhost dev works (browsers drop
 // Secure cookies on HTTP). M1 review-fix: do NOT alias Enabled.
 type AuthConfig struct {
-	Enabled      bool   `koanf:"enabled"`
-	APIKey       string `koanf:"api_key"`
-	CookieSecret string `koanf:"cookie_secret"`
-	SecureCookie bool   `koanf:"secure_cookie"`
+	Enabled         bool          `koanf:"enabled"`
+	APIKey          string        `koanf:"api_key"`
+	CookieSecret    string        `koanf:"cookie_secret"`     // deprecated, removed in 021a-2
+	SecureCookie    bool          `koanf:"secure_cookie"`
+	SessionTTL      time.Duration `koanf:"session_ttl"`       // new (D48)
+	WebUser         string        `koanf:"web_user"`          // new (D48)
+	WebPassword     string        `koanf:"web_password"`      // new (D48), mutex with WebPasswordHash
+	WebPasswordHash string        `koanf:"web_password_hash"` // new (D48), mutex with WebPassword
 }
 
 type CronConfig struct {
@@ -215,7 +219,11 @@ func Defaults() *Config {
 			WriteTimeout:    30 * time.Second,
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
-			Auth:            AuthConfig{Enabled: true},
+			Auth: AuthConfig{
+				Enabled:    true,
+				WebUser:    "admin",
+				SessionTTL: 12 * time.Hour,
+			},
 		},
 		Cron: CronConfig{
 			Enabled:  true,
@@ -308,7 +316,8 @@ var (
 	ErrInstanceAPIKey  = errors.New("sonarr instance api_key is required")
 	ErrInstanceMode    = errors.New("sonarr instance mode must be one of: auto, manual")
 	ErrUnknownDriver   = errors.New("unknown database driver, expected sqlite or postgres")
-	ErrAuthKeyRequired = errors.New("http.auth.api_key is required when auth.enabled=true")
+	ErrAuthKeyRequired   = errors.New("http.auth.api_key is required when auth.enabled=true")
+	ErrAuthPasswordMutex = errors.New("http.auth.web_password and http.auth.web_password_hash are mutually exclusive")
 	ErrPostgresDSN     = errors.New("database.postgres.dsn is required when driver=postgres")
 	ErrSQLitePath      = errors.New("database.sqlite.path is required when driver=sqlite")
 )
@@ -329,6 +338,10 @@ func (c *Config) Validate() error {
 
 	if c.HTTP.Auth.Enabled && c.HTTP.Auth.APIKey == "" {
 		return ErrAuthKeyRequired
+	}
+
+	if c.HTTP.Auth.WebPassword != "" && c.HTTP.Auth.WebPasswordHash != "" {
+		return ErrAuthPasswordMutex
 	}
 
 	if len(c.SonarrInstances) == 0 {
