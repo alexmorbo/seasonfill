@@ -1,191 +1,137 @@
 # Seasonfill
 
-A companion service for [Sonarr](https://sonarr.tv) that automates grabbing
-updated season packs when Sonarr's native upgrade logic refuses to.
+A companion service for [Sonarr](https://sonarr.tv) that automates
+grabbing updated season packs when Sonarr's native upgrade logic
+refuses to. Multi-instance, scheduled, with a webhook receiver that
+closes the import-success/failure loop and a small React UI for
+operator override.
 
-> 🚧 **Early development — no usable release yet.** Active design phase.
+> **Project status: alpha.** Works on the author's homelab. Breaking
+> changes (config schema, chart values shape, DB columns) are likely
+> until `v1.0`. Pin image tags in production. Not accepting external
+> contributions yet — see [Contributing](#contributing).
 
-## The problem
+## Quickstart
 
-Sonarr will not auto-grab a season pack that contains episodes you already have
-at the same quality, even if that pack also contains *additional missing
-episodes*. This is intentional behavior — see
-[Sonarr#5740](https://github.com/Sonarr/Sonarr/issues/5740),
+Pick a deploy path:
+
+- **Docker Compose** — single-host, easiest. See
+  [`deploy/compose/README.md`](deploy/compose/README.md).
+- **Kubernetes via Helm** — production / homelab clusters. Chart at
+  `oci://ghcr.io/alexmorbo/seasonfill`. See
+  [`deploy/helm/seasonfill/README.md`](deploy/helm/seasonfill/README.md).
+
+Either path brings up two containers (Go backend + nginx-served SPA),
+a single fan-out HTTP entry point on port `8080`, and SQLite-by-default
+(Postgres optional). First start prints a one-time admin password to
+the backend logs (see compose README for the `grep` recipe).
+
+## What it does
+
+Sonarr will not auto-grab a season pack that contains episodes you
+already have at the same quality, even if that pack also contains
+*additional missing episodes* — see [Sonarr#5740](https://github.com/Sonarr/Sonarr/issues/5740),
 [#6378](https://github.com/Sonarr/Sonarr/issues/6378),
-[#5032](https://github.com/Sonarr/Sonarr/issues/5032) — but it blocks the very
-common case where a partial season was grabbed early and a later-published
-full pack would fill in the missing episodes.
+[#5032](https://github.com/Sonarr/Sonarr/issues/5032). The typical
+rejection looks like:
 
-The typical rejection looks like this:
-
-```
+```text
 Existing file on disk has a equal or higher Custom Format score: 500
 Full season pack
 ```
 
-You end up doing it by hand: open interactive search every few days, find the
-same release on the tracker, and use **Override and add to Download Queue**.
-Seasonfill automates that loop.
+The manual workaround is to open Sonarr's interactive search and use
+**Override and add to Download Queue** on the same release. Seasonfill
+automates that loop: it decides by *episode coverage* (not Custom
+Format score), ranks candidates, and force-grabs the best one through
+the same endpoint Sonarr's UI uses. The webhook receiver updates the
+grab record on import success/failure and arms cooldowns to avoid
+re-grabbing broken releases.
 
-## The approach
+## Features
 
-Decide by *episode coverage*, not by Custom Format score:
+| Capability | Status |
+|------------|--------|
+| Multi-Sonarr instance scanning (parallel) | shipped |
+| Schedule via cron + manual `POST /scan` | shipped |
+| Per-instance `mode: auto\|manual` (manual = UI-only) | shipped |
+| Per-instance `dry_run` (default global = true) | shipped |
+| Sonarr `Connect → Webhook` receiver (Grab/Import/ImportFailed) | shipped |
+| GUID + per-series cooldowns (smart) | shipped |
+| Decision audit log with operator "Grab now" override | shipped |
+| Operator "Rescan" with supersession chain | shipped |
+| React SPA: Dashboard, Instances, Scans, Decisions, Grabs | shipped |
+| Username + password admin login + persistent API key | shipped |
+| Auto-generated first-run password (qBittorrent-style) | shipped |
+| `reset-password` CLI | shipped |
+| Helm chart (`oci://ghcr.io/alexmorbo/seasonfill`) | shipped |
+| Docker Compose stack | shipped |
+| Prometheus `/metrics` + `ServiceMonitor` | shipped |
+| Settings UI (in-app config CRUD) | planned (Phase 8) |
+| Anime (absolute numbering) | **not supported** |
+| In-app notifications (Telegram/Discord/etc.) | **cancelled** — use Sonarr's native Connections |
 
-1. Find series with monitored-but-missing episodes.
-2. Query Prowlarr via Sonarr's release API.
-3. Rank candidates by CF score → coverage → origin-release stickiness →
-   indexer priority → seeders → size.
-4. Force-grab the best one through the same endpoint Sonarr's UI uses for
-   *Override and add to Download Queue*.
+## Configuration overview
 
-The algorithm avoids the recursive deadlock the CF-score workaround eventually
-hits (see design discussion).
+Both deploy paths consume the same YAML config (chart renders it into
+a ConfigMap; compose mounts `config.yaml`). The example template lives
+at [`config.example.yaml`](config.example.yaml). Key sections:
 
-## Safe by default
+- `sonarr_instances[]` — one entry per Sonarr. `url`, `api_key`,
+  `mode: auto\|manual`, optional `tags`, per-instance `dry_run`
+  override, rate limits, cooldowns, timeouts.
+- `http.auth.session_ttl` — admin cookie lifetime (default 12h).
+- `cron.schedule` — when the auto-scan runs (default every 6h with
+  jitter).
+- `dry_run` — global default (set to `false` to opt in to real grabs).
+- `database.driver` — `sqlite` (default, single-host) or `postgres`.
 
-Seasonfill ships with `dry_run: true`. On first run it scans your Sonarr
-instances and logs the season packs it *would* grab, but it does NOT issue
-any `POST /api/v3/release` calls. Inspect the decisions in the logs (or in
-the `decisions` DB table), confirm they look right, then opt in to real
-grabs by setting `dry_run: false` — globally or per-instance:
+Sensitive values (`api_key`, Sonarr API keys, Postgres DSN, web
+password) come from environment variables — `${VAR}` interpolation
+inside `config.yaml`. The chart wires them via `valueFrom.secretKeyRef`
+from a pre-created or chart-rendered Secret; compose wires them from
+`.env`. See the deploy-path READMEs for the exact key names.
 
-```yaml
-dry_run: false                # global opt-in
-sonarr_instances:
-  - name: sonarr-main
-    # this instance now grabs for real
-  - name: sonarr-4k
-    dry_run: true             # keep this one in dry-run
-```
+## API surface
 
-Instance overrides win over the global flag, so rollouts can proceed one
-Sonarr at a time. See `documentation/00-design-thoughts.md` §7.1 for the
-full design rationale.
+REST API under `/api/v1/*`, plus `/auth/login`, `/auth/logout`,
+`/webhook`, and the public probes `/healthz`, `/readyz`, `/metrics`.
+Every non-probe route requires either a session cookie (UI logged in)
+or an `X-Api-Key` header (Sonarr webhook, scripts).
 
-## Webhook setup
+The OpenAPI 3.0 spec is committed at
+[`docs/swagger.yaml`](docs/swagger.yaml). Render it in any OpenAPI
+viewer (Swagger UI, Redoc, IntelliJ HTTP client, etc.) — the service
+itself does not host a live UI for the spec.
 
-Seasonfill receives a Sonarr Connect → Webhook callback so it can close
-the loop on each force-grab: `grabbed → imported` on success, `grabbed
-→ import_failed` (plus a 48h guid cooldown) on failure. Without the
-webhook `grab_records` rows stay in `grabbed` forever and the
-import-failed cooldown never fires — seasonfill may re-grab the same
-broken release on the next scan.
+## Security model
 
-### 1. Deploy with the webhook enabled
+- One admin user (username + password, bcrypt-hashed in DB).
+  Auto-generated 24-char password on first start when none configured,
+  printed once to logs with a `FIRST-RUN PASSWORD` banner.
+- Cookie HMAC-signed with the API key. `HttpOnly`, `SameSite=Strict`,
+  `Secure` flag opt-in (`http.auth.secure_cookie: true` when behind
+  HTTPS).
+- API key persists across restarts. Rotated via Secret / `.env` edit
+  + redeploy. Sonarr's `Connect → Webhook` provides it as a Custom
+  header (`X-Api-Key`).
+- Rate-limited `/auth/login` (5 attempts per IP per 15min) and
+  `/webhook`. Constant-time password compare. Generic error message
+  ("Invalid credentials") for both unknown-user and wrong-password.
+- `GET /api/v1/instances` masks Sonarr `api_key` — never returned
+  by any read endpoint.
+- Full OWASP-style audit (CSP headers, SSRF guards, govulncheck +
+  npm audit, CSRF Origin check, error-leak review) is deferred until
+  Phase 8 stabilises the attack surface. Track via GitHub Issues.
 
-Use a webhook secret distinct from `.Values.secrets.apiKey` — the
-admin key and webhook secret authenticate disjoint surfaces (the 007c1
-isolation fix mounts the webhook route outside the admin auth group).
+## Contributing
 
-```yaml
-# values.yaml
-secrets:
-  apiKey: "<long-random-admin-key>"
-  webhookSecret: "<different-long-random-webhook-key>"
-
-config:
-  webhook:
-    # Must contain every sonarrInstances[].name you point Sonarr at.
-    # Mismatched names return 404.
-    allowedInstances: [main]
-
-ingress:
-  enabled: true
-  hosts:
-    - host: seasonfill.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: seasonfill-tls
-      hosts: [seasonfill.example.com]
-  # Optional: restrict the public Ingress to ONLY /api/v1/webhook
-  # and keep admin routes reachable only from inside the cluster.
-  # webhookOnly: true
-
-networkPolicy:
-  enabled: true
-  ingress:
-    from:
-      - namespaceSelector:
-          matchLabels:
-            kubernetes.io/metadata.name: ingress-nginx
-  # Allow Sonarr's namespace to reach :8080 directly (in-cluster,
-  # bypassing the Ingress). Either ingress path is acceptable.
-  webhookSources:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: sonarr
-```
-
-Empty `webhookSecret` is legal: the 007c handler logs
-`webhook_auth_disabled` once at startup and accepts any source. In
-that mode the NetworkPolicy `webhookSources` allow-list is the only
-gate — do NOT combine empty `webhookSecret` with a public Ingress.
-
-### 2. Configure Sonarr Connect → Webhook
-
-In each Sonarr instance: **Settings → Connect → + → Webhook**.
-
-**Name**: e.g., `Seasonfill`.
-
-**Notification Triggers** — enable exactly these three; everything
-else is silently dropped by the 007a mapper:
-
-- [x] **On Grab** — forward-compat; logged and dropped today.
-- [x] **On Import Complete** *(Sonarr v4)* — triggers
-      `grabbed → imported`.
-- [x] **On Manual Interaction Required** — triggers
-      `grabbed → import_failed` + 48h guid cooldown. Internally also
-      aliased to `DownloadFailure` / `ImportFailure` for older Sonarr
-      builds.
-
-**URL**: `https://seasonfill.example.com/api/v1/webhook/sonarr/main`
-(replace `main` with the matching `sonarrInstances[].name` — the URL
-path is the trust boundary, not the JSON body's `instanceName`).
-**Method**: `POST`. **Username/Password**: leave blank.
-
-**Headers** *(Sonarr v4+)* — add one custom header:
-
-| Name | Value |
-|------|-------|
-| `X-Api-Key` | the value of `.Values.secrets.webhookSecret` |
-
-Older Sonarr builds without a Headers tab must rely on NetworkPolicy
-(`webhookSources`) as the gate.
-
-Click **Test** → expect `200 OK {"ok": true}` and a green checkmark.
-**Save**.
-
-### 3. Verify end-to-end
-
-After the next force-grab, watch the seasonfill logs for a
-`webhook_event_received` line followed by `webhook_event_imported`
-(success) or `webhook_event_import_failed` (failure → 48h guid
-cooldown). The `grab_records` row transitions to the terminal state.
-
-If the trigger never fires: check Sonarr's Settings → Connect →
-Webhook → row → Errors tab; confirm the URL `:instance_name` matches
-both `.Values.config.webhook.allowedInstances` and a
-`sonarrInstances[].name` (mismatch returns 404); confirm the
-`X-Api-Key` header matches `.Values.secrets.webhookSecret` (mismatch
-returns 401).
-
-### Security recommendation
-
-Use a webhook secret distinct from the admin API key (set both to
-independently-generated random strings of at least 32 hex chars). The
-combo "Ingress + custom-header X-Api-Key + NetworkPolicy ingress
-allow-list" is defense-in-depth. Empty `webhookSecret` is acceptable
-only when NetworkPolicy restricts ingress to a single trusted
-namespace; do NOT combine empty `webhookSecret` with a public-Internet
-Ingress.
-
-## Scope
-
-- ✅ Regular TV series.
-- ❌ Anime (absolute numbering, batch release semantics) — not supported.
+Single-maintainer project — **not accepting external pull requests
+yet**. The codebase is open under GPL-3.0 so you can fork, run, and
+modify it freely. Bug reports and feature discussion: open a
+[GitHub Issue](https://github.com/alexmorbo/seasonfill/issues).
 
 ## License
 
-[GPL-3.0](./LICENSE)
+[GPL-3.0](LICENSE). Forks and derivative works must remain
+open-source under a compatible license.

@@ -21,7 +21,7 @@ keywords:
   - automation
   - backfill
 annotations:
-  artifacthub.io/license: MIT
+  artifacthub.io/license: GPL-3.0-or-later
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill

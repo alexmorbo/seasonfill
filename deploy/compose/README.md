@@ -1,5 +1,8 @@
 # Seasonfill — docker-compose
 
+> Part of [Seasonfill](../../README.md). For Kubernetes, see
+> [`deploy/helm/seasonfill/README.md`](../helm/seasonfill/README.md).
+
 Run the full stack (backend + frontend) on any Docker host. Suitable
 for home labs that do not run Kubernetes. For k8s, use the Helm chart
 at `deploy/helm/seasonfill/`.
