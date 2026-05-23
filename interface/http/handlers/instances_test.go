@@ -273,10 +273,10 @@ func searchFixture() []series.Series {
 			}},
 		{ID: 3, Title: "Highlander", Monitored: false,
 			Statistics: series.Statistics{EpisodeCount: 100, EpisodeFileCount: 0},
-			Seasons: []series.Season{{Number: 1, Monitored: false}}},
+			Seasons:    []series.Season{{Number: 1, Monitored: false}}},
 		{ID: 4, Title: "Andor", Monitored: true,
 			Statistics: series.Statistics{EpisodeCount: 12, EpisodeFileCount: 12},
-			Seasons: []series.Season{{Number: 1, Monitored: true}}},
+			Seasons:    []series.Season{{Number: 1, Monitored: true}}},
 	}
 }
 
