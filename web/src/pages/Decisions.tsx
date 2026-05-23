@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { AlertTriangle } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
+import { CategoryChip } from '@/components/CategoryChip';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
 import { OutcomeChips, OUTCOMES, type Outcome } from '@/components/OutcomeChips';
@@ -145,6 +146,7 @@ export function Decisions() {
                   <TableHead>Series</TableHead>
                   <TableHead>Season</TableHead>
                   <TableHead>Outcome</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Reason</TableHead>
                   <TableHead>Cand</TableHead>
                 </TableRow>
@@ -153,12 +155,12 @@ export function Decisions() {
                 {query.isPending && (
                   <SkeletonRows
                     rows={6}
-                    cols={['sm', 'md', 'lg', 'sm', 'md', 'xl', 'sm']}
+                    cols={['sm', 'md', 'lg', 'sm', 'md', 'md', 'xl', 'sm']}
                   />
                 )}
                 {!query.isPending && rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <EmptyState
                         title="No decisions match"
                         body="Adjust filters or wait for the next scan."
@@ -193,6 +195,9 @@ export function Decisions() {
                     </TableCell>
                     <TableCell>
                       <StatusBadge value={d.decision} mode="outcome" />
+                    </TableCell>
+                    <TableCell>
+                      <CategoryChip value={d.category} variant="compact" />
                     </TableCell>
                     <TableCell className="text-muted text-[12px] truncate max-w-md">
                       {d.reason ?? '—'}

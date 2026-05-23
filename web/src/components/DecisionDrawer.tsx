@@ -3,6 +3,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { DecisionDetail } from '@/components/DecisionDetail';
+import { Button } from '@/components/ui/button';
+import { Loader2, Zap } from 'lucide-react';
+import { useGrabDecision } from '@/lib/grab-mutation';
 import { useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
 import { relativeTime } from '@/lib/format';
 
@@ -41,9 +44,12 @@ export function DecisionDrawer({
             </div>
           )}
         </SheetHeader>
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 flex flex-col gap-4">
           {d ? (
-            <DecisionDetail d={d} />
+            <>
+              <DecisionDetail d={d} />
+              <GrabNowSection d={d} />
+            </>
           ) : (
             <EmptyState
               title="Decision not found"
@@ -53,5 +59,65 @@ export function DecisionDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function GrabNowSection({ d }: { d: Decision }) {
+  const grab = useGrabDecision();
+  const eligible =
+    d.decision === 'grab' &&
+    Boolean(d.selected_guid) &&
+    d.dry_run_would_grab === true;
+
+  if (!eligible) return null;
+
+  const onClick = () => {
+    if (!d.id) return;
+    grab.mutate({ decisionId: d.id });
+  };
+
+  return (
+    <section
+      aria-labelledby="grab-now-heading"
+      className="border border-status-warning/30 rounded-md p-4 bg-status-warning/5 flex flex-col gap-2.5"
+    >
+      <div className="flex items-center gap-2">
+        <Zap className="w-3.5 h-3.5 text-status-warning" aria-hidden="true" />
+        <h4
+          id="grab-now-heading"
+          className="text-[12px] font-semibold uppercase tracking-[0.06em] text-status-warning"
+        >
+          Force grab
+        </h4>
+      </div>
+      <p className="text-[12.5px] text-muted">
+        This will force-grab the selected release in Sonarr, bypassing the
+        global <span className="font-mono">dry_run</span> flag. Idempotent on
+        (instance, series, season, release_guid) — safe to retry, but only one
+        record will be created.
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="default"
+          size="sm"
+          className="h-8"
+          onClick={onClick}
+          disabled={grab.isPending || !d.id}
+          aria-label="Grab now"
+        >
+          {grab.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Zap className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+          )}
+          {grab.isPending ? 'Grabbing…' : 'Grab now'}
+        </Button>
+        {grab.isSuccess && (
+          <span className="text-[11.5px] font-mono text-status-success">
+            grabbed: {grab.data.id?.slice(0, 8) ?? '—'}
+          </span>
+        )}
+      </div>
+    </section>
   );
 }

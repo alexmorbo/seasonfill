@@ -30,7 +30,8 @@ function dec(over: Partial<Record<string, unknown>> = {}) {
     series_title: 'Severance',
     season_number: 1,
     decision: 'grab',
-    reason: 'upgrade_available',
+    reason: 'grab_selected_dry_run',
+    category: 'action_taken',
     candidates_count: 3,
     scan_run_id: '7b3d4a92-1234-4abc-9def-000000000001',
     created_at: new Date().toISOString(),
@@ -45,15 +46,26 @@ const json = (body: unknown, status = 200) =>
   });
 
 describe('<Decisions />', () => {
-  it('renders rows from useDecisions', async () => {
-    globalThis.fetch = vi
-      .fn()
-      .mockImplementation(async () =>
-        json({ items: [dec(), dec({ id: 'd_002', series_title: 'Andor', decision: 'skip' })] }),
-      ) as typeof fetch;
+  it('renders rows from useDecisions with category chips', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(async () =>
+      json({
+        items: [
+          dec(),
+          dec({
+            id: 'd_002',
+            series_title: 'Andor',
+            decision: 'skip',
+            category: 'all_complete',
+          }),
+        ],
+      }),
+    ) as typeof fetch;
     renderWithProviders(wrap(<Decisions />), { route: '/decisions' });
     expect(await screen.findByText('Severance')).toBeInTheDocument();
     expect(screen.getByText('Andor')).toBeInTheDocument();
+    // Both chips present (compact variant — `aria-label="Category: ..."`).
+    expect(screen.getByLabelText(/category: action taken/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/category: all complete/i)).toBeInTheDocument();
   });
 
   it('opens drawer when a row is clicked', async () => {

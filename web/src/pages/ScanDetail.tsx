@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
+import { CategoryChip } from '@/components/CategoryChip';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { DecisionDetail } from '@/components/DecisionDetail';
@@ -161,6 +162,7 @@ export function ScanDetail() {
                   >
                     <span className="text-faint shrink-0">{relativeTime(d.created_at)}</span>
                     <span className="truncate flex-1">{d.series_title ?? '—'}</span>
+                    <CategoryChip value={d.category} variant="compact" />
                     <StatusBadge value={d.decision} mode="outcome" />
                   </div>
                 ))}
@@ -259,6 +261,7 @@ export function ScanDetail() {
                       </span>
                     )}
                   </span>
+                  <CategoryChip value={d.category} variant="compact" />
                   <StatusBadge value={d.decision} mode="outcome" />
                   <span className="text-[12px] text-muted truncate flex-1">{d.reason ?? ''}</span>
                   <span className="text-[11px] text-faint font-mono">

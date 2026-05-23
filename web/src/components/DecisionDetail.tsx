@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { CategoryChip } from '@/components/CategoryChip';
 import type { Decision } from '@/lib/decisions';
 
 function Row({
@@ -35,9 +36,12 @@ export function DecisionDetail({ d }: { d: Decision }) {
   const missing = d.missing_count ?? 0;
   return (
     <div className="px-1 py-2">
-      <h4 className="text-[11px] uppercase tracking-[0.06em] text-foreground-2 mb-1.5">
-        Decision tree
-      </h4>
+      <div className="flex items-center justify-between mb-1.5 gap-2">
+        <h4 className="text-[11px] uppercase tracking-[0.06em] text-foreground-2">
+          Decision tree
+        </h4>
+        <CategoryChip value={d.category} variant="compact" />
+      </div>
       <Row k="Reason" v={d.reason ?? '—'} mono accent="muted" />
       <Row k="Candidates evaluated" v={d.candidates_count ?? 0} mono />
       <Row k="Releases found" v={d.releases_found ?? 0} mono />
