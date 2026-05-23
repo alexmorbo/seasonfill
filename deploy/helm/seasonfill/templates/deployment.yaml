@@ -47,14 +47,53 @@ spec:
               protocol: TCP
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          envFrom:
-            - secretRef:
-                name: {{ include "seasonfill.fullname" . }}-env
-            {{- with .Values.extraEnvFrom }}
+          env:
+            - name: SEASONFILL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.apiKey }}
+            - name: SEASONFILL_WEB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.webUser }}
+                  optional: true
+            - name: SEASONFILL_WEB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.webPassword }}
+                  optional: true
+            - name: SEASONFILL_WEB_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.webPasswordHash }}
+                  optional: true
+            - name: SEASONFILL_AUTH_SECURE_COOKIE
+              value: {{ .Values.config.http.auth.secureCookie | quote }}
+            {{- if eq .Values.config.database.driver "postgres" }}
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.postgresDSN }}
+            {{- end }}
+            {{- range .Values.instances }}
+            - name: SONARR_{{ include "seasonfill.envName" .name }}_URL
+              value: {{ .url | quote }}
+            - name: SONARR_{{ include "seasonfill.envName" .name }}_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" $ }}
+                  key: {{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.extraEnv }}
-          env:
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           livenessProbe:

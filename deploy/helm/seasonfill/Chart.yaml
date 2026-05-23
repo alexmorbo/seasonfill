@@ -3,11 +3,11 @@ name: seasonfill
 description: |
   Seasonfill — a multi-instance Sonarr backfill controller that scans
   managed series for incomplete seasons and triggers indexer searches
-  on a schedule. Singleton service; database stores state. Optional
-  web UI (React SPA served by nginx) ships as a second Deployment.
+  on a schedule. Singleton service; database stores state. Frontend
+  (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.3.0
+appVersion: "0.3.0"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -25,6 +25,14 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.2.0
+      image: ghcr.io/alexmorbo/seasonfill:0.3.0
     - name: seasonfill-web
-      image: ghcr.io/alexmorbo/seasonfill-web:0.2.0
+      image: ghcr.io/alexmorbo/seasonfill-web:0.3.0
+  artifacthub.io/changes: |
+    - {kind: changed, description: "BREAKING — values.yaml restructured (`sonarrInstances` -> `instances`, `secrets` block reorganised around `existingSecret`)"}
+    - {kind: changed, description: "BREAKING — ingress fan-out fixed (drop `webhookOnly`, `web.enabled`, `hosts[]`; replaced by `ingress.host`)"}
+    - {kind: removed, description: "BREAKING — drop `web.enabled` toggle (frontend always deployed)"}
+    - {kind: removed, description: "BREAKING — drop `secrets.webhookSecret` + `config.webhook` (webhook is on the shared X-Api-Key auth surface)"}
+    - {kind: added, description: "support pre-created Secret via `secrets.existingSecret` (Bitnami pattern)"}
+    - {kind: added, description: "`values.schema.json` enforces required+mutex constraints at install time"}
+    - {kind: added, description: "qBittorrent-style admin login (username + password); cookie HMAC-signed with the API key"}

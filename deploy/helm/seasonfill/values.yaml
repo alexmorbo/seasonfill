@@ -1,13 +1,9 @@
-# Default values for seasonfill.
-# Singleton service: replicaCount is fixed at 1, do not change.
-# Database stores all state; running two replicas creates write contention
-# on the audit tables and the cooldown ledger.
+# Singleton service — replicaCount must remain 1 (DB owns state).
 replicaCount: 1
 
 image:
   registry: ghcr.io
   repository: alexmorbo/seasonfill
-  # -- Overrides the image tag whose default is the chart appVersion.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -15,179 +11,142 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# -- Deployment strategy. Recreate is the only supported value for a
-# singleton service that owns the DB. Rolling would briefly run two pods
-# that fight over the cooldown ledger and the audit write path.
-updateStrategy:
-  type: Recreate
+# Recreate — singleton + DB ownership.
+updateStrategy: {type: Recreate}
 
-# -- Grace period for the scan loop to drain on SIGTERM. Must be larger
-# than `config.scan.shutdown_grace` (default 60s) plus a margin.
+# Must exceed config.scan.shutdown_grace (default 60s) plus margin.
 terminationGracePeriodSeconds: 90
 
-serviceAccount:
-  # -- Whether the chart creates a dedicated ServiceAccount for the pod.
-  create: true
-  # -- Whether pods using this SA automatically receive an API token.
-  # The service does NOT talk to the Kubernetes API; default is false
-  # to follow least-privilege.
-  automount: false
-  # -- Annotations to add to the ServiceAccount.
-  annotations: {}
-  # -- Override the generated SA name. Empty = derived from fullname.
-  name: ""
+serviceAccount: {create: true, automount: false, annotations: {}, name: ""}
 
 podAnnotations: {}
 podLabels: {}
 
-# -- Pod-level security context. The image runs as distroless nonroot
-# (UID 65532) by default; this block enforces that and prevents accidental
-# privilege escalation via init containers or sidecars added downstream.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532
   runAsGroup: 65532
   fsGroup: 65532
-  seccompProfile:
-    type: RuntimeDefault
+  seccompProfile: {type: RuntimeDefault}
 
-# -- Container-level security context. Drops all capabilities, forbids
-# privilege escalation, and enforces a read-only root filesystem. The
-# pod gets a writable emptyDir at /tmp to satisfy the readOnly root.
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 65532
   runAsGroup: 65532
-  capabilities:
-    drop:
-      - ALL
+  capabilities: {drop: [ALL]}
 
-service:
-  type: ClusterIP
-  port: 8080
-  annotations: {}
-  labels: {}
+service: {type: ClusterIP, port: 8080, annotations: {}, labels: {}}
 
-# -- HTTP probes for the Phase 2 health endpoints. /healthz returns 200
-# when the process is alive; /readyz returns 200 only when DB ping
-# succeeds AND >=1 Sonarr instance reports Available.
 livenessProbe:
-  httpGet:
-    path: /healthz
-    port: http
+  httpGet: {path: /healthz, port: http}
   initialDelaySeconds: 10
   periodSeconds: 30
   timeoutSeconds: 3
   failureThreshold: 3
 
 readinessProbe:
-  httpGet:
-    path: /readyz
-    port: http
+  httpGet: {path: /readyz, port: http}
   initialDelaySeconds: 5
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 3
 
-# -- Conservative resource defaults. Seasonfill is I/O-bound on Sonarr
-# API calls; CPU spikes only during evaluate.UseCase decision passes.
 resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: 500m, memory: 256Mi}
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# -- Extra environment variables (e.g., per-instance Sonarr URL overrides
-# pointed at an in-cluster Sonarr Service DNS name) merged into the
-# container env after envFrom. Format: a list of EnvVar objects.
+# extraEnv appends AFTER the chart's explicit env entries; later wins.
+# extraEnvFrom is strictly additive for ExternalSecrets/SealedSecrets
+# users injecting non-seasonfill keys (chart's own credentials are
+# wired via explicit valueFrom — see deployment.yaml).
 extraEnv: []
-
-# -- Extra envFrom sources (e.g., an externally-managed Secret produced
-# by SealedSecrets or ExternalSecrets Operator that supplies the Sonarr
-# API keys without committing them to .Values.secrets).
 extraEnvFrom: []
 
 # ----------------------------------------------------------------------
-# Secrets — operator-supplied credentials. These render into the
-# Secret created by the chart, which is then mounted via envFrom and
-# resolved by the koanf loader's ${VAR} interpolation pass.
+# Secrets. Two modes:
+#   1. Prod: set `existingSecret` to a pre-created Secret name. Chart
+#      renders NO Secret. Values stay free of sensitive material —
+#      important for `helm_release` (Terraform state holds values
+#      plaintext).
+#   2. Dev/CI: leave `existingSecret` empty; pass values via --set.
+#      Chart renders `<release>-env` Secret with inlined values.
+# Key names inside the Secret are configurable via `keys` (defaults
+# kebab-case). The two modes are mutually exclusive — `existingSecret`
+# + any inline `secrets.*` value causes the chart to fail.
 # ----------------------------------------------------------------------
 secrets:
-  # -- Static API key required for X-Api-Key auth on all /api/v1
-  # endpoints. Must be overridden at install time — empty default
-  # causes the chart to fail loudly via the required function.
+  existingSecret: ""
+
+  # Inline credentials — used ONLY when existingSecret == "".
+  # apiKey required (template `required`). postgresDSN required only
+  # when database.driver == postgres. webUser/webPassword/webPasswordHash
+  # optional — backend falls back to "admin" + first-run auto-gen.
+  # webPassword and webPasswordHash are mutually exclusive.
   apiKey: ""
-  # -- PostgreSQL DSN used when config.database.driver == "postgres".
-  # The chart leaves this empty by default; required only in postgres mode.
+  webUser: ""
+  webPassword: ""
+  webPasswordHash: ""
   postgresDSN: ""
-  # -- Optional X-Api-Key secret for the Sonarr Connect -> Webhook receiver
-  # (PRD §13.1, story 007c). Empty default = handler accepts ANY source
-  # and logs `webhook_auth_disabled` once at startup (rely on
-  # NetworkPolicy). Set to a value distinct from .Values.secrets.apiKey
-  # for privilege separation. Exposed inside the pod as env var
-  # SEASONFILL_WEBHOOK_SECRET; interpolated into config.yaml's
-  # webhook.secret field.
-  webhookSecret: ""
+
+  # Override to match an existing Secret's naming. The sanitization
+  # rule for sonarrApiKeyTemplate's {name} expansion:
+  # lowercase + any run of non-alphanumeric -> single "-", trim ends.
+  # Examples: "main" -> "sonarr-main-api-key"
+  #           "Anime_4K" -> "sonarr-anime-4k-api-key"
+  keys:
+    apiKey: "api-key"
+    webUser: "web-user"
+    webPassword: "web-password"
+    webPasswordHash: "web-password-hash"
+    postgresDSN: "postgres-dsn"
+    sonarrApiKeyTemplate: "sonarr-{name}-api-key"
 
 # ----------------------------------------------------------------------
-# Sonarr instances — one entry per Sonarr server. Each entry produces
-# (a) an env-var pair SONARR_<NAME>_URL / SONARR_<NAME>_API_KEY in the
-# generated Secret, and (b) an item in config.sonarr_instances that
-# references those env vars via ${VAR}.
+# Sonarr instances. Per-instance NON-secret config here; api keys come
+# from the Secret via secrets.keys.sonarrApiKeyTemplate.
 #
-# The name is converted to upper-snake-case to form the env-var prefix:
-#   "main"        -> SONARR_MAIN_URL,           SONARR_MAIN_API_KEY
-#   "sonarr-anime" -> SONARR_SONARR_ANIME_URL,  SONARR_SONARR_ANIME_API_KEY
+# Chart renders per-instance env-var pairs:
+#   SONARR_<NAME>_URL      (literal value)
+#   SONARR_<NAME>_API_KEY  (valueFrom secretKeyRef)
+# where <NAME> = upper(replace "-" "_" name). Example:
+#   "main"        -> SONARR_MAIN_URL/API_KEY
+#   "sonarr-anime"-> SONARR_SONARR_ANIME_URL/API_KEY
+#
+# Inline `apiKey` is allowed only when existingSecret == "". With
+# existingSecret set, inline apiKey MUST be empty (chart fails).
 # ----------------------------------------------------------------------
-sonarrInstances:
+instances:
   - name: main
     url: "http://sonarr.media.svc.cluster.local:8989"
     apiKey: ""
     timeout: 30s
+    searchTimeout: 60s
     dryRun: null
-    tags:
-      mode: all
-      include: []
-      exclude: []
+    tags: {mode: all, include: [], exclude: []}
     search:
       requireAllAired: false
       skipSpecials: true
       skipAnime: true
       minCustomFormatScore: 0
-    ranking:
-      indexerPriorityEnabled: true
-      originBonus: 1.0
-    limits:
-      scanMaxSeries: 100
-      maxGrabsPerScan: 10
-    rateLimit:
-      rps: 5
-      burst: 10
+    ranking: {indexerPriorityEnabled: true, originBonus: 1.0}
+    limits: {scanMaxSeries: 100, maxGrabsPerScan: 10}
+    rateLimit: {rps: 5, burst: 10}
     cooldown:
       mode: smart
       seriesAfterGrab: 24h
       guidAfterFailedGrab: 72h
-    retry:
-      maxAttempts: 3
-      initialBackoff: 1s
-      maxBackoff: 30s
-    healthCheck:
-      recheckIntervalAuth: 5m
-      recheckIntervalNetwork: 1m
+      guidAfterFailedImport: 48h
+    retry: {maxAttempts: 3, initialBackoff: 1s, maxBackoff: 30s}
+    healthCheck: {recheckIntervalAuth: 5m, recheckIntervalNetwork: 1m}
 
-# ----------------------------------------------------------------------
-# Application configuration — rendered verbatim into the ConfigMap as
-# config.yaml. Mirrors config.example.yaml. The loader interpolates
-# ${VAR} placeholders from the pod environment at process start.
-# ----------------------------------------------------------------------
+# Rendered verbatim into the ConfigMap as config.yaml. The loader
+# substitutes ${VAR[:-default]} at process start (loader.go).
 config:
   log:
     level: info
@@ -200,13 +159,16 @@ config:
     shutdownTimeout: 10s
     auth:
       enabled: true
+      # Cookie HMAC-signed with apiKey.
+      sessionTTL: "12h"
+      # secureCookie: true ONLY behind HTTPS (browsers reject Secure
+      # cookies over HTTP).
+      secureCookie: false
   cron:
     enabled: true
     schedule: "0 */6 * * *"
     onStart: false
     jitter: 1m
-  # -- Database driver. "sqlite" requires a PVC (see story 006e for the
-  # optional PVC template). "postgres" reads its DSN from the secret.
   database:
     driver: postgres
     sqlite:
@@ -215,8 +177,6 @@ config:
       maxOpenConns: 10
       maxIdleConns: 5
       connMaxLifetime: 5m
-  # -- Global dry-run flag. Defaults to true: first install does NOT
-  # grab. Flip to false ONLY after verifying decisions in logs.
   dryRun: true
   scan:
     shutdownGrace: 60s
@@ -225,41 +185,19 @@ config:
     rpm: 30
     burst: 10
 
-  # -- Inbound Sonarr Connect -> Webhook receiver (story 007c, PRD §13.1).
-  # The auth secret lives in .Values.secrets.webhookSecret so it never
-  # leaks into the ConfigMap; this block holds non-secret knobs.
-  webhook:
-    # -- Defensive allow-list of instance names in the URL `:instance_name`
-    # segment. Empty = accept any (back-compat single-instance). Must
-    # contain every .Values.sonarrInstances[].name webhook traffic targets.
-    # Mismatched names return 404 (per 007c1).
-    allowedInstances: []
-
-# ----------------------------------------------------------------------
-# Persistence — ONLY relevant when config.database.driver == "sqlite".
-# When enabled, a ReadWriteOnce PVC backs /data/seasonfill.db so the
-# database survives pod restarts. Postgres mode ignores this block.
-# RWO is intentional: singleton + Recreate strategy from 006d.
-# ----------------------------------------------------------------------
+# SQLite-only — RWO + Recreate.
 persistence:
   enabled: false
   accessModes:
     - ReadWriteOnce
   size: 1Gi
-  # -- StorageClass override. Empty = cluster default. "-" = explicit "".
   storageClass: ""
-  # -- Pre-bound PV name. Empty = dynamic provisioning.
   volumeName: ""
   annotations: {}
 
-# ----------------------------------------------------------------------
-# ServiceMonitor — Prometheus/VictoriaMetrics operator scrape config
-# for /metrics. The VM operator accepts monitoring.coreos.com/v1.
-# ----------------------------------------------------------------------
 serviceMonitor:
   enabled: false
   namespace: ""
-  # -- Operator-required selector (e.g. `release: prometheus`).
   labels: {}
   annotations: {}
   path: /metrics
@@ -270,193 +208,84 @@ serviceMonitor:
   metricRelabelings: []
   relabelings: []
 
-# ----------------------------------------------------------------------
-# Ingress — optional. When enabled, hosts[0].host is required.
-# ----------------------------------------------------------------------
+# Ingress: single fan-out mode. /api/*, /healthz, /readyz, /metrics
+# -> backend; / -> frontend. Operators only choose host + TLS source.
+# Path layout in 021c-2 (templates/ingress.yaml).
 ingress:
   enabled: false
   className: ""
   annotations: {}
-  hosts: []
-  # Example:
-  # hosts:
-  #   - host: seasonfill.example.com
-  #     paths:
-  #       - path: /
-  #         pathType: Prefix
-  #
-  # Privilege-separation toggle: set webhookOnly: true to restrict the
-  # Ingress to ONLY /api/v1/webhook (paths[] ignored). Useful when
-  # exposing publicly for Sonarr delivery but keeping admin routes
-  # internal. Default false preserves 006e behavior.
-  webhookOnly: false
-  # -- Fan-out the Ingress between backend and frontend Services. When
-  # true (and `web.enabled` is true), the rendered paths list is:
-  #   /api, /webhook, /healthz, /readyz, /metrics → backend
-  #   /                                          → frontend
-  # The user-supplied `hosts[].paths` list is IGNORED in this mode
-  # (the chart owns the path layout). Mutually exclusive with
-  # `webhookOnly: true` — the template fails with a clear message if
-  # both are set.
-  web:
+  host: ""
+  tls:
     enabled: false
-  tls: []
-  # Example:
-  # tls:
-  #   - secretName: seasonfill-tls
-  #     hosts: [seasonfill.example.com]
+    secretName: ""
 
-# ----------------------------------------------------------------------
-# PodDisruptionBudget — singleton-aware (PDB is informational at best
-# for replicas=1). Default off.
-# ----------------------------------------------------------------------
 podDisruptionBudget:
   enabled: false
-  # -- Mutually exclusive with minAvailable. 1 = drains allowed.
   maxUnavailable: 1
   # minAvailable: 1
 
-# ----------------------------------------------------------------------
-# NetworkPolicy — default-deny ingress + egress with explicit allows.
-# Operator must supply selectors for ingress and for Sonarr/Postgres
-# egress, OR set egress.allowAll: true to short-circuit.
-# ----------------------------------------------------------------------
+# Default-deny + explicit allows. Single ingress rule (admin + webhook
+# share auth surface).
 networkPolicy:
   enabled: false
   ingress:
     from: []
-    # Example:
-    # from:
-    #   - namespaceSelector:
-    #       matchLabels:
-    #         kubernetes.io/metadata.name: ingress-nginx
-  # -- Additional ingress sources allowed to reach the webhook endpoint
-  # (TCP 8080). Opt-in (default empty); typical homelab setup allows
-  # the Sonarr namespace. Same peer shape as `ingress.from`. Rendered
-  # as a SEPARATE ingress rule (cosmetic split — kube ORs the rules)
-  # so operator intent is visible in `kubectl describe networkpolicy`.
-  webhookSources: []
-  # Example:
-  # webhookSources:
-  #   - namespaceSelector:
-  #       matchLabels:
-  #         kubernetes.io/metadata.name: sonarr
   egress:
     allowAll: false
     to: []
-    # Example:
-    # to:
-    #   - to:
-    #       - podSelector:
-    #           matchLabels:
-    #             app.kubernetes.io/name: sonarr
-    #     ports:
-    #       - {protocol: TCP, port: 8989}
 
-# ----------------------------------------------------------------------
-# Helm test image — used by templates/tests/test-connection.yaml.
-# ----------------------------------------------------------------------
 tests:
   image:
     repository: busybox
     tag: "1.36"
     pullPolicy: IfNotPresent
 
-# ----------------------------------------------------------------------
-# Frontend (SPA) — nginx-served Vite bundle in a separate Deployment.
-# Disabled by default; existing 007d installs upgrade cleanly with no
-# `--set` changes. Enabling produces a second Deployment + Service +
-# ConfigMap; combined with `ingress.enabled=true` + `ingress.web.enabled
-# =true` the Ingress fan-outs by path prefix (see ingress.yaml).
-# ----------------------------------------------------------------------
+# Frontend always deployed (web.enabled removed).
 web:
-  enabled: false
-  replicaCount: 2
-
+  replicaCount: 1
   image:
     registry: ghcr.io
-    # Tracked alongside the backend image but on a separate repo path.
-    # CI publishes to `<repo>-web` (e.g. `alexmorbo/seasonfill-web`).
     repository: alexmorbo/seasonfill-web
-    # -- Override the image tag. Default = chart appVersion (same SHA
-    # the backend uses, since CI tags both images from the same trigger).
     tag: ""
     pullPolicy: IfNotPresent
-
-  # -- nginx-unprivileged listens on 8080 inside the container.
-  # The Service exposes port 80 → targetPort 8080 by default.
   containerPort: 8080
-
-  service:
-    type: ClusterIP
-    port: 80
-    annotations: {}
-    labels: {}
-
-  # -- Pod-level securityContext. nginx-unprivileged runs as UID 101.
+  service: {type: ClusterIP, port: 80, annotations: {}, labels: {}}
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 101
     runAsGroup: 101
     fsGroup: 101
-    seccompProfile:
-      type: RuntimeDefault
-
-  # -- Container-level securityContext. Drops all caps, forbids
-  # privilege escalation, enforces read-only root filesystem. The
-  # writable paths nginx needs come from emptyDir mounts (see
-  # web-deployment.yaml).
+    seccompProfile: {type: RuntimeDefault}
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true
     runAsNonRoot: true
     runAsUser: 101
     runAsGroup: 101
-    capabilities:
-      drop:
-        - ALL
-
-  # -- HTTP probes hit nginx's static /healthz endpoint.
+    capabilities: {drop: [ALL]}
   livenessProbe:
-    httpGet:
-      path: /healthz
-      port: http
+    httpGet: {path: /healthz, port: http}
     initialDelaySeconds: 3
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3
   readinessProbe:
-    httpGet:
-      path: /healthz
-      port: http
+    httpGet: {path: /healthz, port: http}
     initialDelaySeconds: 2
     periodSeconds: 5
     timeoutSeconds: 2
     failureThreshold: 3
-
-  # -- nginx is light. Tiny requests; modest limits.
   resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 200m
-      memory: 128Mi
-
-  # -- RollingUpdate is safe for nginx (stateless, content-hashed
-  # assets). 006d's Recreate is a backend-only constraint.
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 128Mi}
   updateStrategy:
     type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
   podAnnotations: {}
   podLabels: {}
   nodeSelector: {}
   tolerations: []
-  # -- Preferred anti-affinity to spread replicas across nodes.
-  # Operators can override with required* if a hard guarantee is needed.
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:

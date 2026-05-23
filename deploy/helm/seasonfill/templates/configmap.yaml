@@ -19,6 +19,11 @@ data:
       auth:
         enabled: {{ .Values.config.http.auth.enabled }}
         api_key: ${SEASONFILL_API_KEY}
+        session_ttl: {{ .Values.config.http.auth.sessionTTL | quote }}
+        web_user: ${SEASONFILL_WEB_USER:-admin}
+        web_password: ${SEASONFILL_WEB_PASSWORD}
+        web_password_hash: ${SEASONFILL_WEB_PASSWORD_HASH}
+        secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE}
 
     cron:
       enabled: {{ .Values.config.cron.enabled }}
@@ -46,19 +51,15 @@ data:
       rpm: {{ .Values.config.globalRateLimit.rpm }}
       burst: {{ .Values.config.globalRateLimit.burst }}
 
-    webhook:
-      secret: ${SEASONFILL_WEBHOOK_SECRET}
-      allowed_instances:
-        {{- range .Values.config.webhook.allowedInstances }}
-        - {{ . | quote }}
-        {{- end }}
-
     sonarr_instances:
-    {{- range .Values.sonarrInstances }}
+    {{- range .Values.instances }}
       - name: {{ .name | quote }}
         url: ${SONARR_{{ include "seasonfill.envName" .name }}_URL}
         api_key: ${SONARR_{{ include "seasonfill.envName" .name }}_API_KEY}
         timeout: {{ .timeout | quote }}
+        {{- with .searchTimeout }}
+        search_timeout: {{ . | quote }}
+        {{- end }}
         {{- if not (kindIs "invalid" .dryRun) }}
         dry_run: {{ .dryRun }}
         {{- end }}
@@ -94,6 +95,9 @@ data:
           mode: {{ .cooldown.mode | quote }}
           series_after_grab: {{ .cooldown.seriesAfterGrab | quote }}
           guid_after_failed_grab: {{ .cooldown.guidAfterFailedGrab | quote }}
+          {{- with .cooldown.guidAfterFailedImport }}
+          guid_after_failed_import: {{ . | quote }}
+          {{- end }}
         retry:
           max_attempts: {{ .retry.maxAttempts }}
           initial_backoff: {{ .retry.initialBackoff | quote }}

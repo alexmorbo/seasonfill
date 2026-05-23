@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Seasonfill Helm values",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["secrets", "instances", "config"],
+  "properties": {
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {"type": "string"},
+        "apiKey":          {"type": "string"},
+        "webUser":         {"type": "string"},
+        "webPassword":     {"type": "string"},
+        "webPasswordHash": {"type": "string"},
+        "postgresDSN":     {"type": "string"},
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apiKey", "webUser", "webPassword", "webPasswordHash",
+            "postgresDSN", "sonarrApiKeyTemplate"
+          ],
+          "properties": {
+            "apiKey":               {"type": "string", "minLength": 1},
+            "webUser":              {"type": "string", "minLength": 1},
+            "webPassword":          {"type": "string", "minLength": 1},
+            "webPasswordHash":      {"type": "string", "minLength": 1},
+            "postgresDSN":          {"type": "string", "minLength": 1},
+            "sonarrApiKeyTemplate": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\{name\\}.*"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "one-of: existingSecret OR apiKey must be set",
+          "anyOf": [
+            {"properties": {"existingSecret": {"type": "string", "minLength": 1}}, "required": ["existingSecret"]},
+            {"properties": {"apiKey":          {"type": "string", "minLength": 1}}, "required": ["apiKey"]}
+          ]
+        },
+        {
+          "description": "mutex: webPassword and webPasswordHash cannot both be non-empty",
+          "not": {
+            "allOf": [
+              {"properties": {"webPassword":     {"type": "string", "minLength": 1}}, "required": ["webPassword"]},
+              {"properties": {"webPasswordHash": {"type": "string", "minLength": 1}}, "required": ["webPasswordHash"]}
+            ]
+          }
+        }
+      ]
+    },
+    "instances": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "url"],
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+            "description": "Instance name. Must start with alphanumeric; allowed chars: A-Z, a-z, 0-9, _, -. The sanitized form (lowercase, non-alphanumeric -> -) keys the per-instance Secret entry."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://"
+          },
+          "apiKey":  {"type": "string"},
+          "timeout": {"type": "string"}
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "database": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "driver": {"type": "string", "enum": ["sqlite", "postgres"]}
+          }
+        },
+        "http": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "auth": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "enabled":      {"type": "boolean"},
+                "sessionTTL":   {"type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)$"},
+                "secureCookie": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "host":    {"type": "string"},
+        "tls": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled":    {"type": "boolean"},
+            "secretName": {"type": "string"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "ingress.host required when ingress.enabled is true",
+          "if":   {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
+          "then": {"required": ["host"], "properties": {"host": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "description": "ingress.tls.secretName required when tls.enabled is true",
+          "if":   {"properties": {"tls": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]}}, "required": ["tls"]},
+          "then": {"properties": {"tls": {"required": ["secretName"], "properties": {"secretName": {"type": "string", "minLength": 1}}}}}
+        }
+      ]
+    }
+  }
+}

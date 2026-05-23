@@ -129,3 +129,33 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/part-of: {{ .Chart.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
+
+{{/*
+Name of the Secret that holds seasonfill credentials. Returns the
+operator-supplied `secrets.existingSecret` when set, otherwise the
+chart-rendered `<release>-env` name.
+*/}}
+{{- define "seasonfill.secretName" -}}
+{{- if .Values.secrets.existingSecret -}}
+{{- .Values.secrets.existingSecret -}}
+{{- else -}}
+{{- printf "%s-env" (include "seasonfill.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Sanitized Sonarr per-instance Secret key. Lowercases the instance name
+and maps any run of non-alphanumeric characters to a single `-`, then
+substitutes into `secrets.keys.sonarrApiKeyTemplate` (default
+`sonarr-{name}-api-key`). Trims leading/trailing dashes so weird names
+("--anime--", "Anime_4K") still produce DNS-1123-ish keys.
+
+Usage: `{{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}`
+*/}}
+{{- define "seasonfill.sonarrSecretKey" -}}
+{{- $name := lower .name -}}
+{{- $name = regexReplaceAll "[^a-z0-9]+" $name "-" -}}
+{{- $name = trimAll "-" $name -}}
+{{- $tmpl := .ctx.Values.secrets.keys.sonarrApiKeyTemplate -}}
+{{- replace "{name}" $name $tmpl -}}
+{{- end }}
