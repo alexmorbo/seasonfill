@@ -41,6 +41,7 @@ func NewServer(
 	webhookLimiter *auth.IPLimiter,
 	sonarrClients map[string]ports.SonarrClient,
 	instanceModes map[string]string,
+	instanceURLs map[string]string,
 	knownInstances map[string]struct{},
 	cooldownRepo ports.CooldownRepository,
 	grabUC *appgrab.UseCase,
@@ -69,7 +70,7 @@ func NewServer(
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
-	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, logger)
+	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, instanceURLs, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, knownInstances, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instancesByName, logger)

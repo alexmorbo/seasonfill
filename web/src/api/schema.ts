@@ -1599,6 +1599,8 @@ export type components = {
             /** @example alpha */
             readonly name?: string;
             readonly transitions_count?: number;
+            /** @example http://sonarr:8989 */
+            readonly url?: string;
         };
         readonly "dto.InstanceCooldown": {
             readonly guid_after_failed_grab_sec?: number;

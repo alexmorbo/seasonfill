@@ -74,9 +74,13 @@ type ScanTriggerItem struct {
 }
 
 // Instance — Sonarr-instance health snapshot. Mode always emitted
-// (Q-010-1) so the UI doesn't branch on field absence.
+// (Q-010-1) so the UI doesn't branch on field absence. URL is the
+// configured Sonarr base URL — read-only echo from the runtime
+// snapshot, populated by the handler from the static URLs map (see
+// known limitation note in 028g).
 type Instance struct {
 	Name             string     `json:"name"   example:"alpha"`
+	URL              string     `json:"url"    example:"http://sonarr:8989"`
 	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`
 	Health           string     `json:"health" example:"available" enums:"available,degraded,unavailable,unknown"`
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`

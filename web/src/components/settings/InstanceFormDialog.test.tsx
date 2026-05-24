@@ -11,8 +11,22 @@ import {
 } from '@/lib/instances-mutations';
 import { DtoInstanceDetailMode } from '@/api/schema';
 
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+const toastMessage = vi.fn();
+vi.mock('sonner', () => ({
+  toast: {
+    success: (m: string) => toastSuccess(m),
+    error: (m: string) => toastError(m),
+    message: (m: string) => toastMessage(m),
+  },
+}));
+
 const origFetch = globalThis.fetch;
 beforeEach(() => {
+  toastSuccess.mockClear();
+  toastError.mockClear();
+  toastMessage.mockClear();
   Object.defineProperty(window, 'location', {
     writable: true, value: { pathname: '/settings', assign: vi.fn() },
   });
@@ -79,7 +93,7 @@ describe('<InstanceFormDialog />', () => {
       url: 'http://sonarr:8989',
       api_key: 'sekrit',
     });
-    expect(await screen.findByText(/OK — Sonarr 4\.0\.0\.999/i)).toBeVisible();
+    expect(await screen.findByText(/Connected to Sonarr 4\.0\.0\.999/i)).toBeVisible();
   });
 
   it('edit submit with blank api_key OMITS the field from the PUT body', async () => {
@@ -233,5 +247,58 @@ describe('<InstanceFormDialog />', () => {
     const save = await screen.findByRole('button', { name: /^save$/i });
     expect(save).toBeDisabled();
     expect(await screen.findByText(/loading instance details/i)).toBeVisible();
+  });
+
+  it('Create with empty api_key surfaces inline error and does NOT POST', async () => {
+    const fetchSpy = vi.fn(async () => jsonResp({}, 500));
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/name/i), 'beta');
+    // URL has the default already.
+    // api_key intentionally untouched.
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    expect(await screen.findByText(/api key required for new instances/i)).toBeVisible();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Focus moved to the api_key input.
+    expect(document.activeElement).toBe(screen.getByLabelText(/api key/i));
+  });
+
+  it('Test connection happy path renders inline message and NO toast', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ ok: true, version: '4.0.5' }, 200),
+    ) as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }));
+
+    expect(await screen.findByText(/Connected to Sonarr 4\.0\.5/i)).toBeVisible();
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('Test connection 504 renders inline AND toasts (transport)', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ error: 'timeout' }, 504),
+    ) as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    await userEvent.click(screen.getByRole('button', { name: /test connection/i }));
+
+    // Inline stays null (cleared in the catch); toast is the channel.
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringMatching(/timed out/i),
+      );
+    });
   });
 });

@@ -22,22 +22,35 @@ import {
   type InstanceUpdateRequest,
 } from '@/lib/instances-mutations';
 
-const schema = z.object({
-  name: z
-    .string()
-    .min(1, 'Name is required')
-    .max(128, 'Max 128 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Allowed: a-z, A-Z, 0-9, _ and -'),
-  url: z
-    .string()
-    .min(1, 'URL is required')
-    .url('Must be a valid URL')
-    .refine((v) => v.startsWith('http://') || v.startsWith('https://'),
-      'URL must start with http:// or https://'),
-  api_key: z.string(),
-  mode: z.enum(['auto', 'manual']),
+const nameRule = z
+  .string()
+  .min(1, 'Name is required')
+  .max(128, 'Max 128 characters')
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Allowed: a-z, A-Z, 0-9, _ and -');
+
+const urlRule = z
+  .string()
+  .min(1, 'URL is required')
+  .url('Must be a valid URL')
+  .refine((v) => v.startsWith('http://') || v.startsWith('https://'),
+    'URL must start with http:// or https://');
+
+const modeRule = z.enum(['auto', 'manual']);
+
+// Create requires non-empty api_key. Edit allows empty (= preserve
+// stored secret). Two distinct schemas keep the form generic stable
+// and per-field error rendering consistent with the rest of the form.
+const createSchema = z.object({
+  name: nameRule, url: urlRule, mode: modeRule,
+  api_key: z.string().min(1, 'API key required for new instances'),
 });
-type FormValues = z.infer<typeof schema>;
+const editSchema = z.object({
+  name: nameRule, url: urlRule, mode: modeRule,
+  api_key: z.string(),
+});
+type FormValues = z.infer<typeof createSchema>;
+const pickSchema = (m: 'create' | 'edit') =>
+  m === 'create' ? createSchema : editSchema;
 
 export interface InstanceFormDialogProps {
   readonly open: boolean;
@@ -71,10 +84,10 @@ export function InstanceFormDialog({
   const detail = detailQuery.data?.detail;
 
   const {
-    register, handleSubmit, reset, getValues,
+    register, handleSubmit, reset, getValues, setFocus,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(pickSchema(mode)),
     defaultValues: { ...DEFAULTS, ...initial, api_key: '' },
     mode: 'onBlur',
   });
@@ -86,45 +99,32 @@ export function InstanceFormDialog({
     }
   }, [open, initial, reset]);
 
+  const onInvalid = (errs: Record<string, unknown>) => {
+    if (!isEdit && errs.api_key) setFocus('api_key');
+  };
+
   const onSubmit = handleSubmit(async (values) => {
     const trimmedKey = values.api_key.trim();
-
     if (isEdit && initial?.name) {
-      // Wait for detail; the submit button is disabled while pending,
-      // but guard here too for the race between click and click-handler
-      // dispatch.
       if (!detail) return;
-      // Merge: detail provides every per-instance field (cooldown,
-      // ranking, limits, retry, search, tags, health_check, rate-limit,
-      // timeouts, dry_run); form values overlay the 4 editable ones.
-      // api_key omitted unless the user typed something — server then
-      // preserves the existing secret.
       const body: InstanceUpdateRequest = {
         ...detail,
-        name: values.name,
-        url: values.url,
-        mode: values.mode,
+        name: values.name, url: values.url, mode: values.mode,
         ...(trimmedKey.length > 0 ? { api_key: trimmedKey } : {}),
       };
-      // `updated_at` is read-only echo from GET; strip so it doesn't
-      // round-trip into the request body. The handler ignores unknown
-      // fields, but cleaner over the wire.
       delete (body as { updated_at?: string }).updated_at;
       await update.mutateAsync({ name: initial.name, body });
     } else {
-      // Create path is patch-like, build from form alone. api_key is
-      // required on create.
-      if (trimmedKey.length === 0) return;
+      // createSchema enforces api_key.min(1); trimmedKey guaranteed
+      // non-empty here. No silent guard.
       const body: InstanceCreateRequest = {
-        name: values.name,
-        url: values.url,
-        api_key: trimmedKey,
-        mode: values.mode,
+        name: values.name, url: values.url,
+        api_key: trimmedKey, mode: values.mode,
       };
       await create.mutateAsync({ body });
     }
     onOpenChange(false);
-  });
+  }, onInvalid);
 
   const onTest = async () => {
     setProbeResult(null);
@@ -136,13 +136,14 @@ export function InstanceFormDialog({
     try {
       const resp = await probe.mutateAsync({ url, api_key });
       if (resp.ok) {
-        setProbeResult(resp.version
-          ? `OK — Sonarr ${resp.version}`
-          : 'OK — Sonarr (version unknown)');
+        setProbeResult(resp.version && resp.version.length > 0
+          ? `Connected to Sonarr ${resp.version}`
+          : 'Connected (version unknown)');
       } else {
         setProbeResult(resp.reason || 'Connection failed');
       }
     } catch {
+      // Transport-error toast already fired by useTestInstance.onError.
       setProbeResult(null);
     }
   };
@@ -218,6 +219,11 @@ export function InstanceFormDialog({
               aria-invalid={Boolean(errors.api_key) || undefined}
               {...register('api_key')}
             />
+            {errors.api_key && (
+              <p role="alert" className="text-status-danger text-[11.5px]">
+                {errors.api_key.message}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">

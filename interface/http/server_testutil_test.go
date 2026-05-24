@@ -20,6 +20,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	admin := &stubAdminRepo{}
 	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, logger)
 }

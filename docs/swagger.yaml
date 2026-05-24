@@ -172,6 +172,9 @@ components:
           type: string
         transitions_count:
           type: integer
+        url:
+          example: http://sonarr:8989
+          type: string
       type: object
     dto.InstanceCooldown:
       properties:

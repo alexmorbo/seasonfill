@@ -144,7 +144,7 @@ describe('useDeleteInstance()', () => {
 });
 
 describe('useTestInstance()', () => {
-  it('toasts success with version when ok=true', async () => {
+  it('resolves with the probe response and fires NO toast on ok=true', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ ok: true, version: '4.0.0.999' }, 200),
     ) as typeof fetch;
@@ -152,10 +152,12 @@ describe('useTestInstance()', () => {
     const { result } = renderHook(() => useTestInstance(), { wrapper: wrap(qc) });
     result.current.mutate({ url: 'http://x', api_key: 'k' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(toastSuccess).toHaveBeenCalledWith('Connected to Sonarr 4.0.0.999');
+    // Happy path: NO toast — the dialog owns the inline feedback channel.
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 
-  it('toasts reason when ok=false', async () => {
+  it('resolves with the probe response and fires NO toast on ok=false', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ ok: false, reason: 'authentication failed' }, 200),
     ) as typeof fetch;
@@ -163,7 +165,9 @@ describe('useTestInstance()', () => {
     const { result } = renderHook(() => useTestInstance(), { wrapper: wrap(qc) });
     result.current.mutate({ url: 'http://x', api_key: 'wrong' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(toastError).toHaveBeenCalledWith('authentication failed');
+    // ok=false is still a successful HTTP call; no toast — inline only.
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it('toasts timeout on 504', async () => {

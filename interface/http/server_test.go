@@ -181,7 +181,7 @@ func buildServer(t *testing.T) *Server {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, lg)
 }
 
@@ -229,7 +229,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 	}, scanUC, okWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		adminRepo, nil, nil,
-		nil, nil, map[string]struct{}{"main": {}},
+		nil, nil, nil, map[string]struct{}{"main": {}},
 		nil, nil, nil, nil, nil, nil, nil, lg)
 }
 
@@ -393,7 +393,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, lg)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {
 		c.String(http.StatusOK, c.ClientIP())

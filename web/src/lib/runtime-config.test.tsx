@@ -112,4 +112,57 @@ describe('useUpdateRuntimeConfig()', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastError).toHaveBeenCalledWith('invalid cron: foo');
   });
+
+  it('PUT response Last-Modified is cached synchronously before invalidate', async () => {
+    let putCalls = 0;
+    const captured: { lastIUS?: string | undefined } = {};
+    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        putCalls += 1;
+        const hdrs = (init.headers ?? {}) as Record<string, string>;
+        captured.lastIUS = hdrs['If-Unmodified-Since'];
+        const newLM = putCalls === 1
+          ? 'Wed, 21 Oct 2025 07:30:00 GMT'
+          : 'Wed, 21 Oct 2025 07:31:00 GMT';
+        return jsonResp({ dry_run: putCalls === 1 }, 200, { 'Last-Modified': newLM });
+      }
+      // Background refetch — return the latest cached body.
+      return jsonResp({ dry_run: false }, 200, {
+        'Last-Modified': 'Wed, 21 Oct 2025 07:30:00 GMT',
+      });
+    }) as typeof fetch;
+
+    const qc = makeQC();
+    const seed: RuntimeConfigWithMeta = {
+      config: { dry_run: true } as never,
+      lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
+    };
+    qc.setQueryData(runtimeConfigKey, seed);
+
+    // Render both hooks so runtimeConfigKey has an active observer —
+    // required to prevent gcTime=0 from evicting setQueryData writes
+    // before the second mutate reads them.
+    const { result } = renderHook(
+      () => ({ update: useUpdateRuntimeConfig(), q: useRuntimeConfig() }),
+      { wrapper: wrap(qc) },
+    );
+
+    // First PUT — should send seed's IUS (07:28).
+    result.current.update.mutate({ dry_run: false } as never);
+    await waitFor(() => expect(result.current.update.isSuccess).toBe(true));
+    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:28:00 GMT');
+
+    // setQueryData in onSuccess ran synchronously, so the cache must
+    // already carry the PUT's Last-Modified before the background GET
+    // from invalidateQueries can overwrite it.
+    await waitFor(() => {
+      const after = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
+      expect(after?.lastModified).toBe('Wed, 21 Oct 2025 07:30:00 GMT');
+    });
+
+    // Second PUT — should now use 07:30, not 07:28.
+    result.current.update.mutate({ dry_run: true } as never);
+    await waitFor(() => expect(putCalls).toBe(2));
+    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:30:00 GMT');
+  });
 });

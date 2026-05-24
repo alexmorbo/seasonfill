@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api, ApiError } from './api';
+import { ApiError } from './api';
 import type { components } from '@/api/schema';
 
 export type InstanceDetail = components['schemas']['dto.InstanceDetail'];
@@ -10,9 +10,6 @@ export type InstanceUpdateRequest = components['schemas']['dto.InstanceUpdateReq
 export type InstanceTestRequest = components['schemas']['dto.InstanceTestRequest'];
 export type InstanceTestResponse = components['schemas']['dto.InstanceTestResponse'];
 
-// We bolt Last-Modified onto the data we cache so PUTs can send
-// If-Unmodified-Since without a separate header cache. The shape
-// stays JSON-friendly so devtools can still inspect it.
 export interface InstanceDetailWithMeta {
   readonly detail: InstanceDetail;
   readonly lastModified: string | null;
@@ -21,10 +18,18 @@ export interface InstanceDetailWithMeta {
 export const instanceDetailKey = (name: string) =>
   ['instance-detail', name] as const;
 
-async function getInstanceDetailRaw(name: string): Promise<InstanceDetailWithMeta> {
-  const res = await fetch(`/api/v1/instances/${encodeURIComponent(name)}`, {
+async function jsonFetch<T>(
+  url: string,
+  init: RequestInit = {},
+): Promise<{ data: T; lastModified: string | null }> {
+  const res = await fetch(url, {
     credentials: 'same-origin',
-    headers: { Accept: 'application/json' },
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.headers ?? {}),
+    },
   });
   if (res.status === 401) {
     if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
@@ -40,8 +45,15 @@ async function getInstanceDetailRaw(name: string): Promise<InstanceDetailWithMet
       : res.statusText;
     throw new ApiError(res.status, msg, parsed);
   }
-  const detail = (await res.json()) as InstanceDetail;
-  return { detail, lastModified: res.headers.get('Last-Modified') };
+  const data = res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+  return { data, lastModified: res.headers.get('Last-Modified') };
+}
+
+async function getInstanceDetailRaw(name: string): Promise<InstanceDetailWithMeta> {
+  const { data, lastModified } = await jsonFetch<InstanceDetail>(
+    `/api/v1/instances/${encodeURIComponent(name)}`,
+  );
+  return { detail: data, lastModified };
 }
 
 export function useInstanceDetail(name: string | null): UseQueryResult<InstanceDetailWithMeta, ApiError> {
@@ -62,12 +74,20 @@ export interface CreateInstanceInput {
 
 export function useCreateInstance() {
   const qc = useQueryClient();
-  return useMutation<InstanceDetail, ApiError, CreateInstanceInput>({
+  return useMutation<InstanceDetailWithMeta, ApiError, CreateInstanceInput>({
     mutationFn: ({ body }) =>
-      api<InstanceDetail>('/instances', { method: 'POST', body }),
-    onSuccess: (data) => {
+      jsonFetch<InstanceDetail>('/api/v1/instances', {
+        method: 'POST', body: JSON.stringify(body),
+      }).then(({ data, lastModified }) => ({ detail: data, lastModified })),
+    onSuccess: ({ detail, lastModified }) => {
+      // Synchronous cache prime — a follow-up Edit dialog hitting the
+      // detail query will see the freshest payload + header.
+      if (detail.name) {
+        qc.setQueryData<InstanceDetailWithMeta>(
+          instanceDetailKey(detail.name), { detail, lastModified },
+        );
+      }
       qc.invalidateQueries({ queryKey: ['instances'] });
-      qc.invalidateQueries({ queryKey: instanceDetailKey(data.name ?? '') });
       toast.success('Instance created');
     },
     onError: (err) => {
@@ -87,19 +107,28 @@ export interface UpdateInstanceInput {
 
 export function useUpdateInstance() {
   const qc = useQueryClient();
-  return useMutation<InstanceDetail, ApiError, UpdateInstanceInput>({
+  return useMutation<InstanceDetailWithMeta, ApiError, UpdateInstanceInput>({
     mutationFn: async ({ name, body }) => {
       const cached = qc.getQueryData<InstanceDetailWithMeta>(instanceDetailKey(name));
       const ius = cached?.lastModified ?? null;
-      const headers: Record<string, string> = {};
-      if (ius) headers['If-Unmodified-Since'] = ius;
-      return api<InstanceDetail>(`/instances/${encodeURIComponent(name)}`, {
-        method: 'PUT',
-        body,
-        headers,
-      });
+      const { data, lastModified } = await jsonFetch<InstanceDetail>(
+        `/api/v1/instances/${encodeURIComponent(name)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(body),
+          headers: ius ? { 'If-Unmodified-Since': ius } : {},
+        },
+      );
+      return { detail: data, lastModified };
     },
-    onSuccess: (_data, vars) => {
+    // CRITICAL: setQueryData runs BEFORE invalidateQueries so a rapid
+    // second Save reads the freshly-captured Last-Modified rather than
+    // the pre-PUT one. The invalidate still triggers a background GET
+    // that will overwrite if the server's UpdatedAt differs.
+    onSuccess: ({ detail, lastModified }, vars) => {
+      qc.setQueryData<InstanceDetailWithMeta>(
+        instanceDetailKey(vars.name), { detail, lastModified },
+      );
       qc.invalidateQueries({ queryKey: ['instances'] });
       qc.invalidateQueries({ queryKey: instanceDetailKey(vars.name) });
       toast.success('Instance saved');
@@ -124,7 +153,9 @@ export function useDeleteInstance() {
   const qc = useQueryClient();
   return useMutation<void, ApiError, DeleteInstanceInput>({
     mutationFn: async ({ name }) => {
-      await api<void>(`/instances/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      await jsonFetch<void>(`/api/v1/instances/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      });
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['instances'] });
@@ -141,20 +172,19 @@ export function useDeleteInstance() {
   });
 }
 
+// useTestInstance — inline-only feedback on happy path. The dialog
+// renders `probeResult` next to the Test button (success/version or
+// failure reason). Transport-level failures (504, network error) DO
+// surface as toasts because they may have happened off-screen.
 export function useTestInstance() {
   return useMutation<InstanceTestResponse, ApiError, InstanceTestRequest>({
-    mutationFn: (body) =>
-      api<InstanceTestResponse>('/instances/test', { method: 'POST', body }),
-    onSuccess: (resp) => {
-      if (resp.ok) {
-        const v = resp.version && resp.version.length > 0
-          ? `Connected to Sonarr ${resp.version}`
-          : 'Connected (version unknown)';
-        toast.success(v);
-      } else {
-        toast.error(resp.reason || 'Connection failed');
-      }
-    },
+    mutationFn: ({ url, api_key }) =>
+      jsonFetch<InstanceTestResponse>('/api/v1/instances/test', {
+        method: 'POST',
+        body: JSON.stringify({ url, api_key }),
+      }).then(({ data }) => data),
+    // Deliberately no onSuccess toasts — the dialog owns the inline
+    // feedback channel. Avoid double-announcing the same event.
     onError: (err) => {
       if (err.status === 504) {
         toast.error('Timed out — Sonarr did not respond');

@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
 func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
@@ -30,7 +31,7 @@ func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
 	c.Preflight(context.Background())
 
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -53,7 +54,7 @@ func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
 func TestInstancesHandler_List_Empty(t *testing.T) {
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -77,7 +78,7 @@ func TestInstancesHandler_LastCheckAt_OmittedWhenNeverChecked(t *testing.T) {
 	})
 
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -123,7 +124,7 @@ func doMissing(t *testing.T, name string, clients map[string]ports.SonarrClient,
 	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	h := NewInstancesHandler(c, clients, modes, nil)
+	h := NewInstancesHandler(c, clients, modes, nil, nil)
 	r.GET("/api/v1/instances/:name/missing", h.Missing)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances/"+name+"/missing", nil)
@@ -211,7 +212,7 @@ func TestInstanceDTO_EmitsMode(t *testing.T) {
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
 	c.Preflight(context.Background())
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, map[string]string{"alpha": "manual"}, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, map[string]string{"alpha": "manual"}, nil, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -236,7 +237,7 @@ func doSearch(t *testing.T, name, rawQuery string, clients map[string]ports.Sona
 	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	h := NewInstancesHandler(c, clients, nil, nil)
+	h := NewInstancesHandler(c, clients, nil, nil, nil)
 	r.GET("/api/v1/instances/:name/series", h.SearchSeries)
 	url := "/api/v1/instances/" + name + "/series"
 	if rawQuery != "" {
@@ -407,6 +408,26 @@ func TestSearchSeries_SonarrUnauthorized(t *testing.T) {
 	assert.Contains(t, body["error"], "unauthorized")
 }
 
+func TestList_IncludesURL(t *testing.T) {
+	t.Parallel()
+	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	c.Preflight(context.Background())
+	urls := map[string]string{"alpha": "http://sonarr.example:8989"}
+	r := gin.New()
+	r.GET("/api/v1/instances",
+		NewInstancesHandler(c, nil, nil, urls, nil).List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body dto.InstanceList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Instances, 1)
+	assert.Equal(t, "http://sonarr.example:8989", body.Instances[0].URL)
+}
+
 // TestInstancesList_DoesNotLeakAPIKey locks the contract that
 // GET /instances must never include any variant of an apiKey field.
 // Future careless DTO edits fail here.
@@ -416,7 +437,7 @@ func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
 	c.Preflight(context.Background())
 	r := gin.New()
 	r.GET("/api/v1/instances",
-		NewInstancesHandler(c, nil, map[string]string{"alpha": "auto"}, nil).List)
+		NewInstancesHandler(c, nil, map[string]string{"alpha": "auto"}, nil, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances", nil)

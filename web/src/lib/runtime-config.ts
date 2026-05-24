@@ -48,7 +48,7 @@ export function useRuntimeConfig(): UseQueryResult<RuntimeConfigWithMeta, ApiErr
 
 export function useUpdateRuntimeConfig() {
   const qc = useQueryClient();
-  return useMutation<RuntimeConfig, ApiError, RuntimeConfig>({
+  return useMutation<RuntimeConfigWithMeta, ApiError, RuntimeConfig>({
     mutationFn: async (body) => {
       const cached = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
       const ius = cached?.lastModified ?? null;
@@ -76,9 +76,16 @@ export function useUpdateRuntimeConfig() {
           : res.statusText;
         throw new ApiError(res.status, msg, parsed);
       }
-      return (await res.json()) as RuntimeConfig;
+      const config = (await res.json()) as RuntimeConfig;
+      return { config, lastModified: res.headers.get('Last-Modified') };
     },
-    onSuccess: () => {
+    // Synchronous cache prime closes the rapid-double-Save race. The
+    // background refetch from invalidateQueries still runs and will
+    // overwrite if the server's UpdatedAt has moved further.
+    onSuccess: ({ config, lastModified }) => {
+      qc.setQueryData<RuntimeConfigWithMeta>(
+        runtimeConfigKey, { config, lastModified },
+      );
       qc.invalidateQueries({ queryKey: runtimeConfigKey });
       toast.success('Settings saved');
     },

@@ -88,7 +88,7 @@ export function InstancesTab() {
               <TableRow key={inst.name}>
                 <TableCell className="font-mono">{inst.name}</TableCell>
                 <TableCell className="font-mono text-[12px] text-muted">
-                  —
+                  {inst.url ?? ''}
                 </TableCell>
                 <TableCell>{inst.mode ?? 'auto'}</TableCell>
                 <TableCell className="font-mono text-[12px]">

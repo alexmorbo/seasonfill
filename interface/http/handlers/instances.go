@@ -35,16 +35,26 @@ type InstancesHandler struct {
 	checker *healthcheck.Checker
 	clients map[string]ports.SonarrClient
 	modes   map[string]string
+	urls    map[string]string
 	logger  *slog.Logger
 }
 
-// NewInstancesHandler — `clients`/`modes` nil-OK for back-compat with
-// tests that only exercise List (Missing then 404s for every name).
-func NewInstancesHandler(checker *healthcheck.Checker, clients map[string]ports.SonarrClient, modes map[string]string, logger *slog.Logger) *InstancesHandler {
+// NewInstancesHandler — `clients`/`modes`/`urls` nil-OK for back-compat
+// with tests that only exercise List (Missing then 404s for every name).
+func NewInstancesHandler(
+	checker *healthcheck.Checker,
+	clients map[string]ports.SonarrClient,
+	modes map[string]string,
+	urls map[string]string,
+	logger *slog.Logger,
+) *InstancesHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &InstancesHandler{checker: checker, clients: clients, modes: modes, logger: logger}
+	return &InstancesHandler{
+		checker: checker, clients: clients,
+		modes: modes, urls: urls, logger: logger,
+	}
 }
 
 // BuildModeMap — name->mode lookup; empty mode defaults to "auto".
@@ -56,6 +66,16 @@ func BuildModeMap(instances []config.SonarrInstance) map[string]string {
 			m = "auto"
 		}
 		out[inst.Name] = m
+	}
+	return out
+}
+
+// BuildURLMap — name->url lookup. Mirrors BuildModeMap; same static-
+// lifecycle caveat (rebuilt only at process startup).
+func BuildURLMap(instances []config.SonarrInstance) map[string]string {
+	out := make(map[string]string, len(instances))
+	for _, inst := range instances {
+		out[inst.Name] = inst.URL
 	}
 	return out
 }
@@ -75,7 +95,7 @@ func (h *InstancesHandler) List(c *gin.Context) {
 	snap := h.checker.Snapshot()
 	out := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		out = append(out, snapshotToDTO(s, h.modes))
+		out = append(out, snapshotToDTO(s, h.modes, h.urls))
 	}
 	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
 }
@@ -148,7 +168,7 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.MissingSeriesList{Items: items, Total: len(items)})
 }
 
-func snapshotToDTO(s instance.Snapshot, modes map[string]string) dto.Instance {
+func snapshotToDTO(s instance.Snapshot, modes map[string]string, urls map[string]string) dto.Instance {
 	var lastCheckAt *time.Time
 	if !s.LastCheckAt.IsZero() {
 		t := s.LastCheckAt
@@ -160,8 +180,12 @@ func snapshotToDTO(s instance.Snapshot, modes map[string]string) dto.Instance {
 			mode = m
 		}
 	}
+	var url string
+	if urls != nil {
+		url = urls[s.Name] // empty string is fine — UI falls back to ''
+	}
 	return dto.Instance{
-		Name: s.Name, Mode: mode, Health: string(s.Health),
+		Name: s.Name, URL: url, Mode: mode, Health: string(s.Health),
 		LastCheckAt: lastCheckAt, LastError: s.LastError,
 		TransitionsCount: s.TransitionsCount,
 	}

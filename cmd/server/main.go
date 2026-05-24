@@ -314,7 +314,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
-		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
+		sonarrClientsByName,
+		handlers.BuildModeMap(cfg.SonarrInstances),
+		handlers.BuildURLMap(cfg.SonarrInstances),
 		knownInstances,
 		cooldownRepo, grabUC, rescanUC, scanInstancesByName, instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
 
