@@ -151,9 +151,20 @@ func setup(t *testing.T) (*UseCase, *fakeInstanceRepo, *runtime.Bus, <-chan runt
 	return uc, repo, bus, ch
 }
 
+// REPLACE the existing validSnap helper with this version. Sets all
+// fields that the new range checks require to be non-zero: Timeout,
+// SearchTimeout, and health_check intervals (whose min is 10s).
 func validSnap(name string) runtime.InstanceSnapshot {
 	return runtime.InstanceSnapshot{
-		Name: name, URL: "http://sonarr:8989", APIKey: "abc",
+		Name:          name,
+		URL:           "http://sonarr:8989",
+		APIKey:        "abc",
+		Timeout:       10 * time.Second,
+		SearchTimeout: 60 * time.Second,
+		HealthCheck: runtime.HealthCheckSnapshot{
+			RecheckAuth:    5 * time.Minute,
+			RecheckNetwork: time.Minute,
+		},
 	}
 }
 
@@ -270,4 +281,156 @@ func TestGet_MasksKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "***", got.APIKey)
 	assert.False(t, ts.IsZero())
+}
+
+// --- 028h-1: range-boundary tests ---
+
+type instanceRangeCase struct {
+	name    string
+	mutate  func(*runtime.InstanceSnapshot)
+	code    string
+	wantErr bool
+}
+
+func TestValidate_RangeBounds_Instance(t *testing.T) {
+	t.Parallel()
+	cases := []instanceRangeCase{
+		// timeout_sec ∈ [1s, 300s]
+		{"timeout_zero_rejected",
+			func(s *runtime.InstanceSnapshot) { s.Timeout = 0 },
+			"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE", true},
+		{"timeout_at_min",
+			func(s *runtime.InstanceSnapshot) { s.Timeout = 1 * time.Second },
+			"", false},
+		{"timeout_at_max",
+			func(s *runtime.InstanceSnapshot) { s.Timeout = 300 * time.Second },
+			"", false},
+		{"timeout_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Timeout = 301 * time.Second },
+			"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE", true},
+
+		// search_timeout_sec ∈ [1s, 600s]
+		{"search_timeout_zero_rejected",
+			func(s *runtime.InstanceSnapshot) { s.SearchTimeout = 0 },
+			"INVALID_INSTANCE_SEARCH_TIMEOUT_OUT_OF_RANGE", true},
+		{"search_timeout_at_max",
+			func(s *runtime.InstanceSnapshot) { s.SearchTimeout = 600 * time.Second },
+			"", false},
+		{"search_timeout_above_max",
+			func(s *runtime.InstanceSnapshot) { s.SearchTimeout = 601 * time.Second },
+			"INVALID_INSTANCE_SEARCH_TIMEOUT_OUT_OF_RANGE", true},
+
+		// rate_limit_rpm ∈ [0, 10000]
+		{"rate_limit_rpm_at_min",
+			func(s *runtime.InstanceSnapshot) { s.RateLimit.RPM = 0 },
+			"", false},
+		{"rate_limit_rpm_at_max",
+			func(s *runtime.InstanceSnapshot) { s.RateLimit.RPM = 10000 },
+			"", false},
+		{"rate_limit_rpm_above_max",
+			func(s *runtime.InstanceSnapshot) { s.RateLimit.RPM = 10001 },
+			"INVALID_INSTANCE_RATE_LIMIT_RPM_OUT_OF_RANGE", true},
+
+		// rate_limit_burst ∈ [0, 10000]
+		{"rate_limit_burst_above_max",
+			func(s *runtime.InstanceSnapshot) { s.RateLimit.Burst = 10001 },
+			"INVALID_INSTANCE_RATE_LIMIT_BURST_OUT_OF_RANGE", true},
+
+		// cooldown.series_after_grab ∈ [0, 168h]
+		{"cooldown_series_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Cooldown.SeriesAfterGrab = 169 * time.Hour },
+			"INVALID_INSTANCE_COOLDOWN_SERIES_OUT_OF_RANGE", true},
+		{"cooldown_series_at_max",
+			func(s *runtime.InstanceSnapshot) { s.Cooldown.SeriesAfterGrab = 168 * time.Hour },
+			"", false},
+
+		// cooldown.guid_after_failed_grab ∈ [0, 168h]
+		{"cooldown_guid_grab_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Cooldown.GUIDAfterFailedGrab = 169 * time.Hour },
+			"INVALID_INSTANCE_COOLDOWN_GUID_GRAB_OUT_OF_RANGE", true},
+
+		// cooldown.guid_after_failed_import ∈ [0, 168h]
+		{"cooldown_guid_import_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Cooldown.GUIDAfterFailedImport = 169 * time.Hour },
+			"INVALID_INSTANCE_COOLDOWN_GUID_IMPORT_OUT_OF_RANGE", true},
+
+		// retry.max_attempts ∈ [0, 10]
+		{"retry_attempts_at_min",
+			func(s *runtime.InstanceSnapshot) { s.Retry.MaxAttempts = 0 },
+			"", false},
+		{"retry_attempts_at_max",
+			func(s *runtime.InstanceSnapshot) { s.Retry.MaxAttempts = 10 },
+			"", false},
+		{"retry_attempts_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Retry.MaxAttempts = 11 },
+			"INVALID_INSTANCE_RETRY_MAX_ATTEMPTS_OUT_OF_RANGE", true},
+
+		// retry.initial_backoff ∈ [0, 1h]
+		{"retry_initial_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Retry.InitialBackoff = 2 * time.Hour },
+			"INVALID_INSTANCE_RETRY_INITIAL_BACKOFF_OUT_OF_RANGE", true},
+
+		// retry.max_backoff ∈ [0, 1h]
+		{"retry_max_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Retry.MaxBackoff = 2 * time.Hour },
+			"INVALID_INSTANCE_RETRY_MAX_BACKOFF_OUT_OF_RANGE", true},
+
+		// health_check.recheck_auth ∈ [10s, 24h]
+		{"health_auth_below_min",
+			func(s *runtime.InstanceSnapshot) { s.HealthCheck.RecheckAuth = 5 * time.Second },
+			"INVALID_INSTANCE_HEALTH_RECHECK_AUTH_OUT_OF_RANGE", true},
+		{"health_auth_at_min",
+			func(s *runtime.InstanceSnapshot) { s.HealthCheck.RecheckAuth = 10 * time.Second },
+			"", false},
+		{"health_auth_above_max",
+			func(s *runtime.InstanceSnapshot) { s.HealthCheck.RecheckAuth = 25 * time.Hour },
+			"INVALID_INSTANCE_HEALTH_RECHECK_AUTH_OUT_OF_RANGE", true},
+
+		// health_check.recheck_network ∈ [10s, 24h]
+		{"health_net_below_min",
+			func(s *runtime.InstanceSnapshot) { s.HealthCheck.RecheckNetwork = 5 * time.Second },
+			"INVALID_INSTANCE_HEALTH_RECHECK_NET_OUT_OF_RANGE", true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _, _ := setup(t)
+			snap := validSnap("alpha")
+			tc.mutate(&snap)
+			err := uc.Create(context.Background(), snap)
+			if !tc.wantErr {
+				require.NoError(t, err, "boundary value must be accepted")
+				return
+			}
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, tc.code, verr.Code)
+			assert.ErrorIs(t, err, ErrValidation,
+				"ValidationError must unwrap to ErrValidation for legacy callers")
+		})
+	}
+}
+
+// TestValidate_InstanceLegacyCallersUnwrap proves the new typed
+// ValidationError keeps `errors.Is(err, ErrValidation)` true so the
+// existing HTTP handler / test code paths stay compatible.
+func TestValidate_InstanceLegacyCallersUnwrap(t *testing.T) {
+	t.Parallel()
+	uc, _, _, _ := setup(t)
+	bad := runtime.InstanceSnapshot{
+		Name:          "has space",
+		URL:           "http://x",
+		APIKey:        "k",
+		Timeout:       10 * time.Second,
+		SearchTimeout: 60 * time.Second,
+	}
+	err := uc.Create(context.Background(), bad)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrValidation,
+		"legacy callers must keep working via errors.Is")
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_INSTANCE_NAME", verr.Code)
 }

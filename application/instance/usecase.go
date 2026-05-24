@@ -27,6 +27,56 @@ var (
 	ErrNotFound      = ports.ErrNotFound
 )
 
+// ValidationError carries a per-field sentinel code for the HTTP
+// layer. It wraps ErrValidation so legacy `errors.Is(err,
+// ErrValidation)` callers keep working unchanged.
+type ValidationError struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	if e.Field != "" {
+		return fmt.Sprintf("%s: %s", e.Field, e.Message)
+	}
+	return e.Message
+}
+
+func (e *ValidationError) Unwrap() error { return ErrValidation }
+
+func newValidationErr(field, code, msg string) *ValidationError {
+	return &ValidationError{Field: field, Code: code, Message: msg}
+}
+
+// Field bounds for sonarr_instance rows. Same inclusive-on-both-ends
+// convention as application/runtimeconfig. Bounds picked to match
+// realistic Sonarr deployments (a 300s API timeout is already very
+// generous; a 600s search timeout covers the worst-case Prowlarr
+// fan-out).
+const (
+	instanceTimeoutMin       = 1 * time.Second
+	instanceTimeoutMax       = 300 * time.Second
+	instanceSearchTimeoutMin = 1 * time.Second
+	instanceSearchTimeoutMax = 600 * time.Second
+
+	instanceCooldownMin = time.Duration(0)
+	instanceCooldownMax = 168 * time.Hour // 7d
+
+	instanceRetryMaxAttemptsMin = 0
+	instanceRetryMaxAttemptsMax = 10
+	instanceRetryBackoffMin     = time.Duration(0)
+	instanceRetryBackoffMax     = 1 * time.Hour
+
+	instanceHealthIntervalMin = 10 * time.Second
+	instanceHealthIntervalMax = 24 * time.Hour
+
+	instanceRateLimitRPMMin   = 0
+	instanceRateLimitRPMMax   = 10000
+	instanceRateLimitBurstMin = 0
+	instanceRateLimitBurstMax = 10000
+)
+
 var nameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
 type UseCase struct {
@@ -172,35 +222,109 @@ func (u *UseCase) publish(ctx context.Context) error {
 
 // validate runs the create/update field rules. requireAPIKey is true
 // on Create (api_key is required) and false on Update (empty = keep).
+//
+// Bound checks reject EXACTLY the cases ApplyInstanceDefaults would
+// have rewritten — a user must intentionally state "I want the
+// default" by omitting the field at the DTO layer or sending zero.
+// Sending an explicit out-of-range value is always rejected.
+//
+// One subtlety: Timeout / SearchTimeout zero is rejected because the
+// default-applier silently rewrites to 10s / 60s and the user loses
+// the ability to see THEIR value round-trip. The HTTP layer treats
+// zero as "use default" by omitting the field at DTO serialization,
+// not by writing 0.
 func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 	if !nameRE.MatchString(s.Name) {
-		return fmt.Errorf("%w: name must match ^[a-zA-Z0-9_-]{1,128}$", ErrValidation)
+		return newValidationErr("name", "INVALID_INSTANCE_NAME",
+			"must match ^[a-zA-Z0-9_-]{1,128}$")
 	}
 	if strings.TrimSpace(s.URL) == "" {
-		return fmt.Errorf("%w: url is required", ErrValidation)
+		return newValidationErr("url", "INVALID_INSTANCE_URL",
+			"url is required")
 	}
 	if requireAPIKey && strings.TrimSpace(s.APIKey) == "" {
-		return fmt.Errorf("%w: api_key is required", ErrValidation)
+		return newValidationErr("api_key", "INVALID_INSTANCE_API_KEY",
+			"api_key is required")
 	}
 	if s.Mode != "" && s.Mode != "auto" && s.Mode != "manual" {
-		return fmt.Errorf("%w: mode must be one of auto, manual", ErrValidation)
+		return newValidationErr("mode", "INVALID_INSTANCE_MODE",
+			"mode must be one of auto, manual")
 	}
-	if s.Timeout < 0 || s.SearchTimeout < 0 {
-		return fmt.Errorf("%w: timeout / search_timeout must be >= 0", ErrValidation)
+	if err := boundDuration("timeout_sec",
+		"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE",
+		s.Timeout, instanceTimeoutMin, instanceTimeoutMax); err != nil {
+		return err
 	}
-	if s.RateLimit.RPM < 0 || s.RateLimit.Burst < 0 {
-		return fmt.Errorf("%w: rate_limit_rpm / rate_limit_burst must be >= 0", ErrValidation)
+	if err := boundDuration("search_timeout_sec",
+		"INVALID_INSTANCE_SEARCH_TIMEOUT_OUT_OF_RANGE",
+		s.SearchTimeout, instanceSearchTimeoutMin, instanceSearchTimeoutMax); err != nil {
+		return err
 	}
-	if s.Cooldown.SeriesAfterGrab < 0 ||
-		s.Cooldown.GUIDAfterFailedGrab < 0 ||
-		s.Cooldown.GUIDAfterFailedImport < 0 {
-		return fmt.Errorf("%w: cooldown durations must be >= 0", ErrValidation)
+	if err := boundInt("rate_limit_rpm",
+		"INVALID_INSTANCE_RATE_LIMIT_RPM_OUT_OF_RANGE",
+		s.RateLimit.RPM, instanceRateLimitRPMMin, instanceRateLimitRPMMax); err != nil {
+		return err
 	}
-	if s.Retry.MaxAttempts < 0 || s.Retry.InitialBackoff < 0 || s.Retry.MaxBackoff < 0 {
-		return fmt.Errorf("%w: retry fields must be >= 0", ErrValidation)
+	if err := boundInt("rate_limit_burst",
+		"INVALID_INSTANCE_RATE_LIMIT_BURST_OUT_OF_RANGE",
+		s.RateLimit.Burst, instanceRateLimitBurstMin, instanceRateLimitBurstMax); err != nil {
+		return err
 	}
-	if s.HealthCheck.RecheckAuth < 0 || s.HealthCheck.RecheckNetwork < 0 {
-		return fmt.Errorf("%w: health_check intervals must be >= 0", ErrValidation)
+	if err := boundDuration("cooldown.series_after_grab",
+		"INVALID_INSTANCE_COOLDOWN_SERIES_OUT_OF_RANGE",
+		s.Cooldown.SeriesAfterGrab, instanceCooldownMin, instanceCooldownMax); err != nil {
+		return err
+	}
+	if err := boundDuration("cooldown.guid_after_failed_grab",
+		"INVALID_INSTANCE_COOLDOWN_GUID_GRAB_OUT_OF_RANGE",
+		s.Cooldown.GUIDAfterFailedGrab, instanceCooldownMin, instanceCooldownMax); err != nil {
+		return err
+	}
+	if err := boundDuration("cooldown.guid_after_failed_import",
+		"INVALID_INSTANCE_COOLDOWN_GUID_IMPORT_OUT_OF_RANGE",
+		s.Cooldown.GUIDAfterFailedImport, instanceCooldownMin, instanceCooldownMax); err != nil {
+		return err
+	}
+	if err := boundInt("retry.max_attempts",
+		"INVALID_INSTANCE_RETRY_MAX_ATTEMPTS_OUT_OF_RANGE",
+		s.Retry.MaxAttempts, instanceRetryMaxAttemptsMin, instanceRetryMaxAttemptsMax); err != nil {
+		return err
+	}
+	if err := boundDuration("retry.initial_backoff",
+		"INVALID_INSTANCE_RETRY_INITIAL_BACKOFF_OUT_OF_RANGE",
+		s.Retry.InitialBackoff, instanceRetryBackoffMin, instanceRetryBackoffMax); err != nil {
+		return err
+	}
+	if err := boundDuration("retry.max_backoff",
+		"INVALID_INSTANCE_RETRY_MAX_BACKOFF_OUT_OF_RANGE",
+		s.Retry.MaxBackoff, instanceRetryBackoffMin, instanceRetryBackoffMax); err != nil {
+		return err
+	}
+	if err := boundDuration("health_check.recheck_auth",
+		"INVALID_INSTANCE_HEALTH_RECHECK_AUTH_OUT_OF_RANGE",
+		s.HealthCheck.RecheckAuth, instanceHealthIntervalMin, instanceHealthIntervalMax); err != nil {
+		return err
+	}
+	if err := boundDuration("health_check.recheck_network",
+		"INVALID_INSTANCE_HEALTH_RECHECK_NET_OUT_OF_RANGE",
+		s.HealthCheck.RecheckNetwork, instanceHealthIntervalMin, instanceHealthIntervalMax); err != nil {
+		return err
+	}
+	return nil
+}
+
+func boundDuration(field, code string, d, min, max time.Duration) error {
+	if d < min || d > max {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be between %s and %s", min, max))
+	}
+	return nil
+}
+
+func boundInt(field, code string, v, min, max int) error {
+	if v < min || v > max {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be between %d and %d", min, max))
 	}
 	return nil
 }

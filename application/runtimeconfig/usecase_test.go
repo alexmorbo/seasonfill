@@ -232,3 +232,116 @@ func TestValidate_NegativeJitter(t *testing.T) {
 	require.ErrorAs(t, err, &verr)
 	assert.Equal(t, "INVALID_JITTER", verr.Code)
 }
+
+// --- 028h-1: range-boundary tests ---
+
+// rangeCase is a small typed helper for table-driven boundary tests.
+// Each case mutates a copy of validDTO() to put exactly one field
+// out of range; the test asserts the matching sentinel code fires.
+type rangeCase struct {
+	name    string
+	mutate  func(*dto.RuntimeConfigDTO)
+	code    string
+	wantErr bool
+}
+
+func TestValidate_RangeBounds_Runtime(t *testing.T) {
+	t.Parallel()
+	cases := []rangeCase{
+		// scan.shutdown_grace ∈ [1s, 10m]
+		{"shutdown_grace_below_min",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "500ms" },
+			"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE", true},
+		{"shutdown_grace_at_min",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "1s" },
+			"", false},
+		{"shutdown_grace_at_max",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "10m" },
+			"", false},
+		{"shutdown_grace_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "11m" },
+			"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE", true},
+
+		// scan.cooldown_sweep ∈ [10s, 24h]
+		{"cooldown_sweep_below_min",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "1s" },
+			"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE", true},
+		{"cooldown_sweep_at_min",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "10s" },
+			"", false},
+		{"cooldown_sweep_at_max",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "24h" },
+			"", false},
+		{"cooldown_sweep_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "25h" },
+			"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE", true},
+
+		// cron.jitter ∈ [0, 1h]
+		{"jitter_at_min",
+			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "0s" },
+			"", false},
+		{"jitter_at_max",
+			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "1h" },
+			"", false},
+		{"jitter_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "2h" },
+			"INVALID_JITTER_OUT_OF_RANGE", true},
+
+		// global_rate_limit.rpm ∈ [0, 10000]
+		{"rpm_at_min",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 0 },
+			"", false},
+		{"rpm_at_max",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 10000 },
+			"", false},
+		{"rpm_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 10001 },
+			"INVALID_RATE_LIMIT_RPM_OUT_OF_RANGE", true},
+		{"rpm_far_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 2147483647 },
+			"INVALID_RATE_LIMIT_RPM_OUT_OF_RANGE", true},
+
+		// global_rate_limit.burst ∈ [0, 10000]
+		{"burst_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.Burst = 10001 },
+			"INVALID_RATE_LIMIT_BURST_OUT_OF_RANGE", true},
+		{"burst_far_above_max",
+			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.Burst = 2147483647 },
+			"INVALID_RATE_LIMIT_BURST_OUT_OF_RANGE", true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _ := setup(t)
+			in := validDTO()
+			tc.mutate(&in)
+			_, _, err := uc.Update(context.Background(), in, nil)
+			if !tc.wantErr {
+				require.NoError(t, err, "boundary value must be accepted")
+				return
+			}
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, tc.code, verr.Code)
+		})
+	}
+}
+
+// TestValidate_RuntimeMaxBoundary_RoundTrips is a smoke check that the
+// cron parser, jitter range, sweep range, and shutdown range all line
+// up — a "happy max" snapshot must round-trip clean.
+func TestValidate_RuntimeMaxBoundary_RoundTrips(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validDTO()
+	in.Cron.Jitter = "1h"
+	in.Scan.ShutdownGrace = "10m"
+	in.Scan.CooldownSweep = "24h"
+	in.GlobalRateLimit.RPM = 10000
+	in.GlobalRateLimit.Burst = 10000
+	in.Auth.SessionTTL = "168h"
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+}

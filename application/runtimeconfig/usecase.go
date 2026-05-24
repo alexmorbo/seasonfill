@@ -45,9 +45,28 @@ var (
 	ErrStaleWrite = errors.New("runtime_config was modified by another client")
 )
 
+// Field bounds. Each pair (Min, Max) is inclusive on both ends. The
+// sentinel `INVALID_<field>_OUT_OF_RANGE` is emitted when a parsed
+// value falls outside [Min, Max]. Bounds picked to (a) prevent
+// silently-poisonous values (e.g. 100-year cooldown), (b) match
+// product reality (e.g. 10k rpm ≈ 167 req/s — well above Sonarr's
+// indexer realistic ceiling), and (c) leave room for future tuning
+// without re-issuing a schema migration.
 const (
 	sessionTTLMin = 5 * time.Minute
 	sessionTTLMax = 7 * 24 * time.Hour
+
+	scanShutdownGraceMin = 1 * time.Second
+	scanShutdownGraceMax = 10 * time.Minute
+	scanCooldownSweepMin = 10 * time.Second
+	scanCooldownSweepMax = 24 * time.Hour
+	cronJitterMin        = time.Duration(0)
+	cronJitterMax        = 1 * time.Hour
+
+	rateLimitRPMMin   = 0
+	rateLimitRPMMax   = 10000
+	rateLimitBurstMin = 0
+	rateLimitBurstMax = 10000
 )
 
 // cronParser matches the parser used in infrastructure/scheduler/cron.go
@@ -163,8 +182,10 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 }
 
 // dtoToSnapshot validates every field and parses durations into a
-// runtime.Snapshot. Instances stays nil — the Upsert path only writes
-// the singleton row.
+// runtime.Snapshot. Range checks use the const block above; sentinel
+// codes follow `INVALID_<field>_OUT_OF_RANGE` for new fields,
+// `INVALID_<field>` for the original three (shipped) sentinels whose
+// message text is now range-aware.
 func (u *UseCase) dtoToSnapshot(in dto.RuntimeConfigDTO) (runtime.Snapshot, error) {
 	if _, err := cronParser.Parse(in.Cron.Schedule); err != nil {
 		return runtime.Snapshot{}, newValidationErr(
@@ -178,21 +199,27 @@ func (u *UseCase) dtoToSnapshot(in dto.RuntimeConfigDTO) (runtime.Snapshot, erro
 		return runtime.Snapshot{}, newValidationErr(
 			"cron.jitter", "INVALID_JITTER", "must be >= 0")
 	}
+	if err := boundDuration("cron.jitter", "INVALID_JITTER_OUT_OF_RANGE",
+		jitter, cronJitterMin, cronJitterMax); err != nil {
+		return runtime.Snapshot{}, err
+	}
 	shutdown, err := parseDuration("scan.shutdown_grace", in.Scan.ShutdownGrace)
 	if err != nil {
 		return runtime.Snapshot{}, err
 	}
-	if shutdown <= 0 {
-		return runtime.Snapshot{}, newValidationErr(
-			"scan.shutdown_grace", "INVALID_SCAN_SHUTDOWN_GRACE", "must be > 0")
+	if err := boundDuration("scan.shutdown_grace",
+		"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE",
+		shutdown, scanShutdownGraceMin, scanShutdownGraceMax); err != nil {
+		return runtime.Snapshot{}, err
 	}
 	sweep, err := parseDuration("scan.cooldown_sweep", in.Scan.CooldownSweep)
 	if err != nil {
 		return runtime.Snapshot{}, err
 	}
-	if sweep <= 0 {
-		return runtime.Snapshot{}, newValidationErr(
-			"scan.cooldown_sweep", "INVALID_SCAN_COOLDOWN_SWEEP", "must be > 0")
+	if err := boundDuration("scan.cooldown_sweep",
+		"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE",
+		sweep, scanCooldownSweepMin, scanCooldownSweepMax); err != nil {
+		return runtime.Snapshot{}, err
 	}
 	sessionTTL, err := parseDuration("auth.session_ttl", in.Auth.SessionTTL)
 	if err != nil {
@@ -207,6 +234,16 @@ func (u *UseCase) dtoToSnapshot(in dto.RuntimeConfigDTO) (runtime.Snapshot, erro
 		return runtime.Snapshot{}, newValidationErr(
 			"global_rate_limit", "INVALID_RATE_LIMIT",
 			"rpm and burst must be >= 0")
+	}
+	if err := boundInt("global_rate_limit.rpm",
+		"INVALID_RATE_LIMIT_RPM_OUT_OF_RANGE",
+		in.GlobalRateLimit.RPM, rateLimitRPMMin, rateLimitRPMMax); err != nil {
+		return runtime.Snapshot{}, err
+	}
+	if err := boundInt("global_rate_limit.burst",
+		"INVALID_RATE_LIMIT_BURST_OUT_OF_RANGE",
+		in.GlobalRateLimit.Burst, rateLimitBurstMin, rateLimitBurstMax); err != nil {
+		return runtime.Snapshot{}, err
 	}
 	if err := validateTrustedProxies(in.Auth.TrustedProxies); err != nil {
 		return runtime.Snapshot{}, err
@@ -244,6 +281,26 @@ func parseDuration(field, raw string) (time.Duration, error) {
 		return 0, newValidationErr(field, "INVALID_DURATION", err.Error())
 	}
 	return d, nil
+}
+
+// boundDuration returns nil if d ∈ [min, max], a typed
+// ValidationError otherwise. The message lists the bounds using
+// Duration.String() so the wire format is stable + human-readable.
+func boundDuration(field, code string, d, min, max time.Duration) error {
+	if d < min || d > max {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be between %s and %s", min, max))
+	}
+	return nil
+}
+
+// boundInt mirrors boundDuration for int-valued fields.
+func boundInt(field, code string, v, min, max int) error {
+	if v < min || v > max {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be between %d and %d", min, max))
+	}
+	return nil
 }
 
 // validateTrustedProxies accepts both bare IPs and CIDRs. Empty list
