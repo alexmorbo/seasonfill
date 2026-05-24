@@ -126,7 +126,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	case err == nil:
 		// happy path
 	case errors.Is(err, ports.ErrNotFound):
-		if err := runtimeRepo.Upsert(bgCtx, runtime.Defaults()); err != nil {
+		if err := runtimeRepo.Upsert(bgCtx, runtime.Defaults(), nil); err != nil {
 			return nil, fmt.Errorf("seed runtime_config: %w", err)
 		}
 		row, err = runtimeRepo.Get(bgCtx)

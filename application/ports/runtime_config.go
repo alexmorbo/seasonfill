@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -22,15 +23,23 @@ type RuntimeConfigRow struct {
 	UpdatedAt           time.Time
 }
 
+// ErrStaleWrite is the sentinel repos return when an
+// If-Unmodified-Since precondition fails inside the write
+// transaction. Distinct from ErrNotFound (404 vs 412).
+var ErrStaleWrite = errors.New("precondition failed: row was modified by another writer")
+
 type RuntimeConfigRepository interface {
 	// Get returns the singleton row. ErrNotFound when the row hasn't
 	// been written yet.
 	Get(ctx context.Context) (RuntimeConfigRow, error)
 
 	// Upsert writes the singleton row from a runtime.Snapshot. Used
-	// by both the seed-on-empty bootstrap path and (in 027c) the
-	// HTTP PUT handler.
-	Upsert(ctx context.Context, snap runtime.Snapshot) error
+	// by both the seed-on-empty bootstrap path and the HTTP PUT
+	// handler. When ifUnmodifiedSince != nil and the existing row's
+	// updated_at (second-truncated) is strictly newer than the
+	// header value, returns ErrStaleWrite without writing. Bootstrap
+	// callers pass nil.
+	Upsert(ctx context.Context, snap runtime.Snapshot, ifUnmodifiedSince *time.Time) error
 
 	// SaveAPIKey stores the encrypted master-API-key probe. Used by
 	// the bootstrap auto-gen flow (application/bootstrap/apikey.go).
@@ -42,7 +51,13 @@ type SonarrInstanceRepository interface {
 	GetByName(ctx context.Context, name string, c *crypto.Cipher) (runtime.InstanceSnapshot, error)
 	Create(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) (uint, error)
 	Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error
-	UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool) error
+	// UpdateWithOptions writes parent + secret in a single
+	// transaction. When ifUnmodifiedSince != nil and the existing
+	// row's updated_at (second-truncated) is strictly newer than
+	// the header value, returns ErrStaleWrite without writing.
+	// preserveSecret=true skips the secret upsert (used when the
+	// PUT body omits api_key).
+	UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool, ifUnmodifiedSince *time.Time) error
 	Delete(ctx context.Context, name string) error
 	Count(ctx context.Context) (int, error)
 	GetUpdatedAt(ctx context.Context, name string) (time.Time, error)

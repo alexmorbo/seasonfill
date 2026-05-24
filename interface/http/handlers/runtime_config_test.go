@@ -35,9 +35,16 @@ func (f *rcFakeRuntime) Get(_ context.Context) (ports.RuntimeConfigRow, error) {
 	}
 	return f.row, nil
 }
-func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot) error {
+func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot, ifUnmodifiedSince *time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if ifUnmodifiedSince != nil && f.exists {
+		stored := f.row.UpdatedAt.Truncate(time.Second)
+		provided := ifUnmodifiedSince.Truncate(time.Second)
+		if stored.After(provided) {
+			return ports.ErrStaleWrite
+		}
+	}
 	f.row = ports.RuntimeConfigRow{
 		Cron: s.Cron, Scan: s.Scan, DryRun: s.DryRun,
 		GlobalRateLimit: s.GlobalRateLimit, Auth: s.Auth,
@@ -62,7 +69,7 @@ func (rcFakeInstances) Create(_ context.Context, _ runtime.InstanceSnapshot, _ *
 func (rcFakeInstances) Update(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher) error {
 	return nil
 }
-func (rcFakeInstances) UpdateWithOptions(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool) error {
+func (rcFakeInstances) UpdateWithOptions(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool, _ *time.Time) error {
 	return nil
 }
 func (rcFakeInstances) Delete(_ context.Context, _ string) error { return nil }

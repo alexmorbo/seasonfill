@@ -91,9 +91,18 @@ func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) err
 
 // Update applies changes to an existing row, optionally preserving
 // the stored api_key when newSnap.APIKey is empty. ifUnmodifiedSince
-// (zero = ignore) implements the optimistic-concurrency check; a
-// stored updated_at strictly newer than the header → ErrStaleWrite.
-func (u *UseCase) Update(ctx context.Context, name string, newSnap runtime.InstanceSnapshot, ifUnmodifiedSince time.Time) error {
+// (nil = ignore) implements optimistic concurrency. The precondition
+// check runs inside the same DB transaction as the write so two
+// concurrent IUS-bearing PUTs cannot both succeed — one returns
+// ErrStaleWrite. The repo compares at second resolution to match the
+// RFC1123 Last-Modified header (1-second precision gap is documented
+// on the handler godoc).
+func (u *UseCase) Update(
+	ctx context.Context,
+	name string,
+	newSnap runtime.InstanceSnapshot,
+	ifUnmodifiedSince *time.Time,
+) error {
 	if newSnap.Name != name {
 		return ErrNameImmutable
 	}
@@ -104,19 +113,13 @@ func (u *UseCase) Update(ctx context.Context, name string, newSnap runtime.Insta
 	if err != nil {
 		return err
 	}
-	if !ifUnmodifiedSince.IsZero() {
-		stored, err := u.instances.GetUpdatedAt(ctx, name)
-		if err != nil {
-			return err
-		}
-		if stored.Truncate(time.Second).After(ifUnmodifiedSince.Truncate(time.Second)) {
-			return ErrStaleWrite
-		}
-	}
 	newSnap.ID = existing.ID
 	runtime.ApplyInstanceDefaults(&newSnap)
 	preserveSecret := strings.TrimSpace(newSnap.APIKey) == ""
-	if err := u.instances.UpdateWithOptions(ctx, newSnap, u.cipher, preserveSecret); err != nil {
+	if err := u.instances.UpdateWithOptions(ctx, newSnap, u.cipher, preserveSecret, ifUnmodifiedSince); err != nil {
+		if errors.Is(err, ports.ErrStaleWrite) {
+			return ErrStaleWrite
+		}
 		return fmt.Errorf("update instance: %w", err)
 	}
 	return u.publish(ctx)

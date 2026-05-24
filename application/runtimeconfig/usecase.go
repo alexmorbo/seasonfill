@@ -106,10 +106,11 @@ func (u *UseCase) Get(ctx context.Context) (dto.RuntimeConfigDTO, time.Time, err
 
 // Update validates the incoming DTO, persists it, then republishes a
 // fresh Snapshot built from (new runtime row + current instances).
-// ifUnmodifiedSince (zero = ignore) implements the optimistic-
-// concurrency check; a stored updated_at strictly newer than the
-// header (second-rounded) → ErrStaleWrite. The returned DTO+timestamp
-// is the post-write re-read so the handler can echo it.
+// ifUnmodifiedSince (nil = ignore) implements optimistic concurrency.
+// The precondition is enforced inside the repo's transaction so two
+// concurrent IUS-bearing PUTs cannot both succeed. Returns
+// ErrStaleWrite when the stored row's updated_at (second-truncated)
+// is strictly newer than the header.
 func (u *UseCase) Update(
 	ctx context.Context,
 	in dto.RuntimeConfigDTO,
@@ -119,21 +120,10 @@ func (u *UseCase) Update(
 	if err != nil {
 		return dto.RuntimeConfigDTO{}, time.Time{}, err
 	}
-	if ifUnmodifiedSince != nil {
-		current, err := u.runtimes.Get(ctx)
-		if err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return dto.RuntimeConfigDTO{}, time.Time{},
-				fmt.Errorf("runtimeconfig: precondition read: %w", err)
+	if err := u.runtimes.Upsert(ctx, snap, ifUnmodifiedSince); err != nil {
+		if errors.Is(err, ports.ErrStaleWrite) {
+			return dto.RuntimeConfigDTO{}, time.Time{}, ErrStaleWrite
 		}
-		if err == nil {
-			stored := current.UpdatedAt.Truncate(time.Second)
-			provided := ifUnmodifiedSince.Truncate(time.Second)
-			if stored.After(provided) {
-				return dto.RuntimeConfigDTO{}, time.Time{}, ErrStaleWrite
-			}
-		}
-	}
-	if err := u.runtimes.Upsert(ctx, snap); err != nil {
 		return dto.RuntimeConfigDTO{}, time.Time{},
 			fmt.Errorf("runtimeconfig: upsert: %w", err)
 	}
@@ -143,8 +133,6 @@ func (u *UseCase) Update(
 			fmt.Errorf("runtimeconfig: re-read: %w", err)
 	}
 	if err := u.publish(ctx, stored); err != nil {
-		// Publish failure must not roll back the DB write — subscribers
-		// can rebuild from the next publish. Log + continue.
 		u.logger.WarnContext(ctx, "runtimeconfig.publish_failed",
 			slog.String("error", err.Error()))
 	}

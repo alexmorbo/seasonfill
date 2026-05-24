@@ -59,6 +59,10 @@ func (h *RuntimeConfigHandler) Get(c *gin.Context) {
 
 // Update full-replaces the runtime_config row.
 //
+// The `If-Unmodified-Since` precondition is enforced at second
+// resolution (RFC1123 wire precision) — a write landing in the same
+// wall-clock second as the client snapshot is accepted as fresh.
+//
 // @Summary     Update runtime configuration
 // @Tags        config
 // @Accept      json

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func (m *mockRuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeCon
 	return m.row, m.err
 }
 
-func (m *mockRuntimeConfigRepository) Upsert(ctx context.Context, snap runtime.Snapshot) error {
+func (m *mockRuntimeConfigRepository) Upsert(ctx context.Context, snap runtime.Snapshot, ifUnmodifiedSince *time.Time) error {
 	return nil
 }
 

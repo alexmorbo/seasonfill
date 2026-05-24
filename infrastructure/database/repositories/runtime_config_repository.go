@@ -60,47 +60,66 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 	return row, nil
 }
 
-func (r *RuntimeConfigRepository) Upsert(ctx context.Context, snap runtime.Snapshot) error {
+// Upsert writes the singleton row. When ifUnmodifiedSince != nil and
+// the existing row exists with updated_at strictly newer than the
+// header value (second-truncated), returns ports.ErrStaleWrite
+// without writing. The "row missing → create fresh" path is taken
+// regardless of ifUnmodifiedSince (the first ever PUT can't be stale).
+func (r *RuntimeConfigRepository) Upsert(
+	ctx context.Context,
+	snap runtime.Snapshot,
+	ifUnmodifiedSince *time.Time,
+) error {
 	proxies, _ := json.Marshal(snap.Auth.TrustedProxies)
-	now := time.Now().UTC()
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	var existing database.RuntimeConfigModel
-	err := db.Where("id = ?", runtimeConfigID).First(&existing).Error
-	switch {
-	case err == nil:
-		existing.CronEnabled = snap.Cron.Enabled
-		existing.CronSchedule = snap.Cron.Schedule
-		existing.CronOnStart = snap.Cron.OnStart
-		existing.CronJitterSeconds = int(snap.Cron.Jitter / time.Second)
-		existing.ScanShutdownGraceSec = int(snap.Scan.ShutdownGrace / time.Second)
-		existing.ScanCooldownSweepSec = int(snap.Scan.CooldownSweep / time.Second)
-		existing.DryRun = snap.DryRun
-		existing.GlobalRPM = snap.GlobalRateLimit.RPM
-		existing.GlobalBurst = snap.GlobalRateLimit.Burst
-		existing.AuthSessionTTLSec = int(snap.Auth.SessionTTL / time.Second)
-		existing.AuthSecureCookie = snap.Auth.SecureCookie
-		existing.AuthTrustedProxies = string(proxies)
-		existing.UpdatedAt = now
-		return db.Save(&existing).Error
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		row := database.RuntimeConfigModel{
-			ID: runtimeConfigID,
-			CronEnabled: snap.Cron.Enabled, CronSchedule: snap.Cron.Schedule,
-			CronOnStart:       snap.Cron.OnStart,
-			CronJitterSeconds: int(snap.Cron.Jitter / time.Second),
-			ScanShutdownGraceSec: int(snap.Scan.ShutdownGrace / time.Second),
-			ScanCooldownSweepSec: int(snap.Scan.CooldownSweep / time.Second),
-			DryRun:    snap.DryRun,
-			GlobalRPM: snap.GlobalRateLimit.RPM, GlobalBurst: snap.GlobalRateLimit.Burst,
-			AuthSessionTTLSec:  int(snap.Auth.SessionTTL / time.Second),
-			AuthSecureCookie:   snap.Auth.SecureCookie,
-			AuthTrustedProxies: string(proxies),
-			CreatedAt:          now, UpdatedAt: now,
+
+	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+
+		var existing database.RuntimeConfigModel
+		err := tx.Where("id = ?", runtimeConfigID).First(&existing).Error
+		switch {
+		case err == nil:
+			if ifUnmodifiedSince != nil {
+				stored := existing.UpdatedAt.Truncate(time.Second)
+				provided := ifUnmodifiedSince.Truncate(time.Second)
+				if stored.After(provided) {
+					return ports.ErrStaleWrite
+				}
+			}
+			existing.CronEnabled = snap.Cron.Enabled
+			existing.CronSchedule = snap.Cron.Schedule
+			existing.CronOnStart = snap.Cron.OnStart
+			existing.CronJitterSeconds = int(snap.Cron.Jitter / time.Second)
+			existing.ScanShutdownGraceSec = int(snap.Scan.ShutdownGrace / time.Second)
+			existing.ScanCooldownSweepSec = int(snap.Scan.CooldownSweep / time.Second)
+			existing.DryRun = snap.DryRun
+			existing.GlobalRPM = snap.GlobalRateLimit.RPM
+			existing.GlobalBurst = snap.GlobalRateLimit.Burst
+			existing.AuthSessionTTLSec = int(snap.Auth.SessionTTL / time.Second)
+			existing.AuthSecureCookie = snap.Auth.SecureCookie
+			existing.AuthTrustedProxies = string(proxies)
+			existing.UpdatedAt = now
+			return tx.Save(&existing).Error
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			row := database.RuntimeConfigModel{
+				ID: runtimeConfigID,
+				CronEnabled: snap.Cron.Enabled, CronSchedule: snap.Cron.Schedule,
+				CronOnStart:       snap.Cron.OnStart,
+				CronJitterSeconds: int(snap.Cron.Jitter / time.Second),
+				ScanShutdownGraceSec: int(snap.Scan.ShutdownGrace / time.Second),
+				ScanCooldownSweepSec: int(snap.Scan.CooldownSweep / time.Second),
+				DryRun:    snap.DryRun,
+				GlobalRPM: snap.GlobalRateLimit.RPM, GlobalBurst: snap.GlobalRateLimit.Burst,
+				AuthSessionTTLSec:  int(snap.Auth.SessionTTL / time.Second),
+				AuthSecureCookie:   snap.Auth.SecureCookie,
+				AuthTrustedProxies: string(proxies),
+				CreatedAt:          now, UpdatedAt: now,
+			}
+			return tx.Create(&row).Error
+		default:
+			return fmt.Errorf("upsert runtime_config: %w", err)
 		}
-		return db.Create(&row).Error
-	default:
-		return fmt.Errorf("upsert runtime_config: %w", err)
-	}
+	})
 }
 
 func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, autoGen bool) error {

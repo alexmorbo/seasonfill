@@ -76,103 +76,123 @@ func (r *SonarrInstanceRepository) GetByName(ctx context.Context, name string, c
 }
 
 func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) (uint, error) {
-	m := snapshotToModel(inst)
-	m.CreatedAt = time.Now().UTC()
-	m.UpdatedAt = m.CreatedAt
+	var newID uint
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
 
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	if err := db.Create(&m).Error; err != nil {
-		return 0, fmt.Errorf("create sonarr instance: %w", err)
+		m := snapshotToModel(inst)
+		m.CreatedAt = now
+		m.UpdatedAt = now
+		if err := tx.Create(&m).Error; err != nil {
+			return fmt.Errorf("create sonarr instance: %w", err)
+		}
+
+		if inst.APIKey != "" {
+			ct, err := c.Seal([]byte(inst.APIKey))
+			if err != nil {
+				return fmt.Errorf("seal api key: %w", err)
+			}
+			secret := database.InstanceSecretModel{
+				InstanceID: m.ID,
+				SecretName: "api_key",
+				Ciphertext: ct,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}
+			if err := tx.Create(&secret).Error; err != nil {
+				return fmt.Errorf("save api key secret: %w", err)
+			}
+		}
+
+		newID = m.ID
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-
-	if inst.APIKey != "" {
-		ct, err := c.Seal([]byte(inst.APIKey))
-		if err != nil {
-			return 0, fmt.Errorf("seal api key: %w", err)
-		}
-		secret := database.InstanceSecretModel{
-			InstanceID: m.ID,
-			SecretName: "api_key",
-			Ciphertext: ct,
-			CreatedAt:  m.CreatedAt,
-			UpdatedAt:  m.UpdatedAt,
-		}
-		if err := db.Create(&secret).Error; err != nil {
-			return 0, fmt.Errorf("save api key secret: %w", err)
-		}
-	}
-
-	return m.ID, nil
+	return newID, nil
 }
 
 func (r *SonarrInstanceRepository) Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error {
-	return r.UpdateWithOptions(ctx, inst, c, false)
+	return r.UpdateWithOptions(ctx, inst, c, false, nil)
 }
 
-// UpdateWithOptions writes the instance row and (unless preserveSecret
-// is true) the instance_secret row. preserveSecret==true is used by
-// the HTTP PUT path when the client sends an empty api_key string,
-// meaning "keep the existing secret". A nil cipher is allowed only
-// when preserveSecret is true (no secret write is attempted).
-//
-// The parent row is written via Save (not Updates) so zero-value
-// columns (false / 0 / "") are persisted — PUT is full-replace, not
-// patch. Same idiom as RuntimeConfigRepository.Upsert.
-func (r *SonarrInstanceRepository) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool) error {
-	now := time.Now().UTC()
+// UpdateWithOptions writes parent + (unless preserveSecret) secret
+// inside a single tx. preserveSecret==true is used when the PUT body
+// omits api_key. A nil cipher is allowed only when preserveSecret.
+// Parent uses Save so zero-value columns persist (PUT is full-replace).
+// When ifUnmodifiedSince != nil, the stored row's updated_at
+// (second-truncated to match the RFC1123 wire header) is compared
+// inside the tx; strictly-newer stored → ports.ErrStaleWrite.
+func (r *SonarrInstanceRepository) UpdateWithOptions(
+	ctx context.Context,
+	inst runtime.InstanceSnapshot,
+	c *crypto.Cipher,
+	preserveSecret bool,
+	ifUnmodifiedSince *time.Time,
+) error {
+	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
 
-	m := snapshotToModel(inst)
-	m.UpdatedAt = now
-	// CreatedAt is required by Save (it writes every column). Read the
-	// existing row's CreatedAt so we don't clobber it with the zero
-	// time. ErrRecordNotFound here means the caller mis-sequenced
-	// (use case should have called GetByName first); treat as a
-	// programmer error rather than silently creating a new row.
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+		m := snapshotToModel(inst)
+		m.UpdatedAt = now
 
-	var existing database.SonarrInstanceModel
-	if err := db.Select("created_at").Where("id = ?", m.ID).First(&existing).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+		// Read existing row inside the tx — serves both as the
+		// "does it exist" check (→ ErrNotFound on miss) and as the
+		// source of CreatedAt for Save (which writes every column).
+		var existing database.SonarrInstanceModel
+		if err := tx.Select("created_at", "updated_at").
+			Where("id = ?", m.ID).First(&existing).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ports.ErrNotFound
+			}
+			return fmt.Errorf("load instance for update: %w", err)
 		}
-		return fmt.Errorf("load instance for update: %w", err)
-	}
-	m.CreatedAt = existing.CreatedAt
 
-	if err := db.Save(&m).Error; err != nil {
-		return fmt.Errorf("update sonarr instance: %w", err)
-	}
+		if ifUnmodifiedSince != nil {
+			stored := existing.UpdatedAt.Truncate(time.Second)
+			provided := ifUnmodifiedSince.Truncate(time.Second)
+			if stored.After(provided) {
+				return ports.ErrStaleWrite
+			}
+		}
+		m.CreatedAt = existing.CreatedAt
 
-	if preserveSecret || inst.APIKey == "" {
+		if err := tx.Save(&m).Error; err != nil {
+			return fmt.Errorf("update sonarr instance: %w", err)
+		}
+
+		if preserveSecret || inst.APIKey == "" {
+			return nil
+		}
+		if c == nil {
+			return fmt.Errorf("update sonarr instance: cipher required to write api_key")
+		}
+		ct, err := c.Seal([]byte(inst.APIKey))
+		if err != nil {
+			return fmt.Errorf("seal api key: %w", err)
+		}
+
+		res := tx.Model(&database.InstanceSecretModel{}).
+			Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
+			Updates(map[string]interface{}{"ciphertext": ct, "updated_at": now})
+		if res.Error != nil {
+			return fmt.Errorf("upsert api key secret: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			secret := database.InstanceSecretModel{
+				InstanceID: m.ID,
+				SecretName: "api_key",
+				Ciphertext: ct,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}
+			if err := tx.Create(&secret).Error; err != nil {
+				return fmt.Errorf("create api key secret: %w", err)
+			}
+		}
 		return nil
-	}
-	if c == nil {
-		return fmt.Errorf("update sonarr instance: cipher required to write api_key")
-	}
-	ct, err := c.Seal([]byte(inst.APIKey))
-	if err != nil {
-		return fmt.Errorf("seal api key: %w", err)
-	}
-
-	res := db.Model(&database.InstanceSecretModel{}).
-		Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
-		Updates(map[string]interface{}{"ciphertext": ct, "updated_at": now})
-	if res.Error != nil {
-		return fmt.Errorf("upsert api key secret: %w", res.Error)
-	}
-	if res.RowsAffected == 0 {
-		secret := database.InstanceSecretModel{
-			InstanceID: m.ID,
-			SecretName: "api_key",
-			Ciphertext: ct,
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}
-		if err := db.Create(&secret).Error; err != nil {
-			return fmt.Errorf("create api key secret: %w", err)
-		}
-	}
-	return nil
+	})
 }
 
 // Delete hard-deletes the sonarr_instance row plus every related row

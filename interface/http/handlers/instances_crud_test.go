@@ -64,7 +64,17 @@ func (f *crudFakeRepo) Update(_ context.Context, inst runtime.InstanceSnapshot, 
 	f.updated[inst.Name] = time.Now().UTC()
 	return nil
 }
-func (f *crudFakeRepo) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, _ bool) error {
+func (f *crudFakeRepo) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, _ bool, ifUnmodifiedSince *time.Time) error {
+	if ifUnmodifiedSince != nil {
+		stored, ok := f.updated[inst.Name]
+		if ok {
+			s := stored.Truncate(time.Second)
+			p := ifUnmodifiedSince.Truncate(time.Second)
+			if s.After(p) {
+				return ports.ErrStaleWrite
+			}
+		}
+	}
 	return f.Update(ctx, inst, c)
 }
 func (f *crudFakeRepo) Delete(_ context.Context, name string) error {
@@ -90,7 +100,9 @@ type crudFakeRuntime struct{}
 func (crudFakeRuntime) Get(_ context.Context) (ports.RuntimeConfigRow, error) {
 	return ports.RuntimeConfigRow{}, nil
 }
-func (crudFakeRuntime) Upsert(_ context.Context, _ runtime.Snapshot) error  { return nil }
+func (crudFakeRuntime) Upsert(_ context.Context, _ runtime.Snapshot, _ *time.Time) error {
+	return nil
+}
 func (crudFakeRuntime) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
 
 func setupCRUD(t *testing.T) (*gin.Engine, *crudFakeRepo) {

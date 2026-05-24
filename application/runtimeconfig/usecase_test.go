@@ -36,11 +36,18 @@ func (f *fakeRuntimeRepo) Get(_ context.Context) (ports.RuntimeConfigRow, error)
 	return f.row, nil
 }
 
-func (f *fakeRuntimeRepo) Upsert(_ context.Context, snap runtime.Snapshot) error {
+func (f *fakeRuntimeRepo) Upsert(_ context.Context, snap runtime.Snapshot, ifUnmodifiedSince *time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.upsertErr != nil {
 		return f.upsertErr
+	}
+	if ifUnmodifiedSince != nil && f.exists {
+		stored := f.row.UpdatedAt.Truncate(time.Second)
+		provided := ifUnmodifiedSince.Truncate(time.Second)
+		if stored.After(provided) {
+			return ports.ErrStaleWrite
+		}
 	}
 	f.upserts++
 	f.row = ports.RuntimeConfigRow{
@@ -70,7 +77,7 @@ func (fakeInstanceRepo) Create(_ context.Context, _ runtime.InstanceSnapshot, _ 
 func (fakeInstanceRepo) Update(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher) error {
 	return nil
 }
-func (fakeInstanceRepo) UpdateWithOptions(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool) error {
+func (fakeInstanceRepo) UpdateWithOptions(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool, _ *time.Time) error {
 	return nil
 }
 func (fakeInstanceRepo) Delete(_ context.Context, _ string) error { return nil }

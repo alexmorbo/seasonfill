@@ -93,6 +93,12 @@ func (h *InstanceCRUDHandler) Create(c *gin.Context) {
 
 // Update mutates an existing instance row (name immutable).
 //
+// The `If-Unmodified-Since` precondition is enforced at second
+// resolution to match the wire `Last-Modified` header (RFC1123,
+// second precision). This means a write that lands within the same
+// wall-clock second as the client's snapshot is accepted as "not
+// stale" — a deliberate 1-second favour-the-client window.
+//
 // @Summary     Update a Sonarr instance
 // @Tags        instances
 // @Accept      json
@@ -113,7 +119,7 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	if !readJSONBody(c, &req) {
 		return
 	}
-	var ius time.Time
+	var iusPtr *time.Time
 	if raw := c.GetHeader("If-Unmodified-Since"); raw != "" {
 		t, err := http.ParseTime(raw)
 		if err != nil {
@@ -121,10 +127,10 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 				dto.ErrorResponse{Error: "If-Unmodified-Since: " + err.Error(), Code: "BAD_REQUEST"})
 			return
 		}
-		ius = t
+		iusPtr = &t
 	}
 	snap := requestToSnapshot(req)
-	if err := h.uc.Update(c.Request.Context(), name, snap, ius); err != nil {
+	if err := h.uc.Update(c.Request.Context(), name, snap, iusPtr); err != nil {
 		h.writeError(c, err)
 		return
 	}

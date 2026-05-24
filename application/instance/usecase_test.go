@@ -72,14 +72,33 @@ func (f *fakeInstanceRepo) Create(_ context.Context, inst runtime.InstanceSnapsh
 	return inst.ID, nil
 }
 func (f *fakeInstanceRepo) Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error {
-	return f.UpdateWithOptions(ctx, inst, c, false)
+	return f.UpdateWithOptions(ctx, inst, c, false, nil)
 }
-func (f *fakeInstanceRepo) UpdateWithOptions(_ context.Context, inst runtime.InstanceSnapshot, _ *crypto.Cipher, preserve bool) error {
+func (f *fakeInstanceRepo) UpdateWithOptions(
+	_ context.Context,
+	inst runtime.InstanceSnapshot,
+	_ *crypto.Cipher,
+	preserve bool,
+	ifUnmodifiedSince *time.Time,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updateCalls++
 	if preserve {
 		f.preserveCalls++
+	}
+	// Simulate the repo's in-tx precondition: stored is the recorded
+	// f.updated entry; if header is strictly older than stored (at
+	// second resolution) → ErrStaleWrite.
+	if ifUnmodifiedSince != nil {
+		stored, ok := f.updated[inst.Name]
+		if ok {
+			s := stored.Truncate(time.Second)
+			p := ifUnmodifiedSince.Truncate(time.Second)
+			if s.After(p) {
+				return ports.ErrStaleWrite
+			}
+		}
 	}
 	f.rows[inst.Name] = inst
 	f.updated[inst.Name] = time.Now().UTC()
@@ -117,7 +136,9 @@ type fakeRuntimeRepo struct{}
 func (f *fakeRuntimeRepo) Get(_ context.Context) (ports.RuntimeConfigRow, error) {
 	return ports.RuntimeConfigRow{}, nil
 }
-func (f *fakeRuntimeRepo) Upsert(_ context.Context, _ runtime.Snapshot) error { return nil }
+func (f *fakeRuntimeRepo) Upsert(_ context.Context, _ runtime.Snapshot, _ *time.Time) error {
+	return nil
+}
 func (f *fakeRuntimeRepo) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
 
 func setup(t *testing.T) (*UseCase, *fakeInstanceRepo, *runtime.Bus, <-chan runtime.Snapshot) {
@@ -176,7 +197,7 @@ func TestUpdate_NameImmutable(t *testing.T) {
 	uc, _, _, _ := setup(t)
 	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
 	err := uc.Update(context.Background(), "alpha",
-		runtime.InstanceSnapshot{Name: "beta", URL: "http://x", APIKey: "k"}, time.Time{})
+		runtime.InstanceSnapshot{Name: "beta", URL: "http://x", APIKey: "k"}, nil)
 	assert.ErrorIs(t, err, ErrNameImmutable)
 }
 
@@ -186,7 +207,7 @@ func TestUpdate_EmptyKey_PreservesSecret(t *testing.T) {
 	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
 	upd := validSnap("alpha")
 	upd.APIKey = ""
-	require.NoError(t, uc.Update(context.Background(), "alpha", upd, time.Time{}))
+	require.NoError(t, uc.Update(context.Background(), "alpha", upd, nil))
 	assert.Equal(t, 1, repo.preserveCalls, "preserveSecret must be true when api_key is empty")
 }
 
@@ -194,10 +215,9 @@ func TestUpdate_StaleIfUnmodifiedSince(t *testing.T) {
 	t.Parallel()
 	uc, repo, _, _ := setup(t)
 	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
-	// Simulate "client snapshot was taken 1h ago" — stored updated_at is now.
 	repo.updated["alpha"] = time.Now().UTC()
-	err := uc.Update(context.Background(), "alpha", validSnap("alpha"),
-		time.Now().UTC().Add(-time.Hour))
+	past := time.Now().UTC().Add(-time.Hour)
+	err := uc.Update(context.Background(), "alpha", validSnap("alpha"), &past)
 	assert.ErrorIs(t, err, ErrStaleWrite)
 }
 
@@ -205,7 +225,7 @@ func TestUpdate_NoHeader_LWWProceeds(t *testing.T) {
 	t.Parallel()
 	uc, _, _, _ := setup(t)
 	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
-	err := uc.Update(context.Background(), "alpha", validSnap("alpha"), time.Time{})
+	err := uc.Update(context.Background(), "alpha", validSnap("alpha"), nil)
 	assert.NoError(t, err)
 }
 

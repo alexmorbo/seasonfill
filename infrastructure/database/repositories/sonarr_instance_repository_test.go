@@ -2,6 +2,8 @@ package repositories
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -292,4 +295,175 @@ func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T)
 	}
 	err = repo.Update(ctx, inst, cipher)
 	require.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestSonarrInstanceRepository_Update_StaleIUS_Rejects(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "ius", URL: "http://x", APIKey: "k", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	// Read the stored timestamp, then pretend the client snapshot
+	// was taken one second before. That makes the stored row strictly
+	// newer than the header → precondition fail.
+	stored, err := repo.GetUpdatedAt(ctx, "ius")
+	require.NoError(t, err)
+	staleHeader := stored.Add(-1 * time.Second)
+
+	inst.ID = id
+	inst.APIKey = ""
+	inst.Mode = "manual"
+	err = repo.UpdateWithOptions(ctx, inst, cipher, true, &staleHeader)
+	require.ErrorIs(t, err, ports.ErrStaleWrite)
+
+	// Confirm the row was NOT mutated.
+	got, err := repo.GetByName(ctx, "ius", cipher)
+	require.NoError(t, err)
+	assert.Equal(t, "auto", got.Mode, "stale write must not persist")
+}
+
+func TestSonarrInstanceRepository_Update_FreshIUS_Writes(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "ius2", URL: "http://x", APIKey: "k", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	stored, err := repo.GetUpdatedAt(ctx, "ius2")
+	require.NoError(t, err)
+	// Header equal to stored (second-truncated) → accepted.
+	fresh := stored.Truncate(time.Second)
+
+	inst.ID = id
+	inst.APIKey = ""
+	inst.Mode = "manual"
+	err = repo.UpdateWithOptions(ctx, inst, cipher, true, &fresh)
+	require.NoError(t, err)
+
+	got, err := repo.GetByName(ctx, "ius2", cipher)
+	require.NoError(t, err)
+	assert.Equal(t, "manual", got.Mode)
+}
+
+func TestSonarrInstanceRepository_Create_TimestampsMatch(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "ts", URL: "http://x", APIKey: "secret", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	// Read parent updated_at + secret updated_at. With a single
+	// time.Now() inside the tx they must match exactly.
+	var parent database.SonarrInstanceModel
+	require.NoError(t, db.Select("created_at", "updated_at").
+		Where("id = ?", id).First(&parent).Error)
+	var secret database.InstanceSecretModel
+	require.NoError(t, db.Select("created_at", "updated_at").
+		Where("instance_id = ? AND secret_name = ?", id, "api_key").
+		First(&secret).Error)
+	assert.True(t, parent.CreatedAt.Equal(secret.CreatedAt),
+		"parent and secret CreatedAt must match (single time.Now() in tx)")
+	assert.True(t, parent.UpdatedAt.Equal(secret.UpdatedAt),
+		"parent and secret UpdatedAt must match")
+}
+
+func TestSonarrInstanceRepository_Update_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		ID: 9999, Name: "ghost", URL: "http://x", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	now := time.Now().UTC()
+	err = repo.UpdateWithOptions(ctx, inst, cipher, true, &now)
+	require.ErrorIs(t, err, ports.ErrNotFound,
+		"missing row must return ErrNotFound, not ErrStaleWrite")
+}
+
+func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
+	db := setupTestDB(t)
+	// Limit the pool to a single connection so both goroutines share the
+	// same SQLite in-memory database instance (multiple connections would
+	// each open an independent ":memory:" database).
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "race", URL: "http://x", APIKey: "k", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	stored, err := repo.GetUpdatedAt(ctx, "race")
+	require.NoError(t, err)
+	header := stored.Truncate(time.Second)
+	// Sleep one second so any write produces strictly-newer updated_at.
+	time.Sleep(1100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	results := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			snap := inst
+			snap.ID = id
+			snap.APIKey = ""
+			snap.Mode = "manual"
+			results[idx] = repo.UpdateWithOptions(ctx, snap, cipher, true, &header)
+		}(i)
+	}
+	wg.Wait()
+
+	var ok, stale int
+	for _, e := range results {
+		switch {
+		case e == nil:
+			ok++
+		case errors.Is(e, ports.ErrStaleWrite):
+			stale++
+		default:
+			t.Fatalf("unexpected error: %v", e)
+		}
+	}
+	assert.GreaterOrEqual(t, ok, 1, "at least one writer must succeed")
+	assert.Equal(t, 2, ok+stale, "every outcome must be success or stale")
 }
