@@ -114,14 +114,32 @@ func (r *SonarrInstanceRepository) Update(ctx context.Context, inst runtime.Inst
 // the HTTP PUT path when the client sends an empty api_key string,
 // meaning "keep the existing secret". A nil cipher is allowed only
 // when preserveSecret is true (no secret write is attempted).
+//
+// The parent row is written via Save (not Updates) so zero-value
+// columns (false / 0 / "") are persisted — PUT is full-replace, not
+// patch. Same idiom as RuntimeConfigRepository.Upsert.
 func (r *SonarrInstanceRepository) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool) error {
-	m := snapshotToModel(inst)
-	m.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
 
+	m := snapshotToModel(inst)
+	m.UpdatedAt = now
+	// CreatedAt is required by Save (it writes every column). Read the
+	// existing row's CreatedAt so we don't clobber it with the zero
+	// time. ErrRecordNotFound here means the caller mis-sequenced
+	// (use case should have called GetByName first); treat as a
+	// programmer error rather than silently creating a new row.
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	if err := db.Model(&database.SonarrInstanceModel{}).
-		Where("id = ?", m.ID).Updates(&m).Error; err != nil {
+	var existing database.SonarrInstanceModel
+	if err := db.Select("created_at").Where("id = ?", m.ID).First(&existing).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ports.ErrNotFound
+		}
+		return fmt.Errorf("load instance for update: %w", err)
+	}
+	m.CreatedAt = existing.CreatedAt
+
+	if err := db.Save(&m).Error; err != nil {
 		return fmt.Errorf("update sonarr instance: %w", err)
 	}
 
@@ -138,7 +156,7 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(ctx context.Context, inst r
 
 	res := db.Model(&database.InstanceSecretModel{}).
 		Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
-		Updates(map[string]interface{}{"ciphertext": ct, "updated_at": m.UpdatedAt})
+		Updates(map[string]interface{}{"ciphertext": ct, "updated_at": now})
 	if res.Error != nil {
 		return fmt.Errorf("upsert api key secret: %w", res.Error)
 	}
@@ -147,8 +165,8 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(ctx context.Context, inst r
 			InstanceID: m.ID,
 			SecretName: "api_key",
 			Ciphertext: ct,
-			CreatedAt:  time.Now().UTC(),
-			UpdatedAt:  m.UpdatedAt,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		}
 		if err := db.Create(&secret).Error; err != nil {
 			return fmt.Errorf("create api key secret: %w", err)

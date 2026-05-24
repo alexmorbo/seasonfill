@@ -15,9 +15,11 @@ import {
 } from '@/components/ui/tooltip';
 import {
   useCreateInstance,
+  useInstanceDetail,
   useTestInstance,
   useUpdateInstance,
   type InstanceCreateRequest,
+  type InstanceUpdateRequest,
 } from '@/lib/instances-mutations';
 
 const schema = z.object({
@@ -60,6 +62,14 @@ export function InstanceFormDialog({
   const probe = useTestInstance();
   const [probeResult, setProbeResult] = useState<string | null>(null);
 
+  // In edit mode we MUST merge the form values onto the full instance
+  // detail before PUT — otherwise GORM-side full-replace silently loses
+  // cooldown / ranking / limits / tags / retry / etc. The hook is keyed
+  // by name; it's disabled in create mode (name=null), so no wasted
+  // fetch.
+  const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
+  const detail = detailQuery.data?.detail;
+
   const {
     register, handleSubmit, reset, getValues,
     formState: { errors, isSubmitting },
@@ -77,11 +87,40 @@ export function InstanceFormDialog({
   }, [open, initial, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
-    const body = values as unknown as InstanceCreateRequest;
+    const trimmedKey = values.api_key.trim();
+
     if (isEdit && initial?.name) {
+      // Wait for detail; the submit button is disabled while pending,
+      // but guard here too for the race between click and click-handler
+      // dispatch.
+      if (!detail) return;
+      // Merge: detail provides every per-instance field (cooldown,
+      // ranking, limits, retry, search, tags, health_check, rate-limit,
+      // timeouts, dry_run); form values overlay the 4 editable ones.
+      // api_key omitted unless the user typed something — server then
+      // preserves the existing secret.
+      const body: InstanceUpdateRequest = {
+        ...detail,
+        name: values.name,
+        url: values.url,
+        mode: values.mode,
+        ...(trimmedKey.length > 0 ? { api_key: trimmedKey } : {}),
+      };
+      // `updated_at` is read-only echo from GET; strip so it doesn't
+      // round-trip into the request body. The handler ignores unknown
+      // fields, but cleaner over the wire.
+      delete (body as { updated_at?: string }).updated_at;
       await update.mutateAsync({ name: initial.name, body });
     } else {
-      if (values.api_key.trim().length === 0) return;
+      // Create path is patch-like, build from form alone. api_key is
+      // required on create.
+      if (trimmedKey.length === 0) return;
+      const body: InstanceCreateRequest = {
+        name: values.name,
+        url: values.url,
+        api_key: trimmedKey,
+        mode: values.mode,
+      };
       await create.mutateAsync({ body });
     }
     onOpenChange(false);
@@ -107,6 +146,8 @@ export function InstanceFormDialog({
       setProbeResult(null);
     }
   };
+
+  const editBlocked = isEdit && (detailQuery.isPending || detailQuery.isError || !detail);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -208,11 +249,24 @@ export function InstanceFormDialog({
             )}
           </div>
 
+          {isEdit && detailQuery.isPending && (
+            <p className="text-[11.5px] text-muted flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading instance details…
+            </p>
+          )}
+          {isEdit && detailQuery.isError && (
+            <p role="alert" className="text-[11.5px] text-status-danger">
+              Could not load instance details. Close and retry to avoid
+              overwriting per-instance settings.
+            </p>
+          )}
+
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || editBlocked}>
               {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
             </Button>
           </DialogFooter>
