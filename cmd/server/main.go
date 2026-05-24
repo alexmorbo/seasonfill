@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/rescan"
+	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -123,6 +124,9 @@ func run() error {
 	bus := runtime.NewBus(log)
 	defer bus.Close()
 	bus.Publish(ctx, snap)
+
+	runtimeConfigUC := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, bus, log)
+	runtimeConfigHandler := handlers.NewRuntimeConfigHandler(runtimeConfigUC, log)
 
 	adminRepo := repositories.NewAdminUserRepository(db)
 	if err := authapp.Bootstrap(ctx, adminRepo, authapp.BootstrapConfig{
@@ -275,7 +279,7 @@ func run() error {
 		adminRepo, loginLimiter, webhookLimiter,
 		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
 		knownInstances,
-		cooldownRepo, grabUC, rescanUC, scanInstancesByName, instanceCRUDHandler, instanceProbeHandler, log)
+		cooldownRepo, grabUC, rescanUC, scanInstancesByName, instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep

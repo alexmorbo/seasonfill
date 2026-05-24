@@ -47,6 +47,7 @@ func NewServer(
 	instancesByName map[string]scan.Instance,
 	instanceCRUD *handlers.InstanceCRUDHandler,
 	instanceProbe *handlers.InstanceProbeHandler,
+	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -115,6 +116,8 @@ func NewServer(
 		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
 		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
 		guarded.POST("/scans/:id/cancel", scanHandler.Cancel)
+		guarded.GET("/config/runtime", runtimeConfigHandler.Get)
+		guarded.PUT("/config/runtime", runtimeConfigHandler.Update)
 
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")
