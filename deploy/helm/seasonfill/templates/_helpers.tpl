@@ -143,19 +143,3 @@ chart-rendered `<release>-env` name.
 {{- end -}}
 {{- end }}
 
-{{/*
-Sanitized Sonarr per-instance Secret key. Lowercases the instance name
-and maps any run of non-alphanumeric characters to a single `-`, then
-substitutes into `secrets.keys.sonarrApiKeyTemplate` (default
-`sonarr-{name}-api-key`). Trims leading/trailing dashes so weird names
-("--anime--", "Anime_4K") still produce DNS-1123-ish keys.
-
-Usage: `{{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}`
-*/}}
-{{- define "seasonfill.sonarrSecretKey" -}}
-{{- $name := lower .name -}}
-{{- $name = regexReplaceAll "[^a-z0-9]+" $name "-" -}}
-{{- $name = trimAll "-" $name -}}
-{{- $tmpl := .ctx.Values.secrets.keys.sonarrApiKeyTemplate -}}
-{{- replace "{name}" $name $tmpl -}}
-{{- end }}

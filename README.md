@@ -71,24 +71,18 @@ re-grabbing broken releases.
 
 ## Configuration overview
 
-Both deploy paths consume the same YAML config (chart renders it into
-a ConfigMap; compose mounts `config.yaml`). The example template lives
-at [`config.example.yaml`](config.example.yaml). Key sections:
+Bootstrap settings (database, HTTP bind, log level, encryption key,
+admin user) come from environment variables — see
+[`deploy/compose/.env.example`](deploy/compose/.env.example) or the
+Helm `values.yaml`. Everything else (Sonarr instances, cron schedule,
+dry_run, rate limits, session TTL, trusted proxies) lives in the
+database and is edited via the Settings UI at `/settings`.
 
-- `sonarr_instances[]` — one entry per Sonarr. `url`, `api_key`,
-  `mode: auto\|manual`, optional `tags`, per-instance `dry_run`
-  override, rate limits, cooldowns, timeouts.
-- `http.auth.session_ttl` — admin cookie lifetime (default 12h).
-- `cron.schedule` — when the auto-scan runs (default every 6h with
-  jitter).
-- `dry_run` — global default (set to `false` to opt in to real grabs).
-- `database.driver` — `sqlite` (default, single-host) or `postgres`.
-
-Sensitive values (`api_key`, Sonarr API keys, Postgres DSN, web
-password) come from environment variables — `${VAR}` interpolation
-inside `config.yaml`. The chart wires them via `valueFrom.secretKeyRef`
-from a pre-created or chart-rendered Secret; compose wires them from
-`.env`. See the deploy-path READMEs for the exact key names.
+Sensitive values (`SEASONFILL_API_KEY`, Postgres DSN, the admin
+password) come from environment variables. The Helm chart wires them
+via `valueFrom.secretKeyRef` from a pre-created or chart-rendered
+Secret; compose wires them from `.env`. See the deploy-path READMEs
+for the exact key names.
 
 ## API surface
 

@@ -1,4 +1,3 @@
-# Singleton service — replicaCount must remain 1 (DB owns state).
 replicaCount: 1
 
 image:
@@ -11,10 +10,8 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# Recreate — singleton + DB ownership.
 updateStrategy: {type: Recreate}
 
-# Must exceed config.scan.shutdown_grace (default 60s) plus margin.
 terminationGracePeriodSeconds: 90
 
 serviceAccount: {create: true, automount: false, annotations: {}, name: ""}
@@ -61,131 +58,40 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# extraEnv appends AFTER the chart's explicit env entries; later wins.
-# extraEnvFrom is strictly additive for ExternalSecrets/SealedSecrets
-# users injecting non-seasonfill keys (chart's own credentials are
-# wired via explicit valueFrom — see deployment.yaml).
 extraEnv: []
 extraEnvFrom: []
 
-# ----------------------------------------------------------------------
-# Secrets. Two modes:
-#   1. Prod: set `existingSecret` to a pre-created Secret name. Chart
-#      renders NO Secret. Values stay free of sensitive material —
-#      important for `helm_release` (Terraform state holds values
-#      plaintext).
-#   2. Dev/CI: leave `existingSecret` empty; pass values via --set.
-#      Chart renders `<release>-env` Secret with inlined values.
-# Key names inside the Secret are configurable via `keys` (defaults
-# kebab-case). The two modes are mutually exclusive — `existingSecret`
-# + any inline `secrets.*` value causes the chart to fail.
-# ----------------------------------------------------------------------
+# Bootstrap settings. The ONLY config inputs the chart cares about —
+# everything else (cron, scan tuning, dry_run, sonarr instances, runtime
+# auth fields) lives in the DB and is edited via the Settings UI.
+database:
+  driver: postgres
+  sqlite:
+    path: /data/seasonfill.db
+
+log:
+  level: info
+  format: json
+
+http:
+  bind: ":8080"
+
 secrets:
   existingSecret: ""
 
-  # Inline credentials — used ONLY when existingSecret == "".
-  # apiKey required (template `required`). postgresDSN required only
-  # when database.driver == postgres. webUser/webPassword/webPasswordHash
-  # optional — backend falls back to "admin" + first-run auto-gen.
-  # webPassword and webPasswordHash are mutually exclusive.
   apiKey: ""
   webUser: ""
   webPassword: ""
   webPasswordHash: ""
   postgresDSN: ""
 
-  # Override to match an existing Secret's naming. The sanitization
-  # rule for sonarrApiKeyTemplate's {name} expansion:
-  # lowercase + any run of non-alphanumeric -> single "-", trim ends.
-  # Examples: "main" -> "sonarr-main-api-key"
-  #           "Anime_4K" -> "sonarr-anime-4k-api-key"
   keys:
     apiKey: "api-key"
     webUser: "web-user"
     webPassword: "web-password"
     webPasswordHash: "web-password-hash"
     postgresDSN: "postgres-dsn"
-    sonarrApiKeyTemplate: "sonarr-{name}-api-key"
 
-# ----------------------------------------------------------------------
-# Sonarr instances. Per-instance NON-secret config here; api keys come
-# from the Secret via secrets.keys.sonarrApiKeyTemplate.
-#
-# Chart renders per-instance env-var pairs:
-#   SONARR_<NAME>_URL      (literal value)
-#   SONARR_<NAME>_API_KEY  (valueFrom secretKeyRef)
-# where <NAME> = upper(replace "-" "_" name). Example:
-#   "main"        -> SONARR_MAIN_URL/API_KEY
-#   "sonarr-anime"-> SONARR_SONARR_ANIME_URL/API_KEY
-#
-# Inline `apiKey` is allowed only when existingSecret == "". With
-# existingSecret set, inline apiKey MUST be empty (chart fails).
-# ----------------------------------------------------------------------
-instances:
-  - name: main
-    url: "http://sonarr.media.svc.cluster.local:8989"
-    apiKey: ""
-    timeout: 30s
-    searchTimeout: 60s
-    dryRun: null
-    tags: {mode: all, include: [], exclude: []}
-    search:
-      requireAllAired: false
-      skipSpecials: true
-      skipAnime: true
-      minCustomFormatScore: 0
-    ranking: {indexerPriorityEnabled: true, originBonus: 1.0}
-    limits: {scanMaxSeries: 100, maxGrabsPerScan: 10}
-    rateLimit: {rps: 5, burst: 10}
-    cooldown:
-      mode: smart
-      seriesAfterGrab: 24h
-      guidAfterFailedGrab: 72h
-      guidAfterFailedImport: 48h
-    retry: {maxAttempts: 3, initialBackoff: 1s, maxBackoff: 30s}
-    healthCheck: {recheckIntervalAuth: 5m, recheckIntervalNetwork: 1m}
-
-# Rendered verbatim into the ConfigMap as config.yaml. The loader
-# substitutes ${VAR[:-default]} at process start (loader.go).
-config:
-  log:
-    level: info
-    format: json
-  http:
-    bind: ":8080"
-    readTimeout: 15s
-    writeTimeout: 30s
-    idleTimeout: 60s
-    shutdownTimeout: 10s
-    auth:
-      enabled: true
-      # Cookie HMAC-signed with apiKey.
-      sessionTTL: "12h"
-      # secureCookie: true ONLY behind HTTPS (browsers reject Secure
-      # cookies over HTTP).
-      secureCookie: false
-  cron:
-    enabled: true
-    schedule: "0 */6 * * *"
-    onStart: false
-    jitter: 1m
-  database:
-    driver: postgres
-    sqlite:
-      path: /data/seasonfill.db
-    postgres:
-      maxOpenConns: 10
-      maxIdleConns: 5
-      connMaxLifetime: 5m
-  dryRun: true
-  scan:
-    shutdownGrace: 60s
-    cooldownSweep: 15m
-  globalRateLimit:
-    rpm: 30
-    burst: 10
-
-# SQLite-only — RWO + Recreate.
 persistence:
   enabled: false
   accessModes:
@@ -208,9 +114,6 @@ serviceMonitor:
   metricRelabelings: []
   relabelings: []
 
-# Ingress: single fan-out mode. /api/*, /healthz, /readyz, /metrics
-# -> backend; / -> frontend. Operators only choose host + TLS source.
-# Path layout in 021c-2 (templates/ingress.yaml).
 ingress:
   enabled: false
   className: ""
@@ -223,10 +126,7 @@ ingress:
 podDisruptionBudget:
   enabled: false
   maxUnavailable: 1
-  # minAvailable: 1
 
-# Default-deny + explicit allows. Single ingress rule (admin + webhook
-# share auth surface).
 networkPolicy:
   enabled: false
   ingress:
@@ -241,7 +141,6 @@ tests:
     tag: "1.36"
     pullPolicy: IfNotPresent
 
-# Frontend always deployed (web.enabled removed).
 web:
   replicaCount: 1
   image:

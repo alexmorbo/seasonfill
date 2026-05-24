@@ -12,23 +12,17 @@ at `deploy/helm/seasonfill/`.
 ```sh
 cd deploy/compose
 cp .env.example .env
-cp config.example.yaml config.yaml
-
-# Generate the API key (32-byte hex):
-openssl rand -hex 32
-# Paste into SEASONFILL_API_KEY=... in .env
-
-# Edit .env: set SONARR_MAIN_URL and SONARR_MAIN_API_KEY.
-# (config.yaml interpolates them at startup — no need to edit it for
-# the simple single-instance case.)
-
 docker compose up -d
-docker compose logs -f backend | grep 'FIRST-RUN PASSWORD'
+docker compose logs -f backend | grep 'FIRST-RUN'
 ```
 
 Open http://localhost:8080 and log in with `admin` + the password
-from the logs. The UI shows a banner prompting you to change the
-auto-generated password — do so on first login.
+from the logs. Capture the printed `SEASONFILL_API_KEY` and paste it
+into your `.env` so the next restart can decrypt the DB.
+
+All other settings — Sonarr instances, cron schedule, dry_run, rate
+limits, session TTL, trusted proxies — are configured via the Web UI
+at `/settings` once the stack is up.
 
 ## What is exposed
 
@@ -47,8 +41,8 @@ auto-generated password — do so on first login.
 In Sonarr → Settings → Connect → + → Webhook:
 
 - **URL:** `http://<your-host>:8080/api/v1/webhook/sonarr/<instance-name>`
-  (replace `<instance-name>` with the corresponding `sonarr_instances[].name`
-  from your `config.yaml`)
+  (replace `<instance-name>` with the name you gave the instance when
+  adding it via the seasonfill Settings UI at `/settings`)
 - **Method:** POST
 - **Triggers:** at minimum `On Grab`, `On Import`, `On Import Failure`
 - **Custom Headers:** add one header
@@ -62,8 +56,9 @@ them to drive cooldowns + grab decisions.
 
 - **SQLite (default):** zero config, persisted in the
   `seasonfill-data` named volume. Fine for single-host hobby use.
-- **Postgres:** set `DB_DRIVER=postgres` and a full `POSTGRES_DSN` in
-  `.env`. seasonfill auto-migrates the schema at startup.
+- **Postgres:** set `SEASONFILL_DATABASE_DRIVER=postgres` and a full
+  `SEASONFILL_DATABASE_POSTGRES_DSN` in `.env`. seasonfill auto-migrates
+  the schema at startup.
 
 ## Reverse proxy & TLS
 
@@ -77,10 +72,11 @@ TLS, terminate at your own reverse proxy:
 - **nginx/HAProxy:** standard reverse proxy config to
   `http://127.0.0.1:8080`.
 
-When terminating TLS upstream, set `SEASONFILL_AUTH_SECURE_COOKIE=true`
-in `.env` so the session cookie carries the `Secure` flag. Do NOT
-flip this to true while still serving plain HTTP — browsers refuse
-Secure cookies over HTTP and login will silently fail.
+When terminating TLS upstream, toggle "Secure cookie" in the Web UI
+under Settings → Auth & Security so the session cookie carries the
+`Secure` flag. Do NOT flip this to true while still serving plain
+HTTP — browsers refuse Secure cookies over HTTP and login will
+silently fail.
 
 ## Operations
 
@@ -123,6 +119,6 @@ docker compose down -v         # wipes the SQLite volume too
 - **Frontend up, /api returns 502.** Backend likely crashed. Check
   `docker compose logs backend` for config errors (missing
   `SONARR_MAIN_URL` etc.).
-- **Cookie not set after login (over HTTPS).** Confirm
-  `SEASONFILL_AUTH_SECURE_COOKIE=true` AND your reverse proxy
-  forwards `X-Forwarded-Proto: https`.
+- **Cookie not set after login (over HTTPS).** Confirm the
+  "Secure cookie" toggle is on in Settings → Auth & Security AND
+  your reverse proxy forwards `X-Forwarded-Proto: https`.

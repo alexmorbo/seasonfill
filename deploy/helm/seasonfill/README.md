@@ -33,27 +33,26 @@ production with Terragrunt.
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill \
-  --version 0.3.0 \
+  --version 0.4.0 \
   --namespace seasonfill --create-namespace \
-  --set "config.database.driver=sqlite" \
-  --set "persistence.enabled=true" \
-  --set "secrets.apiKey=$(openssl rand -hex 32)" \
-  --set "secrets.webPassword=changeme" \
-  --set "instances[0].name=main" \
-  --set "instances[0].url=http://sonarr.media.svc.cluster.local:8989" \
-  --set "instances[0].apiKey=$SONARR_MAIN_KEY"
+  --set "database.driver=sqlite" \
+  --set "persistence.enabled=true"
 ```
 
-The default `config.database.driver` is `postgres`, which would also
-require `--set "secrets.postgresDSN=postgres://..."`. SQLite keeps the
-example self-contained — toggle to `postgres` once you have a DSN.
-
-The chart renders a `<release>-env` Secret from those inline values.
-First-run admin password lands in the backend pod logs:
+That's it — no Secret values, no instances. The backend
+auto-generates the API key and admin password on first start. Grab
+them once from the logs:
 
 ```sh
-kubectl -n seasonfill logs deploy/seasonfill | grep 'FIRST-RUN PASSWORD'
+kubectl -n seasonfill logs deploy/seasonfill | grep 'FIRST-RUN'
 ```
+
+Capture the API key — you MUST set `SEASONFILL_API_KEY` (via the
+Secret) on every subsequent restart, otherwise the process aborts
+(the DB holds AES-GCM-encrypted Sonarr instance secrets that need
+this key to decrypt).
+
+Then open the Settings UI at `/settings` and add your Sonarr instances.
 
 ## Install — production (existingSecret)
 
@@ -65,15 +64,13 @@ Secret key layout (override in `secrets.keys` if needed):
 
 | Key | Required | When |
 |-----|----------|------|
-| `api-key` | yes | Always. Cookie HMAC + service-to-service auth. |
-| `web-user` | no | Defaults to `admin` if missing. |
+| `api-key` | no (recommended yes) | First start auto-generates if missing — capture from logs and feed back via the Secret on every restart after that. |
+| `web-user` | no | Defaults to `admin` if missing. Bootstrap-only — change in the UI later. |
 | `web-password` OR `web-password-hash` | no | If both missing → auto-gen + logs. Mutually exclusive. |
-| `postgres-dsn` | conditional | Required when `config.database.driver: postgres`. |
-| `sonarr-<name>-api-key` | yes (per instance) | One key per `instances[].name`. Template configurable. |
+| `postgres-dsn` | conditional | Required when `database.driver: postgres`. |
 
-`<name>` sanitization for the Sonarr key: lowercase, runs of
-non-alphanumeric → single `-`, trim ends. `main` →
-`sonarr-main-api-key`. `Anime_4K` → `sonarr-anime-4k-api-key`.
+Sonarr instance API keys are no longer kept as Secret entries. They
+live AES-GCM-encrypted in the DB, added via the Settings UI.
 
 Create the Secret:
 
@@ -81,8 +78,7 @@ Create the Secret:
 kubectl -n seasonfill create secret generic seasonfill \
   --from-literal=api-key=$(openssl rand -hex 32) \
   --from-literal=web-password=changeme-on-first-login \
-  --from-literal=postgres-dsn='postgres://seasonfill:pw@pg.db.svc/seasonfill?sslmode=require' \
-  --from-literal=sonarr-main-api-key=$SONARR_MAIN_KEY
+  --from-literal=postgres-dsn='postgres://seasonfill:pw@pg.db.svc/seasonfill?sslmode=require'
 ```
 
 Install pointing at it:
@@ -92,14 +88,8 @@ Install pointing at it:
 secrets:
   existingSecret: seasonfill
 
-instances:
-  - name: main
-    url: http://sonarr.media.svc.cluster.local:8989
-
-config:
-  database:
-    driver: postgres
-  dryRun: false   # opt in to real grabs only after a dry-run scan looks correct
+database:
+  driver: postgres
 
 ingress:
   enabled: true
@@ -112,25 +102,27 @@ ingress:
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill \
-  --version 0.3.0 \
+  --version 0.4.0 \
   --namespace seasonfill --create-namespace \
   -f values-prod.yaml
 ```
 
+Log in to `/settings` and add your Sonarr instances. They persist
+in the DB; no chart re-render required.
+
 ## Values reference (most-used)
 
-Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill --version 0.3.0`.
+Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill --version 0.4.0`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `secrets.existingSecret` | `""` | Name of pre-created Secret. When non-empty, no inline secret values may be set. |
 | `secrets.keys.*` | kebab-case | Override per-key names inside the Secret. |
-| `instances[]` | one `main` example | Non-secret Sonarr instance config. API key comes from the Secret. |
-| `config.dryRun` | `true` | Global default. Set to `false` to opt in to real grabs. |
-| `config.database.driver` | `postgres` | `sqlite` or `postgres`. SQLite path is `/data/seasonfill.db` (needs `persistence.enabled: true`). |
-| `config.http.auth.sessionTTL` | `12h` | Cookie TTL. |
-| `config.http.auth.secureCookie` | `false` | Set `true` only when serving HTTPS — browsers reject Secure cookies on plain HTTP. |
-| `config.cron.schedule` | `0 */6 * * *` | Cron expression for the auto-scan loop. |
+| `database.driver` | `postgres` | `sqlite` or `postgres`. SQLite path is `/data/seasonfill.db` (needs `persistence.enabled: true`). |
+| `database.sqlite.path` | `/data/seasonfill.db` | Used only when `driver=sqlite`. |
+| `log.level` | `info` | `debug` / `info` / `warn` / `error`. |
+| `log.format` | `json` | `json` / `text`. |
+| `http.bind` | `:8080` | Listen address. |
 | `ingress.enabled` | `false` | Single fan-out mode. `/api`, `/auth`, `/webhook`, `/healthz`, `/readyz`, `/metrics` → backend; `/` → web. |
 | `ingress.host` | `""` | The single host. |
 | `ingress.tls.enabled` | `false` | When `true`, `ingress.tls.secretName` must reference an existing TLS Secret. |
@@ -138,6 +130,10 @@ Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill --version 0
 | `serviceMonitor.enabled` | `false` | Prometheus Operator scrape. |
 | `networkPolicy.enabled` | `false` | Default-deny + explicit allow-list. |
 | `web.replicaCount` | `1` | Frontend can scale horizontally (stateless). |
+
+Everything else — cron schedule, scan tuning, `dry_run`, instances,
+session TTL, secure cookie toggle, trusted proxies — is managed via
+the Settings UI at `/settings`. Not in the chart values.
 
 ## Terragrunt example
 
@@ -160,11 +156,9 @@ resource "kubernetes_secret_v1" "seasonfill" {
     namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
   }
   data = {
-    "api-key"              = local.secrets.api_key
-    "web-password"         = local.secrets.web_password
-    "postgres-dsn"         = local.secrets.postgres_dsn
-    "sonarr-main-api-key"  = local.secrets.sonarr_main_api_key
-    "sonarr-anime-api-key" = local.secrets.sonarr_anime_api_key
+    "api-key"      = local.secrets.api_key
+    "web-password" = local.secrets.web_password
+    "postgres-dsn" = local.secrets.postgres_dsn
   }
   type = "Opaque"
 }
@@ -172,7 +166,7 @@ resource "kubernetes_secret_v1" "seasonfill" {
 resource "helm_release" "seasonfill" {
   name      = "seasonfill"
   chart     = "oci://ghcr.io/alexmorbo/seasonfill"
-  version   = "0.3.0"
+  version   = "0.4.0"
   namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
 
   values = [
@@ -181,25 +175,7 @@ resource "helm_release" "seasonfill" {
         existingSecret = kubernetes_secret_v1.seasonfill.metadata[0].name
       }
 
-      instances = [
-        {
-          name = "main"
-          url  = "http://sonarr.media.svc.cluster.local:8989"
-          mode = "auto"
-          tags = { mode = "all" }
-        },
-        {
-          name = "anime"
-          url  = "http://sonarr-anime.media.svc.cluster.local:8989"
-          mode = "manual"
-        },
-      ]
-
-      config = {
-        dryRun = false
-        database = { driver = "postgres" }
-        http = { auth = { secureCookie = true } }
-      }
+      database = { driver = "postgres" }
 
       ingress = {
         enabled   = true
@@ -218,6 +194,9 @@ resource "helm_release" "seasonfill" {
 }
 ```
 
+Note: Sonarr instances are no longer in the chart values — log in to
+the Settings UI at `/settings` after first install to add them.
+
 Why `existingSecret`: `helm_release.values` are stored verbatim in
 Terraform state (no auto-masking for sensitive substrings). Wiring
 the Secret via a separate `kubernetes_secret_v1` keeps state holding
@@ -231,8 +210,12 @@ boot against an empty DB, bcrypts it, persists the hash, and prints
 the plaintext **once** to logs:
 
 ```sh
-kubectl -n seasonfill logs deploy/seasonfill | grep 'FIRST-RUN PASSWORD'
+kubectl -n seasonfill logs deploy/seasonfill | grep 'FIRST-RUN'
 ```
+
+The same first-start sequence also auto-generates `SEASONFILL_API_KEY`
+if missing — capture both from the log lines and feed the API key back
+via the Secret for every subsequent restart.
 
 Log in with `admin` (or your `secrets.webUser`) + that password. The
 UI shows a banner prompting password change; use the in-app modal to
@@ -246,31 +229,31 @@ kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill reset-password -
 
 ## Upgrades
 
-The chart line is brand-new at `0.3.0`. There is no migration path
-from earlier `0.2.x` charts — their values shape is incompatible
-(`webhookOnly`, `webhookSecret`, `sonarrInstances`, `web.enabled` are
-all gone). For an existing 0.2.x install, the only supported path is:
+`0.4.0` drops the `config.*` and `instances[]` values trees entirely.
+Cron, scan tuning, dry_run, instances and runtime auth fields all
+moved to the DB and are edited via the Settings UI at `/settings`.
+There is no in-place upgrade path from `0.3.x` — values shape is
+incompatible. For an existing `0.3.x` install:
 
-1. Capture the DB out-of-band (Postgres dump, or copy
+1. Capture the DB out-of-band (Postgres dump or copy
    `/data/seasonfill.db` from the SQLite PVC).
 2. `helm uninstall` the old release.
-3. Create a new `Secret` per §"Install — production".
-4. `helm install` 0.3.0 fresh.
-5. Restore the DB into the new install (SQLite: copy the file back
-   into the new PVC under the same path; Postgres: same DSN points at
-   the same DB, no action needed).
+3. Create a new Secret per §"Install — production" (omit
+   `sonarr-*-api-key` entries — instances now live in the DB).
+4. `helm install` 0.4.0 fresh.
+5. Restore the DB if needed; re-add Sonarr instances in the UI.
 
-Future `0.3.x → 0.3.(x+1)` upgrades are in-place: `helm upgrade` with
-new values. Read the chart annotation `artifacthub.io/changes` in
-`Chart.yaml` for breaking-change call-outs per release.
+Future `0.4.x → 0.4.(x+1)` upgrades are in-place: `helm upgrade` with
+new values.
 
 ## Sonarr webhook configuration
 
-In each Sonarr → Settings → Connect → + → Webhook:
+Add the instance in the seasonfill Settings UI first (`/settings`).
+Then in Sonarr → Settings → Connect → + → Webhook:
 
 - **URL:** `https://<ingress.host>/api/v1/webhook/sonarr/<instance-name>`
-  where `<instance-name>` matches one of the names under `instances` in
-  this chart's values (unknown names return 404).
+  where `<instance-name>` matches the name you gave the instance in
+  the Settings UI (unknown names return 404).
 - **Method:** POST
 - **Triggers:** at minimum `On Grab`, `On Import Complete`,
   `On Manual Interaction Required`

@@ -2,7 +2,7 @@
 PersistentVolumeClaim for SQLite-mode persistence. Rendered only when
 both flags are on:
   - .Values.persistence.enabled
-  - .Values.config.database.driver == "sqlite"
+  - .Values.database.driver == "sqlite"
 
 ReadWriteOnce is intentional. The service is a singleton (replicas: 1)
 with strategy.type=Recreate (006d). RWX would be misleading — only one
@@ -13,7 +13,7 @@ attaches.
 For Postgres mode (default), this template renders nothing — the DB
 state lives in the external Postgres server, not on a local volume.
 */ -}}
-{{- if and .Values.persistence.enabled (eq .Values.config.database.driver "sqlite") -}}
+{{- if and .Values.persistence.enabled (eq .Values.database.driver "sqlite") -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

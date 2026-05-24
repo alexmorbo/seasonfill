@@ -14,7 +14,6 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -38,9 +37,6 @@ spec:
         - name: seasonfill
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - "--config"
-            - "/app/config.yaml"
           ports:
             - name: http
               containerPort: 8080
@@ -48,11 +44,31 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
+            - name: SEASONFILL_LOG_LEVEL
+              value: {{ .Values.log.level | quote }}
+            - name: SEASONFILL_LOG_FORMAT
+              value: {{ .Values.log.format | quote }}
+            - name: SEASONFILL_HTTP_BIND
+              value: {{ .Values.http.bind | quote }}
+            - name: SEASONFILL_DATABASE_DRIVER
+              value: {{ .Values.database.driver | quote }}
+            {{- if eq .Values.database.driver "sqlite" }}
+            - name: SEASONFILL_DATABASE_SQLITE_PATH
+              value: {{ .Values.database.sqlite.path | quote }}
+            {{- end }}
+            {{- if eq .Values.database.driver "postgres" }}
+            - name: SEASONFILL_DATABASE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.postgresDSN }}
+            {{- end }}
             - name: SEASONFILL_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "seasonfill.secretName" . }}
                   key: {{ .Values.secrets.keys.apiKey }}
+                  optional: true
             - name: SEASONFILL_WEB_USER
               valueFrom:
                 secretKeyRef:
@@ -71,24 +87,6 @@ spec:
                   name: {{ include "seasonfill.secretName" . }}
                   key: {{ .Values.secrets.keys.webPasswordHash }}
                   optional: true
-            - name: SEASONFILL_AUTH_SECURE_COOKIE
-              value: {{ .Values.config.http.auth.secureCookie | quote }}
-            {{- if eq .Values.config.database.driver "postgres" }}
-            - name: POSTGRES_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "seasonfill.secretName" . }}
-                  key: {{ .Values.secrets.keys.postgresDSN }}
-            {{- end }}
-            {{- range .Values.instances }}
-            - name: SONARR_{{ include "seasonfill.envName" .name }}_URL
-              value: {{ .url | quote }}
-            - name: SONARR_{{ include "seasonfill.envName" .name }}_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "seasonfill.secretName" $ }}
-                  key: {{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}
-            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -103,22 +101,15 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            - name: config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
-              readOnly: true
             - name: tmp
               mountPath: /tmp
             - name: data
               mountPath: /data
       volumes:
-        - name: config
-          configMap:
-            name: {{ include "seasonfill.fullname" . }}-config
         - name: tmp
           emptyDir: {}
         - name: data
-          {{- if and .Values.persistence.enabled (eq .Values.config.database.driver "sqlite") }}
+          {{- if and .Values.persistence.enabled (eq .Values.database.driver "sqlite") }}
           persistentVolumeClaim:
             claimName: {{ include "seasonfill.pvcName" . }}
           {{- else }}

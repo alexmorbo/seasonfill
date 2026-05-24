@@ -3,7 +3,7 @@
   "title": "Seasonfill Helm values",
   "type": "object",
   "additionalProperties": true,
-  "required": ["secrets", "instances", "config"],
+  "required": ["secrets", "database"],
   "properties": {
     "secrets": {
       "type": "object",
@@ -20,30 +20,18 @@
           "additionalProperties": false,
           "required": [
             "apiKey", "webUser", "webPassword", "webPasswordHash",
-            "postgresDSN", "sonarrApiKeyTemplate"
+            "postgresDSN"
           ],
           "properties": {
-            "apiKey":               {"type": "string", "minLength": 1},
-            "webUser":              {"type": "string", "minLength": 1},
-            "webPassword":          {"type": "string", "minLength": 1},
-            "webPasswordHash":      {"type": "string", "minLength": 1},
-            "postgresDSN":          {"type": "string", "minLength": 1},
-            "sonarrApiKeyTemplate": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": ".*\\{name\\}.*"
-            }
+            "apiKey":          {"type": "string", "minLength": 1},
+            "webUser":         {"type": "string", "minLength": 1},
+            "webPassword":     {"type": "string", "minLength": 1},
+            "webPasswordHash": {"type": "string", "minLength": 1},
+            "postgresDSN":     {"type": "string", "minLength": 1}
           }
         }
       },
       "allOf": [
-        {
-          "description": "one-of: existingSecret OR apiKey must be set",
-          "anyOf": [
-            {"properties": {"existingSecret": {"type": "string", "minLength": 1}}, "required": ["existingSecret"]},
-            {"properties": {"apiKey":          {"type": "string", "minLength": 1}}, "required": ["apiKey"]}
-          ]
-        },
         {
           "description": "mutex: webPassword and webPasswordHash cannot both be non-empty",
           "not": {
@@ -54,7 +42,7 @@
           }
         },
         {
-          "description": "mutex: existingSecret cannot be combined with any inline secrets.* values (apiKey/webUser/webPassword/webPasswordHash/postgresDSN). Pick one source of truth.",
+          "description": "mutex: existingSecret cannot be combined with any inline secrets.* values.",
           "not": {
             "allOf": [
               {"properties": {"existingSecret": {"type": "string", "minLength": 1}}, "required": ["existingSecret"]},
@@ -72,56 +60,34 @@
         }
       ]
     },
-    "instances": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["name", "url"],
-        "additionalProperties": true,
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
-            "description": "Instance name. Must start with alphanumeric; allowed chars: A-Z, a-z, 0-9, _, -. The sanitized form (lowercase, non-alphanumeric -> -) keys the per-instance Secret entry."
-          },
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "pattern": "^https?://"
-          },
-          "apiKey":  {"type": "string"},
-          "timeout": {"type": "string"}
+    "database": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["driver"],
+      "properties": {
+        "driver": {"type": "string", "enum": ["sqlite", "postgres"]},
+        "sqlite": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "path": {"type": "string"}
+          }
         }
       }
     },
-    "config": {
+    "log": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "database": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "driver": {"type": "string", "enum": ["sqlite", "postgres"]}
-          }
-        },
-        "http": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "auth": {
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "enabled":      {"type": "boolean"},
-                "sessionTTL":   {"type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)$"},
-                "secureCookie": {"type": "boolean"}
-              }
-            }
-          }
-        }
+        "level":  {"type": "string", "enum": ["debug", "info", "warn", "error"]},
+        "format": {"type": "string", "enum": ["json", "text"]}
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "bind": {"type": "string"}
       }
     },
     "ingress": {

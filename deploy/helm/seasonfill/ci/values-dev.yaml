@@ -1,10 +1,5 @@
-# Dev/CI values for inline-secret-mode render. NEVER use in production.
-#
-# Exercises the dev path: existingSecret empty, inline apiKey set.
-# Mirrors ci/values-test.yaml shape but flips the secret mode and uses
-# sqlite so no postgres DSN is required. All instance subkeys that
-# configmap.yaml dereferences are present, so isolated `--set` overlays
-# (for negative schema tests) don't strip nested defaults.
+# Dev/CI values exercising inline-secret mode + sqlite (no Postgres DSN).
+# NEVER use in production.
 
 secrets:
   existingSecret: ""
@@ -14,52 +9,13 @@ secrets:
   webPasswordHash: ""
   postgresDSN: ""
 
-instances:
-  - name: main
-    url: "http://sonarr.media.svc.cluster.local:8989"
-    apiKey: "dev-only-instance-key-NEVER-USE-IN-PROD"
-    timeout: 30s
-    searchTimeout: 60s
-    tags:
-      mode: all
-      include: []
-      exclude: []
-    search:
-      requireAllAired: false
-      skipSpecials: true
-      skipAnime: true
-      minCustomFormatScore: 0
-    ranking:
-      indexerPriorityEnabled: true
-      originBonus: 1.0
-    limits:
-      scanMaxSeries: 100
-      maxGrabsPerScan: 10
-    rateLimit:
-      rps: 5
-      burst: 10
-    cooldown:
-      mode: smart
-      seriesAfterGrab: 24h
-      guidAfterFailedGrab: 72h
-      guidAfterFailedImport: 48h
-    retry:
-      maxAttempts: 3
-      initialBackoff: 1s
-      maxBackoff: 30s
-    healthCheck:
-      recheckIntervalAuth: 5m
-      recheckIntervalNetwork: 1m
+database:
+  driver: sqlite
+  sqlite:
+    path: /data/seasonfill.db
 
-config:
-  database:
-    driver: sqlite
-  dryRun: true
-  http:
-    auth:
-      enabled: true
-      sessionTTL: "12h"
-      secureCookie: false
+persistence:
+  enabled: true
 
 ingress:
   enabled: false

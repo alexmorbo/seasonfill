@@ -16,9 +16,7 @@ Seasonfill {{ .Chart.AppVersion }} is installed in namespace
      {{- end }}
 {{- else }}
 
-     # Ingress is disabled. Port-forward the web Service — the web pod
-     # nginx proxies /api, /auth, /webhook to the backend Service via
-     # cluster DNS, so a single port-forward is enough for the UI + API.
+     # Ingress is disabled. Port-forward the web Service.
      kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "seasonfill.webFullname" . }} 8080:{{ .Values.web.service.port }}
      # then open http://localhost:8080
 {{- end }}
@@ -31,52 +29,39 @@ Seasonfill {{ .Chart.AppVersion }} is installed in namespace
 {{- if and (not .Values.secrets.webPassword) (not .Values.secrets.webPasswordHash) (not .Values.secrets.existingSecret) }}
 
      No password was supplied at install time. The backend generates a
-     random one on first start and prints it ONCE to stdout. Retrieve it:
+     random one on first start and prints it ONCE to stdout. Retrieve
+     both the password and the auto-generated API key:
 
-       kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ include "seasonfill.fullname" . }} | grep -A 1 'FIRST-RUN PASSWORD'
+       kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ include "seasonfill.fullname" . }} | grep 'FIRST-RUN'
 
-     Change it via Settings -> Security in the UI as soon as you log in
-     (the banner shown on every page reminds you until you do).
+     IMPORTANT: capture the printed SEASONFILL_API_KEY value and feed
+     it back via your Secret on every subsequent restart — otherwise
+     the backend aborts because it cannot decrypt the at-rest Sonarr
+     instance secrets in the DB.
+
+     Change the password via the in-app banner on first login.
 {{- else if .Values.secrets.existingSecret }}
 
-     Password is supplied via the pre-created Secret
-     "{{ .Values.secrets.existingSecret }}". If that Secret doesn't include
-     a "{{ .Values.secrets.keys.webPassword }}" or
-     "{{ .Values.secrets.keys.webPasswordHash }}" entry, the backend will
-     generate one on first start — retrieve via the logs as above.
+     Credentials come from the pre-created Secret
+     "{{ .Values.secrets.existingSecret }}".
 {{- else }}
 
      Password was supplied at install time.
 {{- end }}
 
-4. To rotate the password from the CLI without UI access:
+4. Rotate the admin password from the CLI without UI access:
 
      kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "seasonfill.fullname" . }} -- /app/seasonfill reset-password --print
-     # prints the new plaintext password to stdout once.
 
-5. For a fully-credentialed pre-created Secret (recommended for prod),
-   create it BEFORE `helm install` and pass `secrets.existingSecret`:
+5. Add your Sonarr instances via the Settings UI at /settings after
+   logging in. They persist in the DB; no chart re-render required.
 
-     kubectl --namespace {{ .Release.Namespace }} create secret generic seasonfill-prod \
-       --from-literal={{ .Values.secrets.keys.apiKey }}=$(openssl rand -hex 32) \
-       --from-literal={{ .Values.secrets.keys.webUser }}=admin \
-       --from-literal={{ .Values.secrets.keys.webPassword }}='change-me-now-please' \
-       --from-literal={{ .Values.secrets.keys.postgresDSN }}='postgresql://user:pw@postgres.svc:5432/seasonfill?sslmode=require' \
-{{- range .Values.instances }}
-       --from-literal={{ include "seasonfill.sonarrSecretKey" (dict "ctx" $ "name" .name) }}='<sonarr-{{ .name }}-api-key>' \
-{{- end }}
-       --dry-run=client -o yaml | kubectl apply -f -
-
-     helm upgrade --install {{ .Release.Name }} . \
-       --namespace {{ .Release.Namespace }} \
-       --set secrets.existingSecret=seasonfill-prod
-
-6. Sonarr Connect -> Webhook setup:
+6. Sonarr Connect -> Webhook setup (per instance):
 
      URL:    https://{{ default "<ingress-host>" .Values.ingress.host }}/api/v1/webhook/sonarr/<instance-name>
      Method: POST
      Headers:
-       X-Api-Key: <the api-key value from your Secret>
+       X-Api-Key: <SEASONFILL_API_KEY>
 
-     `<instance-name>` MUST match one of the names configured under
-     `instances` in this chart's values — unknown names return 404.
+     `<instance-name>` MUST match the name you gave the instance in
+     the Settings UI — unknown names return 404.
