@@ -25,6 +25,9 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	assert.True(t, db.Migrator().HasTable(&GrabRecordModel{}))
 	assert.True(t, db.Migrator().HasTable(&OriginReleaseModel{}))
 	assert.True(t, db.Migrator().HasTable(&CooldownModel{}))
+	assert.True(t, db.Migrator().HasTable(&RuntimeConfigModel{}))
+	assert.True(t, db.Migrator().HasTable(&SonarrInstanceModel{}))
+	assert.True(t, db.Migrator().HasTable(&InstanceSecretModel{}))
 
 	// Idempotent — running twice must not error.
 	assert.NoError(t, Migrate(db))

@@ -23,10 +23,9 @@ import (
 //	--print          generate + persist + print plaintext to stdout once
 //	--set <password> bcrypt-hash + persist + print "Password set"
 //
-// Both reuse the server's config-load + DB-open + migrate path.
+// Reads DB connection from env vars (SEASONFILL_DATABASE_*).
 func runResetPassword(args []string) error {
 	fs := flag.NewFlagSet("reset-password", flag.ContinueOnError)
-	configPath := fs.String("config", "config.yaml", "Path to YAML configuration")
 	printMode := fs.Bool("print", false, "Generate + persist + print new password once")
 	setVal := fs.String("set", "", "Set the password to this exact value")
 	if err := fs.Parse(args); err != nil {
@@ -36,9 +35,9 @@ func runResetPassword(args []string) error {
 		return errors.New("exactly one of --print or --set <password> is required")
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.FromEnv()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return fmt.Errorf("load bootstrap config: %w", err)
 	}
 	log := logger.New(logger.Config{
 		Level: cfg.Log.Level, Format: cfg.Log.Format, Output: os.Stderr,
@@ -88,7 +87,7 @@ func runResetPassword(args []string) error {
 			return fmt.Errorf("update password: %w", err)
 		}
 	case errors.Is(getErr, ports.ErrNotFound):
-		webUser := cfg.HTTP.Auth.WebUser
+		webUser := cfg.Auth.WebUser
 		if webUser == "" {
 			webUser = "admin"
 		}

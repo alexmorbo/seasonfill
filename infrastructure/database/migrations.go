@@ -14,6 +14,9 @@ func Migrate(db *gorm.DB) error {
 		&OriginReleaseModel{},
 		&CooldownModel{},
 		&AdminUserModel{},
+		&RuntimeConfigModel{},
+		&SonarrInstanceModel{},
+		&InstanceSecretModel{},
 	); err != nil {
 		return fmt.Errorf("auto-migrate: %w", err)
 	}

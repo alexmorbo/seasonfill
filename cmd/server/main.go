@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	authapp "github.com/alexmorbo/seasonfill/application/auth"
+	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -31,6 +31,8 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
 func main() {
@@ -48,45 +50,111 @@ func main() {
 }
 
 func run() error {
-	var configPath string
-	flag.StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration")
-	flag.Parse()
-
-	cfg, err := config.Load(configPath)
+	bootCfg, err := config.FromEnv()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return fmt.Errorf("bootstrap config: %w", err)
 	}
 
 	log := logger.New(logger.Config{
-		Level:  cfg.Log.Level,
-		Format: cfg.Log.Format,
+		Level:  bootCfg.Log.Level,
+		Format: bootCfg.Log.Format,
 		Output: os.Stdout,
 	})
 	slog.SetDefault(log)
+	log.Info("starting seasonfill (bootstrap config)",
+		slog.String("driver", bootCfg.Database.Driver))
 
-	log.Info("starting seasonfill",
-		slog.String("driver", cfg.Database.Driver),
-		slog.Int("instances", len(cfg.SonarrInstances)),
-		slog.Bool("dry_run", cfg.DryRun),
-		slog.Int("global_rate_limit_rpm", cfg.GlobalRateLimit.RPM),
-		slog.Int("global_rate_limit_burst", cfg.GlobalRateLimit.Burst),
-	)
-
-	db, err := database.Open(cfg.Database)
+	db, err := database.Open(bootCfg.Database)
 	if err != nil {
-		return fmt.Errorf("open database: %w", err)
+		return fmt.Errorf("open db: %w", err)
 	}
 	if err := database.Migrate(db); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	runtimeRepo := repositories.NewRuntimeConfigRepository(db)
+	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+
+	ctx := context.Background()
+
+	masterKey, err := bootstrap.ResolveAPIKey(ctx, bootCfg.Auth.APIKey, runtimeRepo, log)
+	if err != nil {
+		return fmt.Errorf("resolve api key: %w", err)
+	}
+	cipher, err := crypto.New(masterKey)
+	if err != nil {
+		return fmt.Errorf("derive cipher: %w", err)
+	}
+
+	// Seed runtime_config from Defaults() on a truly-fresh install.
+	row, err := runtimeRepo.Get(ctx)
+	switch {
+	case err == nil:
+		// happy path
+	case errors.Is(err, ports.ErrNotFound):
+		if err := runtimeRepo.Upsert(ctx, runtime.Defaults()); err != nil {
+			return fmt.Errorf("seed runtime_config: %w", err)
+		}
+		row, err = runtimeRepo.Get(ctx)
+		if err != nil {
+			return fmt.Errorf("reload runtime_config after seed: %w", err)
+		}
+	default:
+		return fmt.Errorf("read runtime_config: %w", err)
+	}
+
+	instances, err := instanceRepo.List(ctx, cipher)
+	if err != nil {
+		return fmt.Errorf("list instances: %w", err)
+	}
+	for i := range instances {
+		runtime.ApplyInstanceDefaults(&instances[i])
+	}
+	runtime.SortInstances(instances)
+
+	snap := runtime.Snapshot{
+		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
+		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
+		Instances: instances,
+	}
+
+	bus := runtime.NewBus(log)
+	defer bus.Close()
+	bus.Publish(ctx, snap)
+
 	adminRepo := repositories.NewAdminUserRepository(db)
-	if err := authapp.Bootstrap(context.Background(), adminRepo, authapp.BootstrapConfig{
-		WebUser:         cfg.HTTP.Auth.WebUser,
-		WebPassword:     cfg.HTTP.Auth.WebPassword,
-		WebPasswordHash: cfg.HTTP.Auth.WebPasswordHash,
+	if err := authapp.Bootstrap(ctx, adminRepo, authapp.BootstrapConfig{
+		WebUser:         bootCfg.Auth.WebUser,
+		WebPassword:     bootCfg.Auth.WebPassword,
+		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
 	}, log); err != nil {
 		return fmt.Errorf("auth bootstrap: %w", err)
+	}
+
+	// cfg now reads from snap instead of bootstrap config
+	authCfg := config.Auth{
+		Enabled:        true,
+		APIKey:         masterKey,
+		SessionTTL:     snap.Auth.SessionTTL,
+		SecureCookie:   snap.Auth.SecureCookie,
+		TrustedProxies: snap.Auth.TrustedProxies,
+	}
+	cfg := struct {
+		HTTP            config.HTTPConfig
+		SonarrInstances []runtime.InstanceSnapshot
+		DryRun          bool
+		GlobalRateLimit runtime.RateLimitSnapshot
+		Scan            runtime.ScanSnapshot
+		Cron            runtime.CronSnapshot
+		Auth            config.Auth
+	}{
+		HTTP:            bootCfg.HTTP,
+		SonarrInstances: instances,
+		DryRun:          snap.DryRun,
+		GlobalRateLimit: snap.GlobalRateLimit,
+		Scan:            snap.Scan,
+		Cron:            snap.Cron,
+		Auth:            authCfg,
 	}
 
 	scanRepo := repositories.NewScanRepository(db)
@@ -112,12 +180,11 @@ func run() error {
 	scanInstancesByName := make(map[string]scan.Instance, len(cfg.SonarrInstances))
 	cfgByName := make(map[string]config.HealthCheckConfig, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		// N-new-1: New(0, 0) returns nil (unlimited). Per-instance observer
-		// binds the instance name to the closure so the limiter can stay
-		// instance-agnostic.
+		// Per-instance observer binds the instance name to the closure so the
+		// limiter can stay instance-agnostic.
 		instanceName := sc.Name
-		instLimiter := ratelimit.NewWithOptions(
-			sc.RateLimit.RPS,
+		instLimiter := ratelimit.NewFromRPMWithOptions(
+			sc.RateLimit.RPM,
 			sc.RateLimit.Burst,
 			ratelimit.WithObserver("per_instance", func(scope string) {
 				observability.IncRateLimitThrottled(instanceName, scope)
@@ -132,7 +199,7 @@ func run() error {
 		si := scan.Instance{Config: sc, Client: c}
 		scanInstances = append(scanInstances, si)
 		scanInstancesByName[sc.Name] = si
-		cfgByName[sc.Name] = sc.HealthCheck
+		cfgByName[sc.Name] = config.NewHealthCheckConfig(sc.HealthCheck)
 	}
 
 	checker := healthcheck.New(db, sonarrClients)
