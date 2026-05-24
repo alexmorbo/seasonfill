@@ -46,6 +46,7 @@ func NewServer(
 	rescanUC *apprescan.UseCase,
 	instancesByName map[string]scan.Instance,
 	instanceCRUD *handlers.InstanceCRUDHandler,
+	instanceProbe *handlers.InstanceProbeHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -102,6 +103,10 @@ func NewServer(
 		guarded.POST("/instances", instanceCRUD.Create)
 		guarded.PUT("/instances/:name", instanceCRUD.Update)
 		guarded.DELETE("/instances/:name", instanceCRUD.Delete)
+		guarded.POST("/instances/test",
+			probeRateLimit(loginLimiter),
+			instanceProbe.Test,
+		)
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)
@@ -136,6 +141,25 @@ func NewServer(
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 	return &Server{cfg: cfg, server: srv, engine: r, logger: logger}
+}
+
+// probeRateLimit reuses the login limiter so a brute-forcer can't
+// turn POST /instances/test into a side-channel oracle on internal
+// URLs. Keyed on ClientIP (same as Login).
+func probeRateLimit(lim *auth.IPLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if lim == nil {
+			c.Next()
+			return
+		}
+		if !lim.Allow(c.ClientIP()) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "rate limit exceeded", "code": "RATE_LIMITED",
+			})
+			return
+		}
+		c.Next()
+	}
 }
 
 // webhookRateLimit keys on :instance_name. IP-keyed would be wrong

@@ -321,3 +321,14 @@ type InstanceCreateRequest struct {
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.
 // `api_key` is optional ("" = preserve stored secret).
 type InstanceUpdateRequest = InstanceCreateRequest
+
+type InstanceTestRequest struct {
+	URL    string `json:"url"     example:"http://sonarr:8989"`
+	APIKey string `json:"api_key" example:"abcd..."`
+}
+
+type InstanceTestResponse struct {
+	OK      bool   `json:"ok"`
+	Version string `json:"version,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
