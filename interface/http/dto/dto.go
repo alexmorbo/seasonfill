@@ -228,3 +228,96 @@ type SeriesSearchList struct {
 	Items []SeriesSearchItem `json:"items"`
 	Total int                `json:"total" example:"142"`
 }
+
+// InstanceDetail — full per-instance shape returned by
+// GET /api/v1/instances/:name. APIKey is always the literal "***"
+// mask (027b round-2). NEVER carries the encrypted ciphertext or the
+// decrypted plaintext. `UpdatedAt` is the source for the
+// Last-Modified header (handler-side, not part of body — but kept on
+// the DTO so the SPA can render "last edited" without a HEAD).
+type InstanceDetail struct {
+	Name             string              `json:"name"             example:"alpha"`
+	URL              string              `json:"url"              example:"http://sonarr:8989"`
+	APIKey           string              `json:"api_key"          example:"***"`
+	Mode             string              `json:"mode"             example:"auto"  enums:"auto,manual"`
+	TimeoutSec       int                 `json:"timeout_sec"`
+	SearchTimeoutSec int                 `json:"search_timeout_sec"`
+	DryRun           *bool               `json:"dry_run,omitempty"`
+	Tags             InstanceTags        `json:"tags"`
+	Search           InstanceSearch      `json:"search"`
+	Ranking          InstanceRanking     `json:"ranking"`
+	Limits           InstanceLimits      `json:"limits"`
+	RateLimitRPM     int                 `json:"rate_limit_rpm"`
+	RateLimitBurst   int                 `json:"rate_limit_burst"`
+	Cooldown         InstanceCooldown    `json:"cooldown"`
+	Retry            InstanceRetry       `json:"retry"`
+	HealthCheck      InstanceHealthCheck `json:"health_check"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+}
+
+type InstanceTags struct {
+	Mode    string   `json:"mode"    example:"include" enums:"include,exclude,off"`
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+}
+
+type InstanceSearch struct {
+	RequireAllAired      bool `json:"require_all_aired"`
+	SkipSpecials         bool `json:"skip_specials"`
+	SkipAnime            bool `json:"skip_anime"`
+	MinCustomFormatScore int  `json:"min_custom_format_score"`
+}
+
+type InstanceRanking struct {
+	IndexerPriorityEnabled bool    `json:"indexer_priority_enabled"`
+	OriginBonus            float64 `json:"origin_bonus"`
+}
+
+type InstanceLimits struct {
+	ScanMaxSeries   int `json:"scan_max_series"`
+	MaxGrabsPerScan int `json:"max_grabs_per_scan"`
+}
+
+type InstanceCooldown struct {
+	Mode                     string `json:"mode" enums:"smart,strict"`
+	SeriesAfterGrabSec       int    `json:"series_after_grab_sec"`
+	GUIDAfterFailedGrabSec   int    `json:"guid_after_failed_grab_sec"`
+	GUIDAfterFailedImportSec int    `json:"guid_after_failed_import_sec"`
+}
+
+type InstanceRetry struct {
+	MaxAttempts       int `json:"max_attempts"`
+	InitialBackoffSec int `json:"initial_backoff_sec"`
+	MaxBackoffSec     int `json:"max_backoff_sec"`
+}
+
+type InstanceHealthCheck struct {
+	RecheckAuthSec    int `json:"recheck_auth_sec"`
+	RecheckNetworkSec int `json:"recheck_network_sec"`
+}
+
+// InstanceCreateRequest — body of POST /api/v1/instances. `api_key`
+// is required on create; everything else has server-side defaults
+// applied via runtime.ApplyInstanceDefaults.
+type InstanceCreateRequest struct {
+	Name             string              `json:"name"             example:"alpha"`
+	URL              string              `json:"url"              example:"http://sonarr:8989"`
+	APIKey           string              `json:"api_key"          example:"abcd..."`
+	Mode             string              `json:"mode,omitempty"   example:"auto"`
+	TimeoutSec       int                 `json:"timeout_sec,omitempty"`
+	SearchTimeoutSec int                 `json:"search_timeout_sec,omitempty"`
+	DryRun           *bool               `json:"dry_run,omitempty"`
+	Tags             InstanceTags        `json:"tags"`
+	Search           InstanceSearch      `json:"search"`
+	Ranking          InstanceRanking     `json:"ranking"`
+	Limits           InstanceLimits      `json:"limits"`
+	RateLimitRPM     int                 `json:"rate_limit_rpm"`
+	RateLimitBurst   int                 `json:"rate_limit_burst"`
+	Cooldown         InstanceCooldown    `json:"cooldown"`
+	Retry            InstanceRetry       `json:"retry"`
+	HealthCheck      InstanceHealthCheck `json:"health_check"`
+}
+
+// InstanceUpdateRequest — body of PUT /api/v1/instances/:name.
+// `api_key` is optional ("" = preserve stored secret).
+type InstanceUpdateRequest = InstanceCreateRequest

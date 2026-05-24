@@ -106,63 +106,114 @@ func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.Inst
 }
 
 func (r *SonarrInstanceRepository) Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error {
+	return r.UpdateWithOptions(ctx, inst, c, false)
+}
+
+// UpdateWithOptions writes the instance row and (unless preserveSecret
+// is true) the instance_secret row. preserveSecret==true is used by
+// the HTTP PUT path when the client sends an empty api_key string,
+// meaning "keep the existing secret". A nil cipher is allowed only
+// when preserveSecret is true (no secret write is attempted).
+func (r *SonarrInstanceRepository) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool) error {
 	m := snapshotToModel(inst)
 	m.UpdatedAt = time.Now().UTC()
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	if err := db.Model(&m).Updates(&m).Error; err != nil {
+	if err := db.Model(&database.SonarrInstanceModel{}).
+		Where("id = ?", m.ID).Updates(&m).Error; err != nil {
 		return fmt.Errorf("update sonarr instance: %w", err)
 	}
 
-	if inst.APIKey != "" {
-		ct, err := c.Seal([]byte(inst.APIKey))
-		if err != nil {
-			return fmt.Errorf("seal api key: %w", err)
-		}
-		if err := db.Model(&database.InstanceSecretModel{}).
-			Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
-			Updates(map[string]interface{}{"ciphertext": ct, "updated_at": m.UpdatedAt}).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				secret := database.InstanceSecretModel{
-					InstanceID: m.ID,
-					SecretName: "api_key",
-					Ciphertext: ct,
-					CreatedAt:  time.Now().UTC(),
-					UpdatedAt:  m.UpdatedAt,
-				}
-				if err := db.Create(&secret).Error; err != nil {
-					return fmt.Errorf("create api key secret: %w", err)
-				}
-			} else {
-				return fmt.Errorf("upsert api key secret: %w", err)
-			}
-		}
+	if preserveSecret || inst.APIKey == "" {
+		return nil
+	}
+	if c == nil {
+		return fmt.Errorf("update sonarr instance: cipher required to write api_key")
+	}
+	ct, err := c.Seal([]byte(inst.APIKey))
+	if err != nil {
+		return fmt.Errorf("seal api key: %w", err)
 	}
 
+	res := db.Model(&database.InstanceSecretModel{}).
+		Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
+		Updates(map[string]interface{}{"ciphertext": ct, "updated_at": m.UpdatedAt})
+	if res.Error != nil {
+		return fmt.Errorf("upsert api key secret: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		secret := database.InstanceSecretModel{
+			InstanceID: m.ID,
+			SecretName: "api_key",
+			Ciphertext: ct,
+			CreatedAt:  time.Now().UTC(),
+			UpdatedAt:  m.UpdatedAt,
+		}
+		if err := db.Create(&secret).Error; err != nil {
+			return fmt.Errorf("create api key secret: %w", err)
+		}
+	}
 	return nil
 }
 
+// Delete hard-deletes the sonarr_instance row plus every related row
+// keyed by instance name: instance_secret (FK on instance_id),
+// series-scope cooldowns, scan_runs, decisions, grab_records. All
+// deletes happen inside a single transaction so a partial delete
+// can't strand orphan history. GUID-scope cooldowns are tracker-
+// global and intentionally not purged here.
 func (r *SonarrInstanceRepository) Delete(ctx context.Context, name string) error {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
-
-	var m database.SonarrInstanceModel
-	if err := db.Where("name = ?", name).First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var m database.SonarrInstanceModel
+		if err := tx.Where("name = ?", name).First(&m).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ports.ErrNotFound
+			}
+			return fmt.Errorf("find instance: %w", err)
 		}
-		return fmt.Errorf("find instance: %w", err)
-	}
 
-	if err := db.Where("instance_id = ?", m.ID).Delete(&database.InstanceSecretModel{}).Error; err != nil {
-		return fmt.Errorf("delete secrets: %w", err)
-	}
+		if err := tx.Where("instance_id = ?", m.ID).
+			Delete(&database.InstanceSecretModel{}).Error; err != nil {
+			return fmt.Errorf("delete secrets: %w", err)
+		}
+		if err := tx.Where("scope = ? AND key LIKE ?", "series", name+":%").
+			Delete(&database.CooldownModel{}).Error; err != nil {
+			return fmt.Errorf("delete cooldowns: %w", err)
+		}
+		if err := tx.Where("instance_name = ?", name).
+			Delete(&database.ScanRunModel{}).Error; err != nil {
+			return fmt.Errorf("delete scan_runs: %w", err)
+		}
+		if err := tx.Where("instance_name = ?", name).
+			Delete(&database.DecisionModel{}).Error; err != nil {
+			return fmt.Errorf("delete decisions: %w", err)
+		}
+		if err := tx.Where("instance_name = ?", name).
+			Delete(&database.GrabRecordModel{}).Error; err != nil {
+			return fmt.Errorf("delete grab_records: %w", err)
+		}
+		if err := tx.Delete(&m).Error; err != nil {
+			return fmt.Errorf("delete instance: %w", err)
+		}
+		return nil
+	})
+}
 
-	if err := db.Delete(&m).Error; err != nil {
-		return fmt.Errorf("delete instance: %w", err)
+// GetUpdatedAt is the lightweight read used by the HTTP layer for
+// Last-Modified / If-Unmodified-Since. Returns ErrNotFound for
+// missing names so the handler can map to 404 cleanly.
+func (r *SonarrInstanceRepository) GetUpdatedAt(ctx context.Context, name string) (time.Time, error) {
+	var m database.SonarrInstanceModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("updated_at").Where("name = ?", name).First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return time.Time{}, ports.ErrNotFound
+		}
+		return time.Time{}, fmt.Errorf("get instance updated_at: %w", err)
 	}
-
-	return nil
+	return m.UpdatedAt, nil
 }
 
 func (r *SonarrInstanceRepository) Count(ctx context.Context) (int, error) {

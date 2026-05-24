@@ -21,5 +21,5 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
 		nil, nil, nil,
-		nil, nil, nil, nil, logger)
+		nil, nil, nil, nil, nil, logger)
 }

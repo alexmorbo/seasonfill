@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -39,6 +40,8 @@ type SonarrInstanceRepository interface {
 	GetByName(ctx context.Context, name string, c *crypto.Cipher) (runtime.InstanceSnapshot, error)
 	Create(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) (uint, error)
 	Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error
+	UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool) error
 	Delete(ctx context.Context, name string) error
 	Count(ctx context.Context) (int, error)
+	GetUpdatedAt(ctx context.Context, name string) (time.Time, error)
 }

@@ -45,6 +45,7 @@ func NewServer(
 	grabUC *appgrab.UseCase,
 	rescanUC *apprescan.UseCase,
 	instancesByName map[string]scan.Instance,
+	instanceCRUD *handlers.InstanceCRUDHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -97,6 +98,10 @@ func NewServer(
 		guarded.GET("/instances", instancesHandler.List)
 		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
+		guarded.GET("/instances/:name", instanceCRUD.Get)
+		guarded.POST("/instances", instanceCRUD.Create)
+		guarded.PUT("/instances/:name", instanceCRUD.Update)
+		guarded.DELETE("/instances/:name", instanceCRUD.Delete)
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)

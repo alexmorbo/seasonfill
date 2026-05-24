@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
+	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -264,12 +265,15 @@ func run() error {
 		knownInstances[sc.Name] = struct{}{}
 	}
 
+	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log)
+	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
 		sonarrClientsByName, handlers.BuildModeMap(cfg.SonarrInstances),
 		knownInstances,
-		cooldownRepo, grabUC, rescanUC, scanInstancesByName, log)
+		cooldownRepo, grabUC, rescanUC, scanInstancesByName, instanceCRUDHandler, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep
