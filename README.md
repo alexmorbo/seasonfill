@@ -92,10 +92,11 @@ from a pre-created or chart-rendered Secret; compose wires them from
 
 ## API surface
 
-REST API under `/api/v1/*`, plus `/auth/login`, `/auth/logout`,
-`/webhook`, and the public probes `/healthz`, `/readyz`, `/metrics`.
-Every non-probe route requires either a session cookie (UI logged in)
-or an `X-Api-Key` header (Sonarr webhook, scripts).
+REST API under `/api/v1/*` (includes `/api/v1/auth/login`,
+`/api/v1/webhook/sonarr/<instance-name>`, etc.). Public probes
+`/healthz`, `/readyz`, `/metrics`. Every non-probe route requires
+either a session cookie (UI logged in) or an `X-Api-Key` header
+(Sonarr webhook, scripts).
 
 The OpenAPI 3.0 spec is committed at
 [`docs/swagger.yaml`](docs/swagger.yaml). Render it in any OpenAPI

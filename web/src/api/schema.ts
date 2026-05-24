@@ -13,8 +13,8 @@ export type paths = {
         readonly put?: never;
         /**
          * Authenticate and issue a session cookie
-         * @description Validates api_key (body or X-Api-Key header). On success
-         *     sets HttpOnly seasonfill_session cookie and returns 200.
+         * @description Validates username + password. On success sets HttpOnly
+         *     seasonfill_session cookie and returns 200.
          */
         readonly post: {
             readonly parameters: {
@@ -23,8 +23,8 @@ export type paths = {
                 readonly path?: never;
                 readonly cookie?: never;
             };
-            /** @description API key (alternative to X-Api-Key header) */
-            readonly requestBody?: {
+            /** @description Username and password */
+            readonly requestBody: {
                 readonly content: {
                     readonly "application/json": components["schemas"]["dto.LoginRequest"];
                 };
@@ -40,6 +40,72 @@ export type paths = {
                     content: {
                         readonly "application/json": components["schemas"]["dto.OKResponse"];
                     };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Too Many Requests */
+                readonly 429: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/auth/password": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Change the admin password */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Current + new password */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.PasswordChangeRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Bad Request */
                 readonly 400: {
@@ -90,7 +156,7 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                        readonly "application/json": components["schemas"]["dto.SessionResponse"];
                     };
                 };
                 /** @description Unauthorized */
@@ -1144,8 +1210,10 @@ export type components = {
             readonly instances?: readonly components["schemas"]["dto.Instance"][];
         };
         readonly "dto.LoginRequest": {
-            /** @example sf_abc123 */
-            readonly api_key?: string;
+            /** @example hunter2 */
+            readonly password?: string;
+            /** @example admin */
+            readonly username?: string;
         };
         readonly "dto.MissingSeasonStat": {
             readonly missing_aired_count?: number;
@@ -1168,6 +1236,12 @@ export type components = {
         readonly "dto.OKResponse": {
             /** @example true */
             readonly ok?: boolean;
+        };
+        readonly "dto.PasswordChangeRequest": {
+            /** @example hunter22 */
+            readonly current?: string;
+            /** @example NewSecretLongEnough */
+            readonly new?: string;
         };
         readonly "dto.ReadyStatus": {
             /** @example true */
@@ -1263,6 +1337,14 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.SeriesSearchItem"][];
             /** @example 142 */
             readonly total?: number;
+        };
+        readonly "dto.SessionResponse": {
+            /** @example false */
+            readonly auto_generated?: boolean;
+            /** @example true */
+            readonly ok?: boolean;
+            /** @example admin */
+            readonly username?: string;
         };
     };
     responses: never;

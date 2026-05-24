@@ -46,7 +46,9 @@ auto-generated password — do so on first login.
 
 In Sonarr → Settings → Connect → + → Webhook:
 
-- **URL:** `http://<your-host>:8080/webhook` (or your reverse proxy URL)
+- **URL:** `http://<your-host>:8080/api/v1/webhook/sonarr/<instance-name>`
+  (replace `<instance-name>` with the corresponding `sonarr_instances[].name`
+  from your `config.yaml`)
 - **Method:** POST
 - **Triggers:** at minimum `On Grab`, `On Import`, `On Import Failure`
 - **Custom Headers:** add one header
