@@ -3,6 +3,7 @@ package healthcheck
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,9 +14,15 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
+// Checker periodically polls every Sonarr instance and records its
+// health into a shared *instance.Registry. The registry pointer is
+// constructed ONCE in New and never reassigned afterwards — watchdog
+// and the scan UC keep their boot-time reference forever. Membership
+// changes go through Registry.SetNames; the client list goes through
+// an atomic.Pointer swap. See story 028c.
 type Checker struct {
 	db        *gorm.DB
-	instances []ports.SonarrClient
+	instances atomic.Pointer[[]ports.SonarrClient]
 	registry  *instance.Registry
 }
 
@@ -25,16 +32,23 @@ func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
 		names = append(names, inst.Name())
 	}
 	reg := instance.NewRegistry(names).WithListener(metricsListener{})
-	return &Checker{db: db, instances: instances, registry: reg}
+	c := &Checker{db: db, registry: reg}
+	// atomic.Pointer must never load nil — seed with the boot slice
+	// (or an empty slice if instances is nil).
+	cp := append([]ports.SonarrClient(nil), instances...)
+	c.instances.Store(&cp)
+	return c
 }
 
 // Registry returns the underlying health registry. The watchdog and the
-// `/api/v1/instances` handler (004d) share it.
+// `/api/v1/instances` handler (004d) share it. The returned pointer is
+// stable for the life of the Checker — reload does NOT swap it.
 func (c *Checker) Registry() *instance.Registry { return c.registry }
 
 // Preflight loops every known instance and updates the registry.
 func (c *Checker) Preflight(ctx context.Context) {
-	for _, inst := range c.instances {
+	clients := *c.instances.Load()
+	for _, inst := range clients {
 		c.checkOne(ctx, inst)
 	}
 }
@@ -64,7 +78,8 @@ func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
 // RecheckByName runs preflight against a single instance — used by the
 // watchdog when it wants to test recovery for one instance only.
 func (c *Checker) RecheckByName(ctx context.Context, name string) {
-	for _, inst := range c.instances {
+	clients := *c.instances.Load()
+	for _, inst := range clients {
 		if inst.Name() == name {
 			c.checkOne(ctx, inst)
 			return
@@ -133,16 +148,18 @@ func healthCode(h instance.Health) int {
 }
 
 // ReplaceClients swaps the client list the periodic preflight loop
-// iterates. Called from the reload subscriber when an instance is
-// added or removed. The registry is rebuilt with the new names so
-// removed instances stop appearing in Snapshot(); the listener
-// attached at construction is preserved.
-func (c *Checker) ReplaceClients(clients []ports.SonarrClient) {
-	names := make([]string, 0, len(clients))
-	for _, inst := range clients {
-		names = append(names, inst.Name())
-	}
-	listener := metricsListener{}
-	c.registry = instance.NewRegistry(names).WithListener(listener)
-	c.instances = clients
+// iterates AND reconciles the registry's membership with `names`.
+// Called from the reload subscriber on every snapshot. The registry
+// pointer is NOT reassigned — watchdog and scan UC keep their
+// boot-time reference. The listener attached at construction is
+// preserved.
+//
+// `names` is the source of truth for registry membership; `clients`
+// is the source of truth for polling. In production the subscriber
+// derives both from the same source so they always agree, but the
+// two-arg signature makes the contract explicit.
+func (c *Checker) ReplaceClients(clients []ports.SonarrClient, names []string) {
+	cp := append([]ports.SonarrClient(nil), clients...)
+	c.instances.Store(&cp)
+	c.registry.SetNames(names)
 }

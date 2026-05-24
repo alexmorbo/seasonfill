@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -200,4 +201,147 @@ func TestChecker_Run_StopsOnContextCancel(t *testing.T) {
 	}
 
 	assert.True(t, c.AnyInstanceAvailable())
+}
+
+func TestChecker_ReplaceClients_PreservesRegistryPointer(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	regBefore := c.Registry()
+
+	c.ReplaceClients(
+		[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+		[]string{"alpha", "beta"},
+	)
+	regAfter := c.Registry()
+
+	assert.Same(t, regBefore, regAfter,
+		"ReplaceClients must NOT reassign the registry pointer — watchdog + scan UC hold it forever")
+}
+
+func TestChecker_ReplaceClients_NamesPropagateToRegistry(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+
+	c.ReplaceClients(
+		[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+		[]string{"alpha", "beta"},
+	)
+	names := c.Registry().Names()
+	assert.ElementsMatch(t, []string{"alpha", "beta"}, names)
+
+	// Remove alpha.
+	c.ReplaceClients(
+		[]ports.SonarrClient{&fakeSonarr{name: "beta"}},
+		[]string{"beta"},
+	)
+	names = c.Registry().Names()
+	assert.ElementsMatch(t, []string{"beta"}, names)
+	_, ok := c.Registry().Get("alpha")
+	assert.False(t, ok, "removed instance must drop from registry")
+}
+
+func TestChecker_ReplaceClients_AtomicSwapWithConcurrentReader(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Reader goroutine: iterate the (atomic-pointer) client list via
+	// Preflight. Any non-atomic access would trip -race here.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				c.Preflight(context.Background())
+			}
+		}
+	}()
+
+	for i := 0; i < 200; i++ {
+		clients := []ports.SonarrClient{
+			&fakeSonarr{name: "alpha"},
+			&fakeSonarr{name: "beta"},
+		}
+		c.ReplaceClients(clients, []string{"alpha", "beta"})
+		c.ReplaceClients(
+			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}},
+			[]string{"alpha"},
+		)
+	}
+	close(stop)
+	wg.Wait()
+}
+
+func TestChecker_ReplaceClients_RaceWithMarkAvailable(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Goroutine 1: hammer the registry directly (simulates checkOne
+	// firing concurrently with reload).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				c.Registry().MarkAvailable("alpha", time.Now().UTC())
+			}
+		}
+	}()
+
+	// Goroutine 2: reload at full speed.
+	for i := 0; i < 200; i++ {
+		c.ReplaceClients(
+			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+			[]string{"alpha", "beta"},
+		)
+		c.ReplaceClients(
+			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}},
+			[]string{"alpha"},
+		)
+	}
+	close(stop)
+	wg.Wait()
+
+	// alpha must still be in the registry; final SetNames pruned beta.
+	assert.Contains(t, c.Registry().Names(), "alpha")
+	assert.NotContains(t, c.Registry().Names(), "beta")
+}
+
+func TestChecker_ReplaceClients_EmptyClientsEmptiesRegistry(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+
+	c.ReplaceClients(nil, nil)
+
+	assert.Empty(t, c.Registry().Names())
+	// Preflight on empty slice must not panic.
+	c.Preflight(context.Background())
+}
+
+func TestChecker_New_InstancesPointerNeverNil(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, nil)
+	// Preflight + RecheckByName must work on a freshly-constructed
+	// Checker that received no clients (was the regression target
+	// when migrating to atomic.Pointer).
+	c.Preflight(context.Background())
+	c.RecheckByName(context.Background(), "missing")
+	assert.Empty(t, c.Snapshot())
 }

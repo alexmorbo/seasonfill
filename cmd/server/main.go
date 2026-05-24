@@ -227,6 +227,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 	holder := newInstanceMapHolder(scanInstancesByName)
 
+	// Registry is constructed ONCE here. checker.Registry() returns a
+	// stable pointer for the life of the process; the reload subscriber
+	// mutates membership via ReplaceClients, NOT by replacing the pointer.
 	checker := healthcheck.New(db, sonarrClients)
 
 	rootCtx, rootCancel := context.WithCancel(ctx)

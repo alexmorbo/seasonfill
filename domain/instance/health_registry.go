@@ -122,3 +122,35 @@ func (r *Registry) Names() []string {
 	}
 	return out
 }
+
+// SetNames reconciles the registry's instance set with the given target
+// list: names present in `target` but absent from the registry are added
+// in HealthUnavailableUnknown state; names present in the registry but
+// absent from `target` are removed. Returns the names that were added
+// and removed (in unspecified order) — useful for diff logging.
+//
+// SetNames runs entirely under the registry's write lock so it is safe
+// to call concurrently with MarkAvailable / MarkUnavailable / Get /
+// Snapshot / AnyAvailable / Names. Listeners are NOT fired for additions
+// or removals — they observe transitions, not membership changes.
+func (r *Registry) SetNames(target []string) (added, removed []string) {
+	want := make(map[string]struct{}, len(target))
+	for _, n := range target {
+		want[n] = struct{}{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for n := range want {
+		if _, ok := r.entries[n]; !ok {
+			r.entries[n] = Snapshot{Name: n, Health: HealthUnavailableUnknown}
+			added = append(added, n)
+		}
+	}
+	for n := range r.entries {
+		if _, ok := want[n]; !ok {
+			delete(r.entries, n)
+			removed = append(removed, n)
+		}
+	}
+	return added, removed
+}

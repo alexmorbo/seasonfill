@@ -140,3 +140,91 @@ func TestRegistry_Get_Unknown(t *testing.T) {
 	_, ok := r.Get("missing")
 	assert.False(t, ok)
 }
+
+func TestRegistry_SetNames_AddsAndRemoves(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a", "b"})
+	added, removed := r.SetNames([]string{"b", "c"})
+
+	assert.ElementsMatch(t, []string{"c"}, added)
+	assert.ElementsMatch(t, []string{"a"}, removed)
+
+	names := r.Names()
+	assert.ElementsMatch(t, []string{"b", "c"}, names)
+
+	_, ok := r.Get("a")
+	assert.False(t, ok, "removed name must not be reachable via Get")
+
+	s, ok := r.Get("c")
+	require.True(t, ok)
+	assert.Equal(t, HealthUnavailableUnknown, s.Health,
+		"newly added name must seed in Unknown state")
+}
+
+func TestRegistry_SetNames_NoOpOnUnchanged(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a", "b"})
+	r.MarkAvailable("a", time.Now().UTC())
+	added, removed := r.SetNames([]string{"a", "b"})
+	assert.Empty(t, added)
+	assert.Empty(t, removed)
+
+	// State of "a" must be preserved (still Available).
+	s, _ := r.Get("a")
+	assert.Equal(t, HealthAvailable, s.Health)
+}
+
+func TestRegistry_SetNames_EmptyTargetClears(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a", "b"})
+	added, removed := r.SetNames(nil)
+	assert.Empty(t, added)
+	assert.ElementsMatch(t, []string{"a", "b"}, removed)
+	assert.Empty(t, r.Names())
+}
+
+func TestRegistry_SetNames_PreservesUnchangedEntryState(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a"})
+	r.MarkUnavailable("a", HealthUnavailableAuth, "401", time.Now().UTC())
+
+	r.SetNames([]string{"a", "b"}) // add b, keep a
+	s, _ := r.Get("a")
+	assert.Equal(t, HealthUnavailableAuth, s.Health,
+		"existing entry must not be reset by SetNames")
+	assert.Equal(t, "401", s.LastError)
+}
+
+func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a"})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				r.MarkAvailable("a", time.Now().UTC())
+				r.MarkUnavailable("a", HealthUnavailableNetwork, "x", time.Now().UTC())
+			}
+		}
+	}()
+
+	for i := 0; i < 100; i++ {
+		r.SetNames([]string{"a", "b"})
+		r.SetNames([]string{"a"})
+	}
+	close(stop)
+	wg.Wait()
+
+	// Final state: "a" still present, "b" removed by last SetNames.
+	names := r.Names()
+	assert.Contains(t, names, "a")
+	assert.NotContains(t, names, "b")
+}

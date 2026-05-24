@@ -16,9 +16,11 @@ import (
 type ClientLister func() []ports.SonarrClient
 
 // HealthChecker is the (small) subset of healthcheck.Checker the
-// reload subscriber needs.
+// reload subscriber needs. The two-arg signature mirrors story 028c:
+// `clients` drives the polling loop; `names` drives the registry
+// membership diff. They MUST refer to the same instance set.
 type HealthChecker interface {
-	ReplaceClients([]ports.SonarrClient)
+	ReplaceClients(clients []ports.SonarrClient, names []string)
 }
 
 // HealthRegistrySubscriber re-seeds the health registry whenever
@@ -43,7 +45,10 @@ func (s *HealthRegistrySubscriber) Run(ctx context.Context, bus *runtime.Bus) {
 
 // apply re-reads the live client list (which the sonarrClients
 // subscriber has already updated by virtue of being subscribed to
-// the same bus) and replays it into the checker.
+// the same bus) and replays it into the checker. The name list is
+// derived from the same live clients to guarantee names and clients
+// stay aligned even if the snapshot delivery order races with
+// sonarrClients.
 //
 // Ordering note: the bus delivers concurrently to every subscriber.
 // healthRegistry might run before sonarrClients on a given snapshot;
@@ -51,6 +56,11 @@ func (s *HealthRegistrySubscriber) Run(ctx context.Context, bus *runtime.Bus) {
 // tick (or the eventual re-publish from cmd/server startup) fixes
 // it. Acceptable per the fail-open stub decision.
 func (s *HealthRegistrySubscriber) apply(_ context.Context, _ runtime.Snapshot) error {
-	s.checker.ReplaceClients(s.lister())
+	clients := s.lister()
+	names := make([]string, 0, len(clients))
+	for _, c := range clients {
+		names = append(names, c.Name())
+	}
+	s.checker.ReplaceClients(clients, names)
 	return nil
 }
