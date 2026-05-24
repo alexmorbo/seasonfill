@@ -157,7 +157,6 @@ type grabFixture struct {
 
 func newGrabFixture(t *testing.T, forceErr error) *grabFixture {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	dec, gr, cd := &fakeDecRepo{}, &fakeGrabRepo{}, &fakeCooldowns{}
 	sn := &stubSonarrGrab{fakeSonarr: &fakeSonarr{name: "alpha"}, forceErr: forceErr}

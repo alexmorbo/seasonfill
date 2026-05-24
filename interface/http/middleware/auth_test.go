@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,10 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var ginOnce sync.Once
-
 func setupAuth(apiKey string) *gin.Engine {
-	ginOnce.Do(func() { gin.SetMode(gin.TestMode) })
 	r := gin.New()
 	api := r.Group("/api")
 	api.Use(RequireAuth(apiKey))

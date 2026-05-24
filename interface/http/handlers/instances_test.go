@@ -21,8 +21,6 @@ import (
 )
 
 func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	// Use the same scaffolding as health_test.go — one checker, two clients,
 	// one of which errors.
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{
@@ -53,7 +51,6 @@ func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
 }
 
 func TestInstancesHandler_List_Empty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
 	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil).List)
@@ -74,8 +71,6 @@ func TestInstancesHandler_List_Empty(t *testing.T) {
 // last_check_at is absent (omitempty) in the JSON when an instance has never
 // been preflighted, preventing the "0001-01-01T00:00:00Z" zero-value leak.
 func TestInstancesHandler_LastCheckAt_OmittedWhenNeverChecked(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	// Register one instance but do NOT call Preflight — LastCheckAt stays zero.
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{
 		&fakeSonarr{name: "unchecked"},
@@ -126,7 +121,6 @@ func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, erro
 // doMissing wires a one-route gin engine and returns the recorder.
 func doMissing(t *testing.T, name string, clients map[string]ports.SonarrClient, modes map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
 	h := NewInstancesHandler(c, clients, modes, nil)
@@ -214,7 +208,6 @@ func TestInstancesHandler_Missing_FiltersUnmonitored(t *testing.T) {
 }
 
 func TestInstanceDTO_EmitsMode(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
 	c.Preflight(context.Background())
 	r := gin.New()
@@ -241,7 +234,6 @@ func TestInstanceDTO_EmitsMode(t *testing.T) {
 // permutation without param-builder noise.
 func doSearch(t *testing.T, name, rawQuery string, clients map[string]ports.SonarrClient) *httptest.ResponseRecorder {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
 	h := NewInstancesHandler(c, clients, nil, nil)
@@ -420,7 +412,6 @@ func TestSearchSeries_SonarrUnauthorized(t *testing.T) {
 // Future careless DTO edits fail here.
 func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
 	c.Preflight(context.Background())
 	r := gin.New()

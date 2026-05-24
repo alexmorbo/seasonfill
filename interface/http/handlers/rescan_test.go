@@ -128,7 +128,6 @@ type rescanFixture struct {
 
 func newRescanFixture(t *testing.T, releases []release.Release) *rescanFixture {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	dec, gr := &rescanFakeDec{}, &rescanFakeGrab{}
 	sn := &rescanFakeSonarr{releases: releases}

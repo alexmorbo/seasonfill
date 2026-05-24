@@ -47,7 +47,6 @@ type webhookFixture struct {
 
 func newWebhookFixture(t *testing.T, known map[string]struct{}) *webhookFixture {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	proc := &fakeProcessor{}
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -155,7 +154,6 @@ func TestWebhookHandler_OversizeBody_400(t *testing.T) {
 
 func TestWebhook_UnknownInstance_404(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h := NewWebhookHandler(&okWebhookUC{}, map[string]struct{}{"main": {}}, slog.Default())
 	r.POST("/api/v1/webhook/sonarr/:instance_name", h.Handle)

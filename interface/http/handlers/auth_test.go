@@ -58,15 +58,12 @@ func (r *fakeAdminRepo) UpdatePassword(_ context.Context, hash string, ag bool) 
 	return nil
 }
 
-var handlerOnce sync.Once
-
 func setupAuth(t *testing.T, repo ports.AdminUserRepository, lim *auth.IPLimiter) (*gin.Engine, *AuthHandler) {
 	return setupAuthWithOpts(t, repo, lim)
 }
 
 func setupAuthWithOpts(t *testing.T, repo ports.AdminUserRepository, lim *auth.IPLimiter, opts ...AuthOption) (*gin.Engine, *AuthHandler) {
 	t.Helper()
-	handlerOnce.Do(func() { gin.SetMode(gin.TestMode) })
 	r := gin.New()
 	h := NewAuthHandler("apikey-xyz", repo, time.Hour, false, lim, slog.Default(), opts...)
 	r.POST("/api/v1/auth/login", h.Login)

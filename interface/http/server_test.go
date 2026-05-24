@@ -155,7 +155,6 @@ func (r *stubAdminRepo) UpdatePassword(_ context.Context, hash string, ag bool) 
 
 func buildServer(t *testing.T) *Server {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -192,7 +191,6 @@ func (okWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error { ret
 
 func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -375,7 +373,6 @@ func TestNewServer_TrustedProxies_Honored(t *testing.T) {
 // does not.
 func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))

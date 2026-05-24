@@ -37,7 +37,6 @@ type auditFixture struct {
 
 func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, database.Migrate(db))

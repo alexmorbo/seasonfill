@@ -22,7 +22,6 @@ var errDriver = errors.New(`driver: pq: relation "foo" does not exist`)
 
 func runHelper(t *testing.T, logger *slog.Logger, attrs ...slog.Attr) *httptest.ResponseRecorder {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/boom", func(c *gin.Context) {
 		writeInternalError(c, logger, "audit_list_scans_failed", errDriver, attrs...)

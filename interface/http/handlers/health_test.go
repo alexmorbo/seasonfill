@@ -72,7 +72,6 @@ func newChecker(t *testing.T, sonarr ports.SonarrClient, closeDB bool) *healthch
 
 func setupRouter(t *testing.T, checker *healthcheck.Checker) *gin.Engine {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h := NewHealthHandler(checker)
 	r.GET("/healthz", h.Live)
