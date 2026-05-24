@@ -61,37 +61,68 @@ func (s *SchedulerSubscriber) Current() *scheduler.Scheduler {
 	return s.current
 }
 
+// apply rebuilds the live scheduler if the snapshot's cron block
+// differs. Rebuild order (hot-swap):
+//
+//  1. diff-skip if {Enabled, Schedule, Jitter} matches.
+//  2. if !Enabled → tear down old (if any), nil out, return.
+//  3. factory builds `next`. Failures bubble up; old keeps running.
+//  4. next.Start(...). Failures bubble up; old keeps running.
+//  5. tear down old, swap pointer to next.
+//
+// Steps 3-4 returning early leaves s.current pointing at the OLD
+// scheduler. The error reaches runLoop which counts
+// seasonfill_reload_errors_total{component="scheduler"}.
 func (s *SchedulerSubscriber) apply(_ context.Context, snap runtime.Snapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	want := snap.Cron
-	// Diff-skip: identical {Enabled, Schedule, Jitter} → no-op.
 	if s.matches(want) {
 		return nil
 	}
-	// Tear down the old one (if any) before installing the new.
-	if s.current != nil {
-		stopCtx := s.current.Stop()
-		select {
-		case <-stopCtx.Done():
-		case <-time.After(5 * time.Second):
-			s.logger.Warn("scheduler stop timed out — proceeding with rebuild")
-		}
-		s.current = nil
-	}
-	s.enabled = want.Enabled
+
+	// Explicit-disable branch: just stop the old one. No factory call.
 	if !want.Enabled {
+		if s.current != nil {
+			s.gracefulStop(s.current)
+			s.current = nil
+		}
+		s.enabled = false
 		return nil
 	}
+
+	// Build + start the NEW scheduler BEFORE tearing down the old.
+	// If either step fails the old one keeps ticking; the error
+	// surfaces through runLoop's metric.
 	next := s.factory(want.Schedule, want.Jitter, s.logger)
+	if next == nil {
+		return fmt.Errorf("scheduler factory returned nil")
+	}
 	if err := next.Start(s.rootCtx, s.scanUC); err != nil {
-		// Surface the error so runLoop counts it. The previous
-		// scheduler is already torn down — fail-open means cron
-		// pauses until the next valid snapshot arrives.
 		return fmt.Errorf("start new scheduler: %w", err)
 	}
+
+	// New is alive — now tear down old.
+	old := s.current
 	s.current = next
+	s.enabled = true
+	if old != nil {
+		s.gracefulStop(old)
+	}
 	return nil
+}
+
+// gracefulStop waits up to 5s for the cron's in-flight job (if any)
+// to drain. Timeout is fail-open — caller proceeds even if the job
+// is still running, matching the pre-028h-2 behaviour.
+func (s *SchedulerSubscriber) gracefulStop(sched *scheduler.Scheduler) {
+	stopCtx := sched.Stop()
+	select {
+	case <-stopCtx.Done():
+	case <-time.After(5 * time.Second):
+		s.logger.Warn("scheduler stop timed out — proceeding with rebuild")
+	}
 }
 
 func (s *SchedulerSubscriber) matches(want runtime.CronSnapshot) bool {

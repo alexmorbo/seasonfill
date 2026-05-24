@@ -3,12 +3,15 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -466,4 +469,139 @@ func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, ok, 1, "at least one writer must succeed")
 	assert.Equal(t, 2, ok+stale, "every outcome must be success or stale")
+}
+
+// --- 028h-2: N+1 elimination tests ---
+
+// queryCounter installs a GORM "after query" callback that increments
+// `*counter` on every executed SELECT statement. Returns a cleanup
+// closure that removes the callback. The callback name is unique so
+// concurrent tests don't collide.
+func queryCounter(t *testing.T, db *gorm.DB) (*int64, func()) {
+	t.Helper()
+	var n int64
+	cbName := "test-count-" + t.Name()
+	err := db.Callback().Query().After("gorm:query").
+		Register(cbName, func(tx *gorm.DB) {
+			atomic.AddInt64(&n, 1)
+		})
+	require.NoError(t, err)
+	return &n, func() {
+		_ = db.Callback().Query().Remove(cbName)
+	}
+}
+
+// seedInstances creates `count` instances with predictable names
+// (inst-0, inst-1, ...) and unique api_keys (key-0, key-1, ...).
+func seedInstances(t *testing.T, repo *SonarrInstanceRepository, c *crypto.Cipher, count int) {
+	t.Helper()
+	ctx := context.Background()
+	for i := 0; i < count; i++ {
+		inst := runtime.InstanceSnapshot{
+			Name:    fmt.Sprintf("inst-%d", i),
+			URL:     "http://sonarr.local",
+			APIKey:  fmt.Sprintf("key-%d", i),
+			Mode:    "auto",
+			Timeout: 10 * time.Second,
+		}
+		_, err := repo.Create(ctx, inst, c)
+		require.NoError(t, err)
+	}
+}
+
+func TestList_NoNPlusOne_TwoInstances(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	seedInstances(t, repo, cipher, 2)
+
+	// Install the counter AFTER seed so Create's internal queries
+	// don't pollute the count.
+	count, cleanup := queryCounter(t, db)
+	defer cleanup()
+
+	out, err := repo.List(context.Background(), cipher)
+	require.NoError(t, err)
+	assert.Len(t, out, 2)
+	assert.Equal(t, int64(2), atomic.LoadInt64(count),
+		"List must issue EXACTLY 2 SELECT queries for any N (got %d for N=2)",
+		atomic.LoadInt64(count))
+}
+
+func TestList_NoNPlusOne_TenInstances(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	seedInstances(t, repo, cipher, 10)
+
+	count, cleanup := queryCounter(t, db)
+	defer cleanup()
+
+	out, err := repo.List(context.Background(), cipher)
+	require.NoError(t, err)
+	assert.Len(t, out, 10)
+	// EXACT 2 — anything higher means the N+1 regressed.
+	assert.Equal(t, int64(2), atomic.LoadInt64(count),
+		"List must issue EXACTLY 2 SELECT queries for any N (got %d for N=10)",
+		atomic.LoadInt64(count))
+}
+
+func TestList_PreservesAPIKeyDecryption(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	seedInstances(t, repo, cipher, 3)
+
+	out, err := repo.List(context.Background(), cipher)
+	require.NoError(t, err)
+	require.Len(t, out, 3)
+
+	// Build a name -> apiKey map (order is not guaranteed) and
+	// assert each instance carries its OWN key, not a neighbour's.
+	got := map[string]string{}
+	for _, s := range out {
+		got[s.Name] = s.APIKey
+	}
+	assert.Equal(t, "key-0", got["inst-0"])
+	assert.Equal(t, "key-1", got["inst-1"])
+	assert.Equal(t, "key-2", got["inst-2"])
+}
+
+func TestList_HandlesMissingSecret(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	// Create one instance WITH a secret, one without.
+	_, err = repo.Create(context.Background(), runtime.InstanceSnapshot{
+		Name: "has-key", URL: "http://x", APIKey: "k", Mode: "auto", Timeout: 10 * time.Second,
+	}, cipher)
+	require.NoError(t, err)
+
+	// Insert an instance row directly via GORM bypassing repo.Create
+	// so no secret row is written.
+	naked := database.SonarrInstanceModel{
+		Name: "no-key", URL: "http://x", Mode: "auto", TimeoutSeconds: 10,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, db.Create(&naked).Error)
+
+	out, err := repo.List(context.Background(), cipher)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+
+	got := map[string]string{}
+	for _, s := range out {
+		got[s.Name] = s.APIKey
+	}
+	assert.Equal(t, "k", got["has-key"])
+	assert.Equal(t, "", got["no-key"],
+		"instance with no secret row must surface empty APIKey, not error")
 }

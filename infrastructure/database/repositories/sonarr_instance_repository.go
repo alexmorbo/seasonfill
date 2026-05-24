@@ -21,27 +21,45 @@ func NewSonarrInstanceRepository(db *gorm.DB) *SonarrInstanceRepository {
 	return &SonarrInstanceRepository{db: db}
 }
 
+// List returns every sonarr_instance row converted to a runtime
+// snapshot. Issues EXACTLY two SELECT queries regardless of N:
+//
+//  1. SELECT * FROM sonarr_instance
+//  2. SELECT * FROM instance_secret WHERE secret_name = 'api_key'
+//
+// The secrets are joined in memory keyed by instance_id. An instance
+// row with no matching secret yields a snapshot with empty APIKey
+// (same contract as the old per-row Where-First path returning
+// gorm.ErrRecordNotFound).
+//
+// Ordering is left unspecified — `runtime.SortInstances` applied at
+// the publish path is the canonical sort.
 func (r *SonarrInstanceRepository) List(ctx context.Context, c *crypto.Cipher) ([]runtime.InstanceSnapshot, error) {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
 	var models []database.SonarrInstanceModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Find(&models).Error; err != nil {
+	if err := db.Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("list sonarr instances: %w", err)
 	}
+	if len(models) == 0 {
+		return nil, nil
+	}
 
-	var result []runtime.InstanceSnapshot
+	var secrets []database.InstanceSecretModel
+	if err := db.Where("secret_name = ?", "api_key").Find(&secrets).Error; err != nil {
+		return nil, fmt.Errorf("list api_key secrets: %w", err)
+	}
+
+	// Index the secrets by instance_id for O(1) lookup.
+	secretsByID := make(map[uint][]byte, len(secrets))
+	for _, s := range secrets {
+		secretsByID[s.InstanceID] = s.Ciphertext
+	}
+
+	result := make([]runtime.InstanceSnapshot, 0, len(models))
 	for _, m := range models {
-		var secret database.InstanceSecretModel
-		secretErr := dbFromContext(ctx, r.db).WithContext(ctx).
-			Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
-			First(&secret).Error
-
-		var secretBlob []byte
-		if secretErr == nil {
-			secretBlob = secret.Ciphertext
-		} else if !errors.Is(secretErr, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("fetch secret for instance %d: %w", m.ID, secretErr)
-		}
-
-		snap, err := modelToSnapshot(m, secretBlob, c)
+		blob := secretsByID[m.ID] // nil if no row — same as old not-found path
+		snap, err := modelToSnapshot(m, blob, c)
 		if err != nil {
 			return nil, fmt.Errorf("convert instance %s to snapshot: %w", m.Name, err)
 		}
