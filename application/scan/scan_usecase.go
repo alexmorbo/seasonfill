@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,7 +69,7 @@ type HealthRegistry interface {
 }
 
 type UseCase struct {
-	instances []Instance
+	instances atomic.Pointer[[]Instance]
 	evaluator *evaluate.UseCase
 	scans     ports.ScanRepository
 	grabUC    *grab.UseCase
@@ -97,14 +98,45 @@ func NewUseCase(
 	logger *slog.Logger,
 	dryRun bool,
 ) *UseCase {
-	return &UseCase{
-		instances: instances,
+	uc := &UseCase{
 		evaluator: evaluator,
 		scans:     scans,
 		logger:    logger,
 		dryRun:    dryRun,
 		inflight:  make(map[string]inflightEntry),
 	}
+	cp := append([]Instance(nil), instances...)
+	uc.instances.Store(&cp)
+	return uc
+}
+
+// loadInstances returns the live []Instance set by either the
+// constructor or WithInstancesProvider's last reload.
+func (u *UseCase) loadInstances() []Instance {
+	p := u.instances.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// WithInstancesProvider installs a callback that the reload
+// subscriber invokes on every snapshot. Returns u for chained-
+// builder ergonomics. provider must NOT be nil.
+func (u *UseCase) WithInstancesProvider(provider func()) *UseCase {
+	// No-op accessor — the caller stores via SwapInstances directly.
+	// Kept on the type so the reload subscriber has a stable
+	// touch-point if we ever want to add validation here.
+	_ = provider
+	return u
+}
+
+// SwapInstances atomically replaces the instances slice. Called
+// from the scanInstances reload subscriber. The slice is copied so
+// the caller cannot mutate it after the swap.
+func (u *UseCase) SwapInstances(next []Instance) {
+	cp := append([]Instance(nil), next...)
+	u.instances.Store(&cp)
 }
 
 func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase             { u.grabUC = g; return u }
@@ -150,11 +182,12 @@ func (u *UseCase) Run(parent context.Context, trigger Trigger) ([]RunResult, err
 	// D43: cron MUST skip manual-mode instances. UI/API triggers
 	// (TriggerManual/Startup) ignore mode — `RunInstance` is the
 	// supported manual path.
-	eligible := make([]int, 0, len(u.instances))
-	for i := range u.instances {
-		if trigger == TriggerCron && u.instances[i].Config.Mode == "manual" {
+	instances := u.loadInstances()
+	eligible := make([]int, 0, len(instances))
+	for i := range instances {
+		if trigger == TriggerCron && instances[i].Config.Mode == "manual" {
 			u.logger.InfoContext(parent, "cron_skipped_manual_instance",
-				slog.String("instance", u.instances[i].Config.Name))
+				slog.String("instance", instances[i].Config.Name))
 			continue
 		}
 		eligible = append(eligible, i)
@@ -168,7 +201,7 @@ func (u *UseCase) Run(parent context.Context, trigger Trigger) ([]RunResult, err
 		wg.Add(1)
 		go func(out, src int) {
 			defer wg.Done()
-			res, err := u.runOne(parent, u.instances[src], trigger, nil)
+			res, err := u.runOne(parent, instances[src], trigger, nil)
 			results[out] = res
 			errs[out] = err
 		}(outIdx, srcIdx)
@@ -182,7 +215,7 @@ func (u *UseCase) Run(parent context.Context, trigger Trigger) ([]RunResult, err
 // `seriesIDs` narrows ListSeries before evaluate; nil/empty = scan
 // every series. Unknown IDs are dropped with a WARN (Q-010-3).
 func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
-	for _, inst := range u.instances {
+	for _, inst := range u.loadInstances() {
 		if inst.Config.Name == name {
 			return u.runOne(parent, inst, trigger, seriesIDs)
 		}
@@ -203,10 +236,11 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 // pass, the returned RunResult carries Status="running" and the
 // goroutine reports terminal status through ScanRecord updates only.
 func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+	instances := u.loadInstances()
 	var found *Instance
-	for i := range u.instances {
-		if u.instances[i].Config.Name == name {
-			found = &u.instances[i]
+	for i := range instances {
+		if instances[i].Config.Name == name {
+			found = &instances[i]
 			break
 		}
 	}
@@ -222,11 +256,12 @@ func (u *UseCase) StartInstance(parent context.Context, name string, trigger Tri
 // from the prelude (lock contention, ScanRecord create) appear in
 // the joined error and have a non-running Status in their RunResult.
 func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, error) {
-	eligible := make([]int, 0, len(u.instances))
-	for i := range u.instances {
-		if trigger == TriggerCron && u.instances[i].Config.Mode == "manual" {
+	instances := u.loadInstances()
+	eligible := make([]int, 0, len(instances))
+	for i := range instances {
+		if trigger == TriggerCron && instances[i].Config.Mode == "manual" {
 			u.logger.InfoContext(parent, "cron_skipped_manual_instance",
-				slog.String("instance", u.instances[i].Config.Name))
+				slog.String("instance", instances[i].Config.Name))
 			continue
 		}
 		eligible = append(eligible, i)
@@ -234,7 +269,7 @@ func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, e
 	results := make([]RunResult, 0, len(eligible))
 	errs := make([]error, 0, len(eligible))
 	for _, idx := range eligible {
-		res, err := u.startOne(parent, u.instances[idx], trigger, nil)
+		res, err := u.startOne(parent, instances[idx], trigger, nil)
 		results = append(results, res)
 		if err != nil {
 			errs = append(errs, err)

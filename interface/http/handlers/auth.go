@@ -26,7 +26,7 @@ const (
 type AuthHandler struct {
 	apiKey          string
 	repo            ports.AdminUserRepository
-	sessionTTL      time.Duration
+	authRuntime     *middleware.AuthRuntimePointer
 	secureCookie    bool
 	limiter         *auth.IPLimiter
 	passwordLimiter *auth.IPLimiter
@@ -69,14 +69,44 @@ func NewAuthHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	ptr := &middleware.AuthRuntimePointer{}
+	ptr.Store(&middleware.AuthRuntime{SessionTTL: sessionTTL})
 	h := &AuthHandler{
-		apiKey: apiKey, repo: repo, sessionTTL: sessionTTL,
+		apiKey: apiKey, repo: repo, authRuntime: ptr,
 		secureCookie: secureCookie, limiter: limiter, logger: logger, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
+}
+
+// WithAuthRuntimePointer wires a SHARED atomic — the reload
+// subscriber stores into this same pointer. When not supplied,
+// the handler owns a private pointer seeded from the sessionTTL
+// argument (used by every test that builds an AuthHandler in
+// isolation).
+func WithAuthRuntimePointer(ptr *middleware.AuthRuntimePointer) AuthOption {
+	return func(h *AuthHandler) {
+		if ptr != nil {
+			h.authRuntime = ptr
+		}
+	}
+}
+
+// AuthRuntime returns the atomic so cmd/server (and the reload
+// subscriber) can store fresh values into it.
+func (h *AuthHandler) AuthRuntime() *middleware.AuthRuntimePointer {
+	return h.authRuntime
+}
+
+// sessionTTL reads the current TTL via the atomic. Used by Login
+// + Logout (cookie max-age).
+func (h *AuthHandler) sessionTTL() time.Duration {
+	if v := h.authRuntime.Load(); v != nil {
+		return v.SessionTTL
+	}
+	return 12 * time.Hour
 }
 
 // Login is POST /api/v1/auth/login.
@@ -132,7 +162,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	exp := h.now().Add(h.sessionTTL)
+	exp := h.now().Add(h.sessionTTL())
 	tok, err := middleware.SignSession([]byte(h.apiKey), user.Username, exp)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "auth.login.sign_failed",
@@ -143,7 +173,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, tok,
-		int(h.sessionTTL.Seconds()), "/", "",
+		int(h.sessionTTL().Seconds()), "/", "",
 		h.secureCookie || requestIsTLS(c.Request), true)
 	h.logger.InfoContext(c.Request.Context(), "auth.login.success",
 		slog.String("username", user.Username))

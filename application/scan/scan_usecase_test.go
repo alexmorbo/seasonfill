@@ -834,6 +834,27 @@ func (r *batchCountingCDRepo) FilterActive(_ context.Context, scope cooldown.Sco
 
 func (r *batchCountingCDRepo) Sweep(_ context.Context, _ time.Time) (int64, error) { return 0, nil }
 
+func TestSwapInstances_RebuildsRunSet(t *testing.T) {
+	t.Parallel()
+	uc := NewUseCase(nil, nil, nil, slog.Default(), true)
+
+	// Before swap: empty.
+	require.Empty(t, uc.loadInstances())
+
+	// Swap in two instances.
+	uc.SwapInstances([]Instance{
+		{Config: config.SonarrInstance{Name: "alpha"}},
+		{Config: config.SonarrInstance{Name: "beta"}},
+	})
+	require.Len(t, uc.loadInstances(), 2)
+
+	// Swap in a different set.
+	uc.SwapInstances([]Instance{{Config: config.SonarrInstance{Name: "gamma"}}})
+	got := uc.loadInstances()
+	require.Len(t, got, 1)
+	require.Equal(t, "gamma", got[0].Config.Name)
+}
+
 // slowSonarr blocks ListSeries until release is closed, then returns the
 // series list. Used to assert StartInstance returns before completion.
 type slowSonarr struct {
