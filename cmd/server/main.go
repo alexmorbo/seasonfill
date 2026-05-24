@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,15 +26,16 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
-	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -53,9 +55,36 @@ func main() {
 }
 
 func run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	_, err := runWithContext(ctx, nil)
+	return err
+}
+
+// runForTest is a test-only entry point (gated by //go:build integration).
+// It runs the full server lifecycle against ctx, blocking until ctx is
+// cancelled. onReady is called with the live bus after all six subscribers
+// are registered, allowing the test to start interacting while the server
+// is still running.
+func runForTest(ctx context.Context, onReady func(*runtime.Bus)) error {
+	_, err := runWithContext(ctx, onReady)
+	return err
+}
+
+// runWithContext contains the full server lifecycle. onReady, if non-nil,
+// is called with the live bus after all six subscribers are registered.
+func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.Bus, error) {
 	bootCfg, err := config.FromEnv()
 	if err != nil {
-		return fmt.Errorf("bootstrap config: %w", err)
+		return nil, fmt.Errorf("bootstrap config: %w", err)
 	}
 
 	log := logger.New(logger.Config{
@@ -69,46 +98,46 @@ func run() error {
 
 	db, err := database.Open(bootCfg.Database)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("open db: %w", err)
 	}
 	if err := database.Migrate(db); err != nil {
-		return fmt.Errorf("migrate: %w", err)
+		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
 	runtimeRepo := repositories.NewRuntimeConfigRepository(db)
 	instanceRepo := repositories.NewSonarrInstanceRepository(db)
 
-	ctx := context.Background()
+	bgCtx := context.Background()
 
-	masterKey, err := bootstrap.ResolveAPIKey(ctx, bootCfg.Auth.APIKey, runtimeRepo, log)
+	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, bootCfg.Auth.APIKey, runtimeRepo, log)
 	if err != nil {
-		return fmt.Errorf("resolve api key: %w", err)
+		return nil, fmt.Errorf("resolve api key: %w", err)
 	}
 	cipher, err := crypto.New(masterKey)
 	if err != nil {
-		return fmt.Errorf("derive cipher: %w", err)
+		return nil, fmt.Errorf("derive cipher: %w", err)
 	}
 
 	// Seed runtime_config from Defaults() on a truly-fresh install.
-	row, err := runtimeRepo.Get(ctx)
+	row, err := runtimeRepo.Get(bgCtx)
 	switch {
 	case err == nil:
 		// happy path
 	case errors.Is(err, ports.ErrNotFound):
-		if err := runtimeRepo.Upsert(ctx, runtime.Defaults()); err != nil {
-			return fmt.Errorf("seed runtime_config: %w", err)
+		if err := runtimeRepo.Upsert(bgCtx, runtime.Defaults()); err != nil {
+			return nil, fmt.Errorf("seed runtime_config: %w", err)
 		}
-		row, err = runtimeRepo.Get(ctx)
+		row, err = runtimeRepo.Get(bgCtx)
 		if err != nil {
-			return fmt.Errorf("reload runtime_config after seed: %w", err)
+			return nil, fmt.Errorf("reload runtime_config after seed: %w", err)
 		}
 	default:
-		return fmt.Errorf("read runtime_config: %w", err)
+		return nil, fmt.Errorf("read runtime_config: %w", err)
 	}
 
-	instances, err := instanceRepo.List(ctx, cipher)
+	instances, err := instanceRepo.List(bgCtx, cipher)
 	if err != nil {
-		return fmt.Errorf("list instances: %w", err)
+		return nil, fmt.Errorf("list instances: %w", err)
 	}
 	for i := range instances {
 		runtime.ApplyInstanceDefaults(&instances[i])
@@ -123,18 +152,17 @@ func run() error {
 
 	bus := runtime.NewBus(log)
 	defer bus.Close()
-	bus.Publish(ctx, snap)
 
 	runtimeConfigUC := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, bus, log)
 	runtimeConfigHandler := handlers.NewRuntimeConfigHandler(runtimeConfigUC, log)
 
 	adminRepo := repositories.NewAdminUserRepository(db)
-	if err := authapp.Bootstrap(ctx, adminRepo, authapp.BootstrapConfig{
+	if err := authapp.Bootstrap(bgCtx, adminRepo, authapp.BootstrapConfig{
 		WebUser:         bootCfg.Auth.WebUser,
 		WebPassword:     bootCfg.Auth.WebPassword,
 		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
 	}, log); err != nil {
-		return fmt.Errorf("auth bootstrap: %w", err)
+		return nil, fmt.Errorf("auth bootstrap: %w", err)
 	}
 
 	// cfg now reads from snap instead of bootstrap config
@@ -145,6 +173,8 @@ func run() error {
 		SecureCookie:   snap.Auth.SecureCookie,
 		TrustedProxies: snap.Auth.TrustedProxies,
 	}
+	httpCfg := bootCfg.HTTP
+	httpCfg.Auth = authCfg
 	cfg := struct {
 		HTTP            config.HTTPConfig
 		SonarrInstances []runtime.InstanceSnapshot
@@ -152,15 +182,13 @@ func run() error {
 		GlobalRateLimit runtime.RateLimitSnapshot
 		Scan            runtime.ScanSnapshot
 		Cron            runtime.CronSnapshot
-		Auth            config.Auth
 	}{
-		HTTP:            bootCfg.HTTP,
+		HTTP:            httpCfg,
 		SonarrInstances: instances,
 		DryRun:          snap.DryRun,
 		GlobalRateLimit: snap.GlobalRateLimit,
 		Scan:            snap.Scan,
 		Cron:            snap.Cron,
-		Auth:            authCfg,
 	}
 
 	scanRepo := repositories.NewScanRepository(db)
@@ -169,48 +197,37 @@ func run() error {
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 
-	// Single shared global limiter (PRD §8.1). Nil = unlimited (N-new-1).
-	// Observer wires the PRD §9.2 throttle counter at scope="global"; the
-	// limiter itself stays metric-free (dependency rule).
-	globalLimiter := ratelimit.NewFromRPMWithOptions(
-		cfg.GlobalRateLimit.RPM,
-		cfg.GlobalRateLimit.Burst,
-		ratelimit.WithObserver("global", func(scope string) {
-			observability.IncRateLimitThrottled("", scope)
-		}),
-	)
+	// Single shared global limiter pointer (live-reloaded). Seed from the
+	// boot snapshot so the first publish's subscriber diff-skip works.
+	var globalLimiterPtr atomic.Pointer[ratelimit.Limiter]
+	globalLimiterPtr.Store(reload.DefaultGlobalLimiterFactory(
+		cfg.GlobalRateLimit.RPM, cfg.GlobalRateLimit.Burst))
 
-	scanInstances := make([]scan.Instance, 0, len(cfg.SonarrInstances))
-	sonarrClients := make([]ports.SonarrClient, 0, len(cfg.SonarrInstances))
+	clientFactory := buildSonarrClientFactory(&globalLimiterPtr, log)
 	sonarrClientsByName := make(map[string]ports.SonarrClient, len(cfg.SonarrInstances))
-	scanInstancesByName := make(map[string]scan.Instance, len(cfg.SonarrInstances))
-	cfgByName := make(map[string]config.HealthCheckConfig, len(cfg.SonarrInstances))
+	bootCfgs := make(map[string]runtime.InstanceSnapshot, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		// Per-instance observer binds the instance name to the closure so the
-		// limiter can stay instance-agnostic.
-		instanceName := sc.Name
-		instLimiter := ratelimit.NewFromRPMWithOptions(
-			sc.RateLimit.RPM,
-			sc.RateLimit.Burst,
-			ratelimit.WithObserver("per_instance", func(scope string) {
-				observability.IncRateLimitThrottled(instanceName, scope)
-			}),
-		)
-		c := sonarr.NewWithOptions(sc.Name, sc.URL, sc.APIKey, sc.Timeout, instLimiter, log,
-			sonarr.WithGlobalLimiter(globalLimiter),
-			sonarr.WithSearchTimeout(sc.SearchTimeout),
-		)
-		sonarrClients = append(sonarrClients, c)
+		c := clientFactory(sc)
 		sonarrClientsByName[sc.Name] = c
+		bootCfgs[sc.Name] = sc
+	}
+	sonarrClients := make([]ports.SonarrClient, 0, len(sonarrClientsByName))
+	scanInstances := make([]scan.Instance, 0, len(sonarrClientsByName))
+	scanInstancesByName := make(map[string]scan.Instance, len(sonarrClientsByName))
+	cfgByName := make(map[string]config.HealthCheckConfig, len(sonarrClientsByName))
+	for _, sc := range cfg.SonarrInstances {
+		c := sonarrClientsByName[sc.Name]
+		sonarrClients = append(sonarrClients, c)
 		si := scan.Instance{Config: sc, Client: c}
 		scanInstances = append(scanInstances, si)
 		scanInstancesByName[sc.Name] = si
 		cfgByName[sc.Name] = config.NewHealthCheckConfig(sc.HealthCheck)
 	}
+	holder := newInstanceMapHolder(scanInstancesByName)
 
 	checker := healthcheck.New(db, sonarrClients)
 
-	rootCtx, rootCancel := context.WithCancel(context.Background())
+	rootCtx, rootCancel := context.WithCancel(ctx)
 	defer rootCancel()
 
 	// M-9: track every background goroutine so we can wait for them to exit
@@ -235,8 +252,7 @@ func run() error {
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
-	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, evaluator,
-		scanInstancesByName, log)
+	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, evaluator, holder.load, log)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
@@ -292,11 +308,13 @@ func run() error {
 		runCooldownSweep(rootCtx, cooldownRepo, sweepInterval, log)
 	}()
 
-	var sched *scheduler.Scheduler
+	// Build the boot scheduler (if cron is enabled) so the
+	// subscriber starts in the same state as the snapshot.
+	var bootScheduler *scheduler.Scheduler
 	if cfg.Cron.Enabled {
-		sched = scheduler.New(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
-		if err := sched.Start(rootCtx, scanUC); err != nil {
-			return fmt.Errorf("start scheduler: %w", err)
+		bootScheduler = scheduler.New(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
+		if err := bootScheduler.Start(rootCtx, scanUC); err != nil {
+			return nil, fmt.Errorf("start scheduler: %w", err)
 		}
 		if cfg.Cron.OnStart {
 			go func() {
@@ -307,14 +325,33 @@ func run() error {
 		}
 	}
 
+	// Pull the AuthRuntime pointer out of the http server's auth
+	// handler so we can hand it to the reload subscriber.
+	authHandler := httpServer.AuthHandler()
+	var authRuntimePtr *middleware.AuthRuntimePointer
+	if authHandler != nil {
+		authRuntimePtr = authHandler.AuthRuntime()
+	}
+
+	subSched, _ := startSubscribers(rootCtx, &bgWG, bus, log,
+		bootScheduler, scanUC, sonarrClientsByName, bootCfgs,
+		clientFactory, checker, holder,
+		&globalLimiterPtr, authRuntimePtr, httpServer.Engine())
+
+	// Re-publish the boot snapshot now that subscribers are alive
+	// — they all apply it once and increment their success metric.
+	bus.Publish(rootCtx, snap)
+
+	// Notify caller (test helper) that the bus is ready.
+	if onReady != nil {
+		onReady(bus)
+	}
+
 	serverErrCh := make(chan error, 1)
 	go func() { serverErrCh <- httpServer.Start() }()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
-	case <-sigCh:
+	case <-ctx.Done():
 		log.Info("shutdown signal received")
 	case err := <-serverErrCh:
 		if err != nil {
@@ -329,8 +366,8 @@ func run() error {
 		log.Error("http shutdown error", slog.String("error", err.Error()))
 	}
 
-	if sched != nil {
-		stopCtx := sched.Stop()
+	if cur := subSched.Current(); cur != nil {
+		stopCtx := cur.Stop()
 		select {
 		case <-stopCtx.Done():
 		case <-time.After(5 * time.Second):
@@ -351,7 +388,7 @@ func run() error {
 		_ = sqlDB.Close()
 	}
 	log.Info("seasonfill stopped cleanly")
-	return nil
+	return bus, nil
 }
 
 func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every time.Duration, log *slog.Logger) {

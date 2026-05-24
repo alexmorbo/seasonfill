@@ -173,6 +173,117 @@ components:
         transitions_count:
           type: integer
       type: object
+    dto.InstanceCooldown:
+      properties:
+        guid_after_failed_grab_sec:
+          type: integer
+        guid_after_failed_import_sec:
+          type: integer
+        mode:
+          enum:
+          - smart
+          - strict
+          type: string
+        series_after_grab_sec:
+          type: integer
+      type: object
+    dto.InstanceCreateRequest:
+      properties:
+        api_key:
+          example: abcd...
+          type: string
+        cooldown:
+          $ref: '#/components/schemas/dto.InstanceCooldown'
+        dry_run:
+          type: boolean
+        health_check:
+          $ref: '#/components/schemas/dto.InstanceHealthCheck'
+        limits:
+          $ref: '#/components/schemas/dto.InstanceLimits'
+        mode:
+          example: auto
+          type: string
+        name:
+          example: alpha
+          type: string
+        ranking:
+          $ref: '#/components/schemas/dto.InstanceRanking'
+        rate_limit_burst:
+          type: integer
+        rate_limit_rpm:
+          type: integer
+        retry:
+          $ref: '#/components/schemas/dto.InstanceRetry'
+        search:
+          $ref: '#/components/schemas/dto.InstanceSearch'
+        search_timeout_sec:
+          type: integer
+        tags:
+          $ref: '#/components/schemas/dto.InstanceTags'
+        timeout_sec:
+          type: integer
+        url:
+          example: http://sonarr:8989
+          type: string
+      type: object
+    dto.InstanceDetail:
+      properties:
+        api_key:
+          example: '***'
+          type: string
+        cooldown:
+          $ref: '#/components/schemas/dto.InstanceCooldown'
+        dry_run:
+          type: boolean
+        health_check:
+          $ref: '#/components/schemas/dto.InstanceHealthCheck'
+        limits:
+          $ref: '#/components/schemas/dto.InstanceLimits'
+        mode:
+          enum:
+          - auto
+          - manual
+          example: auto
+          type: string
+        name:
+          example: alpha
+          type: string
+        ranking:
+          $ref: '#/components/schemas/dto.InstanceRanking'
+        rate_limit_burst:
+          type: integer
+        rate_limit_rpm:
+          type: integer
+        retry:
+          $ref: '#/components/schemas/dto.InstanceRetry'
+        search:
+          $ref: '#/components/schemas/dto.InstanceSearch'
+        search_timeout_sec:
+          type: integer
+        tags:
+          $ref: '#/components/schemas/dto.InstanceTags'
+        timeout_sec:
+          type: integer
+        updated_at:
+          type: string
+        url:
+          example: http://sonarr:8989
+          type: string
+      type: object
+    dto.InstanceHealthCheck:
+      properties:
+        recheck_auth_sec:
+          type: integer
+        recheck_network_sec:
+          type: integer
+      type: object
+    dto.InstanceLimits:
+      properties:
+        max_grabs_per_scan:
+          type: integer
+        scan_max_series:
+          type: integer
+      type: object
     dto.InstanceList:
       properties:
         instances:
@@ -180,6 +291,110 @@ components:
             $ref: '#/components/schemas/dto.Instance'
           type: array
           uniqueItems: false
+      type: object
+    dto.InstanceRanking:
+      properties:
+        indexer_priority_enabled:
+          type: boolean
+        origin_bonus:
+          type: number
+      type: object
+    dto.InstanceRetry:
+      properties:
+        initial_backoff_sec:
+          type: integer
+        max_attempts:
+          type: integer
+        max_backoff_sec:
+          type: integer
+      type: object
+    dto.InstanceSearch:
+      properties:
+        min_custom_format_score:
+          type: integer
+        require_all_aired:
+          type: boolean
+        skip_anime:
+          type: boolean
+        skip_specials:
+          type: boolean
+      type: object
+    dto.InstanceTags:
+      properties:
+        exclude:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        include:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        mode:
+          enum:
+          - include
+          - exclude
+          - "off"
+          example: include
+          type: string
+      type: object
+    dto.InstanceTestRequest:
+      properties:
+        api_key:
+          example: abcd...
+          type: string
+        url:
+          example: http://sonarr:8989
+          type: string
+      type: object
+    dto.InstanceTestResponse:
+      properties:
+        ok:
+          type: boolean
+        reason:
+          type: string
+        version:
+          type: string
+      type: object
+    dto.InstanceUpdateRequest:
+      properties:
+        api_key:
+          example: abcd...
+          type: string
+        cooldown:
+          $ref: '#/components/schemas/dto.InstanceCooldown'
+        dry_run:
+          type: boolean
+        health_check:
+          $ref: '#/components/schemas/dto.InstanceHealthCheck'
+        limits:
+          $ref: '#/components/schemas/dto.InstanceLimits'
+        mode:
+          example: auto
+          type: string
+        name:
+          example: alpha
+          type: string
+        ranking:
+          $ref: '#/components/schemas/dto.InstanceRanking'
+        rate_limit_burst:
+          type: integer
+        rate_limit_rpm:
+          type: integer
+        retry:
+          $ref: '#/components/schemas/dto.InstanceRetry'
+        search:
+          $ref: '#/components/schemas/dto.InstanceSearch'
+        search_timeout_sec:
+          type: integer
+        tags:
+          $ref: '#/components/schemas/dto.InstanceTags'
+        timeout_sec:
+          type: integer
+        url:
+          example: http://sonarr:8989
+          type: string
       type: object
     dto.LoginRequest:
       properties:
@@ -264,6 +479,71 @@ components:
           - ok
           - unavailable
           example: ok
+          type: string
+      type: object
+    dto.RuntimeAuthDTO:
+      properties:
+        secure_cookie:
+          type: boolean
+        session_ttl:
+          example: 12h
+          type: string
+        trusted_proxies:
+          example:
+          - 127.0.0.1
+          - ::1
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    dto.RuntimeConfigDTO:
+      properties:
+        auth:
+          $ref: '#/components/schemas/dto.RuntimeAuthDTO'
+        auto_generated_api_key:
+          example: false
+          type: boolean
+        cron:
+          $ref: '#/components/schemas/dto.RuntimeCronDTO'
+        dry_run:
+          type: boolean
+        global_rate_limit:
+          $ref: '#/components/schemas/dto.RuntimeRateLimitDTO'
+        scan:
+          $ref: '#/components/schemas/dto.RuntimeScanDTO'
+        updated_at:
+          type: string
+      type: object
+    dto.RuntimeCronDTO:
+      properties:
+        enabled:
+          type: boolean
+        jitter:
+          example: 1m
+          type: string
+        on_start:
+          type: boolean
+        schedule:
+          example: 0 */6 * * *
+          type: string
+      type: object
+    dto.RuntimeRateLimitDTO:
+      properties:
+        burst:
+          example: 10
+          type: integer
+        rpm:
+          example: 30
+          type: integer
+      type: object
+    dto.RuntimeScanDTO:
+      properties:
+        cooldown_sweep:
+          example: 15m
+          type: string
+        shutdown_grace:
+          example: 60s
           type: string
       type: object
     dto.Scan:
@@ -551,6 +831,88 @@ paths:
       summary: Verify the current session
       tags:
       - auth
+  /config/runtime:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.RuntimeConfigDTO'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get runtime configuration
+      tags:
+      - config
+    put:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.RuntimeConfigDTO'
+        description: Runtime config
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.RuntimeConfigDTO'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Precondition Failed
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Update runtime configuration
+      tags:
+      - config
   /decisions:
     get:
       parameters:
@@ -852,6 +1214,164 @@ paths:
       summary: List Sonarr instance health
       tags:
       - instances
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceCreateRequest'
+        description: Instance fields
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Conflict
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Create a Sonarr instance
+      tags:
+      - instances
+  /instances/{name}:
+    delete:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Conflict
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Delete a Sonarr instance and its history
+      tags:
+      - instances
+    get:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get one Sonarr instance (masked)
+      tags:
+      - instances
+    put:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceUpdateRequest'
+        description: Instance fields
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Precondition Failed
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Update a Sonarr instance
+      tags:
+      - instances
   /instances/{name}/missing:
     get:
       description: |-
@@ -964,6 +1484,46 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Search series in a Sonarr instance
+      tags:
+      - instances
+  /instances/test:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceTestRequest'
+        description: URL and api_key to probe
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceTestResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Too Many Requests
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Gateway Timeout
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Probe a Sonarr instance for reachability/auth
       tags:
       - instances
   /readyz:

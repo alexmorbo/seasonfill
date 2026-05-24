@@ -133,7 +133,8 @@ func newRescanFixture(t *testing.T, releases []release.Release) *rescanFixture {
 	sn := &rescanFakeSonarr{releases: releases}
 	ev := evaluate.NewUseCase(sn, dec, lg)
 	inst := scan.Instance{Config: config.SonarrInstance{Name: "alpha"}, Client: sn}
-	uc := rescan.NewUseCase(dec, gr, ev, map[string]scan.Instance{"alpha": inst}, lg)
+	m := map[string]scan.Instance{"alpha": inst}
+	uc := rescan.NewUseCase(dec, gr, ev, func() map[string]scan.Instance { return m }, lg)
 	h := NewRescanHandler(uc, lg)
 	r := gin.New()
 	r.POST("/api/v1/decisions/:id/rescan", h.ByDecision)

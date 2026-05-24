@@ -21,10 +21,11 @@ import (
 )
 
 type Server struct {
-	cfg    config.HTTPConfig
-	server *http.Server
-	engine *gin.Engine
-	logger *slog.Logger
+	cfg         config.HTTPConfig
+	server      *http.Server
+	engine      *gin.Engine
+	authHandler *handlers.AuthHandler
+	logger      *slog.Logger
 }
 
 func NewServer(
@@ -79,6 +80,7 @@ func NewServer(
 
 	api := r.Group("/api/v1")
 
+	var serverAuthHandler *handlers.AuthHandler
 	if cfg.Auth.Enabled {
 		// M1: stricter limiter for /auth/password — 3 attempts / 15min,
 		// per ClientIP. Independent from the login limiter so a brute-
@@ -89,6 +91,9 @@ func NewServer(
 			cfg.Auth.SecureCookie, loginLimiter, logger,
 			handlers.WithPasswordLimiter(passwordLimiter),
 		)
+		// Hold a reference so the reload subscriber can pull the
+		// shared AuthRuntime pointer out at startup.
+		serverAuthHandler = authHandler
 		api.POST("/auth/login", authHandler.Login)
 
 		guarded := api.Group("")
@@ -143,7 +148,7 @@ func NewServer(
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,
 	}
-	return &Server{cfg: cfg, server: srv, engine: r, logger: logger}
+	return &Server{cfg: cfg, server: srv, engine: r, authHandler: serverAuthHandler, logger: logger}
 }
 
 // probeRateLimit reuses the login limiter so a brute-forcer can't
@@ -202,4 +207,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // this — every legitimate handler is registered at construction.
 func (s *Server) Engine() *gin.Engine {
 	return s.engine
+}
+
+// AuthHandler returns the handler if auth is enabled, or nil
+// otherwise. Used by the reload subscriber to obtain the shared
+// AuthRuntime pointer for in-process TTL swaps.
+func (s *Server) AuthHandler() *handlers.AuthHandler {
+	return s.authHandler
 }

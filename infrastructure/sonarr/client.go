@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -33,10 +34,15 @@ type Client struct {
 	// SearchReleases. When WithSearchTimeout is not supplied (or is
 	// zero), httpSearch aliases `http` — i.e. behaviour identical to
 	// the pre-015 single-client model.
-	httpSearch    *http.Client
-	limiter       *ratelimit.Limiter
-	globalLimiter *ratelimit.Limiter
-	logger        *slog.Logger
+	httpSearch *http.Client
+	limiter    *ratelimit.Limiter
+	// global is set by WithGlobalLimiter (frozen at construction).
+	// globalPtr is set by WithGlobalLimiterPointer (live-reloaded).
+	// The two are mutually exclusive — the pointer wins if both are
+	// supplied (last write wins in functional-options order).
+	global    *ratelimit.Limiter
+	globalPtr *atomic.Pointer[ratelimit.Limiter]
+	logger    *slog.Logger
 }
 
 // Option configures a Client at construction.
@@ -45,7 +51,29 @@ type Option func(*Client)
 // WithGlobalLimiter sets the shared global limiter for cross-instance
 // protection. Pass nil for unlimited.
 func WithGlobalLimiter(l *ratelimit.Limiter) Option {
-	return func(c *Client) { c.globalLimiter = l }
+	return func(c *Client) { c.global = l }
+}
+
+// WithGlobalLimiterPointer captures an atomic pointer to the live
+// global limiter. The client reads the pointer on every API call
+// so reload-time swaps take effect immediately. nil-safe: a nil
+// load means "no global rate limit on this call".
+func WithGlobalLimiterPointer(p *atomic.Pointer[ratelimit.Limiter]) Option {
+	return func(c *Client) {
+		if p != nil {
+			c.globalPtr = p
+			c.global = nil
+		}
+	}
+}
+
+// globalLimiter returns the current global limiter (or nil for
+// unlimited). Callers must nil-check before invoking Wait.
+func (c *Client) globalLimiter() *ratelimit.Limiter {
+	if c.globalPtr != nil {
+		return c.globalPtr.Load()
+	}
+	return c.global
 }
 
 // WithSearchTimeout installs a separate http.Client used ONLY by
@@ -112,7 +140,7 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
 		return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
 	}
-	if err := ratelimit.Wait(c.globalLimiter, ctx); err != nil {
+	if err := ratelimit.Wait(c.globalLimiter(), ctx); err != nil {
 		return fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
 	}
 

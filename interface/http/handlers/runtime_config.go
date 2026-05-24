@@ -33,8 +33,18 @@ func NewRuntimeConfigHandler(uc *runtimeconfig.UseCase, logger *slog.Logger) *Ru
 	return &RuntimeConfigHandler{uc: uc, logger: logger}
 }
 
-// Get returns the current runtime_config row. Swagger annotations
-// added in the make-openapi follow-up commit (deferred per AC8).
+// Get returns the current runtime_config row.
+//
+// @Summary     Get runtime configuration
+// @Tags        config
+// @Produce     json
+// @Success     200  {object}  dto.RuntimeConfigDTO
+// @Failure     401  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Header      200  {string}  Last-Modified  "RFC1123 of updated_at"
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /config/runtime [get]
 func (h *RuntimeConfigHandler) Get(c *gin.Context) {
 	body, ts, err := h.uc.Get(c.Request.Context())
 	if err != nil {
@@ -48,6 +58,21 @@ func (h *RuntimeConfigHandler) Get(c *gin.Context) {
 }
 
 // Update full-replaces the runtime_config row.
+//
+// @Summary     Update runtime configuration
+// @Tags        config
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.RuntimeConfigDTO  true  "Runtime config"
+// @Success     200   {object}  dto.RuntimeConfigDTO
+// @Failure     400   {object}  dto.ErrorResponse
+// @Failure     401   {object}  dto.ErrorResponse
+// @Failure     412   {object}  dto.ErrorResponse
+// @Failure     500   {object}  dto.ErrorResponse
+// @Header      200   {string}  Last-Modified  "RFC1123 of updated_at"
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /config/runtime [put]
 func (h *RuntimeConfigHandler) Update(c *gin.Context) {
 	var in dto.RuntimeConfigDTO
 	if !readRuntimeConfigBody(c, &in) {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -490,4 +491,23 @@ func TestClient_SearchReleases_ContextDeadlineWinsOverSearchTimeout(t *testing.T
 	require.Error(t, err)
 	// ctx-cancel must NOT be wrapped as network error (matches the
 	// pre-015 invariant from TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork).
+}
+
+func TestSonarrClient_WithGlobalLimiterPointer_LiveReload(t *testing.T) {
+	t.Parallel()
+	var ptr atomic.Pointer[ratelimit.Limiter]
+	// Start unlimited.
+	ptr.Store(nil)
+
+	c := NewWithOptions("alpha", "http://invalid.test", "k",
+		time.Millisecond, nil, slog.Default(),
+		WithGlobalLimiterPointer(&ptr))
+	require.NotNil(t, c)
+	// Calling globalLimiter on nil pointer must not panic.
+	assert.Nil(t, c.globalLimiter())
+
+	// Swap in a limiter, confirm live read sees it.
+	lim := ratelimit.NewFromRPM(1, 1)
+	ptr.Store(lim)
+	assert.Same(t, lim, c.globalLimiter())
 }

@@ -205,6 +205,125 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/config/runtime": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Get runtime configuration */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        /** @description RFC1123 of updated_at */
+                        readonly "Last-Modified"?: string;
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.RuntimeConfigDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /** Update runtime configuration */
+        readonly put: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Runtime config */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.RuntimeConfigDTO"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        /** @description RFC1123 of updated_at */
+                        readonly "Last-Modified"?: string;
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.RuntimeConfigDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Precondition Failed */
+                readonly 412: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/decisions": {
         readonly parameters: {
             readonly query?: never;
@@ -606,8 +725,215 @@ export type paths = {
             };
         };
         readonly put?: never;
-        readonly post?: never;
+        /** Create a Sonarr instance */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Instance fields */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.InstanceCreateRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description Created */
+                readonly 201: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Get one Sonarr instance (masked) */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        /** @description RFC1123 of updated_at */
+                        readonly "Last-Modified"?: string;
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /** Update a Sonarr instance */
+        readonly put: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            /** @description Instance fields */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.InstanceUpdateRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        /** @description RFC1123 of updated_at */
+                        readonly "Last-Modified"?: string;
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Precondition Failed */
+                readonly 412: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly post?: never;
+        /** Delete a Sonarr instance and its history */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
@@ -766,6 +1092,74 @@ export type paths = {
         };
         readonly put?: never;
         readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/test": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Probe a Sonarr instance for reachability/auth */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description URL and api_key to probe */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.InstanceTestRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceTestResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Too Many Requests */
+                readonly 429: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                readonly 504: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -1206,8 +1600,128 @@ export type components = {
             readonly name?: string;
             readonly transitions_count?: number;
         };
+        readonly "dto.InstanceCooldown": {
+            readonly guid_after_failed_grab_sec?: number;
+            readonly guid_after_failed_import_sec?: number;
+            /** @enum {string} */
+            readonly mode?: DtoInstanceCooldownMode;
+            readonly series_after_grab_sec?: number;
+        };
+        readonly "dto.InstanceCreateRequest": {
+            /** @example abcd... */
+            readonly api_key?: string;
+            readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            readonly dry_run?: boolean;
+            readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
+            readonly limits?: components["schemas"]["dto.InstanceLimits"];
+            /** @example auto */
+            readonly mode?: string;
+            /** @example alpha */
+            readonly name?: string;
+            readonly ranking?: components["schemas"]["dto.InstanceRanking"];
+            readonly rate_limit_burst?: number;
+            readonly rate_limit_rpm?: number;
+            readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            readonly search?: components["schemas"]["dto.InstanceSearch"];
+            readonly search_timeout_sec?: number;
+            readonly tags?: components["schemas"]["dto.InstanceTags"];
+            readonly timeout_sec?: number;
+            /** @example http://sonarr:8989 */
+            readonly url?: string;
+        };
+        readonly "dto.InstanceDetail": {
+            /** @example *** */
+            readonly api_key?: string;
+            readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            readonly dry_run?: boolean;
+            readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
+            readonly limits?: components["schemas"]["dto.InstanceLimits"];
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly mode?: DtoInstanceDetailMode;
+            /** @example alpha */
+            readonly name?: string;
+            readonly ranking?: components["schemas"]["dto.InstanceRanking"];
+            readonly rate_limit_burst?: number;
+            readonly rate_limit_rpm?: number;
+            readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            readonly search?: components["schemas"]["dto.InstanceSearch"];
+            readonly search_timeout_sec?: number;
+            readonly tags?: components["schemas"]["dto.InstanceTags"];
+            readonly timeout_sec?: number;
+            readonly updated_at?: string;
+            /** @example http://sonarr:8989 */
+            readonly url?: string;
+        };
+        readonly "dto.InstanceHealthCheck": {
+            readonly recheck_auth_sec?: number;
+            readonly recheck_network_sec?: number;
+        };
+        readonly "dto.InstanceLimits": {
+            readonly max_grabs_per_scan?: number;
+            readonly scan_max_series?: number;
+        };
         readonly "dto.InstanceList": {
             readonly instances?: readonly components["schemas"]["dto.Instance"][];
+        };
+        readonly "dto.InstanceRanking": {
+            readonly indexer_priority_enabled?: boolean;
+            readonly origin_bonus?: number;
+        };
+        readonly "dto.InstanceRetry": {
+            readonly initial_backoff_sec?: number;
+            readonly max_attempts?: number;
+            readonly max_backoff_sec?: number;
+        };
+        readonly "dto.InstanceSearch": {
+            readonly min_custom_format_score?: number;
+            readonly require_all_aired?: boolean;
+            readonly skip_anime?: boolean;
+            readonly skip_specials?: boolean;
+        };
+        readonly "dto.InstanceTags": {
+            readonly exclude?: readonly string[];
+            readonly include?: readonly string[];
+            /**
+             * @example include
+             * @enum {string}
+             */
+            readonly mode?: DtoInstanceTagsMode;
+        };
+        readonly "dto.InstanceTestRequest": {
+            /** @example abcd... */
+            readonly api_key?: string;
+            /** @example http://sonarr:8989 */
+            readonly url?: string;
+        };
+        readonly "dto.InstanceTestResponse": {
+            readonly ok?: boolean;
+            readonly reason?: string;
+            readonly version?: string;
+        };
+        readonly "dto.InstanceUpdateRequest": {
+            /** @example abcd... */
+            readonly api_key?: string;
+            readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            readonly dry_run?: boolean;
+            readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
+            readonly limits?: components["schemas"]["dto.InstanceLimits"];
+            /** @example auto */
+            readonly mode?: string;
+            /** @example alpha */
+            readonly name?: string;
+            readonly ranking?: components["schemas"]["dto.InstanceRanking"];
+            readonly rate_limit_burst?: number;
+            readonly rate_limit_rpm?: number;
+            readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            readonly search?: components["schemas"]["dto.InstanceSearch"];
+            readonly search_timeout_sec?: number;
+            readonly tags?: components["schemas"]["dto.InstanceTags"];
+            readonly timeout_sec?: number;
+            /** @example http://sonarr:8989 */
+            readonly url?: string;
         };
         readonly "dto.LoginRequest": {
             /** @example hunter2 */
@@ -1255,6 +1769,48 @@ export type components = {
              * @enum {string}
              */
             readonly status?: DtoReadyStatusStatus;
+        };
+        readonly "dto.RuntimeAuthDTO": {
+            readonly secure_cookie?: boolean;
+            /** @example 12h */
+            readonly session_ttl?: string;
+            /**
+             * @example [
+             *       "127.0.0.1",
+             *       "::1"
+             *     ]
+             */
+            readonly trusted_proxies?: readonly string[];
+        };
+        readonly "dto.RuntimeConfigDTO": {
+            readonly auth?: components["schemas"]["dto.RuntimeAuthDTO"];
+            /** @example false */
+            readonly auto_generated_api_key?: boolean;
+            readonly cron?: components["schemas"]["dto.RuntimeCronDTO"];
+            readonly dry_run?: boolean;
+            readonly global_rate_limit?: components["schemas"]["dto.RuntimeRateLimitDTO"];
+            readonly scan?: components["schemas"]["dto.RuntimeScanDTO"];
+            readonly updated_at?: string;
+        };
+        readonly "dto.RuntimeCronDTO": {
+            readonly enabled?: boolean;
+            /** @example 1m */
+            readonly jitter?: string;
+            readonly on_start?: boolean;
+            /** @example 0 *\/6 * * * */
+            readonly schedule?: string;
+        };
+        readonly "dto.RuntimeRateLimitDTO": {
+            /** @example 10 */
+            readonly burst?: number;
+            /** @example 30 */
+            readonly rpm?: number;
+        };
+        readonly "dto.RuntimeScanDTO": {
+            /** @example 15m */
+            readonly cooldown_sweep?: string;
+            /** @example 60s */
+            readonly shutdown_grace?: string;
         };
         readonly "dto.Scan": {
             readonly candidates_found?: number;
@@ -1411,6 +1967,19 @@ export enum DtoInstanceHealth {
 export enum DtoInstanceMode {
     auto = "auto",
     manual = "manual"
+}
+export enum DtoInstanceCooldownMode {
+    smart = "smart",
+    strict = "strict"
+}
+export enum DtoInstanceDetailMode {
+    auto = "auto",
+    manual = "manual"
+}
+export enum DtoInstanceTagsMode {
+    include = "include",
+    exclude = "exclude",
+    off = "off"
 }
 export enum DtoReadyStatusStatus {
     ok = "ok",

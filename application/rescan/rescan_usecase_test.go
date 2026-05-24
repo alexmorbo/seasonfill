@@ -122,7 +122,8 @@ func newUC(t *testing.T, sn *rescanFakeSonarr) (*UseCase, *rescanFakeDec, *resca
 	dec, gr := &rescanFakeDec{}, &rescanFakeGrab{}
 	ev := evaluate.NewUseCase(sn, dec, lg)
 	inst := scan.Instance{Config: config.SonarrInstance{Name: "alpha"}, Client: sn}
-	return NewUseCase(dec, gr, ev, map[string]scan.Instance{"alpha": inst}, lg), dec, gr
+	m := map[string]scan.Instance{"alpha": inst}
+	return NewUseCase(dec, gr, ev, func() map[string]scan.Instance { return m }, lg), dec, gr
 }
 
 func seedOriginal(t *testing.T, dec *rescanFakeDec, withGUID bool) decision.Decision {

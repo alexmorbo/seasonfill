@@ -23,21 +23,24 @@ var (
 )
 
 type UseCase struct {
-	decisions ports.DecisionRepository
-	grabs     ports.GrabRepository
-	evaluator *evaluate.UseCase
-	instances map[string]scan.Instance
-	logger    *slog.Logger
+	decisions       ports.DecisionRepository
+	grabs           ports.GrabRepository
+	evaluator       *evaluate.UseCase
+	instancesByName func() map[string]scan.Instance
+	logger          *slog.Logger
 }
 
 func NewUseCase(decisions ports.DecisionRepository, grabs ports.GrabRepository,
-	evaluator *evaluate.UseCase, instances map[string]scan.Instance,
+	evaluator *evaluate.UseCase, instancesByName func() map[string]scan.Instance,
 	logger *slog.Logger) *UseCase {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if instancesByName == nil {
+		instancesByName = func() map[string]scan.Instance { return nil }
+	}
 	return &UseCase{decisions: decisions, grabs: grabs, evaluator: evaluator,
-		instances: instances, logger: logger}
+		instancesByName: instancesByName, logger: logger}
 }
 
 type Input struct {
@@ -60,7 +63,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (Output, error) {
 		return Output{}, err
 	}
 
-	inst, ok := u.instances[original.InstanceName]
+	inst, ok := u.instancesByName()[original.InstanceName]
 	if !ok {
 		return Output{}, fmt.Errorf("unknown instance: %s", original.InstanceName)
 	}
