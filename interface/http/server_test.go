@@ -346,6 +346,79 @@ func TestServer_Shutdown_NotStarted(t *testing.T) {
 	assert.NoError(t, srv.Shutdown(ctx))
 }
 
+// TestNewServer_TrustedProxies_Honored covers HIGH-S2: the
+// constructor must forward Auth.TrustedProxies to the underlying gin
+// engine. With no trusted proxies, c.ClientIP() falls back to
+// RemoteAddr — X-Forwarded-For is ignored. We probe via a tiny
+// route registered on the same engine instance.
+func TestNewServer_TrustedProxies_Honored(t *testing.T) {
+	srv := buildServer(t) // Auth.Enabled=false, TrustedProxies=nil
+	// Empty trusted-proxies list ⇒ RemoteAddr only.
+	srv.engine.GET("/__client_ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/__client_ip", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	w := httptest.NewRecorder()
+	srv.engine.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	// XFF MUST be ignored because the test server runs with no trusted
+	// proxies. The reported client IP is the RemoteAddr host.
+	assert.Equal(t, "192.0.2.10", w.Body.String())
+}
+
+// TestNewServer_TrustedProxies_HonorsLocalhost covers HIGH-S2 with the
+// default ["127.0.0.1", "::1"] list. A request originating from
+// localhost gets its XFF honored; a request from a non-trusted IP
+// does not.
+func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarrClient := &noopSonarr{name: "main"}
+	evalUC := evaluate.NewUseCase(sonarrClient, noopDecRepo{}, lg)
+	scanUC := scan.NewUseCase(
+		[]scan.Instance{{Config: config.SonarrInstance{Name: "main"}, Client: sonarrClient}},
+		evalUC, noopScanRepo{}, lg, true,
+	)
+	checker := healthcheck.New(db, []ports.SonarrClient{sonarrClient})
+
+	srv := NewServer(config.HTTPConfig{
+		Bind: "127.0.0.1:0",
+		Auth: config.AuthConfig{
+			Enabled:        false,
+			TrustedProxies: []string{"127.0.0.1", "::1"},
+		},
+	}, scanUC, noopWebhookUC{}, checker,
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
+		&stubAdminRepo{}, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, lg)
+
+	srv.engine.GET("/__client_ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+
+	// From localhost (trusted) — XFF is honored.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/__client_ip", nil)
+	req.RemoteAddr = "127.0.0.1:55555"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	w := httptest.NewRecorder()
+	srv.engine.ServeHTTP(w, req)
+	assert.Equal(t, "203.0.113.99", w.Body.String())
+
+	// From a non-trusted IP — XFF ignored, falls back to RemoteAddr.
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/__client_ip", nil)
+	req2.RemoteAddr = "198.51.100.7:55555"
+	req2.Header.Set("X-Forwarded-For", "203.0.113.99")
+	w2 := httptest.NewRecorder()
+	srv.engine.ServeHTTP(w2, req2)
+	assert.Equal(t, "198.51.100.7", w2.Body.String())
+}
+
 func TestServer_StartShutdown_Cycle(t *testing.T) {
 	srv := buildServer(t)
 

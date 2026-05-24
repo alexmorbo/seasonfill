@@ -52,6 +52,17 @@ func NewServer(
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLogging(logger))
 
+	// HIGH-S2: bound which proxies' X-Forwarded-For we honor. Default
+	// (set by config.Defaults) is ["127.0.0.1", "::1"] — only localhost
+	// trusted. Empty list disables XFF entirely; SetTrustedProxies(nil)
+	// makes c.ClientIP() fall back to RemoteAddr. The login + webhook
+	// rate limits rely on this for accurate keying.
+	if err := r.SetTrustedProxies(cfg.Auth.TrustedProxies); err != nil {
+		logger.Warn("http.trusted_proxies invalid — falling back to RemoteAddr",
+			slog.String("error", err.Error()))
+		_ = r.SetTrustedProxies(nil)
+	}
+
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
 	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, logger)
@@ -66,9 +77,14 @@ func NewServer(
 	api := r.Group("/api/v1")
 
 	if cfg.Auth.Enabled {
+		// M1: stricter limiter for /auth/password — 3 attempts / 15min,
+		// per ClientIP. Independent from the login limiter so a brute-
+		// forcer with a stolen cookie can't exhaust BOTH paths.
+		passwordLimiter := auth.NewIPLimiter(auth.PasswordChangeLimit(), 3)
 		authHandler := handlers.NewAuthHandler(
 			cfg.Auth.APIKey, adminRepo, cfg.Auth.SessionTTL,
 			cfg.Auth.SecureCookie, loginLimiter, logger,
+			handlers.WithPasswordLimiter(passwordLimiter),
 		)
 		api.POST("/auth/login", authHandler.Login)
 
@@ -97,6 +113,14 @@ func NewServer(
 			wh.Use(webhookRateLimit(webhookLimiter))
 		}
 		wh.POST("", webhookHandler.Handle)
+	} else {
+		// HIGH-S1: if an operator flips auth.enabled=false they get an
+		// unusable service (only /healthz, /readyz, /metrics). Make the
+		// state loud at startup so it's not mistaken for "API broken".
+		// auth.enabled=false is documented as a testing-only mode; the
+		// production config keeps it true.
+		logger.Warn("auth disabled — only /healthz, /readyz, /metrics exposed; API routes NOT registered",
+			slog.String("hint", "set http.auth.enabled=true to expose /api/v1/*"))
 	}
 
 	srv := &http.Server{

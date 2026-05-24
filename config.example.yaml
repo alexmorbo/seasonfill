@@ -23,6 +23,14 @@ http:
     # Browsers refuse Secure cookies over plain HTTP, so leave false
     # for http://localhost dev.
     secure_cookie: ${SEASONFILL_AUTH_SECURE_COOKIE}
+    # CIDRs/IPs whose X-Forwarded-For we trust when resolving the
+    # client IP (used by login + webhook rate limits). Default is
+    # ["127.0.0.1", "::1"] — only localhost trusted. Add your
+    # ingress/proxy CIDR if you terminate TLS in front of seasonfill.
+    # Empty list disables XFF entirely (uses RemoteAddr).
+    trusted_proxies:
+      - "127.0.0.1"
+      - "::1"
 
 cron:
   enabled: true

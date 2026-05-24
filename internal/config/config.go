@@ -44,6 +44,11 @@ type HTTPConfig struct {
 // serving over HTTPS (e.g. behind an ingress with TLS terminated).
 // Default false so http://localhost dev works (browsers drop
 // Secure cookies on HTTP). M1 review-fix: do NOT alias Enabled.
+//
+// TrustedProxies lists CIDRs/IPs whose X-Forwarded-For headers we
+// honor when resolving the client IP (used by login + webhook rate
+// limits). Default ["127.0.0.1", "::1"] — only localhost trusted.
+// Empty list disables XFF trust entirely (uses RemoteAddr).
 type AuthConfig struct {
 	Enabled         bool          `koanf:"enabled"`
 	APIKey          string        `koanf:"api_key"`
@@ -52,6 +57,7 @@ type AuthConfig struct {
 	WebUser         string        `koanf:"web_user"`
 	WebPassword     string        `koanf:"web_password"`
 	WebPasswordHash string        `koanf:"web_password_hash"`
+	TrustedProxies  []string      `koanf:"trusted_proxies"`
 }
 
 type CronConfig struct {
@@ -196,9 +202,10 @@ func Defaults() *Config {
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
 			Auth: AuthConfig{
-				Enabled:    true,
-				WebUser:    "admin",
-				SessionTTL: 12 * time.Hour,
+				Enabled:        true,
+				WebUser:        "admin",
+				SessionTTL:     12 * time.Hour,
+				TrustedProxies: []string{"127.0.0.1", "::1"},
 			},
 		},
 		Cron: CronConfig{

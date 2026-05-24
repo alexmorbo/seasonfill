@@ -24,13 +24,14 @@ const (
 
 // AuthHandler — D48 handler.
 type AuthHandler struct {
-	apiKey       string
-	repo         ports.AdminUserRepository
-	sessionTTL   time.Duration
-	secureCookie bool
-	limiter      *auth.IPLimiter
-	logger       *slog.Logger
-	now          func() time.Time
+	apiKey          string
+	repo            ports.AdminUserRepository
+	sessionTTL      time.Duration
+	secureCookie    bool
+	limiter         *auth.IPLimiter
+	passwordLimiter *auth.IPLimiter
+	logger          *slog.Logger
+	now             func() time.Time
 }
 
 type AuthOption func(*AuthHandler)
@@ -41,6 +42,14 @@ func WithClock(now func() time.Time) AuthOption {
 			h.now = now
 		}
 	}
+}
+
+// WithPasswordLimiter installs a per-IP rate limit on PasswordChange.
+// M1: a stolen session cookie could otherwise brute-force the current
+// password unthrottled — bcrypt-cost-12 burns CPU but doesn't bound
+// attempt count.
+func WithPasswordLimiter(lim *auth.IPLimiter) AuthOption {
+	return func(h *AuthHandler) { h.passwordLimiter = lim }
 }
 
 // NewAuthHandler — panics on empty apiKey or nil repo.
@@ -225,6 +234,19 @@ func (h *AuthHandler) Session(c *gin.Context) {
 // @Security    ApiKeyAuth
 // @Router      /auth/password [post]
 func (h *AuthHandler) PasswordChange(c *gin.Context) {
+	// M1: throttle BEFORE bcrypt work to bound CPU on a cookie-thief
+	// brute force. Same envelope as login (Invalid credentials / 429).
+	if h.passwordLimiter != nil {
+		ip := c.ClientIP()
+		if !h.passwordLimiter.Allow(ip) {
+			h.logger.WarnContext(c.Request.Context(), "auth.password_change.rate_limited",
+				slog.String("ip", ip))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "rate limit exceeded", "code": "RATE_LIMITED",
+			})
+			return
+		}
+	}
 	ct := c.GetHeader("Content-Type")
 	if !strings.HasPrefix(ct, jsonPrefix) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
@@ -256,6 +278,15 @@ func (h *AuthHandler) PasswordChange(c *gin.Context) {
 	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Current) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+	// M4: same-as-current is a no-op — reject before we hash + write.
+	// Check AFTER verifying current so we don't leak whether the new
+	// password equals an arbitrary string.
+	if body.New == body.Current {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "New password must differ from current", "code": "BAD_REQUEST",
+		})
 		return
 	}
 	newHash, err := auth.HashPassword(body.New)
