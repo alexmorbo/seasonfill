@@ -31,9 +31,13 @@ func startSub(t *testing.T, boot *scheduler.Scheduler) (*SchedulerSubscriber, *r
 		return newTestScheduler(schedule, jitter, l)
 	})
 	sub := NewSchedulerSubscriber(ctx, boot, scanUC, factory, slog.Default())
-	go sub.Run(ctx, bus)
-	// Allow goroutine to register subscription.
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler subscriber failed to register within 1s")
+	}
 	return sub, bus, cancel, &builds
 }
 

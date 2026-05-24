@@ -27,8 +27,13 @@ func TestGlobalRateLimiter_RebuildsOnChange(t *testing.T) {
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("global rate limiter subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 30, Burst: 10}})
 	deadline := time.Now().Add(time.Second)
@@ -63,8 +68,13 @@ func TestGlobalRateLimiter_ZeroMeansUnlimited(t *testing.T) {
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("global rate limiter subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 0, Burst: 0}})
 	time.Sleep(50 * time.Millisecond)

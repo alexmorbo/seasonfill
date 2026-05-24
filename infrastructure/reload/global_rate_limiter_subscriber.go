@@ -47,8 +47,8 @@ func NewGlobalRateLimiterSubscriber(ptr *LimiterPointer, factory GlobalLimiterFa
 	return &GlobalRateLimiterSubscriber{ptr: ptr, factory: factory, logger: logger}
 }
 
-func (s *GlobalRateLimiterSubscriber) Run(ctx context.Context, bus *runtime.Bus) {
-	runLoop(ctx, bus, "globalRateLimiter", s.logger, s.apply)
+func (s *GlobalRateLimiterSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
+	runLoop(ctx, bus, "globalRateLimiter", s.logger, s.apply, ready)
 }
 
 func (s *GlobalRateLimiterSubscriber) apply(_ context.Context, snap runtime.Snapshot) error {

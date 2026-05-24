@@ -39,8 +39,8 @@ func NewHealthRegistrySubscriber(checker HealthChecker, lister ClientLister, log
 }
 
 // Run blocks until ctx is done.
-func (s *HealthRegistrySubscriber) Run(ctx context.Context, bus *runtime.Bus) {
-	runLoop(ctx, bus, "healthRegistry", s.logger, s.apply)
+func (s *HealthRegistrySubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
+	runLoop(ctx, bus, "healthRegistry", s.logger, s.apply, ready)
 }
 
 // apply re-reads the live client list (which the sonarrClients

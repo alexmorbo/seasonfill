@@ -106,9 +106,9 @@ func (s *SonarrClientsSubscriber) View() *ClientsView {
 
 // Run blocks until ctx is done. Cancels every pending-removal timer
 // on exit so the test process doesn't leak goroutines.
-func (s *SonarrClientsSubscriber) Run(ctx context.Context, bus *runtime.Bus) {
+func (s *SonarrClientsSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
 	defer s.cancelAllPending()
-	runLoop(ctx, bus, "sonarrClients", s.logger, s.apply)
+	runLoop(ctx, bus, "sonarrClients", s.logger, s.apply, ready)
 }
 
 func (s *SonarrClientsSubscriber) cancelAllPending() {

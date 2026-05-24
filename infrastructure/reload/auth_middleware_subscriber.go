@@ -30,8 +30,8 @@ func NewAuthMiddlewareSubscriber(ptr *middleware.AuthRuntimePointer, engine *gin
 	return &AuthMiddlewareSubscriber{ptr: ptr, engine: engine, logger: logger}
 }
 
-func (s *AuthMiddlewareSubscriber) Run(ctx context.Context, bus *runtime.Bus) {
-	runLoop(ctx, bus, "authMiddleware", s.logger, s.apply)
+func (s *AuthMiddlewareSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
+	runLoop(ctx, bus, "authMiddleware", s.logger, s.apply, ready)
 }
 
 func (s *AuthMiddlewareSubscriber) apply(_ context.Context, snap runtime.Snapshot) error {

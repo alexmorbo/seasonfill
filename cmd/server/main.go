@@ -354,16 +354,21 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		authRuntimePtr = authHandler.AuthRuntime()
 	}
 
-	subSched, _ := startSubscribers(rootCtx, &bgWG, bus, log,
+	subSched, _, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName, bootCfgs,
 		clientFactory, checker, holder,
 		&globalLimiterPtr, authRuntimePtr, httpServer.Engine())
+	if err != nil {
+		return nil, fmt.Errorf("start subscribers: %w", err)
+	}
 
 	// Re-publish the boot snapshot now that subscribers are alive
 	// — they all apply it once and increment their success metric.
 	bus.Publish(rootCtx, snap)
 
-	// Notify caller (test helper) that the bus is ready.
+	// Notify caller (test helper) that the bus is ready. Placed AFTER
+	// startSubscribers + boot Publish so the test can assert counters
+	// immediately without polling.
 	if onReady != nil {
 		onReady(bus)
 	}

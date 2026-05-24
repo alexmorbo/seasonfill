@@ -34,16 +34,10 @@ func TestReload_E2E_PublishFiresAllSubscribers(t *testing.T) {
 	bus, stop := bootForTest(t)
 	defer stop()
 
-	// Wait for boot publish to land in every counter (each
-	// subscriber increments exactly once on the boot snapshot).
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if allSubscribersGreen(t) {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	require.True(t, allSubscribersGreen(t), "all 6 subscribers must apply the boot snapshot")
+	// Boot publish has already landed by the time bootForTest returns
+	// (the barrier in startSubscribers + the boot Publish guarantee it).
+	require.True(t, allSubscribersGreen(t),
+		"all 6 subscribers must have applied the boot snapshot before runForTest exposed the bus")
 
 	// Publish a synthetic snapshot and confirm counters increment AGAIN.
 	prev := scrapeReloadCounters(t)
@@ -52,7 +46,7 @@ func TestReload_E2E_PublishFiresAllSubscribers(t *testing.T) {
 		GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 30, Burst: 10},
 		Auth:            runtime.AuthSnapshot{SessionTTL: 12 * time.Hour, TrustedProxies: []string{"127.0.0.1"}},
 	})
-	deadline = time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		now := scrapeReloadCounters(t)
 		if everyCounterAdvanced(prev, now) {

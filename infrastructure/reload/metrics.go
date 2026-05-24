@@ -43,14 +43,25 @@ func IncReloadError(component string) {
 // received snapshot, and exits cleanly when ctx is cancelled OR
 // when bus.Close() closes the channel. `apply` returning an error
 // is logged + metric'd; the loop continues with the previous state.
+//
+// `ready`, if non-nil, is invoked synchronously immediately after
+// the bus.Subscribe call completes — by the time it runs, the
+// subscriber's channel is registered and a concurrent Publish will
+// reach it. cmd/server uses this to barrier the boot publish.
+// Subscriber unit tests may pass nil.
 func runLoop(
 	ctx context.Context,
 	bus *runtime.Bus,
 	component string,
 	logger *slog.Logger,
 	apply func(context.Context, runtime.Snapshot) error,
+	ready func(),
 ) {
-	ch := bus.Subscribe(component)
+	var opts []runtime.SubscribeOption
+	if ready != nil {
+		opts = append(opts, runtime.WithReady(ready))
+	}
+	ch := bus.Subscribe(component, opts...)
 	for {
 		select {
 		case <-ctx.Done():

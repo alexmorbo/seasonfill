@@ -43,8 +43,8 @@ func NewScanInstancesSubscriber(scanUC *scan.UseCase, clientFor ClientForName, o
 	}
 }
 
-func (s *ScanInstancesSubscriber) Run(ctx context.Context, bus *runtime.Bus) {
-	runLoop(ctx, bus, "scanInstances", s.logger, s.apply)
+func (s *ScanInstancesSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
+	runLoop(ctx, bus, "scanInstances", s.logger, s.apply, ready)
 }
 
 func (s *ScanInstancesSubscriber) apply(_ context.Context, snap runtime.Snapshot) error {

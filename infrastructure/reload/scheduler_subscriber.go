@@ -48,8 +48,8 @@ func NewSchedulerSubscriber(rootCtx context.Context, boot *scheduler.Scheduler, 
 }
 
 // Run blocks until ctx is done. Decremented from bgWG by the caller.
-func (s *SchedulerSubscriber) Run(ctx context.Context, bus *runtime.Bus) {
-	runLoop(ctx, bus, "scheduler", s.logger, s.apply)
+func (s *SchedulerSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
+	runLoop(ctx, bus, "scheduler", s.logger, s.apply, ready)
 }
 
 // Current returns the active scheduler (or nil if cron is disabled

@@ -28,8 +28,13 @@ func TestAuthMiddleware_SessionTTLUpdated(t *testing.T) {
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("auth middleware subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{
 		Auth: runtime.AuthSnapshot{SessionTTL: 6 * time.Hour, TrustedProxies: []string{"127.0.0.1"}},
@@ -59,8 +64,13 @@ func TestAuthMiddleware_TrustedProxiesUpdated(t *testing.T) {
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("auth middleware subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{
 		Auth: runtime.AuthSnapshot{
@@ -95,11 +105,16 @@ func TestAuthMiddleware_InvalidProxy_FailOpen(t *testing.T) {
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	var stillAlive int32 = 1
+	ready := make(chan struct{})
 	go func() {
-		sub.Run(ctx, bus)
+		sub.Run(ctx, bus, func() { close(ready) })
 		atomic.StoreInt32(&stillAlive, 0)
 	}()
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("auth middleware subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{
 		Auth: runtime.AuthSnapshot{SessionTTL: time.Hour, TrustedProxies: []string{"not-a-cidr"}},

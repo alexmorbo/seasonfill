@@ -38,8 +38,13 @@ func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.So
 	})
 	sub := NewSonarrClientsSubscriber(boot, bootCfgs, factory, slog.Default()).
 		WithDrainDelay(drain)
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("sonarr clients subscriber failed to register within 1s")
+	}
 	return sub, bus, cancel, &builds
 }
 

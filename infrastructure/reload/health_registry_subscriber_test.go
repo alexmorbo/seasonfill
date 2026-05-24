@@ -53,8 +53,13 @@ func TestHealthRegistrySubscriber_ReplaysOnEverySnapshot(t *testing.T) {
 	checker := &fakeChecker{}
 	current := []ports.SonarrClient{newFakeClient("alpha")}
 	sub := NewHealthRegistrySubscriber(checker, func() []ports.SonarrClient { return current }, slog.Default())
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("health registry subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
@@ -87,8 +92,13 @@ func TestHealthRegistrySubscriber_NamesDerivedFromClients(t *testing.T) {
 	checker := &fakeChecker{}
 	current := []ports.SonarrClient{newFakeClient("gamma"), newFakeClient("delta")}
 	sub := NewHealthRegistrySubscriber(checker, func() []ports.SonarrClient { return current }, slog.Default())
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("health registry subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
@@ -110,8 +120,13 @@ func TestHealthRegistrySubscriber_EmptyClientList(t *testing.T) {
 
 	checker := &fakeChecker{}
 	sub := NewHealthRegistrySubscriber(checker, func() []ports.SonarrClient { return nil }, slog.Default())
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("health registry subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)

@@ -34,8 +34,13 @@ func TestScanInstances_ProviderUpdates(t *testing.T) {
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	go sub.Run(ctx, bus)
-	time.Sleep(10 * time.Millisecond)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("scan instances subscriber failed to register within 1s")
+	}
 
 	bus.Publish(ctx, runtime.Snapshot{
 		Instances: []runtime.InstanceSnapshot{
@@ -93,11 +98,16 @@ func TestScanInstances_MissingClient_Skipped(t *testing.T) {
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	var done int32
+	ready := make(chan struct{})
 	go func() {
-		sub.Run(ctx, bus)
+		sub.Run(ctx, bus, func() { close(ready) })
 		atomic.StoreInt32(&done, 1)
 	}()
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("scan instances subscriber failed to register within 1s")
+	}
 	bus.Publish(ctx, runtime.Snapshot{
 		Instances: []runtime.InstanceSnapshot{{Name: "ghost"}},
 	})
