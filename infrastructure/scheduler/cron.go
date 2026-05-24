@@ -60,3 +60,19 @@ func (s *Scheduler) Start(ctx context.Context, scanner *scan.UseCase) error {
 func (s *Scheduler) Stop() context.Context {
 	return s.cron.Stop()
 }
+
+// Schedule returns the cron expression the scheduler is currently
+// bound to. Used by the reload subscriber's diff-skip path so we
+// don't tear down a running cron when the schedule hasn't changed.
+func (s *Scheduler) Schedule() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.schedule
+}
+
+// Jitter returns the configured jitter window. Same diff-skip use.
+func (s *Scheduler) Jitter() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.jitter
+}

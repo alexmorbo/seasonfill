@@ -131,3 +131,18 @@ func healthCode(h instance.Health) int {
 		return 3
 	}
 }
+
+// ReplaceClients swaps the client list the periodic preflight loop
+// iterates. Called from the reload subscriber when an instance is
+// added or removed. The registry is rebuilt with the new names so
+// removed instances stop appearing in Snapshot(); the listener
+// attached at construction is preserved.
+func (c *Checker) ReplaceClients(clients []ports.SonarrClient) {
+	names := make([]string, 0, len(clients))
+	for _, inst := range clients {
+		names = append(names, inst.Name())
+	}
+	listener := metricsListener{}
+	c.registry = instance.NewRegistry(names).WithListener(listener)
+	c.instances = clients
+}

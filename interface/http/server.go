@@ -195,3 +195,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	defer cancel()
 	return s.server.Shutdown(sctx)
 }
+
+// Engine returns the underlying gin engine. The reload
+// authMiddleware subscriber calls SetTrustedProxies on the engine
+// when `trusted_proxies` changes; no other caller should reach for
+// this — every legitimate handler is registered at construction.
+func (s *Server) Engine() *gin.Engine {
+	return s.engine
+}
