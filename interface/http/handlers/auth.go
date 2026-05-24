@@ -27,7 +27,6 @@ type AuthHandler struct {
 	apiKey          string
 	repo            ports.AdminUserRepository
 	authRuntime     *middleware.AuthRuntimePointer
-	secureCookie    bool
 	limiter         *auth.IPLimiter
 	passwordLimiter *auth.IPLimiter
 	logger          *slog.Logger
@@ -70,10 +69,13 @@ func NewAuthHandler(
 		logger = slog.Default()
 	}
 	ptr := &middleware.AuthRuntimePointer{}
-	ptr.Store(&middleware.AuthRuntime{SessionTTL: sessionTTL})
+	ptr.Store(&middleware.AuthRuntime{
+		SessionTTL:   sessionTTL,
+		SecureCookie: secureCookie,
+	})
 	h := &AuthHandler{
 		apiKey: apiKey, repo: repo, authRuntime: ptr,
-		secureCookie: secureCookie, limiter: limiter, logger: logger, now: time.Now,
+		limiter: limiter, logger: logger, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -107,6 +109,17 @@ func (h *AuthHandler) sessionTTL() time.Duration {
 		return v.SessionTTL
 	}
 	return 12 * time.Hour
+}
+
+// secureCookieFlag reads the current SecureCookie flag from the atomic and
+// OR-combines with the per-request TLS detection. Returning true here makes
+// the cookie Secure; we NEVER downgrade a TLS request.
+func (h *AuthHandler) secureCookieFlag(c *gin.Context) bool {
+	flag := false
+	if v := h.authRuntime.Load(); v != nil {
+		flag = v.SecureCookie
+	}
+	return flag || requestIsTLS(c.Request)
 }
 
 // Login is POST /api/v1/auth/login.
@@ -174,7 +187,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, tok,
 		int(h.sessionTTL().Seconds()), "/", "",
-		h.secureCookie || requestIsTLS(c.Request), true)
+		h.secureCookieFlag(c), true)
 	h.logger.InfoContext(c.Request.Context(), "auth.login.success",
 		slog.String("username", user.Username))
 	c.JSON(http.StatusOK, gin.H{
@@ -222,7 +235,7 @@ func (h *AuthHandler) readLoginBody(c *gin.Context) (string, string, bool) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, "", -1, "/", "",
-		h.secureCookie || requestIsTLS(c.Request), true)
+		h.secureCookieFlag(c), true)
 	h.logger.InfoContext(c.Request.Context(), "auth.logout.success")
 	c.Status(http.StatusNoContent)
 }

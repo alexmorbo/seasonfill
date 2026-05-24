@@ -256,3 +256,66 @@ func TestAuthPasswordChange_RateLimit(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, w.Code, "body=%s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "RATE_LIMITED")
 }
+
+// TestLogin_SecureCookieAtomicLive — flipping AuthRuntime.SecureCookie via
+// the shared atomic (the reload subscriber's only side effect) must take
+// effect on the very next Login without rebuilding the handler.
+func TestLogin_SecureCookieAtomicLive(t *testing.T) {
+	t.Parallel()
+	repo := seedRepo(t)
+	r, h := setupAuth(t, repo, nil)
+	// Boot atomic = SecureCookie:false (setupAuth passes false).
+	w := postJSON(t, r, "/api/v1/auth/login",
+		map[string]string{"username": "admin", "password": "hunter22"}, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == middleware.SessionCookieName {
+			cookie = c
+		}
+	}
+	require.NotNil(t, cookie)
+	assert.False(t, cookie.Secure, "boot=false → Secure must be false on plain HTTP")
+
+	// Flip via the atomic (simulates AuthMiddlewareSubscriber.apply).
+	h.authRuntime.Store(&middleware.AuthRuntime{
+		SessionTTL:   time.Hour,
+		SecureCookie: true,
+	})
+	w = postJSON(t, r, "/api/v1/auth/login",
+		map[string]string{"username": "admin", "password": "hunter22"}, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	cookie = nil
+	for _, c := range w.Result().Cookies() {
+		if c.Name == middleware.SessionCookieName {
+			cookie = c
+		}
+	}
+	require.NotNil(t, cookie)
+	assert.True(t, cookie.Secure, "after atomic flip → next Login must set Secure")
+}
+
+// TestLogin_TLSAlwaysSecure — a TLS-marked request (or X-Forwarded-Proto:
+// https) MUST get Secure even when SecureCookie=false. Defense in depth:
+// never downgrade.
+func TestLogin_TLSAlwaysSecure(t *testing.T) {
+	t.Parallel()
+	repo := seedRepo(t)
+	r, _ := setupAuth(t, repo, nil)
+	raw, _ := json.Marshal(map[string]string{"username": "admin", "password": "hunter22"})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/auth/login", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == middleware.SessionCookieName {
+			cookie = c
+		}
+	}
+	require.NotNil(t, cookie)
+	assert.True(t, cookie.Secure, "X-Forwarded-Proto=https must force Secure regardless of flag")
+}

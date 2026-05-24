@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -11,31 +12,19 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// DrainDelay is how long a removed sonarr client lingers in
-// pendingRemoval before being dropped. Long enough for in-flight
-// scan/grab calls to finish (locked at 30s; can be reduced in
-// tests via WithDrainDelay).
 const DrainDelay = 30 * time.Second
 
-// SonarrClientFactory builds a fresh per-instance sonarr client.
-// Production wiring captures the global limiter + observer closures
-// at construction so they don't have to be plumbed through the
-// snapshot.
 type SonarrClientFactory func(snap runtime.InstanceSnapshot) ports.SonarrClient
 
-// ClientsView is a read-only snapshot of the live client map; the
-// instances handler / scan UC consume one of these per request.
 type ClientsView struct {
 	byName map[string]ports.SonarrClient
 }
 
-// ByName returns the client for `name`, or nil + false if absent.
 func (v *ClientsView) ByName(name string) (ports.SonarrClient, bool) {
 	c, ok := v.byName[name]
 	return c, ok
 }
 
-// All returns every live client. Order is unspecified.
 func (v *ClientsView) All() []ports.SonarrClient {
 	out := make([]ports.SonarrClient, 0, len(v.byName))
 	for _, c := range v.byName {
@@ -44,17 +33,15 @@ func (v *ClientsView) All() []ports.SonarrClient {
 	return out
 }
 
+// pendingEntry is one in-flight drain. `deadline` is wall-time; the sweeper
+// drops the entry once `time.Now().After(deadline)`.
 type pendingEntry struct {
-	client ports.SonarrClient
-	config runtime.InstanceSnapshot
-	timer  *time.Timer
+	name     string
+	client   ports.SonarrClient
+	config   runtime.InstanceSnapshot
+	deadline time.Time
 }
 
-// SonarrClientsSubscriber owns the live `map[string]ports.SonarrClient`
-// and rebuilds it on every snapshot. Removed instances are kept in
-// pendingRemoval for DrainDelay so in-flight calls finish; new
-// instances with the same name during the drain window reuse the
-// pending client.
 type SonarrClientsSubscriber struct {
 	mu             sync.RWMutex
 	live           map[string]ports.SonarrClient
@@ -63,6 +50,7 @@ type SonarrClientsSubscriber struct {
 	factory        SonarrClientFactory
 	logger         *slog.Logger
 	drainDelay     time.Duration
+	bgWG           *sync.WaitGroup
 }
 
 func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, bootConfigs map[string]runtime.InstanceSnapshot, factory SonarrClientFactory, logger *slog.Logger) *SonarrClientsSubscriber {
@@ -80,20 +68,25 @@ func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, bootConfigs 
 	return &SonarrClientsSubscriber{
 		live: live, configs: cfgs,
 		pendingRemoval: map[string]pendingEntry{},
-		factory: factory, logger: logger,
-		drainDelay: DrainDelay,
+		factory:        factory,
+		logger:         logger,
+		drainDelay:     DrainDelay,
 	}
 }
 
-// WithDrainDelay overrides the 30s drain delay. Test-only.
 func (s *SonarrClientsSubscriber) WithDrainDelay(d time.Duration) *SonarrClientsSubscriber {
 	s.drainDelay = d
 	return s
 }
 
-// View returns a stable read-only snapshot of the live client map.
-// Callers must not retain the map across reload boundaries; take a
-// fresh View() per request setup instead.
+// WithWaitGroup registers the sweeper goroutine on a caller-owned WG so
+// shutdown can wait for the drain loop to finish. cmd/server passes the
+// shared bgWG. Tests may omit; Run falls back to a private WG.
+func (s *SonarrClientsSubscriber) WithWaitGroup(wg *sync.WaitGroup) *SonarrClientsSubscriber {
+	s.bgWG = wg
+	return s
+}
+
 func (s *SonarrClientsSubscriber) View() *ClientsView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -104,19 +97,94 @@ func (s *SonarrClientsSubscriber) View() *ClientsView {
 	return &ClientsView{byName: cp}
 }
 
-// Run blocks until ctx is done. Cancels every pending-removal timer
-// on exit so the test process doesn't leak goroutines.
+// Run blocks until ctx is done. Starts the sweeper goroutine (tracked on
+// bgWG when supplied) before entering runLoop; sweeper exits and flushes
+// remaining pending entries on ctx.Done().
 func (s *SonarrClientsSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
-	defer s.cancelAllPending()
+	wg := s.bgWG
+	if wg == nil {
+		wg = &sync.WaitGroup{}
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.sweepDrains(ctx)
+	}()
 	runLoop(ctx, bus, "sonarrClients", s.logger, s.apply, ready)
+	if s.bgWG == nil {
+		// Local WG path: wait for sweeper here so Run() blocks until it
+		// fully exits. Production caller waits on the shared bgWG.
+		wg.Wait()
+	}
 }
 
-func (s *SonarrClientsSubscriber) cancelAllPending() {
+// sweepInterval is `min(drainDelay/2, 1s)` clamped at 50ms — fast enough to
+// observe drain in 100ms-delay tests, slow enough to be cheap in prod.
+func (s *SonarrClientsSubscriber) sweepInterval() time.Duration {
+	half := s.drainDelay / 2
+	const lo, hi = 50 * time.Millisecond, time.Second
+	if half < lo {
+		return lo
+	}
+	if half > hi {
+		return hi
+	}
+	return half
+}
+
+// sweepDrains ticks at sweepInterval() and drops every pendingRemoval entry
+// whose deadline has passed. On ctx.Done it flushes every remaining entry
+// (logs `drained` for each) so shutdown is observable in tests.
+func (s *SonarrClientsSubscriber) sweepDrains(ctx context.Context) {
+	t := time.NewTicker(s.sweepInterval())
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.flushAllPending()
+			return
+		case <-t.C:
+			s.sweepExpired(time.Now())
+		}
+	}
+}
+
+func (s *SonarrClientsSubscriber) sweepExpired(now time.Time) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	expired := make([]string, 0, len(s.pendingRemoval))
 	for name, p := range s.pendingRemoval {
-		p.timer.Stop()
+		if !now.Before(p.deadline) {
+			expired = append(expired, name)
+		}
+	}
+	sort.Strings(expired)
+	for _, name := range expired {
 		delete(s.pendingRemoval, name)
+	}
+	s.mu.Unlock()
+	for _, name := range expired {
+		s.logger.Info("reload.sonarrClients.drained",
+			slog.String("instance", name))
+	}
+}
+
+// flushAllPending is the shutdown path — drops every pending entry
+// regardless of deadline so `bgWG.Wait` doesn't block on a 30s timer.
+func (s *SonarrClientsSubscriber) flushAllPending() {
+	s.mu.Lock()
+	names := make([]string, 0, len(s.pendingRemoval))
+	for name := range s.pendingRemoval {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		delete(s.pendingRemoval, name)
+	}
+	s.mu.Unlock()
+	for _, name := range names {
+		s.logger.Info("reload.sonarrClients.drained",
+			slog.String("instance", name),
+			slog.String("reason", "shutdown"))
 	}
 }
 
@@ -129,8 +197,6 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 		wantByName[inst.Name] = inst
 	}
 
-	// 1. For each desired instance: reuse, resurrect-from-pending,
-	//    or build new.
 	nextLive := make(map[string]ports.SonarrClient, len(wantByName))
 	nextCfgs := make(map[string]runtime.InstanceSnapshot, len(wantByName))
 	for name, want := range wantByName {
@@ -140,18 +206,12 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 			continue
 		}
 		if pending, ok := s.pendingRemoval[name]; ok {
-			// Re-added during drain window AND its config matches
-			// the still-live pending client → reuse it.
 			if sameClientConfig(pending.config, want) {
-				pending.timer.Stop()
 				delete(s.pendingRemoval, name)
 				nextLive[name] = pending.client
 				nextCfgs[name] = want
 				continue
 			}
-			// Config changed mid-drain — drop the pending entry
-			// immediately; we're about to build a fresh one.
-			pending.timer.Stop()
 			delete(s.pendingRemoval, name)
 		}
 		client := s.factory(want)
@@ -162,8 +222,7 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 		nextCfgs[name] = want
 	}
 
-	// 2. Schedule drain for every instance that disappeared from
-	//    `live` but isn't already in pendingRemoval.
+	now := time.Now()
 	for name, client := range s.live {
 		if _, kept := nextLive[name]; kept {
 			continue
@@ -171,16 +230,12 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 		if _, already := s.pendingRemoval[name]; already {
 			continue
 		}
-		victim := name
-		cfg := s.configs[name]
-		t := time.AfterFunc(s.drainDelay, func() {
-			s.mu.Lock()
-			delete(s.pendingRemoval, victim)
-			s.mu.Unlock()
-			s.logger.Info("reload.sonarrClients.drained",
-				slog.String("instance", victim))
-		})
-		s.pendingRemoval[name] = pendingEntry{client: client, config: cfg, timer: t}
+		s.pendingRemoval[name] = pendingEntry{
+			name:     name,
+			client:   client,
+			config:   s.configs[name],
+			deadline: now.Add(s.drainDelay),
+		}
 	}
 
 	s.live = nextLive
@@ -188,10 +243,6 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 	return nil
 }
 
-// sameClientConfig answers "can we keep the existing client?" — only
-// fields that the sonarr client captures at construction (URL,
-// APIKey, Timeout, SearchTimeout, RateLimit) need to match. Tags /
-// search rules are read by scan UC, not the client.
 func sameClientConfig(a, b runtime.InstanceSnapshot) bool {
 	return a.URL == b.URL &&
 		a.APIKey == b.APIKey &&

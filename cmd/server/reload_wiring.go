@@ -105,7 +105,8 @@ func startSubscribers(
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
 	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
 		reload.SchedulerFactory(scheduler.New), log)
-	subClients := reload.NewSonarrClientsSubscriber(bootClients, bootCfgs, clientFactory, log)
+	subClients := reload.NewSonarrClientsSubscriber(bootClients, bootCfgs, clientFactory, log).
+		WithWaitGroup(bgWG)
 
 	clientLister := func() []ports.SonarrClient { return subClients.View().All() }
 	clientForName := func(n string) (ports.SonarrClient, bool) { return subClients.View().ByName(n) }

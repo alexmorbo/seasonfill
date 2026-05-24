@@ -3,6 +3,7 @@ package reload
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -151,4 +152,140 @@ func TestSonarrClients_ReAddDuringDrain_ReusesPending(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, bootClient, got, "re-add during drain must reuse the pending client (no double-construct)")
 	assert.Equal(t, int32(0), atomic.LoadInt32(builds), "factory must NOT be called on re-add reuse")
+}
+
+func TestDrain_SweeperFiresAndCleansUp(t *testing.T) {
+	t.Parallel()
+	boot := map[string]ports.SonarrClient{
+		"alpha": newFakeClient("alpha"),
+		"beta":  newFakeClient("beta"),
+	}
+	cfgs := map[string]runtime.InstanceSnapshot{
+		"alpha": {Name: "alpha", URL: "http://a", APIKey: "k"},
+		"beta":  {Name: "beta", URL: "http://b", APIKey: "k"},
+	}
+	sub, bus, cancel, _ := startClientsSub(t, 100*time.Millisecond, boot, cfgs)
+	defer cancel()
+	// Remove both → 2 pending entries.
+	bus.Publish(context.Background(), runtime.Snapshot{})
+	// Wait past deadline + one sweeper tick (50ms).
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		sub.mu.RLock()
+		n := len(sub.pendingRemoval)
+		sub.mu.RUnlock()
+		if n == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	sub.mu.RLock()
+	pendingCount := len(sub.pendingRemoval)
+	sub.mu.RUnlock()
+	assert.Equal(t, 0, pendingCount, "sweeper must drop expired entries")
+}
+
+func TestDrain_ShutdownFlushesPending(t *testing.T) {
+	t.Parallel()
+	// Long drain so entries WON'T be expired by wall-clock time.
+	boot := map[string]ports.SonarrClient{}
+	cfgs := map[string]runtime.InstanceSnapshot{}
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		boot[n] = newFakeClient(n)
+		cfgs[n] = runtime.InstanceSnapshot{Name: n, URL: "http://" + n, APIKey: "k"}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	bus := runtime.NewBus(slog.Default())
+	t.Cleanup(bus.Close)
+	factory := SonarrClientFactory(func(s runtime.InstanceSnapshot) ports.SonarrClient {
+		return newFakeClient(s.Name)
+	})
+	var wg sync.WaitGroup
+	sub := NewSonarrClientsSubscriber(boot, cfgs, factory, slog.Default()).
+		WithDrainDelay(30 * time.Second). // deliberately long
+		WithWaitGroup(&wg)
+	ready := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sub.Run(ctx, bus, func() { close(ready) })
+	}()
+	<-ready
+	// Trigger drain for all five.
+	bus.Publish(context.Background(), runtime.Snapshot{})
+	// Wait until apply has finished (pending map is populated).
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		sub.mu.RLock()
+		n := len(sub.pendingRemoval)
+		sub.mu.RUnlock()
+		if n == 5 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// Cancel and verify wg.Wait completes within bounded time.
+	cancel()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("bgWG.Wait blocked after ctx cancel — sweeper goroutine leaked")
+	}
+	sub.mu.RLock()
+	pendingCount := len(sub.pendingRemoval)
+	sub.mu.RUnlock()
+	assert.Equal(t, 0, pendingCount, "shutdown must flush every pending entry")
+}
+
+// panicSub is a minimal apply-shaped subscriber whose 3rd apply panics.
+type panicApplier struct{ count int32 }
+
+func (p *panicApplier) apply(_ context.Context, _ runtime.Snapshot) error {
+	n := atomic.AddInt32(&p.count, 1)
+	if n == 3 {
+		panic("synthetic apply panic")
+	}
+	return nil
+}
+
+func TestApply_PanicRecovered(t *testing.T) {
+	t.Parallel()
+	p := &panicApplier{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := runtime.NewBus(slog.Default())
+	t.Cleanup(bus.Close)
+	done := make(chan struct{})
+	ready := make(chan struct{})
+	go func() {
+		defer close(done)
+		runLoop(ctx, bus, "testPanic", slog.Default(), p.apply, func() { close(ready) })
+	}()
+	<-ready
+	// Bus is 1-buffered with latest-wins drop-stale semantics — publishing
+	// in a tight loop can squash messages. Publish then wait for count to
+	// advance before the next publish so each snapshot is observed.
+	waitFor := func(want int32) {
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if atomic.LoadInt32(&p.count) >= want {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	for i := int32(1); i <= 4; i++ {
+		bus.Publish(context.Background(), runtime.Snapshot{})
+		waitFor(i)
+	}
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&p.count), int32(4),
+		"runLoop must keep processing after a panic in apply")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runLoop did not exit on ctx cancel")
+	}
 }
