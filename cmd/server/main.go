@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -36,6 +37,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/netguard"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -288,7 +290,23 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log)
 	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
-	instanceProbeHandler := handlers.NewInstanceProbeHandler(&http.Client{}, log)
+	probeClient := &http.Client{
+		// One-shot probe MUST NOT follow redirects — a 3xx is a signal that
+		// the URL is not Sonarr's API root. http.ErrUseLastResponse keeps the
+		// response object intact so the handler can render a clean reason.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			// Reject RFC1918/loopback/link-local/ULA after DNS resolution
+			// (defeats rebinding by inspecting the bound IP).
+			DialContext: (&net.Dialer{
+				Control: netguard.BlockPrivate,
+				Timeout: 5 * time.Second,
+			}).DialContext,
+		},
+	}
+	instanceProbeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,

@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/netguard"
 )
 
 const (
@@ -23,21 +24,24 @@ const (
 	probeMaxResponse    = 16 << 10
 )
 
-// InstanceProbeHandler is the stateless POST /api/v1/instances/test
-// handler. It owns a vanilla *http.Client (no Sonarr client wrapper —
-// that one carries instance-keyed limiter state we don't want here).
+// InstanceProbeHandler is the stateless POST /api/v1/instances/test handler.
+// The injected *http.Client MUST be configured with:
+//   - CheckRedirect = http.ErrUseLastResponse (so 3xx surfaces as a response)
+//   - Transport.DialContext using netguard.BlockPrivate (so RFC1918 / loopback
+//     / link-local / ULA destinations are rejected at dial time, including
+//     after DNS resolution).
+//
+// Construction lives in cmd/server/main.go so tests can swap clients freely.
 type InstanceProbeHandler struct {
 	client  *http.Client
 	logger  *slog.Logger
 	timeout time.Duration
 }
 
-// ProbeOption configures an InstanceProbeHandler at construction.
 type ProbeOption func(*InstanceProbeHandler)
 
-// WithProbeTimeout overrides the 10s default. Used by tests to drive
-// the deadline branch without sleeping for real wall-clock seconds.
-// Production wiring leaves the default in place.
+// WithProbeTimeout overrides the 10s default. Tests use it to exercise the
+// deadline branch without real wall-clock waits.
 func WithProbeTimeout(d time.Duration) ProbeOption {
 	return func(h *InstanceProbeHandler) {
 		if d > 0 {
@@ -53,19 +57,13 @@ func NewInstanceProbeHandler(client *http.Client, logger *slog.Logger, opts ...P
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &InstanceProbeHandler{
-		client:  client,
-		logger:  logger,
-		timeout: probeDefaultTimeout,
-	}
+	h := &InstanceProbeHandler{client: client, logger: logger, timeout: probeDefaultTimeout}
 	for _, o := range opts {
 		o(h)
 	}
 	return h
 }
 
-// Test runs the one-shot reachability check.
-//
 // @Summary     Probe a Sonarr instance for reachability/auth
 // @Tags        instances
 // @Accept      json
@@ -90,8 +88,6 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 		return
 	}
 
-	// The probe deadline is enforced via context, not http.Client.Timeout,
-	// so a slow remote can't bypass the cap by streaming a body slowly.
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
 	defer cancel()
 
@@ -106,6 +102,14 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
+		if errors.Is(err, netguard.ErrBlockedHost) {
+			h.logger.WarnContext(ctx, "instance.probe.blocked_host",
+				slog.String("event", "probe.blocked_host"),
+				slog.String("instance_url", req.URL))
+			c.AbortWithStatusJSON(http.StatusBadRequest,
+				dto.ErrorResponse{Error: "url resolves to a private or loopback address", Code: "INVALID_HOST"})
+			return
+		}
 		h.logger.WarnContext(ctx, "instance.probe.timeout",
 			slog.String("event", "probe.timeout"),
 			slog.String("instance_url", req.URL),
@@ -116,6 +120,16 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// Redirect path: CheckRedirect=ErrUseLastResponse surfaces 3xx as-is.
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		h.logger.InfoContext(ctx, "instance.probe.redirect_rejected",
+			slog.String("event", "probe.redirect_rejected"),
+			slog.String("instance_url", req.URL),
+			slog.Int("status", resp.StatusCode))
+		c.JSON(http.StatusOK, dto.InstanceTestResponse{OK: false, Reason: "redirect rejected"})
+		return
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		reason := reasonForStatus(resp.StatusCode)
 		h.logger.InfoContext(ctx, "instance.probe.non_2xx",
@@ -123,6 +137,16 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 			slog.String("instance_url", req.URL),
 			slog.Int("status", resp.StatusCode))
 		c.JSON(http.StatusOK, dto.InstanceTestResponse{OK: false, Reason: reason})
+		return
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "application/json") {
+		h.logger.InfoContext(ctx, "instance.probe.bad_content_type",
+			slog.String("event", "probe.bad_content_type"),
+			slog.String("instance_url", req.URL),
+			slog.String("content_type", ct))
+		c.JSON(http.StatusOK, dto.InstanceTestResponse{OK: false, Reason: "not a Sonarr API endpoint"})
 		return
 	}
 

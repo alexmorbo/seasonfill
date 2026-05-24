@@ -1,8 +1,13 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log/slog"
+	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,4 +136,93 @@ func TestResolveAPIKey_ProvidedKeySavesProbe(t *testing.T) {
 	plaintext, err := cipher.Open(repo.row.APIKeyCiphertext)
 	require.NoError(t, err)
 	assert.Equal(t, key, string(plaintext))
+}
+
+// captureStdout temporarily redirects os.Stdout to a pipe. The returned
+// function restores the original and returns whatever was written.
+func captureStdout(t *testing.T) (restore func() string) {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	var buf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(&buf, r)
+	}()
+
+	return func() string {
+		_ = w.Close()
+		wg.Wait()
+		_ = r.Close()
+		os.Stdout = orig
+		return buf.String()
+	}
+}
+
+// captureSlogHandler is a slog.Handler that buffers every Record so tests
+// can inspect attributes. Concurrency-safe — ResolveAPIKey is single-goroutine
+// but slog itself may dispatch on a goroutine in future versions.
+type captureSlogHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (c *captureSlogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (c *captureSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, r.Clone())
+	return nil
+}
+func (c *captureSlogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return c }
+func (c *captureSlogHandler) WithGroup(_ string) slog.Handler      { return c }
+
+// stringifyRecord renders every attribute (key + value) into a single string
+// suitable for substring search. Group walks are not needed — ResolveAPIKey
+// uses flat attributes.
+func stringifyRecord(r slog.Record) string {
+	var b strings.Builder
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		b.WriteString(" ")
+		b.WriteString(a.Key)
+		b.WriteString("=")
+		b.WriteString(a.Value.String())
+		return true
+	})
+	return b.String()
+}
+
+func TestResolveAPIKey_AutoGenKeyNotInSlog(t *testing.T) {
+	// NOT t.Parallel: this test captures os.Stdout, which is process-global.
+	restore := captureStdout(t)
+	defer func() { _ = restore() }() // ensure restoration even on assertion failure
+
+	capture := &captureSlogHandler{}
+	log := slog.New(capture)
+
+	repo := &mockRuntimeConfigRepository{hasRow: false}
+	resolved, err := ResolveAPIKey(context.Background(), "", repo, log)
+	require.NoError(t, err)
+	require.NotEmpty(t, resolved)
+
+	stdout := restore()
+
+	// AC5 part 1: key appears on stdout, prefixed with the marker.
+	assert.Contains(t, stdout, "SEASONFILL_API_KEY="+resolved)
+
+	// AC5 part 2: key absent from every captured slog record (message + attrs).
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	require.NotEmpty(t, capture.records, "log.Info must still fire (without the key)")
+	for i, rec := range capture.records {
+		rendered := stringifyRecord(rec)
+		assert.NotContains(t, rendered, resolved,
+			"slog record %d must not contain the master key: %q", i, rendered)
+	}
 }

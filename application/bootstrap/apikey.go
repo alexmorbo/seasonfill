@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -73,8 +74,13 @@ func ResolveAPIKey(ctx context.Context, envKey string, repo ports.RuntimeConfigR
 		if err := repo.SaveAPIKey(ctx, probe, true); err != nil {
 			return "", fmt.Errorf("save api key: %w", err)
 		}
-		log.Info("FIRST-RUN: Auto-generated SEASONFILL_API_KEY. Capture and set this value to restart later:",
-			slog.String("api_key", key))
+		// Key MUST NOT enter the slog pipeline — log aggregators (Loki,
+		// VictoriaLogs) would index it. Stdout is the one channel an
+		// operator can capture out-of-band.
+		fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY="+key)
+		fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY_HELP: capture the line above and set it in your environment before the next restart")
+		log.Info("FIRST-RUN: auto-generated SEASONFILL_API_KEY printed to stdout (not logged)",
+			slog.Bool("auto_generated", true))
 		return key, nil
 
 	default:

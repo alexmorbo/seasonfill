@@ -3,9 +3,12 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/netguard"
 )
 
 func newProbeRouter(t *testing.T, h *InstanceProbeHandler) *gin.Engine {
@@ -167,4 +171,127 @@ func TestProbe_WrongContentType(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// hardenedClient mirrors the production wiring from cmd/server/main.go.
+// Tests that exercise the SSRF guards MUST use it; tests that only need
+// loopback to a httptest.Server use srv.Client() because the guard would
+// (correctly) reject 127.0.0.1.
+func hardenedClient(t *testing.T) *http.Client {
+	t.Helper()
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Control: netguard.BlockPrivate,
+				Timeout: 500 * time.Millisecond,
+			}).DialContext,
+		},
+		Timeout: 2 * time.Second,
+	}
+}
+
+func TestProbe_RedirectRejected(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://example.invalid/")
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	// Use srv.Client() but layer CheckRedirect on top — we want to exercise
+	// the handler branch, not the dialer guard.
+	c := srv.Client()
+	c.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	h := NewInstanceProbeHandler(c, nil)
+	r := newProbeRouter(t, h)
+
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.False(t, got.OK)
+	assert.Equal(t, "redirect rejected", got.Reason)
+}
+
+func TestProbe_PrivateHostRejected(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"http://10.0.0.1/",
+		"http://172.16.0.1/",
+		"http://192.168.1.1/",
+		"http://127.0.0.1/",
+		"http://169.254.169.254/",
+		"http://[::1]/",
+		"http://[fc00::1]/",
+		"http://[fe80::1]/",
+	}
+	h := NewInstanceProbeHandler(hardenedClient(t), nil)
+	r := newProbeRouter(t, h)
+
+	for _, raw := range cases {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			w := doProbe(t, r, dto.InstanceTestRequest{URL: raw, APIKey: "x"})
+			require.Equal(t, http.StatusBadRequest, w.Code, "body=%s url=%s", w.Body.String(), raw)
+			assert.Contains(t, w.Body.String(), "INVALID_HOST")
+		})
+	}
+}
+
+// TestProbe_DNSRebindRejected — hostname that resolves to a private IP.
+// localhost is the simplest portable case: it resolves to 127.0.0.1 / ::1.
+// The dialer Control hook MUST trigger AFTER resolution, so this exercises
+// the rebinding-defeat path.
+func TestProbe_DNSRebindRejected(t *testing.T) {
+	t.Parallel()
+	h := NewInstanceProbeHandler(hardenedClient(t), nil)
+	r := newProbeRouter(t, h)
+
+	w := doProbe(t, r, dto.InstanceTestRequest{
+		URL:    "http://localhost:1/",
+		APIKey: "x",
+	})
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	assert.Contains(t, w.Body.String(), "INVALID_HOST")
+}
+
+func TestProbe_NonJSONContentType(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html>not sonarr</html>")
+	}))
+	t.Cleanup(srv.Close)
+
+	h := NewInstanceProbeHandler(srv.Client(), nil)
+	r := newProbeRouter(t, h)
+
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.False(t, got.OK)
+	assert.Equal(t, "not a Sonarr API endpoint", got.Reason)
+}
+
+// Compile-time guard: keep the syscall import live; the BlockPrivate
+// signature relies on syscall.RawConn elsewhere in the tree.
+var _ = func() syscall.RawConn { return nil }
+
+// Catch a regression where ErrBlockedHost stops being errors.Is-detectable.
+func TestProbe_BlockedHostErrorChainStable(t *testing.T) {
+	t.Parallel()
+	d := &net.Dialer{Control: netguard.BlockPrivate, Timeout: 200 * time.Millisecond}
+	_, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, netguard.ErrBlockedHost),
+		"errors.Is must walk the net.OpError chain")
 }
