@@ -52,6 +52,23 @@
               {"properties": {"webPasswordHash": {"type": "string", "minLength": 1}}, "required": ["webPasswordHash"]}
             ]
           }
+        },
+        {
+          "description": "mutex: existingSecret cannot be combined with any inline secrets.* values (apiKey/webUser/webPassword/webPasswordHash/postgresDSN). Pick one source of truth.",
+          "not": {
+            "allOf": [
+              {"properties": {"existingSecret": {"type": "string", "minLength": 1}}, "required": ["existingSecret"]},
+              {
+                "anyOf": [
+                  {"properties": {"apiKey":          {"type": "string", "minLength": 1}}, "required": ["apiKey"]},
+                  {"properties": {"webUser":         {"type": "string", "minLength": 1}}, "required": ["webUser"]},
+                  {"properties": {"webPassword":     {"type": "string", "minLength": 1}}, "required": ["webPassword"]},
+                  {"properties": {"webPasswordHash": {"type": "string", "minLength": 1}}, "required": ["webPasswordHash"]},
+                  {"properties": {"postgresDSN":     {"type": "string", "minLength": 1}}, "required": ["postgresDSN"]}
+                ]
+              }
+            ]
+          }
         }
       ]
     },

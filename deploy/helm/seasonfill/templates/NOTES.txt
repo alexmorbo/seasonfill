@@ -16,7 +16,9 @@ Seasonfill {{ .Chart.AppVersion }} is installed in namespace
      {{- end }}
 {{- else }}
 
-     # Ingress is disabled. Port-forward instead:
+     # Ingress is disabled. Port-forward the web Service — the web pod
+     # nginx proxies /api, /auth, /webhook to the backend Service via
+     # cluster DNS, so a single port-forward is enough for the UI + API.
      kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "seasonfill.webFullname" . }} 8080:{{ .Values.web.service.port }}
      # then open http://localhost:8080
 {{- end }}

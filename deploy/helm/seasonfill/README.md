@@ -35,13 +35,18 @@ production with Terragrunt.
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill \
   --version 0.3.0 \
   --namespace seasonfill --create-namespace \
+  --set "config.database.driver=sqlite" \
+  --set "persistence.enabled=true" \
   --set "secrets.apiKey=$(openssl rand -hex 32)" \
+  --set "secrets.webPassword=changeme" \
   --set "instances[0].name=main" \
   --set "instances[0].url=http://sonarr.media.svc.cluster.local:8989" \
-  --set "secrets.keys.sonarrApiKeyTemplate=sonarr-{name}-api-key" \
-  --set "secrets.apiKey=changeme" \
-  --set "secrets.webPassword=changeme"
+  --set "instances[0].apiKey=$SONARR_MAIN_KEY"
 ```
+
+The default `config.database.driver` is `postgres`, which would also
+require `--set "secrets.postgresDSN=postgres://..."`. SQLite keeps the
+example self-contained — toggle to `postgres` once you have a DSN.
 
 The chart renders a `<release>-env` Secret from those inline values.
 First-run admin password lands in the backend pod logs:
@@ -263,7 +268,9 @@ new values. Read the chart annotation `artifacthub.io/changes` in
 
 In each Sonarr → Settings → Connect → + → Webhook:
 
-- **URL:** `https://<ingress.host>/webhook`
+- **URL:** `https://<ingress.host>/api/v1/webhook/sonarr/<instance-name>`
+  where `<instance-name>` matches one of the names under `instances` in
+  this chart's values (unknown names return 404).
 - **Method:** POST
 - **Triggers:** at minimum `On Grab`, `On Import Complete`,
   `On Manual Interaction Required`
