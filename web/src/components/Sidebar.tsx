@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListTree, GitBranch, Download, Server, Plus } from 'lucide-react';
+import {
+  LayoutDashboard, ListTree, GitBranch, Download, Server, Plus, Settings as SettingsIcon,
+} from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { useInstances } from '@/lib/instances';
@@ -11,6 +13,7 @@ const NAV = [
   { to: '/decisions', label: 'Decisions', icon: GitBranch,       key: 'decisions' },
   { to: '/grabs',     label: 'Grabs',     icon: Download,        key: 'grabs' },
   { to: '/instances', label: 'Instances', icon: Server,          key: 'instances' },
+  { to: '/settings',  label: 'Settings',  icon: SettingsIcon,    key: 'settings' },
 ] as const;
 
 function NavList({ onNewScan, onNavigate }: { onNewScan: () => void; onNavigate?: () => void }) {

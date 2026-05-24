@@ -9,6 +9,7 @@ import { Scans } from '@/pages/Scans';
 import { ScanDetail } from '@/pages/ScanDetail';
 import { Decisions } from '@/pages/Decisions';
 import { Grabs } from '@/pages/Grabs';
+import { Settings } from '@/pages/Settings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: '/grabs',     element: <Grabs /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
+      { path: '/settings',  element: <Settings /> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },
