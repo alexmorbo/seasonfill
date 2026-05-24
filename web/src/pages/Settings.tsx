@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
+import { GeneralTab } from '@/components/settings/GeneralTab';
 import { InstancesTab } from '@/components/settings/InstancesTab';
 
 type TabKey = 'instances' | 'general' | 'security';
@@ -44,9 +45,7 @@ export function Settings() {
           <InstancesTab />
         </TabsContent>
         <TabsContent value="general" className="mt-4">
-          <div className="text-muted text-[13px]">
-            General tab is delivered by story 027e-2.
-          </div>
+          <GeneralTab />
         </TabsContent>
         <TabsContent value="security" className="mt-4">
           <div className="text-muted text-[13px]">

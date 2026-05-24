@@ -34,7 +34,7 @@ describe('<Settings />', () => {
     renderWithProviders(<Settings />, { route: '/settings' });
     await userEvent.click(screen.getByRole('tab', { name: /general/i }));
     await waitFor(() =>
-      expect(screen.getByText(/delivered by story 027e-2/i)).toBeVisible(),
+      expect(screen.getByLabelText(/cron expression/i)).toBeVisible(),
     );
   });
 });
