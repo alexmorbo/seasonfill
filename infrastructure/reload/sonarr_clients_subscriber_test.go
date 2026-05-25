@@ -154,6 +154,68 @@ func TestSonarrClients_ReAddDuringDrain_ReusesPending(t *testing.T) {
 	assert.Equal(t, int32(0), atomic.LoadInt32(builds), "factory must NOT be called on re-add reuse")
 }
 
+// TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending
+// covers the OTHER branch of the pendingRemoval lookup: a re-add inside
+// the drain window with a CHANGED config must build a fresh client via
+// the factory AND drop the pending entry so the old client is not
+// silently revived.
+func TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending(t *testing.T) {
+	t.Parallel()
+	bootClient := newFakeClient("alpha")
+	bootCfg := runtime.InstanceSnapshot{Name: "alpha", URL: "http://a", APIKey: "k1"}
+	sub, bus, cancel, builds := startClientsSub(t, 500*time.Millisecond,
+		map[string]ports.SonarrClient{"alpha": bootClient},
+		map[string]runtime.InstanceSnapshot{"alpha": bootCfg})
+	defer cancel()
+
+	// Step 1: drain alpha by publishing an empty snapshot.
+	bus.Publish(context.Background(), runtime.Snapshot{})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := sub.View().ByName("alpha"); !ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Confirm alpha sits in pendingRemoval before we re-add it.
+	sub.mu.RLock()
+	_, inPending := sub.pendingRemoval["alpha"]
+	sub.mu.RUnlock()
+	require.True(t, inPending, "alpha must be in pendingRemoval after drain publish")
+
+	// Step 2: re-add alpha with a DIFFERENT api_key, still inside the
+	// drain window. apply() must NOT reuse pending.client — it must
+	// call the factory and drop the pending entry.
+	changed := bootCfg
+	changed.APIKey = "k2"
+	bus.Publish(context.Background(), runtime.Snapshot{
+		Instances: []runtime.InstanceSnapshot{changed},
+	})
+
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(builds) == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(builds),
+		"changed config during drain MUST invoke the factory")
+
+	got, ok := sub.View().ByName("alpha")
+	require.True(t, ok, "alpha must be live again after re-add")
+	assert.NotSame(t, bootClient, got,
+		"re-add with changed config must surface a NEW client (not the pending one)")
+
+	sub.mu.RLock()
+	_, stillPending := sub.pendingRemoval["alpha"]
+	sub.mu.RUnlock()
+	assert.False(t, stillPending,
+		"pendingRemoval entry must be dropped when re-add rebuilds")
+}
+
 func TestDrain_SweeperFiresAndCleansUp(t *testing.T) {
 	t.Parallel()
 	boot := map[string]ports.SonarrClient{

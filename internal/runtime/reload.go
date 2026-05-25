@@ -6,10 +6,13 @@ import (
 	"sync"
 )
 
-// Bus fans Snapshot publishes out to named subscribers. The channel
-// buffer is 1; if a subscriber is slow the older snapshot is dropped
-// (latest-wins) and the drop is logged. Subscribers are responsible
-// for rebuilding their own state idempotently.
+// Bus is a single-producer-multi-consumer reload event bus with
+// buffer=1 latest-wins drop-stale semantics. Each subscriber sees
+// the most-recently-published snapshot; if multiple Publish calls
+// land while a subscriber's apply is in flight, intermediate
+// snapshots are squashed — only the latest survives. Subscribe
+// returns a 1-buffered channel that callers must drain to avoid
+// blocking the publisher.
 type Bus struct {
 	mu     sync.RWMutex
 	subs   map[string]chan Snapshot
@@ -107,7 +110,13 @@ func (b *Bus) Publish(ctx context.Context, snap Snapshot) {
 				b.logger.WarnContext(ctx, "reload.bus.dropped_stale",
 					slog.String("subscriber", name))
 			default:
-				b.logger.WarnContext(ctx, "reload.bus.publish_dropped",
+				// Two publishers raced: both hit the default case,
+				// both drained, and one's re-send now finds the slot
+				// taken by the other. The latest snapshot is still in
+				// the channel, so latest-wins semantics hold — this
+				// log is informational, not an error.
+				b.logger.LogAttrs(ctx, slog.LevelDebug,
+					"publish lost to concurrent publish (current value preserved, latest-wins semantics)",
 					slog.String("subscriber", name))
 			}
 		}

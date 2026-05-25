@@ -191,6 +191,63 @@ func TestSchedulerSubscriber_StartError_OldKeepsRunning(t *testing.T) {
 		"Start failure must leave the old scheduler running (was the boot one)")
 }
 
+// TestSchedulerSubscriber_Current_NotBlockedDuringGracefulStop —
+// Current() must NOT contend with apply()'s critical section. We
+// simulate a slow apply by handing the factory a sleep so apply
+// holds s.mu for ~200ms; Current() called concurrently must return
+// in well under 50ms.
+func TestSchedulerSubscriber_Current_NotBlockedDuringGracefulStop(t *testing.T) {
+	t.Parallel()
+	boot := newTestScheduler("0 */6 * * *", time.Minute, slog.Default())
+	require.NoError(t, boot.Start(context.Background(),
+		scan.NewUseCase(nil, nil, nil, slog.Default(), true)))
+	t.Cleanup(func() { _ = boot.Stop() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := runtime.NewBus(slog.Default())
+	t.Cleanup(bus.Close)
+	scanUC := scan.NewUseCase(nil, nil, nil, slog.Default(), true)
+
+	// Slow factory simulates a long-running rebuild step inside apply,
+	// keeping s.mu held for ~200ms. If Current() ever took s.mu, it
+	// would block the same way.
+	factory := SchedulerFactory(func(schedule string, jitter time.Duration, l *slog.Logger) *scheduler.Scheduler {
+		time.Sleep(200 * time.Millisecond)
+		return scheduler.New(schedule, jitter, l)
+	})
+	sub := NewSchedulerSubscriber(ctx, boot, scanUC, factory, slog.Default())
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	<-ready
+
+	// Kick apply into its slow path.
+	bus.Publish(context.Background(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: true, Schedule: "*/5 * * * *", Jitter: 0},
+	})
+
+	// Give the runLoop a beat to dispatch apply into the slow factory.
+	time.Sleep(20 * time.Millisecond)
+
+	start := time.Now()
+	got := sub.Current()
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, 50*time.Millisecond,
+		"Current() must be lock-free during in-flight apply")
+	assert.NotNil(t, got, "Current() must still report the boot scheduler mid-swap")
+
+	// Drain the rebuild so the test scheduler exits cleanly.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cur := sub.Current(); cur != nil && cur != boot {
+			_ = cur.Stop()
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestSchedulerSubscriber_HotSwap_OldRefValidUntilSwap — the diff-
 // skip path doesn't exercise the new ordering, RebuildOnChange does
 // but doesn't check that the OLD reference survived during the

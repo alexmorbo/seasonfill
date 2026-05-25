@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -22,9 +23,15 @@ type SchedulerFactory func(schedule string, jitter time.Duration, logger *slog.L
 // swaps it out when a new snapshot arrives with a different
 // schedule/jitter/enabled tuple. The currently-running scheduler is
 // also exposed via Current() for cmd/server's shutdown path.
+//
+// The active scheduler pointer is held in `current` (atomic.Pointer)
+// so Current() never contends with apply()'s mutex — apply may park
+// for up to 5s inside gracefulStop, but reader-side Current() is
+// always lock-free and returns immediately. `mu` still serialises
+// concurrent apply() calls and protects the `enabled` flag.
 type SchedulerSubscriber struct {
 	mu      sync.Mutex
-	current *scheduler.Scheduler
+	current atomic.Pointer[scheduler.Scheduler]
 	enabled bool
 	scanUC  *scan.UseCase
 	factory SchedulerFactory
@@ -41,10 +48,14 @@ func NewSchedulerSubscriber(rootCtx context.Context, boot *scheduler.Scheduler, 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SchedulerSubscriber{
-		current: boot, enabled: boot != nil,
-		scanUC: scanUC, factory: factory, rootCtx: rootCtx, logger: logger,
+	s := &SchedulerSubscriber{
+		enabled: boot != nil,
+		scanUC:  scanUC, factory: factory, rootCtx: rootCtx, logger: logger,
 	}
+	if boot != nil {
+		s.current.Store(boot)
+	}
+	return s
 }
 
 // Run blocks until ctx is done. Decremented from bgWG by the caller.
@@ -54,11 +65,11 @@ func (s *SchedulerSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready f
 
 // Current returns the active scheduler (or nil if cron is disabled
 // in the live snapshot). cmd/server's graceful shutdown calls
-// Current().Stop() to drain the cron job.
+// Current().Stop() to drain the cron job. Lock-free: never blocks
+// behind an in-flight apply() (which may park inside gracefulStop
+// for up to 5s).
 func (s *SchedulerSubscriber) Current() *scheduler.Scheduler {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.current
+	return s.current.Load()
 }
 
 // apply rebuilds the live scheduler if the snapshot's cron block
@@ -68,7 +79,7 @@ func (s *SchedulerSubscriber) Current() *scheduler.Scheduler {
 //  2. if !Enabled → tear down old (if any), nil out, return.
 //  3. factory builds `next`. Failures bubble up; old keeps running.
 //  4. next.Start(...). Failures bubble up; old keeps running.
-//  5. tear down old, swap pointer to next.
+//  5. atomic-swap current → next, then tear down old.
 //
 // Steps 3-4 returning early leaves s.current pointing at the OLD
 // scheduler. The error reaches runLoop which counts
@@ -84,9 +95,9 @@ func (s *SchedulerSubscriber) apply(_ context.Context, snap runtime.Snapshot) er
 
 	// Explicit-disable branch: just stop the old one. No factory call.
 	if !want.Enabled {
-		if s.current != nil {
-			s.gracefulStop(s.current)
-			s.current = nil
+		if old := s.current.Load(); old != nil {
+			s.current.Store(nil)
+			s.gracefulStop(old)
 		}
 		s.enabled = false
 		return nil
@@ -103,9 +114,9 @@ func (s *SchedulerSubscriber) apply(_ context.Context, snap runtime.Snapshot) er
 		return fmt.Errorf("start new scheduler: %w", err)
 	}
 
-	// New is alive — now tear down old.
-	old := s.current
-	s.current = next
+	// New is alive — atomic-swap so Current() readers see it
+	// immediately, THEN block on gracefulStop of the old one.
+	old := s.current.Swap(next)
 	s.enabled = true
 	if old != nil {
 		s.gracefulStop(old)
@@ -133,9 +144,10 @@ func (s *SchedulerSubscriber) matches(want runtime.CronSnapshot) bool {
 		// Both disabled → still a match.
 		return true
 	}
-	if s.current == nil {
+	cur := s.current.Load()
+	if cur == nil {
 		return false
 	}
-	return s.current.Schedule() == want.Schedule &&
-		s.current.Jitter() == want.Jitter
+	return cur.Schedule() == want.Schedule &&
+		cur.Jitter() == want.Jitter
 }
