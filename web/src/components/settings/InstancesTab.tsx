@@ -26,14 +26,24 @@ export function InstancesTab() {
 
   const detailQuery = useInstanceDetail(editing);
   const editDetail = detailQuery.data?.detail;
+  // Pin dependencies on primitive fields so a 5s background refetch
+  // that returns a structurally-identical detail does NOT mint a fresh
+  // object reference into the dialog's `initial` prop. The dialog's
+  // reset() effect keys on `initial?.name`, but downstream useMemo()s
+  // (e.g. for form defaults) benefit from stable identity too.
+  const detailName = editDetail?.name;
+  const detailUrl = editDetail?.url;
+  const detailMode = editDetail?.mode;
   const editInitial = useMemo(() => {
     if (!editDetail) return undefined;
     return {
-      name: editDetail.name ?? '',
-      url: editDetail.url ?? '',
-      mode: (editDetail.mode as 'auto' | 'manual' | undefined) ?? 'auto',
+      name: detailName ?? '',
+      url: detailUrl ?? '',
+      mode: (detailMode as 'auto' | 'manual' | undefined) ?? 'auto',
     };
-  }, [editDetail]);
+    // editDetail is the existence guard; primitives drive identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailName, detailUrl, detailMode]);
 
   const openCreate = () => {
     setEditing(null);

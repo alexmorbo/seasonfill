@@ -4,7 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { KeyRound, Loader2 } from 'lucide-react';
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -164,6 +165,11 @@ export function InstanceFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit instance' : 'Add Sonarr instance'}</DialogTitle>
         </DialogHeader>
+        <DialogDescription className="sr-only">
+          {mode === 'create'
+            ? 'Create a new Sonarr instance.'
+            : `Edit the ${initial?.name ?? ''} Sonarr instance configuration.`}
+        </DialogDescription>
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
           <div className="flex flex-col gap-1.5">

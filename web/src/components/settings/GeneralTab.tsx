@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,16 +19,82 @@ import {
 // runtime config are always non-negative.
 const goDurRE = /^(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$/;
 
+// Parses a Go-shaped duration string into milliseconds for client-side
+// bound checks. Returns null on parse failure so callers can decide how
+// to surface it (we already gate on the regex above, so reaching null
+// here would mean the regex was bypassed somehow).
+function parseGoDurationMs(s: string): number | null {
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g;
+  let total = 0;
+  let matched = false;
+  let cursor = 0;
+  for (const m of s.matchAll(re)) {
+    matched = true;
+    if (m.index !== cursor) return null;
+    cursor = m.index + m[0].length;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) return null;
+    switch (m[2]) {
+      case 'ns': total += n / 1e6; break;
+      case 'us':
+      case 'µs': total += n / 1e3; break;
+      case 'ms': total += n; break;
+      case 's': total += n * 1000; break;
+      case 'm': total += n * 60_000; break;
+      case 'h': total += n * 3_600_000; break;
+      default: return null;
+    }
+  }
+  if (!matched || cursor !== s.length) return null;
+  return total;
+}
+
+// Backend bounds (mirrors application/runtimeconfig/usecase.go):
+//   cron.jitter            ∈ [0, 1h]
+//   scan.shutdown_grace    ∈ [1s, 10m]
+//   scan.cooldown_sweep    ∈ [10s, 24h]
+const cronJitterMaxMs = 60 * 60 * 1000;
+const scanShutdownGraceMinMs = 1000;
+const scanShutdownGraceMaxMs = 10 * 60 * 1000;
+const scanCooldownSweepMinMs = 10 * 1000;
+const scanCooldownSweepMaxMs = 24 * 60 * 60 * 1000;
+
 const schema = z.object({
   cron_enabled: z.boolean(),
   cron_schedule: z.string().min(1, 'Schedule required'),
   cron_on_start: z.boolean(),
-  cron_jitter: z.string().regex(goDurRE, 'Use a Go duration like "1m" or "30s"'),
-  scan_shutdown_grace: z.string().regex(goDurRE, 'Use a Go duration'),
-  scan_cooldown_sweep: z.string().regex(goDurRE, 'Use a Go duration'),
+  cron_jitter: z
+    .string()
+    .regex(goDurRE, 'Use a Go duration like "1m" or "30s"')
+    .refine((v) => {
+      const ms = parseGoDurationMs(v);
+      return ms !== null && ms >= 0 && ms <= cronJitterMaxMs;
+    }, 'Must be between 0s and 1h'),
+  scan_shutdown_grace: z
+    .string()
+    .regex(goDurRE, 'Use a Go duration')
+    .refine((v) => {
+      const ms = parseGoDurationMs(v);
+      return ms !== null && ms >= scanShutdownGraceMinMs && ms <= scanShutdownGraceMaxMs;
+    }, 'Must be between 1s and 10m'),
+  scan_cooldown_sweep: z
+    .string()
+    .regex(goDurRE, 'Use a Go duration')
+    .refine((v) => {
+      const ms = parseGoDurationMs(v);
+      return ms !== null && ms >= scanCooldownSweepMinMs && ms <= scanCooldownSweepMaxMs;
+    }, 'Must be between 10s and 24h'),
   dry_run: z.boolean(),
-  global_rpm: z.number().int().min(0, 'Must be ≥ 0'),
-  global_burst: z.number().int().min(0, 'Must be ≥ 0'),
+  global_rpm: z
+    .number()
+    .int()
+    .min(0, 'Must be ≥ 0')
+    .max(10000, 'Must be ≤ 10000'),
+  global_burst: z
+    .number()
+    .int()
+    .min(0, 'Must be ≥ 0')
+    .max(10000, 'Must be ≤ 10000'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -79,7 +145,6 @@ function describeCron(expr: string): { ok: boolean; text: string } {
 export function GeneralTab() {
   const q = useRuntimeConfig();
   const mut = useUpdateRuntimeConfig();
-  const [initialKey, setInitialKey] = useState(0);
 
   const {
     register, handleSubmit, reset, watch, setValue,
@@ -90,10 +155,13 @@ export function GeneralTab() {
     mode: 'onBlur',
   });
 
+  // Republish form defaults when fresh server data arrives. rhf's
+  // reset(newDefaults) does NOT remount the inputs — focus, scroll, and
+  // unsaved keystrokes in OTHER fields survive. The 5s background
+  // refetch is intentionally non-disruptive.
   useEffect(() => {
     if (q.data?.config) {
       reset(configToForm(q.data.config));
-      setInitialKey((n) => n + 1);
     }
   }, [q.data?.config, reset]);
 
@@ -126,7 +194,7 @@ export function GeneralTab() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate key={initialKey}>
+    <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
       <section className="flex flex-col gap-4">
         <h3 className="text-[14px] font-semibold tracking-tight">Schedule</h3>
 

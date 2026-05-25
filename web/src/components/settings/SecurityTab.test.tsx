@@ -85,13 +85,13 @@ describe('<SecurityTab />', () => {
     // Wait for form to fully settle (Discard button appears only when isDirty=false
     // and data is loaded — Save is disabled, Discard too, just wait for Save button).
     await screen.findByRole('button', { name: /save/i });
-    // Re-query after form settles (formKey remount after data loads)
+    // Re-query after form settles (rhf reset publishes new defaults).
     const ttlInput = screen.getByLabelText(/session ttl/i);
     await userEvent.type(ttlInput, '0');
     await userEvent.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => {
-      expect(captured.body).toBeDefined();
+      expect(captured.body).toEqual(expect.any(String));
     });
     const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
     const auth = sent.auth as Record<string, unknown>;

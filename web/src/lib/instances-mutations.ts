@@ -18,6 +18,11 @@ export interface InstanceDetailWithMeta {
 export const instanceDetailKey = (name: string) =>
   ['instance-detail', name] as const;
 
+// Sentinel key for the disabled branch of useInstanceDetail (name=null).
+// Kept distinct from any real name-keyed entry so it can't collide with
+// a hypothetical instance literally named "_none".
+const instanceDetailDisabledKey = ['instance-detail-disabled'] as const;
+
 async function jsonFetch<T>(
   url: string,
   init: RequestInit = {},
@@ -58,7 +63,7 @@ async function getInstanceDetailRaw(name: string): Promise<InstanceDetailWithMet
 
 export function useInstanceDetail(name: string | null): UseQueryResult<InstanceDetailWithMeta, ApiError> {
   return useQuery<InstanceDetailWithMeta, ApiError>({
-    queryKey: name ? instanceDetailKey(name) : ['instance-detail', '_none'],
+    queryKey: name ? instanceDetailKey(name) : instanceDetailDisabledKey,
     queryFn: () => {
       if (!name) throw new ApiError(400, 'name required');
       return getInstanceDetailRaw(name);
@@ -172,6 +177,14 @@ export function useDeleteInstance() {
   });
 }
 
+function errorCode(err: ApiError): string {
+  if (typeof err.body === 'object' && err.body !== null && 'code' in err.body) {
+    const c = (err.body as { code: unknown }).code;
+    return typeof c === 'string' ? c : '';
+  }
+  return '';
+}
+
 // useTestInstance — inline-only feedback on happy path. The dialog
 // renders `probeResult` next to the Test button (success/version or
 // failure reason). Transport-level failures (504, network error) DO
@@ -186,8 +199,25 @@ export function useTestInstance() {
     // Deliberately no onSuccess toasts — the dialog owns the inline
     // feedback channel. Avoid double-announcing the same event.
     onError: (err) => {
+      // Status-first branching (mirrors GeneralTab pattern), with a
+      // narrower body.code refinement for the cases where multiple
+      // distinct failure shapes share the same HTTP status.
       if (err.status === 504) {
         toast.error('Timed out — Sonarr did not respond');
+        return;
+      }
+      if (err.status === 401 || err.status === 403) {
+        toast.error('Unauthorized — check the API key');
+        return;
+      }
+      if (err.status === 400) {
+        const code = errorCode(err);
+        if (code === 'INVALID_HOST') {
+          toast.error('URL resolves to a private or loopback address');
+          return;
+        }
+        // Generic 400 (malformed URL, missing fields, body too large…).
+        toast.error(err.message || 'Bad request');
         return;
       }
       toast.error(`Probe failed: ${err.message}`);
