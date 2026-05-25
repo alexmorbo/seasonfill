@@ -204,3 +204,141 @@ func bootForTest(t *testing.T) (*runtime.Bus, func()) {
 func silenceLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), &slog.HandlerOptions{Level: slog.LevelError}))
 }
+
+// bootForTestWithContext is like bootForTest but captures TestContext.
+// Requires testContextHook and TestContext from testcontext_hook.go.
+func bootForTestWithContext(t *testing.T) (*TestContext, func()) {
+	t.Helper()
+	var (
+		tcRef *TestContext
+		mu    sync.Mutex
+	)
+	testContextHook = func(tc *TestContext) {
+		mu.Lock()
+		tcRef = tc
+		mu.Unlock()
+	}
+	t.Cleanup(func() { testContextHook = nil })
+
+	_, stop := bootForTest(t)
+
+	mu.Lock()
+	tc := tcRef
+	mu.Unlock()
+	require.NotNil(t, tc, "testContextHook was not called within bootForTest")
+	return tc, stop
+}
+
+// TestReload_E2E_SchedulerScheduleUpdated asserts that after publishing a
+// snapshot with a different cron schedule, the SchedulerSubscriber's live
+// scheduler reflects the new schedule.
+func TestReload_E2E_SchedulerScheduleUpdated(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: true, Schedule: "*/5 * * * *", Jitter: 0},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+	})
+
+	require.Eventually(t, func() bool {
+		cur := tc.SubSched.Current()
+		return cur != nil && cur.Schedule() == "*/5 * * * *"
+	}, 2*time.Second, 50*time.Millisecond, "scheduler must adopt new schedule")
+}
+
+// TestReload_E2E_AuthTTLUpdated asserts that after publishing a snapshot with
+// a different SessionTTL, the auth runtime pointer reflects the new value.
+func TestReload_E2E_AuthTTLUpdated(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 7 * time.Hour, TrustedProxies: []string{}},
+	})
+
+	require.Eventually(t, func() bool {
+		ptr := tc.AuthRuntimePtr.Load()
+		return ptr != nil && ptr.SessionTTL == 7*time.Hour
+	}, 2*time.Second, 50*time.Millisecond, "auth runtime must adopt new session TTL")
+}
+
+// TestReload_E2E_GlobalLimiterUpdated asserts that after publishing a snapshot
+// with a non-zero RPM, the global limiter pointer is non-nil and points to a
+// freshly created limiter.
+func TestReload_E2E_GlobalLimiterUpdated(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	prev := tc.GlobalLimPtr.Load()
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron:            runtime.CronSnapshot{Enabled: false},
+		Auth:            runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 60, Burst: 20},
+	})
+
+	require.Eventually(t, func() bool {
+		next := tc.GlobalLimPtr.Load()
+		return next != nil && next != prev
+	}, 2*time.Second, 50*time.Millisecond, "global limiter pointer must be replaced")
+}
+
+// TestReload_E2E_ClientsViewUpdated asserts that after publishing a snapshot
+// with named instances, the SonarrClientsSubscriber view reflects them.
+// Uses two minimal (URL-only, no real network) instance snapshots.
+func TestReload_E2E_ClientsViewUpdated(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-a", URL: "http://sonarr-a:8989", APIKey: "k1"},
+			{Name: "inst-b", URL: "http://sonarr-b:8989", APIKey: "k2"},
+		},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(tc.ClientsView().All()) == 2
+	}, 2*time.Second, 50*time.Millisecond, "clients view must have 2 instances")
+
+	view := tc.ClientsView()
+	_, okA := view.ByName("inst-a")
+	_, okB := view.ByName("inst-b")
+	assert.True(t, okA, "inst-a must be present in clients view")
+	assert.True(t, okB, "inst-b must be present in clients view")
+}

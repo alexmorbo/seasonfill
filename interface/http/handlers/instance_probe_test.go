@@ -295,3 +295,35 @@ func TestProbe_BlockedHostErrorChainStable(t *testing.T) {
 	assert.True(t, errors.Is(err, netguard.ErrBlockedHost),
 		"errors.Is must walk the net.OpError chain")
 }
+
+// --- Part 028i: uncovered branches ---
+
+// TestProbe_ReasonForStatus_Default exercises the default branch of
+// reasonForStatus directly. The default fires for status codes that
+// are not 401/403, not 4xx, and not 5xx (e.g., 1xx codes that cannot
+// be delivered by net/http but can be passed to the function directly).
+// The test is in the same package (handlers) so it can call the unexported
+// reasonForStatus function.
+func TestProbe_ReasonForStatus_Default(t *testing.T) {
+	t.Parallel()
+	// Status 199 is <200, not 4xx, not 5xx → hits default branch.
+	got := reasonForStatus(199)
+	assert.Contains(t, got, "unexpected status")
+	assert.Contains(t, got, "199")
+	// Status 299 is >=200 and <300 but not currently reachable in the handler;
+	// verify it also maps to default just to document the invariant.
+	got299 := reasonForStatus(299)
+	assert.Contains(t, got299, "unexpected status")
+}
+
+// TestProbe_ValidateURL_ParseError exercises the url.Parse error branch.
+// A URL containing a control character (0x7f DEL) forces url.Parse to fail.
+func TestProbe_ValidateURL_ParseError(t *testing.T) {
+	t.Parallel()
+	h := NewInstanceProbeHandler(nil, nil)
+	r := newProbeRouter(t, h)
+	// ASCII DEL character inside the URL forces url.Parse to return an error.
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://foo\x7f.example/", APIKey: "x"})
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -138,7 +139,14 @@ func doJSON(t *testing.T, r *gin.Engine, method, url string, body any, headers m
 }
 
 func createBody(name string) map[string]any {
-	return map[string]any{"name": name, "url": "http://sonarr:8989", "api_key": "abc"}
+	return map[string]any{
+		"name": name, "url": "http://sonarr:8989", "api_key": "abc",
+		"timeout_sec": 10, "search_timeout_sec": 60,
+		"health_check": map[string]any{
+			"recheck_auth_sec":    60,
+			"recheck_network_sec": 60,
+		},
+	}
 }
 
 func TestCRUD_Create_201_PublishesAndMasks(t *testing.T) {
@@ -249,4 +257,82 @@ func TestCRUD_MalformedBody_400(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// --- Part 028i: uncovered branches ---
+
+// TestCRUD_Get_NotFound exercises the Get handler's writeError path when
+// the instance does not exist (ErrNotFound → 404).
+func TestCRUD_Get_NotFound(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	w := doJSON(t, r, http.MethodGet, "/api/v1/instances/ghost", nil, nil)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "INSTANCE_NOT_FOUND")
+}
+
+// TestCRUD_WriteError_InternalError confirms that a generic error on Delete
+// returns 500 via the internal-error branch of writeError.
+func TestCRUD_WriteError_InternalError(t *testing.T) {
+	t.Parallel()
+	// Use a broken repo that returns a generic error on Delete.
+	repo := &crudBrokenDelete{crudFakeRepo: *newCRUDFakeRepo()}
+	uc := instance.New(repo, crudFakeRuntime{}, nil, runtime.NewBus(nil), slog.Default())
+	h := NewInstanceCRUDHandler(uc, slog.Default())
+	r := gin.New()
+	r.DELETE("/api/v1/instances/:name", h.Delete)
+
+	// Seed one row directly so Delete is reached (count is forced to 2 so
+	// LAST_INSTANCE is not triggered).
+	repo.rows["alpha"] = runtime.InstanceSnapshot{Name: "alpha"}
+	repo.count = 2
+
+	w := doJSON(t, r, http.MethodDelete, "/api/v1/instances/alpha", nil, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+type crudBrokenDelete struct{ crudFakeRepo }
+
+func (f *crudBrokenDelete) Delete(_ context.Context, _ string) error {
+	return errors.New("db exploded")
+}
+
+// TestCRUD_readJSONBody_WrongContentType exercises the content-type guard.
+func TestCRUD_readJSONBody_WrongContentType(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/instances", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "text/xml")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+}
+
+// TestCRUD_Update_IUS_BadFormat exercises the http.ParseTime failure branch
+// in Update when the If-Unmodified-Since header cannot be parsed.
+func TestCRUD_Update_IUS_BadFormat(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", createBody("alpha"),
+		map[string]string{"If-Unmodified-Since": "not-a-date"})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "If-Unmodified-Since")
+}
+
+// TestCRUD_readJSONBody_TooLarge exercises the MaxBytesError branch in
+// readJSONBody by sending a body larger than instanceBodyLimit (64 KiB).
+func TestCRUD_readJSONBody_TooLarge(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := bytes.Repeat([]byte("x"), instanceBodyLimit+1)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
 }
