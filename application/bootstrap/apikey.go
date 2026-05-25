@@ -62,7 +62,10 @@ func ResolveAPIKey(ctx context.Context, envKey string, repo ports.RuntimeConfigR
 
 	case envKey == "":
 		// Auto-generate a new key.
-		key := generateHexKey(32)
+		key, err := generateHexKey(32)
+		if err != nil {
+			return "", fmt.Errorf("generate api key: %w", err)
+		}
 		cipher, err := crypto.New(key)
 		if err != nil {
 			return "", fmt.Errorf("derive cipher: %w", err)
@@ -89,10 +92,10 @@ func ResolveAPIKey(ctx context.Context, envKey string, repo ports.RuntimeConfigR
 }
 
 // generateHexKey generates a random n-byte string as lowercase hex.
-func generateHexKey(n int) string {
+func generateHexKey(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", fmt.Errorf("generate random key: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

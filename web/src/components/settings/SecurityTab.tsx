@@ -50,7 +50,7 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
 }
 
 function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeConfig {
-  const base: RuntimeConfig = (prev ?? {}) as RuntimeConfig;
+  const base = prev ?? ({} as RuntimeConfig);
   return {
     ...base,
     auth: {
@@ -59,7 +59,7 @@ function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeC
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
     },
-  } as RuntimeConfig;
+  };
 }
 
 export function SecurityTab() {

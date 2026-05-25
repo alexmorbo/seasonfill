@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { KeyRound, Loader2 } from 'lucide-react';
@@ -10,6 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
@@ -84,7 +87,7 @@ export function InstanceFormDialog({
   const detail = detailQuery.data?.detail;
 
   const {
-    register, handleSubmit, reset, getValues, setFocus,
+    register, handleSubmit, reset, getValues, setFocus, control,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(pickSchema(mode)),
@@ -143,8 +146,7 @@ export function InstanceFormDialog({
         setProbeResult(resp.reason || 'Connection failed');
       }
     } catch {
-      // Transport-error toast already fired by useTestInstance.onError.
-      setProbeResult(null);
+      // network failure: leave result as null (already reset at top)
     }
   };
 
@@ -228,14 +230,21 @@ export function InstanceFormDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="inst-mode">Mode</Label>
-            <select
-              id="inst-mode"
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              {...register('mode')}
-            >
-              <option value="auto">auto</option>
-              <option value="manual">manual</option>
-            </select>
+            <Controller
+              name="mode"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="inst-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="manual">manual</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
 
           <div className="flex items-center gap-3">

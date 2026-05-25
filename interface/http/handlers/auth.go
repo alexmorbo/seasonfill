@@ -175,7 +175,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	exp := h.now().Add(h.sessionTTL())
+	ttl := h.sessionTTL()
+	exp := h.now().Add(ttl)
 	tok, err := middleware.SignSession([]byte(h.apiKey), user.Username, exp)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "auth.login.sign_failed",
@@ -186,7 +187,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, tok,
-		int(h.sessionTTL().Seconds()), "/", "",
+		int(ttl.Seconds()), "/", "",
 		h.secureCookieFlag(c), true)
 	h.logger.InfoContext(c.Request.Context(), "auth.login.success",
 		slog.String("username", user.Username))

@@ -23,6 +23,13 @@ export function Settings() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const handler = () => setTab(parseHash(window.location.hash));
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     window.location.hash = tab;
   }, [tab]);
 

@@ -11,10 +11,12 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -49,6 +51,13 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		db, err := gorm.Open(sqlite.Open(cfg.SQLite.Path), gormCfg)
 		if err != nil {
 			return nil, fmt.Errorf("open sqlite: %w", err)
+		}
+		// Defense in depth: restrict to owner r/w only. Ignore on
+		// in-memory paths (":memory:" or "file::memory:...").
+		if cfg.SQLite.Path != ":memory:" && !strings.HasPrefix(cfg.SQLite.Path, "file::memory:") {
+			if chmodErr := os.Chmod(cfg.SQLite.Path, 0o600); chmodErr != nil {
+				db.Logger.Warn(context.Background(), "sqlite chmod failed: %v", chmodErr)
+			}
 		}
 		return db, nil
 

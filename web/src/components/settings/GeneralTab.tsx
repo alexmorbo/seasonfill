@@ -49,7 +49,7 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
 function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeConfig {
   // Merge over the last-known full config so we preserve fields that
   // belong to the Security tab and any future ones we don't yet model.
-  const base: RuntimeConfig = (prev ?? {}) as RuntimeConfig;
+  const base = prev ?? ({} as RuntimeConfig);
   return {
     ...base,
     cron: {
@@ -64,7 +64,7 @@ function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeC
     },
     dry_run: v.dry_run,
     global_rate_limit: { rpm: v.global_rpm, burst: v.global_burst },
-  } as RuntimeConfig;
+  };
 }
 
 function describeCron(expr: string): { ok: boolean; text: string } {

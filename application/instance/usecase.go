@@ -79,6 +79,10 @@ const (
 
 var nameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
+var reservedNames = map[string]bool{
+	"test": true,
+}
+
 type UseCase struct {
 	instances ports.SonarrInstanceRepository
 	runtimes  ports.RuntimeConfigRepository
@@ -237,6 +241,9 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 	if !nameRE.MatchString(s.Name) {
 		return newValidationErr("name", "INVALID_INSTANCE_NAME",
 			"must match ^[a-zA-Z0-9_-]{1,128}$")
+	}
+	if reservedNames[strings.ToLower(s.Name)] {
+		return fmt.Errorf("%w: name %q is reserved", ErrValidation, s.Name)
 	}
 	if strings.TrimSpace(s.URL) == "" {
 		return newValidationErr("url", "INVALID_INSTANCE_URL",
