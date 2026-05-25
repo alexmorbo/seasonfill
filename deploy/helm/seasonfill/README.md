@@ -4,8 +4,8 @@
 > React SPA, both rendered by this chart. See the project root
 > [README](../../../README.md) for what the service does and why.
 
-- **Chart version:** `0.3.0` (matches `Chart.yaml`)
-- **App version:** `0.3.0`
+- **Chart version:** `0.4.0` (matches `Chart.yaml`)
+- **App version:** `0.4.0`
 - **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill`
 - **Kubernetes:** `>=1.25.0`
 - **Helm:** `>=3.16` (OCI install support stable, schema validation)
