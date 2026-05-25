@@ -180,7 +180,7 @@ func (SonarrInstanceModel) TableName() string { return "sonarr_instance" }
 type InstanceSecretModel struct {
 	InstanceID uint   `gorm:"primaryKey"`
 	SecretName string `gorm:"primaryKey;size:64"`
-	Ciphertext []byte `gorm:"type:blob;not null"`
+	Ciphertext []byte `gorm:"not null"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

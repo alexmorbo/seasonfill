@@ -4,8 +4,8 @@
 > React SPA, both rendered by this chart. See the project root
 > [README](../../../README.md) for what the service does and why.
 
-- **Chart version:** `0.4.0` (matches `Chart.yaml`)
-- **App version:** `0.4.0`
+- **Chart version:** `0.4.1` (matches `Chart.yaml`)
+- **App version:** `0.4.1`
 - **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill-helm`
 - **Kubernetes:** `>=1.25.0`
 - **Helm:** `>=3.16` (OCI install support stable, schema validation)
@@ -33,7 +33,7 @@ production with Terragrunt.
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.4.0 \
+  --version 0.4.1 \
   --namespace seasonfill --create-namespace \
   --set "database.driver=sqlite" \
   --set "persistence.enabled=true"
@@ -102,7 +102,7 @@ ingress:
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.4.0 \
+  --version 0.4.1 \
   --namespace seasonfill --create-namespace \
   -f values-prod.yaml
 ```
@@ -112,7 +112,7 @@ in the DB; no chart re-render required.
 
 ## Values reference (most-used)
 
-Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.4.0`.
+Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.4.1`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -166,7 +166,7 @@ resource "kubernetes_secret_v1" "seasonfill" {
 resource "helm_release" "seasonfill" {
   name      = "seasonfill"
   chart     = "oci://ghcr.io/alexmorbo/seasonfill-helm"
-  version   = "0.4.0"
+  version   = "0.4.1"
   namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
 
   values = [
@@ -229,7 +229,7 @@ kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill reset-password -
 
 ## Upgrades
 
-`0.4.0` drops the `config.*` and `instances[]` values trees entirely.
+`0.4.1` drops the `config.*` and `instances[]` values trees entirely.
 Cron, scan tuning, dry_run, instances and runtime auth fields all
 moved to the DB and are edited via the Settings UI at `/settings`.
 There is no in-place upgrade path from `0.3.x` — values shape is
@@ -240,7 +240,7 @@ incompatible. For an existing `0.3.x` install:
 2. `helm uninstall` the old release.
 3. Create a new Secret per §"Install — production" (omit
    `sonarr-*-api-key` entries — instances now live in the DB).
-4. `helm install` 0.4.0 fresh.
+4. `helm install` 0.4.1 fresh.
 5. Restore the DB if needed; re-add Sonarr instances in the UI.
 
 Future `0.4.x → 0.4.(x+1)` upgrades are in-place: `helm upgrade` with
