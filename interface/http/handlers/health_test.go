@@ -70,6 +70,15 @@ func newChecker(t *testing.T, sonarr ports.SonarrClient, closeDB bool) *healthch
 	return c
 }
 
+func newCheckerNoInstances(t *testing.T) *healthcheck.Checker {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	c := healthcheck.New(db, nil)
+	c.Preflight(context.Background())
+	return c
+}
+
 func setupRouter(t *testing.T, checker *healthcheck.Checker) *gin.Engine {
 	t.Helper()
 	r := gin.New()
@@ -120,6 +129,20 @@ func TestHealthHandler_Ready_AllSonarrDown(t *testing.T) {
 	assert.Equal(t, false, body["sonarr"])
 	reasons, _ := body["reasons"].([]any)
 	assert.NotEmpty(t, reasons, "reasons array must enumerate the failure cause")
+}
+
+func TestHealthHandler_Ready_NoInstancesIsReady(t *testing.T) {
+	r := setupRouter(t, newCheckerNoInstances(t))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "pristine deploy with zero instances must be ready")
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "ok", body["status"])
+	assert.Equal(t, true, body["database"])
 }
 
 func TestHealthHandler_Ready_DBDown(t *testing.T) {

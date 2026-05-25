@@ -28,12 +28,14 @@ func (h *HealthHandler) Live(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.HealthStatus{Status: "ok"})
 }
 
-// Ready returns 200 iff DB is up AND at least one Sonarr instance is
-// Available. Otherwise 503 with a `reasons` array body that enumerates
-// every failed predicate.
+// Ready returns 200 iff DB is up AND — if any Sonarr instances are
+// configured — at least one of them is Available. A pristine deploy
+// with zero configured instances is "ready" (admin will add the first
+// instance via the Settings UI). Otherwise 503 with a `reasons` array
+// body that enumerates every failed predicate.
 //
 // @Summary     Readiness probe
-// @Description 200 only when DB AND ≥1 Sonarr instance are healthy.
+// @Description 200 when DB is up; if instances exist, ≥1 must be healthy. Empty config still passes.
 // @Tags        health
 // @Produce     json
 // @Success     200  {object}  dto.ReadyStatus
@@ -42,17 +44,19 @@ func (h *HealthHandler) Live(c *gin.Context) {
 func (h *HealthHandler) Ready(c *gin.Context) {
 	ctx := c.Request.Context()
 	dbOK := h.checker.DatabaseUp(ctx)
-	anyInstance := h.checker.AnyInstanceAvailable()
 	snap := h.checker.Snapshot()
 	dtos := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
 		dtos = append(dtos, snapshotToDTO(s, nil, nil))
 	}
+	anyInstance := h.checker.AnyInstanceAvailable()
+	// Pristine deploy: no instances configured yet → don't gate readiness on Sonarr.
+	sonarrOK := len(snap) == 0 || anyInstance
 	reasons := []string{}
 	if !dbOK {
 		reasons = append(reasons, "database unreachable")
 	}
-	if !anyInstance {
+	if !sonarrOK {
 		reasons = append(reasons, "no sonarr instance available")
 	}
 	if len(reasons) > 0 {
@@ -68,7 +72,7 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.ReadyStatus{
 		Status:    "ok",
 		Database:  true,
-		Sonarr:    true,
+		Sonarr:    sonarrOK,
 		Instances: dtos,
 	})
 }
