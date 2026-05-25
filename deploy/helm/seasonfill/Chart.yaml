@@ -6,8 +6,8 @@ description: |
   on a schedule. Singleton service; database stores state. Frontend
   (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.4.2
-appVersion: "0.4.2"
+version: 0.4.3
+appVersion: "0.4.3"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -25,9 +25,9 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.4.2
+      image: ghcr.io/alexmorbo/seasonfill:0.4.3
     - name: seasonfill-web
-      image: ghcr.io/alexmorbo/seasonfill-web:0.4.2
+      image: ghcr.io/alexmorbo/seasonfill-web:0.4.3
   artifacthub.io/changes: |
     - {kind: removed, description: "BREAKING — drop ConfigMap template; chart no longer renders a config.yaml"}
     - {kind: removed, description: "BREAKING — drop `config.*` values tree (cron, scan, dryRun, http.auth runtime fields)"}
