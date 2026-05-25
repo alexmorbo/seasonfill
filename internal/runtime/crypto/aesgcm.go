@@ -13,17 +13,33 @@ import (
 )
 
 const (
-	hkdfSalt = "seasonfill-runtime-config-v1"
-	hkdfInfo = "aes-gcm-key"
-	keyLen   = 32 // AES-256
-	nonceLen = 12
-	tagLen   = 16
+	hkdfSalt        = "seasonfill-runtime-config-v1"
+	hkdfInfo        = "aes-gcm-key"
+	hkdfSessionInfo = "seasonfill-session-hmac-v1"
+	keyLen          = 32 // AES-256
+	nonceLen        = 12
+	tagLen          = 16
 )
 
 var (
 	ErrEmptyMasterKey     = errors.New("master key is empty")
 	ErrCiphertextTooShort = errors.New("ciphertext too short")
 )
+
+// DeriveSessionHMACKey derives a 32-byte HMAC key from masterKey using HKDF
+// with the "seasonfill-session-hmac-v1" info string. This keeps the session
+// signing key domain-separated from the AES-GCM key derived via "aes-gcm-key".
+func DeriveSessionHMACKey(masterKey string) ([]byte, error) {
+	if masterKey == "" {
+		return nil, ErrEmptyMasterKey
+	}
+	r := hkdf.New(sha256.New, []byte(masterKey), []byte(hkdfSalt), []byte(hkdfSessionInfo))
+	out := make([]byte, keyLen)
+	if _, err := io.ReadFull(r, out); err != nil {
+		return nil, fmt.Errorf("hkdf session hmac: %w", err)
+	}
+	return out, nil
+}
 
 type Cipher struct{ aead cipher.AEAD }
 

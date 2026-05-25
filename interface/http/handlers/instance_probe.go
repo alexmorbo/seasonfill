@@ -99,6 +99,7 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 	}
 	httpReq.Header.Set("X-Api-Key", req.APIKey)
 	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("User-Agent", "seasonfill-probe")
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {

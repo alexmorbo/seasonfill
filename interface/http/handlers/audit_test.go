@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
 // --- harness --------------------------------------------------------------
@@ -50,7 +51,9 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	r := gin.New()
 	api := r.Group("/api/v1")
 	if withAuth {
-		api.Use(middleware.RequireAuth("test-key"))
+		sessionKey, skErr := crypto.DeriveSessionHMACKey("test-key")
+		require.NoError(t, skErr)
+		api.Use(middleware.RequireAuth("test-key", sessionKey))
 	}
 	api.GET("/scans", h.ListScans)
 	api.GET("/scans/:id", h.GetScan)

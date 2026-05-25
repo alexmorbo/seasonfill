@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
 type Server struct {
@@ -83,6 +84,10 @@ func NewServer(
 
 	var serverAuthHandler *handlers.AuthHandler
 	if cfg.Auth.Enabled {
+		sessionKey, err := crypto.DeriveSessionHMACKey(cfg.Auth.APIKey)
+		if err != nil {
+			panic("http.NewServer: derive session HMAC key: " + err.Error())
+		}
 		// M1: stricter limiter for /auth/password — 3 attempts / 15min,
 		// per ClientIP. Independent from the login limiter so a brute-
 		// forcer with a stolen cookie can't exhaust BOTH paths.
@@ -98,7 +103,7 @@ func NewServer(
 		api.POST("/auth/login", authHandler.Login)
 
 		guarded := api.Group("")
-		guarded.Use(middleware.RequireAuth(cfg.Auth.APIKey))
+		guarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, sessionKey))
 		guarded.GET("/auth/session", authHandler.Session)
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
@@ -127,7 +132,7 @@ func NewServer(
 
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")
-		wh.Use(middleware.RequireAuth(cfg.Auth.APIKey))
+		wh.Use(middleware.RequireAuth(cfg.Auth.APIKey, sessionKey))
 		if webhookLimiter != nil {
 			wh.Use(webhookRateLimit(webhookLimiter))
 		}

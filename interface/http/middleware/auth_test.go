@@ -9,12 +9,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
-func setupAuth(apiKey string) *gin.Engine {
+func setupAuth(t *testing.T, apiKey string) *gin.Engine {
+	t.Helper()
+	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
+	require.NoError(t, err)
 	r := gin.New()
 	api := r.Group("/api")
-	api.Use(RequireAuth(apiKey))
+	api.Use(RequireAuth(apiKey, sessionKey))
 	api.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"user": c.GetString(UsernameContextKey)})
 	})
@@ -23,7 +28,7 @@ func setupAuth(apiKey string) *gin.Engine {
 
 func TestRequireAuth_ValidAPIKey(t *testing.T) {
 	t.Parallel()
-	r := setupAuth("secret")
+	r := setupAuth(t, "secret")
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 	req.Header.Set("X-Api-Key", "secret")
 	w := httptest.NewRecorder()
@@ -33,9 +38,11 @@ func TestRequireAuth_ValidAPIKey(t *testing.T) {
 
 func TestRequireAuth_ValidCookie(t *testing.T) {
 	t.Parallel()
-	tok, err := SignSession([]byte("secret"), "admin", time.Now().Add(time.Hour))
+	sessionKey, err := crypto.DeriveSessionHMACKey("secret")
 	require.NoError(t, err)
-	r := setupAuth("secret")
+	tok, err := SignSession(sessionKey, "admin", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	r := setupAuth(t, "secret")
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: tok})
 	w := httptest.NewRecorder()
@@ -46,7 +53,7 @@ func TestRequireAuth_ValidCookie(t *testing.T) {
 
 func TestRequireAuth_BothFail_401(t *testing.T) {
 	t.Parallel()
-	r := setupAuth("secret")
+	r := setupAuth(t, "secret")
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "junk"})
 	req.Header.Set("X-Api-Key", "wrong")
@@ -57,7 +64,7 @@ func TestRequireAuth_BothFail_401(t *testing.T) {
 
 func TestRequireAuth_NoAuth_401(t *testing.T) {
 	t.Parallel()
-	r := setupAuth("secret")
+	r := setupAuth(t, "secret")
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -66,7 +73,7 @@ func TestRequireAuth_NoAuth_401(t *testing.T) {
 
 func TestRequireAuth_IdenticalRejection(t *testing.T) {
 	t.Parallel()
-	r := setupAuth("secret")
+	r := setupAuth(t, "secret")
 	cases := []func(*http.Request){
 		func(req *http.Request) {
 			req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "junk"})

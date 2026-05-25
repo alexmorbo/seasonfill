@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 // AuthHandler — D48 handler.
 type AuthHandler struct {
 	apiKey          string
+	sessionKey      []byte // HKDF-derived HMAC sub-key for session cookies
 	repo            ports.AdminUserRepository
 	authRuntime     *middleware.AuthRuntimePointer
 	limiter         *auth.IPLimiter
@@ -68,13 +70,17 @@ func NewAuthHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
+	if err != nil {
+		panic("handlers.NewAuthHandler: derive session HMAC key: " + err.Error())
+	}
 	ptr := &middleware.AuthRuntimePointer{}
 	ptr.Store(&middleware.AuthRuntime{
 		SessionTTL:   sessionTTL,
 		SecureCookie: secureCookie,
 	})
 	h := &AuthHandler{
-		apiKey: apiKey, repo: repo, authRuntime: ptr,
+		apiKey: apiKey, sessionKey: sessionKey, repo: repo, authRuntime: ptr,
 		limiter: limiter, logger: logger, now: time.Now,
 	}
 	for _, opt := range opts {
@@ -177,7 +183,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	ttl := h.sessionTTL()
 	exp := h.now().Add(ttl)
-	tok, err := middleware.SignSession([]byte(h.apiKey), user.Username, exp)
+	tok, err := middleware.SignSession(h.sessionKey, user.Username, exp)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "auth.login.sign_failed",
 			slog.String("error", err.Error()))
