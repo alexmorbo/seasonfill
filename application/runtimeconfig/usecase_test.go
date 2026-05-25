@@ -335,3 +335,56 @@ func TestValidate_RuntimeMaxBoundary_RoundTrips(t *testing.T) {
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
 }
+
+// staleOnIUSRepo is a deliberately broken fake: it ignores the IUS
+// pointer's value and unconditionally returns ports.ErrStaleWrite
+// whenever one is provided. After the CR-1 fix the usecase MUST
+// surface that as runtimeconfig.ErrStaleWrite. If the usecase were to
+// short-circuit in its own Get→compare block (the regression) and
+// pass nil to Upsert, this fake would happily succeed and the test
+// would fail — locking the contract.
+type staleOnIUSRepo struct{}
+
+func (staleOnIUSRepo) Get(_ context.Context) (ports.RuntimeConfigRow, error) {
+	return ports.RuntimeConfigRow{UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (staleOnIUSRepo) Upsert(_ context.Context, _ runtime.Snapshot, ius *time.Time) error {
+	if ius != nil {
+		return ports.ErrStaleWrite
+	}
+	return nil
+}
+
+func (staleOnIUSRepo) SaveAPIKey(_ context.Context, _ []byte, _ bool) error {
+	return nil
+}
+
+// TestUpdate_StaleIUS_FromRepo is the CR-1 + M-2 regression test.
+// The fake never compares timestamps — it just signals stale whenever
+// an IUS pointer is forwarded. The usecase must:
+//  1. NOT do an out-of-tx precondition Get itself.
+//  2. Forward the IUS pointer verbatim to Upsert.
+//  3. Translate ports.ErrStaleWrite to runtimeconfig.ErrStaleWrite.
+func TestUpdate_StaleIUS_FromRepo(t *testing.T) {
+	t.Parallel()
+	bus := runtime.NewBus(nil)
+	t.Cleanup(bus.Close)
+	uc := New(staleOnIUSRepo{}, fakeInstanceRepo{}, nil, bus, nil)
+	past := time.Now().UTC().Add(-time.Hour)
+	_, _, err := uc.Update(context.Background(), validInput(), &past)
+	require.ErrorIs(t, err, ErrStaleWrite,
+		"usecase must surface ports.ErrStaleWrite from Upsert as runtimeconfig.ErrStaleWrite")
+}
+
+// TestUpdate_NoIUS_SucceedsThroughRepo is the companion: when no IUS
+// is provided, the same non-checking fake must succeed. This locks
+// "the usecase forwards IUS=nil verbatim and never invents one".
+func TestUpdate_NoIUS_SucceedsThroughRepo(t *testing.T) {
+	t.Parallel()
+	bus := runtime.NewBus(nil)
+	t.Cleanup(bus.Close)
+	uc := New(staleOnIUSRepo{}, fakeInstanceRepo{}, nil, bus, nil)
+	_, _, err := uc.Update(context.Background(), validInput(), nil)
+	require.NoError(t, err)
+}

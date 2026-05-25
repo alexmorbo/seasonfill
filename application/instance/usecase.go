@@ -126,12 +126,17 @@ func (u *UseCase) Get(ctx context.Context, name string) (runtime.InstanceSnapsho
 
 // Create persists a new instance row + secret, then republishes a
 // fresh Snapshot. Returns ErrDuplicateName if name is already taken,
-// ErrValidation for bad inputs.
+// ErrValidation (typed) for bad inputs.
+//
+// Defaults are applied BEFORE validation so a DTO that omits optional
+// blocks (e.g. health_check) goes through validation with the
+// default-filled values. Bound checks only reject EXPLICIT out-of-
+// range inputs — they never reject "zero means use the default".
 func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) error {
+	runtime.ApplyInstanceDefaults(&snap)
 	if err := validate(snap, true); err != nil {
 		return err
 	}
-	runtime.ApplyInstanceDefaults(&snap)
 	if _, err := u.instances.GetByName(ctx, snap.Name, u.cipher); err == nil {
 		return ErrDuplicateName
 	} else if !errors.Is(err, ports.ErrNotFound) {
@@ -145,12 +150,10 @@ func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) err
 
 // Update applies changes to an existing row, optionally preserving
 // the stored api_key when newSnap.APIKey is empty. ifUnmodifiedSince
-// (nil = ignore) implements optimistic concurrency. The precondition
-// check runs inside the same DB transaction as the write so two
-// concurrent IUS-bearing PUTs cannot both succeed — one returns
-// ErrStaleWrite. The repo compares at second resolution to match the
-// RFC1123 Last-Modified header (1-second precision gap is documented
-// on the handler godoc).
+// (nil = ignore) implements optimistic concurrency.
+//
+// Defaults are applied BEFORE validation (see Create godoc for the
+// rationale). Bound checks always run against default-filled values.
 func (u *UseCase) Update(
 	ctx context.Context,
 	name string,
@@ -160,6 +163,7 @@ func (u *UseCase) Update(
 	if newSnap.Name != name {
 		return ErrNameImmutable
 	}
+	runtime.ApplyInstanceDefaults(&newSnap)
 	if err := validate(newSnap, false); err != nil {
 		return err
 	}
@@ -168,7 +172,6 @@ func (u *UseCase) Update(
 		return err
 	}
 	newSnap.ID = existing.ID
-	runtime.ApplyInstanceDefaults(&newSnap)
 	preserveSecret := strings.TrimSpace(newSnap.APIKey) == ""
 	if err := u.instances.UpdateWithOptions(ctx, newSnap, u.cipher, preserveSecret, ifUnmodifiedSince); err != nil {
 		if errors.Is(err, ports.ErrStaleWrite) {
@@ -243,7 +246,8 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 			"must match ^[a-zA-Z0-9_-]{1,128}$")
 	}
 	if reservedNames[strings.ToLower(s.Name)] {
-		return fmt.Errorf("%w: name %q is reserved", ErrValidation, s.Name)
+		return newValidationErr("name", "INVALID_INSTANCE_NAME_RESERVED",
+			fmt.Sprintf("name %q is reserved", s.Name))
 	}
 	if strings.TrimSpace(s.URL) == "" {
 		return newValidationErr("url", "INVALID_INSTANCE_URL",

@@ -167,8 +167,11 @@ func (h *InstanceCRUDHandler) Delete(c *gin.Context) {
 
 // writeError maps usecase errors to wire responses. The mapping is
 // deliberate (not via switch on type) because the wire codes are
-// stable contract surface.
+// stable contract surface. The *instance.ValidationError branch must
+// run BEFORE the generic ErrValidation branch so the per-field code
+// reaches the wire instead of the generic BAD_REQUEST sentinel.
 func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
+	var verr *instance.ValidationError
 	switch {
 	case errors.Is(err, instance.ErrNameImmutable):
 		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{
@@ -187,6 +190,10 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, instance.ErrStaleWrite):
 		c.AbortWithStatusJSON(http.StatusPreconditionFailed, dto.ErrorResponse{
 			Error: "instance was modified by another client", Code: "STALE_WRITE",
+		})
+	case errors.As(err, &verr):
+		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{
+			Error: verr.Error(), Code: verr.Code,
 		})
 	case errors.Is(err, instance.ErrValidation):
 		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{

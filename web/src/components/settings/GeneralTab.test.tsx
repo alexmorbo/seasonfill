@@ -97,20 +97,23 @@ describe('<GeneralTab />', () => {
     }) as typeof fetch;
 
     renderWithProviders(<GeneralTab />);
-    // Wait for form to load
+    // Wait for the initial GET to settle (form rendered).
     await waitFor(() => screen.getByRole('button', { name: /save/i }));
+    // SNAPSHOT calls now — this is the M-1 baseline. The 412 → refetch
+    // must advance this counter STRICTLY after the click.
+    const callsBefore = callCount;
 
-    // Dirty the form so Save is enabled
+    // Dirty the form so Save is enabled.
     const schedInput = screen.getByPlaceholderText(/0 \*\/6/i);
     await userEvent.clear(schedInput);
     await userEvent.type(schedInput, '0 */4 * * *');
 
     await userEvent.click(screen.getByRole('button', { name: /save/i }));
 
-    // After 412, the mutation onError handler calls qc.invalidateQueries which
-    // triggers a re-fetch. callCount should advance.
+    // After 412, the mutation's onError handler calls qc.invalidateQueries
+    // which triggers a re-fetch. callCount must advance past callsBefore.
     await waitFor(() => {
-      expect(callCount).toBeGreaterThan(0);
+      expect(callCount).toBeGreaterThan(callsBefore);
     });
   });
 });

@@ -336,3 +336,76 @@ func TestCRUD_readJSONBody_TooLarge(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
 }
+
+// TestCRUD_Create_TypedCode_TimeoutOutOfRange locks H-2 + H-3: a
+// timeout_sec of 301 (above the 300s max) returns 400 + the typed
+// per-field code, not the generic BAD_REQUEST sentinel.
+func TestCRUD_Create_TypedCode_TimeoutOutOfRange(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("alpha")
+	body["timeout_sec"] = 301
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE", resp["code"],
+		"per-field code must reach the wire via errors.As branch")
+}
+
+// TestCRUD_Create_TypedCode_RateLimitRPMOutOfRange exercises the
+// rate_limit_rpm bound (max 10000). Same contract as above.
+func TestCRUD_Create_TypedCode_RateLimitRPMOutOfRange(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("alpha")
+	body["rate_limit_rpm"] = 10001
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_INSTANCE_RATE_LIMIT_RPM_OUT_OF_RANGE", resp["code"])
+}
+
+// TestCRUD_Create_TypedCode_RetryMaxAttemptsOutOfRange exercises the
+// nested retry.max_attempts bound (max 10).
+func TestCRUD_Create_TypedCode_RetryMaxAttemptsOutOfRange(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("alpha")
+	body["retry"] = map[string]any{"max_attempts": 11}
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_INSTANCE_RETRY_MAX_ATTEMPTS_OUT_OF_RANGE", resp["code"])
+}
+
+// TestCRUD_Create_TypedCode_ReservedName locks L-3 end-to-end:
+// reserved name "test" surfaces the typed reserved-name code on the
+// wire (not the generic BAD_REQUEST it produced before).
+func TestCRUD_Create_TypedCode_ReservedName(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("test") // reserved
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "INVALID_INSTANCE_NAME_RESERVED", resp["code"])
+}
+
+// TestCRUD_Create_OmitsHealthCheck_201 locks H-3 at the handler level:
+// a POST body that OMITS health_check entirely returns 201.
+func TestCRUD_Create_OmitsHealthCheck_201(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := map[string]any{
+		"name": "alpha", "url": "http://sonarr:8989", "api_key": "abc",
+		// no timeout_sec, no search_timeout_sec, no health_check —
+		// every zero value must flow through ApplyInstanceDefaults
+		// before validation.
+	}
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
+}

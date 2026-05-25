@@ -46,10 +46,10 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
   };
 }
 
-function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeConfig {
+function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues): RuntimeConfig {
   // Merge over the last-known full config so we preserve fields that
   // belong to the Security tab and any future ones we don't yet model.
-  const base = prev ?? ({} as RuntimeConfig);
+  const base = prev ?? {};
   return {
     ...base,
     cron: {
@@ -64,7 +64,7 @@ function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeC
     },
     dry_run: v.dry_run,
     global_rate_limit: { rpm: v.global_rpm, burst: v.global_burst },
-  };
+  } as RuntimeConfig;
 }
 
 function describeCron(expr: string): { ok: boolean; text: string } {
@@ -100,8 +100,8 @@ export function GeneralTab() {
   const cronVal = watch('cron_schedule');
   const cronPreview = useMemo(() => describeCron(cronVal), [cronVal]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    await mut.mutateAsync(formToPayload(q.data?.config, values));
+  const onSubmit = handleSubmit((values) => {
+    mut.mutate(formToPayload(q.data?.config, values));
   });
 
   const onDiscard = () => {

@@ -49,8 +49,8 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
   };
 }
 
-function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeConfig {
-  const base = prev ?? ({} as RuntimeConfig);
+function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues): RuntimeConfig {
+  const base = prev ?? {};
   return {
     ...base,
     auth: {
@@ -59,7 +59,7 @@ function formToPayload(prev: RuntimeConfig | undefined, v: FormValues): RuntimeC
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
     },
-  };
+  } as RuntimeConfig;
 }
 
 export function SecurityTab() {
@@ -85,8 +85,8 @@ export function SecurityTab() {
     }
   }, [q.data?.config, reset]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    await mut.mutateAsync(formToPayload(q.data?.config, values));
+  const onSubmit = handleSubmit((values) => {
+    mut.mutate(formToPayload(q.data?.config, values));
   });
 
   const onDiscard = () => reset(configToForm(q.data?.config));

@@ -30,6 +30,8 @@ export function Settings() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const target = `#${tab}`;
+    if (window.location.hash === target) return;
     window.location.hash = tab;
   }, [tab]);
 

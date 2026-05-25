@@ -118,10 +118,11 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 
 // Update validates the incoming Input, persists it, then republishes a
 // fresh Snapshot built from (new runtime row + current instances).
-// ifUnmodifiedSince (zero = ignore) implements the optimistic-
-// concurrency check; a stored updated_at strictly newer than the
-// header (second-rounded) → ErrStaleWrite. The returned Output+timestamp
-// is the post-write re-read so the handler can echo it.
+// ifUnmodifiedSince (nil = ignore) implements optimistic concurrency:
+// the IUS pointer is forwarded as-is to the repo's Upsert, where the
+// stored vs provided comparison runs INSIDE the same DB transaction
+// as the write (no TOCTOU window). `ports.ErrStaleWrite` is
+// translated to `runtimeconfig.ErrStaleWrite` so HTTP can map to 412.
 func (u *UseCase) Update(
 	ctx context.Context,
 	in Input,
@@ -131,21 +132,10 @@ func (u *UseCase) Update(
 	if err != nil {
 		return Output{}, time.Time{}, err
 	}
-	if ifUnmodifiedSince != nil {
-		current, err := u.runtimes.Get(ctx)
-		if err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return Output{}, time.Time{},
-				fmt.Errorf("runtimeconfig: precondition read: %w", err)
+	if err := u.runtimes.Upsert(ctx, snap, ifUnmodifiedSince); err != nil {
+		if errors.Is(err, ports.ErrStaleWrite) {
+			return Output{}, time.Time{}, ErrStaleWrite
 		}
-		if err == nil {
-			stored := current.UpdatedAt.Truncate(time.Second)
-			provided := ifUnmodifiedSince.Truncate(time.Second)
-			if stored.After(provided) {
-				return Output{}, time.Time{}, ErrStaleWrite
-			}
-		}
-	}
-	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
 		return Output{}, time.Time{},
 			fmt.Errorf("runtimeconfig: upsert: %w", err)
 	}

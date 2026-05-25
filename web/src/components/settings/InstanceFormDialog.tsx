@@ -95,12 +95,18 @@ export function InstanceFormDialog({
     mode: 'onBlur',
   });
 
+  // Reset on dialog open transition OR on name change (edit→edit of a
+  // different instance). We deliberately do NOT depend on `initial`
+  // reference identity — `useInstances` refetches every 5s and the
+  // parent's editInitial would otherwise be a fresh object literal on
+  // every refetch, blowing away user-typed input in the api_key field.
   useEffect(() => {
     if (open) {
       reset({ ...DEFAULTS, ...initial, api_key: '' });
       setProbeResult(null);
     }
-  }, [open, initial, reset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial?.name, reset]);
 
   const onInvalid = (errs: Record<string, unknown>) => {
     if (!isEdit && errs.api_key) setFocus('api_key');

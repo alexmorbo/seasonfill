@@ -296,9 +296,6 @@ func TestValidate_RangeBounds_Instance(t *testing.T) {
 	t.Parallel()
 	cases := []instanceRangeCase{
 		// timeout_sec ∈ [1s, 300s]
-		{"timeout_zero_rejected",
-			func(s *runtime.InstanceSnapshot) { s.Timeout = 0 },
-			"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE", true},
 		{"timeout_at_min",
 			func(s *runtime.InstanceSnapshot) { s.Timeout = 1 * time.Second },
 			"", false},
@@ -310,9 +307,6 @@ func TestValidate_RangeBounds_Instance(t *testing.T) {
 			"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE", true},
 
 		// search_timeout_sec ∈ [1s, 600s]
-		{"search_timeout_zero_rejected",
-			func(s *runtime.InstanceSnapshot) { s.SearchTimeout = 0 },
-			"INVALID_INSTANCE_SEARCH_TIMEOUT_OUT_OF_RANGE", true},
 		{"search_timeout_at_max",
 			func(s *runtime.InstanceSnapshot) { s.SearchTimeout = 600 * time.Second },
 			"", false},
@@ -433,4 +427,56 @@ func TestValidate_InstanceLegacyCallersUnwrap(t *testing.T) {
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
 	assert.Equal(t, "INVALID_INSTANCE_NAME", verr.Code)
+}
+
+// TestCreate_OmitsHealthCheck_GetsDefaults locks the H-3 contract:
+// a snapshot whose health_check intervals are zero (the DTO layer's
+// "omitted" representation) must survive validation and round-trip
+// through Get as the defaulted values from ApplyInstanceDefaults.
+//
+// Before H-3, validate ran on the raw snapshot and rejected zero
+// values as out-of-range. After H-3, ApplyInstanceDefaults runs
+// first and zero → 5m / 1m, which passes the [10s, 24h] bound.
+func TestCreate_OmitsHealthCheck_GetsDefaults(t *testing.T) {
+	t.Parallel()
+	uc, _, _, _ := setup(t)
+	// Snapshot with NO health_check fields set — pre-H-3 this was
+	// guaranteed-rejected by validate. Timeout / SearchTimeout are
+	// also zero to prove defaults flow through every range-checked
+	// field, not just health_check.
+	snap := runtime.InstanceSnapshot{
+		Name: "alpha", URL: "http://sonarr:8989", APIKey: "abc",
+	}
+	require.NoError(t, uc.Create(context.Background(), snap))
+
+	got, _, err := uc.Get(context.Background(), "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, got.Timeout,
+		"zero Timeout must default to 10s after H-3")
+	assert.Equal(t, 60*time.Second, got.SearchTimeout,
+		"zero SearchTimeout must default to 60s (Timeout*6) after H-3")
+	assert.Equal(t, 5*time.Minute, got.HealthCheck.RecheckAuth,
+		"zero RecheckAuth must default to 5m after H-3")
+	assert.Equal(t, time.Minute, got.HealthCheck.RecheckNetwork,
+		"zero RecheckNetwork must default to 1m after H-3")
+	assert.Equal(t, "smart", got.Cooldown.Mode,
+		"empty Cooldown.Mode must default to 'smart'")
+	assert.Equal(t, "auto", got.Mode,
+		"empty Mode must default to 'auto'")
+}
+
+// TestCreate_ReservedName_TypedError locks L-3: the reserved-name
+// branch now returns a typed *ValidationError with the new
+// INVALID_INSTANCE_NAME_RESERVED code, while still unwrapping to
+// ErrValidation for legacy callers.
+func TestCreate_ReservedName_TypedError(t *testing.T) {
+	t.Parallel()
+	uc, _, _, _ := setup(t)
+	bad := validSnap("test")
+	err := uc.Create(context.Background(), bad)
+	require.Error(t, err)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_INSTANCE_NAME_RESERVED", verr.Code)
+	assert.ErrorIs(t, err, ErrValidation)
 }

@@ -8,6 +8,7 @@ package reload
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"runtime/debug"
 	"time"
@@ -60,7 +61,9 @@ func runLoop(
 // runApplyOnce isolates a single apply invocation so a panic in user
 // code (factory closures, gin SetTrustedProxies, scheduler.Replace) cannot
 // kill the subscriber goroutine. Fail-open contract: panic → error metric +
-// stack log; loop continues on the previous state.
+// stack log; loop continues on the previous state. Context-cancellation
+// errors (Canceled / DeadlineExceeded) are NOT counted as reload errors —
+// they are the expected shutdown signal; logged at Debug for traceability.
 func runApplyOnce(
 	ctx context.Context,
 	component string,
@@ -81,6 +84,13 @@ func runApplyOnce(
 		}
 	}()
 	if err := apply(ctx, snap); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			logger.DebugContext(ctx, "reload.cancelled",
+				slog.String("component", component),
+				slog.String("error", err.Error()),
+				slog.Duration("took", time.Since(start)))
+			return
+		}
 		IncReloadError(component)
 		logger.ErrorContext(ctx, "reload.failed",
 			slog.String("component", component),

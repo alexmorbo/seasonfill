@@ -301,4 +301,52 @@ describe('<InstanceFormDialog />', () => {
       );
     });
   });
+
+  it('edit form survives a useInstances refetch without losing typed input', async () => {
+    // Background GET for the detail keeps returning the same payload —
+    // useInstanceDetail's stable data identity + the tightened effect
+    // dep array means typed input must survive.
+    const minDetail: InstanceDetail = {
+      name: 'alpha', url: 'http://x', mode: DtoInstanceDetailMode.auto,
+    } as InstanceDetail;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha')) {
+        return jsonResp(minDetail, 200);
+      }
+      // List endpoint refetch — return an empty list (shape doesn't
+      // matter for this test, only that the cache invalidation fires).
+      return jsonResp({ instances: [] }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open
+        onOpenChange={() => {}}
+        mode="edit"
+        initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', minDetail);
+
+    // Wait for the form to settle (Save enabled = detail loaded).
+    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    // Type into the api_key field.
+    const keyInput = await screen.findByLabelText(/api key/i);
+    await userEvent.type(keyInput, 'user-typed-secret');
+    expect((keyInput as HTMLInputElement).value).toBe('user-typed-secret');
+
+    // Force a useInstances refetch. Before H-1 the dialog's effect
+    // depended on `initial` reference identity, which the parent
+    // rebuilt on every list refetch, so the form would reset and
+    // the api_key field would clear.
+    await qc.invalidateQueries({ queryKey: ['instances'] });
+
+    // Give the query client a tick to flush.
+    await waitFor(() => {
+      expect((keyInput as HTMLInputElement).value).toBe('user-typed-secret');
+    });
+  });
 });

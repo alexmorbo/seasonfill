@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -25,13 +25,15 @@ export function InstancesTab() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const detailQuery = useInstanceDetail(editing);
-  const editInitial = detailQuery.data?.detail
-    ? {
-        name: detailQuery.data.detail.name ?? '',
-        url: detailQuery.data.detail.url ?? '',
-        mode: (detailQuery.data.detail.mode as 'auto' | 'manual' | undefined) ?? 'auto',
-      }
-    : undefined;
+  const editDetail = detailQuery.data?.detail;
+  const editInitial = useMemo(() => {
+    if (!editDetail) return undefined;
+    return {
+      name: editDetail.name ?? '',
+      url: editDetail.url ?? '',
+      mode: (editDetail.mode as 'auto' | 'manual' | undefined) ?? 'auto',
+    };
+  }, [editDetail]);
 
   const openCreate = () => {
     setEditing(null);
