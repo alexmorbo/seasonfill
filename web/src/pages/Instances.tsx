@@ -3,7 +3,7 @@ import { useInstances } from '@/lib/instances';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, AlertTriangle, ListOrdered } from 'lucide-react';
+import { AlertTriangle, ListOrdered } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { relativeTime } from '@/lib/format';
@@ -18,9 +18,6 @@ export function Instances() {
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
       <header className="flex items-center gap-4">
         <h1 className="text-[22px] font-semibold tracking-tight">Sonarr instances</h1>
-        <span className="font-mono text-[12px] text-faint">
-          configured via helm/values.yaml — read-only in v1
-        </span>
       </header>
 
       {q.isError && (
@@ -50,7 +47,7 @@ export function Instances() {
           <CardContent className="p-0">
             <EmptyState
               title="No instances configured"
-              body="Add at least one Sonarr instance under helm values to start scanning."
+              body="Add a Sonarr instance in Settings → Instances to start scanning."
             />
           </CardContent>
         </Card>
@@ -126,19 +123,6 @@ export function Instances() {
         </div>
       )}
 
-      <Card>
-        <CardContent className="p-4 flex items-start gap-3 text-[13px] text-foreground-2">
-          <Info className="w-4 h-4 text-muted shrink-0 mt-0.5" />
-          <div>
-            <div className="font-semibold text-foreground mb-1">
-              Instance CRUD is read-only in v1
-            </div>
-            Adding, removing, or editing instances at runtime requires moving config from{' '}
-            <span className="font-mono">values.yaml</span> into the database. Tracked as Phase
-            5.2+.
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

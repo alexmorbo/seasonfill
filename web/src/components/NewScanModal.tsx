@@ -209,7 +209,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
               <span className="text-[13px]">
                 Dry run{' '}
                 <span className="text-faint text-[11px]">
-                  (instance-default for v1 — server-resolved)
+                  (instance default — server-resolved)
                 </span>
               </span>
             </Label>

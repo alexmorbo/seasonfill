@@ -110,7 +110,7 @@ export function Dashboard() {
                   <TableCell colSpan={5}>
                     <EmptyState
                       title="No instances configured"
-                      body="Add Sonarr instances via helm/values.yaml."
+                      body="Add a Sonarr instance in Settings → Instances."
                     />
                   </TableCell>
                 </TableRow>
