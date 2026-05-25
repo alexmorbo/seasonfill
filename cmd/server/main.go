@@ -298,8 +298,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 				Timeout: 5 * time.Second,
 			}).DialContext,
 			// D-2: bound resource consumption on slow/malicious upstreams.
-			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: 5 * time.Second,
+			TLSHandshakeTimeout:    5 * time.Second,
+			ResponseHeaderTimeout:  5 * time.Second,
 			MaxResponseHeaderBytes: 64 << 10,
 		},
 	}

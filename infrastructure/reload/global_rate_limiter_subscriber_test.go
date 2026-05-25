@@ -60,9 +60,7 @@ func TestGlobalRateLimiter_RebuildsOnChange(t *testing.T) {
 func TestGlobalRateLimiter_ZeroMeansUnlimited(t *testing.T) {
 	t.Parallel()
 	var ptr atomic.Pointer[ratelimit.Limiter]
-	factory := GlobalLimiterFactory(func(rpm, burst int) *ratelimit.Limiter {
-		return ratelimit.NewFromRPM(rpm, burst)
-	})
+	factory := GlobalLimiterFactory(ratelimit.NewFromRPM)
 	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, runtime.RateLimitSnapshot{}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

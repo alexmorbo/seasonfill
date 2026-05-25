@@ -134,7 +134,7 @@ func TestBus_ResubscribeClosesOld(t *testing.T) {
 func TestBus_NilLogger(t *testing.T) {
 	bus := NewBus(nil)
 	require.NotNil(t, bus)
-	defer bus.Close()
+	bus.Close()
 }
 
 func TestBus_Subscribe_OnReadyFiresBeforeReturn(t *testing.T) {

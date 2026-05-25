@@ -37,7 +37,7 @@ func ResolveAPIKey(ctx context.Context, envKey string, repo ports.RuntimeConfigR
 		}
 		_, err = cipher.Open(row.APIKeyCiphertext)
 		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrAPIKeyMismatch, err)
+			return "", fmt.Errorf("%w: %w", ErrAPIKeyMismatch, err)
 		}
 		return envKey, nil
 
@@ -80,8 +80,8 @@ func ResolveAPIKey(ctx context.Context, envKey string, repo ports.RuntimeConfigR
 		// Key MUST NOT enter the slog pipeline — log aggregators (Loki,
 		// VictoriaLogs) would index it. Stdout is the one channel an
 		// operator can capture out-of-band.
-		fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY="+key)
-		fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY_HELP: capture the line above and set it in your environment before the next restart")
+		_, _ = fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY="+key)
+		_, _ = fmt.Fprintln(os.Stdout, "SEASONFILL_API_KEY_HELP: capture the line above and set it in your environment before the next restart")
 		log.Info("FIRST-RUN: auto-generated SEASONFILL_API_KEY printed to stdout (not logged)",
 			slog.Bool("auto_generated", true))
 		return key, nil

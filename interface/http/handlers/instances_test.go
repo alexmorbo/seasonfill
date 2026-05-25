@@ -417,7 +417,7 @@ func TestList_IncludesURL(t *testing.T) {
 	r.GET("/api/v1/instances",
 		NewInstancesHandler(c, nil, nil, urls, nil).List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

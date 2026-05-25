@@ -2,7 +2,6 @@ package reload
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -56,5 +55,3 @@ func (s *AuthMiddlewareSubscriber) apply(_ context.Context, snap runtime.Snapsho
 	}
 	return nil
 }
-
-var errNilEngine = errors.New("authMiddleware: engine is nil")

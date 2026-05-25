@@ -178,5 +178,4 @@ func getenvInt(name string, def int) int {
 }
 
 // (Validate lives in validate.go — see §3.)
-func (c *Bootstrap) validateStub() error { return nil } // why: keep linker happy in mid-edit
 var _ = fmt.Errorf

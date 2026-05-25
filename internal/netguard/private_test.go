@@ -125,7 +125,7 @@ func TestBlockPrivate_IntegratesWithHTTPTransport(t *testing.T) {
 		DialContext: (&net.Dialer{Control: BlockPrivate, Timeout: 500 * time.Millisecond}).DialContext,
 	}
 	c := &http.Client{Transport: tr, Timeout: time.Second}
-	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:1/", nil)
 	require.NoError(t, err)
 	_, err = c.Do(req)
 	require.Error(t, err)
