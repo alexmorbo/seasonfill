@@ -100,6 +100,7 @@ func startSubscribers(
 	checker reload.HealthChecker,
 	holder *instanceMapHolder,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
+	bootGlobalRateLimit runtime.RateLimitSnapshot,
 	authRuntimePtr *middleware.AuthRuntimePointer,
 	engine *gin.Engine,
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
@@ -114,7 +115,7 @@ func startSubscribers(
 	subHealth := reload.NewHealthRegistrySubscriber(checker, clientLister, log)
 	subScan := reload.NewScanInstancesSubscriber(scanUC, clientForName, holder.replace, log)
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
-		reload.DefaultGlobalLimiterFactory, log)
+		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
 	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log)
 
 	runners := []func(context.Context, *runtime.Bus, func()){

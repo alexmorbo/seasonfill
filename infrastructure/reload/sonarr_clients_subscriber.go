@@ -74,6 +74,8 @@ func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, bootConfigs 
 	}
 }
 
+// WithDrainDelay overrides the 30s drain delay. MUST be called before Run;
+// mutating drainDelay after Run starts is a data race. Test-only.
 func (s *SonarrClientsSubscriber) WithDrainDelay(d time.Duration) *SonarrClientsSubscriber {
 	s.drainDelay = d
 	return s

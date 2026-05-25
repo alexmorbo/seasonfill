@@ -4,18 +4,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
-
-// ClientForName returns the live sonarr client for `name`. In
-// production this resolves through SonarrClientsSubscriber.View().
-// The indirection means scanInstances doesn't need a direct
-// reference to the sonarrClients subscriber — it only needs a way
-// to look up the current client per snapshot instance.
-type ClientForName func(name string) (ports.SonarrClient, bool)
 
 // ScanInstancesSubscriber rebuilds the scan UC's instances slice
 // (and by-name map) on every snapshot. Calls `scanUC.SwapInstances`

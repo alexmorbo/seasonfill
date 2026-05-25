@@ -71,16 +71,6 @@ func run() error {
 	return err
 }
 
-// runForTest is a test-only entry point (gated by //go:build integration).
-// It runs the full server lifecycle against ctx, blocking until ctx is
-// cancelled. onReady is called with the live bus after all six subscribers
-// are registered, allowing the test to start interacting while the server
-// is still running.
-func runForTest(ctx context.Context, onReady func(*runtime.Bus)) error {
-	_, err := runWithContext(ctx, onReady)
-	return err
-}
-
 // runWithContext contains the full server lifecycle. onReady, if non-nil,
 // is called with the live bus after all six subscribers are registered.
 func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.Bus, error) {
@@ -359,7 +349,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName, bootCfgs,
 		clientFactory, checker, holder,
-		&globalLimiterPtr, authRuntimePtr, httpServer.Engine())
+		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
 	}

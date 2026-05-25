@@ -111,24 +111,13 @@ func NewUseCase(
 }
 
 // loadInstances returns the live []Instance set by either the
-// constructor or WithInstancesProvider's last reload.
+// constructor or the last SwapInstances call.
 func (u *UseCase) loadInstances() []Instance {
 	p := u.instances.Load()
 	if p == nil {
 		return nil
 	}
 	return *p
-}
-
-// WithInstancesProvider installs a callback that the reload
-// subscriber invokes on every snapshot. Returns u for chained-
-// builder ergonomics. provider must NOT be nil.
-func (u *UseCase) WithInstancesProvider(provider func()) *UseCase {
-	// No-op accessor — the caller stores via SwapInstances directly.
-	// Kept on the type so the reload subscriber has a stable
-	// touch-point if we ever want to add validation here.
-	_ = provider
-	return u
 }
 
 // SwapInstances atomically replaces the instances slice. Called

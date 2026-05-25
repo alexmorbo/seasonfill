@@ -8,13 +8,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// ClientLister returns the current live sonarr client list. In
-// production this is `SonarrClientsSubscriber.View().All()`. The
-// indirection keeps healthRegistry and sonarrClients subscribers
-// decoupled — health doesn't care HOW the clients are managed,
-// only what the current set is.
-type ClientLister func() []ports.SonarrClient
-
 // HealthChecker is the (small) subset of healthcheck.Checker the
 // reload subscriber needs. The two-arg signature mirrors story 028c:
 // `clients` drives the polling loop; `names` drives the registry

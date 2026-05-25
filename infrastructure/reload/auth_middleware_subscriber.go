@@ -37,8 +37,13 @@ func (s *AuthMiddlewareSubscriber) apply(_ context.Context, snap runtime.Snapsho
 		SecureCookie:   snap.Auth.SecureCookie,
 	}
 	prev := s.ptr.Load()
+	// Skip store + engine update when nothing changed.
+	if prev != nil && prev.SessionTTL == want.SessionTTL &&
+		prev.SecureCookie == want.SecureCookie &&
+		reflect.DeepEqual(prev.TrustedProxies, want.TrustedProxies) {
+		return nil
+	}
 	s.ptr.Store(&want)
-
 	if s.engine == nil {
 		return nil
 	}

@@ -21,7 +21,7 @@ func TestGlobalRateLimiter_RebuildsOnChange(t *testing.T) {
 		atomic.AddInt32(&builds, 1)
 		return ratelimit.NewFromRPM(rpm, burst)
 	})
-	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, slog.Default())
+	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, runtime.RateLimitSnapshot{}, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -63,7 +63,7 @@ func TestGlobalRateLimiter_ZeroMeansUnlimited(t *testing.T) {
 	factory := GlobalLimiterFactory(func(rpm, burst int) *ratelimit.Limiter {
 		return ratelimit.NewFromRPM(rpm, burst)
 	})
-	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, slog.Default())
+	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, runtime.RateLimitSnapshot{}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bus := runtime.NewBus(slog.Default())

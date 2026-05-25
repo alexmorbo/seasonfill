@@ -40,11 +40,14 @@ type GlobalRateLimiterSubscriber struct {
 	mu atomic.Pointer[runtime.RateLimitSnapshot]
 }
 
-func NewGlobalRateLimiterSubscriber(ptr *LimiterPointer, factory GlobalLimiterFactory, logger *slog.Logger) *GlobalRateLimiterSubscriber {
+func NewGlobalRateLimiterSubscriber(ptr *LimiterPointer, factory GlobalLimiterFactory, boot runtime.RateLimitSnapshot, logger *slog.Logger) *GlobalRateLimiterSubscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &GlobalRateLimiterSubscriber{ptr: ptr, factory: factory, logger: logger}
+	s := &GlobalRateLimiterSubscriber{ptr: ptr, factory: factory, logger: logger}
+	cp := boot
+	s.mu.Store(&cp)
+	return s
 }
 
 func (s *GlobalRateLimiterSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
