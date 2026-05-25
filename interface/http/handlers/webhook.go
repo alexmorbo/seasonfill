@@ -21,19 +21,20 @@ type WebhookProcessor interface {
 }
 
 type WebhookHandler struct {
-	uc             WebhookProcessor
-	knownInstances map[string]struct{}
-	logger         *slog.Logger
+	uc     WebhookProcessor
+	reg    InstanceRegistry
+	logger *slog.Logger
 }
 
-// NewWebhookHandler — knownInstances is the set of configured Sonarr
-// instance names. URL path :instance_name is validated against this set;
-// unknown names get 404. Pass nil to accept any (tests only).
-func NewWebhookHandler(uc WebhookProcessor, knownInstances map[string]struct{}, logger *slog.Logger) *WebhookHandler {
+// NewWebhookHandler — reg.Load nil-OK ("accept any"; tests only).
+// In production, reg is wired to the same instanceMapHolder the reload
+// bus updates, so a Sonarr added via Settings UI is reachable on its
+// webhook URL within one bus tick — no pod restart.
+func NewWebhookHandler(uc WebhookProcessor, reg InstanceRegistry, logger *slog.Logger) *WebhookHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &WebhookHandler{uc: uc, knownInstances: knownInstances, logger: logger}
+	return &WebhookHandler{uc: uc, reg: reg, logger: logger}
 }
 
 func (h *WebhookHandler) Handle(c *gin.Context) {
@@ -42,8 +43,10 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "missing instance_name")
 		return
 	}
-	if h.knownInstances != nil {
-		if _, ok := h.knownInstances[name]; !ok {
+	// reg.Load nil = accept any (test only). Otherwise consult the
+	// reload-aware snapshot every request.
+	if h.reg.Load != nil {
+		if _, ok := h.reg.snapshot()[name]; !ok {
 			h.logger.WarnContext(c.Request.Context(), "webhook_unknown_instance",
 				slog.String("instance", name))
 			writeError(c, http.StatusNotFound, "unknown instance")

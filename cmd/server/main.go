@@ -277,10 +277,11 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)
 	webhookLimiter := authapp.NewIPLimiter(authapp.WebhookLimit(), 60)
-	knownInstances := make(map[string]struct{}, len(cfg.SonarrInstances))
-	for _, sc := range cfg.SonarrInstances {
-		knownInstances[sc.Name] = struct{}{}
-	}
+	// Single registry value the reload bus drives via instanceMapHolder.
+	// holder.load is invoked per-request by InstancesHandler /
+	// GrabHandler / WebhookHandler — they see every Sonarr added or
+	// removed via Settings UI without a pod restart.
+	instanceReg := handlers.InstanceRegistry{Load: holder.load}
 
 	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log)
 	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
@@ -309,11 +310,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
-		sonarrClientsByName,
-		handlers.BuildModeMap(cfg.SonarrInstances),
-		handlers.BuildURLMap(cfg.SonarrInstances),
-		knownInstances,
-		cooldownRepo, grabUC, rescanUC, scanInstancesByName, instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
+		instanceReg,
+		cooldownRepo, grabUC, rescanUC,
+		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
 
 	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
 	sweepInterval := cfg.Scan.CooldownSweep

@@ -30,6 +30,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -181,8 +182,8 @@ func buildServer(t *testing.T) *Server {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, lg)
+		handlers.InstanceRegistry{},
+		nil, nil, nil, nil, nil, nil, lg)
 }
 
 type okWebhookUC struct{}
@@ -229,8 +230,10 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 	}, scanUC, okWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		adminRepo, nil, nil,
-		nil, nil, nil, map[string]struct{}{"main": {}},
-		nil, nil, nil, nil, nil, nil, nil, lg)
+		handlers.InstanceRegistry{Load: func() map[string]scan.Instance {
+			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
+		}},
+		nil, nil, nil, nil, nil, nil, lg)
 }
 
 func TestServer_WebhookRequiresAuth(t *testing.T) {
@@ -393,7 +396,8 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, lg)
+		handlers.InstanceRegistry{},
+		nil, nil, nil, nil, nil, nil, lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {
 		c.String(http.StatusOK, c.ClientIP())

@@ -168,7 +168,10 @@ func newGrabFixture(t *testing.T, forceErr error) *grabFixture {
 		},
 		Client: sn,
 	}
-	h := NewGrabHandler(dec, gr, cd, grabUC, map[string]scan.Instance{"alpha": inst}, lg)
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+		return map[string]scan.Instance{"alpha": inst}
+	}}
+	h := NewGrabHandler(dec, gr, cd, grabUC, reg, lg)
 	r := gin.New()
 	r.POST("/api/v1/decisions/:id/grab", h.ByDecision)
 	return &grabFixture{dec: dec, grabRepo: gr, cooldowns: cd, router: r}

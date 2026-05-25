@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -20,6 +21,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	admin := &stubAdminRepo{}
 	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
-		nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, logger)
+		handlers.InstanceRegistry{},
+		nil, nil, nil,
+		nil, nil, nil, logger)
 }

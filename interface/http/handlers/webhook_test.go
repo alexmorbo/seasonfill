@@ -19,7 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
+	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
 type fakeProcessor struct {
@@ -50,7 +52,16 @@ func newWebhookFixture(t *testing.T, known map[string]struct{}) *webhookFixture 
 
 	proc := &fakeProcessor{}
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := NewWebhookHandler(proc, known, lg)
+
+	reg := InstanceRegistry{}
+	if known != nil {
+		state := map[string]scan.Instance{}
+		for n := range known {
+			state[n] = scan.Instance{Config: config.SonarrInstance{Name: n}}
+		}
+		reg.Load = func() map[string]scan.Instance { return state }
+	}
+	h := NewWebhookHandler(proc, reg, lg)
 
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -155,7 +166,10 @@ func TestWebhookHandler_OversizeBody_400(t *testing.T) {
 func TestWebhook_UnknownInstance_404(t *testing.T) {
 	t.Parallel()
 	r := gin.New()
-	h := NewWebhookHandler(&okWebhookUC{}, map[string]struct{}{"main": {}}, slog.Default())
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+		return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
+	}}
+	h := NewWebhookHandler(&okWebhookUC{}, reg, slog.Default())
 	r.POST("/api/v1/webhook/sonarr/:instance_name", h.Handle)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,

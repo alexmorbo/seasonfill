@@ -15,10 +15,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
 func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
@@ -31,7 +33,7 @@ func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
 	c.Preflight(context.Background())
 
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, InstanceRegistry{}, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -54,7 +56,7 @@ func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
 func TestInstancesHandler_List_Empty(t *testing.T) {
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, InstanceRegistry{}, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -78,7 +80,7 @@ func TestInstancesHandler_LastCheckAt_OmittedWhenNeverChecked(t *testing.T) {
 	})
 
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, nil, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, InstanceRegistry{}, nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -124,7 +126,7 @@ func doMissing(t *testing.T, name string, clients map[string]ports.SonarrClient,
 	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	h := NewInstancesHandler(c, clients, modes, nil, nil)
+	h := NewInstancesHandler(c, buildRegistry(clients, modes, nil), nil)
 	r.GET("/api/v1/instances/:name/missing", h.Missing)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances/"+name+"/missing", nil)
@@ -212,7 +214,7 @@ func TestInstanceDTO_EmitsMode(t *testing.T) {
 	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
 	c.Preflight(context.Background())
 	r := gin.New()
-	r.GET("/api/v1/instances", NewInstancesHandler(c, nil, map[string]string{"alpha": "manual"}, nil, nil).List)
+	r.GET("/api/v1/instances", NewInstancesHandler(c, buildRegistry(nil, map[string]string{"alpha": "manual"}, nil), nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -237,7 +239,7 @@ func doSearch(t *testing.T, name, rawQuery string, clients map[string]ports.Sona
 	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
-	h := NewInstancesHandler(c, clients, nil, nil, nil)
+	h := NewInstancesHandler(c, buildRegistry(clients, nil, nil), nil)
 	r.GET("/api/v1/instances/:name/series", h.SearchSeries)
 	url := "/api/v1/instances/" + name + "/series"
 	if rawQuery != "" {
@@ -415,7 +417,7 @@ func TestList_IncludesURL(t *testing.T) {
 	urls := map[string]string{"alpha": "http://sonarr.example:8989"}
 	r := gin.New()
 	r.GET("/api/v1/instances",
-		NewInstancesHandler(c, nil, nil, urls, nil).List)
+		NewInstancesHandler(c, buildRegistry(nil, nil, urls), nil).List)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances", nil)
 	w := httptest.NewRecorder()
@@ -437,7 +439,7 @@ func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
 	c.Preflight(context.Background())
 	r := gin.New()
 	r.GET("/api/v1/instances",
-		NewInstancesHandler(c, nil, map[string]string{"alpha": "auto"}, nil, nil).List)
+		NewInstancesHandler(c, buildRegistry(nil, map[string]string{"alpha": "auto"}, nil), nil).List)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances", nil)
@@ -449,4 +451,48 @@ func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
 	assert.NotContains(t, body, "api_key", "GET /instances must not include api_key")
 	assert.NotContains(t, body, "apiKey", "GET /instances must not include apiKey")
 	assert.NotContains(t, body, "apikey", "GET /instances must not include apikey")
+}
+
+// buildRegistry composes a registry suitable for handler tests from the
+// three legacy maps the older tests carried. Any map may be nil. Load
+// returns a fresh copy each call.
+func buildRegistry(clients map[string]ports.SonarrClient, modes, urls map[string]string) InstanceRegistry {
+	merged := map[string]scan.Instance{}
+	ensure := func(name string) {
+		if _, ok := merged[name]; !ok {
+			merged[name] = scan.Instance{Config: config.SonarrInstance{Name: name}}
+		}
+	}
+	for n := range clients {
+		ensure(n)
+	}
+	for n := range modes {
+		ensure(n)
+	}
+	for n := range urls {
+		ensure(n)
+	}
+	for n, c := range clients {
+		inst := merged[n]
+		inst.Client = c
+		merged[n] = inst
+	}
+	for n, m := range modes {
+		inst := merged[n]
+		inst.Config.Mode = m
+		merged[n] = inst
+	}
+	for n, u := range urls {
+		inst := merged[n]
+		inst.Config.URL = u
+		merged[n] = inst
+	}
+	cp := merged
+	return InstanceRegistry{Load: func() map[string]scan.Instance {
+		out := make(map[string]scan.Instance, len(cp))
+		for k, v := range cp {
+			out[k] = v
+		}
+		return out
+	}}
 }

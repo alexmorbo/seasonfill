@@ -12,7 +12,6 @@ import (
 
 	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	domaindecision "github.com/alexmorbo/seasonfill/domain/decision"
@@ -28,20 +27,20 @@ type GrabHandler struct {
 	grabs     ports.GrabRepository
 	cooldowns ports.CooldownRepository
 	grabUC    *appgrab.UseCase
-	instances map[string]scan.Instance
+	reg       InstanceRegistry
 	logger    *slog.Logger
 }
 
-// NewGrabHandler — `cooldowns`/`instances` nil-OK for route-shape-only
-// tests (e.g. docs_test).
+// NewGrabHandler — `cooldowns` nil-OK for route-shape-only tests
+// (e.g. docs_test). reg.Load nil-OK for the same reason.
 func NewGrabHandler(decisions ports.DecisionRepository, grabs ports.GrabRepository,
 	cooldowns ports.CooldownRepository, grabUC *appgrab.UseCase,
-	instances map[string]scan.Instance, logger *slog.Logger) *GrabHandler {
+	reg InstanceRegistry, logger *slog.Logger) *GrabHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &GrabHandler{decisions: decisions, grabs: grabs, cooldowns: cooldowns,
-		grabUC: grabUC, instances: instances, logger: logger}
+		grabUC: grabUC, reg: reg, logger: logger}
 }
 
 // ByDecision handles POST /api/v1/decisions/{id}/grab.
@@ -93,7 +92,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 		return
 	}
 
-	inst, ok := h.instances[d.InstanceName]
+	inst, ok := h.reg.snapshot()[d.InstanceName]
 	if !ok {
 		h.logger.WarnContext(ctx, "grab_unknown_instance",
 			slog.String("decision_id", id.String()),

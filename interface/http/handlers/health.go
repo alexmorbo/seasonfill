@@ -47,7 +47,7 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	snap := h.checker.Snapshot()
 	dtos := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		dtos = append(dtos, snapshotToDTO(s, nil, nil))
+		dtos = append(dtos, snapshotToDTO(s, nil))
 	}
 	anyInstance := h.checker.AnyInstanceAvailable()
 	// Pristine deploy: no instances configured yet → don't gate readiness on Sonarr.

@@ -11,13 +11,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
 const (
@@ -33,51 +32,21 @@ const (
 
 type InstancesHandler struct {
 	checker *healthcheck.Checker
-	clients map[string]ports.SonarrClient
-	modes   map[string]string
-	urls    map[string]string
+	reg     InstanceRegistry
 	logger  *slog.Logger
 }
 
-// NewInstancesHandler — `clients`/`modes`/`urls` nil-OK for back-compat
-// with tests that only exercise List (Missing then 404s for every name).
+// NewInstancesHandler — reg.Load may be nil (List then emits empty
+// url/mode-defaulting-to-auto, Missing/SearchSeries 404 every name).
 func NewInstancesHandler(
 	checker *healthcheck.Checker,
-	clients map[string]ports.SonarrClient,
-	modes map[string]string,
-	urls map[string]string,
+	reg InstanceRegistry,
 	logger *slog.Logger,
 ) *InstancesHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &InstancesHandler{
-		checker: checker, clients: clients,
-		modes: modes, urls: urls, logger: logger,
-	}
-}
-
-// BuildModeMap — name->mode lookup; empty mode defaults to "auto".
-func BuildModeMap(instances []config.SonarrInstance) map[string]string {
-	out := make(map[string]string, len(instances))
-	for _, inst := range instances {
-		m := inst.Mode
-		if m == "" {
-			m = "auto"
-		}
-		out[inst.Name] = m
-	}
-	return out
-}
-
-// BuildURLMap — name->url lookup. Mirrors BuildModeMap; same static-
-// lifecycle caveat (rebuilt only at process startup).
-func BuildURLMap(instances []config.SonarrInstance) map[string]string {
-	out := make(map[string]string, len(instances))
-	for _, inst := range instances {
-		out[inst.Name] = inst.URL
-	}
-	return out
+	return &InstancesHandler{checker: checker, reg: reg, logger: logger}
 }
 
 // List returns the current health snapshot for every configured instance.
@@ -93,9 +62,10 @@ func BuildURLMap(instances []config.SonarrInstance) map[string]string {
 // @Router      /instances [get]
 func (h *InstancesHandler) List(c *gin.Context) {
 	snap := h.checker.Snapshot()
+	instMap := h.reg.snapshot()
 	out := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		out = append(out, snapshotToDTO(s, h.modes, h.urls))
+		out = append(out, snapshotToDTO(s, instMap))
 	}
 	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
 }
@@ -119,13 +89,13 @@ func (h *InstancesHandler) List(c *gin.Context) {
 // @Router      /instances/{name}/missing [get]
 func (h *InstancesHandler) Missing(c *gin.Context) {
 	name := c.Param("name")
-	client, ok := h.clients[name]
-	if !ok {
+	inst, ok := h.reg.snapshot()[name]
+	if !ok || inst.Client == nil {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return
 	}
 	ctx := c.Request.Context()
-	allSeries, err := client.ListSeries(ctx)
+	allSeries, err := inst.Client.ListSeries(ctx)
 	if err != nil {
 		// Upstream-auth failure surfaces as 502 — admin IS authenticated
 		// to seasonfill; the Sonarr-side problem is a separate concern.
@@ -168,21 +138,21 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.MissingSeriesList{Items: items, Total: len(items)})
 }
 
-func snapshotToDTO(s instance.Snapshot, modes map[string]string, urls map[string]string) dto.Instance {
+// snapshotToDTO reads URL and Mode from the live registry snapshot.
+// instMap may be nil/empty; mode defaults to "auto" and url to "".
+func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.Instance {
 	var lastCheckAt *time.Time
 	if !s.LastCheckAt.IsZero() {
 		t := s.LastCheckAt
 		lastCheckAt = &t
 	}
 	mode := "auto"
-	if modes != nil {
-		if m, ok := modes[s.Name]; ok && m != "" {
+	var url string
+	if inst, ok := instMap[s.Name]; ok {
+		if m := inst.Config.Mode; m != "" {
 			mode = m
 		}
-	}
-	var url string
-	if urls != nil {
-		url = urls[s.Name] // empty string is fine — UI falls back to ''
+		url = inst.Config.URL // empty string is fine — UI falls back to ''
 	}
 	return dto.Instance{
 		Name: s.Name, URL: url, Mode: mode, Health: string(s.Health),
@@ -220,8 +190,8 @@ func snapshotToDTO(s instance.Snapshot, modes map[string]string, urls map[string
 // @Router      /instances/{name}/series [get]
 func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	name := c.Param("name")
-	client, ok := h.clients[name]
-	if !ok {
+	inst, ok := h.reg.snapshot()[name]
+	if !ok || inst.Client == nil {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return
 	}
@@ -239,7 +209,7 @@ func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	q := strings.ToLower(strings.TrimSpace(c.Query("q")))
 
 	ctx := c.Request.Context()
-	allSeries, err := client.ListSeries(ctx)
+	allSeries, err := inst.Client.ListSeries(ctx)
 	if err != nil {
 		if errors.Is(err, domain.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "search_upstream_unauthorized",

@@ -40,14 +40,10 @@ func NewServer(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 	webhookLimiter *auth.IPLimiter,
-	sonarrClients map[string]ports.SonarrClient,
-	instanceModes map[string]string,
-	instanceURLs map[string]string,
-	knownInstances map[string]struct{},
+	instanceReg handlers.InstanceRegistry,
 	cooldownRepo ports.CooldownRepository,
 	grabUC *appgrab.UseCase,
 	rescanUC *apprescan.UseCase,
-	instancesByName map[string]scan.Instance,
 	instanceCRUD *handlers.InstanceCRUDHandler,
 	instanceProbe *handlers.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
@@ -71,10 +67,10 @@ func NewServer(
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
-	instancesHandler := handlers.NewInstancesHandler(checker, sonarrClients, instanceModes, instanceURLs, logger)
+	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
-	webhookHandler := handlers.NewWebhookHandler(webhookUC, knownInstances, logger)
-	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instancesByName, logger)
+	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
+	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
