@@ -6,8 +6,8 @@ description: |
   on a schedule. Singleton service; database stores state. Frontend
   (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.4.3
-appVersion: "0.4.3"
+version: 0.4.4
+appVersion: "0.4.4"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -25,9 +25,9 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.4.3
+      image: ghcr.io/alexmorbo/seasonfill:0.4.4
     - name: seasonfill-web
-      image: ghcr.io/alexmorbo/seasonfill-web:0.4.3
+      image: ghcr.io/alexmorbo/seasonfill-web:0.4.4
   artifacthub.io/changes: |
     - {kind: removed, description: "BREAKING — drop ConfigMap template; chart no longer renders a config.yaml"}
     - {kind: removed, description: "BREAKING — drop `config.*` values tree (cron, scan, dryRun, http.auth runtime fields)"}
@@ -35,3 +35,4 @@ annotations:
     - {kind: added, description: "all runtime config moves to the DB and is edited via the Settings UI at /settings"}
     - {kind: added, description: "encrypted at-rest Sonarr instance secrets (AES-GCM, key derived from SEASONFILL_API_KEY via HKDF)"}
     - {kind: changed, description: "SEASONFILL_API_KEY now optional — empty → backend auto-generates on first start and prints once in FIRST-RUN log banner"}
+    - {kind: added, description: "security.allow_private_targets toggle on Settings → Security: probe Test connection can reach RFC1918/loopback for homelab deployments (off by default; SSRF-safe)"}
