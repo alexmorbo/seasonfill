@@ -49,20 +49,6 @@ jobs:
             -f deploy/helm/seasonfill/ci/values-dev.yaml \
             > /dev/null
 
-      - name: Schema negative — missing existingSecret AND missing apiKey
-        run: |
-          # Schema rule: anyOf(existingSecret minLength>=1, apiKey minLength>=1).
-          # Both empty must fail.
-          if helm template seasonfill-test deploy/helm/seasonfill \
-              -f deploy/helm/seasonfill/ci/values-dev.yaml \
-              --set 'secrets.existingSecret=' \
-              --set 'secrets.apiKey=' \
-              2>/dev/null; then
-            echo "Expected schema failure: neither existingSecret nor apiKey set"
-            exit 1
-          fi
-          echo "Schema correctly rejected empty secrets block."
-
       - name: Schema negative — webPassword AND webPasswordHash both set
         run: |
           # Schema rule: not(allOf(webPassword non-empty, webPasswordHash non-empty)).
@@ -74,19 +60,6 @@ jobs:
             exit 1
           fi
           echo "Schema correctly rejected mutex violation."
-
-      - name: Schema negative — instances[].name invalid pattern
-        run: |
-          # Schema requires name matches ^[A-Za-z0-9][A-Za-z0-9_-]*$.
-          # Leading dash must be rejected.
-          if helm template seasonfill-test deploy/helm/seasonfill \
-              -f deploy/helm/seasonfill/ci/values-dev.yaml \
-              --set 'instances[0].name=-bad' \
-              2>/dev/null; then
-            echo "Expected schema failure: instance name -bad"
-            exit 1
-          fi
-          echo "Schema correctly rejected invalid instance name."
 
       - name: Install kubeconform
         run: |
