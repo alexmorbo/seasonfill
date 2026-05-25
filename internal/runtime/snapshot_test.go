@@ -22,6 +22,8 @@ func TestDefaults(t *testing.T) {
 	assert.False(t, snap.Auth.SecureCookie)
 	assert.Equal(t, []string{"127.0.0.1", "::1"}, snap.Auth.TrustedProxies)
 	assert.Empty(t, snap.Instances)
+	assert.False(t, snap.Security.AllowPrivateTargets,
+		"Default must be safe — no implicit allow-private")
 }
 
 func TestApplyInstanceDefaults(t *testing.T) {

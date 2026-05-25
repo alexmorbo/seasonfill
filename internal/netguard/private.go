@@ -7,34 +7,52 @@ import (
 	"syscall"
 )
 
-// ErrBlockedHost is the sentinel wrapped by BlockPrivate when the resolved
+// ErrBlockedHost is the sentinel wrapped by Guard.Control when the resolved
 // dial address falls inside the RFC1918/loopback/link-local/ULA block set.
 // Callers (probe handler) use errors.Is to convert this into a 400.
 var ErrBlockedHost = errors.New("blocked host")
 
-// BlockPrivate is a net.Dialer.Control hook. The Go stdlib invokes it AFTER
-// DNS resolution with the bound socket and the final dial address (host:port,
-// where host is an IP literal). Rejecting here defeats DNS rebinding because
-// the IP we inspect is the one the kernel is about to connect to.
-//
-// Signature matches net.Dialer.Control. The fd argument is unused.
-func BlockPrivate(network, address string, _ syscall.RawConn) error {
+// Guard is a net.Dialer.Control hook gated by a runtime predicate.
+// AllowPrivate is read on every Control call; when it returns true,
+// RFC1918/loopback/link-local/ULA destinations are tolerated (homelab
+// mode). Nil predicate or false return = fail closed with ErrBlockedHost,
+// matching the legacy BlockPrivate contract.
+type Guard struct {
+	AllowPrivate func() bool
+}
+
+// Control matches net.Dialer.Control. Stdlib invokes it AFTER DNS
+// resolution with the bound socket and the final dial address — the
+// IP we inspect is what the kernel is about to connect to, so DNS
+// rebinding is defeated here too.
+func (g Guard) Control(network, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
-		// Unparseable address — fail closed.
 		return fmt.Errorf("%w: %s", ErrBlockedHost, address)
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
-		// Control hook is post-resolution; an unparseable host means the
-		// stdlib handed us something unexpected. Fail closed.
 		return fmt.Errorf("%w: %s", ErrBlockedHost, address)
 	}
 	if IsPrivateOrLoopback(ip) {
+		if g.AllowPrivate != nil && g.AllowPrivate() {
+			_ = network
+			return nil
+		}
 		return fmt.Errorf("%w: %s", ErrBlockedHost, address)
 	}
-	_ = network // intentionally unused; signature requirement
+	_ = network
 	return nil
+}
+
+// BlockPrivate is the legacy free-function form. Equivalent to
+// Guard{}.Control — zero Guard denies every private destination.
+//
+// Deprecated: prefer constructing a Guard with the runtime predicate.
+// Retained so the existing test suite (private_test.go +
+// instance_probe_test.go) stays green without churn.
+func BlockPrivate(network, address string, raw syscall.RawConn) error {
+	return Guard{}.Control(network, address, raw)
 }
 
 // IsPrivateOrLoopback returns true for IPs in any of:
@@ -44,9 +62,6 @@ func BlockPrivate(network, address string, _ syscall.RawConn) error {
 //   - IPv6 unique local (fc00::/7)
 //   - unspecified (0.0.0.0, ::)
 //   - multicast
-//
-// stdlib's ip.IsPrivate covers RFC1918 + ULA but skips link-local and
-// loopback, so we layer on top.
 func IsPrivateOrLoopback(ip net.IP) bool {
 	if ip == nil {
 		return true

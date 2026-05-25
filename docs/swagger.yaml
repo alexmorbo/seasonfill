@@ -515,6 +515,8 @@ components:
           $ref: '#/components/schemas/dto.RuntimeRateLimitDTO'
         scan:
           $ref: '#/components/schemas/dto.RuntimeScanDTO'
+        security:
+          $ref: '#/components/schemas/dto.RuntimeSecurityDTO'
         updated_at:
           type: string
       type: object
@@ -548,6 +550,11 @@ components:
         shutdown_grace:
           example: 60s
           type: string
+      type: object
+    dto.RuntimeSecurityDTO:
+      properties:
+        allow_private_targets:
+          type: boolean
       type: object
     dto.Scan:
       properties:
@@ -1531,7 +1538,8 @@ paths:
       - instances
   /readyz:
     get:
-      description: 200 only when DB AND ≥1 Sonarr instance are healthy.
+      description: 200 when DB is up; if instances exist, ≥1 must be healthy. Empty
+        config still passes.
       responses:
         "200":
           content:

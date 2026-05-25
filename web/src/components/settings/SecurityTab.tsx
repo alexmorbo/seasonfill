@@ -23,6 +23,7 @@ const schema = z.object({
   trusted_proxies: z
     .array(z.string())
     .refine((arr) => arr.every(isValidCIDR), 'One or more entries are invalid'),
+  allow_private_targets: z.boolean(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -52,6 +53,7 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     session_ttl_min: parseTTL(c?.auth?.session_ttl) ?? DEFAULT_TTL_MIN,
     secure_cookie: Boolean(c?.auth?.secure_cookie ?? false),
     trusted_proxies: (c?.auth?.trusted_proxies ?? []) as string[],
+    allow_private_targets: Boolean(c?.security?.allow_private_targets ?? false),
   };
 }
 
@@ -64,6 +66,10 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
       session_ttl: `${v.session_ttl_min}m`,
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
+    },
+    security: {
+      ...(base.security ?? {}),
+      allow_private_targets: v.allow_private_targets,
     },
   } as RuntimeConfig;
 }
@@ -211,6 +217,28 @@ export function SecurityTab() {
             {errors.trusted_proxies.message}
           </p>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h3 className="text-[14px] font-semibold tracking-tight">Probe target policy</h3>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1">
+            <Label htmlFor="allow-private">Allow private targets (homelab mode)</Label>
+            <p className="text-[11.5px] text-muted">
+              Probe Test connection allows RFC1918 / loopback / link-local
+              destinations. Required for internal services like
+              <span className="font-mono"> http://sonarr.svc.cluster.local</span>.
+              Off by default to prevent SSRF against unintended internal infra.
+            </p>
+          </div>
+          <Switch
+            id="allow-private"
+            checked={watch('allow_private_targets')}
+            onCheckedChange={(v) =>
+              setValue('allow_private_targets', v, { shouldDirty: true })
+            }
+          />
+        </div>
       </section>
 
       <div className="flex justify-end gap-2 pt-2 border-t border-border">

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -326,4 +327,46 @@ func TestProbe_ValidateURL_ParseError(t *testing.T) {
 	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://foo\x7f.example/", APIKey: "x"})
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+}
+
+func TestProbe_AllowPrivate_PermitsAndRevokesLoopback(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"version":"4.0.0.999"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	var allow atomic.Bool
+	allow.Store(true)
+	guard := netguard.Guard{AllowPrivate: allow.Load}
+
+	c := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+			DialContext: (&net.Dialer{
+				Control: guard.Control,
+				Timeout: 500 * time.Millisecond,
+			}).DialContext,
+		},
+		Timeout: 2 * time.Second,
+	}
+	h := NewInstanceProbeHandler(c, nil)
+	r := newProbeRouter(t, h)
+
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.OK, "homelab toggle must let loopback through: %s", w.Body.String())
+	assert.Equal(t, "4.0.0.999", got.Version)
+
+	// Flip the atomic — same client, same target → must now block.
+	allow.Store(false)
+	w = doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	assert.Contains(t, w.Body.String(), "INVALID_HOST")
 }

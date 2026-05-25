@@ -22,7 +22,7 @@ import (
 )
 
 // subscriberReadyTimeout bounds how long startSubscribers will wait
-// for all six subscribers to register their bus.Subscribe call.
+// for all seven subscribers to register their bus.Subscribe call.
 // Defensive only — in normal operation each goroutine reaches
 // Subscribe in microseconds. If we hit the timeout, the process is
 // broken: main exits non-zero with a clear log line.
@@ -76,7 +76,7 @@ func buildSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter
 	}
 }
 
-// startSubscribers launches all six subscribers under bgWG and
+// startSubscribers launches all seven subscribers under bgWG and
 // blocks until each has registered on the bus, then returns. ctx is
 // the long-lived rootCtx — SIGTERM cancels it and every subscriber
 // drains. Returns the SchedulerSubscriber + SonarrClientsSubscriber
@@ -103,6 +103,7 @@ func startSubscribers(
 	bootGlobalRateLimit runtime.RateLimitSnapshot,
 	authRuntimePtr *middleware.AuthRuntimePointer,
 	engine *gin.Engine,
+	allowPrivate *atomic.Bool,
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
 	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
 		reload.SchedulerFactory(scheduler.New), log)
@@ -117,13 +118,14 @@ func startSubscribers(
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
 	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log)
+	subSec := reload.NewSecuritySubscriber(allowPrivate, log)
 
 	runners := []func(context.Context, *runtime.Bus, func()){
 		subSched.Run, subClients.Run, subHealth.Run,
-		subScan.Run, subRate.Run, subAuth.Run,
+		subScan.Run, subRate.Run, subAuth.Run, subSec.Run,
 	}
 	names := []string{"scheduler", "sonarrClients", "healthRegistry",
-		"scanInstances", "globalRateLimiter", "authMiddleware"}
+		"scanInstances", "globalRateLimiter", "authMiddleware", "security"}
 
 	ready := make([]chan struct{}, len(runners))
 	for i := range ready {

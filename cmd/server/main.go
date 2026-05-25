@@ -139,6 +139,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	snap := runtime.Snapshot{
 		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
 		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
+		Security:  row.Security,
 		Instances: instances,
 	}
 
@@ -283,21 +284,21 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log)
 	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
+	// Atomic seeded from boot snapshot; SecuritySubscriber keeps it in sync
+	// with snap.Security.AllowPrivateTargets. Probe client captures Load via
+	// Guard's closure, so flips reach the dialer without recycling the client.
+	var allowPrivate atomic.Bool
+	allowPrivate.Store(snap.Security.AllowPrivateTargets)
+	probeGuard := netguard.Guard{AllowPrivate: allowPrivate.Load}
 	probeClient := &http.Client{
-		// One-shot probe MUST NOT follow redirects — a 3xx is a signal that
-		// the URL is not Sonarr's API root. http.ErrUseLastResponse keeps the
-		// response object intact so the handler can render a clean reason.
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 		Transport: &http.Transport{
-			// Reject RFC1918/loopback/link-local/ULA after DNS resolution
-			// (defeats rebinding by inspecting the bound IP).
 			DialContext: (&net.Dialer{
-				Control: netguard.BlockPrivate,
+				Control: probeGuard.Control,
 				Timeout: 5 * time.Second,
 			}).DialContext,
-			// D-2: bound resource consumption on slow/malicious upstreams.
 			TLSHandshakeTimeout:    5 * time.Second,
 			ResponseHeaderTimeout:  5 * time.Second,
 			MaxResponseHeaderBytes: 64 << 10,
@@ -353,7 +354,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName, bootCfgs,
 		clientFactory, checker, holder,
-		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
+		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
+		&allowPrivate)
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
 	}

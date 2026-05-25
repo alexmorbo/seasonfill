@@ -3,8 +3,10 @@ package netguard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -130,4 +132,65 @@ func TestBlockPrivate_IntegratesWithHTTPTransport(t *testing.T) {
 	_, err = c.Do(req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrBlockedHost)
+}
+
+func TestGuard_AllowPrivate_True_PermitsRFC1918(t *testing.T) {
+	t.Parallel()
+	g := Guard{AllowPrivate: func() bool { return true }}
+	cases := []string{
+		"10.0.0.1:80", "172.16.0.1:443", "192.168.1.1:8080",
+		"127.0.0.1:9000", "[::1]:443", "[fc00::1]:443", "[fe80::1]:443",
+	}
+	for _, addr := range cases {
+		addr := addr
+		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
+			require.NoError(t, g.Control("tcp", addr, nil))
+		})
+	}
+}
+
+func TestGuard_AllowPrivate_False_BlocksRFC1918(t *testing.T) {
+	t.Parallel()
+	g := Guard{AllowPrivate: func() bool { return false }}
+	err := g.Control("tcp", "10.0.0.1:80", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBlockedHost)
+}
+
+func TestGuard_Nil_AllowPrivate_DenyAll(t *testing.T) {
+	t.Parallel()
+	err := Guard{}.Control("tcp", "10.0.0.1:80", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBlockedHost)
+}
+
+func TestGuard_PredicateReadEveryCall(t *testing.T) {
+	t.Parallel()
+	var allow atomic.Bool
+	g := Guard{AllowPrivate: allow.Load}
+	require.Error(t, g.Control("tcp", "10.0.0.1:80", nil))
+	allow.Store(true)
+	require.NoError(t, g.Control("tcp", "10.0.0.1:80", nil))
+	allow.Store(false)
+	require.Error(t, g.Control("tcp", "10.0.0.1:80", nil))
+}
+
+func TestGuard_AllowPrivate_StillBlocksMalformed(t *testing.T) {
+	t.Parallel()
+	g := Guard{AllowPrivate: func() bool { return true }}
+	require.ErrorIs(t, g.Control("tcp", "not-a-host:80", nil), ErrBlockedHost)
+	require.ErrorIs(t, g.Control("tcp", "10.0.0.1", nil), ErrBlockedHost)
+}
+
+func TestGuard_AllowPrivate_PublicAlwaysAllowed(t *testing.T) {
+	t.Parallel()
+	for _, allowPrivate := range []bool{false, true} {
+		ap := allowPrivate
+		t.Run(fmt.Sprintf("allow=%v", ap), func(t *testing.T) {
+			t.Parallel()
+			g := Guard{AllowPrivate: func() bool { return ap }}
+			require.NoError(t, g.Control("tcp", "1.1.1.1:443", nil))
+		})
+	}
 }

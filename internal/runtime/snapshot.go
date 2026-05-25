@@ -11,6 +11,7 @@ type Snapshot struct {
 	DryRun          bool
 	GlobalRateLimit RateLimitSnapshot
 	Auth            AuthSnapshot
+	Security        SecuritySnapshot
 	Instances       []InstanceSnapshot
 }
 
@@ -35,6 +36,13 @@ type AuthSnapshot struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
+}
+
+// SecuritySnapshot — DB-stored security toggles. AllowPrivateTargets,
+// when true, lets the instance-probe http.Client tolerate
+// RFC1918/loopback/link-local/ULA. Default false = SSRF-safe.
+type SecuritySnapshot struct {
+	AllowPrivateTargets bool
 }
 
 type InstanceSnapshot struct {
