@@ -383,3 +383,34 @@ func TestLogin_TLSAlwaysSecure(t *testing.T) {
 	require.NotNil(t, cookie)
 	assert.True(t, cookie.Secure, "X-Forwarded-Proto=https must force Secure regardless of flag")
 }
+
+// TestAuthRuntime_ReturnsPointer covers the AuthRuntime() accessor, which
+// wires the shared atomic between cmd/server and reload subscribers.
+func TestAuthRuntime_ReturnsPointer(t *testing.T) {
+	t.Parallel()
+	_, h := setupAuth(t, seedRepo(t), nil)
+	ptr := h.AuthRuntime()
+	require.NotNil(t, ptr)
+	rt := ptr.Load()
+	require.NotNil(t, rt)
+	assert.Equal(t, time.Hour, rt.SessionTTL)
+}
+
+// TestWithClock_SetsCustomClock verifies the WithClock option wires a
+// caller-supplied clock function into the handler.
+func TestWithClock_SetsCustomClock(t *testing.T) {
+	t.Parallel()
+	fixed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	_, h := setupAuthWithOpts(t, seedRepo(t), nil, WithClock(func() time.Time { return fixed }))
+	assert.Equal(t, fixed, h.now())
+}
+
+// TestWithAuthRuntimePointer_WiresSharedAtomic verifies that a shared
+// AuthRuntimePointer installed via the option is the one the handler uses.
+func TestWithAuthRuntimePointer_WiresSharedAtomic(t *testing.T) {
+	t.Parallel()
+	shared := &middleware.AuthRuntimePointer{}
+	shared.Store(&middleware.AuthRuntime{SessionTTL: 3 * time.Hour})
+	_, h := setupAuthWithOpts(t, seedRepo(t), nil, WithAuthRuntimePointer(shared))
+	assert.Equal(t, 3*time.Hour, h.sessionTTL())
+}

@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -19,6 +19,13 @@ test-coverage:
 	PKGS=$$(go list ./... | grep -v '/cmd/'); \
 	go test $$PKGS -short -race -coverprofile=coverage.out -covermode=atomic; \
 	go tool cover -func=coverage.out | tail -1
+
+# test-integration runs tests gated by the `integration` build tag.
+# These boot the full server in-process with SQLite; they are self-contained
+# but slower and excluded from the default `make test` / `make test-race` runs.
+# CI must call both `make test-race` AND `make test-integration` for full coverage.
+test-integration:
+	go test -tags integration -race -count=1 -timeout 5m ./...
 
 lint:
 	golangci-lint run ./...

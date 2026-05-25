@@ -182,3 +182,49 @@ func TestGrabRepository_UpdateStatus_TerminalSource_Rejects(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, grab.ErrInvalidStatusTransition))
 }
+
+// E-3: FindExisting4Tuple
+
+func TestGrabRepository_FindExisting4Tuple_Found(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(ctx, rec))
+
+	got, err := repo.FindExisting4Tuple(ctx,
+		rec.InstanceName, rec.SeriesID, rec.SeasonNumber, rec.ReleaseGUID)
+	require.NoError(t, err)
+	assert.Equal(t, rec.ID, got.ID)
+	assert.Equal(t, rec.InstanceName, got.InstanceName)
+	assert.Equal(t, rec.SeriesID, got.SeriesID)
+	assert.Equal(t, rec.SeasonNumber, got.SeasonNumber)
+	assert.Equal(t, rec.ReleaseGUID, got.ReleaseGUID)
+}
+
+func TestGrabRepository_FindExisting4Tuple_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+
+	_, err := repo.FindExisting4Tuple(context.Background(),
+		"main", 999, 1, "nonexistent-guid")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+func TestGrabRepository_FindExisting4Tuple_MismatchOneField(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(ctx, rec))
+
+	// Same tuple but wrong GUID — must not find the row.
+	_, err := repo.FindExisting4Tuple(ctx,
+		rec.InstanceName, rec.SeriesID, rec.SeasonNumber, "different-guid")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}

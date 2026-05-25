@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -94,4 +96,97 @@ func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
 	d.Reason = decision.ReasonSkipNoMissing
 	err = repo.Save(context.Background(), d)
 	require.Error(t, err)
+}
+
+// E-1: GetByID
+
+func TestDecisionRepository_GetByID_Found(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+	ctx := context.Background()
+
+	d := decision.New(uuid.New(), "main", "Hijack", 122, 2)
+	d.Outcome = decision.OutcomeSkip
+	d.Reason = decision.ReasonSkipNoMissing
+	d.MissingCount = 0
+	d.ExistingCount = 5
+	d.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, repo.Save(ctx, d))
+
+	got, err := repo.GetByID(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, d.ID, got.ID)
+	assert.Equal(t, d.InstanceName, got.InstanceName)
+	assert.Equal(t, d.Outcome, got.Outcome)
+	assert.Equal(t, d.Reason, got.Reason)
+	assert.Equal(t, d.MissingCount, got.MissingCount)
+	assert.Equal(t, d.ExistingCount, got.ExistingCount)
+}
+
+func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+	ctx := context.Background()
+
+	// Insert a valid decision first so we have a real row to inspect.
+	d := decision.New(uuid.New(), "main", "Hijack", 122, 2)
+	d.Outcome = decision.OutcomeSkip
+	d.Reason = decision.ReasonSkipNoMissing
+	require.NoError(t, repo.Save(ctx, d))
+
+	// Overwrite the filtered_out JSON column with invalid JSON via raw SQL.
+	// toDecision attempts json.Unmarshal on this field and must return an error.
+	res := db.Exec("UPDATE decisions SET filtered_out = ? WHERE id = ?", []byte("not-valid-json"), d.ID.String())
+	require.NoError(t, res.Error)
+
+	_, err := repo.GetByID(ctx, d.ID)
+	require.Error(t, err, "GetByID must propagate toDecision unmarshal error")
+}
+
+// E-2: UpdateSupersededBy
+
+func TestDecisionRepository_UpdateSupersededBy_Sets(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+	ctx := context.Background()
+
+	dA := decision.New(uuid.New(), "main", "Hijack", 122, 2)
+	dA.Outcome = decision.OutcomeSkip
+	dA.Reason = decision.ReasonSkipNoMissing
+	require.NoError(t, repo.Save(ctx, dA))
+
+	dB := decision.New(uuid.New(), "main", "Hijack", 122, 2)
+	dB.Outcome = decision.OutcomeGrab
+	dB.Reason = decision.ReasonGrabSelectedDryRun
+	require.NoError(t, repo.Save(ctx, dB))
+
+	require.NoError(t, repo.UpdateSupersededBy(ctx, dA.ID, dB.ID))
+
+	got, err := repo.GetByID(ctx, dA.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.SupersededByID)
+	assert.Equal(t, dB.ID, *got.SupersededByID)
+}
+
+func TestDecisionRepository_UpdateSupersededBy_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+
+	err := repo.UpdateSupersededBy(context.Background(), uuid.New(), uuid.New())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
 }
