@@ -6,7 +6,7 @@
 
 - **Chart version:** `0.4.0` (matches `Chart.yaml`)
 - **App version:** `0.4.0`
-- **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill`
+- **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill-helm`
 - **Kubernetes:** `>=1.25.0`
 - **Helm:** `>=3.16` (OCI install support stable, schema validation)
 
@@ -32,7 +32,7 @@ Suitable for one-off smoke tests. Inline values land in
 production with Terragrunt.
 
 ```sh
-helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill \
+helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
   --version 0.4.0 \
   --namespace seasonfill --create-namespace \
   --set "database.driver=sqlite" \
@@ -101,7 +101,7 @@ ingress:
 ```
 
 ```sh
-helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill \
+helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
   --version 0.4.0 \
   --namespace seasonfill --create-namespace \
   -f values-prod.yaml
@@ -112,7 +112,7 @@ in the DB; no chart re-render required.
 
 ## Values reference (most-used)
 
-Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill --version 0.4.0`.
+Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.4.0`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -165,7 +165,7 @@ resource "kubernetes_secret_v1" "seasonfill" {
 
 resource "helm_release" "seasonfill" {
   name      = "seasonfill"
-  chart     = "oci://ghcr.io/alexmorbo/seasonfill"
+  chart     = "oci://ghcr.io/alexmorbo/seasonfill-helm"
   version   = "0.4.0"
   namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
 

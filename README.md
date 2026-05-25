@@ -18,7 +18,7 @@ Pick a deploy path:
 - **Docker Compose** — single-host, easiest. See
   [`deploy/compose/README.md`](deploy/compose/README.md).
 - **Kubernetes via Helm** — production / homelab clusters. Chart at
-  `oci://ghcr.io/alexmorbo/seasonfill`. See
+  `oci://ghcr.io/alexmorbo/seasonfill-helm`. See
   [`deploy/helm/seasonfill/README.md`](deploy/helm/seasonfill/README.md).
 
 Either path brings up two containers (Go backend + nginx-served SPA),
@@ -64,7 +64,7 @@ re-grabbing broken releases.
 | Username + password admin login + persistent API key | shipped |
 | Auto-generated first-run password (qBittorrent-style) | shipped |
 | `reset-password` CLI | shipped |
-| Helm chart (`oci://ghcr.io/alexmorbo/seasonfill`) | shipped |
+| Helm chart (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
 | Docker Compose stack | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
 | Anime (absolute numbering) | **not supported** |

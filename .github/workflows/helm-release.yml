@@ -71,10 +71,11 @@ jobs:
       - name: helm push (OCI)
         run: |
           # Chart artifact will land at:
-          #   oci://ghcr.io/${{ github.repository_owner }}/seasonfill:${CHART}
+          #   oci://ghcr.io/${{ github.repository_owner }}/seasonfill-helm:${CHART}
           # (helm push uses the chart `name:` field as the artifact name
-          # under the registry path.)
-          helm push "dist/seasonfill-${{ steps.ver.outputs.chart }}.tgz" \
+          # under the registry path; chart name is `seasonfill-helm` to
+          # avoid colliding with the `seasonfill` container image path.)
+          helm push "dist/seasonfill-helm-${{ steps.ver.outputs.chart }}.tgz" \
             "oci://ghcr.io/${{ github.repository_owner }}"
 
       - name: helm registry logout
@@ -91,10 +92,10 @@ jobs:
 
             ```
             helm install seasonfill \
-              oci://ghcr.io/${{ github.repository_owner }}/seasonfill \
+              oci://ghcr.io/${{ github.repository_owner }}/seasonfill-helm \
               --version ${{ steps.ver.outputs.chart }}
             ```
 
             See `deploy/helm/seasonfill/` in this tag for sources.
-          files: dist/seasonfill-${{ steps.ver.outputs.chart }}.tgz
+          files: dist/seasonfill-helm-${{ steps.ver.outputs.chart }}.tgz
           fail_on_unmatched_files: true

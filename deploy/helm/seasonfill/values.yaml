@@ -7,7 +7,9 @@ image:
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
-nameOverride: ""
+# Chart `name:` is `seasonfill-helm` (OCI artifact name disambiguator).
+# Resources stay named after the app (`seasonfill`), not after the chart.
+nameOverride: "seasonfill"
 fullnameOverride: ""
 
 updateStrategy: {type: Recreate}
