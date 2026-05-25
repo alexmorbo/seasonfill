@@ -50,7 +50,6 @@ type SonarrInstanceRepository interface {
 	List(ctx context.Context, c *crypto.Cipher) ([]runtime.InstanceSnapshot, error)
 	GetByName(ctx context.Context, name string, c *crypto.Cipher) (runtime.InstanceSnapshot, error)
 	Create(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) (uint, error)
-	Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error
 	// UpdateWithOptions writes parent + secret in a single
 	// transaction. When ifUnmodifiedSince != nil and the existing
 	// row's updated_at (second-truncated) is strictly newer than

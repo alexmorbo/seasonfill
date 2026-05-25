@@ -73,9 +73,6 @@ func (fakeInstanceRepo) GetByName(_ context.Context, _ string, _ *crypto.Cipher)
 func (fakeInstanceRepo) Create(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher) (uint, error) {
 	return 0, nil
 }
-func (fakeInstanceRepo) Update(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher) error {
-	return nil
-}
 func (fakeInstanceRepo) UpdateWithOptions(_ context.Context, _ runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool, _ *time.Time) error {
 	return nil
 }
@@ -95,7 +92,7 @@ func validInput() Input {
 			ShutdownGrace: 60 * time.Second,
 			CooldownSweep: 15 * time.Minute,
 		},
-		DryRun: true,
+		DryRun:          true,
 		GlobalRateLimit: GlobalRateLimitInput{RPM: 30, Burst: 10},
 		Auth: AuthInput{
 			SessionTTL:     12 * time.Hour,
@@ -179,6 +176,48 @@ func TestValidate_BadCIDR(t *testing.T) {
 	assert.Contains(t, verr.Message, "not.an.ip")
 }
 
+// TestValidate_TrustedProxy_TooBroad locks B-4: 0.0.0.0/0, ::/0, the
+// bare unspecified IPs (0.0.0.0, ::) all match the entire address
+// space and would defeat the proxy allow-list. The new
+// INVALID_TRUSTED_PROXY_TOO_BROAD sentinel calls them out
+// separately from the generic "neither IP nor CIDR" branch.
+func TestValidate_TrustedProxy_TooBroad(t *testing.T) {
+	t.Parallel()
+	cases := []string{"0.0.0.0/0", "::/0", "0.0.0.0", "::"}
+	for _, entry := range cases {
+		entry := entry
+		t.Run(entry, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _ := setup(t)
+			in := validInput()
+			in.Auth.TrustedProxies = []string{entry}
+			_, _, err := uc.Update(context.Background(), in, nil)
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, "INVALID_TRUSTED_PROXY_TOO_BROAD", verr.Code,
+				"entry=%q must be rejected as too broad", entry)
+		})
+	}
+}
+
+// TestValidate_TrustedProxies_TooMany locks B-4: a list longer than
+// trustedProxiesMaxLen is rejected before per-entry parsing so a
+// caller can't blow the gin XFF parser with arbitrary input.
+func TestValidate_TrustedProxies_TooMany(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	long := make([]string, trustedProxiesMaxLen+1)
+	for i := range long {
+		long[i] = "127.0.0.1"
+	}
+	in.Auth.TrustedProxies = long
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_TRUSTED_PROXIES_TOO_MANY", verr.Code)
+}
+
 func TestValidate_SessionTTLTooShort(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
@@ -220,7 +259,7 @@ func TestValidate_NegativeJitter(t *testing.T) {
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_JITTER", verr.Code)
+	assert.Equal(t, "INVALID_JITTER_OUT_OF_RANGE", verr.Code)
 }
 
 // --- 028h-1: range-boundary tests ---

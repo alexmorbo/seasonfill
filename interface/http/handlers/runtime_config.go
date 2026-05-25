@@ -100,6 +100,10 @@ func (h *RuntimeConfigHandler) Update(c *gin.Context) {
 	}
 	out, ts, err := h.uc.Update(c.Request.Context(), in, iusPtr)
 	if err != nil {
+		if errors.Is(err, runtimeconfig.ErrStaleWrite) {
+			h.writeStaleWrite(c)
+			return
+		}
 		h.writeError(c, err)
 		return
 	}
@@ -109,17 +113,29 @@ func (h *RuntimeConfigHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, outputToDTO(out))
 }
 
+// writeStaleWrite emits the 412 STALE_WRITE response with a
+// Last-Modified header sourced from the current stored row so the
+// caller can re-issue the PUT immediately without an extra GET.
+// runtime_config is a singleton — Get falls back to defaults with
+// a zero timestamp if the row was somehow purged, in which case the
+// header is omitted.
+func (h *RuntimeConfigHandler) writeStaleWrite(c *gin.Context) {
+	_, ts, err := h.uc.Get(c.Request.Context())
+	if err == nil && !ts.IsZero() {
+		c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
+	}
+	c.AbortWithStatusJSON(http.StatusPreconditionFailed, dto.ErrorResponse{
+		Error: "runtime_config was modified by another client",
+		Code:  "STALE_WRITE",
+	})
+}
+
 func (h *RuntimeConfigHandler) writeError(c *gin.Context, err error) {
 	var verr *runtimeconfig.ValidationError
 	switch {
 	case errors.As(err, &verr):
 		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{
 			Error: verr.Error(), Code: verr.Code,
-		})
-	case errors.Is(err, runtimeconfig.ErrStaleWrite):
-		c.AbortWithStatusJSON(http.StatusPreconditionFailed, dto.ErrorResponse{
-			Error: "runtime_config was modified by another client",
-			Code:  "STALE_WRITE",
 		})
 	default:
 		h.logger.ErrorContext(c.Request.Context(), "runtimeconfig.handler.error",

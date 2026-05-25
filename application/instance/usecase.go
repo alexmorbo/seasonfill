@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -75,6 +77,20 @@ const (
 	instanceRateLimitRPMMax   = 10000
 	instanceRateLimitBurstMin = 0
 	instanceRateLimitBurstMax = 10000
+
+	instanceMinCustomFormatScoreMin = -1000
+	instanceMinCustomFormatScoreMax = 1000
+	instanceScanMaxSeriesMin        = 0
+	instanceScanMaxSeriesMax        = 100000
+	instanceMaxGrabsPerScanMin      = 0
+	instanceMaxGrabsPerScanMax      = 100
+	instanceOriginBonusMin          = -100.0
+	instanceOriginBonusMax          = 100.0
+
+	// instanceURLMaxLen mirrors the GORM size:512 column on
+	// SonarrInstanceModel.URL — reject longer at the application
+	// layer so the DB driver never has to truncate.
+	instanceURLMaxLen = 512
 )
 
 var nameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
@@ -249,9 +265,8 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 		return newValidationErr("name", "INVALID_INSTANCE_NAME_RESERVED",
 			fmt.Sprintf("name %q is reserved", s.Name))
 	}
-	if strings.TrimSpace(s.URL) == "" {
-		return newValidationErr("url", "INVALID_INSTANCE_URL",
-			"url is required")
+	if err := validateInstanceURL(s.URL); err != nil {
+		return err
 	}
 	if requireAPIKey && strings.TrimSpace(s.APIKey) == "" {
 		return newValidationErr("api_key", "INVALID_INSTANCE_API_KEY",
@@ -321,6 +336,60 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 		s.HealthCheck.RecheckNetwork, instanceHealthIntervalMin, instanceHealthIntervalMax); err != nil {
 		return err
 	}
+	if err := boundInt("search.min_custom_format_score",
+		"INVALID_INSTANCE_MIN_CUSTOM_FORMAT_SCORE_OUT_OF_RANGE",
+		s.Search.MinCustomFormatScore,
+		instanceMinCustomFormatScoreMin, instanceMinCustomFormatScoreMax); err != nil {
+		return err
+	}
+	if err := boundInt("limits.scan_max_series",
+		"INVALID_INSTANCE_SCAN_MAX_SERIES_OUT_OF_RANGE",
+		s.Limits.ScanMaxSeries, instanceScanMaxSeriesMin, instanceScanMaxSeriesMax); err != nil {
+		return err
+	}
+	if err := boundInt("limits.max_grabs_per_scan",
+		"INVALID_INSTANCE_MAX_GRABS_PER_SCAN_OUT_OF_RANGE",
+		s.Limits.MaxGrabsPerScan, instanceMaxGrabsPerScanMin, instanceMaxGrabsPerScanMax); err != nil {
+		return err
+	}
+	if err := boundFloat("ranking.origin_bonus",
+		"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE",
+		s.Ranking.OriginBonus, instanceOriginBonusMin, instanceOriginBonusMax); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateInstanceURL enforces scheme allow-list (http/https only),
+// rejects embedded userinfo (api_key lives in instance_secret, not in
+// the URL), and caps length at the model's column width.
+func validateInstanceURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return newValidationErr("url", "INVALID_INSTANCE_URL",
+			"url is required")
+	}
+	if len(trimmed) > instanceURLMaxLen {
+		return newValidationErr("url", "INVALID_INSTANCE_URL_SCHEME",
+			fmt.Sprintf("must be <= %d chars", instanceURLMaxLen))
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return newValidationErr("url", "INVALID_INSTANCE_URL_SCHEME",
+			"malformed url")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return newValidationErr("url", "INVALID_INSTANCE_URL_SCHEME",
+			"scheme must be http or https")
+	}
+	if u.Host == "" {
+		return newValidationErr("url", "INVALID_INSTANCE_URL_SCHEME",
+			"host is required")
+	}
+	if u.User != nil {
+		return newValidationErr("url", "INVALID_INSTANCE_URL_SCHEME",
+			"userinfo not allowed in url")
+	}
 	return nil
 }
 
@@ -336,6 +405,20 @@ func boundInt(field, code string, v, min, max int) error {
 	if v < min || v > max {
 		return newValidationErr(field, code,
 			fmt.Sprintf("must be between %d and %d", min, max))
+	}
+	return nil
+}
+
+// boundFloat mirrors boundInt for float64 fields and additionally
+// rejects NaN/Inf — those slip through naive < / > comparisons
+// (NaN compares false to everything).
+func boundFloat(field, code string, v, min, max float64) error {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return newValidationErr(field, code, "must be a finite number")
+	}
+	if v < min || v > max {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be between %g and %g", min, max))
 	}
 	return nil
 }

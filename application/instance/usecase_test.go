@@ -2,6 +2,8 @@ package instance
 
 import (
 	"context"
+	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -70,9 +72,6 @@ func (f *fakeInstanceRepo) Create(_ context.Context, inst runtime.InstanceSnapsh
 	f.updated[inst.Name] = time.Now().UTC()
 	f.count++
 	return inst.ID, nil
-}
-func (f *fakeInstanceRepo) Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error {
-	return f.UpdateWithOptions(ctx, inst, c, false, nil)
 }
 func (f *fakeInstanceRepo) UpdateWithOptions(
 	_ context.Context,
@@ -479,4 +478,128 @@ func TestCreate_ReservedName_TypedError(t *testing.T) {
 	require.ErrorAs(t, err, &verr)
 	assert.Equal(t, "INVALID_INSTANCE_NAME_RESERVED", verr.Code)
 	assert.ErrorIs(t, err, ErrValidation)
+}
+
+// TestCreate_SearchTimeoutClampsToMax locks the B-1 fix: when the
+// caller sends Timeout=300s (the max) and SearchTimeout=0, the
+// defaulter would naively set SearchTimeout = 6*300s = 1800s, which
+// then fails the [1s,600s] validator. The clamp must hold the
+// default at instanceSearchTimeoutMax so Create succeeds and the
+// stored value matches the validator's ceiling.
+func TestCreate_SearchTimeoutClampsToMax(t *testing.T) {
+	t.Parallel()
+	uc, _, _, _ := setup(t)
+	snap := validSnap("alpha")
+	snap.Timeout = 300 * time.Second
+	snap.SearchTimeout = 0 // force the default branch
+	require.NoError(t, uc.Create(context.Background(), snap))
+	got, _, err := uc.Get(context.Background(), "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, instanceSearchTimeoutMax, got.SearchTimeout,
+		"derived SearchTimeout must be clamped to the validator max")
+}
+
+// TestValidate_RangeBounds_NewlyBoundedFields locks B-2: the four
+// previously-unbounded fields now reject out-of-range inputs with
+// dedicated sentinel codes (so the SPA can map each to a specific
+// field-level toast).
+func TestValidate_RangeBounds_NewlyBoundedFields(t *testing.T) {
+	t.Parallel()
+	cases := []instanceRangeCase{
+		// search.min_custom_format_score ∈ [-1000, 1000]
+		{"min_cf_score_below_min",
+			func(s *runtime.InstanceSnapshot) { s.Search.MinCustomFormatScore = -1001 },
+			"INVALID_INSTANCE_MIN_CUSTOM_FORMAT_SCORE_OUT_OF_RANGE", true},
+		{"min_cf_score_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Search.MinCustomFormatScore = 1001 },
+			"INVALID_INSTANCE_MIN_CUSTOM_FORMAT_SCORE_OUT_OF_RANGE", true},
+		{"min_cf_score_at_min",
+			func(s *runtime.InstanceSnapshot) { s.Search.MinCustomFormatScore = -1000 },
+			"", false},
+		{"min_cf_score_at_max",
+			func(s *runtime.InstanceSnapshot) { s.Search.MinCustomFormatScore = 1000 },
+			"", false},
+
+		// limits.scan_max_series ∈ [0, 100000]
+		{"scan_max_series_below_min",
+			func(s *runtime.InstanceSnapshot) { s.Limits.ScanMaxSeries = -1 },
+			"INVALID_INSTANCE_SCAN_MAX_SERIES_OUT_OF_RANGE", true},
+		{"scan_max_series_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Limits.ScanMaxSeries = 100001 },
+			"INVALID_INSTANCE_SCAN_MAX_SERIES_OUT_OF_RANGE", true},
+
+		// limits.max_grabs_per_scan ∈ [0, 100]
+		{"max_grabs_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Limits.MaxGrabsPerScan = 101 },
+			"INVALID_INSTANCE_MAX_GRABS_PER_SCAN_OUT_OF_RANGE", true},
+		{"max_grabs_below_min",
+			func(s *runtime.InstanceSnapshot) { s.Limits.MaxGrabsPerScan = -1 },
+			"INVALID_INSTANCE_MAX_GRABS_PER_SCAN_OUT_OF_RANGE", true},
+
+		// ranking.origin_bonus ∈ [-100, 100]
+		{"origin_bonus_above_max",
+			func(s *runtime.InstanceSnapshot) { s.Ranking.OriginBonus = 100.5 },
+			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
+		{"origin_bonus_below_min",
+			func(s *runtime.InstanceSnapshot) { s.Ranking.OriginBonus = -100.5 },
+			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
+		{"origin_bonus_nan",
+			func(s *runtime.InstanceSnapshot) { s.Ranking.OriginBonus = math.NaN() },
+			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
+		{"origin_bonus_pos_inf",
+			func(s *runtime.InstanceSnapshot) { s.Ranking.OriginBonus = math.Inf(1) },
+			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
+		{"origin_bonus_neg_inf",
+			func(s *runtime.InstanceSnapshot) { s.Ranking.OriginBonus = math.Inf(-1) },
+			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _, _ := setup(t)
+			snap := validSnap("alpha")
+			tc.mutate(&snap)
+			err := uc.Create(context.Background(), snap)
+			if !tc.wantErr {
+				require.NoError(t, err, "boundary value must be accepted")
+				return
+			}
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, tc.code, verr.Code)
+		})
+	}
+}
+
+// TestValidate_URLScheme locks B-3: the URL must parse, use http or
+// https, carry no userinfo, and stay <= 512 chars.
+func TestValidate_URLScheme(t *testing.T) {
+	t.Parallel()
+	long513 := "http://" + strings.Repeat("a", 506) // total len 513
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"ftp_scheme", "ftp://sonarr:8989"},
+		{"file_scheme", "file:///etc/passwd"},
+		{"http_userinfo", "http://user:pass@sonarr:8989"},
+		{"https_userinfo", "https://user@sonarr:8989"},
+		{"raw_token", "x"},
+		{"too_long", long513},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _, _ := setup(t)
+			snap := validSnap("alpha")
+			snap.URL = tc.url
+			err := uc.Create(context.Background(), snap)
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, "INVALID_INSTANCE_URL_SCHEME", verr.Code,
+				"url=%q must be rejected", tc.url)
+		})
+	}
 }

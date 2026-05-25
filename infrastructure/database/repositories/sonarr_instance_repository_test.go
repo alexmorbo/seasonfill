@@ -88,7 +88,7 @@ func TestSonarrInstanceRepository_UpdatePreservesAPIKey(t *testing.T) {
 	inst.ID = id
 	inst.APIKey = ""
 	inst.Mode = "manual"
-	require.NoError(t, repo.Update(ctx, inst, cipher))
+	require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, true, nil))
 
 	// Verify the mode changed but API key was preserved
 	retrieved, err := repo.GetByName(ctx, "test", cipher)
@@ -180,7 +180,7 @@ func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
 	inst.Search.SkipSpecials = false
 	inst.Search.SkipAnime = false
 	inst.Ranking.IndexerPriorityEnabled = false
-	require.NoError(t, repo.Update(ctx, inst, cipher))
+	require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, false, nil))
 
 	got, err := repo.GetByName(ctx, "boolcheck", cipher)
 	require.NoError(t, err)
@@ -199,11 +199,11 @@ func TestSonarrInstanceRepository_UpdatePreservesInt0(t *testing.T) {
 	require.NoError(t, err)
 
 	inst := runtime.InstanceSnapshot{
-		Name:    "intcheck",
-		URL:     "http://sonarr.local",
-		APIKey:  "k",
-		Mode:    "auto",
-		Timeout: 10 * time.Second,
+		Name:      "intcheck",
+		URL:       "http://sonarr.local",
+		APIKey:    "k",
+		Mode:      "auto",
+		Timeout:   10 * time.Second,
 		RateLimit: runtime.RateLimitSnapshot{RPM: 30, Burst: 10},
 		Limits: runtime.LimitsSnapshot{
 			ScanMaxSeries:   42,
@@ -230,7 +230,7 @@ func TestSonarrInstanceRepository_UpdatePreservesInt0(t *testing.T) {
 	inst.Retry.MaxAttempts = 0
 	inst.Retry.InitialBackoff = 0
 	inst.Retry.MaxBackoff = 0
-	require.NoError(t, repo.Update(ctx, inst, cipher))
+	require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, false, nil))
 
 	got, err := repo.GetByName(ctx, "intcheck", cipher)
 	require.NoError(t, err)
@@ -272,7 +272,7 @@ func TestSonarrInstanceRepository_UpdatePreservesStringEmpty(t *testing.T) {
 	inst.APIKey = ""
 	inst.Tags.Mode = ""
 	inst.Cooldown.Mode = ""
-	require.NoError(t, repo.Update(ctx, inst, cipher))
+	require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, false, nil))
 
 	got, err := repo.GetByName(ctx, "strcheck", cipher)
 	require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T)
 		Mode:    "auto",
 		Timeout: 10 * time.Second,
 	}
-	err = repo.Update(ctx, inst, cipher)
+	err = repo.UpdateWithOptions(ctx, inst, cipher, false, nil)
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 

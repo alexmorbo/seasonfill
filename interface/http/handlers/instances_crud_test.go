@@ -34,7 +34,7 @@ type crudFakeRepo struct {
 
 func newCRUDFakeRepo() *crudFakeRepo {
 	return &crudFakeRepo{
-		rows: map[string]runtime.InstanceSnapshot{},
+		rows:    map[string]runtime.InstanceSnapshot{},
 		updated: map[string]time.Time{}, nextID: 1,
 	}
 }
@@ -60,12 +60,7 @@ func (f *crudFakeRepo) Create(_ context.Context, inst runtime.InstanceSnapshot, 
 	f.count++
 	return inst.ID, nil
 }
-func (f *crudFakeRepo) Update(_ context.Context, inst runtime.InstanceSnapshot, _ *crypto.Cipher) error {
-	f.rows[inst.Name] = inst
-	f.updated[inst.Name] = time.Now().UTC()
-	return nil
-}
-func (f *crudFakeRepo) UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, _ bool, ifUnmodifiedSince *time.Time) error {
+func (f *crudFakeRepo) UpdateWithOptions(_ context.Context, inst runtime.InstanceSnapshot, _ *crypto.Cipher, _ bool, ifUnmodifiedSince *time.Time) error {
 	if ifUnmodifiedSince != nil {
 		stored, ok := f.updated[inst.Name]
 		if ok {
@@ -76,7 +71,9 @@ func (f *crudFakeRepo) UpdateWithOptions(ctx context.Context, inst runtime.Insta
 			}
 		}
 	}
-	return f.Update(ctx, inst, c)
+	f.rows[inst.Name] = inst
+	f.updated[inst.Name] = time.Now().UTC()
+	return nil
 }
 func (f *crudFakeRepo) Delete(_ context.Context, name string) error {
 	if _, ok := f.rows[name]; !ok {
@@ -87,7 +84,7 @@ func (f *crudFakeRepo) Delete(_ context.Context, name string) error {
 	f.count--
 	return nil
 }
-func (f *crudFakeRepo) Count(_ context.Context) (int, error)     { return f.count, nil }
+func (f *crudFakeRepo) Count(_ context.Context) (int, error) { return f.count, nil }
 func (f *crudFakeRepo) GetUpdatedAt(_ context.Context, name string) (time.Time, error) {
 	ts, ok := f.updated[name]
 	if !ok {
@@ -222,12 +219,21 @@ func TestCRUD_Put_Stale_IfUnmodifiedSince_412(t *testing.T) {
 	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
 	// Force the stored timestamp into the future so any IUS in the past
 	// is stale by construction.
-	repo.updated["alpha"] = time.Now().UTC().Add(time.Hour)
+	storedAt := time.Now().UTC().Add(time.Hour)
+	repo.updated["alpha"] = storedAt
 	body := createBody("alpha")
 	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", body,
 		map[string]string{"If-Unmodified-Since": time.Now().UTC().Add(-time.Hour).Format(http.TimeFormat)})
 	assert.Equal(t, http.StatusPreconditionFailed, w.Code)
 	assert.Contains(t, w.Body.String(), "STALE_WRITE")
+	// B-5: 412 must carry the current Last-Modified so the SPA can
+	// retry with the fresh IUS instead of issuing a separate GET.
+	lm := w.Header().Get("Last-Modified")
+	require.NotEmpty(t, lm, "412 must include Last-Modified for client retry")
+	parsed, err := http.ParseTime(lm)
+	require.NoError(t, err, "Last-Modified must parse as RFC1123: %q", lm)
+	assert.True(t, parsed.Equal(storedAt.Truncate(time.Second)),
+		"Last-Modified must match the current stored row's updated_at")
 }
 
 func TestCRUD_Delete_Last_409(t *testing.T) {

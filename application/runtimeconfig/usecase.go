@@ -60,6 +60,10 @@ const (
 	rateLimitRPMMax   = 10000
 	rateLimitBurstMin = 0
 	rateLimitBurstMax = 10000
+
+	// trustedProxiesMaxLen caps the list length so a misconfigured
+	// caller can't blow the gin XFF parser with arbitrary input.
+	trustedProxiesMaxLen = 64
 )
 
 // cronParser matches the parser used in infrastructure/scheduler/cron.go
@@ -184,10 +188,6 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 		return runtime.Snapshot{}, newValidationErr(
 			"cron.schedule", "INVALID_CRON", err.Error())
 	}
-	if in.Cron.Jitter < 0 {
-		return runtime.Snapshot{}, newValidationErr(
-			"cron.jitter", "INVALID_JITTER", "must be >= 0")
-	}
 	if err := boundDuration("cron.jitter", "INVALID_JITTER_OUT_OF_RANGE",
 		in.Cron.Jitter, cronJitterMin, cronJitterMax); err != nil {
 		return runtime.Snapshot{}, err
@@ -269,7 +269,18 @@ func boundInt(field, code string, v, min, max int) error {
 
 // validateTrustedProxies accepts both bare IPs and CIDRs. Empty list
 // is OK — it disables XFF entirely (documented behaviour).
+//
+// Rejects entries that span the entire address space (0.0.0.0, ::,
+// 0.0.0.0/0, ::/0) — accepting them would trust every client header
+// and defeat the proxy allow-list. Also caps list length at
+// trustedProxiesMaxLen so a misconfigured caller can't blow the gin
+// XFF parser with arbitrary input.
 func validateTrustedProxies(list []string) error {
+	if len(list) > trustedProxiesMaxLen {
+		return newValidationErr("auth.trusted_proxies",
+			"INVALID_TRUSTED_PROXIES_TOO_MANY",
+			fmt.Sprintf("at most %d entries allowed", trustedProxiesMaxLen))
+	}
 	for _, raw := range list {
 		entry := strings.TrimSpace(raw)
 		if entry == "" {
@@ -277,9 +288,20 @@ func validateTrustedProxies(list []string) error {
 				"INVALID_TRUSTED_PROXY", "empty entry not allowed")
 		}
 		if ip := net.ParseIP(entry); ip != nil {
+			if ip.IsUnspecified() {
+				return newValidationErr("auth.trusted_proxies",
+					"INVALID_TRUSTED_PROXY_TOO_BROAD",
+					fmt.Sprintf("%q matches the entire address space", entry))
+			}
 			continue
 		}
-		if _, _, err := net.ParseCIDR(entry); err == nil {
+		if _, ipnet, err := net.ParseCIDR(entry); err == nil {
+			ones, _ := ipnet.Mask.Size()
+			if ones == 0 {
+				return newValidationErr("auth.trusted_proxies",
+					"INVALID_TRUSTED_PROXY_TOO_BROAD",
+					fmt.Sprintf("%q matches the entire address space", entry))
+			}
 			continue
 		}
 		return newValidationErr("auth.trusted_proxies",

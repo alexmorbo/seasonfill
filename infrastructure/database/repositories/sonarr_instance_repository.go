@@ -131,10 +131,6 @@ func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.Inst
 	return newID, nil
 }
 
-func (r *SonarrInstanceRepository) Update(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher) error {
-	return r.UpdateWithOptions(ctx, inst, c, false, nil)
-}
-
 // UpdateWithOptions writes parent + (unless preserveSecret) secret
 // inside a single tx. preserveSecret==true is used when the PUT body
 // omits api_key. A nil cipher is allowed only when preserveSecret.
@@ -350,35 +346,35 @@ func snapshotToModel(s runtime.InstanceSnapshot) database.SonarrInstanceModel {
 	tagsExclude, _ := json.Marshal(s.Tags.Exclude)
 
 	return database.SonarrInstanceModel{
-		ID:                              s.ID,
-		Name:                            s.Name,
-		URL:                             s.URL,
-		Mode:                            s.Mode,
-		TimeoutSeconds:                  int(s.Timeout / time.Second),
-		SearchTimeoutSeconds:            int(s.SearchTimeout / time.Second),
-		DryRun:                          s.DryRun,
-		TagsMode:                        s.Tags.Mode,
-		TagsInclude:                     string(tagsInclude),
-		TagsExclude:                     string(tagsExclude),
-		SearchRequireAllAired:           s.Search.RequireAllAired,
-		SearchSkipSpecials:              s.Search.SkipSpecials,
-		SearchSkipAnime:                 s.Search.SkipAnime,
-		SearchMinCustomFormatScore:      s.Search.MinCustomFormatScore,
-		RankingIndexerPriorityEnabled:   s.Ranking.IndexerPriorityEnabled,
-		RankingOriginBonus:              s.Ranking.OriginBonus,
-		LimitsScanMaxSeries:             s.Limits.ScanMaxSeries,
-		LimitsMaxGrabsPerScan:           s.Limits.MaxGrabsPerScan,
-		RateLimitRPM:                    s.RateLimit.RPM,
-		RateLimitBurst:                  s.RateLimit.Burst,
-		CooldownMode:                    s.Cooldown.Mode,
-		CooldownSeriesAfterGrabSec:      int(s.Cooldown.SeriesAfterGrab / time.Second),
-		CooldownGUIDFailedGrabSec:       int(s.Cooldown.GUIDAfterFailedGrab / time.Second),
-		CooldownGUIDFailedImportSec:     int(s.Cooldown.GUIDAfterFailedImport / time.Second),
-		RetryMaxAttempts:                s.Retry.MaxAttempts,
-		RetryInitialBackoffSec:          int(s.Retry.InitialBackoff / time.Second),
-		RetryMaxBackoffSec:              int(s.Retry.MaxBackoff / time.Second),
-		HealthCheckRecheckAuthSec:       int(s.HealthCheck.RecheckAuth / time.Second),
-		HealthCheckRecheckNetSec:        int(s.HealthCheck.RecheckNetwork / time.Second),
+		ID:                            s.ID,
+		Name:                          s.Name,
+		URL:                           s.URL,
+		Mode:                          s.Mode,
+		TimeoutSeconds:                int(s.Timeout / time.Second),
+		SearchTimeoutSeconds:          int(s.SearchTimeout / time.Second),
+		DryRun:                        s.DryRun,
+		TagsMode:                      s.Tags.Mode,
+		TagsInclude:                   string(tagsInclude),
+		TagsExclude:                   string(tagsExclude),
+		SearchRequireAllAired:         s.Search.RequireAllAired,
+		SearchSkipSpecials:            s.Search.SkipSpecials,
+		SearchSkipAnime:               s.Search.SkipAnime,
+		SearchMinCustomFormatScore:    s.Search.MinCustomFormatScore,
+		RankingIndexerPriorityEnabled: s.Ranking.IndexerPriorityEnabled,
+		RankingOriginBonus:            s.Ranking.OriginBonus,
+		LimitsScanMaxSeries:           s.Limits.ScanMaxSeries,
+		LimitsMaxGrabsPerScan:         s.Limits.MaxGrabsPerScan,
+		RateLimitRPM:                  s.RateLimit.RPM,
+		RateLimitBurst:                s.RateLimit.Burst,
+		CooldownMode:                  s.Cooldown.Mode,
+		CooldownSeriesAfterGrabSec:    int(s.Cooldown.SeriesAfterGrab / time.Second),
+		CooldownGUIDFailedGrabSec:     int(s.Cooldown.GUIDAfterFailedGrab / time.Second),
+		CooldownGUIDFailedImportSec:   int(s.Cooldown.GUIDAfterFailedImport / time.Second),
+		RetryMaxAttempts:              s.Retry.MaxAttempts,
+		RetryInitialBackoffSec:        int(s.Retry.InitialBackoff / time.Second),
+		RetryMaxBackoffSec:            int(s.Retry.MaxBackoff / time.Second),
+		HealthCheckRecheckAuthSec:     int(s.HealthCheck.RecheckAuth / time.Second),
+		HealthCheckRecheckNetSec:      int(s.HealthCheck.RecheckNetwork / time.Second),
 	}
 }
 

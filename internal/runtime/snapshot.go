@@ -121,12 +121,18 @@ func Defaults() Snapshot {
 	}
 }
 
+// MaxSearchTimeoutDefault caps the value the Timeout*6 default writes
+// into SearchTimeout when the caller omits it. Must stay <= the
+// instance.SearchTimeout validator max (600s) or callers with a large
+// explicit Timeout would land a default value that fails validation.
+const MaxSearchTimeoutDefault = 600 * time.Second
+
 func ApplyInstanceDefaults(inst *InstanceSnapshot) {
 	if inst.Timeout <= 0 {
 		inst.Timeout = 10 * time.Second
 	}
 	if inst.SearchTimeout <= 0 {
-		inst.SearchTimeout = inst.Timeout * 6
+		inst.SearchTimeout = min(inst.Timeout*6, MaxSearchTimeoutDefault)
 	}
 	if inst.Cooldown.Mode == "" {
 		inst.Cooldown.Mode = "smart"

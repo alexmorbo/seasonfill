@@ -131,6 +131,10 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	}
 	snap := requestToSnapshot(req)
 	if err := h.uc.Update(c.Request.Context(), name, snap, iusPtr); err != nil {
+		if errors.Is(err, instance.ErrStaleWrite) {
+			h.writeStaleWrite(c, name)
+			return
+		}
 		h.writeError(c, err)
 		return
 	}
@@ -141,6 +145,21 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	}
 	c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
 	c.JSON(http.StatusOK, snapshotToDetailDTO(stored, ts))
+}
+
+// writeStaleWrite emits the 412 STALE_WRITE response with a
+// Last-Modified header sourced from the current stored row so the
+// caller can re-issue the PUT immediately without an extra GET. If
+// the row was deleted between writes the header is omitted and the
+// 412 body is still returned (the caller's retry will then 404).
+func (h *InstanceCRUDHandler) writeStaleWrite(c *gin.Context, name string) {
+	_, ts, err := h.uc.Get(c.Request.Context(), name)
+	if err == nil {
+		c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
+	}
+	c.AbortWithStatusJSON(http.StatusPreconditionFailed, dto.ErrorResponse{
+		Error: "instance was modified by another client", Code: "STALE_WRITE",
+	})
 }
 
 // Delete hard-deletes an instance row + cascaded history.
@@ -186,10 +205,6 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusConflict, dto.ErrorResponse{
 			Error: "cannot delete the last remaining Sonarr instance",
 			Code:  "LAST_INSTANCE",
-		})
-	case errors.Is(err, instance.ErrStaleWrite):
-		c.AbortWithStatusJSON(http.StatusPreconditionFailed, dto.ErrorResponse{
-			Error: "instance was modified by another client", Code: "STALE_WRITE",
 		})
 	case errors.As(err, &verr):
 		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{
