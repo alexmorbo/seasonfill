@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -86,18 +85,20 @@ func (fakeInstanceRepo) GetUpdatedAt(_ context.Context, _ string) (time.Time, er
 	return time.Time{}, ports.ErrNotFound
 }
 
-func validDTO() dto.RuntimeConfigDTO {
-	return dto.RuntimeConfigDTO{
-		Cron: dto.RuntimeCronDTO{
-			Enabled: true, Schedule: "0 */6 * * *", OnStart: false, Jitter: "1m",
+func validInput() Input {
+	return Input{
+		Cron: CronInput{
+			Enabled: true, Schedule: "0 */6 * * *", OnStart: false,
+			Jitter: time.Minute,
 		},
-		Scan: dto.RuntimeScanDTO{
-			ShutdownGrace: "60s", CooldownSweep: "15m",
+		Scan: ScanInput{
+			ShutdownGrace: 60 * time.Second,
+			CooldownSweep: 15 * time.Minute,
 		},
 		DryRun: true,
-		GlobalRateLimit: dto.RuntimeRateLimitDTO{RPM: 30, Burst: 10},
-		Auth: dto.RuntimeAuthDTO{
-			SessionTTL:     "12h",
+		GlobalRateLimit: GlobalRateLimitInput{RPM: 30, Burst: 10},
+		Auth: AuthInput{
+			SessionTTL:     12 * time.Hour,
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1", "10.0.0.0/8"},
 		},
@@ -120,18 +121,18 @@ func TestGet_Defaults_WhenRowMissing(t *testing.T) {
 	got, ts, err := uc.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "0 */6 * * *", got.Cron.Schedule)
-	assert.Equal(t, "12h0m0s", got.Auth.SessionTTL)
+	assert.Equal(t, 12*time.Hour, got.Auth.SessionTTL)
 	assert.True(t, ts.IsZero())
 }
 
 func TestUpdate_OK_PersistsAndPublishes(t *testing.T) {
 	t.Parallel()
 	uc, repo, ch := setup(t)
-	out, ts, err := uc.Update(context.Background(), validDTO(), nil)
+	out, ts, err := uc.Update(context.Background(), validInput(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, repo.upserts)
 	assert.False(t, ts.IsZero())
-	assert.Equal(t, "12h0m0s", out.Auth.SessionTTL)
+	assert.Equal(t, 12*time.Hour, out.Auth.SessionTTL)
 	select {
 	case snap := <-ch:
 		assert.Equal(t, "0 */6 * * *", snap.Cron.Schedule)
@@ -144,21 +145,21 @@ func TestUpdate_OK_PersistsAndPublishes(t *testing.T) {
 func TestUpdate_StaleIUS(t *testing.T) {
 	t.Parallel()
 	uc, repo, _ := setup(t)
-	_, _, err := uc.Update(context.Background(), validDTO(), nil)
+	_, _, err := uc.Update(context.Background(), validInput(), nil)
 	require.NoError(t, err)
 	// Force stored row to be "in the future" — any IUS in the past is stale.
 	repo.mu.Lock()
 	repo.row.UpdatedAt = time.Now().UTC().Add(time.Hour)
 	repo.mu.Unlock()
 	past := time.Now().UTC().Add(-time.Hour)
-	_, _, err = uc.Update(context.Background(), validDTO(), &past)
+	_, _, err = uc.Update(context.Background(), validInput(), &past)
 	assert.ErrorIs(t, err, ErrStaleWrite)
 }
 
 func TestValidate_InvalidCron(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
+	in := validInput()
 	in.Cron.Schedule = "not a cron"
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
@@ -169,7 +170,7 @@ func TestValidate_InvalidCron(t *testing.T) {
 func TestValidate_BadCIDR(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
+	in := validInput()
 	in.Auth.TrustedProxies = []string{"127.0.0.1", "not.an.ip", "10.0.0.0/8"}
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
@@ -181,8 +182,8 @@ func TestValidate_BadCIDR(t *testing.T) {
 func TestValidate_SessionTTLTooShort(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
-	in.Auth.SessionTTL = "1m"
+	in := validInput()
+	in.Auth.SessionTTL = time.Minute
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
@@ -192,8 +193,8 @@ func TestValidate_SessionTTLTooShort(t *testing.T) {
 func TestValidate_SessionTTLTooLong(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
-	in.Auth.SessionTTL = "200h" // beyond 7d (168h) ceiling
+	in := validInput()
+	in.Auth.SessionTTL = 200 * time.Hour // beyond 7d (168h) ceiling
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
@@ -203,7 +204,7 @@ func TestValidate_SessionTTLTooLong(t *testing.T) {
 func TestValidate_NegativeRateLimit(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
+	in := validInput()
 	in.GlobalRateLimit.RPM = -1
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
@@ -211,22 +212,11 @@ func TestValidate_NegativeRateLimit(t *testing.T) {
 	assert.Equal(t, "INVALID_RATE_LIMIT", verr.Code)
 }
 
-func TestValidate_BadDurationString(t *testing.T) {
-	t.Parallel()
-	uc, _, _ := setup(t)
-	in := validDTO()
-	in.Scan.ShutdownGrace = "thirty seconds"
-	_, _, err := uc.Update(context.Background(), in, nil)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_DURATION", verr.Code)
-}
-
 func TestValidate_NegativeJitter(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
-	in.Cron.Jitter = "-1s"
+	in := validInput()
+	in.Cron.Jitter = -time.Second
 	_, _, err := uc.Update(context.Background(), in, nil)
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
@@ -236,11 +226,11 @@ func TestValidate_NegativeJitter(t *testing.T) {
 // --- 028h-1: range-boundary tests ---
 
 // rangeCase is a small typed helper for table-driven boundary tests.
-// Each case mutates a copy of validDTO() to put exactly one field
+// Each case mutates a copy of validInput() to put exactly one field
 // out of range; the test asserts the matching sentinel code fires.
 type rangeCase struct {
 	name    string
-	mutate  func(*dto.RuntimeConfigDTO)
+	mutate  func(*Input)
 	code    string
 	wantErr bool
 }
@@ -250,63 +240,63 @@ func TestValidate_RangeBounds_Runtime(t *testing.T) {
 	cases := []rangeCase{
 		// scan.shutdown_grace ∈ [1s, 10m]
 		{"shutdown_grace_below_min",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "500ms" },
+			func(d *Input) { d.Scan.ShutdownGrace = 500 * time.Millisecond },
 			"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE", true},
 		{"shutdown_grace_at_min",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "1s" },
+			func(d *Input) { d.Scan.ShutdownGrace = time.Second },
 			"", false},
 		{"shutdown_grace_at_max",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "10m" },
+			func(d *Input) { d.Scan.ShutdownGrace = 10 * time.Minute },
 			"", false},
 		{"shutdown_grace_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.ShutdownGrace = "11m" },
+			func(d *Input) { d.Scan.ShutdownGrace = 11 * time.Minute },
 			"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE", true},
 
 		// scan.cooldown_sweep ∈ [10s, 24h]
 		{"cooldown_sweep_below_min",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "1s" },
+			func(d *Input) { d.Scan.CooldownSweep = time.Second },
 			"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE", true},
 		{"cooldown_sweep_at_min",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "10s" },
+			func(d *Input) { d.Scan.CooldownSweep = 10 * time.Second },
 			"", false},
 		{"cooldown_sweep_at_max",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "24h" },
+			func(d *Input) { d.Scan.CooldownSweep = 24 * time.Hour },
 			"", false},
 		{"cooldown_sweep_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.Scan.CooldownSweep = "25h" },
+			func(d *Input) { d.Scan.CooldownSweep = 25 * time.Hour },
 			"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE", true},
 
 		// cron.jitter ∈ [0, 1h]
 		{"jitter_at_min",
-			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "0s" },
+			func(d *Input) { d.Cron.Jitter = 0 },
 			"", false},
 		{"jitter_at_max",
-			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "1h" },
+			func(d *Input) { d.Cron.Jitter = time.Hour },
 			"", false},
 		{"jitter_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.Cron.Jitter = "2h" },
+			func(d *Input) { d.Cron.Jitter = 2 * time.Hour },
 			"INVALID_JITTER_OUT_OF_RANGE", true},
 
 		// global_rate_limit.rpm ∈ [0, 10000]
 		{"rpm_at_min",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 0 },
+			func(d *Input) { d.GlobalRateLimit.RPM = 0 },
 			"", false},
 		{"rpm_at_max",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 10000 },
+			func(d *Input) { d.GlobalRateLimit.RPM = 10000 },
 			"", false},
 		{"rpm_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 10001 },
+			func(d *Input) { d.GlobalRateLimit.RPM = 10001 },
 			"INVALID_RATE_LIMIT_RPM_OUT_OF_RANGE", true},
 		{"rpm_far_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.RPM = 2147483647 },
+			func(d *Input) { d.GlobalRateLimit.RPM = 2147483647 },
 			"INVALID_RATE_LIMIT_RPM_OUT_OF_RANGE", true},
 
 		// global_rate_limit.burst ∈ [0, 10000]
 		{"burst_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.Burst = 10001 },
+			func(d *Input) { d.GlobalRateLimit.Burst = 10001 },
 			"INVALID_RATE_LIMIT_BURST_OUT_OF_RANGE", true},
 		{"burst_far_above_max",
-			func(d *dto.RuntimeConfigDTO) { d.GlobalRateLimit.Burst = 2147483647 },
+			func(d *Input) { d.GlobalRateLimit.Burst = 2147483647 },
 			"INVALID_RATE_LIMIT_BURST_OUT_OF_RANGE", true},
 	}
 
@@ -315,7 +305,7 @@ func TestValidate_RangeBounds_Runtime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _ := setup(t)
-			in := validDTO()
+			in := validInput()
 			tc.mutate(&in)
 			_, _, err := uc.Update(context.Background(), in, nil)
 			if !tc.wantErr {
@@ -335,13 +325,13 @@ func TestValidate_RangeBounds_Runtime(t *testing.T) {
 func TestValidate_RuntimeMaxBoundary_RoundTrips(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
-	in := validDTO()
-	in.Cron.Jitter = "1h"
-	in.Scan.ShutdownGrace = "10m"
-	in.Scan.CooldownSweep = "24h"
+	in := validInput()
+	in.Cron.Jitter = time.Hour
+	in.Scan.ShutdownGrace = 10 * time.Minute
+	in.Scan.CooldownSweep = 24 * time.Hour
 	in.GlobalRateLimit.RPM = 10000
 	in.GlobalRateLimit.Burst = 10000
-	in.Auth.SessionTTL = "168h"
+	in.Auth.SessionTTL = 168 * time.Hour
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
 }

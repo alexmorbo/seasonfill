@@ -17,7 +17,6 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -45,13 +44,7 @@ var (
 	ErrStaleWrite = errors.New("runtime_config was modified by another client")
 )
 
-// Field bounds. Each pair (Min, Max) is inclusive on both ends. The
-// sentinel `INVALID_<field>_OUT_OF_RANGE` is emitted when a parsed
-// value falls outside [Min, Max]. Bounds picked to (a) prevent
-// silently-poisonous values (e.g. 100-year cooldown), (b) match
-// product reality (e.g. 10k rpm ≈ 167 req/s — well above Sonarr's
-// indexer realistic ceiling), and (c) leave room for future tuning
-// without re-issuing a schema migration.
+// Field bounds. Each pair (Min, Max) is inclusive on both ends.
 const (
 	sessionTTLMin = 5 * time.Minute
 	sessionTTLMax = 7 * 24 * time.Hour
@@ -100,11 +93,11 @@ func New(
 	}
 }
 
-// Get returns the singleton row as a DTO, falling back to
+// Get returns the singleton row as an Output, falling back to
 // runtime.Defaults() when the row is missing. Second-truncated
 // updated_at is returned separately so the handler can both serialize
 // it in the body AND emit it as Last-Modified.
-func (u *UseCase) Get(ctx context.Context) (dto.RuntimeConfigDTO, time.Time, error) {
+func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 	row, err := u.runtimes.Get(ctx)
 	switch {
 	case err == nil:
@@ -116,47 +109,59 @@ func (u *UseCase) Get(ctx context.Context) (dto.RuntimeConfigDTO, time.Time, err
 			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
 		}
 	default:
-		return dto.RuntimeConfigDTO{}, time.Time{},
+		return Output{}, time.Time{},
 			fmt.Errorf("runtimeconfig: get row: %w", err)
 	}
 	ts := row.UpdatedAt.Truncate(time.Second)
-	return rowToDTO(row, ts), ts, nil
+	return rowToOutput(row, ts), ts, nil
 }
 
-// Update validates the incoming DTO, persists it, then republishes a
+// Update validates the incoming Input, persists it, then republishes a
 // fresh Snapshot built from (new runtime row + current instances).
-// ifUnmodifiedSince (nil = ignore) implements optimistic concurrency.
-// The precondition is enforced inside the repo's transaction so two
-// concurrent IUS-bearing PUTs cannot both succeed. Returns
-// ErrStaleWrite when the stored row's updated_at (second-truncated)
-// is strictly newer than the header.
+// ifUnmodifiedSince (zero = ignore) implements the optimistic-
+// concurrency check; a stored updated_at strictly newer than the
+// header (second-rounded) → ErrStaleWrite. The returned Output+timestamp
+// is the post-write re-read so the handler can echo it.
 func (u *UseCase) Update(
 	ctx context.Context,
-	in dto.RuntimeConfigDTO,
+	in Input,
 	ifUnmodifiedSince *time.Time,
-) (dto.RuntimeConfigDTO, time.Time, error) {
-	snap, err := u.dtoToSnapshot(in)
+) (Output, time.Time, error) {
+	snap, err := u.inputToSnapshot(in)
 	if err != nil {
-		return dto.RuntimeConfigDTO{}, time.Time{}, err
+		return Output{}, time.Time{}, err
 	}
-	if err := u.runtimes.Upsert(ctx, snap, ifUnmodifiedSince); err != nil {
-		if errors.Is(err, ports.ErrStaleWrite) {
-			return dto.RuntimeConfigDTO{}, time.Time{}, ErrStaleWrite
+	if ifUnmodifiedSince != nil {
+		current, err := u.runtimes.Get(ctx)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return Output{}, time.Time{},
+				fmt.Errorf("runtimeconfig: precondition read: %w", err)
 		}
-		return dto.RuntimeConfigDTO{}, time.Time{},
+		if err == nil {
+			stored := current.UpdatedAt.Truncate(time.Second)
+			provided := ifUnmodifiedSince.Truncate(time.Second)
+			if stored.After(provided) {
+				return Output{}, time.Time{}, ErrStaleWrite
+			}
+		}
+	}
+	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
+		return Output{}, time.Time{},
 			fmt.Errorf("runtimeconfig: upsert: %w", err)
 	}
 	stored, err := u.runtimes.Get(ctx)
 	if err != nil {
-		return dto.RuntimeConfigDTO{}, time.Time{},
+		return Output{}, time.Time{},
 			fmt.Errorf("runtimeconfig: re-read: %w", err)
 	}
 	if err := u.publish(ctx, stored); err != nil {
+		// Publish failure must not roll back the DB write — subscribers
+		// can rebuild from the next publish. Log + continue.
 		u.logger.WarnContext(ctx, "runtimeconfig.publish_failed",
 			slog.String("error", err.Error()))
 	}
 	ts := stored.UpdatedAt.Truncate(time.Second)
-	return rowToDTO(stored, ts), ts, nil
+	return rowToOutput(stored, ts), ts, nil
 }
 
 func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error {
@@ -181,51 +186,33 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 	return nil
 }
 
-// dtoToSnapshot validates every field and parses durations into a
-// runtime.Snapshot. Range checks use the const block above; sentinel
-// codes follow `INVALID_<field>_OUT_OF_RANGE` for new fields,
-// `INVALID_<field>` for the original three (shipped) sentinels whose
-// message text is now range-aware.
-func (u *UseCase) dtoToSnapshot(in dto.RuntimeConfigDTO) (runtime.Snapshot, error) {
+// inputToSnapshot validates every field and converts a typed Input to a
+// runtime.Snapshot. Instances stays nil — the Upsert path only writes
+// the singleton row. Duration values are already parsed by the caller.
+func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 	if _, err := cronParser.Parse(in.Cron.Schedule); err != nil {
 		return runtime.Snapshot{}, newValidationErr(
 			"cron.schedule", "INVALID_CRON", err.Error())
 	}
-	jitter, err := parseDuration("cron.jitter", in.Cron.Jitter)
-	if err != nil {
-		return runtime.Snapshot{}, err
-	}
-	if jitter < 0 {
+	if in.Cron.Jitter < 0 {
 		return runtime.Snapshot{}, newValidationErr(
 			"cron.jitter", "INVALID_JITTER", "must be >= 0")
 	}
 	if err := boundDuration("cron.jitter", "INVALID_JITTER_OUT_OF_RANGE",
-		jitter, cronJitterMin, cronJitterMax); err != nil {
-		return runtime.Snapshot{}, err
-	}
-	shutdown, err := parseDuration("scan.shutdown_grace", in.Scan.ShutdownGrace)
-	if err != nil {
+		in.Cron.Jitter, cronJitterMin, cronJitterMax); err != nil {
 		return runtime.Snapshot{}, err
 	}
 	if err := boundDuration("scan.shutdown_grace",
 		"INVALID_SCAN_SHUTDOWN_GRACE_OUT_OF_RANGE",
-		shutdown, scanShutdownGraceMin, scanShutdownGraceMax); err != nil {
-		return runtime.Snapshot{}, err
-	}
-	sweep, err := parseDuration("scan.cooldown_sweep", in.Scan.CooldownSweep)
-	if err != nil {
+		in.Scan.ShutdownGrace, scanShutdownGraceMin, scanShutdownGraceMax); err != nil {
 		return runtime.Snapshot{}, err
 	}
 	if err := boundDuration("scan.cooldown_sweep",
 		"INVALID_SCAN_COOLDOWN_SWEEP_OUT_OF_RANGE",
-		sweep, scanCooldownSweepMin, scanCooldownSweepMax); err != nil {
+		in.Scan.CooldownSweep, scanCooldownSweepMin, scanCooldownSweepMax); err != nil {
 		return runtime.Snapshot{}, err
 	}
-	sessionTTL, err := parseDuration("auth.session_ttl", in.Auth.SessionTTL)
-	if err != nil {
-		return runtime.Snapshot{}, err
-	}
-	if sessionTTL < sessionTTLMin || sessionTTL > sessionTTLMax {
+	if in.Auth.SessionTTL < sessionTTLMin || in.Auth.SessionTTL > sessionTTLMax {
 		return runtime.Snapshot{}, newValidationErr(
 			"auth.session_ttl", "INVALID_SESSION_TTL",
 			fmt.Sprintf("must be between %s and %s", sessionTTLMin, sessionTTLMax))
@@ -253,39 +240,26 @@ func (u *UseCase) dtoToSnapshot(in dto.RuntimeConfigDTO) (runtime.Snapshot, erro
 			Enabled:  in.Cron.Enabled,
 			Schedule: in.Cron.Schedule,
 			OnStart:  in.Cron.OnStart,
-			Jitter:   jitter,
+			Jitter:   in.Cron.Jitter,
 		},
 		Scan: runtime.ScanSnapshot{
-			ShutdownGrace: shutdown,
-			CooldownSweep: sweep,
+			ShutdownGrace: in.Scan.ShutdownGrace,
+			CooldownSweep: in.Scan.CooldownSweep,
 		},
 		DryRun: in.DryRun,
 		GlobalRateLimit: runtime.RateLimitSnapshot{
 			RPM: in.GlobalRateLimit.RPM, Burst: in.GlobalRateLimit.Burst,
 		},
 		Auth: runtime.AuthSnapshot{
-			SessionTTL:     sessionTTL,
+			SessionTTL:     in.Auth.SessionTTL,
 			SecureCookie:   in.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), in.Auth.TrustedProxies...),
 		},
 	}, nil
 }
 
-func parseDuration(field, raw string) (time.Duration, error) {
-	if strings.TrimSpace(raw) == "" {
-		return 0, newValidationErr(field, "INVALID_DURATION",
-			"required (Go-style duration string, e.g. \"30s\")")
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, newValidationErr(field, "INVALID_DURATION", err.Error())
-	}
-	return d, nil
-}
-
 // boundDuration returns nil if d ∈ [min, max], a typed
-// ValidationError otherwise. The message lists the bounds using
-// Duration.String() so the wire format is stable + human-readable.
+// ValidationError otherwise.
 func boundDuration(field, code string, d, min, max time.Duration) error {
 	if d < min || d > max {
 		return newValidationErr(field, code,
@@ -325,24 +299,24 @@ func validateTrustedProxies(list []string) error {
 	return nil
 }
 
-func rowToDTO(row ports.RuntimeConfigRow, ts time.Time) dto.RuntimeConfigDTO {
-	return dto.RuntimeConfigDTO{
-		Cron: dto.RuntimeCronDTO{
+func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
+	return Output{
+		Cron: CronInput{
 			Enabled:  row.Cron.Enabled,
 			Schedule: row.Cron.Schedule,
 			OnStart:  row.Cron.OnStart,
-			Jitter:   row.Cron.Jitter.String(),
+			Jitter:   row.Cron.Jitter,
 		},
-		Scan: dto.RuntimeScanDTO{
-			ShutdownGrace: row.Scan.ShutdownGrace.String(),
-			CooldownSweep: row.Scan.CooldownSweep.String(),
+		Scan: ScanInput{
+			ShutdownGrace: row.Scan.ShutdownGrace,
+			CooldownSweep: row.Scan.CooldownSweep,
 		},
 		DryRun: row.DryRun,
-		GlobalRateLimit: dto.RuntimeRateLimitDTO{
+		GlobalRateLimit: GlobalRateLimitInput{
 			RPM: row.GlobalRateLimit.RPM, Burst: row.GlobalRateLimit.Burst,
 		},
-		Auth: dto.RuntimeAuthDTO{
-			SessionTTL:     row.Auth.SessionTTL.String(),
+		Auth: AuthInput{
+			SessionTTL:     row.Auth.SessionTTL,
 			SecureCookie:   row.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), row.Auth.TrustedProxies...),
 		},
