@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/internal/netguard"
 )
 
 const (
@@ -25,12 +24,8 @@ const (
 )
 
 // InstanceProbeHandler is the stateless POST /api/v1/instances/test handler.
-// The injected *http.Client MUST be configured with:
-//   - CheckRedirect = http.ErrUseLastResponse (so 3xx surfaces as a response)
-//   - Transport.DialContext using netguard.BlockPrivate (so RFC1918 / loopback
-//     / link-local / ULA destinations are rejected at dial time, including
-//     after DNS resolution).
-//
+// The injected *http.Client MUST be configured with
+// CheckRedirect = http.ErrUseLastResponse so 3xx surfaces as a response.
 // Construction lives in cmd/server/main.go so tests can swap clients freely.
 type InstanceProbeHandler struct {
 	client  *http.Client
@@ -103,14 +98,6 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
-		if errors.Is(err, netguard.ErrBlockedHost) {
-			h.logger.WarnContext(ctx, "instance.probe.blocked_host",
-				slog.String("event", "probe.blocked_host"),
-				slog.String("instance_url", req.URL))
-			c.AbortWithStatusJSON(http.StatusBadRequest,
-				dto.ErrorResponse{Error: "url resolves to a private or loopback address", Code: "INVALID_HOST"})
-			return
-		}
 		h.logger.WarnContext(ctx, "instance.probe.timeout",
 			slog.String("event", "probe.timeout"),
 			slog.String("instance_url", req.URL),

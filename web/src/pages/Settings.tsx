@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
@@ -15,6 +16,7 @@ function parseHash(h: string): TabKey {
 }
 
 export function Settings() {
+  const { t } = useTranslation();
   const initial = useMemo<TabKey>(() => {
     if (typeof window === 'undefined') return 'instances';
     return parseHash(window.location.hash);
@@ -38,17 +40,17 @@ export function Settings() {
   return (
     <div className="max-w-[1024px] mx-auto p-6 flex flex-col gap-5">
       <header>
-        <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('settings.title')}</h1>
         <p className="text-[13px] text-muted mt-1">
-          Manage Sonarr instances, scheduling, scan defaults, and runtime auth.
+          {t('settings.subtitle')}
         </p>
       </header>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
         <TabsList>
-          <TabsTrigger value="instances">Instances</TabsTrigger>
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="instances">{t('settings.tabs.instances')}</TabsTrigger>
+          <TabsTrigger value="general">{t('settings.tabs.general')}</TabsTrigger>
+          <TabsTrigger value="security">{t('settings.tabs.security')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="instances" className="mt-4">

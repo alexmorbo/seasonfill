@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useInstances } from '@/lib/instances';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,19 +12,20 @@ import { cn } from '@/lib/utils';
 import { KIND_CLASS, KIND_DOT, statusKind } from '@/lib/badge-variants';
 
 export function Instances() {
+  const { t } = useTranslation();
   const q = useInstances();
   const instances = q.data?.instances ?? [];
 
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
       <header className="flex items-center gap-4">
-        <h1 className="text-[22px] font-semibold tracking-tight">Sonarr instances</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('instances.title')}</h1>
       </header>
 
       {q.isError && (
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
-          <AlertTitle>Failed to load instances</AlertTitle>
+          <AlertTitle>{t('instances.loadFailed')}</AlertTitle>
           <AlertDescription>{q.error.message}</AlertDescription>
         </Alert>
       )}
@@ -46,8 +48,8 @@ export function Instances() {
         <Card>
           <CardContent className="p-0">
             <EmptyState
-              title="No instances configured"
-              body="Add a Sonarr instance in Settings → Instances to start scanning."
+              title={t('instances.empty.title')}
+              body={t('instances.empty.body')}
             />
           </CardContent>
         </Card>
@@ -73,9 +75,9 @@ export function Instances() {
               </CardHeader>
               <CardContent className="text-[13px] flex flex-col gap-3">
                 <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[12.5px]">
-                  <dt className="text-faint">Health</dt>
-                  <dd className="font-mono">{inst.health ?? 'unknown'}</dd>
-                  <dt className="text-faint">Mode</dt>
+                  <dt className="text-faint">{t('dashboard.health.healthCol')}</dt>
+                  <dd className="font-mono">{inst.health ?? t('common.unknown').toLowerCase()}</dd>
+                  <dt className="text-faint">{t('instances.columns.mode')}</dt>
                   <dd>
                     <span
                       className={cn(
@@ -87,9 +89,9 @@ export function Instances() {
                       {inst.mode ?? 'auto'}
                     </span>
                   </dd>
-                  <dt className="text-faint">Last check</dt>
+                  <dt className="text-faint">{t('dashboard.health.lastCheck')}</dt>
                   <dd className="text-muted">{relativeTime(inst.last_check_at)}</dd>
-                  <dt className="text-faint">Transitions</dt>
+                  <dt className="text-faint">{t('dashboard.health.transitions')}</dt>
                   <dd
                     className={cn(
                       'font-mono',
@@ -100,7 +102,7 @@ export function Instances() {
                   </dd>
                   {inst.last_error && (
                     <>
-                      <dt className="text-faint">Last error</dt>
+                      <dt className="text-faint">{t('dashboard.health.lastError')}</dt>
                       <dd className="text-muted font-mono text-[11.5px] break-all">
                         {inst.last_error}
                       </dd>
@@ -111,10 +113,10 @@ export function Instances() {
                   <Link
                     to={`/instances/${encodeURIComponent(inst.name)}/queue`}
                     className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline self-start"
-                    aria-label={`Open queue for ${inst.name}`}
+                    aria-label={t('instances.openQueueAria', { name: inst.name })}
                   >
                     <ListOrdered className="w-3.5 h-3.5" />
-                    {inst.mode === 'manual' ? 'Open queue →' : 'View queue →'}
+                    {inst.mode === 'manual' ? t('instances.actions.openQueue') : t('instances.actions.viewQueue')} →
                   </Link>
                 )}
               </CardContent>

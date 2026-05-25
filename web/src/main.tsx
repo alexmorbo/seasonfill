@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { queryClient } from '@/lib/query-client';
 import { router } from '@/router';
+import '@/i18n';
 import '@/index.css';
 
 const rootEl = document.getElementById('root');

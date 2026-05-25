@@ -3,13 +3,10 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -18,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/internal/netguard"
 )
 
 func newProbeRouter(t *testing.T, h *InstanceProbeHandler) *gin.Engine {
@@ -174,19 +170,16 @@ func TestProbe_WrongContentType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// hardenedClient mirrors the production wiring from cmd/server/main.go.
-// Tests that exercise the SSRF guards MUST use it; tests that only need
-// loopback to a httptest.Server use srv.Client() because the guard would
-// (correctly) reject 127.0.0.1.
-func hardenedClient(t *testing.T) *http.Client {
-	t.Helper()
+// plainClient mirrors the production wiring from cmd/server/main.go —
+// a plain net.Dialer with no Control hook. All targets, public or
+// private, succeed if they answer.
+func plainClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
-				Control: (netguard.Guard{}).Control,
 				Timeout: 500 * time.Millisecond,
 			}).DialContext,
 		},
@@ -220,47 +213,26 @@ func TestProbe_RedirectRejected(t *testing.T) {
 	assert.Equal(t, "redirect rejected", got.Reason)
 }
 
-func TestProbe_PrivateHostRejected(t *testing.T) {
+// TestProbe_LoopbackAllowed exercises the homelab default: a plain
+// dialer with no Control hook reaches a loopback httptest.Server and
+// returns OK rather than a 400 INVALID_HOST.
+func TestProbe_LoopbackAllowed(t *testing.T) {
 	t.Parallel()
-	cases := []string{
-		"http://10.0.0.1/",
-		"http://172.16.0.1/",
-		"http://192.168.1.1/",
-		"http://127.0.0.1/",
-		"http://169.254.169.254/",
-		"http://[::1]/",
-		"http://[fc00::1]/",
-		"http://[fe80::1]/",
-	}
-	h := NewInstanceProbeHandler(hardenedClient(t), nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"version":"4.0.0.999"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := NewInstanceProbeHandler(plainClient(), nil)
 	r := newProbeRouter(t, h)
 
-	for _, raw := range cases {
-		raw := raw
-		t.Run(raw, func(t *testing.T) {
-			t.Parallel()
-			w := doProbe(t, r, dto.InstanceTestRequest{URL: raw, APIKey: "x"})
-			require.Equal(t, http.StatusBadRequest, w.Code, "body=%s url=%s", w.Body.String(), raw)
-			assert.Contains(t, w.Body.String(), "INVALID_HOST")
-		})
-	}
-}
-
-// TestProbe_DNSRebindRejected — hostname that resolves to a private IP.
-// localhost is the simplest portable case: it resolves to 127.0.0.1 / ::1.
-// The dialer Control hook MUST trigger AFTER resolution, so this exercises
-// the rebinding-defeat path.
-func TestProbe_DNSRebindRejected(t *testing.T) {
-	t.Parallel()
-	h := NewInstanceProbeHandler(hardenedClient(t), nil)
-	r := newProbeRouter(t, h)
-
-	w := doProbe(t, r, dto.InstanceTestRequest{
-		URL:    "http://localhost:1/",
-		APIKey: "x",
-	})
-	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
-	assert.Contains(t, w.Body.String(), "INVALID_HOST")
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.OK, "loopback must be reachable: %s", w.Body.String())
+	assert.Equal(t, "4.0.0.999", got.Version)
 }
 
 func TestProbe_NonJSONContentType(t *testing.T) {
@@ -282,22 +254,6 @@ func TestProbe_NonJSONContentType(t *testing.T) {
 	assert.False(t, got.OK)
 	assert.Equal(t, "not a Sonarr API endpoint", got.Reason)
 }
-
-// Compile-time guard: keep the syscall import live; the BlockPrivate
-// signature relies on syscall.RawConn elsewhere in the tree.
-var _ = func() syscall.RawConn { return nil }
-
-// Catch a regression where ErrBlockedHost stops being errors.Is-detectable.
-func TestProbe_BlockedHostErrorChainStable(t *testing.T) {
-	t.Parallel()
-	d := &net.Dialer{Control: (netguard.Guard{}).Control, Timeout: 200 * time.Millisecond}
-	_, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:1")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, netguard.ErrBlockedHost),
-		"errors.Is must walk the net.OpError chain")
-}
-
-// --- Part 028i: uncovered branches ---
 
 // TestProbe_ReasonForStatus_Default exercises the default branch of
 // reasonForStatus directly. The default fires for status codes that
@@ -327,46 +283,4 @@ func TestProbe_ValidateURL_ParseError(t *testing.T) {
 	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://foo\x7f.example/", APIKey: "x"})
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
-}
-
-func TestProbe_AllowPrivate_PermitsAndRevokesLoopback(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"version":"4.0.0.999"}`)
-	}))
-	t.Cleanup(srv.Close)
-
-	var allow atomic.Bool
-	allow.Store(true)
-	guard := netguard.Guard{AllowPrivate: allow.Load}
-
-	c := &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-			DialContext: (&net.Dialer{
-				Control: guard.Control,
-				Timeout: 500 * time.Millisecond,
-			}).DialContext,
-		},
-		Timeout: 2 * time.Second,
-	}
-	h := NewInstanceProbeHandler(c, nil)
-	r := newProbeRouter(t, h)
-
-	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var got dto.InstanceTestResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.True(t, got.OK, "homelab toggle must let loopback through: %s", w.Body.String())
-	assert.Equal(t, "4.0.0.999", got.Version)
-
-	// Flip the atomic — same client, same target → must now block.
-	allow.Store(false)
-	w = doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "x"})
-	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
-	assert.Contains(t, w.Body.String(), "INVALID_HOST")
 }

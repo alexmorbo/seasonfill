@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -29,6 +30,7 @@ import { relativeTime, durationMs } from '@/lib/format';
 const STATUSES = ['running', 'completed', 'failed', 'aborted'] as const;
 
 export function Scans() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { filter: instance } = useInstanceFilter();
@@ -60,23 +62,23 @@ export function Scans() {
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
       <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">Scans</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('scans.title')}</h1>
         <span className="font-mono text-[12px] text-faint">
-          {rows.length} loaded{instance ? ` · instance: ${instance}` : ''}
+          {t('scans.loadedCount', { count: rows.length })}{instance ? ` · ${t('scans.instanceLabel', { name: instance })}` : ''}
         </span>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">Filter</span>
+        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('decisions.filter')}</span>
         <Select
           value={status || 'all'}
           onValueChange={(v) => updateParam('status', v === 'all' ? '' : v)}
         >
-          <SelectTrigger className="h-8 w-[140px] text-[12.5px]" aria-label="Any status">
-            <SelectValue placeholder="Any status" />
+          <SelectTrigger className="h-8 w-[140px] text-[12.5px]" aria-label={t('scans.anyStatus')}>
+            <SelectValue placeholder={t('scans.anyStatus')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Any status</SelectItem>
+            <SelectItem value="all">{t('scans.anyStatus')}</SelectItem>
             {STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
                 {s}
@@ -85,18 +87,18 @@ export function Scans() {
           </SelectContent>
         </Select>
         <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label="Time range (decorative)">
+          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('decisions.timeRangeAria')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="24h">Last 24h</SelectItem>
-            <SelectItem value="7d">Last 7d</SelectItem>
-            <SelectItem value="30d">Last 30d</SelectItem>
+            <SelectItem value="24h">{t('decisions.range.h24')}</SelectItem>
+            <SelectItem value="7d">{t('decisions.range.d7')}</SelectItem>
+            <SelectItem value="30d">{t('decisions.range.d30')}</SelectItem>
           </SelectContent>
         </Select>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" onClick={clear} disabled={!status}>
-          Clear
+          {t('decisions.clear')}
         </Button>
       </div>
 
@@ -105,11 +107,11 @@ export function Scans() {
           {q.isError ? (
             <Alert variant="destructive" className="m-4">
               <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>Failed to load scans</AlertTitle>
+              <AlertTitle>{t('scans.loadFailed')}</AlertTitle>
               <AlertDescription>
                 {q.error.message}{' '}
                 <Button variant="link" size="sm" onClick={() => q.refetch()}>
-                  Retry
+                  {t('common.retry')}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -118,14 +120,14 @@ export function Scans() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Instance</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Dur</TableHead>
-                  <TableHead>Series</TableHead>
-                  <TableHead>Grabs</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t('scans.columns.id')}</TableHead>
+                  <TableHead>{t('scans.columns.instance')}</TableHead>
+                  <TableHead>{t('scans.columns.trigger')}</TableHead>
+                  <TableHead>{t('scans.columns.started')}</TableHead>
+                  <TableHead>{t('scans.columns.duration')}</TableHead>
+                  <TableHead>{t('scans.columns.series')}</TableHead>
+                  <TableHead>{t('scans.columns.grabs')}</TableHead>
+                  <TableHead>{t('scans.columns.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -139,13 +141,13 @@ export function Scans() {
                   <TableRow>
                     <TableCell colSpan={9}>
                       <EmptyState
-                        title="No scans match your filters"
-                        body="Try clearing filters, or trigger a new scan from the sidebar."
+                        title={t('scans.empty.matchTitle')}
+                        body={t('scans.empty.matchBody')}
                         {...(status
                           ? {
                               action: (
                                 <Button variant="outline" size="sm" onClick={clear}>
-                                  Clear filters
+                                  {t('decisions.clearFilters')}
                                 </Button>
                               ),
                             }
@@ -161,7 +163,7 @@ export function Scans() {
                     onKeyDown={(e) => handleRowKey(e, s.id)}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Open scan ${(s.id ?? '').slice(0, 8)}`}
+                    aria-label={t('dashboard.recent.openScan', { id: (s.id ?? '').slice(0, 8) })}
                     className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <TableCell>
@@ -204,7 +206,7 @@ export function Scans() {
             onClick={() => q.fetchNextPage()}
             disabled={q.isFetchingNextPage}
           >
-            {q.isFetchingNextPage ? 'Loading…' : 'Show more'}
+            {q.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
           </Button>
         </div>
       )}

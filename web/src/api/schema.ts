@@ -1792,7 +1792,6 @@ export type components = {
             readonly dry_run?: boolean;
             readonly global_rate_limit?: components["schemas"]["dto.RuntimeRateLimitDTO"];
             readonly scan?: components["schemas"]["dto.RuntimeScanDTO"];
-            readonly security?: components["schemas"]["dto.RuntimeSecurityDTO"];
             readonly updated_at?: string;
         };
         readonly "dto.RuntimeCronDTO": {
@@ -1814,9 +1813,6 @@ export type components = {
             readonly cooldown_sweep?: string;
             /** @example 60s */
             readonly shutdown_grace?: string;
-        };
-        readonly "dto.RuntimeSecurityDTO": {
-            readonly allow_private_targets?: boolean;
         };
         readonly "dto.Scan": {
             readonly candidates_found?: number;

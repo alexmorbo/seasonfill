@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -13,6 +14,7 @@ export function CancelScanDialog({ scanId, disabled }: {
   scanId: string;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const cancel = useCancelScan();
 
@@ -33,20 +35,19 @@ export function CancelScanDialog({ scanId, disabled }: {
         data-testid="cancel-scan-button"
         className="h-7 text-[12px] border-status-warning/50 text-status-warning hover:bg-status-warning/10"
       >
-        Cancel scan
+        {t('scans.actions.cancel')}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent data-testid="cancel-scan-dialog">
           <DialogHeader>
-            <DialogTitle>Cancel this scan?</DialogTitle>
+            <DialogTitle>{t('scans.cancelDialog.title')}</DialogTitle>
             <DialogDescription>
-              Already-collected decisions are kept. Already-issued grabs are NOT undone.
-              The scan will stop at the next checkpoint.
+              {t('scans.cancelDialog.body')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={cancel.isPending}>
-              Keep running
+              {t('scans.cancelDialog.keepRunning')}
             </Button>
             <Button
               variant="destructive"
@@ -55,7 +56,7 @@ export function CancelScanDialog({ scanId, disabled }: {
               data-testid="cancel-scan-confirm"
             >
               {cancel.isPending && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
-              Cancel scan
+              {t('scans.cancelDialog.submit')}
             </Button>
           </DialogFooter>
         </DialogContent>

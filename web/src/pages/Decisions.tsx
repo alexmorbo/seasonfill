@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -31,6 +32,7 @@ import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { relativeTime } from '@/lib/format';
 
 export function Decisions() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const { filter: instance } = useInstanceFilter();
   const outcomeParam = params.get('outcome') ?? '';
@@ -87,40 +89,40 @@ export function Decisions() {
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
       <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">Decisions</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('decisions.title')}</h1>
         <span className="font-mono text-[12px] text-faint">
-          {rows.length} loaded{instance ? ` · ${instance}` : ''}
+          {t('decisions.loadedCount', { count: rows.length })}{instance ? ` · ${instance}` : ''}
         </span>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">Filter</span>
+        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('decisions.filter')}</span>
         <Input
-          placeholder="Search series…"
+          placeholder={t('decisions.searchPlaceholder')}
           value={q}
           onChange={(e) => setParam('q', e.target.value)}
           className="h-8 w-[220px] text-[12.5px]"
         />
         <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label="Time range (decorative)">
+          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('decisions.timeRangeAria')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="24h">Last 24h</SelectItem>
-            <SelectItem value="7d">Last 7d</SelectItem>
-            <SelectItem value="30d">Last 30d</SelectItem>
+            <SelectItem value="24h">{t('decisions.range.h24')}</SelectItem>
+            <SelectItem value="7d">{t('decisions.range.d7')}</SelectItem>
+            <SelectItem value="30d">{t('decisions.range.d30')}</SelectItem>
           </SelectContent>
         </Select>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" onClick={clear} disabled={selected.size === 0 && !q}>
-          Clear
+          {t('decisions.clear')}
         </Button>
       </div>
 
       <OutcomeChips selected={selected} onToggle={toggleOutcome} />
       {selected.size > 1 && (
         <p className="text-[11px] text-muted -mt-1 font-mono">
-          Backend accepts one outcome at a time; extras filter the loaded page client-side.
+          {t('decisions.multiOutcomeNote')}
         </p>
       )}
 
@@ -129,11 +131,11 @@ export function Decisions() {
           {query.isError ? (
             <Alert variant="destructive" className="m-4">
               <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>Failed to load decisions</AlertTitle>
+              <AlertTitle>{t('decisions.loadFailed')}</AlertTitle>
               <AlertDescription>
                 {query.error.message}{' '}
                 <Button variant="link" size="sm" onClick={() => query.refetch()}>
-                  Retry
+                  {t('common.retry')}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -141,14 +143,14 @@ export function Decisions() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Instance</TableHead>
-                  <TableHead>Series</TableHead>
-                  <TableHead>Season</TableHead>
-                  <TableHead>Outcome</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Cand</TableHead>
+                  <TableHead>{t('decisions.columns.time')}</TableHead>
+                  <TableHead>{t('decisions.columns.instance')}</TableHead>
+                  <TableHead>{t('decisions.columns.series')}</TableHead>
+                  <TableHead>{t('decisions.columns.season')}</TableHead>
+                  <TableHead>{t('decisions.columns.outcome')}</TableHead>
+                  <TableHead>{t('decisions.columns.category')}</TableHead>
+                  <TableHead>{t('decisions.columns.reason')}</TableHead>
+                  <TableHead>{t('decisions.columns.candidates')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -162,13 +164,13 @@ export function Decisions() {
                   <TableRow>
                     <TableCell colSpan={8}>
                       <EmptyState
-                        title="No decisions match"
-                        body="Adjust filters or wait for the next scan."
+                        title={t('decisions.empty.matchTitle')}
+                        body={t('decisions.empty.matchBody')}
                         {...(selected.size > 0 || q
                           ? {
                               action: (
                                 <Button variant="outline" size="sm" onClick={clear}>
-                                  Clear filters
+                                  {t('decisions.clearFilters')}
                                 </Button>
                               ),
                             }
@@ -184,7 +186,7 @@ export function Decisions() {
                     onKeyDown={(e) => onKey(e, d.id)}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Open decision ${d.id ?? ''}`}
+                    aria-label={t('decisions.openDecisionAria', { id: d.id ?? '' })}
                     className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <TableCell className="text-muted">{relativeTime(d.created_at)}</TableCell>
@@ -200,7 +202,7 @@ export function Decisions() {
                       <CategoryChip value={d.category} variant="compact" />
                     </TableCell>
                     <TableCell className="text-muted text-[12px] truncate max-w-md">
-                      {d.reason ?? '—'}
+                      {d.reason ? t(`reasons.${d.reason}`, { defaultValue: d.reason }) : '—'}
                     </TableCell>
                     <TableCell className="font-mono">{d.candidates_count ?? 0}</TableCell>
                   </TableRow>
@@ -218,7 +220,7 @@ export function Decisions() {
             onClick={() => query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
           >
-            {query.isFetchingNextPage ? 'Loading…' : 'Show more'}
+            {query.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
           </Button>
         </div>
       )}

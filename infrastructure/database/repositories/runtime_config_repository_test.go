@@ -156,30 +156,3 @@ func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 	snap := runtime.Defaults()
 	require.NoError(t, repo.Upsert(ctx, snap, &header))
 }
-
-func TestRuntimeConfigRepository_Security_RoundTrip(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
-	ctx := context.Background()
-
-	for _, want := range []bool{true, false} {
-		snap := runtime.Defaults()
-		snap.Security.AllowPrivateTargets = want
-		require.NoError(t, repo.Upsert(ctx, snap, nil))
-		row, err := repo.Get(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, want, row.Security.AllowPrivateTargets)
-	}
-}
-
-func TestRuntimeConfigRepository_Security_DefaultFalse(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
-	ctx := context.Background()
-
-	require.NoError(t, repo.SaveAPIKey(ctx, []byte{0xaa}, true))
-	row, err := repo.Get(ctx)
-	require.NoError(t, err)
-	assert.False(t, row.Security.AllowPrivateTargets,
-		"new row must default to safe (deny-private)")
-}

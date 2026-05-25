@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { onlineManager } from '@tanstack/react-query';
 
 type NetState = 'online' | 'offline' | 'reconnected';
 
 export function NetBanner() {
+  const { t } = useTranslation();
   const [state, setState] = useState<NetState>(() => onlineManager.isOnline() ? 'online' : 'offline');
 
   useEffect(() => {
@@ -25,12 +27,12 @@ export function NetBanner() {
   if (state === 'online') return null;
   const base = 'fixed left-1/2 -translate-x-1/2 bottom-5 z-[70] flex items-center gap-3 px-4 py-2.5 rounded-full bg-surface-2 font-mono text-[12px] shadow-xl';
   if (state === 'reconnected') {
-    return <div role="status" className={`${base} border border-status-success/40 text-status-success`}>Reconnected</div>;
+    return <div role="status" className={`${base} border border-status-success/40 text-status-success`}>{t('net.reconnected')}</div>;
   }
   return (
     <div role="alert" className={`${base} border border-status-danger/50 text-foreground-2`}>
       <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-faint border-t-status-danger animate-spin" />
-      Connection lost — retrying…
+      {t('net.lostRetrying')}
     </div>
   );
 }

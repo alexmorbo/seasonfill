@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth';
@@ -7,6 +8,7 @@ import { PasswordChangeDialog } from './PasswordChangeDialog';
 const DISMISS_KEY = 'seasonfill.autogen_banner.dismissed';
 
 export function AutoGenPasswordBanner() {
+  const { t } = useTranslation();
   const { data, isSuccess } = useSession();
   const [dismissed, setDismissed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -34,7 +36,7 @@ export function AutoGenPasswordBanner() {
       >
         <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
         <span className="flex-1">
-          Auto-generated password is in use — please change it.
+          {t('autoGenBanner.message')}
         </span>
         <Button
           type="button"
@@ -42,11 +44,11 @@ export function AutoGenPasswordBanner() {
           size="sm"
           onClick={() => setDialogOpen(true)}
         >
-          Change password
+          {t('nav.changePassword')}
         </Button>
         <button
           type="button"
-          aria-label="Dismiss banner"
+          aria-label={t('autoGenBanner.dismiss')}
           onClick={dismiss}
           className="grid place-items-center w-6 h-6 rounded hover:bg-status-warning/20"
         >

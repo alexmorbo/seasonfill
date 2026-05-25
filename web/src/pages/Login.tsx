@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,8 +12,8 @@ import { ApiError } from '@/lib/api';
 import { loginWithPassword, sessionQueryKey } from '@/lib/auth';
 
 const schema = z.object({
-  username: z.string().min(1, 'Username required'),
-  password: z.string().min(1, 'Password required'),
+  username: z.string().min(1, 'login.usernameRequired'),
+  password: z.string().min(1, 'login.passwordRequired'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -23,6 +24,7 @@ function safeNext(raw: string | null): string {
 }
 
 export function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const qc = useQueryClient();
@@ -42,18 +44,17 @@ export function Login() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401 || err.status === 429) {
-          // 429 (rate limit) uses the SAME message as 401 — parent
-          // 021 §3 C5 forbids enumeration hints (incl. "you've been
-          // rate-limited" which would tell an attacker which usernames
-          // to keep trying). Merge both into the generic envelope.
-          setServerErr('Invalid credentials');
+          // 429 deliberately surfaces the same message as 401: a distinct
+          // "rate-limited" copy would tell an attacker which usernames are
+          // worth retrying.
+          setServerErr(t('login.invalid'));
         } else if (err.status >= 500) {
-          setServerErr('Service unavailable, try again');
+          setServerErr(t('login.serviceUnavailable'));
         } else {
-          setServerErr(err.message || 'Login failed');
+          setServerErr(err.message || t('login.invalid'));
         }
       } else {
-        setServerErr(err instanceof Error ? err.message : 'Login failed');
+        setServerErr(err instanceof Error ? err.message : t('login.invalid'));
       }
     }
   });
@@ -67,13 +68,13 @@ export function Login() {
         noValidate
       >
         <div>
-          <h1 className="text-[22px] font-semibold tracking-tight">seasonfill</h1>
-          <p className="text-muted text-[13px] mt-1">Sonarr season helper</p>
+          <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
+          <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
         </div>
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="username" className="text-[12px] text-foreground-2">
-            Username
+            {t('login.username')}
           </Label>
           <Input
             id="username"
@@ -85,14 +86,14 @@ export function Login() {
           />
           {errors.username && (
             <p role="alert" className="text-status-danger text-[11.5px]">
-              {errors.username.message}
+              {t(errors.username.message ?? 'login.usernameRequired')}
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="password" className="text-[12px] text-foreground-2">
-            Password
+            {t('login.password')}
           </Label>
           <Input
             id="password"
@@ -103,7 +104,7 @@ export function Login() {
           />
           {errors.password && (
             <p role="alert" className="text-status-danger text-[11.5px]">
-              {errors.password.message}
+              {t(errors.password.message ?? 'login.passwordRequired')}
             </p>
           )}
           {serverErr && !errors.password && !errors.username && (
@@ -114,7 +115,7 @@ export function Login() {
         </div>
 
         <Button type="submit" disabled={isSubmitting} className="h-10 font-semibold">
-          {isSubmitting ? 'Signing in…' : 'Sign in'}
+          {isSubmitting ? t('login.submitting') : t('login.submit')}
         </Button>
       </form>
     </div>

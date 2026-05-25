@@ -48,7 +48,7 @@ func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot, ifUnmodifi
 	}
 	f.row = ports.RuntimeConfigRow{
 		Cron: s.Cron, Scan: s.Scan, DryRun: s.DryRun,
-		GlobalRateLimit: s.GlobalRateLimit, Auth: s.Auth, Security: s.Security,
+		GlobalRateLimit: s.GlobalRateLimit, Auth: s.Auth,
 		UpdatedAt: time.Now().UTC(),
 	}
 	f.exists = true
@@ -120,9 +120,6 @@ func validRCBody() map[string]any {
 			"session_ttl":     "12h",
 			"secure_cookie":   false,
 			"trusted_proxies": []string{"127.0.0.1", "::1"},
-		},
-		"security": map[string]any{
-			"allow_private_targets": false,
 		},
 	}
 }
@@ -346,22 +343,4 @@ func TestRC_Body_TooLarge(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
-}
-
-func TestRC_Security_RoundTrip(t *testing.T) {
-	t.Parallel()
-	r, _ := setupRC(t)
-
-	b := validRCBody()
-	b["security"].(map[string]any)["allow_private_targets"] = true
-	wPut := rcDoJSON(t, r, http.MethodPut, "/api/v1/config/runtime", b, nil)
-	require.Equal(t, http.StatusOK, wPut.Code, "body=%s", wPut.Body.String())
-
-	wGet := rcDoJSON(t, r, http.MethodGet, "/api/v1/config/runtime", nil, nil)
-	require.Equal(t, http.StatusOK, wGet.Code)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(wGet.Body.Bytes(), &got))
-	sec, ok := got["security"].(map[string]any)
-	require.True(t, ok, "GET body must include 'security' object: %s", wGet.Body.String())
-	assert.Equal(t, true, sec["allow_private_targets"])
 }

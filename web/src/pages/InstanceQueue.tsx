@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 export function InstanceQueue() {
+  const { t } = useTranslation();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -49,11 +51,11 @@ export function InstanceQueue() {
           onSuccess: (items) => {
             try {
               const runId = firstScanRunId(items);
-              toast.success(`Scanning ${s.title ?? `#${seriesId}`}`);
+              toast.success(t('instanceQueue.scanning', { title: s.title ?? `#${seriesId}` }));
               navigate(`/scans/${runId}`);
             } catch (err) {
               if (err instanceof NoScanStartedError) {
-                toast.error('Server accepted the request but returned no scan id');
+                toast.error(t('instanceQueue.noScanId'));
               } else {
                 throw err;
               }
@@ -61,11 +63,11 @@ export function InstanceQueue() {
           },
           onError: (err) => {
             if (err.status === 409) {
-              toast.error(`Scan already running for ${name}`);
+              toast.error(t('instanceQueue.alreadyRunning', { name }));
             } else if (err.status === 404) {
-              toast.error(`Unknown instance ${name}`);
+              toast.error(t('instanceQueue.unknownInstance', { name }));
             } else {
-              toast.error(`Failed to start scan: ${err.message}`);
+              toast.error(t('instanceQueue.scanFailed', { error: err.message }));
             }
           },
         },
@@ -79,8 +81,8 @@ export function InstanceQueue() {
       <div className="max-w-[1440px] mx-auto p-6">
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
-          <AlertTitle>Missing instance name</AlertTitle>
-          <AlertDescription>The URL is malformed.</AlertDescription>
+          <AlertTitle>{t('instanceQueue.missingName')}</AlertTitle>
+          <AlertDescription>{t('instanceQueue.malformedUrl')}</AlertDescription>
         </Alert>
       </div>
     );
@@ -107,20 +109,20 @@ export function InstanceQueue() {
         className="self-start -ml-2 h-8"
         onClick={() => navigate('/instances')}
       >
-        <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back to instances
+        <ArrowLeft className="w-3.5 h-3.5 mr-1" /> {t('instanceQueue.back')}
       </Button>
 
       <header className="flex flex-col gap-1.5">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-[22px] font-semibold tracking-tight">
-            Queue · <span className="font-mono font-medium">{name}</span>
+            {t('instanceQueue.title')} · <span className="font-mono font-medium">{name}</span>
           </h1>
           <StatusBadge value={mode === 'manual' ? 'pending' : 'completed'} />
           <span className="font-mono text-[11px] text-faint">
-            mode: {mode}
+            {t('instanceQueue.mode', { mode })}
           </span>
           <span className="font-mono text-[11px] text-faint">
-            updated {relativeTime(missing.dataUpdatedAt || Date.now())}
+            {t('instanceQueue.updated', { time: relativeTime(missing.dataUpdatedAt || Date.now()) })}
           </span>
           <Button
             variant="outline"
@@ -128,7 +130,7 @@ export function InstanceQueue() {
             className="h-7 ml-auto"
             onClick={onRefresh}
             disabled={missing.isFetching}
-            aria-label="Refresh queue"
+            aria-label={t('instanceQueue.refresh')}
           >
             <RefreshCw
               className={cn(
@@ -136,14 +138,11 @@ export function InstanceQueue() {
                 missing.isFetching && 'animate-spin',
               )}
             />
-            Refresh
+            {t('instanceQueue.refresh')}
           </Button>
         </div>
         <p className="text-[12.5px] text-muted max-w-prose">
-          Monitored series in <span className="font-mono">{name}</span> with
-          aired episodes that have no file on disk. Counts come from
-          Sonarr's per-series statistics; numbers may flicker briefly mid-
-          import. Use "Scan now" to evaluate a single series end-to-end.
+          {t('instanceQueue.description', { name })}
         </p>
       </header>
 
@@ -152,21 +151,21 @@ export function InstanceQueue() {
           <AlertTriangle className="w-4 h-4" />
           <AlertTitle>
             {missing.error instanceof ApiError && missing.error.status === 404
-              ? `Unknown instance ${name}`
-              : 'Failed to load queue'}
+              ? t('instanceQueue.unknownInstance', { name })
+              : t('instanceQueue.loadFailed')}
           </AlertTitle>
           <AlertDescription className="font-mono text-[12px]">
-            {missing.error?.message ?? 'unknown error'}
+            {missing.error?.message ?? t('common.unknown').toLowerCase()}
           </AlertDescription>
         </Alert>
       )}
 
       {!missing.isError && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <StatCard label="Series with backlog" value={total} />
-          <StatCard label="Episodes missing" value={totalEpisodes} />
+          <StatCard label={t('instanceQueue.cards.backlog')} value={total} />
+          <StatCard label={t('instanceQueue.cards.missing')} value={totalEpisodes} />
           <StatCard
-            label="Mode"
+            label={t('instanceQueue.cards.mode')}
             value={
               <span className="text-[18px] lowercase">{mode}</span>
             }
@@ -178,9 +177,9 @@ export function InstanceQueue() {
       <Card>
         <CardHeader className="py-3">
           <CardTitle className="text-[14px] font-semibold">
-            Missing-aired series{' '}
+            {t('instanceQueue.tableTitle')}{' '}
             <span className="text-faint font-mono text-[11px] ml-2">
-              {missing.isPending ? 'loading…' : `${items.length} rows`}
+              {missing.isPending ? t('instanceQueue.loadingRows') : t('instanceQueue.rows', { count: items.length })}
             </span>
           </CardTitle>
         </CardHeader>
@@ -194,18 +193,18 @@ export function InstanceQueue() {
           )}
           {!missing.isPending && !missing.isError && items.length === 0 && (
             <EmptyState
-              title="No missing-aired episodes"
-              body="Every monitored series in this instance has all aired episodes on disk. Nothing to scan right now."
+              title={t('instanceQueue.emptyTitle')}
+              body={t('instanceQueue.emptyBody')}
             />
           )}
           {!missing.isPending && !missing.isError && items.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40%]">Series</TableHead>
-                  <TableHead className="w-[15%] text-right">Missing</TableHead>
-                  <TableHead>Seasons</TableHead>
-                  <TableHead className="w-[140px] text-right">Action</TableHead>
+                  <TableHead className="w-[40%]">{t('instanceQueue.col.series')}</TableHead>
+                  <TableHead className="w-[15%] text-right">{t('instanceQueue.col.missing')}</TableHead>
+                  <TableHead>{t('instanceQueue.col.seasons')}</TableHead>
+                  <TableHead className="w-[140px] text-right">{t('instanceQueue.col.action')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -234,7 +233,7 @@ export function InstanceQueue() {
                             <span
                               key={sea.season_number}
                               className="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-border-faint bg-surface-2 font-mono text-[11px]"
-                              aria-label={`Season ${sea.season_number}: ${sea.missing_aired_count} missing`}
+                              aria-label={t('instanceQueue.seasonAria', { num: sea.season_number, count: sea.missing_aired_count ?? 0 })}
                             >
                               S{String(sea.season_number ?? 0).padStart(2, '0')}
                               <span className="text-faint">·</span>
@@ -254,14 +253,14 @@ export function InstanceQueue() {
                             trigger.isPending ||
                             seriesId === undefined
                           }
-                          aria-label={`Scan ${s.title ?? `series ${seriesId}`} now`}
+                          aria-label={t('instanceQueue.scanRowAria', { title: s.title ?? `series ${seriesId}` })}
                         >
                           {isInFlight ? (
                             <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                           ) : (
                             <PlayCircle className="w-3.5 h-3.5 mr-1" />
                           )}
-                          {isInFlight ? 'Scanning…' : 'Scan now'}
+                          {isInFlight ? t('instanceQueue.scanRunning') : t('instanceQueue.scanNow')}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -274,9 +273,9 @@ export function InstanceQueue() {
       </Card>
 
       <div className="text-[12px] text-muted">
-        Need to sweep every series?{' '}
+        {t('instanceQueue.sweepHint')}{' '}
         <Link to="/scans?new=1" className="underline hover:text-foreground">
-          Trigger a full-instance scan →
+          {t('instanceQueue.fullScanLink')}
         </Link>
       </div>
     </div>

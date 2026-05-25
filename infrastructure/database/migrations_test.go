@@ -29,9 +29,6 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	assert.True(t, db.Migrator().HasTable(&SonarrInstanceModel{}))
 	assert.True(t, db.Migrator().HasTable(&InstanceSecretModel{}))
 
-	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "security_allow_private_targets"),
-		"AutoMigrate must create the security_allow_private_targets column")
-
 	// Idempotent — running twice must not error.
 	assert.NoError(t, Migrate(db))
 }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -16,6 +17,7 @@ import {
 import { InstanceFormDialog } from './InstanceFormDialog';
 
 export function InstancesTab() {
+  const { t } = useTranslation();
   const list = useInstances();
   const del = useDeleteInstance();
   const instances = list.data?.instances ?? [];
@@ -56,7 +58,7 @@ export function InstancesTab() {
 
   const onDeleteClick = (name: string) => {
     if (instances.length <= 1) {
-      toast.error('Cannot delete the last Sonarr instance');
+      toast.error(t('settings.instances.cannotDeleteLast'));
       return;
     }
     setDeleting(name);
@@ -71,9 +73,9 @@ export function InstancesTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold tracking-tight">Sonarr instances</h2>
+        <h2 className="text-[15px] font-semibold tracking-tight">{t('instances.title')}</h2>
         <Button onClick={openCreate} className="gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add instance
+          <Plus className="w-3.5 h-3.5" /> {t('settings.instances.add')}
         </Button>
       </div>
 
@@ -81,18 +83,18 @@ export function InstancesTab() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>URL</TableHead>
-              <TableHead>Mode</TableHead>
-              <TableHead>Health</TableHead>
-              <TableHead className="w-[120px] text-right">Actions</TableHead>
+              <TableHead>{t('instances.columns.name')}</TableHead>
+              <TableHead>{t('instances.columns.url')}</TableHead>
+              <TableHead>{t('instances.columns.mode')}</TableHead>
+              <TableHead>{t('dashboard.health.healthCol')}</TableHead>
+              <TableHead className="w-[120px] text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {instances.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted py-6">
-                  {list.isPending ? 'Loading…' : 'No instances yet.'}
+                  {list.isPending ? t('common.loading') : t('settings.instances.none')}
                 </TableCell>
               </TableRow>
             )}
@@ -104,17 +106,17 @@ export function InstancesTab() {
                 </TableCell>
                 <TableCell>{inst.mode ?? 'auto'}</TableCell>
                 <TableCell className="font-mono text-[12px]">
-                  {inst.health ?? 'unknown'}
+                  {inst.health ?? t('common.unknown').toLowerCase()}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button
-                    size="sm" variant="ghost" aria-label={`Edit ${inst.name}`}
+                    size="sm" variant="ghost" aria-label={t('settings.instances.editAria', { name: inst.name })}
                     onClick={() => inst.name && openEdit(inst.name)}
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
                   <Button
-                    size="sm" variant="ghost" aria-label={`Delete ${inst.name}`}
+                    size="sm" variant="ghost" aria-label={t('settings.instances.deleteAria', { name: inst.name })}
                     onClick={() => inst.name && onDeleteClick(inst.name)}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -139,21 +141,19 @@ export function InstancesTab() {
       <Dialog open={Boolean(deleting)} onOpenChange={(v) => !v && setDeleting(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete instance &quot;{deleting}&quot;?</DialogTitle>
+            <DialogTitle>{t('settings.instances.deleteTitle', { name: deleting })}</DialogTitle>
             <DialogDescription>
-              This removes the instance, its encrypted api_key, and all
-              series-scope cooldowns, scans, decisions, and grab records
-              keyed on this instance name. Cannot be undone.
+              {t('settings.instances.deleteBody')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDeleting(null)}>{t('common.cancel')}</Button>
             <Button
               variant="destructive"
               onClick={confirmDelete}
               disabled={del.isPending}
             >
-              {del.isPending ? 'Deleting…' : 'Delete'}
+              {del.isPending ? t('settings.instances.deleting') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

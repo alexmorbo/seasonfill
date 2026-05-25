@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,37 +16,51 @@ import { TrustedProxiesEditor, isValidCIDR } from './TrustedProxiesEditor';
 
 const schema = z.object({
   session_ttl_min: z
-    .number({ invalid_type_error: 'Must be a number' })
-    .int('Must be a whole number')
-    .min(5, 'Minimum 5 minutes')
-    .max(10080, 'Maximum 10080 minutes (7 days)'),
+    .number({ invalid_type_error: 'settings.security.sessions.ttlNumber' })
+    .int('settings.security.sessions.ttlInt')
+    .min(5, 'settings.security.sessions.ttlMin')
+    .max(10080, 'settings.security.sessions.ttlMax'),
   secure_cookie: z.boolean(),
   trusted_proxies: z
     .array(z.string())
-    .refine((arr) => arr.every(isValidCIDR), 'One or more entries are invalid'),
-  allow_private_targets: z.boolean(),
+    .refine((arr) => arr.every(isValidCIDR), 'settings.security.proxies.invalid'),
 });
 type FormValues = z.infer<typeof schema>;
 
 const HOURS = 60;
 const DEFAULT_TTL_MIN = 12 * HOURS;
 
-// parseTTL returns null on parse failure so callers can surface an
-// explicit warning. Previously we silently fell back to the 12h default
-// and let the user save a value derived from corrupted input — that
-// rewrote the DB row to a bogus value with no signal in the UI.
+// parseTTL accepts the full Go duration format including compound forms
+// like "12h0m0s" (what time.Duration.String() emits for round hours).
+// Returns minutes, or null when the input is unparseable so callers can
+// surface an explicit warning rather than silently overwriting the row.
 function parseTTL(raw: string | undefined): number | null {
   if (raw === undefined || raw === null || raw === '') return null;
-  const m = /^(\d+(?:\.\d+)?)(h|m|s)$/.exec(raw.trim());
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
-  switch (m[2]) {
-    case 'h': return Math.round(n * HOURS);
-    case 'm': return Math.round(n);
-    case 's': return Math.max(1, Math.round(n / 60));
-    default: return null;
+  const trimmed = raw.trim();
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|h|m|s)/g;
+  let totalMs = 0;
+  let matched = false;
+  let cursor = 0;
+  for (const m of trimmed.matchAll(re)) {
+    matched = true;
+    if (m.index !== cursor) return null;
+    cursor = m.index + m[0].length;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) return null;
+    switch (m[2]) {
+      case 'ns': totalMs += n / 1e6; break;
+      case 'us':
+      case 'µs': totalMs += n / 1e3; break;
+      case 'ms': totalMs += n; break;
+      case 's':  totalMs += n * 1000; break;
+      case 'm':  totalMs += n * 60_000; break;
+      case 'h':  totalMs += n * 3_600_000; break;
+      default: return null;
+    }
   }
+  if (!matched || cursor !== trimmed.length) return null;
+  const minutes = totalMs / 60_000;
+  return Math.max(1, Math.round(minutes));
 }
 
 function configToForm(c: RuntimeConfig | undefined): FormValues {
@@ -53,7 +68,6 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     session_ttl_min: parseTTL(c?.auth?.session_ttl) ?? DEFAULT_TTL_MIN,
     secure_cookie: Boolean(c?.auth?.secure_cookie ?? false),
     trusted_proxies: (c?.auth?.trusted_proxies ?? []) as string[],
-    allow_private_targets: Boolean(c?.security?.allow_private_targets ?? false),
   };
 }
 
@@ -67,14 +81,11 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
     },
-    security: {
-      ...(base.security ?? {}),
-      allow_private_targets: v.allow_private_targets,
-    },
   } as RuntimeConfig;
 }
 
 export function SecurityTab() {
+  const { t } = useTranslation();
   const q = useRuntimeConfig();
   const mut = useUpdateRuntimeConfig();
   const onPlainHTTP =
@@ -98,8 +109,6 @@ export function SecurityTab() {
     }
   }, [q.data?.config, reset]);
 
-  // When the stored session_ttl can't be parsed, surface a banner so
-  // the user knows that hitting Save will overwrite the bad value.
   const storedTTL = q.data?.config?.auth?.session_ttl;
   const ttlParseWarning = useMemo(() => {
     if (storedTTL === undefined || storedTTL === null || storedTTL === '') return null;
@@ -115,7 +124,7 @@ export function SecurityTab() {
   if (q.isPending) {
     return (
       <div className="flex items-center gap-2 text-muted text-[13px]">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading settings…
+        <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('common.loadingSettings')}
       </div>
     );
   }
@@ -123,7 +132,7 @@ export function SecurityTab() {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="w-4 h-4" />
-        <AlertTitle>Failed to load runtime config</AlertTitle>
+        <AlertTitle>{t('settings.loadFailed')}</AlertTitle>
         <AlertDescription>{q.error.message}</AlertDescription>
       </Alert>
     );
@@ -132,21 +141,20 @@ export function SecurityTab() {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
       <section className="flex flex-col gap-4">
-        <h3 className="text-[14px] font-semibold tracking-tight">Sessions</h3>
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.security.sessions.section')}</h3>
 
         {ttlParseWarning !== null && (
           <Alert variant="destructive">
             <AlertTriangle className="w-4 h-4" />
-            <AlertTitle>Unparseable session TTL</AlertTitle>
+            <AlertTitle>{t('settings.security.sessions.ttlUnparseable')}</AlertTitle>
             <AlertDescription>
-              Stored session TTL value &quot;{ttlParseWarning}&quot; is not a
-              valid duration — saving will overwrite it.
+              {t('settings.security.sessions.ttlUnparseableBody', { value: ttlParseWarning })}
             </AlertDescription>
           </Alert>
         )}
 
         <div className="flex flex-col gap-1.5 max-w-xs">
-          <Label htmlFor="ttl">Session TTL (minutes)</Label>
+          <Label htmlFor="ttl">{t('settings.security.sessions.ttl')}</Label>
           <Input
             id="ttl"
             type="number"
@@ -157,26 +165,25 @@ export function SecurityTab() {
             {...register('session_ttl_min', { valueAsNumber: true })}
           />
           <p className="text-[11.5px] text-muted">
-            Range: 5 minutes to 7 days (10080 minutes).
+            {t('settings.security.sessions.ttlHint')}
           </p>
           {errors.session_ttl_min && (
             <p role="alert" className="text-status-danger text-[11.5px]">
-              {errors.session_ttl_min.message}
+              {t(errors.session_ttl_min.message ?? '')}
             </p>
           )}
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <h3 className="text-[14px] font-semibold tracking-tight">Cookies</h3>
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.security.cookies.section')}</h3>
 
         {onPlainHTTP ? (
           <Alert>
             <Info className="w-4 h-4" />
-            <AlertTitle>TLS not detected (running on http://)</AlertTitle>
+            <AlertTitle>{t('settings.security.cookies.tlsNotDetectedTitle')}</AlertTitle>
             <AlertDescription>
-              The "Secure cookie" switch is disabled — enable it once an
-              HTTPS-terminating proxy or Ingress is in front.
+              {t('settings.security.cookies.tlsNotDetectedBody')}
             </AlertDescription>
           </Alert>
         ) : (
@@ -184,10 +191,9 @@ export function SecurityTab() {
             <div className="flex items-center gap-2">
               <Lock className="w-3.5 h-3.5 text-muted" />
               <div>
-                <Label htmlFor="secure">Secure cookie</Label>
+                <Label htmlFor="secure">{t('settings.security.cookies.secure')}</Label>
                 <p className="text-[11.5px] text-muted">
-                  Adds the <span className="font-mono">Secure</span> flag to
-                  the session cookie.
+                  {t('settings.security.cookies.secureHint')}
                 </p>
               </div>
             </div>
@@ -201,11 +207,9 @@ export function SecurityTab() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h3 className="text-[14px] font-semibold tracking-tight">Trusted proxies</h3>
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.security.proxies.section')}</h3>
         <p className="text-[12px] text-muted">
-          Requests from these IPs / CIDR blocks may carry an
-          <span className="font-mono"> X-Forwarded-For</span> header that we
-          trust. List your Ingress / reverse-proxy ranges only.
+          {t('settings.security.proxies.hint')}
         </p>
         <TrustedProxiesEditor
           id="proxies"
@@ -214,31 +218,9 @@ export function SecurityTab() {
         />
         {errors.trusted_proxies && (
           <p role="alert" className="text-status-danger text-[11.5px]">
-            {errors.trusted_proxies.message}
+            {t(errors.trusted_proxies.message ?? '')}
           </p>
         )}
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <h3 className="text-[14px] font-semibold tracking-tight">Probe target policy</h3>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex-1">
-            <Label htmlFor="allow-private">Allow private targets (homelab mode)</Label>
-            <p className="text-[11.5px] text-muted">
-              Probe Test connection allows RFC1918 / loopback / link-local
-              destinations. Required for internal services like
-              <span className="font-mono"> http://sonarr.svc.cluster.local</span>.
-              Off by default to prevent SSRF against unintended internal infra.
-            </p>
-          </div>
-          <Switch
-            id="allow-private"
-            checked={watch('allow_private_targets')}
-            onCheckedChange={(v) =>
-              setValue('allow_private_targets', v, { shouldDirty: true })
-            }
-          />
-        </div>
       </section>
 
       <div className="flex justify-end gap-2 pt-2 border-t border-border">
@@ -246,10 +228,10 @@ export function SecurityTab() {
           type="button" variant="ghost"
           disabled={!isDirty || isSubmitting} onClick={onDiscard}
         >
-          Discard
+          {t('common.discard')}
         </Button>
         <Button type="submit" disabled={!isDirty || isSubmitting}>
-          {isSubmitting ? 'Saving…' : 'Save'}
+          {isSubmitting ? t('common.saving') : t('common.save')}
         </Button>
       </div>
     </form>

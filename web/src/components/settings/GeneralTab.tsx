@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -61,40 +62,40 @@ const scanCooldownSweepMaxMs = 24 * 60 * 60 * 1000;
 
 const schema = z.object({
   cron_enabled: z.boolean(),
-  cron_schedule: z.string().min(1, 'Schedule required'),
+  cron_schedule: z.string().min(1, 'settings.general.schedule.expressionRequired'),
   cron_on_start: z.boolean(),
   cron_jitter: z
     .string()
-    .regex(goDurRE, 'Use a Go duration like "1m" or "30s"')
+    .regex(goDurRE, 'settings.general.schedule.jitterError')
     .refine((v) => {
       const ms = parseGoDurationMs(v);
       return ms !== null && ms >= 0 && ms <= cronJitterMaxMs;
-    }, 'Must be between 0s and 1h'),
+    }, 'settings.general.schedule.jitterRange'),
   scan_shutdown_grace: z
     .string()
-    .regex(goDurRE, 'Use a Go duration')
+    .regex(goDurRE, 'settings.general.scan.useGoDuration')
     .refine((v) => {
       const ms = parseGoDurationMs(v);
       return ms !== null && ms >= scanShutdownGraceMinMs && ms <= scanShutdownGraceMaxMs;
-    }, 'Must be between 1s and 10m'),
+    }, 'settings.general.scan.shutdownGraceRange'),
   scan_cooldown_sweep: z
     .string()
-    .regex(goDurRE, 'Use a Go duration')
+    .regex(goDurRE, 'settings.general.scan.useGoDuration')
     .refine((v) => {
       const ms = parseGoDurationMs(v);
       return ms !== null && ms >= scanCooldownSweepMinMs && ms <= scanCooldownSweepMaxMs;
-    }, 'Must be between 10s and 24h'),
+    }, 'settings.general.scan.cooldownSweepRange'),
   dry_run: z.boolean(),
   global_rpm: z
     .number()
     .int()
-    .min(0, 'Must be ≥ 0')
-    .max(10000, 'Must be ≤ 10000'),
+    .min(0, 'settings.general.defaults.rpmRange')
+    .max(10000, 'settings.general.defaults.rpmMax'),
   global_burst: z
     .number()
     .int()
-    .min(0, 'Must be ≥ 0')
-    .max(10000, 'Must be ≤ 10000'),
+    .min(0, 'settings.general.defaults.rpmRange')
+    .max(10000, 'settings.general.defaults.rpmMax'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -133,16 +134,17 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
   } as RuntimeConfig;
 }
 
-function describeCron(expr: string): { ok: boolean; text: string } {
+function describeCron(expr: string, fallback: string): { ok: boolean; text: string } {
   try {
     const text = cronstrue.toString(expr, { throwExceptionOnParseError: true });
     return { ok: true, text };
   } catch {
-    return { ok: false, text: 'Invalid cron expression' };
+    return { ok: false, text: fallback };
   }
 }
 
 export function GeneralTab() {
+  const { t } = useTranslation();
   const q = useRuntimeConfig();
   const mut = useUpdateRuntimeConfig();
 
@@ -166,7 +168,11 @@ export function GeneralTab() {
   }, [q.data?.config, reset]);
 
   const cronVal = watch('cron_schedule');
-  const cronPreview = useMemo(() => describeCron(cronVal), [cronVal]);
+  const cronInvalidLabel = t('settings.general.schedule.invalidExpression');
+  const cronPreview = useMemo(
+    () => describeCron(cronVal, cronInvalidLabel),
+    [cronVal, cronInvalidLabel],
+  );
 
   const onSubmit = handleSubmit((values) => {
     mut.mutate(formToPayload(q.data?.config, values));
@@ -179,7 +185,7 @@ export function GeneralTab() {
   if (q.isPending) {
     return (
       <div className="flex items-center gap-2 text-muted text-[13px]">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading settings…
+        <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('common.loadingSettings')}
       </div>
     );
   }
@@ -187,7 +193,7 @@ export function GeneralTab() {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="w-4 h-4" />
-        <AlertTitle>Failed to load runtime config</AlertTitle>
+        <AlertTitle>{t('settings.loadFailed')}</AlertTitle>
         <AlertDescription>{q.error.message}</AlertDescription>
       </Alert>
     );
@@ -196,13 +202,13 @@ export function GeneralTab() {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
       <section className="flex flex-col gap-4">
-        <h3 className="text-[14px] font-semibold tracking-tight">Schedule</h3>
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.general.schedule.section')}</h3>
 
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label htmlFor="cron-enabled">Scheduled scans enabled</Label>
+            <Label htmlFor="cron-enabled">{t('settings.general.schedule.enabled')}</Label>
             <p className="text-[11.5px] text-muted">
-              Webhook scanning continues even when this is off.
+              {t('settings.general.schedule.enabledHint')}
             </p>
           </div>
           <Switch
@@ -213,7 +219,7 @@ export function GeneralTab() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="cron-schedule">Cron expression</Label>
+          <Label htmlFor="cron-schedule">{t('settings.general.schedule.expression')}</Label>
           <Input
             id="cron-schedule" placeholder="0 */6 * * *"
             aria-invalid={Boolean(errors.cron_schedule) || undefined}
@@ -231,13 +237,13 @@ export function GeneralTab() {
           </p>
           {errors.cron_schedule && (
             <p role="alert" className="text-status-danger text-[11.5px]">
-              {errors.cron_schedule.message}
+              {t(errors.cron_schedule.message ?? '')}
             </p>
           )}
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <Label htmlFor="cron-on-start">Run once on server start</Label>
+          <Label htmlFor="cron-on-start">{t('settings.general.schedule.onStart')}</Label>
           <Switch
             id="cron-on-start"
             checked={watch('cron_on_start')}
@@ -246,7 +252,7 @@ export function GeneralTab() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="cron-jitter">Jitter</Label>
+          <Label htmlFor="cron-jitter">{t('settings.general.schedule.jitter')}</Label>
           <Input
             id="cron-jitter" placeholder="1m"
             aria-invalid={Boolean(errors.cron_jitter) || undefined}
@@ -254,18 +260,18 @@ export function GeneralTab() {
           />
           {errors.cron_jitter && (
             <p role="alert" className="text-status-danger text-[11.5px]">
-              {errors.cron_jitter.message}
+              {t(errors.cron_jitter.message ?? '')}
             </p>
           )}
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <h3 className="text-[14px] font-semibold tracking-tight">Scan tuning</h3>
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.general.scan.section')}</h3>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scan-grace">Shutdown grace</Label>
+            <Label htmlFor="scan-grace">{t('settings.general.scan.shutdownGrace')}</Label>
             <Input
               id="scan-grace" placeholder="60s"
               aria-invalid={Boolean(errors.scan_shutdown_grace) || undefined}
@@ -273,12 +279,12 @@ export function GeneralTab() {
             />
             {errors.scan_shutdown_grace && (
               <p role="alert" className="text-status-danger text-[11.5px]">
-                {errors.scan_shutdown_grace.message}
+                {t(errors.scan_shutdown_grace.message ?? '')}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scan-sweep">Cooldown sweep</Label>
+            <Label htmlFor="scan-sweep">{t('settings.general.scan.cooldownSweep')}</Label>
             <Input
               id="scan-sweep" placeholder="15m"
               aria-invalid={Boolean(errors.scan_cooldown_sweep) || undefined}
@@ -286,7 +292,7 @@ export function GeneralTab() {
             />
             {errors.scan_cooldown_sweep && (
               <p role="alert" className="text-status-danger text-[11.5px]">
-                {errors.scan_cooldown_sweep.message}
+                {t(errors.scan_cooldown_sweep.message ?? '')}
               </p>
             )}
           </div>
@@ -295,14 +301,14 @@ export function GeneralTab() {
 
       <section className="flex flex-col gap-4">
         <h3 className="text-[14px] font-semibold tracking-tight">
-          Defaults & limits
+          {t('settings.general.defaults.section')}
         </h3>
 
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label htmlFor="dry-run">Dry run by default</Label>
+            <Label htmlFor="dry-run">{t('settings.general.defaults.dryRun')}</Label>
             <p className="text-[11.5px] text-muted">
-              Scans evaluate decisions but never call Sonarr grab endpoints.
+              {t('settings.general.defaults.dryRunHint')}
             </p>
           </div>
           <Switch
@@ -314,7 +320,7 @@ export function GeneralTab() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rpm">Global rate limit (rpm)</Label>
+            <Label htmlFor="rpm">{t('settings.general.defaults.rpm')}</Label>
             <Input
               id="rpm" type="number" min={0} step={1}
               aria-invalid={Boolean(errors.global_rpm) || undefined}
@@ -322,12 +328,12 @@ export function GeneralTab() {
             />
             {errors.global_rpm && (
               <p role="alert" className="text-status-danger text-[11.5px]">
-                {errors.global_rpm.message}
+                {t(errors.global_rpm.message ?? '')}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="burst">Burst</Label>
+            <Label htmlFor="burst">{t('settings.general.defaults.burst')}</Label>
             <Input
               id="burst" type="number" min={0} step={1}
               aria-invalid={Boolean(errors.global_burst) || undefined}
@@ -335,22 +341,22 @@ export function GeneralTab() {
             />
             {errors.global_burst && (
               <p role="alert" className="text-status-danger text-[11.5px]">
-                {errors.global_burst.message}
+                {t(errors.global_burst.message ?? '')}
               </p>
             )}
           </div>
         </div>
         <p className="text-[11.5px] text-muted">
-          Set rpm = 0 to disable the global limiter.
+          {t('settings.general.defaults.rpmHint')}
         </p>
       </section>
 
       <div className="flex justify-end gap-2 pt-2 border-t border-border">
         <Button type="button" variant="ghost" disabled={!isDirty || isSubmitting} onClick={onDiscard}>
-          Discard
+          {t('common.discard')}
         </Button>
         <Button type="submit" disabled={!isDirty || isSubmitting || !cronPreview.ok}>
-          {isSubmitting ? 'Saving…' : 'Save'}
+          {isSubmitting ? t('common.saving') : t('common.save')}
         </Button>
       </div>
     </form>

@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import '@/i18n';
 
 // jsdom polyfills for Radix UI primitives (used by shadcn Select, RadioGroup, Dialog).
 if (typeof window !== 'undefined') {

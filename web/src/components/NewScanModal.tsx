@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -23,7 +24,7 @@ import { firstScanRunId, useTriggerScan } from '@/lib/scan-mutations';
 import { cn } from '@/lib/utils';
 
 const schema = z.object({
-  instance: z.string().min(1, 'Select an instance'),
+  instance: z.string().min(1, 'scans.newScanModal.selectInstance'),
   dry_run: z.boolean(),
 });
 export type NewScanFormValues = z.infer<typeof schema>;
@@ -47,6 +48,7 @@ export interface NewScanModalProps {
 }
 
 export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
+  const { t } = useTranslation();
   const { data } = useInstances();
   const instances = useMemo<readonly Instance[]>(
     () => data?.instances ?? [],
@@ -92,8 +94,8 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
       const id = firstScanRunId(resp);
       toast.success(
         seriesIds.length > 0
-          ? `Scan started — ${values.instance} (${seriesIds.length} series)`
-          : `Scan started — ${values.instance}`,
+          ? t('scans.newScanModal.startedWithSeries', { instance: values.instance, count: seriesIds.length })
+          : t('scans.newScanModal.started', { instance: values.instance }),
       );
       onOpenChange(false);
       form.reset({ instance: '', dry_run: true });
@@ -102,16 +104,16 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          toast.error(`Scan already in progress for ${values.instance}`);
+          toast.error(t('scans.newScanModal.alreadyInProgress', { instance: values.instance }));
         } else if (err.status === 404) {
-          toast.error(`Unknown instance ${values.instance}`);
+          toast.error(t('scans.newScanModal.unknownInstance', { instance: values.instance }));
         } else {
-          toast.error(`Failed to start scan: ${err.message}`);
+          toast.error(t('scans.newScanModal.failed', { error: err.message }));
         }
       } else if (err instanceof Error) {
-        toast.error(`Failed to start scan: ${err.message}`);
+        toast.error(t('scans.newScanModal.failed', { error: err.message }));
       } else {
-        toast.error('Failed to start scan');
+        toast.error(t('scans.newScanModal.failedGeneric'));
       }
     }
   });
@@ -119,19 +121,19 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] p-0">
-        <form onSubmit={onSubmit} aria-label="Trigger manual scan">
+        <form onSubmit={onSubmit} aria-label={t('scans.newScanModal.formAria')}>
           <DialogHeader className="px-5 pt-5 pb-3 border-b border-border-faint">
-            <DialogTitle>Trigger manual scan</DialogTitle>
+            <DialogTitle>{t('scans.newScanModal.title')}</DialogTitle>
             <DialogDescription className="text-[12px] text-muted">
-              Runs once against the selected instance. Press ⌘K anywhere to reopen.
+              {t('scans.newScanModal.subtitle')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="px-5 py-4 flex flex-col gap-5">
             <fieldset className="flex flex-col gap-2">
-              <Label className="text-[11px] uppercase tracking-[0.06em] text-faint">Instance</Label>
+              <Label className="text-[11px] uppercase tracking-[0.06em] text-faint">{t('scans.newScanModal.instance')}</Label>
               {instances.length === 0 ? (
-                <p className="text-[12px] text-muted">No instances configured.</p>
+                <p className="text-[12px] text-muted">{t('settings.instances.none')}</p>
               ) : (
                 <RadioGroup
                   value={selectedName}
@@ -167,19 +169,19 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
               )}
               {form.formState.errors.instance && (
                 <p className="text-[12px] text-status-danger">
-                  {form.formState.errors.instance.message}
+                  {t(form.formState.errors.instance.message ?? '')}
                 </p>
               )}
               {degraded && (
                 <p className="text-[12px] text-status-warning">
-                  {selected?.name} is {selected?.health} — scan may produce errors.
+                  {t('scans.newScanModal.degradedWarning', { name: selected?.name, health: selected?.health })}
                 </p>
               )}
             </fieldset>
 
             <fieldset className="flex flex-col gap-1.5">
               <Label className="text-[11px] uppercase tracking-[0.06em] text-faint">
-                Series filter (optional)
+                {t('scans.newScanModal.seriesFilter')}
               </Label>
               <SeriesPicker
                 instance={selectedName}
@@ -187,13 +189,8 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
                 onChange={setSeriesIds}
                 onLoadingChange={setPickerLoading}
                 disabled={!selectedName}
-                placeholder="Type to find series in this instance…"
-                helperText={
-                  <>
-                    Leave empty to scan every monitored series. Pick one or more
-                    to scope the scan. Selection resets when the instance changes.
-                  </>
-                }
+                placeholder={t('scans.newScanModal.seriesPlaceholder')}
+                helperText={t('scans.newScanModal.seriesHelper')}
               />
             </fieldset>
 
@@ -207,9 +204,9 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
                 onCheckedChange={(v) => form.setValue('dry_run', v === true)}
               />
               <span className="text-[13px]">
-                Dry run{' '}
+                {t('scans.newScanModal.dryRunLabel')}{' '}
                 <span className="text-faint text-[11px]">
-                  (instance default — server-resolved)
+                  {t('scans.newScanModal.dryRunHint')}
                 </span>
               </span>
             </Label>
@@ -217,7 +214,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
 
           <DialogFooter className="px-5 py-3 border-t border-border-faint">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"
@@ -225,8 +222,8 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
               data-testid="new-scan-submit"
             >
               {pickerLoading
-                ? 'Searching…'
-                : trigger.isPending ? 'Starting…' : 'Start scan'}
+                ? t('scans.newScanModal.searching')
+                : trigger.isPending ? t('scans.newScanModal.starting') : t('scans.newScanModal.submit')}
             </Button>
           </DialogFooter>
         </form>

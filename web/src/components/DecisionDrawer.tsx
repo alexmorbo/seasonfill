@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
@@ -22,6 +23,7 @@ export function DecisionDrawer({
   onOpenChange: (o: boolean) => void;
   rows?: readonly Decision[] | undefined;
 }) {
+  const { t } = useTranslation();
   const q = useDecisions();
   const all = useMemo(() => rows ?? flattenDecisions(q.data?.pages), [rows, q.data]);
   const d = id ? all.find((x) => x.id === id) : null;
@@ -31,7 +33,7 @@ export function DecisionDrawer({
       <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-0">
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border-faint">
           <SheetTitle className="flex items-center gap-3 text-[15px] font-semibold tracking-tight">
-            <span>{d?.series_title ?? 'Decision'}</span>
+            <span>{d?.series_title ?? t('decisions.drawer.title')}</span>
             {d?.season_number !== undefined && (
               <span className="font-mono text-[12px] text-muted">
                 S{String(d.season_number).padStart(2, '0')}
@@ -57,8 +59,8 @@ export function DecisionDrawer({
             </>
           ) : (
             <EmptyState
-              title="Decision not found"
-              body="Rotated past the loaded page. Reload to re-fetch."
+              title={t('decisions.detail.notFoundTitle')}
+              body={t('decisions.detail.notFoundBody')}
             />
           )}
         </div>
@@ -68,6 +70,7 @@ export function DecisionDrawer({
 }
 
 function GrabNowSection({ d }: { d: Decision }) {
+  const { t } = useTranslation();
   const grab = useGrabDecision();
   const eligible =
     d.decision === 'grab' &&
@@ -92,14 +95,11 @@ function GrabNowSection({ d }: { d: Decision }) {
           id="grab-now-heading"
           className="text-[12px] font-semibold uppercase tracking-[0.06em] text-status-warning"
         >
-          Force grab
+          {t('decisions.detail.forceGrabHeading')}
         </h4>
       </div>
       <p className="text-[12.5px] text-muted">
-        This will force-grab the selected release in Sonarr, bypassing the
-        global <span className="font-mono">dry_run</span> flag. Idempotent on
-        (instance, series, season, release_guid) — safe to retry, but only one
-        record will be created.
+        {t('decisions.detail.forceGrabBody')}
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -108,14 +108,14 @@ function GrabNowSection({ d }: { d: Decision }) {
           className="h-8"
           onClick={onClick}
           disabled={grab.isPending || !d.id}
-          aria-label="Grab now"
+          aria-label={t('decisions.detail.grabNow')}
         >
           {grab.isPending ? (
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
           ) : (
             <Zap className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
           )}
-          {grab.isPending ? 'Grabbing…' : 'Grab now'}
+          {grab.isPending ? t('decisions.detail.grabbing') : t('decisions.detail.grabNow')}
         </Button>
         {grab.isSuccess && (
           <span className="text-[11.5px] font-mono text-status-success">
@@ -133,21 +133,19 @@ function GrabNowSection({ d }: { d: Decision }) {
 // render even if the field is populated by some future code path
 // (Q-014-3).
 function ErrorDetailSection({ d }: { d: Decision }) {
+  const { t } = useTranslation();
   if (d.category !== 'error' || !d.error_detail) return null;
 
   const onCopy = async () => {
-    // Defensive: navigator.clipboard is undefined in JSDOM by default.
-    // The test environment stubs it; in prod browsers it's always present
-    // under https / localhost. Fall back to a toast instead of throwing.
     if (!navigator.clipboard?.writeText) {
-      toast.error('Clipboard not available');
+      toast.error(t('decisions.detail.clipboardUnavailable'));
       return;
     }
     try {
       await navigator.clipboard.writeText(d.error_detail ?? '');
-      toast.success('Copied to clipboard');
+      toast.success(t('decisions.detail.copied'));
     } catch {
-      toast.error('Copy failed');
+      toast.error(t('decisions.detail.copyFailed'));
     }
   };
 
@@ -163,18 +161,18 @@ function ErrorDetailSection({ d }: { d: Decision }) {
             id="error-detail-heading"
             className="text-[12px] font-semibold uppercase tracking-[0.06em] text-status-danger"
           >
-            Error detail
+            {t('decisions.detail.errorDetailHeading')}
           </h4>
         </div>
         <button
           type="button"
           onClick={onCopy}
           className="inline-flex items-center gap-1 px-1.5 h-6 rounded border border-border-faint text-[11px] text-muted hover:text-foreground hover:bg-surface-2"
-          aria-label="Copy error detail to clipboard"
+          aria-label={t('decisions.detail.copy')}
           data-testid="error-detail-copy"
         >
           <Copy className="w-3 h-3" aria-hidden="true" />
-          Copy
+          {t('decisions.detail.copy')}
         </button>
       </div>
       <div
@@ -193,6 +191,7 @@ function ErrorDetailSection({ d }: { d: Decision }) {
 // We touch window.history directly because DecisionDrawer is
 // router-agnostic (used in both /decisions and /scans/:id pages).
 function SupersededByLine({ successorId }: { successorId: string }) {
+  const { t } = useTranslation();
   const onOpenSuccessor = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('drawer', successorId);
@@ -205,7 +204,7 @@ function SupersededByLine({ successorId }: { successorId: string }) {
   return (
     <div className="text-[11.5px] text-status-warning font-mono flex items-center gap-1.5">
       <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
-      <span>Superseded by</span>
+      <span>{t('decisions.detail.supersededBy')}</span>
       <button
         type="button"
         onClick={onOpenSuccessor}
@@ -230,6 +229,7 @@ function SupersededByLine({ successorId }: { successorId: string }) {
 // (re-evaluates against Sonarr but writes only one decision row +
 // one supersede pointer; no upstream grab POST).
 function RescanSection({ d }: { d: Decision }) {
+  const { t } = useTranslation();
   const rescan = useRescanDecision();
   // Server is authoritative for the "is it already executed?" gate;
   // here we only hide the section when this row is itself already
@@ -270,14 +270,11 @@ function RescanSection({ d }: { d: Decision }) {
           id="rescan-heading"
           className="text-[12px] font-semibold uppercase tracking-[0.06em] text-muted"
         >
-          Rescan
+          {t('decisions.detail.rescanHeading')}
         </h4>
       </div>
       <p className="text-[12.5px] text-muted">
-        Re-evaluate this season against Sonarr (e.g. after re-enabling
-        an indexer). Bypasses cooldowns. The current decision is marked
-        superseded; the new outcome lands in the same scan record. The
-        drawer will switch to the new outcome automatically.
+        {t('decisions.detail.rescanBody')}
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -286,7 +283,7 @@ function RescanSection({ d }: { d: Decision }) {
           className="h-8"
           onClick={onClick}
           disabled={rescan.isPending || !d.id}
-          aria-label="Rescan decision"
+          aria-label={t('decisions.detail.rescan')}
           data-testid="rescan-button"
         >
           {rescan.isPending ? (
@@ -294,7 +291,7 @@ function RescanSection({ d }: { d: Decision }) {
           ) : (
             <RotateCcw className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
           )}
-          {rescan.isPending ? 'Rescanning…' : 'Rescan'}
+          {rescan.isPending ? t('decisions.detail.rescanning') : t('decisions.detail.rescan')}
         </Button>
         {rescan.isSuccess && rescan.data?.id && (
           <span className="text-[11.5px] font-mono text-status-success">

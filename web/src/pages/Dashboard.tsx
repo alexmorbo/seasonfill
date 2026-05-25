@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -24,6 +25,7 @@ import { relativeTime, durationMs } from '@/lib/format';
 type Variant = 'default' | 'success' | 'warning' | 'danger';
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const inst = useInstances();
   const scans = useScans();
@@ -52,55 +54,63 @@ export function Dashboard() {
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
       <header className="flex items-center gap-4">
-        <h1 className="text-[22px] font-semibold tracking-tight">Dashboard</h1>
-        <span className="font-mono text-[11px] text-faint">polling every 5s</span>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('dashboard.title')}</h1>
+        <span className="font-mono text-[11px] text-faint">{t('dashboard.pollingHint')}</span>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
-          label="Instances"
+          label={t('dashboard.cards.instances')}
           variant={instVariant}
           value={`${healthy + degraded}`}
           suffix={`/ ${instances.length}`}
-          foot={`${healthy} healthy · ${degraded} degraded${unavailable ? ` · ${unavailable} down` : ''}`}
+          foot={
+            unavailable
+              ? t('dashboard.cards.healthyFootDown', {
+                  healthy, degraded, down: unavailable,
+                })
+              : t('dashboard.cards.healthyFoot', { healthy, degraded })
+          }
         />
         <StatCard
-          label="Recent scans"
+          label={t('dashboard.cards.recentScans')}
           value={allScans.length}
           foot={recentScans[0]?.started_at ? relativeTime(recentScans[0].started_at) : '—'}
         />
         <StatCard
-          label="Recent grabs"
+          label={t('dashboard.cards.recentGrabs')}
           value={grabsCount}
-          {...(failsCount ? { suffix: `/ ${failsCount} fail` } : {})}
+          {...(failsCount ? { suffix: t('dashboard.cards.failSuffix', { count: failsCount }) } : {})}
           foot={
             grabsCount
-              ? `${Math.round(((grabsCount - failsCount) / Math.max(grabsCount, 1)) * 100)}% success`
-              : 'no grabs yet'
+              ? t('dashboard.cards.successSuffix', {
+                  percent: Math.round(((grabsCount - failsCount) / Math.max(grabsCount, 1)) * 100),
+                })
+              : t('dashboard.cards.noGrabsYet')
           }
           variant={failsCount ? 'warning' : 'default'}
         />
         <StatCard
-          label="Recent failures"
+          label={t('dashboard.cards.recentFailures')}
           value={recentFailures.length}
           variant={recentFailures.length > 0 ? 'danger' : 'default'}
-          foot={recentFailures.length === 0 ? 'no failures in latest activity' : 'imports failing'}
+          foot={recentFailures.length === 0 ? t('dashboard.cards.noFailures') : t('dashboard.cards.importsFailing')}
         />
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between py-3">
-          <CardTitle className="text-[14px] font-semibold">Instance health</CardTitle>
+          <CardTitle className="text-[14px] font-semibold">{t('dashboard.health.title')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Health</TableHead>
-                <TableHead>Last check</TableHead>
-                <TableHead>Transitions</TableHead>
-                <TableHead>Last error</TableHead>
+                <TableHead>{t('dashboard.health.name')}</TableHead>
+                <TableHead>{t('dashboard.health.healthCol')}</TableHead>
+                <TableHead>{t('dashboard.health.lastCheck')}</TableHead>
+                <TableHead>{t('dashboard.health.transitions')}</TableHead>
+                <TableHead>{t('dashboard.health.lastError')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -109,8 +119,8 @@ export function Dashboard() {
                 <TableRow>
                   <TableCell colSpan={5}>
                     <EmptyState
-                      title="No instances configured"
-                      body="Add a Sonarr instance in Settings → Instances."
+                      title={t('dashboard.empty.title')}
+                      body={t('dashboard.empty.body')}
                     />
                   </TableCell>
                 </TableRow>
@@ -122,7 +132,7 @@ export function Dashboard() {
                   onKeyDown={(e) => onRowEnter(e, '/instances')}
                   tabIndex={0}
                   role="button"
-                  aria-label={`Open instance ${i.name}`}
+                  aria-label={t('dashboard.health.openInstance', { name: i.name })}
                   className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <TableCell className="font-mono font-medium">{i.name}</TableCell>
@@ -143,16 +153,16 @@ export function Dashboard() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between py-3">
-          <CardTitle className="text-[14px] font-semibold">Recent scans</CardTitle>
+          <CardTitle className="text-[14px] font-semibold">{t('dashboard.recent.scansTitle')}</CardTitle>
           <Button variant="ghost" size="sm" onClick={() => navigate('/scans')}>
-            View all →
+            {t('dashboard.recent.viewAll')}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           {scans.isError ? (
             <Alert variant="destructive" className="m-4">
               <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>Failed to load scans</AlertTitle>
+              <AlertTitle>{t('dashboard.recent.loadScansFailed')}</AlertTitle>
               <AlertDescription>{scans.error.message}</AlertDescription>
             </Alert>
           ) : (
@@ -160,12 +170,12 @@ export function Dashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
-                  <TableHead>Instance</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Dur</TableHead>
-                  <TableHead>Series</TableHead>
-                  <TableHead>Grabs</TableHead>
+                  <TableHead>{t('dashboard.recent.instance')}</TableHead>
+                  <TableHead>{t('dashboard.recent.trigger')}</TableHead>
+                  <TableHead>{t('dashboard.recent.started')}</TableHead>
+                  <TableHead>{t('dashboard.recent.duration')}</TableHead>
+                  <TableHead>{t('dashboard.recent.series')}</TableHead>
+                  <TableHead>{t('dashboard.recent.grabs')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,8 +186,8 @@ export function Dashboard() {
                   <TableRow>
                     <TableCell colSpan={7}>
                       <EmptyState
-                        title="No scans yet"
-                        body="Trigger a scan from the New Scan button."
+                        title={t('scans.empty.title')}
+                        body={t('dashboard.recent.noScansBody')}
                       />
                     </TableCell>
                   </TableRow>
@@ -189,7 +199,7 @@ export function Dashboard() {
                     onKeyDown={(e) => s.id && onRowEnter(e, `/scans/${s.id}`)}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Open scan ${(s.id ?? '').slice(0, 8)}`}
+                    aria-label={t('dashboard.recent.openScan', { id: (s.id ?? '').slice(0, 8) })}
                     className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <TableCell>
@@ -219,27 +229,27 @@ export function Dashboard() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between py-3">
-          <CardTitle className="text-[14px] font-semibold">Recent grab failures</CardTitle>
+          <CardTitle className="text-[14px] font-semibold">{t('dashboard.recent.failuresTitle')}</CardTitle>
           <Button variant="ghost" size="sm" onClick={() => navigate('/grabs')}>
-            View all →
+            {t('dashboard.recent.viewAll')}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           {recentFailures.length === 0 && !failures.isPending ? (
             <EmptyState
               icon={<Check className="w-7 h-7 text-status-success" />}
-              title="No recent failures"
-              body="Everything imported cleanly."
+              title={t('dashboard.recent.noFailuresTitle')}
+              body={t('dashboard.recent.noFailuresBody')}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Series</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Instance</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Error</TableHead>
+                  <TableHead>{t('dashboard.recent.series')}</TableHead>
+                  <TableHead>{t('dashboard.recent.status')}</TableHead>
+                  <TableHead>{t('dashboard.recent.instance')}</TableHead>
+                  <TableHead>{t('dashboard.recent.time')}</TableHead>
+                  <TableHead>{t('dashboard.recent.errorCol')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

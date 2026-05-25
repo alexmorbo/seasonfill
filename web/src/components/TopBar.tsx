@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Menu, Settings, LogOut, ShieldAlert, WifiOff, KeyRound } from 'lucide-react';
@@ -15,6 +16,7 @@ import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useDebugActions } from '@/lib/use-debug-actions';
 import { cn } from '@/lib/utils';
 import { PasswordChangeDialog } from './PasswordChangeDialog';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
@@ -26,6 +28,7 @@ const HEALTH_BG: Record<NonNullable<Instance['health']> | 'unknown', string> = {
 };
 
 export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data, isError } = useInstances();
@@ -36,17 +39,17 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const [pwOpen, setPwOpen] = useState(false);
 
   const onLogout = async () => {
-    try { await logout(); toast.success('Signed out'); }
+    try { await logout(); toast.success(t('nav.signedOut')); }
     catch (err) {
       if (!(err instanceof ApiError) || err.status !== 401) {
-        toast.error('Logout failed', { description: err instanceof Error ? err.message : 'unknown error' });
+        toast.error(t('nav.logoutFailed'), { description: err instanceof Error ? err.message : t('common.unknown') });
       }
     } finally { qc.clear(); navigate('/login', { replace: true }); }
   };
 
   return (
     <header className="h-14 flex items-center gap-3 md:gap-6 px-3 md:px-5 border-b border-border bg-bg">
-      <button type="button" onClick={onMenuClick} aria-label="Toggle navigation"
+      <button type="button" onClick={onMenuClick} aria-label={t('nav.toggleNav')}
         className="md:hidden grid place-items-center w-8 h-8 border border-border rounded-md text-foreground-2 hover:bg-surface">
         <Menu className="w-4 h-4" />
       </button>
@@ -87,26 +90,28 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
 
       <div className="hidden md:flex items-center gap-2 font-mono text-[12px] text-faint">
         <span className={cn('inline-block w-1.5 h-1.5 rounded-full', isError ? 'bg-status-danger' : 'bg-status-success')} />
-        {isError ? 'connection lost' : 'all systems nominal'}
+        {isError ? t('nav.connectionLost') : t('nav.allSystemsNominal')}
       </div>
+
+      <LanguageSwitcher />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="Account menu"
+          <button type="button" aria-label={t('nav.accountMenu')}
             className="grid place-items-center w-8 h-8 border border-border rounded-md text-foreground-2 hover:bg-surface">
             <Settings className="w-4 h-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[220px]">
           <DropdownMenuLabel>
-            {session?.username ? session.username : 'Account'}
+            {session?.username ?? t('nav.account')}
           </DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setPwOpen(true)}>
-            <KeyRound className="w-3.5 h-3.5 mr-2" /> Change password
+            <KeyRound className="w-3.5 h-3.5 mr-2" /> {t('nav.changePassword')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onLogout}>
-            <LogOut className="w-3.5 h-3.5 mr-2" /> Logout
+            <LogOut className="w-3.5 h-3.5 mr-2" /> {t('nav.logout')}
             <span className="ml-auto mono text-[11px] text-faint">⌘⇧Q</span>
           </DropdownMenuItem>
           {import.meta.env.DEV && (

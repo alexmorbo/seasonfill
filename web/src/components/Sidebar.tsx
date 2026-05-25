@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, ListTree, GitBranch, Download, Server, Plus, Settings as SettingsIcon,
 } from 'lucide-react';
@@ -8,21 +9,22 @@ import { useInstances } from '@/lib/instances';
 import { cn } from '@/lib/utils';
 
 const NAV = [
-  { to: '/',          label: 'Dashboard', icon: LayoutDashboard, key: 'dashboard' },
-  { to: '/scans',     label: 'Scans',     icon: ListTree,        key: 'scans' },
-  { to: '/decisions', label: 'Decisions', icon: GitBranch,       key: 'decisions' },
-  { to: '/grabs',     label: 'Grabs',     icon: Download,        key: 'grabs' },
-  { to: '/instances', label: 'Instances', icon: Server,          key: 'instances' },
-  { to: '/settings',  label: 'Settings',  icon: SettingsIcon,    key: 'settings' },
+  { to: '/',          icon: LayoutDashboard, key: 'dashboard' },
+  { to: '/scans',     icon: ListTree,        key: 'scans' },
+  { to: '/decisions', icon: GitBranch,       key: 'decisions' },
+  { to: '/grabs',     icon: Download,        key: 'grabs' },
+  { to: '/instances', icon: Server,          key: 'instances' },
+  { to: '/settings',  icon: SettingsIcon,    key: 'settings' },
 ] as const;
 
 function NavList({ onNewScan, onNavigate }: { onNewScan: () => void; onNavigate?: () => void }) {
+  const { t } = useTranslation();
   const { data } = useInstances();
   const count = data?.instances?.length;
   return (
     <nav className="flex flex-col gap-0.5 h-full">
       <div className="px-2.5 pt-2 pb-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">
-        Navigation
+        {t('nav.section')}
       </div>
       {NAV.map((item) => (
         <NavLink
@@ -39,7 +41,7 @@ function NavList({ onNewScan, onNavigate }: { onNewScan: () => void; onNavigate?
           }
         >
           <item.icon className="w-4 h-4 shrink-0 text-muted" />
-          <span>{item.label}</span>
+          <span>{t(`nav.${item.key}`)}</span>
           {item.key === 'instances' && count !== undefined && (
             <span className="ml-auto font-mono text-[11px] text-faint">{count}</span>
           )}
@@ -54,7 +56,7 @@ function NavList({ onNewScan, onNavigate }: { onNewScan: () => void; onNavigate?
         }}
         className="mt-2 h-9 gap-2 font-semibold text-[13px]"
       >
-        <Plus className="w-3.5 h-3.5" /> New Scan
+        <Plus className="w-3.5 h-3.5" /> {t('scans.actions.new')}
       </Button>
     </nav>
   );
