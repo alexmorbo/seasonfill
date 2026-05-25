@@ -186,7 +186,7 @@ func hardenedClient(t *testing.T) *http.Client {
 		},
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
-				Control: netguard.BlockPrivate,
+				Control: (netguard.Guard{}).Control,
 				Timeout: 500 * time.Millisecond,
 			}).DialContext,
 		},
@@ -290,7 +290,7 @@ var _ = func() syscall.RawConn { return nil }
 // Catch a regression where ErrBlockedHost stops being errors.Is-detectable.
 func TestProbe_BlockedHostErrorChainStable(t *testing.T) {
 	t.Parallel()
-	d := &net.Dialer{Control: netguard.BlockPrivate, Timeout: 200 * time.Millisecond}
+	d := &net.Dialer{Control: (netguard.Guard{}).Control, Timeout: 200 * time.Millisecond}
 	_, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:1")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, netguard.ErrBlockedHost),
