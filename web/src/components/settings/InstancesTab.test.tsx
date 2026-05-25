@@ -31,7 +31,7 @@ function mockFetchInstances(
     const url = typeof u === 'string' ? u : u.toString();
     if (detailFetch) {
       const m = /\/instances\/([^/?]+)/.exec(url);
-      if (m && (!init?.method || init.method === 'GET')) {
+      if (m && m[1] && (!init?.method || init.method === 'GET')) {
         return detailFetch(decodeURIComponent(m[1]));
       }
     }
