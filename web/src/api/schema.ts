@@ -1872,6 +1872,7 @@ export type components = {
             readonly status?: DtoScanTriggerItemStatus;
         };
         readonly "dto.ScanTriggerRequest": {
+            readonly dry_run?: boolean;
             /** @example alpha */
             readonly instance?: string;
             readonly series_ids?: readonly number[];

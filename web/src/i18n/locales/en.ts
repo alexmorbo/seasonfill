@@ -272,6 +272,12 @@ export const en = {
       seriesHintNote: '(instance default — server-resolved)',
       dryRunLabel: 'Dry run',
       dryRunHint: '(instance default — server-resolved)',
+      dryRunHelp: 'Override the instance dry-run setting for this scan only.',
+      dryRunOptions: {
+        default: 'Use instance default',
+        on:      'Force dry run (preview only)',
+        off:     'Force real grab',
+      },
       submit: 'Start scan',
       starting: 'Starting…',
       searching: 'Searching…',

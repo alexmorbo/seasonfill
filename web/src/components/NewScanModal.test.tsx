@@ -184,4 +184,65 @@ describe('<NewScanModal />', () => {
       }),
     );
   });
+
+  it('defaults to "use instance default" and omits dry_run from the payload', async () => {
+    const captured: { body?: string } = {};
+    globalThis.fetch = handler({
+      '/instances': () => json(instances),
+      '/scan': (init) => {
+        if (typeof init?.body === 'string') captured.body = init.body;
+        return json([{ scan_run_id: 'run-100', instance: 'alpha', status: 'running' }], 202);
+      },
+    }) as typeof fetch;
+
+    renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
+    await screen.findByText('alpha');
+    // The "default" radio must be checked at mount.
+    const def = await screen.findByLabelText(/use instance default/i);
+    expect(def).toBeChecked();
+
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
+    await waitFor(() => expect(captured.body).toBeDefined());
+    const parsed = JSON.parse(captured.body!);
+    expect(parsed).toEqual({ instance: 'alpha' });
+    expect('dry_run' in parsed).toBe(false);
+  });
+
+  it('sends dry_run:true when "Force dry run" is selected', async () => {
+    const captured: { body?: string } = {};
+    globalThis.fetch = handler({
+      '/instances': () => json(instances),
+      '/scan': (init) => {
+        if (typeof init?.body === 'string') captured.body = init.body;
+        return json([{ scan_run_id: 'run-101', instance: 'alpha', status: 'running' }], 202);
+      },
+    }) as typeof fetch;
+
+    renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
+    await screen.findByText('alpha');
+    await userEvent.click(screen.getByLabelText(/force dry run/i));
+
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
+    await waitFor(() => expect(captured.body).toBeDefined());
+    expect(JSON.parse(captured.body!)).toEqual({ instance: 'alpha', dry_run: true });
+  });
+
+  it('sends dry_run:false when "Force real grab" is selected', async () => {
+    const captured: { body?: string } = {};
+    globalThis.fetch = handler({
+      '/instances': () => json(instances),
+      '/scan': (init) => {
+        if (typeof init?.body === 'string') captured.body = init.body;
+        return json([{ scan_run_id: 'run-102', instance: 'alpha', status: 'running' }], 202);
+      },
+    }) as typeof fetch;
+
+    renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
+    await screen.findByText('alpha');
+    await userEvent.click(screen.getByLabelText(/force real grab/i));
+
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
+    await waitFor(() => expect(captured.body).toBeDefined());
+    expect(JSON.parse(captured.body!)).toEqual({ instance: 'alpha', dry_run: false });
+  });
 });

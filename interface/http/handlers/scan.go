@@ -53,7 +53,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	if req.Instance != "" {
-		res, err := h.useCase.StartInstance(c.Request.Context(), req.Instance, scan.TriggerManual, req.SeriesIDs...)
+		res, err := h.useCase.StartInstanceWithDryRun(c.Request.Context(), req.Instance, scan.TriggerManual, req.DryRun, req.SeriesIDs...)
 		if errors.Is(err, scan.ErrScanAlreadyRunning) {
 			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
 				Error:    "scan already running",

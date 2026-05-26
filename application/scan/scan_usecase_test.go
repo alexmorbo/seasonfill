@@ -719,15 +719,25 @@ func TestInstanceDryRun_OverrideWins(t *testing.T) {
 
 	// Instance override = false: real grab for this instance only.
 	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(false)}}
-	assert.False(t, uc.instanceDryRun(inst))
+	assert.False(t, uc.instanceDryRun(inst, nil))
 
-	// No override: inherits global dry-run=true.
+	// No instance override, no request override: inherits global dry-run=true.
 	inst2 := Instance{Config: config.SonarrInstance{Name: "x"}}
-	assert.True(t, uc.instanceDryRun(inst2))
+	assert.True(t, uc.instanceDryRun(inst2, nil))
 
-	// Explicit override = true is also honored (matches global, still bound).
+	// Explicit instance override = true is also honored.
 	inst3 := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(true)}}
-	assert.True(t, uc.instanceDryRun(inst3))
+	assert.True(t, uc.instanceDryRun(inst3, nil))
+
+	// Request override = true beats instance=false.
+	assert.True(t, uc.instanceDryRun(inst, boolPtr(true)))
+
+	// Request override = false beats instance=true (the "Force real grab"
+	// path from 033c). This is the load-bearing case for the new feature.
+	assert.False(t, uc.instanceDryRun(inst3, boolPtr(false)))
+
+	// Request override = false beats global=true with no instance setting.
+	assert.False(t, uc.instanceDryRun(inst2, boolPtr(false)))
 }
 
 // TestScan_TagFilter_AllIncludeLabelsUnresolved covers M-6 (fail-CLOSED) at
@@ -1213,4 +1223,118 @@ func TestScan_NormalCompletion_SurvivesCtxCancelDuringFinalize(t *testing.T) {
 	last := repo.updated[len(repo.updated)-1]
 	assert.Equal(t, "completed", last.Status,
 		"row must finalize to completed even when Cancel arrives during terminal Update")
+}
+
+// TestStartInstanceWithDryRun_NilUsesInstanceDefault — when the request
+// passes no override, the persisted ScanRecord.DryRun must equal the
+// per-instance / global computation. Instance has DryRun=true here, so
+// the record must be DryRun=true.
+func TestStartInstanceWithDryRun_NilUsesInstanceDefault(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{name: "main"} // empty series list -> scan completes instantly
+	evalUC := evaluate.NewUseCase(sonarr, &fakeDecRepo{}, lg)
+	repo := &fakeScanRepo{}
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			DryRun: boolPtr(true),
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, repo, lg, false /* global=false, so only instance override applies */)
+
+	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, nil)
+	require.NoError(t, err)
+	require.Equal(t, "running", res.Status)
+
+	// Drain the async goroutine.
+	waitForScanRecord(t, repo, res.ScanRunID, "completed")
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.Len(t, repo.created, 1)
+	assert.True(t, repo.created[0].DryRun,
+		"nil override + instance.DryRun=true -> ScanRecord.DryRun must be true")
+}
+
+// TestStartInstanceWithDryRun_ForceTrue — request override = &true must
+// flip ScanRecord.DryRun=true even when the instance config says false.
+func TestStartInstanceWithDryRun_ForceTrue(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{name: "main"}
+	evalUC := evaluate.NewUseCase(sonarr, &fakeDecRepo{}, lg)
+	repo := &fakeScanRepo{}
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			DryRun: boolPtr(false), // instance says real grab
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, repo, lg, false)
+
+	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, boolPtr(true))
+	require.NoError(t, err)
+	require.Equal(t, "running", res.Status)
+	waitForScanRecord(t, repo, res.ScanRunID, "completed")
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.Len(t, repo.created, 1)
+	assert.True(t, repo.created[0].DryRun,
+		"request override *true must beat instance.DryRun=false")
+}
+
+// TestStartInstanceWithDryRun_ForceFalse — request override = &false
+// must flip ScanRecord.DryRun=false even when the instance config says
+// true. This is the "Force real grab" path from 033c.
+func TestStartInstanceWithDryRun_ForceFalse(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarr := &fakeSonarr{name: "main"}
+	evalUC := evaluate.NewUseCase(sonarr, &fakeDecRepo{}, lg)
+	repo := &fakeScanRepo{}
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "main",
+			DryRun: boolPtr(true), // instance is dry
+			Limits: config.LimitsConfig{ScanMaxSeries: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, repo, lg, true /* global is also dry */)
+
+	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, boolPtr(false))
+	require.NoError(t, err)
+	require.Equal(t, "running", res.Status)
+	waitForScanRecord(t, repo, res.ScanRunID, "completed")
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.Len(t, repo.created, 1)
+	assert.False(t, repo.created[0].DryRun,
+		"request override *false must beat instance.DryRun=true")
+}
+
+// waitForScanRecord polls the fake repo until ScanRecord.Status reaches
+// `want` or the budget expires. Mirrors the polling pattern used by
+// TestStartInstance_BgWaitGroupDrains — the async goroutine writes the
+// terminal Update from a detached ctx, so we cannot use sync.WaitGroup
+// here without instrumenting the use case further.
+func waitForScanRecord(t *testing.T, repo *fakeScanRepo, id uuid.UUID, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		repo.mu.Lock()
+		for _, rec := range repo.updated {
+			if rec.ID == id && rec.Status == want {
+				repo.mu.Unlock()
+				return
+			}
+		}
+		repo.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("scan record %s did not reach status=%s within 2s", id, want)
 }

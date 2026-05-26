@@ -56,9 +56,13 @@ type SessionResponse struct {
 // ScanTriggerRequest — optional body for POST /scan.
 // SeriesIDs narrows the scan to specific IDs; empty = all. Unknown
 // IDs are skipped with a WARN (Q-010-3); response stays 202.
+// DryRun is an optional override of the instance/global dry_run
+// setting. nil = use instance default; *true = force dry run;
+// *false = force real grab regardless of instance config.
 type ScanTriggerRequest struct {
 	Instance  string `json:"instance,omitempty"   example:"alpha"`
 	SeriesIDs []int  `json:"series_ids,omitempty"`
+	DryRun    *bool  `json:"dry_run,omitempty"`
 }
 
 // ScanTriggerItem — one row in the 202 array response of POST /scan.

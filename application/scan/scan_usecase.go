@@ -213,18 +213,24 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 }
 
 // StartInstance schedules a scan on the named instance and returns
-// immediately with status="running". The actual work runs in a
-// detached goroutine that:
-//   - Builds its own ctx from context.Background() so the HTTP
-//     request's cancellation doesn't kill the scan when Gin writes 202.
-//   - Re-applies WithTraceID(scanID) so structured logs stay correlated.
-//   - Holds the per-instance inflight lock until completion (defer release).
-//   - Adds/Done's u.bgWG (if set) so SIGTERM-drain blocks on it.
+// immediately with status="running". See StartInstanceWithDryRun for
+// the full contract; this wrapper preserves the original signature so
+// existing test call sites stay unchanged.
+func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+	return u.StartInstanceWithDryRun(parent, name, trigger, nil, seriesIDs...)
+}
+
+// StartInstanceWithDryRun is the trigger-an-instance entry point that
+// honours an optional per-request dry-run override. `dryRunOverride`
+// has precedence over the per-instance setting and the global default:
+//   - nil  -> use the per-instance DryRun (if set), else global.
+//   - &true  -> force dry run.
+//   - &false -> force real grab even if the instance is configured dry.
 //
-// Errors are synchronous-only (validation + lock + Create): once those
+// Errors are synchronous-only (validation + lock + Create); once those
 // pass, the returned RunResult carries Status="running" and the
 // goroutine reports terminal status through ScanRecord updates only.
-func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+func (u *UseCase) StartInstanceWithDryRun(parent context.Context, name string, trigger Trigger, dryRunOverride *bool, seriesIDs ...int) (RunResult, error) {
 	instances := u.loadInstances()
 	var found *Instance
 	for i := range instances {
@@ -236,7 +242,7 @@ func (u *UseCase) StartInstance(parent context.Context, name string, trigger Tri
 	if found == nil {
 		return RunResult{}, fmt.Errorf("%w: %s", ErrUnknownInstance, name)
 	}
-	return u.startOne(parent, *found, trigger, seriesIDs)
+	return u.startOne(parent, *found, trigger, seriesIDs, dryRunOverride)
 }
 
 // Start schedules scans on every eligible instance (cron-mode rules
@@ -244,6 +250,8 @@ func (u *UseCase) StartInstance(parent context.Context, name string, trigger Tri
 // RunResult per spawned scan, each with Status="running". Failures
 // from the prelude (lock contention, ScanRecord create) appear in
 // the joined error and have a non-running Status in their RunResult.
+// Cron / startup never override dry-run — the override is a UI-only
+// affordance.
 func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, error) {
 	instances := u.loadInstances()
 	eligible := make([]int, 0, len(instances))
@@ -258,7 +266,7 @@ func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, e
 	results := make([]RunResult, 0, len(eligible))
 	errs := make([]error, 0, len(eligible))
 	for _, idx := range eligible {
-		res, err := u.startOne(parent, instances[idx], trigger, nil)
+		res, err := u.startOne(parent, instances[idx], trigger, nil, nil)
 		results = append(results, res)
 		if err != nil {
 			errs = append(errs, err)
@@ -269,9 +277,10 @@ func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, e
 
 // startOne owns the synchronous prelude. Returns RunResult with
 // ScanRunID set and Status="running" as soon as the goroutine is
-// launched. The goroutine itself calls runOne (existing body) and
-// updates ScanRecord on completion.
-func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {
+// launched. The goroutine itself calls runDetached and updates
+// ScanRecord on completion. `dryRunOverride` — when non-nil —
+// overrides both the per-instance DryRun and the global default.
+func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int, dryRunOverride *bool) (RunResult, error) {
 	scanID := uuid.New()
 
 	if u.health != nil {
@@ -290,7 +299,7 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
 	}
 
-	dryRun := u.instanceDryRun(inst)
+	dryRun := u.instanceDryRun(inst, dryRunOverride)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
 		ID:           scanID,
@@ -300,8 +309,6 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		Status:       "running",
 		DryRun:       dryRun,
 	}
-	// Detached ctx for the persistent create — re-uses the request's
-	// trace_id (via WithTraceID below) but won't die when Gin writes 202.
 	createCtx := logger.WithTraceID(context.Background(), scanID.String())
 	if err := u.scans.Create(createCtx, rec); err != nil {
 		u.release(inst.Config.Name)
@@ -315,6 +322,7 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		slog.String("instance", inst.Config.Name),
 		slog.String("trigger", string(trigger)),
 		slog.Bool("dry_run", dryRun),
+		slog.Bool("dry_run_override", dryRunOverride != nil),
 		slog.Bool("async", true),
 	)
 
@@ -327,8 +335,6 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 		if u.bgWG != nil {
 			defer u.bgWG.Done()
 		}
-		// cancel BEFORE release so an in-flight Cancel() under u.mu can't
-		// fire a stale CancelFunc on a slot we've already deleted.
 		defer cancel()
 		defer u.release(inst.Config.Name)
 		u.runDetached(ctx, inst, rec, trigger, seriesIDs, started, dryRun)
@@ -343,9 +349,14 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 }
 
 // instanceDryRun decides the effective dry-run flag for one instance.
-// Instance override wins per D-2.6. Reads the per-instance *bool directly —
-// nil means "no override, use global".
-func (u *UseCase) instanceDryRun(inst Instance) bool {
+// Precedence: request override > instance config > global default.
+// `override` non-nil wins outright (this is the per-scan UI knob from
+// POST /scan); otherwise the existing D-2.6 rule applies — per-instance
+// *bool wins, then the global default.
+func (u *UseCase) instanceDryRun(inst Instance, override *bool) bool {
+	if override != nil {
+		return *override
+	}
 	if inst.Config.DryRun != nil {
 		return *inst.Config.DryRun
 	}
@@ -377,7 +388,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 		u.barrier.Reached(inst.Config.Name)
 	}
 
-	dryRun := u.instanceDryRun(inst)
+	dryRun := u.instanceDryRun(inst, nil)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
 		ID: scanID, InstanceName: inst.Config.Name,

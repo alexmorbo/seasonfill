@@ -274,6 +274,12 @@ export const ru: Translations = {
       seriesHintNote: '(по умолчанию инстанса — выберет сервер)',
       dryRunLabel: 'Dry run',
       dryRunHint: '(по умолчанию инстанса — выберет сервер)',
+      dryRunHelp: 'Переопределить настройку dry-run инстанса только для этого скана.',
+      dryRunOptions: {
+        default: 'По умолчанию инстанса',
+        on:      'Принудительно dry run (только предпросмотр)',
+        off:     'Принудительно реальный grab',
+      },
       submit: 'Запустить скан',
       starting: 'Запускаем…',
       searching: 'Ищем…',

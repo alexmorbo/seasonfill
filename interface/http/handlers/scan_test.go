@@ -168,6 +168,74 @@ func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, w.Code)
 }
 
+// TestScanHandler_Trigger_DryRunOverride_NilOmitted — when the JSON
+// body omits dry_run, the use case receives nil and the persisted
+// ScanRecord follows the instance default. This pins the
+// backward-compatibility contract: an old client that never knew about
+// dry_run sees identical behaviour.
+func TestScanHandler_Trigger_DryRunOverride_NilOmitted(t *testing.T) {
+	uc := newScanUseCase()
+	r := setupScanRouter(uc)
+
+	body, _ := json.Marshal(map[string]any{"instance": "main"})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var out []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out, 1)
+	assert.Equal(t, "main", out[0]["instance"])
+	// newScanUseCase wires global dry-run=true with no instance override,
+	// so the effective scan must be dry. We cannot inspect ScanRecord
+	// from the stub (it discards Create), so behavioural assertion lives
+	// in the use-case tests above; here we only assert the wire shape.
+}
+
+// TestScanHandler_Trigger_DryRunOverride_ForceTrue — request body sets
+// dry_run=true. The handler must accept the field without 400-ing and
+// return 202.
+func TestScanHandler_Trigger_DryRunOverride_ForceTrue(t *testing.T) {
+	uc := newScanUseCase()
+	r := setupScanRouter(uc)
+
+	body, _ := json.Marshal(map[string]any{"instance": "main", "dry_run": true})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var out []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out, 1)
+	assert.Equal(t, "main", out[0]["instance"])
+}
+
+// TestScanHandler_Trigger_DryRunOverride_ForceFalse — request body sets
+// dry_run=false. The handler must accept this even when the instance
+// is configured dry (the "Force real grab" path); the use-case test
+// `TestStartInstanceWithDryRun_ForceFalse` covers the behavioural
+// assertion that ScanRecord.DryRun = false.
+func TestScanHandler_Trigger_DryRunOverride_ForceFalse(t *testing.T) {
+	uc := newScanUseCase()
+	r := setupScanRouter(uc)
+
+	body, _ := json.Marshal(map[string]any{"instance": "main", "dry_run": false})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var out []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out, 1)
+	assert.Equal(t, "main", out[0]["instance"])
+}
+
 func setupCancelRouter(uc *scan.UseCase) *gin.Engine {
 	r := gin.New()
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))

@@ -16,16 +16,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Checkbox } from '@/components/ui/checkbox';
 import { SeriesPicker } from '@/components/SeriesPicker';
 import { ApiError } from '@/lib/api';
 import { useInstances, type Instance } from '@/lib/instances';
 import { firstScanRunId, useTriggerScan } from '@/lib/scan-mutations';
 import { cn } from '@/lib/utils';
 
+// 'default' = omit dry_run from payload (use instance config)
+// 'on'      = force dry_run: true  (preview-only)
+// 'off'     = force dry_run: false (real grab)
+const DRY_RUN_CHOICES = ['default', 'on', 'off'] as const;
+type DryRunChoice = (typeof DRY_RUN_CHOICES)[number];
+
 const schema = z.object({
   instance: z.string().min(1, 'scans.newScanModal.selectInstance'),
-  dry_run: z.boolean(),
+  dry_run: z.enum(DRY_RUN_CHOICES),
 });
 export type NewScanFormValues = z.infer<typeof schema>;
 
@@ -59,7 +64,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
 
   const form = useForm<NewScanFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { instance: '', dry_run: true },
+    defaultValues: { instance: '', dry_run: 'default' },
   });
 
   // Picker selection — Q-013b-5 resets on instance change.
@@ -84,12 +89,20 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
   const watchedInstance = form.watch('instance');
   useEffect(() => { setSeriesIds([]); }, [watchedInstance]);
 
+  const dryChoice = form.watch('dry_run');
+
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      const payload: { instance: string; series_ids?: readonly number[] } = {
-        instance: values.instance,
-      };
+      const payload: {
+        instance: string;
+        series_ids?: readonly number[];
+        dry_run?: boolean;
+      } = { instance: values.instance };
       if (seriesIds.length > 0) payload.series_ids = seriesIds;
+      if (values.dry_run === 'on')  payload.dry_run = true;
+      if (values.dry_run === 'off') payload.dry_run = false;
+      // 'default' → field omitted; backend uses per-instance config.
+
       const resp = await trigger.mutateAsync(payload);
       const id = firstScanRunId(resp);
       toast.success(
@@ -98,7 +111,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
           : t('scans.newScanModal.started', { instance: values.instance }),
       );
       onOpenChange(false);
-      form.reset({ instance: '', dry_run: true });
+      form.reset({ instance: '', dry_run: 'default' });
       setSeriesIds([]);
       navigate(`/scans/${id}`);
     } catch (err) {
@@ -194,22 +207,43 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
               />
             </fieldset>
 
-            <Label
-              htmlFor="new-scan-dry-run"
-              className="flex items-center gap-2 cursor-pointer select-none"
-            >
-              <Checkbox
-                id="new-scan-dry-run"
-                checked={form.watch('dry_run')}
-                onCheckedChange={(v) => form.setValue('dry_run', v === true)}
-              />
-              <span className="text-[13px]">
-                {t('scans.newScanModal.dryRunLabel')}{' '}
-                <span className="text-faint text-[11px]">
-                  {t('scans.newScanModal.dryRunHint')}
-                </span>
-              </span>
-            </Label>
+            <fieldset className="flex flex-col gap-2">
+              <Label className="text-[11px] uppercase tracking-[0.06em] text-faint">
+                {t('scans.newScanModal.dryRunLabel')}
+              </Label>
+              <p className="text-[12px] text-muted -mt-1">
+                {t('scans.newScanModal.dryRunHelp')}
+              </p>
+              <RadioGroup
+                value={dryChoice}
+                onValueChange={(v) =>
+                  form.setValue('dry_run', v as DryRunChoice, { shouldValidate: true })
+                }
+                className="flex flex-col gap-1.5"
+              >
+                {DRY_RUN_CHOICES.map((choice) => {
+                  const checked = dryChoice === choice;
+                  return (
+                    <Label
+                      key={choice}
+                      htmlFor={`new-scan-dry-${choice}`}
+                      data-testid={`new-scan-dry-${choice}`}
+                      className={cn(
+                        'flex items-center gap-3 px-3 py-2 rounded-md border cursor-pointer transition',
+                        checked
+                          ? 'border-accent/40 bg-surface-2'
+                          : 'border-border-faint hover:bg-surface',
+                      )}
+                    >
+                      <RadioGroupItem id={`new-scan-dry-${choice}`} value={choice} />
+                      <span className="text-[13px]">
+                        {t(`scans.newScanModal.dryRunOptions.${choice}`)}
+                      </span>
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
+            </fieldset>
           </div>
 
           <DialogFooter className="px-5 py-3 border-t border-border-faint">

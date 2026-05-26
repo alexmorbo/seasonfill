@@ -39,11 +39,13 @@ export function InstancesTab() {
   const editInitial = useMemo(() => {
     if (!editDetail) return undefined;
     return {
-      name: detailName ?? '',
-      url: detailUrl ?? '',
-      mode: (detailMode as 'auto' | 'manual' | undefined) ?? 'auto',
+      name: editDetail.name ?? '',
+      url: editDetail.url ?? '',
+      mode: (editDetail.mode as 'auto' | 'manual' | undefined) ?? 'auto',
     };
-    // editDetail is the existence guard; primitives drive identity.
+    // Identity must be driven by primitives — see 028b note. The dialog
+    // hydrates the full surface from useInstanceDetail; this prop only
+    // carries enough to seed the immutable name + URL on first paint.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailName, detailUrl, detailMode]);
 
