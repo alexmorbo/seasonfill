@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { toast } from 'sonner';
 import { KeyRound, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -106,6 +107,17 @@ export interface InstanceFormDialogProps {
   readonly initial?: Partial<FormValues> | undefined;
 }
 
+// Narrow a raw wire string to a known enum member, falling back to a
+// safe default when the value is absent, null, or an unrecognised string
+// (e.g. empty-string emitted by Go for a NULL column).
+function coerceEnum<T extends string>(
+  value: string | null | undefined,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return (allowed as readonly string[]).includes(value ?? '') ? (value as T) : fallback;
+}
+
 // Hydrate a full FormValues from a server-side InstanceDetail. Falls
 // back to FORM_DEFAULTS for any field the server omitted (e.g. a row
 // written by an older schema). Crucially does NOT touch api_key — the
@@ -117,11 +129,11 @@ function formFromDetail(d: InstanceDetail): FormValues {
     name: d.name ?? '',
     url: d.url ?? FORM_DEFAULTS.url,
     api_key: '',
-    mode: (d.mode === 'manual' ? 'manual' : 'auto'),
+    mode: coerceEnum(d.mode, ['auto', 'manual'] as const, FORM_DEFAULTS.mode),
     dry_run: dryRunFromWire(d.dry_run),
     timeout_sec: d.timeout_sec ?? FORM_DEFAULTS.timeout_sec,
     search_timeout_sec: d.search_timeout_sec ?? FORM_DEFAULTS.search_timeout_sec,
-    tags_mode: (d.tags?.mode as FormValues['tags_mode']) ?? FORM_DEFAULTS.tags_mode,
+    tags_mode: coerceEnum(d.tags?.mode, ['off', 'include', 'exclude', 'both'] as const, FORM_DEFAULTS.tags_mode),
     tags_include: [...(d.tags?.include ?? [])],
     tags_exclude: [...(d.tags?.exclude ?? [])],
     search_require_all_aired: Boolean(d.search?.require_all_aired),
@@ -134,7 +146,7 @@ function formFromDetail(d: InstanceDetail): FormValues {
     rate_limit_burst: d.rate_limit_burst ?? 0,
     limits_scan_max_series: d.limits?.scan_max_series ?? 0,
     limits_max_grabs_per_scan: d.limits?.max_grabs_per_scan ?? FORM_DEFAULTS.limits_max_grabs_per_scan,
-    cooldown_mode: (d.cooldown?.mode === 'strict' ? 'strict' : 'smart'),
+    cooldown_mode: coerceEnum(d.cooldown?.mode, ['smart', 'strict'] as const, FORM_DEFAULTS.cooldown_mode),
     cooldown_series_after_grab_sec: d.cooldown?.series_after_grab_sec ?? FORM_DEFAULTS.cooldown_series_after_grab_sec,
     cooldown_guid_after_failed_grab_sec: d.cooldown?.guid_after_failed_grab_sec ?? FORM_DEFAULTS.cooldown_guid_after_failed_grab_sec,
     cooldown_guid_after_failed_import_sec: d.cooldown?.guid_after_failed_import_sec ?? FORM_DEFAULTS.cooldown_guid_after_failed_import_sec,
@@ -251,15 +263,33 @@ export function InstanceFormDialog({
     if (!isEdit && errs.api_key) {
       setActiveTab('connection');
       setFocus('api_key');
+      toast.error('Save failed — check errors in the Connection tab');
       return;
     }
     // Jump to the first tab containing an error so the user sees the
     // inline message without hunting. Order matches the visual tab row.
     const has = (...names: (keyof FormValues)[]) => names.some((n) => errs[n]);
-    if (has('name', 'url', 'api_key', 'timeout_sec', 'search_timeout_sec')) setActiveTab('connection');
-    else if (has('search_min_custom_format_score', 'tags_include', 'tags_exclude')) setActiveTab('behavior');
-    else if (has('rate_limit_rpm', 'rate_limit_burst', 'limits_scan_max_series', 'limits_max_grabs_per_scan', 'ranking_origin_bonus')) setActiveTab('performance');
-    else setActiveTab('advanced');
+    let tab: string;
+    if (has('name', 'url', 'api_key', 'mode', 'dry_run', 'timeout_sec', 'search_timeout_sec')) {
+      tab = 'connection';
+    } else if (has(
+      'tags_mode', 'tags_include', 'tags_exclude',
+      'search_min_custom_format_score',
+      'search_require_all_aired', 'search_skip_specials', 'search_skip_anime',
+    )) {
+      tab = 'behavior';
+    } else if (has(
+      'rate_limit_rpm', 'rate_limit_burst',
+      'limits_scan_max_series', 'limits_max_grabs_per_scan',
+      'ranking_indexer_priority_enabled', 'ranking_origin_bonus',
+    )) {
+      tab = 'performance';
+    } else {
+      tab = 'advanced';
+    }
+    setActiveTab(tab);
+    const tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
+    toast.error(`Save failed — please fix errors in the ${tabLabel} tab`);
   };
 
   const onSubmit = handleSubmit(async (values) => {

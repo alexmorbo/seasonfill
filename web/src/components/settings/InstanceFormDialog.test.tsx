@@ -9,7 +9,7 @@ import {
   type InstanceDetail,
   type InstanceDetailWithMeta,
 } from '@/lib/instances-mutations';
-import { DtoInstanceDetailMode } from '@/api/schema';
+import { DtoInstanceDetailMode, DtoInstanceTagsMode } from '@/api/schema';
 
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
@@ -621,6 +621,46 @@ describe('<InstanceFormDialog />', () => {
     await waitFor(() => expect(captured.body).toBeDefined());
     const sent = JSON.parse(captured.body ?? '{}') as { tags?: { include?: string[] } };
     expect(sent.tags?.include).toEqual(['tv', '4k']);
+  });
+
+  it('tags.mode="" (NULL DB column) does not reject validation and sends valid enum on save', async () => {
+    // Regression: Go emits "" for NULL string columns; ?? only catches
+    // null/undefined, so "" reached zod which rejected it, silently
+    // jumped to the Advanced tab, and fired no network request.
+    const captured: { body?: string | undefined; method?: string | undefined } = {};
+    const nullTagsSeed: InstanceDetail = {
+      ...fullSeed(),
+      // Simulate Go marshalling a NULL column as an empty string.
+      tags: { mode: '' as unknown as DtoInstanceTagsMode, include: [], exclude: [] },
+    };
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha') && (!init?.method || init.method === 'GET')) {
+        return jsonResp(nullTagsSeed, 200);
+      }
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'alpha' }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="edit"
+        initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
+    );
+    seedDetail(qc, 'alpha', nullTagsSeed);
+
+    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    // Click Save without making any changes.
+    await userEvent.click(saveBtn);
+
+    // (a) A network PUT MUST fire — validation must not silently reject.
+    await waitFor(() => expect(captured.method).toBe('PUT'));
+
+    // (b) The outbound payload must carry a valid tags.mode enum value.
+    const sent = JSON.parse(captured.body ?? '{}') as { tags?: { mode?: string } };
+    expect(['off', 'include', 'exclude', 'both']).toContain(sent.tags?.mode);
   });
 
   it('TagListEditor commits draft on blur (prevents silent tag loss)', async () => {
