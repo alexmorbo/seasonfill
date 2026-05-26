@@ -5,6 +5,7 @@ package main
 import (
 	"sync/atomic"
 
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -19,5 +20,6 @@ func notifyTestContext(
 	_ *reload.SonarrClientsSubscriber,
 	_ *middleware.AuthRuntimePointer,
 	_ *atomic.Pointer[ratelimit.Limiter],
+	_ func() map[string]scan.Instance,
 ) {
 }

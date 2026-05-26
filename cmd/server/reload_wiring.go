@@ -76,6 +76,37 @@ func buildSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter
 	}
 }
 
+// buildScanFanout wires the OnApplied hook that updates scan instances and
+// the holder, closing the secret-rotation race by holding the subscriber lock.
+func buildScanFanout(scanUC *scan.UseCase, holder *instanceMapHolder, log *slog.Logger) reload.OnAppliedFunc {
+	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
+		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
+		nextMap := make(map[string]scan.Instance, len(snap.Instances))
+		for _, inst := range snap.Instances {
+			client, ok := clients[inst.Name]
+			if !ok || client == nil {
+				// Should be impossible: clients is built by the same
+				// apply iterating the same snap.Instances. Log and
+				// skip rather than mishandle.
+				log.Warn("scan fanout: client missing for instance",
+					slog.String("instance", inst.Name))
+				continue
+			}
+			// Copy the full snapshot so every field the scan/grab path
+			// reads (DryRun, Tags, Search, Ranking, Limits, Cooldown,
+			// Retry) reflects the latest published values. Slices inside
+			// TagsSnapshot (Include/Exclude) are treated as read-only by
+			// the scan path (buildTagFilter only reads them), so a shallow
+			// copy is safe here.
+			si := scan.Instance{Config: inst, Client: client}
+			nextSlice = append(nextSlice, si)
+			nextMap[inst.Name] = si
+		}
+		scanUC.SwapInstances(nextSlice)
+		holder.replace(nextMap)
+	}
+}
+
 // startSubscribers launches every subscriber under bgWG and blocks
 // until each has registered on the bus, then returns. ctx is the
 // long-lived rootCtx — SIGTERM cancels it and every subscriber
@@ -95,7 +126,6 @@ func startSubscribers(
 	bootScheduler *scheduler.Scheduler,
 	scanUC *scan.UseCase,
 	bootClients map[string]ports.SonarrClient,
-	bootCfgs map[string]runtime.InstanceSnapshot,
 	clientFactory reload.SonarrClientFactory,
 	checker reload.HealthChecker,
 	holder *instanceMapHolder,
@@ -106,24 +136,23 @@ func startSubscribers(
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
 	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
 		reload.SchedulerFactory(scheduler.New), log)
-	subClients := reload.NewSonarrClientsSubscriber(bootClients, bootCfgs, clientFactory, log).
-		WithWaitGroup(bgWG)
+	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
+		WithWaitGroup(bgWG).
+		WithOnApplied(buildScanFanout(scanUC, holder, log))
 
 	clientLister := func() []ports.SonarrClient { return subClients.View().All() }
-	clientForName := func(n string) (ports.SonarrClient, bool) { return subClients.View().ByName(n) }
 
 	subHealth := reload.NewHealthRegistrySubscriber(checker, clientLister, log)
-	subScan := reload.NewScanInstancesSubscriber(scanUC, clientForName, holder.replace, log)
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
 	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log)
 
 	runners := []func(context.Context, *runtime.Bus, func()){
 		subSched.Run, subClients.Run, subHealth.Run,
-		subScan.Run, subRate.Run, subAuth.Run,
+		subRate.Run, subAuth.Run,
 	}
 	names := []string{"scheduler", "sonarrClients", "healthRegistry",
-		"scanInstances", "globalRateLimiter", "authMiddleware"}
+		"globalRateLimiter", "authMiddleware"}
 
 	ready := make([]chan struct{}, len(runners))
 	for i := range ready {

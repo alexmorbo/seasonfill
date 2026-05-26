@@ -16,6 +16,14 @@ const DrainDelay = 30 * time.Second
 
 type SonarrClientFactory func(snap runtime.InstanceSnapshot) ports.SonarrClient
 
+// OnAppliedFunc is invoked synchronously at the tail of every successful
+// apply, while the subscriber lock is still held. Callees MUST NOT call
+// back into the subscriber and MUST NOT perform I/O — the only intended
+// implementations are atomic stores (scanUC.SwapInstances) and pure-CPU
+// map copies (holder.replace). The map handed in is freshly allocated
+// for this call and the callee owns it.
+type OnAppliedFunc func(snap runtime.Snapshot, clients map[string]ports.SonarrClient)
+
 type ClientsView struct {
 	byName map[string]ports.SonarrClient
 }
@@ -34,7 +42,9 @@ func (v *ClientsView) All() []ports.SonarrClient {
 }
 
 // pendingEntry is one in-flight drain. `deadline` is wall-time; the sweeper
-// drops the entry once `time.Now().After(deadline)`.
+// drops the entry once `time.Now().After(deadline)`. `config` is carried
+// only to detect a same-config re-add inside the drain window so we can
+// hand the still-warm client back without a factory call.
 type pendingEntry struct {
 	name     string
 	client   ports.SonarrClient
@@ -48,12 +58,13 @@ type SonarrClientsSubscriber struct {
 	configs        map[string]runtime.InstanceSnapshot
 	pendingRemoval map[string]pendingEntry
 	factory        SonarrClientFactory
+	onApplied      OnAppliedFunc
 	logger         *slog.Logger
 	drainDelay     time.Duration
 	bgWG           *sync.WaitGroup
 }
 
-func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, bootConfigs map[string]runtime.InstanceSnapshot, factory SonarrClientFactory, logger *slog.Logger) *SonarrClientsSubscriber {
+func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, factory SonarrClientFactory, logger *slog.Logger) *SonarrClientsSubscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -61,12 +72,9 @@ func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, bootConfigs 
 	for k, v := range boot {
 		live[k] = v
 	}
-	cfgs := make(map[string]runtime.InstanceSnapshot, len(bootConfigs))
-	for k, v := range bootConfigs {
-		cfgs[k] = v
-	}
 	return &SonarrClientsSubscriber{
-		live: live, configs: cfgs,
+		live:           live,
+		configs:        map[string]runtime.InstanceSnapshot{},
 		pendingRemoval: map[string]pendingEntry{},
 		factory:        factory,
 		logger:         logger,
@@ -86,6 +94,14 @@ func (s *SonarrClientsSubscriber) WithDrainDelay(d time.Duration) *SonarrClients
 // shared bgWG. Tests may omit; Run falls back to a private WG.
 func (s *SonarrClientsSubscriber) WithWaitGroup(wg *sync.WaitGroup) *SonarrClientsSubscriber {
 	s.bgWG = wg
+	return s
+}
+
+// WithOnApplied wires a synchronous post-apply hook. The hook is invoked
+// while the subscriber lock is held; see OnAppliedFunc for the contract.
+// MUST be called before Run.
+func (s *SonarrClientsSubscriber) WithOnApplied(fn OnAppliedFunc) *SonarrClientsSubscriber {
+	s.onApplied = fn
 	return s
 }
 
@@ -114,8 +130,6 @@ func (s *SonarrClientsSubscriber) Run(ctx context.Context, bus *runtime.Bus, rea
 	}()
 	runLoop(ctx, bus, "sonarrClients", s.logger, s.apply, ready)
 	if s.bgWG == nil {
-		// Local WG path: wait for sweeper here so Run() blocks until it
-		// fully exits. Production caller waits on the shared bgWG.
 		wg.Wait()
 	}
 }
@@ -190,6 +204,8 @@ func (s *SonarrClientsSubscriber) flushAllPending() {
 	}
 }
 
+// apply rebuilds clients from the snapshot and invokes onApplied while
+// holding s.mu to serialize holder updates with client changes.
 func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,18 +218,13 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 	nextLive := make(map[string]ports.SonarrClient, len(wantByName))
 	nextCfgs := make(map[string]runtime.InstanceSnapshot, len(wantByName))
 	for name, want := range wantByName {
-		if existing, ok := s.live[name]; ok && sameClientConfig(s.configs[name], want) {
-			nextLive[name] = existing
+		if pending, ok := s.pendingRemoval[name]; ok && sameClientConfig(pending.config, want) {
+			delete(s.pendingRemoval, name)
+			nextLive[name] = pending.client
 			nextCfgs[name] = want
 			continue
 		}
-		if pending, ok := s.pendingRemoval[name]; ok {
-			if sameClientConfig(pending.config, want) {
-				delete(s.pendingRemoval, name)
-				nextLive[name] = pending.client
-				nextCfgs[name] = want
-				continue
-			}
+		if _, ok := s.pendingRemoval[name]; ok {
 			delete(s.pendingRemoval, name)
 		}
 		client := s.factory(want)
@@ -232,16 +243,27 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 		if _, already := s.pendingRemoval[name]; already {
 			continue
 		}
+		cfg := s.configs[name] // carry forward the last known config for re-add matching
 		s.pendingRemoval[name] = pendingEntry{
 			name:     name,
 			client:   client,
-			config:   s.configs[name],
+			config:   cfg,
 			deadline: now.Add(s.drainDelay),
 		}
 	}
 
 	s.live = nextLive
 	s.configs = nextCfgs
+
+	if s.onApplied != nil {
+		// Allocate a defensive copy so the callee can retain the map
+		// without aliasing into s.live. Cheap: pointer-sized entries.
+		cp := make(map[string]ports.SonarrClient, len(nextLive))
+		for k, v := range nextLive {
+			cp[k] = v
+		}
+		s.onApplied(snap, cp)
+	}
 	return nil
 }
 

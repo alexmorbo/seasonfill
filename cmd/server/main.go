@@ -196,11 +196,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	clientFactory := buildSonarrClientFactory(&globalLimiterPtr, log)
 	sonarrClientsByName := make(map[string]ports.SonarrClient, len(cfg.SonarrInstances))
-	bootCfgs := make(map[string]runtime.InstanceSnapshot, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
-		c := clientFactory(sc)
-		sonarrClientsByName[sc.Name] = c
-		bootCfgs[sc.Name] = sc
+		sonarrClientsByName[sc.Name] = clientFactory(sc)
 	}
 	sonarrClients := make([]ports.SonarrClient, 0, len(sonarrClientsByName))
 	scanInstances := make([]scan.Instance, 0, len(sonarrClientsByName))
@@ -340,7 +337,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
-		bootScheduler, scanUC, sonarrClientsByName, bootCfgs,
+		bootScheduler, scanUC, sonarrClientsByName,
 		clientFactory, checker, holder,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
 	if err != nil {
@@ -354,7 +351,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// notifyTestContext fires testContextHook (integration builds only) so
 	// E2E tests can assert per-subscriber state. The call is a no-op in
 	// production builds (testcontext_stub.go provides the empty function).
-	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr)
+	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.load)
 
 	// Notify caller (test helper) that the bus is ready. Placed AFTER
 	// startSubscribers + boot Publish so the test can assert counters

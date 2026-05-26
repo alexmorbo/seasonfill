@@ -5,6 +5,7 @@ package main
 import (
 	"sync/atomic"
 
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -19,6 +20,7 @@ type TestContext struct {
 	ClientsView    func() *reload.ClientsView
 	AuthRuntimePtr *middleware.AuthRuntimePointer
 	GlobalLimPtr   *atomic.Pointer[ratelimit.Limiter]
+	HolderSnapshot func() map[string]scan.Instance
 }
 
 // testContextHook is set by bootForTestWithContext before runForTest starts.
@@ -34,6 +36,7 @@ func notifyTestContext(
 	subClients *reload.SonarrClientsSubscriber,
 	authRuntimePtr *middleware.AuthRuntimePointer,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
+	holderLoad func() map[string]scan.Instance,
 ) {
 	if testContextHook == nil {
 		return
@@ -44,5 +47,6 @@ func notifyTestContext(
 		ClientsView:    subClients.View,
 		AuthRuntimePtr: authRuntimePtr,
 		GlobalLimPtr:   globalLimiterPtr,
+		HolderSnapshot: holderLoad,
 	})
 }

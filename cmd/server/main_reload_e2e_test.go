@@ -85,7 +85,7 @@ func TestReload_E2E_GracefulShutdown(t *testing.T) {
 func allSubscribersGreen(t *testing.T) bool {
 	t.Helper()
 	for _, c := range []string{"scheduler", "sonarrClients", "healthRegistry",
-		"scanInstances", "globalRateLimiter", "authMiddleware"} {
+		"globalRateLimiter", "authMiddleware"} {
 		if scrapeCounter(t, c) == 0 {
 			return false
 		}
@@ -97,7 +97,7 @@ func scrapeReloadCounters(t *testing.T) map[string]int64 {
 	t.Helper()
 	out := map[string]int64{}
 	for _, c := range []string{"scheduler", "sonarrClients", "healthRegistry",
-		"scanInstances", "globalRateLimiter", "authMiddleware"} {
+		"globalRateLimiter", "authMiddleware"} {
 		out[c] = scrapeCounter(t, c)
 	}
 	return out
@@ -308,6 +308,93 @@ func TestReload_E2E_GlobalLimiterUpdated(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond, "global limiter pointer must be replaced")
 }
 
+// TestReload_E2E_HolderInstance_DryRunToggle asserts that toggling the
+// per-instance DryRun field propagates through buildScanFanout into the
+// instanceMapHolder so scan/grab picks up the updated value on reload.
+func TestReload_E2E_HolderInstance_DryRunToggle(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	dryRunTrue := true
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-dr", URL: "http://sonarr:8989", APIKey: "k1", DryRun: &dryRunTrue},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-dr"]
+		return ok && inst.Config.DryRun != nil && *inst.Config.DryRun
+	}, 2*time.Second, 50*time.Millisecond, "holder must reflect DryRun=true after first publish")
+
+	dryRunFalse := false
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-dr", URL: "http://sonarr:8989", APIKey: "k1", DryRun: &dryRunFalse},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-dr"]
+		return ok && inst.Config.DryRun != nil && !*inst.Config.DryRun
+	}, 2*time.Second, 50*time.Millisecond, "holder must reflect DryRun=false after toggle — scan must not see stale dry-run")
+}
+
+// TestReload_E2E_HolderInstance_LimitsToggle asserts that changing
+// MaxGrabsPerScan propagates through buildScanFanout into the holder.
+func TestReload_E2E_HolderInstance_LimitsToggle(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-lim", URL: "http://sonarr:8989", APIKey: "k1",
+				Limits: runtime.LimitsSnapshot{MaxGrabsPerScan: 5, ScanMaxSeries: 50}},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-lim"]
+		return ok && inst.Config.Limits.MaxGrabsPerScan == 5
+	}, 2*time.Second, 50*time.Millisecond, "holder must reflect MaxGrabsPerScan=5 after first publish")
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-lim", URL: "http://sonarr:8989", APIKey: "k1",
+				Limits: runtime.LimitsSnapshot{MaxGrabsPerScan: 20, ScanMaxSeries: 100}},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-lim"]
+		return ok && inst.Config.Limits.MaxGrabsPerScan == 20
+	}, 2*time.Second, 50*time.Millisecond, "holder must reflect updated MaxGrabsPerScan=20 after reload")
+}
+
 // TestReload_E2E_ClientsViewUpdated asserts that after publishing a snapshot
 // with named instances, the SonarrClientsSubscriber view reflects them.
 // Uses two minimal (URL-only, no real network) instance snapshots.
@@ -341,4 +428,62 @@ func TestReload_E2E_ClientsViewUpdated(t *testing.T) {
 	_, okB := view.ByName("inst-b")
 	assert.True(t, okA, "inst-a must be present in clients view")
 	assert.True(t, okB, "inst-b must be present in clients view")
+}
+
+// TestReload_E2E_HolderSnapshot_SecretRotation asserts that publishing a
+// snapshot with a rotated API key for the same instance name results in
+// holder.load() reflecting the newly-built client, not the stale one.
+// This is the regression contract for the secret-rotation cache bug.
+func TestReload_E2E_HolderSnapshot_SecretRotation(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	// Publish initial snapshot with API key "A"
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "Sonarr", URL: "http://sonarr:8989", APIKey: "A"},
+		},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(tc.ClientsView().All()) == 1
+	}, 2*time.Second, 50*time.Millisecond, "clients view must have 1 instance after first publish")
+
+	// Verify holder reflects the initial client with key "A"
+	holderA := tc.HolderSnapshot()
+	instA, ok := holderA["Sonarr"]
+	require.True(t, ok, "holder must contain Sonarr instance after first publish")
+	assert.Equal(t, "A", instA.Config.APIKey, "initial holder must reflect APIKey A")
+
+	// Publish second snapshot with same name but rotated key "B"
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "Sonarr", URL: "http://sonarr:8989", APIKey: "B"},
+		},
+	})
+
+	require.Eventually(t, func() bool {
+		holderB := tc.HolderSnapshot()
+		instB, ok := holderB["Sonarr"]
+		return ok && instB.Config.APIKey == "B"
+	}, 2*time.Second, 50*time.Millisecond, "holder must reflect rotated APIKey B after secret rotation")
+
+	// Assert holder now reflects the rotated key, not the stale one
+	holderB := tc.HolderSnapshot()
+	instB, ok := holderB["Sonarr"]
+	require.True(t, ok)
+	assert.Equal(t, "B", instB.Config.APIKey,
+		"holder must reflect the newly-rotated API key, not the stale one")
 }

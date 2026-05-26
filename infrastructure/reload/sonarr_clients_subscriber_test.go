@@ -15,9 +15,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// fakeClient is the smallest ports.SonarrClient possible — only
-// Name() is exercised by these tests; the rest are unused stubs
-// that satisfy the interface without dragging in real HTTP.
 type fakeClient struct{ name string }
 
 func (f *fakeClient) Name() string { return f.name }
@@ -26,8 +23,7 @@ func newFakeClient(name string) ports.SonarrClient {
 	return &fakeSonarrClient{fakeClient: fakeClient{name: name}}
 }
 
-// startClientsSub spins up the subscriber with a short drain delay.
-func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.SonarrClient, bootCfgs map[string]runtime.InstanceSnapshot) (*SonarrClientsSubscriber, *runtime.Bus, context.CancelFunc, *int32) {
+func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.SonarrClient, bootCfgs ...map[string]runtime.InstanceSnapshot) (*SonarrClientsSubscriber, *runtime.Bus, context.CancelFunc, *int32) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	bus := runtime.NewBus(slog.Default())
@@ -37,8 +33,14 @@ func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.So
 		atomic.AddInt32(&builds, 1)
 		return newFakeClient(s.Name)
 	})
-	sub := NewSonarrClientsSubscriber(boot, bootCfgs, factory, slog.Default()).
+	sub := NewSonarrClientsSubscriber(boot, factory, slog.Default()).
 		WithDrainDelay(drain)
+	// Optionally populate initial configs for tests that care about drain-reuse matching
+	if len(bootCfgs) > 0 && bootCfgs[0] != nil {
+		for k, v := range bootCfgs[0] {
+			sub.configs[k] = v
+		}
+	}
 	ready := make(chan struct{})
 	go sub.Run(ctx, bus, func() { close(ready) })
 	select {
@@ -49,41 +51,95 @@ func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.So
 	return sub, bus, cancel, &builds
 }
 
-func TestSonarrClients_ReuseOnUnchangedConfig(t *testing.T) {
+func TestSonarrClients_AlwaysRebuilds_UnchangedConfig(t *testing.T) {
 	t.Parallel()
 	boot := map[string]ports.SonarrClient{"alpha": newFakeClient("alpha")}
 	cfg := runtime.InstanceSnapshot{
 		Name: "alpha", URL: "http://x", APIKey: "k", Timeout: time.Second,
 	}
-	sub, bus, cancel, builds := startClientsSub(t, 50*time.Millisecond,
-		boot, map[string]runtime.InstanceSnapshot{"alpha": cfg})
+	sub, bus, cancel, builds := startClientsSub(t, 50*time.Millisecond, boot)
 	defer cancel()
 	bus.Publish(context.Background(), runtime.Snapshot{Instances: []runtime.InstanceSnapshot{cfg}})
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int32(0), atomic.LoadInt32(builds), "unchanged config must NOT rebuild client")
-	got, ok := sub.View().ByName("alpha")
-	require.True(t, ok)
-	assert.Equal(t, boot["alpha"], got, "must reuse the exact same client pointer")
-}
-
-func TestSonarrClients_RebuildOnConfigChange(t *testing.T) {
-	t.Parallel()
-	boot := map[string]ports.SonarrClient{"alpha": newFakeClient("alpha")}
-	cfg := runtime.InstanceSnapshot{Name: "alpha", URL: "http://x", APIKey: "k1"}
-	sub, bus, cancel, builds := startClientsSub(t, 50*time.Millisecond,
-		boot, map[string]runtime.InstanceSnapshot{"alpha": cfg})
-	defer cancel()
-	changed := cfg
-	changed.APIKey = "k2"
-	bus.Publish(context.Background(), runtime.Snapshot{Instances: []runtime.InstanceSnapshot{changed}})
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) && atomic.LoadInt32(builds) == 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
-	assert.Equal(t, int32(1), atomic.LoadInt32(builds), "api_key change must rebuild")
+	assert.Equal(t, int32(1), atomic.LoadInt32(builds),
+		"every publish must rebuild — skip cache was removed to close the secret-rotation regression")
 	got, ok := sub.View().ByName("alpha")
 	require.True(t, ok)
-	assert.NotSame(t, boot["alpha"], got, "client pointer must change after rebuild")
+	assert.NotSame(t, boot["alpha"], got, "rebuild produces a fresh client pointer")
+}
+
+func TestSonarrClients_SecretRotation_TriggersRebuild_AndCallback(t *testing.T) {
+	t.Parallel()
+	bootClient := newFakeClient("Sonarr")
+	boot := map[string]ports.SonarrClient{"Sonarr": bootClient}
+
+	var builds int32
+	factory := SonarrClientFactory(func(s runtime.InstanceSnapshot) ports.SonarrClient {
+		atomic.AddInt32(&builds, 1)
+		// Capture the api_key the factory received so the test can
+		// assert the snapshot's freshly-rotated value flows through.
+		return &fakeSonarrClient{fakeClient: fakeClient{name: s.Name + ":" + s.APIKey}}
+	})
+
+	var hookMu sync.Mutex
+	var hookSnap runtime.Snapshot
+	var hookClients map[string]ports.SonarrClient
+	var hookCalls int32
+	onApplied := OnAppliedFunc(func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
+		hookMu.Lock()
+		hookSnap = snap
+		hookClients = clients
+		atomic.AddInt32(&hookCalls, 1)
+		hookMu.Unlock()
+	})
+
+	sub := NewSonarrClientsSubscriber(boot, factory, slog.Default()).
+		WithDrainDelay(50 * time.Millisecond).
+		WithOnApplied(onApplied)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := runtime.NewBus(slog.Default())
+	t.Cleanup(bus.Close)
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	<-ready
+
+	rotated := runtime.InstanceSnapshot{
+		Name: "Sonarr", URL: "http://sonarr:8989", APIKey: "new-key-32-hex-aaaaaaaaaaaaaaaaa",
+		Timeout: time.Second,
+	}
+	bus.Publish(context.Background(), runtime.Snapshot{
+		Instances: []runtime.InstanceSnapshot{rotated},
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&hookCalls) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&builds),
+		"rotation must invoke the factory exactly once for the rotated instance")
+	require.Equal(t, int32(1), atomic.LoadInt32(&hookCalls),
+		"onApplied must fire exactly once for the rotation publish")
+
+	got, ok := sub.View().ByName("Sonarr")
+	require.True(t, ok)
+	assert.Equal(t, "Sonarr:new-key-32-hex-aaaaaaaaaaaaaaaaa", got.Name(),
+		"view must surface the freshly-built client carrying the rotated api_key")
+	assert.NotSame(t, bootClient, got, "stale boot client must not be reused")
+
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	require.Len(t, hookSnap.Instances, 1, "hook receives the publish snapshot verbatim")
+	assert.Equal(t, "new-key-32-hex-aaaaaaaaaaaaaaaaa", hookSnap.Instances[0].APIKey,
+		"hook's snapshot APIKey must be the rotated value the publish carried")
+	require.NotNil(t, hookClients["Sonarr"], "hook must receive the rotated client by name")
+	assert.Equal(t, got, hookClients["Sonarr"],
+		"hook's client map MUST be identical to View() at the moment apply() ran — no race window")
 }
 
 func TestSonarrClients_RemovedInstance_DrainAndDrop(t *testing.T) {
@@ -92,18 +148,13 @@ func TestSonarrClients_RemovedInstance_DrainAndDrop(t *testing.T) {
 		"alpha": newFakeClient("alpha"),
 		"beta":  newFakeClient("beta"),
 	}
-	cfgs := map[string]runtime.InstanceSnapshot{
-		"alpha": {Name: "alpha", URL: "http://a", APIKey: "k"},
-		"beta":  {Name: "beta", URL: "http://b", APIKey: "k"},
-	}
-	sub, bus, cancel, _ := startClientsSub(t, 100*time.Millisecond, boot, cfgs)
+	sub, bus, cancel, _ := startClientsSub(t, 100*time.Millisecond, boot)
 	defer cancel()
-	// Remove beta; alpha remains.
 	bus.Publish(context.Background(), runtime.Snapshot{
-		Instances: []runtime.InstanceSnapshot{cfgs["alpha"]},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "alpha", URL: "http://a", APIKey: "k"},
+		},
 	})
-	// Immediately after publish: beta gone from View, but client is
-	// still in pendingRemoval until 100ms elapses.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, ok := sub.View().ByName("beta"); !ok {
@@ -113,7 +164,6 @@ func TestSonarrClients_RemovedInstance_DrainAndDrop(t *testing.T) {
 	}
 	_, ok := sub.View().ByName("beta")
 	assert.False(t, ok, "beta must disappear from live View immediately after reload")
-	// Wait past drain.
 	time.Sleep(150 * time.Millisecond)
 	sub.mu.Lock()
 	pendingCount := len(sub.pendingRemoval)
@@ -130,7 +180,6 @@ func TestSonarrClients_ReAddDuringDrain_ReusesPending(t *testing.T) {
 		map[string]runtime.InstanceSnapshot{"alpha": cfg})
 	defer cancel()
 
-	// Step 1: delete alpha.
 	bus.Publish(context.Background(), runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -139,7 +188,6 @@ func TestSonarrClients_ReAddDuringDrain_ReusesPending(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	// Step 2: re-add alpha with identical config inside the drain.
 	bus.Publish(context.Background(), runtime.Snapshot{Instances: []runtime.InstanceSnapshot{cfg}})
 	deadline = time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -154,11 +202,6 @@ func TestSonarrClients_ReAddDuringDrain_ReusesPending(t *testing.T) {
 	assert.Equal(t, int32(0), atomic.LoadInt32(builds), "factory must NOT be called on re-add reuse")
 }
 
-// TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending
-// covers the OTHER branch of the pendingRemoval lookup: a re-add inside
-// the drain window with a CHANGED config must build a fresh client via
-// the factory AND drop the pending entry so the old client is not
-// silently revived.
 func TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending(t *testing.T) {
 	t.Parallel()
 	bootClient := newFakeClient("alpha")
@@ -168,7 +211,6 @@ func TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending(t 
 		map[string]runtime.InstanceSnapshot{"alpha": bootCfg})
 	defer cancel()
 
-	// Step 1: drain alpha by publishing an empty snapshot.
 	bus.Publish(context.Background(), runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -178,15 +220,11 @@ func TestSonarrClients_ReAddDuringDrain_ConfigChanged_RebuildsAndDropsPending(t 
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Confirm alpha sits in pendingRemoval before we re-add it.
 	sub.mu.RLock()
 	_, inPending := sub.pendingRemoval["alpha"]
 	sub.mu.RUnlock()
 	require.True(t, inPending, "alpha must be in pendingRemoval after drain publish")
 
-	// Step 2: re-add alpha with a DIFFERENT api_key, still inside the
-	// drain window. apply() must NOT reuse pending.client — it must
-	// call the factory and drop the pending entry.
 	changed := bootCfg
 	changed.APIKey = "k2"
 	bus.Publish(context.Background(), runtime.Snapshot{
@@ -222,15 +260,9 @@ func TestDrain_SweeperFiresAndCleansUp(t *testing.T) {
 		"alpha": newFakeClient("alpha"),
 		"beta":  newFakeClient("beta"),
 	}
-	cfgs := map[string]runtime.InstanceSnapshot{
-		"alpha": {Name: "alpha", URL: "http://a", APIKey: "k"},
-		"beta":  {Name: "beta", URL: "http://b", APIKey: "k"},
-	}
-	sub, bus, cancel, _ := startClientsSub(t, 100*time.Millisecond, boot, cfgs)
+	sub, bus, cancel, _ := startClientsSub(t, 100*time.Millisecond, boot)
 	defer cancel()
-	// Remove both → 2 pending entries.
 	bus.Publish(context.Background(), runtime.Snapshot{})
-	// Wait past deadline + one sweeper tick (50ms).
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		sub.mu.RLock()
@@ -249,7 +281,6 @@ func TestDrain_SweeperFiresAndCleansUp(t *testing.T) {
 
 func TestDrain_ShutdownFlushesPending(t *testing.T) {
 	t.Parallel()
-	// Long drain so entries WON'T be expired by wall-clock time.
 	boot := map[string]ports.SonarrClient{}
 	cfgs := map[string]runtime.InstanceSnapshot{}
 	for _, n := range []string{"a", "b", "c", "d", "e"} {
@@ -263,9 +294,13 @@ func TestDrain_ShutdownFlushesPending(t *testing.T) {
 		return newFakeClient(s.Name)
 	})
 	var wg sync.WaitGroup
-	sub := NewSonarrClientsSubscriber(boot, cfgs, factory, slog.Default()).
-		WithDrainDelay(30 * time.Second). // deliberately long
+	sub := NewSonarrClientsSubscriber(boot, factory, slog.Default()).
+		WithDrainDelay(30 * time.Second).
 		WithWaitGroup(&wg)
+	// Populate initial configs for drain matching
+	for k, v := range cfgs {
+		sub.configs[k] = v
+	}
 	ready := make(chan struct{})
 	wg.Add(1)
 	go func() {
@@ -273,9 +308,7 @@ func TestDrain_ShutdownFlushesPending(t *testing.T) {
 		sub.Run(ctx, bus, func() { close(ready) })
 	}()
 	<-ready
-	// Trigger drain for all five.
 	bus.Publish(context.Background(), runtime.Snapshot{})
-	// Wait until apply has finished (pending map is populated).
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		sub.mu.RLock()
@@ -286,7 +319,6 @@ func TestDrain_ShutdownFlushesPending(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	// Cancel and verify wg.Wait completes within bounded time.
 	cancel()
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
@@ -301,7 +333,6 @@ func TestDrain_ShutdownFlushesPending(t *testing.T) {
 	assert.Equal(t, 0, pendingCount, "shutdown must flush every pending entry")
 }
 
-// panicSub is a minimal apply-shaped subscriber whose 3rd apply panics.
 type panicApplier struct{ count int32 }
 
 func (p *panicApplier) apply(_ context.Context, _ runtime.Snapshot) error {
@@ -326,9 +357,6 @@ func TestApply_PanicRecovered(t *testing.T) {
 		runLoop(ctx, bus, "testPanic", slog.Default(), p.apply, func() { close(ready) })
 	}()
 	<-ready
-	// Bus is 1-buffered with latest-wins drop-stale semantics — publishing
-	// in a tight loop can squash messages. Publish then wait for count to
-	// advance before the next publish so each snapshot is observed.
 	waitFor := func(want int32) {
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) {
