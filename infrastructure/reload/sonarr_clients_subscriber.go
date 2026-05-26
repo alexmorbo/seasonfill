@@ -224,9 +224,7 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 			nextCfgs[name] = want
 			continue
 		}
-		if _, ok := s.pendingRemoval[name]; ok {
-			delete(s.pendingRemoval, name)
-		}
+		delete(s.pendingRemoval, name)
 		client := s.factory(want)
 		if client == nil {
 			return fmt.Errorf("sonarr factory returned nil for instance %q", name)
