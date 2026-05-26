@@ -51,7 +51,7 @@ func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { 
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ForceGrab(ctx context.Context, guid string, indexerID int) (string, error) {
+func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
 func (f *fakeSonarr) Name() string { return f.name }
@@ -113,22 +113,31 @@ func TestHealthHandler_Ready_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "ok", body["status"])
 	assert.Equal(t, true, body["database"])
+	// Body shape is deliberately narrow now — no instance state.
+	_, hasSonarr := body["sonarr"]
+	_, hasInstances := body["instances"]
+	_, hasReasons := body["reasons"]
+	assert.False(t, hasSonarr, "/readyz must not expose external-instance bool")
+	assert.False(t, hasInstances, "/readyz must not expose instances array")
+	assert.False(t, hasReasons, "/readyz must not expose reasons array")
 }
 
-func TestHealthHandler_Ready_AllSonarrDown(t *testing.T) {
+func TestHealthHandler_Ready_SonarrDown_StillReady(t *testing.T) {
+	// Regression guard for the 2026-05-26 incident: an unauthorised
+	// or unreachable Sonarr instance must NOT fail readiness — the pod
+	// has to stay in the K8s Service so the operator can reach the UI
+	// and fix the upstream config.
 	r := setupRouter(t, newChecker(t, &fakeSonarr{name: "main", err: assertErr("boom")}, false))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code, "external Sonarr failure must not flip readiness")
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "unavailable", body["status"])
-	assert.Equal(t, false, body["sonarr"])
-	reasons, _ := body["reasons"].([]any)
-	assert.NotEmpty(t, reasons, "reasons array must enumerate the failure cause")
+	assert.Equal(t, "ok", body["status"])
+	assert.Equal(t, true, body["database"])
 }
 
 func TestHealthHandler_Ready_NoInstancesIsReady(t *testing.T) {

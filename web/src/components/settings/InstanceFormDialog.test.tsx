@@ -229,6 +229,8 @@ describe('<InstanceFormDialog />', () => {
     });
     expect(sent.retry).toEqual({ max_attempts: 5, initial_backoff_sec: 2, max_backoff_sec: 30 });
     expect(sent.health_check).toEqual({ recheck_auth_sec: 600, recheck_network_sec: 60 });
+    // Masked api_key must NEVER appear in the request body:
+    expect(sent).not.toHaveProperty('api_key');
   });
 
   it('edit Save is disabled until detail is loaded', async () => {
@@ -346,5 +348,92 @@ describe('<InstanceFormDialog />', () => {
     await waitFor(() => {
       expect((keyInput as HTMLInputElement).value).toBe('user-typed-secret');
     });
+  });
+
+  it('edit submit OMITS api_key when the user did not touch the field, even with masked detail cached', async () => {
+    // Simulates the 2026-05-26 incident: GET returns api_key="***"
+    // (the server-side mask), user flips mode auto→manual, hits Save
+    // without typing in the api_key input. The PUT body MUST NOT
+    // contain api_key at all.
+    const captured: { body?: string | undefined; method?: string | undefined } = {};
+    const maskedDetail: InstanceDetail = {
+      name: 'alpha', url: 'http://x', mode: DtoInstanceDetailMode.auto,
+      api_key: '***',
+    } as InstanceDetail;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha') && (!init?.method || init.method === 'GET')) {
+        return jsonResp(maskedDetail, 200);
+      }
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'alpha' }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open
+        onOpenChange={() => {}}
+        mode="edit"
+        initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', maskedDetail);
+
+    // Wait for Save to enable.
+    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    // Flip mode auto→manual via the select (mimics the real incident).
+    // The mode select uses Radix; clicking the trigger opens the
+    // listbox, then we pick "manual".
+    await userEvent.click(screen.getByRole('combobox'));
+    await userEvent.click(await screen.findByRole('option', { name: 'manual' }));
+
+    await userEvent.click(saveBtn);
+    await waitFor(() => expect(captured.method).toBe('PUT'));
+
+    const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('api_key');
+    expect(sent.mode).toBe('manual');
+  });
+
+  it('edit submit INCLUDES api_key only when the user types into the field', async () => {
+    const captured: { body?: string | undefined; method?: string | undefined } = {};
+    const maskedDetail: InstanceDetail = {
+      name: 'alpha', url: 'http://x', mode: DtoInstanceDetailMode.auto,
+      api_key: '***',
+    } as InstanceDetail;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha') && (!init?.method || init.method === 'GET')) {
+        return jsonResp(maskedDetail, 200);
+      }
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'alpha' }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open
+        onOpenChange={() => {}}
+        mode="edit"
+        initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', maskedDetail);
+
+    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const keyInput = await screen.findByLabelText(/api key/i);
+    await userEvent.type(keyInput, 'new-real-key-32-chars-typed-byhuman');
+
+    await userEvent.click(saveBtn);
+    await waitFor(() => expect(captured.method).toBe('PUT'));
+
+    const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(sent.api_key).toBe('new-real-key-32-chars-typed-byhuman');
   });
 });

@@ -1,7 +1,9 @@
 package instance
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"math"
 	"strings"
 	"sync"
@@ -600,6 +602,88 @@ func TestValidate_URLScheme(t *testing.T) {
 			require.ErrorAs(t, err, &verr)
 			assert.Equal(t, "INVALID_INSTANCE_URL_SCHEME", verr.Code,
 				"url=%q must be rejected", tc.url)
+		})
+	}
+}
+
+// TestUpdate_MaskedKey_PreservesSecret guards the 032b regression: a
+// frontend that leaks a masked GET response ("***") into the PUT body
+// must NOT cause a re-encrypt of the placeholder over the stored key.
+// The use case must treat the masked shape as "preserve" and emit a
+// structured warning so the regression is observable.
+func TestUpdate_MaskedKey_PreservesSecret(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	bus := runtime.NewBus(nil)
+	t.Cleanup(bus.Close)
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	uc := New(repo, &fakeRuntimeRepo{}, nil, bus, logger)
+	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
+	repo.preserveCalls = 0 // reset after Create
+
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{name: "three_stars", key: "***"},
+		{name: "eight_bullets", key: "••••••••"},
+		{name: "padded_stars", key: "        ***        "}, // trim then mask
+		{name: "short_token", key: "abcdef0123"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := repo.preserveCalls
+			upd := validSnap("alpha")
+			upd.APIKey = tc.key
+			require.NoError(t, uc.Update(context.Background(), "alpha", upd, nil))
+			assert.Equal(t, before+1, repo.preserveCalls,
+				"preserveSecret must be true for placeholder-shaped api_key %q", tc.key)
+		})
+	}
+
+	assert.Contains(t, logBuf.String(), "instance.update.suspicious_api_key_preserved",
+		"placeholder rejection must emit a structured warning")
+}
+
+// TestUpdate_RealKey_DoesNotPreserve confirms a 32-hex realistic key
+// still flows to the repository as a real overwrite (preserve=false).
+func TestUpdate_RealKey_DoesNotPreserve(t *testing.T) {
+	t.Parallel()
+	uc, repo, _, _ := setup(t)
+	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
+	before := repo.preserveCalls
+	upd := validSnap("alpha")
+	upd.APIKey = "0123456789abcdef0123456789abcdef" // 32 hex
+	require.NoError(t, uc.Update(context.Background(), "alpha", upd, nil))
+	assert.Equal(t, before, repo.preserveCalls,
+		"a 32-hex real key must overwrite, not preserve")
+}
+
+// TestIsPlaceholderAPIKey is a table-driven micro-test of the guard
+// helper so regressions in the predicate are caught independently of
+// the Update flow.
+func TestIsPlaceholderAPIKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want bool
+		desc string
+	}{
+		{in: "", want: true, desc: "empty"},
+		{in: "***", want: true, desc: "three stars"},
+		{in: "********", want: true, desc: "eight stars"},
+		{in: "••••", want: true, desc: "bullets"},
+		{in: "····", want: true, desc: "middle dots"},
+		{in: "abc", want: true, desc: "too short real-ish"},
+		{in: "0123456789abcdef", want: false, desc: "16-hex boundary"},
+		{in: "0123456789abcdef0123456789abcdef", want: false, desc: "32-hex sonarr"},
+		{in: "a-real-api-key-with-32-chars-here", want: false, desc: "non-hex 33ch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, isPlaceholderAPIKey(tc.in))
 		})
 	}
 }

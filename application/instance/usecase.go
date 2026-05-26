@@ -165,7 +165,9 @@ func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) err
 }
 
 // Update applies changes to an existing row, optionally preserving
-// the stored api_key when newSnap.APIKey is empty. ifUnmodifiedSince
+// the stored api_key when newSnap.APIKey is empty OR matches a UI
+// placeholder shape (defense-in-depth against a frontend regression
+// that leaks a masked value back to the server). ifUnmodifiedSince
 // (nil = ignore) implements optimistic concurrency.
 //
 // Defaults are applied BEFORE validation (see Create godoc for the
@@ -188,7 +190,22 @@ func (u *UseCase) Update(
 		return err
 	}
 	newSnap.ID = existing.ID
-	preserveSecret := strings.TrimSpace(newSnap.APIKey) == ""
+	trimmed := strings.TrimSpace(newSnap.APIKey)
+	preserveSecret := trimmed == ""
+	if !preserveSecret && isPlaceholderAPIKey(trimmed) {
+		// Real Sonarr API keys are 32 lowercase hex characters. Any
+		// shorter input or any input composed entirely of mask glyphs
+		// is the masked GET response leaking back through a buggy
+		// client. Treat as preserve and emit a structured warning so
+		// the regression is visible in logs without breaking the
+		// user's save.
+		u.logger.WarnContext(ctx, "instance.update.suspicious_api_key_preserved",
+			slog.String("instance", name),
+			slog.Int("len", len(trimmed)),
+		)
+		preserveSecret = true
+		newSnap.APIKey = ""
+	}
 	if err := u.instances.UpdateWithOptions(ctx, newSnap, u.cipher, preserveSecret, ifUnmodifiedSince); err != nil {
 		if errors.Is(err, ports.ErrStaleWrite) {
 			return ErrStaleWrite
@@ -196,6 +213,33 @@ func (u *UseCase) Update(
 		return fmt.Errorf("update instance: %w", err)
 	}
 	return u.publish(ctx)
+}
+
+// isPlaceholderAPIKey returns true for values that cannot be a real
+// Sonarr API key and look like a UI placeholder leaking through. A
+// real Sonarr v3 API key is exactly 32 lowercase hex characters
+// (sha1.Sum / RandomNumberGenerator output); anything shorter than 16
+// bytes OR composed entirely of typical mask glyphs ('*', '•', '·')
+// is rejected. The 16-byte floor leaves slack for future Sonarr key
+// formats while still catching every common masked shape ('***',
+// '••••••••', '********', etc.).
+//
+// This is intentionally permissive on the upper bound: we don't want
+// to reject a legitimate non-Sonarr key shape if the user point this
+// at a fork. Lower-bound rejection is the only safety net.
+func isPlaceholderAPIKey(v string) bool {
+	if len(v) < 16 {
+		return true
+	}
+	for _, r := range v {
+		switch r {
+		case '*', '•', '·': // '*', '•', '·'
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // Delete enforces the LAST_INSTANCE guard then hard-deletes the row

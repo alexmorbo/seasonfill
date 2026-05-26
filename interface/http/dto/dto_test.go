@@ -61,19 +61,20 @@ func TestScanNotFoundResponse_Roundtrip(t *testing.T) {
 
 func TestReadyStatus_HasSnakeCaseKeys(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	in := ReadyStatus{
-		Status: "ok", Database: true, Sonarr: true,
-		Instances: []Instance{{Name: "alpha", Health: "available", LastCheckAt: &now}},
-	}
+	in := ReadyStatus{Status: "ok", Database: true}
 	raw, err := json.Marshal(in)
 	require.NoError(t, err)
 	s := string(raw)
-	for _, k := range []string{`"status"`, `"database"`, `"sonarr"`, `"instances"`, `"name"`, `"health"`, `"last_check_at"`} {
+	for _, k := range []string{`"status"`, `"database"`} {
 		assert.Contains(t, s, k, "missing snake_case key %s in wire", k)
 	}
-	for _, k := range []string{`"Status"`, `"Database"`, `"Sonarr"`, `"Instances"`, `"Name"`, `"Health"`, `"LastCheckAt"`} {
+	for _, k := range []string{`"Status"`, `"Database"`} {
 		assert.NotContains(t, s, k, "wire leaked PascalCase key %s", k)
+	}
+	// External-instance state intentionally not on /readyz — surfaced via
+	// /api/v1/instances and the seasonfill_instance_health gauge.
+	for _, k := range []string{`"sonarr"`, `"instances"`, `"reasons"`} {
+		assert.NotContains(t, s, k, "/readyz body must not carry instance state: %s", k)
 	}
 }
 

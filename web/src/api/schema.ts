@@ -1175,7 +1175,8 @@ export type paths = {
         };
         /**
          * Readiness probe
-         * @description 200 when DB is up; if instances exist, ≥1 must be healthy. Empty config still passes.
+         * @description 200 when pod-local dependencies (DB) are healthy.
+         *     External Sonarr health is reported via /api/v1/instances.
          */
         readonly get: {
             readonly parameters: {
@@ -1762,10 +1763,6 @@ export type components = {
         readonly "dto.ReadyStatus": {
             /** @example true */
             readonly database?: boolean;
-            readonly instances?: readonly components["schemas"]["dto.Instance"][];
-            readonly reasons?: readonly string[];
-            /** @example true */
-            readonly sonarr?: boolean;
             /**
              * @example ok
              * @enum {string}

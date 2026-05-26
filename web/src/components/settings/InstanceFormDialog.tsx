@@ -24,6 +24,7 @@ import {
   useUpdateInstance,
   type InstanceCreateRequest,
   type InstanceUpdateRequest,
+  type InstanceDetail,
 } from '@/lib/instances-mutations';
 
 const nameRule = z
@@ -70,6 +71,18 @@ const DEFAULTS: FormValues = {
   mode: 'auto',
 };
 
+// stripSecretFields returns a shallow clone of `detail` with secret
+// fields (currently just api_key) removed. The GET response masks
+// api_key to "***" for display; that masked value must NEVER appear
+// in any outbound mutation body or it will be re-encrypted over the
+// real stored secret. Keeping this as a single chokepoint makes the
+// invariant grep-able.
+function stripSecretFields(detail: InstanceDetail): Omit<InstanceDetail, 'api_key'> {
+  const clone: Record<string, unknown> = { ...detail };
+  delete clone.api_key;
+  return clone as Omit<InstanceDetail, 'api_key'>;
+}
+
 export function InstanceFormDialog({
   open, onOpenChange, mode, initial,
 }: InstanceFormDialogProps) {
@@ -89,7 +102,7 @@ export function InstanceFormDialog({
 
   const {
     register, handleSubmit, reset, getValues, setFocus, control,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, dirtyFields },
   } = useForm<FormValues>({
     resolver: zodResolver(pickSchema(mode)),
     defaultValues: { ...DEFAULTS, ...initial, api_key: '' },
@@ -114,13 +127,20 @@ export function InstanceFormDialog({
   };
 
   const onSubmit = handleSubmit(async (values) => {
-    const trimmedKey = values.api_key.trim();
     if (isEdit && initial?.name) {
       if (!detail) return;
+      // CRITICAL: never spread `detail` directly — its api_key is the
+      // server-side mask "***". Strip it first, then only re-attach
+      // api_key when the user actually typed something. `dirtyFields`
+      // is RHF's source of truth for "did the user interact with this
+      // field"; a value-equality check would mis-classify a paste of
+      // the same text as not dirty.
+      const sanitized = stripSecretFields(detail);
+      const userTypedKey = Boolean(dirtyFields.api_key) && values.api_key.trim().length > 0;
       const body: InstanceUpdateRequest = {
-        ...detail,
+        ...sanitized,
         name: values.name, url: values.url, mode: values.mode,
-        ...(trimmedKey.length > 0 ? { api_key: trimmedKey } : {}),
+        ...(userTypedKey ? { api_key: values.api_key.trim() } : {}),
       };
       delete (body as { updated_at?: string }).updated_at;
       await update.mutateAsync({ name: initial.name, body });
@@ -129,7 +149,7 @@ export function InstanceFormDialog({
       // non-empty here. No silent guard.
       const body: InstanceCreateRequest = {
         name: values.name, url: values.url,
-        api_key: trimmedKey, mode: values.mode,
+        api_key: values.api_key.trim(), mode: values.mode,
       };
       await create.mutateAsync({ body });
     }
@@ -158,6 +178,10 @@ export function InstanceFormDialog({
   };
 
   const editBlocked = isEdit && (detailQuery.isPending || detailQuery.isError || !detail);
+
+  // We need a const reference to useUpdateInstance for the body type
+  // import; this import is kept at the top of the file with the
+  // others — see InstanceUpdateRequest above.
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -229,10 +253,16 @@ export function InstanceFormDialog({
               id="inst-key"
               type="password"
               autoComplete="off"
-              placeholder={isEdit ? 'Leave empty to keep current key' : ''}
+              placeholder={isEdit ? 'Leave blank to keep existing key' : ''}
               aria-invalid={Boolean(errors.api_key) || undefined}
               {...register('api_key')}
             />
+            {isEdit && (
+              <p className="text-[11.5px] text-muted">
+                Leave the field empty to keep the current key. The stored
+                key is never sent to the browser.
+              </p>
+            )}
             {errors.api_key && (
               <p role="alert" className="text-status-danger text-[11.5px]">
                 {errors.api_key.message}

@@ -415,3 +415,23 @@ func TestCRUD_Create_OmitsHealthCheck_201(t *testing.T) {
 	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
 	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
 }
+
+// TestCRUD_Put_MaskedKey_Preserves is the wire-level regression guard
+// for the 2026-05-26 incident: a PUT carrying api_key="***" (the
+// masked GET response leaking back through the SPA) must not overwrite
+// the stored ciphertext. The handler returns 200 and the masked
+// representation; the use-case-level warning is exercised separately.
+func TestCRUD_Put_MaskedKey_Preserves(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+	body := createBody("alpha")
+	body["api_key"] = "***"
+	body["mode"] = "manual" // also flip mode to mirror the real incident
+	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", body, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "***", got["api_key"], "wire response stays masked")
+	assert.Equal(t, "manual", got["mode"], "non-secret field still applied")
+}

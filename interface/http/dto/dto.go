@@ -178,16 +178,16 @@ type HealthStatus struct {
 	Status string `json:"status" example:"ok"`
 }
 
-// ReadyStatus — body of GET /readyz (200 or 503). Wire shape is
-// snake_case throughout (`status,database,sonarr,instances,reasons`).
-// The handler MUST marshal checker snapshots through dto.Instance —
-// raw instance.Snapshot has no JSON tags and would leak PascalCase.
+// ReadyStatus — body of GET /readyz (200 or 503). Reports ONLY
+// pod-local dependencies (currently: DB). External Sonarr instance
+// health is operational status, not readiness — it is surfaced via
+// GET /api/v1/instances and the seasonfill_instance_health Prometheus
+// gauge. Keeping the readiness probe decoupled from upstream Sonarr
+// ensures a misconfigured instance can't kick the pod out of the K8s
+// Service and lock the operator out of the Settings UI.
 type ReadyStatus struct {
-	Status    string     `json:"status"   example:"ok" enums:"ok,unavailable"`
-	Database  bool       `json:"database" example:"true"`
-	Sonarr    bool       `json:"sonarr"   example:"true"`
-	Instances []Instance `json:"instances"`
-	Reasons   []string   `json:"reasons,omitempty"`
+	Status   string `json:"status"   example:"ok" enums:"ok,unavailable"`
+	Database bool   `json:"database" example:"true"`
 }
 
 // MissingSeasonStat — per-season aired-missing count. Season 0 = specials.

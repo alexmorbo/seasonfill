@@ -464,19 +464,6 @@ components:
         database:
           example: true
           type: boolean
-        instances:
-          items:
-            $ref: '#/components/schemas/dto.Instance'
-          type: array
-          uniqueItems: false
-        reasons:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        sonarr:
-          example: true
-          type: boolean
         status:
           enum:
           - ok
@@ -1531,8 +1518,9 @@ paths:
       - instances
   /readyz:
     get:
-      description: 200 when DB is up; if instances exist, ≥1 must be healthy. Empty
-        config still passes.
+      description: |-
+        200 when pod-local dependencies (DB) are healthy.
+        External Sonarr health is reported via /api/v1/instances.
       responses:
         "200":
           content:
