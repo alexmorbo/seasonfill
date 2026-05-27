@@ -236,13 +236,12 @@ func TestCRUD_Put_Stale_IfUnmodifiedSince_412(t *testing.T) {
 		"Last-Modified must match the current stored row's updated_at")
 }
 
-func TestCRUD_Delete_Last_409(t *testing.T) {
+func TestCRUD_Delete_SoleInstance_204(t *testing.T) {
 	t.Parallel()
 	r, _ := setupCRUD(t)
 	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
 	w := doJSON(t, r, http.MethodDelete, "/api/v1/instances/alpha", nil, nil)
-	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Contains(t, w.Body.String(), "LAST_INSTANCE")
+	assert.Equal(t, http.StatusNoContent, w.Code)
 }
 
 func TestCRUD_Delete_NonLast_204(t *testing.T) {
@@ -288,10 +287,9 @@ func TestCRUD_WriteError_InternalError(t *testing.T) {
 	r := gin.New()
 	r.DELETE("/api/v1/instances/:name", h.Delete)
 
-	// Seed one row directly so Delete is reached (count is forced to 2 so
-	// LAST_INSTANCE is not triggered).
+	// Seed one row directly so Delete is reached.
 	repo.rows["alpha"] = runtime.InstanceSnapshot{Name: "alpha"}
-	repo.count = 2
+	repo.count = 1
 
 	w := doJSON(t, r, http.MethodDelete, "/api/v1/instances/alpha", nil, nil)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)

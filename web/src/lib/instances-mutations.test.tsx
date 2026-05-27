@@ -131,15 +131,15 @@ describe('useDeleteInstance()', () => {
     expect(toastSuccess).toHaveBeenCalledWith('Instance deleted');
   });
 
-  it('409 LAST_INSTANCE surfaces a clear toast', async () => {
+  it('non-204 error surfaces a delete-failed toast', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ error: 'last', code: 'LAST_INSTANCE' }, 409),
+      jsonResp({ error: 'internal error' }, 500),
     ) as typeof fetch;
     const qc = makeQC();
     const { result } = renderHook(() => useDeleteInstance(), { wrapper: wrap(qc) });
     result.current.mutate({ name: 'alpha' });
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith('Cannot delete the last Sonarr instance');
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Delete failed'));
   });
 });
 

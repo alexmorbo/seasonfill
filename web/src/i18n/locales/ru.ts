@@ -205,7 +205,6 @@ export const ru: Translations = {
       body: 'Это уберёт «{{name}}» из Seasonfill. Сам сервер Sonarr не пострадает.',
       submit: 'Удалить инстанс',
     },
-    cannotDeleteLast: 'Нельзя удалить последний инстанс Sonarr',
     delete: {
       title: 'Удалить инстанс «{{name}}»?',
       body: 'Будут удалены сам инстанс, его зашифрованный api_key и все привязанные к нему cooldowns, сканы, решения и grab-записи. Откатить нельзя.',
@@ -467,7 +466,6 @@ export const ru: Translations = {
     instances: {
       add: 'Добавить инстанс',
       none: 'Инстансы не настроены.',
-      cannotDeleteLast: 'Нельзя удалить последний инстанс Sonarr',
       editAria: 'Изменить {{name}}',
       deleteAria: 'Удалить {{name}}',
       deleteTitle: 'Удалить инстанс «{{name}}»?',

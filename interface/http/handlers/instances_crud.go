@@ -171,7 +171,6 @@ func (h *InstanceCRUDHandler) writeStaleWrite(c *gin.Context, name string) {
 // @Success     204
 // @Failure     401   {object}  dto.ErrorResponse
 // @Failure     404   {object}  dto.ErrorResponse
-// @Failure     409   {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
 // @Router      /instances/{name} [delete]
@@ -200,11 +199,6 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, instance.ErrDuplicateName):
 		c.AbortWithStatusJSON(http.StatusConflict, dto.ErrorResponse{
 			Error: "instance name already exists", Code: "DUPLICATE_NAME",
-		})
-	case errors.Is(err, instance.ErrLastInstance):
-		c.AbortWithStatusJSON(http.StatusConflict, dto.ErrorResponse{
-			Error: "cannot delete the last remaining Sonarr instance",
-			Code:  "LAST_INSTANCE",
 		})
 	case errors.As(err, &verr):
 		c.AbortWithStatusJSON(http.StatusBadRequest, dto.ErrorResponse{

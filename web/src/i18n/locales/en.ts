@@ -203,7 +203,6 @@ export const en = {
       body: 'This will remove "{{name}}" from Seasonfill. The Sonarr server itself is not affected.',
       submit: 'Delete instance',
     },
-    cannotDeleteLast: 'Cannot delete the last Sonarr instance',
     delete: {
       title: 'Delete instance "{{name}}"?',
       body: 'This removes the instance, its encrypted api_key, and all series-scope cooldowns, scans, decisions, and grab records keyed on this instance name. Cannot be undone.',
@@ -465,7 +464,6 @@ export const en = {
     instances: {
       add: 'Add instance',
       none: 'No instances yet.',
-      cannotDeleteLast: 'Cannot delete the last Sonarr instance',
       editAria: 'Edit {{name}}',
       deleteAria: 'Delete {{name}}',
       deleteTitle: 'Delete instance "{{name}}"?',

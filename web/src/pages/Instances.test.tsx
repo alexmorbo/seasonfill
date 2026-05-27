@@ -7,12 +7,6 @@ import { renderWithProviders } from '@/test-utils';
 import { Instances } from './Instances';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
 
-vi.mock('sonner', () => ({
-  toast: {
-    error: vi.fn(),
-    success: vi.fn(),
-  },
-}));
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: null, setFilter: vi.fn() };
@@ -213,21 +207,29 @@ describe('<Instances /> — CRUD', () => {
     });
   });
 
-  it('blocks delete and shows toast when only one instance exists', async () => {
-    const { toast } = await import('sonner');
+  it('deleting the sole instance opens the confirm dialog and fires DELETE', async () => {
+    const requests: { url: string; method: string }[] = [];
     const { qc } = renderWithProviders(wrap(<Instances />));
-    mockInstanceFetch(qc, ['solo']);
+    mockInstanceFetch(qc, ['solo'], undefined, (req) => {
+      requests.push({ url: req.url, method: req.method });
+    });
 
     await screen.findByText('solo');
     await userEvent.click(screen.getByRole('button', { name: /delete solo/i }));
 
-    // No confirm dialog should appear; no DELETE fetch should be called.
+    // Confirm dialog must appear.
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent(/solo/);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /^delete$/i }),
+    );
+
     await waitFor(() => {
-      // The InstanceFormDialog is never opened here, so no role=dialog.
-      expect(screen.queryByRole('dialog')).toBeNull();
+      const del = requests.find(
+        (r) => r.method === 'DELETE' && /\/instances\/solo$/.test(r.url),
+      );
+      expect(del).toBeTruthy();
     });
-    expect(screen.queryByText(/delete instance/i)).toBeNull();
-    // Assert that toast.error was called with the i18n message
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Cannot delete the last'));
   });
 });

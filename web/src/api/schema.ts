@@ -923,15 +923,6 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description Conflict */
-                readonly 409: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
             };
         };
         readonly options?: never;

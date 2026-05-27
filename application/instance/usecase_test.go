@@ -241,13 +241,19 @@ func TestUpdate_NoHeader_LWWProceeds(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDelete_LastInstance_Blocked(t *testing.T) {
+func TestDelete_SoleInstance_Succeeds(t *testing.T) {
 	t.Parallel()
-	uc, repo, _, _ := setup(t)
+	uc, repo, _, ch := setup(t)
 	require.NoError(t, uc.Create(context.Background(), validSnap("alpha")))
-	err := uc.Delete(context.Background(), "alpha")
-	assert.ErrorIs(t, err, ErrLastInstance)
-	assert.Equal(t, 0, repo.deleteCalls, "must not call repo.Delete when blocked")
+	<-ch // drain create snapshot
+	require.NoError(t, uc.Delete(context.Background(), "alpha"))
+	assert.Equal(t, 1, repo.deleteCalls)
+	select {
+	case snap := <-ch:
+		assert.Len(t, snap.Instances, 0)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("delete must publish a snapshot")
+	}
 }
 
 func TestDelete_NonLast_Cascades(t *testing.T) {

@@ -168,10 +168,6 @@ export function useDeleteInstance() {
       toast.success('Instance deleted');
     },
     onError: (err) => {
-      if (err.status === 409) {
-        toast.error('Cannot delete the last Sonarr instance');
-        return;
-      }
       toast.error(`Delete failed: ${err.message}`);
     },
   });

@@ -23,7 +23,6 @@ import (
 var (
 	ErrValidation    = errors.New("validation failed")
 	ErrDuplicateName = errors.New("instance name already exists")
-	ErrLastInstance  = errors.New("cannot delete the last remaining instance")
 	ErrNameImmutable = errors.New("renaming an instance is not supported")
 	ErrStaleWrite    = errors.New("instance was modified by another client")
 	ErrNotFound      = ports.ErrNotFound
@@ -242,18 +241,10 @@ func isPlaceholderAPIKey(v string) bool {
 	return true
 }
 
-// Delete enforces the LAST_INSTANCE guard then hard-deletes the row
-// + cascaded history. Publishes after success.
+// Delete hard-deletes the row + cascaded history. Publishes after success.
 func (u *UseCase) Delete(ctx context.Context, name string) error {
 	if _, err := u.instances.GetByName(ctx, name, u.cipher); err != nil {
 		return err
-	}
-	count, err := u.instances.Count(ctx)
-	if err != nil {
-		return fmt.Errorf("count instances: %w", err)
-	}
-	if count <= 1 {
-		return ErrLastInstance
 	}
 	if err := u.instances.Delete(ctx, name); err != nil {
 		return fmt.Errorf("delete instance: %w", err)

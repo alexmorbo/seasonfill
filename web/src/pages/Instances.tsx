@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2, AlertTriangle, ListOrdered } from 'lucide-react';
-import { toast } from 'sonner';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useDeleteInstance, useInstanceDetail } from '@/lib/instances-mutations';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -59,10 +58,6 @@ export function Instances() {
   };
 
   const onDeleteClick = (name: string) => {
-    if (instances.length <= 1) {
-      toast.error(t('instances.cannotDeleteLast'));
-      return;
-    }
     setDeleting(name);
   };
 
