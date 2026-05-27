@@ -77,7 +77,7 @@ type UseCase struct {
 	origins   ports.OriginReleaseRepository
 	health    HealthRegistry
 	logger    *slog.Logger
-	dryRun    bool
+	dryRun    atomic.Bool
 
 	mu       sync.Mutex
 	inflight map[string]inflightEntry
@@ -102,9 +102,9 @@ func NewUseCase(
 		evaluator: evaluator,
 		scans:     scans,
 		logger:    logger,
-		dryRun:    dryRun,
 		inflight:  make(map[string]inflightEntry),
 	}
+	uc.dryRun.Store(dryRun)
 	cp := append([]Instance(nil), instances...)
 	uc.instances.Store(&cp)
 	return uc
@@ -126,6 +126,15 @@ func (u *UseCase) loadInstances() []Instance {
 func (u *UseCase) SwapInstances(next []Instance) {
 	cp := append([]Instance(nil), next...)
 	u.instances.Store(&cp)
+}
+
+// SwapDryRun atomically replaces the global dry-run default used by
+// instanceDryRun when neither a per-call override nor a per-instance
+// Config.DryRun is set. Called from buildOnAppliedFanout on every
+// reload publish so toggling dry_run via the runtime config UI takes
+// effect without a process restart.
+func (u *UseCase) SwapDryRun(b bool) {
+	u.dryRun.Store(b)
 }
 
 func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase             { u.grabUC = g; return u }
@@ -360,7 +369,7 @@ func (u *UseCase) instanceDryRun(inst Instance, override *bool) bool {
 	if inst.Config.DryRun != nil {
 		return *inst.Config.DryRun
 	}
-	return u.dryRun
+	return u.dryRun.Load()
 }
 
 func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {

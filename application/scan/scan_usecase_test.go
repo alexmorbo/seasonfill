@@ -740,6 +740,33 @@ func TestInstanceDryRun_OverrideWins(t *testing.T) {
 	assert.False(t, uc.instanceDryRun(inst2, boolPtr(false)))
 }
 
+// TestScanUseCase_SwapDryRun_LiveOverride verifies that SwapDryRun
+// atomically replaces the global dry-run default consulted by
+// instanceDryRun when neither a per-call override nor a per-instance
+// Config.DryRun is set — i.e. that toggling global dry_run via the
+// runtime config UI takes effect without a process restart.
+func TestScanUseCase_SwapDryRun_LiveOverride(t *testing.T) {
+	t.Parallel()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	uc := NewUseCase(nil, nil, &fakeScanRepo{}, lg, false) // global dry-run=false
+
+	inst := Instance{Config: config.SonarrInstance{Name: "x"}} // no per-instance setting
+
+	// Initial: neither override nor per-instance Config.DryRun -> global=false.
+	assert.False(t, uc.instanceDryRun(inst, nil),
+		"initial global dryRun=false must fall through to false")
+
+	// Swap global default to true (mimics runtime-config publish).
+	uc.SwapDryRun(true)
+	assert.True(t, uc.instanceDryRun(inst, nil),
+		"after SwapDryRun(true), no override + no instance setting must return true")
+
+	// Swap back to verify it's not a one-way switch.
+	uc.SwapDryRun(false)
+	assert.False(t, uc.instanceDryRun(inst, nil),
+		"after SwapDryRun(false), must return false again")
+}
+
 // TestScan_TagFilter_AllIncludeLabelsUnresolved covers M-6 (fail-CLOSED) at
 // the scan-loop level: when none of the configured `tags.include` labels
 // resolve to any Sonarr tag ID, the scan must abort with `Status=failed`

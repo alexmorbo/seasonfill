@@ -124,6 +124,7 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 		if sweeper != nil {
 			sweeper.SetInterval(snap.Scan.CooldownSweep)
 		}
+		scanUC.SwapDryRun(snap.DryRun)
 		go checker.Preflight(rootCtx)
 	}
 }
