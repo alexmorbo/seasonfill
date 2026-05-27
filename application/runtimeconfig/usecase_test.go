@@ -77,7 +77,6 @@ func (fakeInstanceRepo) UpdateWithOptions(_ context.Context, _ runtime.InstanceS
 	return nil
 }
 func (fakeInstanceRepo) Delete(_ context.Context, _ string) error { return nil }
-func (fakeInstanceRepo) Count(_ context.Context) (int, error)     { return 1, nil }
 func (fakeInstanceRepo) GetUpdatedAt(_ context.Context, _ string) (time.Time, error) {
 	return time.Time{}, ports.ErrNotFound
 }

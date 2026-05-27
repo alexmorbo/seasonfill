@@ -58,6 +58,5 @@ type SonarrInstanceRepository interface {
 	// PUT body omits api_key).
 	UpdateWithOptions(ctx context.Context, inst runtime.InstanceSnapshot, c *crypto.Cipher, preserveSecret bool, ifUnmodifiedSince *time.Time) error
 	Delete(ctx context.Context, name string) error
-	Count(ctx context.Context) (int, error)
 	GetUpdatedAt(ctx context.Context, name string) (time.Time, error)
 }

@@ -22,7 +22,6 @@ type fakeInstanceRepo struct {
 	mu      sync.Mutex
 	rows    map[string]runtime.InstanceSnapshot
 	updated map[string]time.Time
-	count   int
 	nextID  uint
 
 	updateCalls   int
@@ -72,7 +71,6 @@ func (f *fakeInstanceRepo) Create(_ context.Context, inst runtime.InstanceSnapsh
 	f.nextID++
 	f.rows[inst.Name] = inst
 	f.updated[inst.Name] = time.Now().UTC()
-	f.count++
 	return inst.ID, nil
 }
 func (f *fakeInstanceRepo) UpdateWithOptions(
@@ -114,13 +112,7 @@ func (f *fakeInstanceRepo) Delete(_ context.Context, name string) error {
 	}
 	delete(f.rows, name)
 	delete(f.updated, name)
-	f.count--
 	return nil
-}
-func (f *fakeInstanceRepo) Count(_ context.Context) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.count, nil
 }
 func (f *fakeInstanceRepo) GetUpdatedAt(_ context.Context, name string) (time.Time, error) {
 	f.mu.Lock()

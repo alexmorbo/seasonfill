@@ -268,15 +268,6 @@ func (r *SonarrInstanceRepository) GetUpdatedAt(ctx context.Context, name string
 	return m.UpdatedAt, nil
 }
 
-func (r *SonarrInstanceRepository) Count(ctx context.Context) (int, error) {
-	var count int64
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Model(&database.SonarrInstanceModel{}).Count(&count).Error; err != nil {
-		return 0, fmt.Errorf("count instances: %w", err)
-	}
-	return int(count), nil
-}
-
 func modelToSnapshot(m database.SonarrInstanceModel, secretBlob []byte, c *crypto.Cipher) (runtime.InstanceSnapshot, error) {
 	var apiKey string
 	if len(secretBlob) > 0 && c != nil {

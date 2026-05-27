@@ -122,33 +122,6 @@ func TestSonarrInstanceRepository_DeleteCascades(t *testing.T) {
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 
-func TestSonarrInstanceRepository_Count(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSonarrInstanceRepository(db)
-	ctx := context.Background()
-
-	cipher, err := crypto.New("test-master-key-12345")
-	require.NoError(t, err)
-
-	count, err := repo.Count(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 0, count)
-
-	inst := runtime.InstanceSnapshot{
-		Name:    "instance1",
-		URL:     "http://sonarr.local",
-		APIKey:  "key",
-		Mode:    "auto",
-		Timeout: 10 * time.Second,
-	}
-	_, err = repo.Create(ctx, inst, cipher)
-	require.NoError(t, err)
-
-	count, err = repo.Count(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-}
-
 func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSonarrInstanceRepository(db)
