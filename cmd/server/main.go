@@ -300,15 +300,20 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		cooldownRepo, grabUC, rescanUC,
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
 
-	// Cooldown sweep ticker — removes expired rows so the table stays bounded.
+	// Cooldown sweep loop — removes expired rows so the table stays
+	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
+	// SetInterval whenever a new snapshot publishes a different
+	// Scan.CooldownSweep, so changes via the runtime config UI take
+	// effect without a pod restart.
 	sweepInterval := cfg.Scan.CooldownSweep
 	if sweepInterval <= 0 {
 		sweepInterval = 15 * time.Minute
 	}
+	sweeper := newSweepLoop(cooldownRepo, sweepInterval, log)
 	bgWG.Add(1)
 	go func() {
 		defer bgWG.Done()
-		runCooldownSweep(rootCtx, cooldownRepo, sweepInterval, log)
+		sweeper.Run(rootCtx)
 	}()
 
 	// Build the boot scheduler (if cron is enabled) so the
@@ -338,7 +343,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName,
-		clientFactory, checker, wd, holder,
+		clientFactory, checker, wd, holder, sweeper,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
@@ -404,22 +409,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	return bus, nil
 }
 
+// runCooldownSweep is preserved for callers (and tests) that drive the
+// sweep with a fixed cadence. New call sites should construct a
+// sweepLoop directly so the cadence can be updated by the reload bus.
 func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every time.Duration, log *slog.Logger) {
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			n, err := repo.Sweep(ctx, time.Now().UTC())
-			if err != nil {
-				log.ErrorContext(ctx, "cooldown sweep failed", slog.String("error", err.Error()))
-				continue
-			}
-			if n > 0 {
-				log.DebugContext(ctx, "cooldown sweep removed expired rows", slog.Int64("rows", n))
-			}
-		}
-	}
+	newSweepLoop(repo, every, log).Run(ctx)
 }

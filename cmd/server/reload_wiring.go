@@ -77,15 +77,23 @@ func buildSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter
 	}
 }
 
+// sweepIntervalSetter is the narrow contract buildOnAppliedFanout
+// needs from the cooldown sweeper. Keeping it as an interface lets the
+// fan-out be unit-tested without spinning up a real sweepLoop.
+type sweepIntervalSetter interface {
+	SetInterval(d time.Duration)
+}
+
 // buildOnAppliedFanout wires the OnApplied hook that updates everything
 // that depends on the freshly-rebuilt sonarr-client set: the scan UC
-// instance list, the holder map HTTP handlers iterate, and the health
-// checker's registry membership + preflight client list. Running ALL
-// of that inside SonarrClientsSubscriber.apply (under its lock) closes
-// the cross-subscriber race that would otherwise let one fan-out
-// observer (e.g. the old HealthRegistrySubscriber) read a stale
-// View().All() before the live set was rebuilt.
-func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, log *slog.Logger) reload.OnAppliedFunc {
+// instance list, the holder map HTTP handlers iterate, the health
+// checker's registry membership + preflight client list, and the
+// cooldown sweep cadence. Running ALL of that inside
+// SonarrClientsSubscriber.apply (under its lock) closes the
+// cross-subscriber race that would otherwise let one fan-out observer
+// (e.g. the old HealthRegistrySubscriber) read a stale View().All()
+// before the live set was rebuilt.
+func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -113,6 +121,9 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 		holder.replace(nextMap)
 		checker.ReplaceClients(clientSlice, names)
 		wd.SwapConfigs(cfgByName)
+		if sweeper != nil {
+			sweeper.SetInterval(snap.Scan.CooldownSweep)
+		}
 		go checker.Preflight(rootCtx)
 	}
 }
@@ -140,6 +151,7 @@ func startSubscribers(
 	checker reload.HealthChecker,
 	wd *watchdog.Watchdog,
 	holder *instanceMapHolder,
+	sweeper sweepIntervalSetter,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
 	bootGlobalRateLimit runtime.RateLimitSnapshot,
 	authRuntimePtr *middleware.AuthRuntimePointer,
@@ -149,7 +161,7 @@ func startSubscribers(
 		reload.SchedulerFactory(scheduler.New), log)
 	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
 		WithWaitGroup(bgWG).
-		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, log))
+		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, log))
 
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
