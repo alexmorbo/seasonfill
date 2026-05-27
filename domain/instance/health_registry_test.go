@@ -195,6 +195,26 @@ func TestRegistry_SetNames_PreservesUnchangedEntryState(t *testing.T) {
 	assert.Equal(t, "401", s.LastError)
 }
 
+func TestRegistry_MarkAvailable_NoResurrectAfterRemove(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a"})
+	r.SetNames([]string{}) // remove "a"
+	_, changed := r.MarkAvailable("a", time.Now().UTC())
+	assert.False(t, changed)
+	_, ok := r.Get("a")
+	assert.False(t, ok, "MarkAvailable must not resurrect a name removed from membership")
+}
+
+func TestRegistry_MarkUnavailable_NoResurrectAfterRemove(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a"})
+	r.SetNames([]string{}) // remove "a"
+	_, changed := r.MarkUnavailable("a", HealthUnavailableNetwork, "x", time.Now().UTC())
+	assert.False(t, changed)
+	_, ok := r.Get("a")
+	assert.False(t, ok, "MarkUnavailable must not resurrect a name removed from membership")
+}
+
 func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry([]string{"a"})

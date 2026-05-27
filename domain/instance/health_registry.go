@@ -77,7 +77,9 @@ func (r *Registry) set(name string, to Health, lastErr string, at time.Time) (He
 	r.mu.Lock()
 	prev, ok := r.entries[name]
 	if !ok {
-		prev = Snapshot{Name: name, Health: HealthUnavailableUnknown}
+		// Membership is authoritative; late writes after SetNames-remove must not resurrect.
+		r.mu.Unlock()
+		return HealthUnavailableUnknown, false
 	}
 	from := prev.Health
 	prev.Health = to

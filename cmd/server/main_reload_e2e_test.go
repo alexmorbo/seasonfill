@@ -587,4 +587,29 @@ func TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD(t *testing.T)
 		return a && b && len(m) == 2
 	}, 2*time.Second, 25*time.Millisecond,
 		"holder must contain both names after the recreate-publish")
+
+	// Phase 4: after a publish, the per-instance LastCheckAt MUST become
+	// non-zero within a short bounded wait — proves the OnApplied closure
+	// spawned an immediate preflight rather than waiting for the next
+	// 30s ticker. The fake URLs resolve to DNS failures, so MarkUnavailable
+	// (not MarkAvailable) is what populates LastCheckAt; the assertion is
+	// on non-zeroness, not on Health == Available.
+	//
+	// Failure mode on the UNPATCHED code: snap[i].LastCheckAt stays the
+	// zero time.Time for the entire test (the periodic ticker is 30s; the
+	// test budget is 2s). Post-fix: every entry has LastCheckAt set within
+	// well under a second on a healthy CI host.
+	require.Eventually(t, func() bool {
+		snap := tc.CheckerSnapshot()
+		if len(snap) != 2 {
+			return false
+		}
+		for _, s := range snap {
+			if s.LastCheckAt.IsZero() {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Second, 25*time.Millisecond,
+		"every checker entry must have a non-zero LastCheckAt after the publish — proves the immediate preflight ran")
 }

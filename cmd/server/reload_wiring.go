@@ -85,7 +85,7 @@ func buildSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter
 // the cross-subscriber race that would otherwise let one fan-out
 // observer (e.g. the old HealthRegistrySubscriber) read a stale
 // View().All() before the live set was rebuilt.
-func buildOnAppliedFanout(scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, log *slog.Logger) reload.OnAppliedFunc {
+func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -113,6 +113,7 @@ func buildOnAppliedFanout(scanUC *scan.UseCase, holder *instanceMapHolder, check
 		holder.replace(nextMap)
 		checker.ReplaceClients(clientSlice, names)
 		wd.SwapConfigs(cfgByName)
+		go checker.Preflight(rootCtx)
 	}
 }
 
@@ -148,7 +149,7 @@ func startSubscribers(
 		reload.SchedulerFactory(scheduler.New), log)
 	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
 		WithWaitGroup(bgWG).
-		WithOnApplied(buildOnAppliedFanout(scanUC, holder, checker, wd, log))
+		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, log))
 
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
