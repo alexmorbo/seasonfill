@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -21,5 +22,6 @@ func notifyTestContext(
 	_ *middleware.AuthRuntimePointer,
 	_ *atomic.Pointer[ratelimit.Limiter],
 	_ func() map[string]scan.Instance,
+	_ func() []instance.Snapshot,
 ) {
 }

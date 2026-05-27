@@ -338,7 +338,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName,
-		clientFactory, checker, holder,
+		clientFactory, checker, wd, holder,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
@@ -351,7 +351,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// notifyTestContext fires testContextHook (integration builds only) so
 	// E2E tests can assert per-subscriber state. The call is a no-op in
 	// production builds (testcontext_stub.go provides the empty function).
-	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.load)
+	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.load, checker.Snapshot)
 
 	// Notify caller (test helper) that the bus is ready. Placed AFTER
 	// startSubscribers + boot Publish so the test can assert counters

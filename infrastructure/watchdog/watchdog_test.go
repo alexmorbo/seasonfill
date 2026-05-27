@@ -206,3 +206,51 @@ func TestWatchdog_PrunesRemovedInstances(t *testing.T) {
 	// prune". Both confirmed by aHits >= 1.
 	_ = bHits
 }
+
+func TestWatchdog_SwapConfigs_VisibleToShortest(t *testing.T) {
+	t.Parallel()
+	// Boot with empty map; shortest() returns 0.
+	w := New(nil, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		map[string]config.HealthCheckConfig{})
+	assert.Equal(t, time.Duration(0), w.shortest(),
+		"empty map → 0 (Run falls back to time.Minute)")
+
+	w.SwapConfigs(map[string]config.HealthCheckConfig{
+		"ghost": {RecheckIntervalAuth: 50 * time.Millisecond, RecheckIntervalNetwork: 50 * time.Millisecond},
+	})
+	assert.Equal(t, 50*time.Millisecond, w.shortest(),
+		"shortest() must reflect the post-swap map under RLock")
+
+	w.SwapConfigs(map[string]config.HealthCheckConfig{})
+	assert.Equal(t, time.Duration(0), w.shortest(),
+		"shortest() must reflect removal under RLock")
+}
+
+func TestWatchdog_SwapConfigs_DroppedInstanceStopsRecheck(t *testing.T) {
+	t.Parallel()
+	reg := &fakeReg{snapshot: []instance.Snapshot{
+		{Name: "doomed", Health: instance.HealthUnavailableNetwork},
+	}}
+	ch := &fakeChecker{}
+	w := New(reg, ch, slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		map[string]config.HealthCheckConfig{
+			"doomed": {RecheckIntervalAuth: 50 * time.Millisecond, RecheckIntervalNetwork: 50 * time.Millisecond},
+		})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	// Confirm doomed IS rechecked initially (ticker sampled at 50ms).
+	assert.Eventually(t, func() bool { return atomic.LoadInt64(&ch.calls) > 0 },
+		500*time.Millisecond, 25*time.Millisecond, "doomed must recheck while configured")
+	// Reload drops doomed from both the config map and the registry.
+	w.SwapConfigs(map[string]config.HealthCheckConfig{})
+	reg.mu.Lock()
+	reg.snapshot = nil
+	reg.mu.Unlock()
+	before := atomic.LoadInt64(&ch.calls)
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, before, atomic.LoadInt64(&ch.calls),
+		"no further rechecks once doomed leaves the config map and the registry")
+	cancel()
+	<-done
+}

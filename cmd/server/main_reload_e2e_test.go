@@ -84,7 +84,7 @@ func TestReload_E2E_GracefulShutdown(t *testing.T) {
 
 func allSubscribersGreen(t *testing.T) bool {
 	t.Helper()
-	for _, c := range []string{"scheduler", "sonarrClients", "healthRegistry",
+	for _, c := range []string{"scheduler", "sonarrClients",
 		"globalRateLimiter", "authMiddleware"} {
 		if scrapeCounter(t, c) == 0 {
 			return false
@@ -96,7 +96,7 @@ func allSubscribersGreen(t *testing.T) bool {
 func scrapeReloadCounters(t *testing.T) map[string]int64 {
 	t.Helper()
 	out := map[string]int64{}
-	for _, c := range []string{"scheduler", "sonarrClients", "healthRegistry",
+	for _, c := range []string{"scheduler", "sonarrClients",
 		"globalRateLimiter", "authMiddleware"} {
 		out[c] = scrapeCounter(t, c)
 	}
@@ -486,4 +486,105 @@ func TestReload_E2E_HolderSnapshot_SecretRotation(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "B", instB.Config.APIKey,
 		"holder must reflect the newly-rotated API key, not the stale one")
+}
+
+// TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD is the
+// regression contract for the CRUD recreation bug: after a DELETE
+// followed by a POST with the same instance name, the health registry
+// (which the /instances HTTP handler enumerates) MUST reflect the
+// freshly added instance — not the empty registry that the old
+// healthRegistry subscriber left behind when its goroutine raced
+// ahead of sonarrClients.apply.
+//
+// The same test also covers the holder bundling (follow-up #143):
+// after the delete-publish the holder MUST be empty, and after the
+// add-publish it MUST contain the freshly added instance.
+//
+// Failure mode on the UNPATCHED code: after the second publish the
+// CheckerSnapshot stays empty because the standalone healthRegistry
+// subscriber called ReplaceClients with a stale (empty) lister view.
+func TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	// Phase 1: publish with one instance "alpha".
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "alpha", URL: "http://sonarr-alpha:8989", APIKey: "k1"},
+		},
+	})
+	require.Eventually(t, func() bool {
+		snap := tc.CheckerSnapshot()
+		if len(snap) != 1 {
+			return false
+		}
+		return snap[0].Name == "alpha"
+	}, 2*time.Second, 25*time.Millisecond,
+		"checker registry must contain alpha after the first publish")
+	require.Eventually(t, func() bool {
+		_, ok := tc.HolderSnapshot()["alpha"]
+		return ok && len(tc.HolderSnapshot()) == 1
+	}, 2*time.Second, 25*time.Millisecond,
+		"holder must contain alpha after the first publish")
+
+	// Phase 2: publish with NO instances (simulates DELETE /instances/alpha).
+	// Both checker and holder must observe the empty set.
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron:      runtime.CronSnapshot{Enabled: false},
+		Auth:      runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: nil,
+	})
+	require.Eventually(t, func() bool {
+		return len(tc.CheckerSnapshot()) == 0
+	}, 2*time.Second, 25*time.Millisecond,
+		"checker registry must be empty after a delete-publish — proves the registry tracks the live set, not a sticky union")
+	require.Eventually(t, func() bool {
+		return len(tc.HolderSnapshot()) == 0
+	}, 2*time.Second, 25*time.Millisecond,
+		"holder must be empty after a delete-publish — follow-up #143")
+
+	// Phase 3: publish with TWO instances [alpha, beta] (simulates a
+	// POST /instances reading the new full set). After ONE publish
+	// cycle the registry AND the holder must both reflect both names.
+	// On the unpatched code this fails because healthRegistry won the
+	// scheduler race against sonarrClients in phase 2 and called
+	// ReplaceClients([], []) — the only way out was a pod restart.
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "alpha", URL: "http://sonarr-alpha:8989", APIKey: "k1"},
+			{Name: "beta", URL: "http://sonarr-beta:8989", APIKey: "k2"},
+		},
+	})
+	require.Eventually(t, func() bool {
+		snap := tc.CheckerSnapshot()
+		if len(snap) != 2 {
+			return false
+		}
+		got := map[string]bool{}
+		for _, s := range snap {
+			got[s.Name] = true
+		}
+		return got["alpha"] && got["beta"]
+	}, 2*time.Second, 25*time.Millisecond,
+		"checker registry must contain BOTH alpha and beta after the recreate-publish — the race the fix closes")
+
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		_, a := m["alpha"]
+		_, b := m["beta"]
+		return a && b && len(m) == 2
+	}, 2*time.Second, 25*time.Millisecond,
+		"holder must contain both names after the recreate-publish")
 }

@@ -3,6 +3,7 @@ package watchdog
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/domain/instance"
@@ -23,6 +24,7 @@ type Watchdog struct {
 	reg       Registry
 	checker   Rechecker
 	logger    *slog.Logger
+	mu        sync.RWMutex
 	instances map[string]config.HealthCheckConfig
 }
 
@@ -30,6 +32,15 @@ type Watchdog struct {
 // HealthCheckConfig (already defaulted by config.ApplyInstanceDefaults).
 func New(reg Registry, checker Rechecker, logger *slog.Logger, cfgByName map[string]config.HealthCheckConfig) *Watchdog {
 	return &Watchdog{reg: reg, checker: checker, logger: logger, instances: cfgByName}
+}
+
+// SwapConfigs atomically replaces the per-instance HealthCheckConfig
+// map. Called from buildOnAppliedFanout on every reload publish so
+// new/edited/deleted instances reflect in the recheck schedule.
+func (w *Watchdog) SwapConfigs(next map[string]config.HealthCheckConfig) {
+	w.mu.Lock()
+	w.instances = next
+	w.mu.Unlock()
 }
 
 // Run blocks until ctx is done. The watchdog ticks at the shortest configured
@@ -42,7 +53,9 @@ func (w *Watchdog) Run(ctx context.Context) {
 	}
 	t := time.NewTicker(tick)
 	defer t.Stop()
+	w.mu.RLock()
 	last := make(map[string]time.Time, len(w.instances))
+	w.mu.RUnlock()
 	for {
 		select {
 		case <-ctx.Done():
@@ -54,7 +67,9 @@ func (w *Watchdog) Run(ctx context.Context) {
 				if snap.Health == instance.HealthAvailable {
 					continue
 				}
+				w.mu.RLock()
 				cfg, ok := w.instances[snap.Name]
+				w.mu.RUnlock()
 				if !ok {
 					continue
 				}
@@ -91,6 +106,8 @@ func (w *Watchdog) intervalFor(h instance.Health, cfg config.HealthCheckConfig) 
 }
 
 func (w *Watchdog) shortest() time.Duration {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
 	var minD time.Duration
 	for _, cfg := range w.instances {
 		for _, d := range []time.Duration{cfg.RecheckIntervalNetwork, cfg.RecheckIntervalAuth} {

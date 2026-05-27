@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -15,12 +16,13 @@ import (
 // TestContext carries the live per-subscriber pointers for integration assertions.
 // Only present in integration builds; zero production footprint.
 type TestContext struct {
-	Bus            *runtime.Bus
-	SubSched       *reload.SchedulerSubscriber
-	ClientsView    func() *reload.ClientsView
-	AuthRuntimePtr *middleware.AuthRuntimePointer
-	GlobalLimPtr   *atomic.Pointer[ratelimit.Limiter]
-	HolderSnapshot func() map[string]scan.Instance
+	Bus             *runtime.Bus
+	SubSched        *reload.SchedulerSubscriber
+	ClientsView     func() *reload.ClientsView
+	AuthRuntimePtr  *middleware.AuthRuntimePointer
+	GlobalLimPtr    *atomic.Pointer[ratelimit.Limiter]
+	HolderSnapshot  func() map[string]scan.Instance
+	CheckerSnapshot func() []instance.Snapshot
 }
 
 // testContextHook is set by bootForTestWithContext before runForTest starts.
@@ -37,16 +39,18 @@ func notifyTestContext(
 	authRuntimePtr *middleware.AuthRuntimePointer,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
 	holderLoad func() map[string]scan.Instance,
+	checkerSnapshot func() []instance.Snapshot,
 ) {
 	if testContextHook == nil {
 		return
 	}
 	testContextHook(&TestContext{
-		Bus:            bus,
-		SubSched:       subSched,
-		ClientsView:    subClients.View,
-		AuthRuntimePtr: authRuntimePtr,
-		GlobalLimPtr:   globalLimiterPtr,
-		HolderSnapshot: holderLoad,
+		Bus:             bus,
+		SubSched:        subSched,
+		ClientsView:     subClients.View,
+		AuthRuntimePtr:  authRuntimePtr,
+		GlobalLimPtr:    globalLimiterPtr,
+		HolderSnapshot:  holderLoad,
+		CheckerSnapshot: checkerSnapshot,
 	})
 }
