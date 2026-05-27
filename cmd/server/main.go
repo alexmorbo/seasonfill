@@ -251,21 +251,23 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		WithHealthRegistry(checker.Registry()).
 		WithWaitGroup(&bgWG)
 
-	// 008c-#4: per-instance webhook cooldown lookup. Wire-time
-	// construction of a closure that returns 0 for unknown instances.
-	// ApplyInstanceDefaults guarantees a 48h floor on each configured
-	// instance when YAML omits `guid_after_failed_import`. Closure
-	// (not map) keeps internal state immutable.
-	guidCooldownByInstance := make(map[string]time.Duration, len(cfg.SonarrInstances))
-	for _, sc := range cfg.SonarrInstances {
-		guidCooldownByInstance[sc.Name] = sc.Cooldown.GUIDAfterFailedImport
-	}
+	// 032e: per-instance webhook cooldown lookup reads live from the
+	// instanceMapHolder so PUT /instances/<name> mutations to
+	// cooldown.guid_failed_import_sec take effect on the next webhook
+	// without a pod restart. The OnApplied fan-out swap-replaces the
+	// holder map on every publish; this closure reflects whichever
+	// snapshot is current at call time. Unknown instances → 0 (same
+	// behaviour as pre-032e: log + skip the cooldown write).
 	webhookUC := webhookuc.New(webhookuc.Deps{
 		Grabs:     grabRepo,
 		Cooldowns: cooldownRepo,
 		Tx:        txr,
-		GUIDCooldownLookup: func(instance string) time.Duration {
-			return guidCooldownByInstance[instance]
+		GUIDCooldownLookup: func(name string) time.Duration {
+			inst, ok := holder.load()[name]
+			if !ok {
+				return 0
+			}
+			return inst.Config.Cooldown.GUIDAfterFailedImport
 		},
 		Logger: log,
 	})

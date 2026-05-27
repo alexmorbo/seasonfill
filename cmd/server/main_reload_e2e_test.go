@@ -395,6 +395,56 @@ func TestReload_E2E_HolderInstance_LimitsToggle(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond, "holder must reflect updated MaxGrabsPerScan=20 after reload")
 }
 
+// TestReload_E2E_HolderInstance_GUIDCooldownToggle — 032e. Asserts that
+// changing Cooldown.GUIDAfterFailedImport via publish propagates through
+// the OnApplied fan-out into the instanceMapHolder, which is the live
+// source the webhook UC reads on every Process call. The webhook
+// closure built in main.go is `holder.load()[name].Config.Cooldown
+// .GUIDAfterFailedImport` — so a holder reflecting the new value is
+// the necessary and sufficient invariant for reload-aware lookup.
+func TestReload_E2E_HolderInstance_GUIDCooldownToggle(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", t.TempDir()+"/test.db")
+	t.Setenv("SEASONFILL_API_KEY", "test-api-key-32-bytes-padding-aaaa")
+	t.Setenv("SEASONFILL_WEB_USER", "admin")
+	t.Setenv("SEASONFILL_WEB_PASSWORD", "test-password-12chars")
+	t.Setenv("SEASONFILL_HTTP_BIND", "127.0.0.1:0")
+	t.Setenv("SEASONFILL_LOG_LEVEL", "warn")
+
+	tc, stop := bootForTestWithContext(t)
+	defer stop()
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-cd", URL: "http://sonarr:8989", APIKey: "k1",
+				Cooldown: runtime.CooldownSnapshot{GUIDAfterFailedImport: 24 * time.Hour}},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-cd"]
+		return ok && inst.Config.Cooldown.GUIDAfterFailedImport == 24*time.Hour
+	}, 2*time.Second, 50*time.Millisecond,
+		"holder must reflect GUIDAfterFailedImport=24h after first publish")
+
+	tc.Bus.Publish(t.Context(), runtime.Snapshot{
+		Cron: runtime.CronSnapshot{Enabled: false},
+		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
+		Instances: []runtime.InstanceSnapshot{
+			{Name: "inst-cd", URL: "http://sonarr:8989", APIKey: "k1",
+				Cooldown: runtime.CooldownSnapshot{GUIDAfterFailedImport: 96 * time.Hour}},
+		},
+	})
+	require.Eventually(t, func() bool {
+		m := tc.HolderSnapshot()
+		inst, ok := m["inst-cd"]
+		return ok && inst.Config.Cooldown.GUIDAfterFailedImport == 96*time.Hour
+	}, 2*time.Second, 50*time.Millisecond,
+		"holder must reflect updated GUIDAfterFailedImport=96h after reload — webhook UC lookup must NOT keep the boot value")
+}
+
 // TestReload_E2E_ClientsViewUpdated asserts that after publishing a snapshot
 // with named instances, the SonarrClientsSubscriber view reflects them.
 // Uses two minimal (URL-only, no real network) instance snapshots.

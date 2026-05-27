@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -414,4 +415,69 @@ func TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure(t *testing.T
 				"ExpiresAt must use the per-instance cooldown from the lookup")
 		})
 	}
+}
+
+// TestProcess_ImportFailed_LookupReadsLiveAfterPointerSwap — 032e.
+// Proves the cooldown lookup is evaluated per-invocation rather than
+// captured at UC-construction time. Mirrors the runtime holder shape:
+// the closure reads from an atomic.Pointer the test swaps between two
+// calls. If the closure ever caches its result, the second cooldown
+// row will keep the stale 24h duration and the assertion fails.
+func TestProcess_ImportFailed_LookupReadsLiveAfterPointerSwap(t *testing.T) {
+	t.Parallel()
+
+	var ptr atomic.Pointer[time.Duration]
+	first := 24 * time.Hour
+	ptr.Store(&first)
+
+	lookup := func(name string) time.Duration {
+		if name != "main" {
+			return 0
+		}
+		if d := ptr.Load(); d != nil {
+			return *d
+		}
+		return 0
+	}
+
+	rec1 := sampleRecord()
+	g1 := &fakeGrabRepo{match: rec1}
+	c1 := &fakeCooldownRepo{}
+	tx1 := &fakeTransactor{}
+	uc := New(Deps{
+		Grabs: g1, Cooldowns: c1, Tx: tx1,
+		GUIDCooldownLookup: lookup, Logger: quietLogger(),
+	})
+
+	occurred := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImportFailed, InstanceName: "main",
+		DownloadID: rec1.DownloadID, OccurredAt: occurred,
+	})
+	require.NoError(t, err)
+	require.Len(t, c1.sets, 1)
+	assert.Equal(t, occurred.Add(24*time.Hour), c1.sets[0].ExpiresAt,
+		"first call must observe the pre-swap duration")
+
+	// Simulate a runtime reload swapping in a new cooldown.
+	second := 96 * time.Hour
+	ptr.Store(&second)
+
+	rec2 := sampleRecord()
+	g2 := &fakeGrabRepo{match: rec2}
+	c2 := &fakeCooldownRepo{}
+	tx2 := &fakeTransactor{}
+	uc2 := New(Deps{
+		Grabs: g2, Cooldowns: c2, Tx: tx2,
+		GUIDCooldownLookup: lookup, Logger: quietLogger(),
+	})
+
+	err = uc2.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImportFailed, InstanceName: "main",
+		DownloadID: rec2.DownloadID, OccurredAt: occurred,
+	})
+	require.NoError(t, err)
+	require.Len(t, c2.sets, 1)
+	assert.Equal(t, occurred.Add(96*time.Hour), c2.sets[0].ExpiresAt,
+		"post-swap call must observe the new duration — lookup must NOT cache")
 }
