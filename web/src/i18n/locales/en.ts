@@ -191,16 +191,22 @@ export const en = {
       edit: 'Edit',
       delete: 'Delete',
       newInstance: 'New instance',
+      addAria: 'Add a new Sonarr instance',
     },
     empty: {
       title: 'No instances configured',
-      body: 'Add a Sonarr instance in Settings → Instances to start scanning.',
+      body: 'Add a Sonarr instance using the Add button above to start scanning.',
       cta: 'Add instance',
     },
     deleteConfirm: {
       title: 'Delete instance?',
       body: 'This will remove "{{name}}" from Seasonfill. The Sonarr server itself is not affected.',
       submit: 'Delete instance',
+    },
+    cannotDeleteLast: 'Cannot delete the last Sonarr instance',
+    delete: {
+      title: 'Delete instance "{{name}}"?',
+      body: 'This removes the instance, its encrypted api_key, and all series-scope cooldowns, scans, decisions, and grab records keyed on this instance name. Cannot be undone.',
     },
     queueTitle: 'Queue — {{name}}',
     queueEmpty: 'Queue is empty.',
@@ -393,7 +399,6 @@ export const en = {
     title: 'Settings',
     subtitle: 'Manage Sonarr instances, scheduling, scan defaults, and runtime auth.',
     tabs: {
-      instances: 'Instances',
       general: 'General',
       security: 'Security',
     },
