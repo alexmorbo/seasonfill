@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -332,6 +333,89 @@ func TestChecker_ReplaceClients_EmptyClientsEmptiesRegistry(t *testing.T) {
 	assert.Empty(t, c.Registry().Names())
 	// Preflight on empty slice must not panic.
 	c.Preflight(context.Background())
+}
+
+// slowFakeSonarr blocks SystemStatus until release() is called, while
+// counting probe invocations atomically. Used to assert single-flight.
+type slowFakeSonarr struct {
+	name    string
+	probes  atomic.Int64
+	release chan struct{}
+}
+
+func (s *slowFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
+	s.probes.Add(1)
+	<-s.release
+	return ports.SystemStatus{Version: "test"}, nil
+}
+func (s *slowFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *slowFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+	return series.Series{}, nil
+}
+func (s *slowFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
+	return ports.QualityProfile{}, nil
+}
+func (s *slowFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
+func (s *slowFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
+func (s *slowFakeSonarr) Name() string { return s.name }
+
+func TestChecker_Preflight_SingleFlight(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	slow := &slowFakeSonarr{name: "main", release: make(chan struct{})}
+	c := New(db, []ports.SonarrClient{slow})
+
+	const callers = 5
+	var wg sync.WaitGroup
+	started := make(chan struct{}, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started <- struct{}{}
+			c.Preflight(context.Background())
+		}()
+	}
+	for i := 0; i < callers; i++ {
+		<-started
+	}
+
+	// Give every caller a chance to enter Preflight. The winner is
+	// blocked on slow.release; losers must early-return immediately.
+	require.Eventually(t, func() bool {
+		return slow.probes.Load() == 1
+	}, time.Second, 5*time.Millisecond,
+		"exactly one probe must be in flight while gate is held")
+
+	close(slow.release)
+	wg.Wait()
+
+	assert.Equal(t, int64(1), slow.probes.Load(),
+		"single-flight gate must coalesce concurrent Preflight calls to one probe round")
+
+	// After the gate releases, a fresh Preflight must run normally.
+	slow.release = make(chan struct{})
+	close(slow.release)
+	c.Preflight(context.Background())
+	assert.Equal(t, int64(2), slow.probes.Load(),
+		"new Preflight after gate clears must execute")
 }
 
 func TestChecker_New_InstancesPointerNeverNil(t *testing.T) {

@@ -24,6 +24,12 @@ type Checker struct {
 	db        *gorm.DB
 	instances atomic.Pointer[[]ports.SonarrClient]
 	registry  *instance.Registry
+	// preflightRunning is a single-flight gate: concurrent Preflight()
+	// calls coalesce to one in-flight run. Burst CRUD (e.g. several
+	// rapid reload publishes during a config sync) would otherwise
+	// spawn overlapping goroutines that double-fire metrics + listener
+	// and race on LastCheckAt ordering. See story 032h.
+	preflightRunning atomic.Bool
 }
 
 func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
@@ -46,7 +52,13 @@ func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
 func (c *Checker) Registry() *instance.Registry { return c.registry }
 
 // Preflight loops every known instance and updates the registry.
+// Concurrent calls are coalesced via a single-flight gate: if another
+// preflight is mid-flight, this call returns immediately.
 func (c *Checker) Preflight(ctx context.Context) {
+	if !c.preflightRunning.CompareAndSwap(false, true) {
+		return
+	}
+	defer c.preflightRunning.Store(false)
 	clients := *c.instances.Load()
 	for _, inst := range clients {
 		c.checkOne(ctx, inst)
