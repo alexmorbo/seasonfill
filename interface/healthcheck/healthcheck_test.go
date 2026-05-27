@@ -418,6 +418,99 @@ func TestChecker_Preflight_SingleFlight(t *testing.T) {
 		"new Preflight after gate clears must execute")
 }
 
+// sleepyFakeSonarr blocks SystemStatus for a fixed duration, counting
+// the peak number of concurrent in-flight probes. Used to assert
+// bounded-parallel Preflight.
+type sleepyFakeSonarr struct {
+	name    string
+	delay   time.Duration
+	inFlight *atomic.Int64
+	peak     *atomic.Int64
+}
+
+func (s *sleepyFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
+	now := s.inFlight.Add(1)
+	for {
+		p := s.peak.Load()
+		if now <= p || s.peak.CompareAndSwap(p, now) {
+			break
+		}
+	}
+	time.Sleep(s.delay)
+	s.inFlight.Add(-1)
+	return ports.SystemStatus{Version: "test"}, nil
+}
+func (s *sleepyFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *sleepyFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+	return series.Series{}, nil
+}
+func (s *sleepyFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
+	return ports.QualityProfile{}, nil
+}
+func (s *sleepyFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
+func (s *sleepyFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
+func (s *sleepyFakeSonarr) Name() string { return s.name }
+
+func TestChecker_Preflight_BoundedParallel(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+
+	const (
+		instances = 8
+		limit     = 4
+		delay     = 100 * time.Millisecond
+	)
+	var inFlight, peak atomic.Int64
+	clients := make([]ports.SonarrClient, 0, instances)
+	for i := 0; i < instances; i++ {
+		clients = append(clients, &sleepyFakeSonarr{
+			name:     fmt.Sprintf("inst-%d", i),
+			delay:    delay,
+			inFlight: &inFlight,
+			peak:     &peak,
+		})
+	}
+	c := New(db, clients)
+
+	start := time.Now()
+	c.Preflight(context.Background())
+	elapsed := time.Since(start)
+
+	// Sequential lower bound would be instances*delay = 800ms.
+	// Parallel-4 expected ~ceil(8/4)*100ms = 200ms; allow generous
+	// CI slack (cap at 500ms) — still proves it's not sequential.
+	assert.Less(t, elapsed, 500*time.Millisecond,
+		"bounded-parallel Preflight must finish well under the sequential lower bound of %v", instances*delay)
+	assert.GreaterOrEqual(t, elapsed, 2*delay,
+		"with limit=%d and %d instances, at least ceil(%d/%d)=2 batches must run", limit, instances, instances, limit)
+	assert.LessOrEqual(t, peak.Load(), int64(limit),
+		"peak in-flight probes must not exceed the configured limit")
+	assert.Greater(t, peak.Load(), int64(1),
+		"peak in-flight probes must exceed 1 — otherwise Preflight is still sequential")
+
+	// Every instance must have been marked available.
+	for _, snap := range c.Snapshot() {
+		assert.Equal(t, instance.HealthAvailable, snap.Health, "instance %s not marked available", snap.Name)
+	}
+}
+
 func TestChecker_New_InstancesPointerNeverNil(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)

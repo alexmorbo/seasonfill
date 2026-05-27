@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -13,6 +14,14 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
+
+// preflightConcurrency bounds the number of in-flight checkOne probes
+// during a single Preflight pass. Sequential iteration over M instances
+// at 10s per timeout meant worst-case wall time of M*10s; with the
+// limit, worst-case is ceil(M/N)*10s. 4 is a deliberate trade-off:
+// large enough to mask the typical 1-3 instance setup, small enough to
+// avoid hammering shared Sonarr backends during a recovery storm.
+const preflightConcurrency = 4
 
 // Checker periodically polls every Sonarr instance and records its
 // health into a shared *instance.Registry. The registry pointer is
@@ -51,18 +60,33 @@ func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
 // stable for the life of the Checker — reload does NOT swap it.
 func (c *Checker) Registry() *instance.Registry { return c.registry }
 
-// Preflight loops every known instance and updates the registry.
+// Preflight probes every known instance and updates the registry.
 // Concurrent calls are coalesced via a single-flight gate: if another
-// preflight is mid-flight, this call returns immediately.
+// preflight is mid-flight, this call returns immediately. Within a
+// single pass, instances are probed in parallel with a bounded worker
+// pool (preflightConcurrency) so the total wall time is
+// ceil(M/N)*timeout instead of M*timeout. Per-instance semantics
+// (ReplaceClients/MarkAvailable/MarkUnavailable) are unchanged — only
+// the iteration strategy differs.
 func (c *Checker) Preflight(ctx context.Context) {
 	if !c.preflightRunning.CompareAndSwap(false, true) {
 		return
 	}
 	defer c.preflightRunning.Store(false)
 	clients := *c.instances.Load()
-	for _, inst := range clients {
-		c.checkOne(ctx, inst)
+	if len(clients) == 0 {
+		return
 	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(preflightConcurrency)
+	for _, inst := range clients {
+		client := inst
+		g.Go(func() error {
+			c.checkOne(gctx, client)
+			return nil
+		})
+	}
+	_ = g.Wait()
 }
 
 func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
