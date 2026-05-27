@@ -4,6 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
 import { Settings } from './Settings';
 
+const navigateSpy = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom',
+  );
+  return { ...actual, useNavigate: () => navigateSpy };
+});
+
 const origFetch = globalThis.fetch;
 
 beforeEach(() => {
@@ -57,15 +65,14 @@ describe('<Settings />', () => {
     );
   });
 
-  it('renders Settings subtitle when legacy /settings#instances hash is detected', async () => {
+  it('redirects to /instances when legacy /settings#instances hash is detected', async () => {
     Object.defineProperty(window, 'location', {
       writable: true,
       value: { pathname: '/settings', hash: '#instances', assign: vi.fn() },
     });
     renderWithProviders(<Settings />, { route: '/settings#instances' });
-    // Verify the component renders the subtitle text that describes the page.
     await waitFor(() => {
-      expect(screen.queryByText(/Manage Sonarr instances/i)).toBeInTheDocument();
+      expect(navigateSpy).toHaveBeenCalledWith('/instances', { replace: true });
     });
   });
 });
