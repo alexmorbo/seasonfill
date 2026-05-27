@@ -23,11 +23,27 @@ import { Check, AlertTriangle } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
-import { useScans, flattenScans, type ScanFilters } from '@/lib/scans';
+import { useScans, flattenScans, type Scan, type ScanFilters } from '@/lib/scans';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { relativeTime, durationMs } from '@/lib/format';
+import {
+  applySort,
+  cmpDate,
+  cmpNumber,
+  cmpString,
+  useTableSort,
+  type Comparator,
+} from '@/lib/use-sort';
+import { SortableHeader } from '@/components/SortableHeader';
 
 const STATUSES = ['running', 'completed', 'failed', 'aborted'] as const;
+
+const SCAN_COMPARATORS: Readonly<Record<string, Comparator<Scan>>> = {
+  started_at: cmpDate<Scan>((s) => s.started_at),
+  instance: cmpString<Scan>((s) => s.instance),
+  status: cmpString<Scan>((s) => s.status),
+  grabs: cmpNumber<Scan>((s) => s.grabs_performed),
+};
 
 export function Scans() {
   const { t } = useTranslation();
@@ -42,7 +58,12 @@ export function Scans() {
   );
 
   const q = useScans(queryFilters);
-  const rows = useMemo(() => flattenScans(q.data?.pages), [q.data]);
+  const unsortedRows = useMemo(() => flattenScans(q.data?.pages), [q.data]);
+  const { sortKey, dir, toggle } = useTableSort();
+  const rows = useMemo(
+    () => applySort(unsortedRows, SCAN_COMPARATORS, sortKey, dir),
+    [unsortedRows, sortKey, dir],
+  );
 
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -121,13 +142,45 @@ export function Scans() {
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
                   <TableHead>{t('scans.columns.id')}</TableHead>
-                  <TableHead>{t('scans.columns.instance')}</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('scans.columns.instance')}
+                      sortKey="instance"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>{t('scans.columns.trigger')}</TableHead>
-                  <TableHead>{t('scans.columns.started')}</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('scans.columns.started')}
+                      sortKey="started_at"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>{t('scans.columns.duration')}</TableHead>
                   <TableHead>{t('scans.columns.series')}</TableHead>
-                  <TableHead>{t('scans.columns.grabs')}</TableHead>
-                  <TableHead>{t('scans.columns.status')}</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('scans.columns.grabs')}
+                      sortKey="grabs"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('scans.columns.status')}
+                      sortKey="status"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

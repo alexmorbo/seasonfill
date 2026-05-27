@@ -69,6 +69,43 @@ describe('<Grabs />', () => {
     await waitFor(() => expect(screen.getByText(/file in use/i)).toBeInTheDocument());
   });
 
+  it('series header cycles asc → desc → unsorted', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        json({
+          items: [
+            grab({ id: 'g_001', series_title: 'Severance' }),
+            grab({ id: 'g_002', series_title: 'Andor' }),
+          ],
+        }),
+      ) as typeof fetch;
+    const { container } = renderWithProviders(wrap(<Grabs />), { route: '/grabs' });
+    const getSeriesCells = () =>
+      Array.from(container.querySelectorAll('tbody tr')).map(
+        (r) => r.querySelectorAll('td')[2]?.textContent ?? '',
+      );
+    await screen.findByText('Severance');
+    expect(getSeriesCells()).toEqual(['Severance', 'Andor']);
+
+    const header = screen
+      .getAllByRole('button')
+      .find((b) => b.getAttribute('data-sort-key') === 'series_title');
+    expect(header).toBeDefined();
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(getSeriesCells()).toEqual(['Andor', 'Severance']));
+    expect(header!.getAttribute('data-sort-dir')).toBe('asc');
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(getSeriesCells()).toEqual(['Severance', 'Andor']));
+    expect(header!.getAttribute('data-sort-dir')).toBe('desc');
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(header!.getAttribute('data-sort-dir')).toBe(''));
+    expect(getSeriesCells()).toEqual(['Severance', 'Andor']);
+  });
+
   it('client-side q filter narrows loaded rows', async () => {
     globalThis.fetch = vi
       .fn()

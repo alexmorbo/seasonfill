@@ -69,6 +69,61 @@ describe('<Scans />', () => {
     expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument();
   });
 
+  it('sortable header cycles asc → desc → unsorted with URL persistence', async () => {
+    const older = new Date(Date.now() - 5 * 60_000).toISOString();
+    const newer = new Date(Date.now() - 60_000).toISOString();
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            scanFixture({
+              id: 'aaaaaaaa-0000-0000-0000-000000000001',
+              instance: 'beta',
+              started_at: newer,
+            }),
+            scanFixture({
+              id: 'aaaaaaaa-0000-0000-0000-000000000002',
+              instance: 'alpha',
+              started_at: older,
+            }),
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as typeof fetch;
+    const { container } = renderWithProviders(wrap(<Scans />), { route: '/scans' });
+    const getInstanceCells = () =>
+      Array.from(container.querySelectorAll('tbody tr')).map(
+        (r) => r.querySelectorAll('td')[2]?.textContent ?? '',
+      );
+
+    await screen.findByText('alpha');
+    // Default unsorted order from API: beta first, alpha second.
+    expect(getInstanceCells()).toEqual(['beta', 'alpha']);
+
+    const header = screen
+      .getAllByRole('button')
+      .find((b) => b.getAttribute('data-sort-key') === 'instance');
+    expect(header).toBeDefined();
+
+    // 1st click → asc
+    await userEvent.click(header!);
+    await waitFor(() => expect(getInstanceCells()).toEqual(['alpha', 'beta']));
+    expect(window.location.hash || '').toBe('');
+    // URL is the router memory entry: assert via the header's data attribute too.
+    expect(header!.getAttribute('data-sort-dir')).toBe('asc');
+
+    // 2nd click → desc
+    await userEvent.click(header!);
+    await waitFor(() => expect(getInstanceCells()).toEqual(['beta', 'alpha']));
+    expect(header!.getAttribute('data-sort-dir')).toBe('desc');
+
+    // 3rd click → unsorted (back to API order)
+    await userEvent.click(header!);
+    await waitFor(() => expect(header!.getAttribute('data-sort-dir')).toBe(''));
+    expect(getInstanceCells()).toEqual(['beta', 'alpha']);
+  });
+
   it('toggling the status select writes to the URL', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ items: [] }), {

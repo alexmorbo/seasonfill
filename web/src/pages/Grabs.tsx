@@ -24,9 +24,24 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
 import { GrabDrawer } from '@/components/GrabDrawer';
-import { useGrabs, flattenGrabs, type GrabFilters } from '@/lib/grabs';
+import { useGrabs, flattenGrabs, type Grab, type GrabFilters } from '@/lib/grabs';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { relativeTime } from '@/lib/format';
+import {
+  applySort,
+  cmpDate,
+  cmpString,
+  useTableSort,
+  type Comparator,
+} from '@/lib/use-sort';
+import { SortableHeader } from '@/components/SortableHeader';
+
+const GRAB_COMPARATORS: Readonly<Record<string, Comparator<Grab>>> = {
+  created_at: cmpDate<Grab>((g) => g.updated_at ?? g.created_at),
+  instance: cmpString<Grab>((g) => g.instance),
+  series_title: cmpString<Grab>((g) => g.series_title),
+  status: cmpString<Grab>((g) => g.status),
+};
 
 const STATUSES = ['grabbed', 'imported', 'import_failed', 'grab_failed', 'expired'] as const;
 
@@ -40,7 +55,8 @@ export function Grabs() {
   const queryFilters: GrabFilters = useMemo(() => ({ ...(status && { status }) }), [status]);
   const query = useGrabs(queryFilters);
   const allRows = useMemo(() => flattenGrabs(query.data?.pages), [query.data]);
-  const rows = useMemo(() => {
+  const { sortKey, dir, toggle } = useTableSort();
+  const filtered = useMemo(() => {
     if (!q) return allRows;
     const needle = q.toLowerCase();
     return allRows.filter(
@@ -49,6 +65,10 @@ export function Grabs() {
         (g.release_title ?? '').toLowerCase().includes(needle),
     );
   }, [allRows, q]);
+  const rows = useMemo(
+    () => applySort(filtered, GRAB_COMPARATORS, sortKey, dir),
+    [filtered, sortKey, dir],
+  );
 
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
@@ -132,11 +152,43 @@ export function Grabs() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Instance</TableHead>
-                  <TableHead>Series</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Time"
+                      sortKey="created_at"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Instance"
+                      sortKey="instance"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Series"
+                      sortKey="series_title"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>Release</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>Indexer</TableHead>
                   <TableHead>Attempts</TableHead>
                 </TableRow>

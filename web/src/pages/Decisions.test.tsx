@@ -79,6 +79,42 @@ describe('<Decisions />', () => {
     await waitFor(() => expect(screen.getByText(/Decision tree/i)).toBeInTheDocument());
   });
 
+  it('series_title header cycles asc → desc → unsorted', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(async () =>
+      json({
+        items: [
+          dec({ id: 'd_001', series_title: 'Severance' }),
+          dec({ id: 'd_002', series_title: 'Andor' }),
+        ],
+      }),
+    ) as typeof fetch;
+    const { container } = renderWithProviders(wrap(<Decisions />), { route: '/decisions' });
+    const getSeriesCells = () =>
+      Array.from(container.querySelectorAll('tbody tr')).map(
+        (r) => r.querySelectorAll('td')[2]?.textContent ?? '',
+      );
+
+    await screen.findByText('Severance');
+    expect(getSeriesCells()).toEqual(['Severance', 'Andor']);
+
+    const header = screen
+      .getAllByRole('button')
+      .find((b) => b.getAttribute('data-sort-key') === 'series_title');
+    expect(header).toBeDefined();
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(getSeriesCells()).toEqual(['Andor', 'Severance']));
+    expect(header!.getAttribute('data-sort-dir')).toBe('asc');
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(getSeriesCells()).toEqual(['Severance', 'Andor']));
+    expect(header!.getAttribute('data-sort-dir')).toBe('desc');
+
+    await userEvent.click(header!);
+    await waitFor(() => expect(header!.getAttribute('data-sort-dir')).toBe(''));
+    expect(getSeriesCells()).toEqual(['Severance', 'Andor']);
+  });
+
   it('shows empty state with Clear filters when filters set', async () => {
     globalThis.fetch = vi
       .fn()

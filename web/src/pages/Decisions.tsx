@@ -27,9 +27,31 @@ import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
 import { OutcomeChips, OUTCOMES, type Outcome } from '@/components/OutcomeChips';
 import { DecisionDrawer } from '@/components/DecisionDrawer';
-import { useDecisions, flattenDecisions, type DecisionFilters } from '@/lib/decisions';
+import {
+  useDecisions,
+  flattenDecisions,
+  type Decision,
+  type DecisionFilters,
+} from '@/lib/decisions';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { relativeTime } from '@/lib/format';
+import {
+  applySort,
+  cmpDate,
+  cmpNumber,
+  cmpString,
+  useTableSort,
+  type Comparator,
+} from '@/lib/use-sort';
+import { SortableHeader } from '@/components/SortableHeader';
+
+const DECISION_COMPARATORS: Readonly<Record<string, Comparator<Decision>>> = {
+  created_at: cmpDate<Decision>((d) => d.created_at),
+  instance: cmpString<Decision>((d) => d.instance),
+  series_title: cmpString<Decision>((d) => d.series_title),
+  season: cmpNumber<Decision>((d) => d.season_number),
+  category: cmpString<Decision>((d) => d.category),
+};
 
 export function Decisions() {
   const { t } = useTranslation();
@@ -54,7 +76,8 @@ export function Decisions() {
   );
   const query = useDecisions(queryFilters);
   const allRows = useMemo(() => flattenDecisions(query.data?.pages), [query.data]);
-  const rows = useMemo(
+  const { sortKey, dir, toggle } = useTableSort();
+  const filtered = useMemo(
     () =>
       allRows.filter((d) => {
         if (selected.size > 0 && d.decision && !selected.has(d.decision as Outcome)) return false;
@@ -62,6 +85,10 @@ export function Decisions() {
         return true;
       }),
     [allRows, selected, q],
+  );
+  const rows = useMemo(
+    () => applySort(filtered, DECISION_COMPARATORS, sortKey, dir),
+    [filtered, sortKey, dir],
   );
 
   const setParam = (k: string, v: string) => {
@@ -143,12 +170,52 @@ export function Decisions() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('decisions.columns.time')}</TableHead>
-                  <TableHead>{t('decisions.columns.instance')}</TableHead>
-                  <TableHead>{t('decisions.columns.series')}</TableHead>
-                  <TableHead>{t('decisions.columns.season')}</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('decisions.columns.time')}
+                      sortKey="created_at"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('decisions.columns.instance')}
+                      sortKey="instance"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('decisions.columns.series')}
+                      sortKey="series_title"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('decisions.columns.season')}
+                      sortKey="season"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>{t('decisions.columns.outcome')}</TableHead>
-                  <TableHead>{t('decisions.columns.category')}</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label={t('decisions.columns.category')}
+                      sortKey="category"
+                      currentKey={sortKey}
+                      currentDir={dir}
+                      onToggle={toggle}
+                    />
+                  </TableHead>
                   <TableHead>{t('decisions.columns.reason')}</TableHead>
                   <TableHead>{t('decisions.columns.candidates')}</TableHead>
                 </TableRow>
