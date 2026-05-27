@@ -165,6 +165,9 @@ export function useDeleteInstance() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['instances'] });
       qc.removeQueries({ queryKey: instanceDetailKey(vars.name) });
+      qc.invalidateQueries({ queryKey: ['scans'] });
+      qc.invalidateQueries({ queryKey: ['decisions'] });
+      qc.invalidateQueries({ queryKey: ['grabs'] });
       toast.success('Instance deleted');
     },
     onError: (err) => {

@@ -131,6 +131,17 @@ describe('useDeleteInstance()', () => {
     expect(toastSuccess).toHaveBeenCalledWith('Instance deleted');
   });
 
+  it('invalidates scans/decisions/grabs caches on success', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteInstance(), { wrapper: wrap(qc) });
+    result.current.mutate({ name: 'alpha' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]);
+    expect(keys).toEqual(expect.arrayContaining(['instances', 'scans', 'decisions', 'grabs']));
+  });
+
   it('non-204 error surfaces a delete-failed toast', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ error: 'internal error' }, 500),
