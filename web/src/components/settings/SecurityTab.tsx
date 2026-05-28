@@ -16,7 +16,7 @@ import { TrustedProxiesEditor, isValidCIDR } from './TrustedProxiesEditor';
 
 const schema = z.object({
   session_ttl_min: z
-    .number({ invalid_type_error: 'settings.security.sessions.ttlNumber' })
+    .number({ error: 'settings.security.sessions.ttlNumber' })
     .int('settings.security.sessions.ttlInt')
     .min(5, 'settings.security.sessions.ttlMin')
     .max(10080, 'settings.security.sessions.ttlMax'),

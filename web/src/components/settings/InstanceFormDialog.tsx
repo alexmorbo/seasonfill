@@ -60,9 +60,9 @@ const cooldownModeRule = z.enum(['smart', 'strict']);
 // values rarely move; a typo would surface as a server 400 the test
 // suite would catch.
 const int = (min: number, max: number, label: string) =>
-  z.coerce.number().int(`${label} must be an integer`).min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
+  z.number().int(`${label} must be an integer`).min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
 const float = (min: number, max: number, label: string) =>
-  z.coerce.number().min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
+  z.number().min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
 
 const baseShape = {
   name: nameRule,
