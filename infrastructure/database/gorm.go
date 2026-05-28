@@ -67,7 +67,8 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		}
 		db, err := gorm.Open(postgres.Open(cfg.Postgres.DSN), gormCfg)
 		if err != nil {
-			return nil, fmt.Errorf("open postgres: %w", err)
+			return nil, fmt.Errorf("open postgres (dsn=%s): %s",
+				redactDSN(cfg.Postgres.DSN), scrubPassword(err.Error(), cfg.Postgres.DSN))
 		}
 		sqlDB, err := db.DB()
 		if err != nil {
