@@ -229,19 +229,22 @@ export function InstanceFormDialog({
 
   const {
     register, handleSubmit, reset, getValues, setFocus, control,
-    formState: { errors, isSubmitting, dirtyFields },
+    formState: { errors, isSubmitting, isDirty, dirtyFields },
   } = useForm<FormValues>({
     resolver: zodResolver(pickSchema(mode)),
     defaultValues: { ...FORM_DEFAULTS, ...initial, api_key: '' },
     mode: 'onBlur',
   });
 
-  // On open OR on edit-target switch, rebuild defaults. In edit mode we
-  // wait until `detail` arrives before re-seeding, so user keystrokes
-  // aren't clobbered by an async refetch (mirrors the 028b/032b fix
-  // for the api_key field).
+  // On open OR on edit-target switch, rebuild defaults — but ONLY while
+  // the form is pristine. A background detail refetch (staleTime:0 + the
+  // post-save invalidate) or the parent's 5s instances poll must NOT
+  // discard the user's unsaved edits in either mode. Once isDirty clears
+  // (via close/reopen or a successful save's reset) the form re-syncs to
+  // the freshest server data. In edit mode we additionally wait for
+  // `detail` to arrive before seeding.
   useEffect(() => {
-    if (!open) return;
+    if (!open || isDirty) return;
     if (isEdit) {
       if (detail) {
         reset(formFromDetail(detail));
@@ -257,7 +260,7 @@ export function InstanceFormDialog({
     // refetches the instances list every 5s and a fresh object literal
     // would otherwise blow away in-flight input. Key by name only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isEdit, initial?.name, detail, reset]);
+  }, [open, isEdit, initial?.name, detail, isDirty, reset]);
 
   const onInvalid = (errs: FieldErrors<FormValues>) => {
     if (!isEdit && errs.api_key) {
@@ -306,7 +309,13 @@ export function InstanceFormDialog({
         ...wire,
         ...(userTypedKey ? { api_key: values.api_key.trim() } : {}),
       };
-      await update.mutateAsync({ name: initial.name, body });
+      // Reset to the persisted detail so isDirty clears — the hook's own
+      // onSuccess (cache prime + toast) runs before this per-call
+      // callback. We never seed api_key, so the masked value can't leak
+      // back into the field (032b).
+      await update.mutateAsync({ name: initial.name, body }, {
+        onSuccess: ({ detail: saved }) => reset(formFromDetail(saved)),
+      });
     } else {
       const body: InstanceCreateRequest = {
         ...wire,

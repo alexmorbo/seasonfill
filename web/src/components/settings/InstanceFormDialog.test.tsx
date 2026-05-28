@@ -355,6 +355,55 @@ describe('<InstanceFormDialog />', () => {
     });
   });
 
+  it('keeps in-progress edits when a background refetch returns DIFFERENT server data', async () => {
+    // Hardening for the last-write-wins switch: a stale server value
+    // landing mid-edit (e.g. another tab saved, or the 5s poll) must NOT
+    // overwrite the field the user is actively editing. The dialog's
+    // reset effect is guarded by !isDirty for exactly this case.
+    const seedDetailVal: InstanceDetail = {
+      name: 'alpha', url: 'http://original', mode: DtoInstanceDetailMode.auto,
+    } as InstanceDetail;
+    // The refetch resolves with a DIFFERENT url than what's cached/typed.
+    const staleServer: InstanceDetail = {
+      name: 'alpha', url: 'http://server-stale', mode: DtoInstanceDetailMode.auto,
+    } as InstanceDetail;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha')) {
+        return jsonResp(staleServer, 200);
+      }
+      return jsonResp({ instances: [] }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open
+        onOpenChange={() => {}}
+        mode="edit"
+        initial={{ name: 'alpha', url: 'http://original', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', seedDetailVal);
+
+    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    // User edits the URL — form becomes dirty.
+    const urlInput = (await screen.findByLabelText(/url/i)) as HTMLInputElement;
+    await userEvent.clear(urlInput);
+    await userEvent.type(urlInput, 'http://user-edit');
+    expect(urlInput.value).toBe('http://user-edit');
+
+    // A background refetch lands with the stale server URL. The !isDirty
+    // guard must hold off the reset, so the user's edit survives.
+    await qc.invalidateQueries({ queryKey: instanceDetailKey('alpha') });
+    await waitFor(() => {
+      expect(urlInput.value).toBe('http://user-edit');
+    });
+    // Prove the stale value is NOT what we kept.
+    expect(urlInput.value).not.toBe('http://server-stale');
+  });
+
   it('edit submit OMITS api_key when the user did not touch the field, even with masked detail cached', async () => {
     // Simulates the 2026-05-26 incident: GET returns api_key="***"
     // (the server-side mask), user flips mode auto→manual, hits Save

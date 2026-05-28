@@ -74,14 +74,17 @@ describe('useCreateInstance()', () => {
 });
 
 describe('useUpdateInstance()', () => {
-  it('sends If-Unmodified-Since from cached Last-Modified', async () => {
-    const captured: { headers?: Record<string, string> | undefined } = {};
+  it('PUTs unconditionally — no If-Unmodified-Since even with cached Last-Modified', async () => {
+    const captured: { method?: string | undefined; headers?: Record<string, string> | undefined } = {};
     globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      captured.method = init?.method;
       captured.headers = init?.headers as Record<string, string> | undefined;
       return jsonResp({ name: 'alpha', api_key: '***' }, 200);
     }) as typeof fetch;
 
     const qc = makeQC();
+    // A cached Last-Modified must NOT cause a precondition header now that
+    // instance editing is last-write-wins.
     qc.setQueryData(instanceDetailKey('alpha'), {
       detail: { name: 'alpha' },
       lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
@@ -92,27 +95,23 @@ describe('useUpdateInstance()', () => {
       body: { name: 'alpha', url: 'http://x', api_key: '' } as never,
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured.headers?.['If-Unmodified-Since']).toBe(
-      'Wed, 21 Oct 2025 07:28:00 GMT',
-    );
+    expect(captured.method).toBe('PUT');
+    expect(captured.headers?.['If-Unmodified-Since']).toBeUndefined();
+    expect(toastSuccess).toHaveBeenCalledWith('Instance saved');
   });
 
-  it('412 triggers stale-write toast + invalidates both queries', async () => {
+  it('surfaces a save-failed toast on a non-2xx response', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ error: 'stale', code: 'STALE_WRITE' }, 412),
+      jsonResp({ error: 'boom' }, 500),
     ) as typeof fetch;
     const qc = makeQC();
-    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateInstance(), { wrapper: wrap(qc) });
     result.current.mutate({
       name: 'alpha',
       body: { name: 'alpha', url: 'http://x', api_key: '' } as never,
     });
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastMessage).toHaveBeenCalledWith(
-      'Settings changed by another tab — reloaded',
-    );
-    expect(invalidateSpy).toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Save failed'));
   });
 });
 

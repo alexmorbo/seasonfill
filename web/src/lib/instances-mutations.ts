@@ -113,23 +113,21 @@ export interface UpdateInstanceInput {
 export function useUpdateInstance() {
   const qc = useQueryClient();
   return useMutation<InstanceDetailWithMeta, ApiError, UpdateInstanceInput>({
+    // Last-write-wins: the PUT is unconditional (no If-Unmodified-Since
+    // precondition) so the server can never reject it with a 412. The
+    // api_key is protected independently — the form only sends api_key
+    // when the user actually typed a new one and the backend preserves
+    // the stored key otherwise — so last-write-wins can't clobber it.
     mutationFn: async ({ name, body }) => {
-      const cached = qc.getQueryData<InstanceDetailWithMeta>(instanceDetailKey(name));
-      const ius = cached?.lastModified ?? null;
       const { data, lastModified } = await jsonFetch<InstanceDetail>(
         `/api/v1/instances/${encodeURIComponent(name)}`,
         {
           method: 'PUT',
           body: JSON.stringify(body),
-          headers: ius ? { 'If-Unmodified-Since': ius } : {},
         },
       );
       return { detail: data, lastModified };
     },
-    // CRITICAL: setQueryData runs BEFORE invalidateQueries so a rapid
-    // second Save reads the freshly-captured Last-Modified rather than
-    // the pre-PUT one. The invalidate still triggers a background GET
-    // that will overwrite if the server's UpdatedAt differs.
     onSuccess: ({ detail, lastModified }, vars) => {
       qc.setQueryData<InstanceDetailWithMeta>(
         instanceDetailKey(vars.name), { detail, lastModified },
@@ -138,13 +136,7 @@ export function useUpdateInstance() {
       qc.invalidateQueries({ queryKey: instanceDetailKey(vars.name) });
       toast.success('Instance saved');
     },
-    onError: async (err, vars) => {
-      if (err.status === 412) {
-        toast.message('Settings changed by another tab — reloaded');
-        await qc.invalidateQueries({ queryKey: instanceDetailKey(vars.name) });
-        await qc.invalidateQueries({ queryKey: ['instances'] });
-        return;
-      }
+    onError: (err) => {
       toast.error(`Save failed: ${err.message}`);
     },
   });
