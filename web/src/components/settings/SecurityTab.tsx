@@ -100,14 +100,14 @@ export function SecurityTab() {
     mode: 'onBlur',
   });
 
-  // Republish form defaults on fresh server data — rhf reset() updates
-  // subscriptions without remounting inputs, so focus + typed-in text
-  // in other fields survive the 5s background refetch.
+  // Sync form to fresh server data only while the form is pristine, so a
+  // background refetch can't clobber unsaved edits. We hold off until
+  // isDirty clears (via Discard or a successful save).
   useEffect(() => {
-    if (q.data?.config) {
+    if (q.data?.config && !isDirty) {
       reset(configToForm(q.data.config));
     }
-  }, [q.data?.config, reset]);
+  }, [q.data?.config, isDirty, reset]);
 
   const storedTTL = q.data?.config?.auth?.session_ttl;
   const ttlParseWarning = useMemo(() => {
@@ -116,7 +116,10 @@ export function SecurityTab() {
   }, [storedTTL]);
 
   const onSubmit = handleSubmit((values) => {
-    mut.mutate(formToPayload(q.data?.config, values));
+    mut.mutate(formToPayload(q.data?.config, values), {
+      // Reset to persisted values so isDirty clears after a save.
+      onSuccess: (data) => reset(configToForm(data.config)),
+    });
   });
 
   const onDiscard = () => reset(configToForm(q.data?.config));

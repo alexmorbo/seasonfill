@@ -49,17 +49,14 @@ export function useRuntimeConfig(): UseQueryResult<RuntimeConfigWithMeta, ApiErr
 export function useUpdateRuntimeConfig() {
   const qc = useQueryClient();
   return useMutation<RuntimeConfigWithMeta, ApiError, RuntimeConfig>({
+    // Runtime config is a single-admin singleton row, so we use
+    // last-write-wins: the PUT is unconditional (no If-Unmodified-Since
+    // precondition) and the server can never reject it with a 412.
     mutationFn: async (body) => {
-      const cached = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
-      const ius = cached?.lastModified ?? null;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (ius) headers['If-Unmodified-Since'] = ius;
       const res = await fetch('/api/v1/config/runtime', {
         method: 'PUT',
         credentials: 'same-origin',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (res.status === 401) {
@@ -74,16 +71,11 @@ export function useUpdateRuntimeConfig() {
         const msg = typeof parsed === 'object' && parsed && 'error' in parsed
           ? String((parsed as { error: unknown }).error)
           : res.statusText;
-        // Carry the response headers on the error so onError can recover
-        // the fresh Last-Modified from a 412 without waiting on a refetch.
-        throw new ApiError(res.status, msg, parsed, res.headers);
+        throw new ApiError(res.status, msg, parsed);
       }
       const config = (await res.json()) as RuntimeConfig;
       return { config, lastModified: res.headers.get('Last-Modified') };
     },
-    // Synchronous cache prime closes the rapid-double-Save race. The
-    // background refetch from invalidateQueries still runs and will
-    // overwrite if the server's UpdatedAt has moved further.
     onSuccess: ({ config, lastModified }) => {
       qc.setQueryData<RuntimeConfigWithMeta>(
         runtimeConfigKey, { config, lastModified },
@@ -91,23 +83,7 @@ export function useUpdateRuntimeConfig() {
       qc.invalidateQueries({ queryKey: runtimeConfigKey });
       toast.success('Settings saved');
     },
-    onError: async (err) => {
-      if (err.status === 412) {
-        // The 412 response carries the row's current Last-Modified.
-        // Seed it into the cache synchronously so the immediate next
-        // save sends the correct If-Unmodified-Since — recovery no
-        // longer depends on the background refetch landing first.
-        const fresh = err.headers?.get('Last-Modified') ?? null;
-        if (fresh) {
-          qc.setQueryData<RuntimeConfigWithMeta>(runtimeConfigKey, (prev) =>
-            prev ? { ...prev, lastModified: fresh } : prev,
-          );
-        }
-        toast.message('Settings changed by another tab — reloaded');
-        // Background refetch also refreshes the displayed config values.
-        await qc.invalidateQueries({ queryKey: runtimeConfigKey });
-        return;
-      }
+    onError: (err) => {
       if (err.status === 400) {
         toast.error(err.message || 'Invalid settings');
         return;

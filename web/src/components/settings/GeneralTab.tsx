@@ -157,15 +157,15 @@ export function GeneralTab() {
     mode: 'onBlur',
   });
 
-  // Republish form defaults when fresh server data arrives. rhf's
-  // reset(newDefaults) does NOT remount the inputs — focus, scroll, and
-  // unsaved keystrokes in OTHER fields survive. The 5s background
-  // refetch is intentionally non-disruptive.
+  // Sync form to fresh server data only while the form is pristine.
+  // Resetting an in-progress edit (e.g. a just-toggled switch) on every
+  // background refetch would discard the user's unsaved changes, so we
+  // hold off until isDirty clears (either via Discard or a successful save).
   useEffect(() => {
-    if (q.data?.config) {
+    if (q.data?.config && !isDirty) {
       reset(configToForm(q.data.config));
     }
-  }, [q.data?.config, reset]);
+  }, [q.data?.config, isDirty, reset]);
 
   const cronVal = watch('cron_schedule');
   const cronInvalidLabel = t('settings.general.schedule.invalidExpression');
@@ -175,7 +175,12 @@ export function GeneralTab() {
   );
 
   const onSubmit = handleSubmit((values) => {
-    mut.mutate(formToPayload(q.data?.config, values));
+    mut.mutate(formToPayload(q.data?.config, values), {
+      // Reset to the persisted values so isDirty clears and the switches
+      // reflect what the server stored. The hook's own onSuccess (cache
+      // update + toast) runs before this per-call callback.
+      onSuccess: (data) => reset(configToForm(data.config)),
+    });
   });
 
   const onDiscard = () => {

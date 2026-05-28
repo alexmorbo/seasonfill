@@ -64,7 +64,7 @@ describe('useRuntimeConfig()', () => {
 });
 
 describe('useUpdateRuntimeConfig()', () => {
-  it('sends If-Unmodified-Since from cached Last-Modified and toasts on success', async () => {
+  it('PUTs unconditionally without If-Unmodified-Since (last-write-wins)', async () => {
     const captured: { headers?: Record<string, string> } = {};
     globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
       captured.headers = init?.headers as Record<string, string>;
@@ -72,6 +72,8 @@ describe('useUpdateRuntimeConfig()', () => {
     }) as typeof fetch;
 
     const qc = makeQC();
+    // Even with a cached Last-Modified present, the PUT must NOT send a
+    // precondition — runtime config is last-write-wins.
     const seed: RuntimeConfigWithMeta = {
       config: { dry_run: true } as never,
       lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
@@ -81,75 +83,8 @@ describe('useUpdateRuntimeConfig()', () => {
     const { result } = renderHook(() => useUpdateRuntimeConfig(), { wrapper: wrap(qc) });
     result.current.mutate({ dry_run: false } as never);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured.headers?.['If-Unmodified-Since']).toBe(
-      'Wed, 21 Oct 2025 07:28:00 GMT',
-    );
+    expect(captured.headers?.['If-Unmodified-Since']).toBeUndefined();
     expect(toastSuccess).toHaveBeenCalledWith('Settings saved');
-  });
-
-  it('412 surfaces stale-write message and invalidates the query', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      jsonResp({ error: 'stale', code: 'STALE_WRITE' }, 412),
-    ) as typeof fetch;
-    const qc = makeQC();
-    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useUpdateRuntimeConfig(), { wrapper: wrap(qc) });
-    result.current.mutate({ dry_run: false } as never);
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastMessage).toHaveBeenCalledWith(
-      'Settings changed by another tab — reloaded',
-    );
-    expect(invalidateSpy).toHaveBeenCalled();
-  });
-
-  it('412 seeds cached lastModified from the response header for instant recovery', async () => {
-    const captured: { lastIUS?: string | undefined } = {};
-    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === 'PUT') {
-        const hdrs = (init.headers ?? {}) as Record<string, string>;
-        captured.lastIUS = hdrs['If-Unmodified-Since'];
-        // Server rejects the stale write but returns the row's current
-        // Last-Modified so the client can re-precondition immediately.
-        return jsonResp({ error: 'stale', code: 'STALE_WRITE' }, 412, {
-          'Last-Modified': 'Wed, 21 Oct 2025 09:00:00 GMT',
-        });
-      }
-      // Background refetch from invalidateQueries.
-      return jsonResp({ dry_run: false }, 200, {
-        'Last-Modified': 'Wed, 21 Oct 2025 09:00:00 GMT',
-      });
-    }) as typeof fetch;
-
-    const qc = makeQC();
-    const seed: RuntimeConfigWithMeta = {
-      config: { dry_run: true } as never,
-      lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
-    };
-    qc.setQueryData(runtimeConfigKey, seed);
-
-    // An active observer keeps the cache alive under gcTime=0.
-    const { result } = renderHook(
-      () => ({ update: useUpdateRuntimeConfig(), q: useRuntimeConfig() }),
-      { wrapper: wrap(qc) },
-    );
-
-    // First PUT sends the stale seed IUS and gets a 412.
-    result.current.update.mutate({ dry_run: false } as never);
-    await waitFor(() => expect(result.current.update.isError).toBe(true));
-    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:28:00 GMT');
-
-    // onError must have refreshed the cached lastModified to the header
-    // value so the very next save uses the fresh precondition.
-    await waitFor(() => {
-      const after = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
-      expect(after?.lastModified).toBe('Wed, 21 Oct 2025 09:00:00 GMT');
-    });
-
-    // The retry now sends the fresh IUS rather than the stale one.
-    result.current.update.mutate({ dry_run: false } as never);
-    await waitFor(() =>
-      expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 09:00:00 GMT'),
-    );
   });
 
   it('400 surfaces the server message verbatim', async () => {
@@ -161,58 +96,5 @@ describe('useUpdateRuntimeConfig()', () => {
     result.current.mutate({} as never);
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastError).toHaveBeenCalledWith('invalid cron: foo');
-  });
-
-  it('PUT response Last-Modified is cached synchronously before invalidate', async () => {
-    let putCalls = 0;
-    const captured: { lastIUS?: string | undefined } = {};
-    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === 'PUT') {
-        putCalls += 1;
-        const hdrs = (init.headers ?? {}) as Record<string, string>;
-        captured.lastIUS = hdrs['If-Unmodified-Since'];
-        const newLM = putCalls === 1
-          ? 'Wed, 21 Oct 2025 07:30:00 GMT'
-          : 'Wed, 21 Oct 2025 07:31:00 GMT';
-        return jsonResp({ dry_run: putCalls === 1 }, 200, { 'Last-Modified': newLM });
-      }
-      // Background refetch — return the latest cached body.
-      return jsonResp({ dry_run: false }, 200, {
-        'Last-Modified': 'Wed, 21 Oct 2025 07:30:00 GMT',
-      });
-    }) as typeof fetch;
-
-    const qc = makeQC();
-    const seed: RuntimeConfigWithMeta = {
-      config: { dry_run: true } as never,
-      lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
-    };
-    qc.setQueryData(runtimeConfigKey, seed);
-
-    // Render both hooks so runtimeConfigKey has an active observer —
-    // required to prevent gcTime=0 from evicting setQueryData writes
-    // before the second mutate reads them.
-    const { result } = renderHook(
-      () => ({ update: useUpdateRuntimeConfig(), q: useRuntimeConfig() }),
-      { wrapper: wrap(qc) },
-    );
-
-    // First PUT — should send seed's IUS (07:28).
-    result.current.update.mutate({ dry_run: false } as never);
-    await waitFor(() => expect(result.current.update.isSuccess).toBe(true));
-    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:28:00 GMT');
-
-    // setQueryData in onSuccess ran synchronously, so the cache must
-    // already carry the PUT's Last-Modified before the background GET
-    // from invalidateQueries can overwrite it.
-    await waitFor(() => {
-      const after = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
-      expect(after?.lastModified).toBe('Wed, 21 Oct 2025 07:30:00 GMT');
-    });
-
-    // Second PUT — should now use 07:30, not 07:28.
-    result.current.update.mutate({ dry_run: true } as never);
-    await waitFor(() => expect(putCalls).toBe(2));
-    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:30:00 GMT');
   });
 });

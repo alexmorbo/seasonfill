@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
+import { runtimeConfigKey } from '@/lib/runtime-config';
 import { GeneralTab } from './GeneralTab';
 
 const origFetch = globalThis.fetch;
@@ -124,46 +125,70 @@ describe('<GeneralTab />', () => {
     });
   });
 
-  it('412 PUT response shows stale toast and refetches', async () => {
-    let callCount = 0;
+  it('preserves an in-progress switch toggle across a background refetch', async () => {
+    // The server config has dry_run=false on every GET. After the user
+    // toggles dry_run ON, a background refetch returning the still-false
+    // server value must NOT clobber the unsaved edit (form is dirty).
+    mockFetchConfig('0 */6 * * *');
+
+    const { qc } = renderWithProviders(<GeneralTab />);
+    await screen.findByText(/every 6 hours/i);
+
+    const dryRun = screen.getByRole('switch', { name: /dry/i });
+    expect(dryRun).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(dryRun);
+    await waitFor(() => expect(dryRun).toHaveAttribute('aria-checked', 'true'));
+
+    // Force a background refetch — its (still false) payload must be
+    // ignored because the form is dirty.
+    await qc.invalidateQueries({ queryKey: runtimeConfigKey });
+    await waitFor(() =>
+      expect(qc.getQueryState(runtimeConfigKey)?.fetchStatus).toBe('idle'),
+    );
+
+    expect(dryRun).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('successful save clears dirty and reflects the saved value', async () => {
+    // GET returns the currently-persisted dry_run; the PUT persists the
+    // new value (true) and the subsequent GET reflects it. After save the
+    // form resets to the saved values, so the switch stays ON and Save
+    // becomes disabled (form clean), surviving the post-save refetch too.
+    let persistedDryRun = false;
+    const body = () => ({
+      cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
+      scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
+      dry_run: persistedDryRun,
+      global_rate_limit: { rpm: 30, burst: 10 },
+      auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
+    });
     globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'PUT') {
+        persistedDryRun = JSON.parse(String(init.body)).dry_run as boolean;
         return new Response(
-          JSON.stringify({ error: 'stale', code: 'STALE_WRITE' }),
-          { status: 412, headers: { 'Content-Type': 'application/json' } },
+          JSON.stringify(body()),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Last-Modified': 'Mon, 25 May 2026 12:05:00 GMT' } },
         );
       }
-      callCount++;
       return new Response(
-        JSON.stringify({
-          cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
-          scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
-          dry_run: false,
-          global_rate_limit: { rpm: 30, burst: 10 },
-          auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
-        }),
+        JSON.stringify(body()),
         { status: 200, headers: { 'Content-Type': 'application/json', 'Last-Modified': 'Mon, 25 May 2026 12:00:00 GMT' } },
       );
     }) as typeof fetch;
 
     renderWithProviders(<GeneralTab />);
-    // Wait for the initial GET to settle (form rendered).
-    await waitFor(() => screen.getByRole('button', { name: /save/i }));
-    // SNAPSHOT calls now — this is the M-1 baseline. The 412 → refetch
-    // must advance this counter STRICTLY after the click.
-    const callsBefore = callCount;
+    await screen.findByText(/every 6 hours/i);
 
-    // Dirty the form so Save is enabled.
-    const schedInput = screen.getByPlaceholderText(/0 \*\/6/i);
-    await userEvent.clear(schedInput);
-    await userEvent.type(schedInput, '0 */4 * * *');
+    const dryRun = screen.getByRole('switch', { name: /dry/i });
+    await userEvent.click(dryRun);
+    const save = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    await userEvent.click(save);
 
-    await userEvent.click(screen.getByRole('button', { name: /save/i }));
-
-    // After 412, the mutation's onError handler calls qc.invalidateQueries
-    // which triggers a re-fetch. callCount must advance past callsBefore.
+    // Post-save reset clears dirty → Save disabled again, switch stays ON.
     await waitFor(() => {
-      expect(callCount).toBeGreaterThan(callsBefore);
+      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
     });
+    expect(dryRun).toHaveAttribute('aria-checked', 'true');
   });
 });
