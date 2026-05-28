@@ -422,8 +422,8 @@ func TestChecker_Preflight_SingleFlight(t *testing.T) {
 // the peak number of concurrent in-flight probes. Used to assert
 // bounded-parallel Preflight.
 type sleepyFakeSonarr struct {
-	name    string
-	delay   time.Duration
+	name     string
+	delay    time.Duration
 	inFlight *atomic.Int64
 	peak     *atomic.Int64
 }
