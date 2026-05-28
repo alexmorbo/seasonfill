@@ -43,7 +43,7 @@ export function SortableHeader({
       data-sort-dir={dir ?? ''}
       className={cn(
         'inline-flex items-center gap-1 cursor-pointer select-none',
-        'hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
+        'hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded',
         active && 'text-foreground',
         className,
       )}

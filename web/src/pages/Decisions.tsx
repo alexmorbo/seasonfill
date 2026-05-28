@@ -254,7 +254,7 @@ export function Decisions() {
                     tabIndex={0}
                     role="button"
                     aria-label={t('decisions.openDecisionAria', { id: d.id ?? '' })}
-                    className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <TableCell className="text-muted">{relativeTime(d.created_at)}</TableCell>
                     <TableCell className="font-mono">{d.instance ?? '—'}</TableCell>

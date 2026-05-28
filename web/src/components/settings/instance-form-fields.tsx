@@ -152,7 +152,7 @@ export function TagListEditor({ value, onChange, id, placeholder }: TagListEdito
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
+      <div className="flex flex-wrap gap-1.5 min-h-6">
         {value.length === 0 && (
           <span className="text-[11.5px] text-muted">No tags</span>
         )}

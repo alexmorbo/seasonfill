@@ -246,7 +246,7 @@ export function ScanDetail() {
                   <TableRow key={g.id} tabIndex={0} role="button"
                     onClick={() => g.id && navigate(`/grabs?drawer=${encodeURIComponent(g.id)}`)}
                     aria-label={`Open grab ${g.release_title ?? g.id}`}
-                    className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
                     <TableCell className="font-mono text-[12px] max-w-md truncate">{g.release_title ?? '—'}</TableCell>
                     <TableCell><StatusBadge value={g.status} /></TableCell>
                     <TableCell className="font-mono text-muted">{g.indexer_name ?? '—'}</TableCell>

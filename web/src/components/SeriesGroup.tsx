@@ -17,7 +17,7 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
       <button type="button" onClick={onToggle}
         aria-expanded={expanded} aria-controls={`series-body-${group.seriesId}`}
         className={cn(
-          'w-full flex items-center gap-3 px-4 py-3 text-left transition focus:outline-none focus-visible:bg-surface-2',
+          'w-full flex items-center gap-3 px-4 py-3 text-left transition focus:outline-hidden focus-visible:bg-surface-2',
           expanded ? 'bg-surface-2' : 'hover:bg-surface-2',
         )}>
         <ChevronRight className={cn('w-3.5 h-3.5 text-muted transition-transform', expanded && 'rotate-90')} />
@@ -52,7 +52,7 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
                         type="button"
                         aria-label={`Error: ${d.error_detail}`}
                         data-testid="series-row-error-icon"
-                        className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-none focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
+                        className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-hidden focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
                       >
                         <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>

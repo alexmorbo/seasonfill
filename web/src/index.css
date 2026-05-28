@@ -1,6 +1,77 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@plugin 'tailwindcss-animate';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-bg: oklch(var(--bg-base));
+  --color-surface: oklch(var(--bg-surface));
+  --color-surface-2: oklch(var(--bg-surface-2));
+  --color-hover: oklch(var(--bg-hover));
+  --color-input: oklch(var(--bg-input));
+  --color-border: oklch(var(--border-subtle));
+  --color-border-strong: oklch(var(--border-strong));
+  --color-border-faint: oklch(var(--border-faint));
+  --color-foreground: oklch(var(--text-primary));
+  --color-foreground-2: oklch(var(--text-secondary));
+  --color-muted: oklch(var(--text-muted));
+  --color-faint: oklch(var(--text-faint));
+  --color-accent: oklch(var(--accent));
+  --color-accent-strong: oklch(var(--accent-strong));
+  --color-accent-text: oklch(var(--accent-text));
+  --color-status-success: oklch(var(--status-success));
+  --color-status-warning: oklch(var(--status-warning));
+  --color-status-danger: oklch(var(--status-danger));
+  --color-status-info: oklch(var(--status-info));
+  --color-status-neutral: oklch(var(--status-neutral));
+  --color-background: oklch(var(--bg-base));
+  --color-card: oklch(var(--bg-surface));
+  --color-card-foreground: oklch(var(--text-primary));
+  --color-popover: oklch(var(--bg-surface));
+  --color-popover-foreground: oklch(var(--text-primary));
+  --color-primary: oklch(var(--accent));
+  --color-primary-foreground: oklch(var(--accent-text));
+  --color-secondary: oklch(var(--bg-surface-2));
+  --color-secondary-foreground: oklch(var(--text-primary));
+  --color-destructive: oklch(var(--status-danger));
+  --color-destructive-foreground: oklch(var(--text-primary));
+  --color-muted-foreground: oklch(var(--text-muted));
+  --color-accent-foreground: oklch(var(--accent-text));
+  --color-ring: oklch(var(--accent) / 0.5);
+
+  --font-sans:
+    'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+
+  --radius-lg: 10px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility chip-dot {
+  @apply inline-block w-1.5 h-1.5 rounded-full;
+}
 
 @layer base {
   :root {
@@ -31,8 +102,4 @@
     font-size: 14px; line-height: 1.45; text-rendering: optimizeLegibility;
   }
   .mono { @apply font-mono; font-feature-settings: "ss01", "zero"; }
-}
-
-@layer utilities {
-  .chip-dot { @apply inline-block w-1.5 h-1.5 rounded-full; }
 }

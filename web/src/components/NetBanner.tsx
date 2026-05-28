@@ -25,7 +25,7 @@ export function NetBanner() {
   }, []);
 
   if (state === 'online') return null;
-  const base = 'fixed left-1/2 -translate-x-1/2 bottom-5 z-[70] flex items-center gap-3 px-4 py-2.5 rounded-full bg-surface-2 font-mono text-[12px] shadow-xl';
+  const base = 'fixed left-1/2 -translate-x-1/2 bottom-5 z-70 flex items-center gap-3 px-4 py-2.5 rounded-full bg-surface-2 font-mono text-[12px] shadow-xl';
   if (state === 'reconnected') {
     return <div role="status" className={`${base} border border-status-success/40 text-status-success`}>{t('net.reconnected')}</div>;
   }
