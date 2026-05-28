@@ -90,6 +90,53 @@ func TestScanRepository_Update(t *testing.T) {
 	require.NotNil(t, got.FinishedAt)
 }
 
+// TestScanRepository_Update_PreservesCreatedAt is the Part B regression:
+// the completion Update used to do a full-row Save that zeroed the
+// GORM-managed created_at (toScanModel leaves it at the zero value). The
+// fix Omits CreatedAt from the Save so the original Create timestamp
+// survives. Assert created_at is non-zero AND unchanged across the update.
+func TestScanRepository_Update_PreservesCreatedAt(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewScanRepository(db)
+	ctx := context.Background()
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(ctx, newScanRecord(id)))
+
+	// Read the created_at GORM auto-set on Create.
+	var beforeCreatedAt time.Time
+	require.NoError(t, db.Table("scan_runs").
+		Where("id = ?", id.String()).
+		Select("created_at").Scan(&beforeCreatedAt).Error)
+	require.False(t, beforeCreatedAt.IsZero(), "Create must auto-set created_at")
+
+	// Complete the scan via the full-row Update path.
+	finished := time.Now().UTC().Truncate(time.Second)
+	rec := newScanRecord(id)
+	rec.Status = "completed"
+	rec.SeriesScanned = 7
+	rec.FinishedAt = &finished
+	require.NoError(t, repo.Update(ctx, rec))
+
+	// created_at must survive the update.
+	var afterCreatedAt time.Time
+	require.NoError(t, db.Table("scan_runs").
+		Where("id = ?", id.String()).
+		Select("created_at").Scan(&afterCreatedAt).Error)
+	assert.False(t, afterCreatedAt.IsZero(),
+		"Update must not zero created_at")
+	assert.WithinDuration(t, beforeCreatedAt, afterCreatedAt, time.Second,
+		"Update must preserve the original created_at")
+
+	// And the mutable fields did get written.
+	got, err := repo.GetByID(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", got.Status)
+	assert.Equal(t, 7, got.SeriesScanned)
+	require.NotNil(t, got.FinishedAt)
+}
+
 func TestScanRepository_MarkAborted(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

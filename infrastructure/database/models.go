@@ -8,10 +8,10 @@ import (
 )
 
 type ScanRunModel struct {
-	ID              string    `gorm:"primaryKey;size:36;index:idx_scan_runs_created_at_id,priority:2"`
+	ID              string    `gorm:"primaryKey;size:36;index:idx_scan_runs_created_at_id,priority:2;index:idx_scan_runs_started_at_id,priority:2"`
 	InstanceName    string    `gorm:"size:128;index"`
 	Trigger         string    `gorm:"size:32"`
-	StartedAt       time.Time `gorm:"index"`
+	StartedAt       time.Time `gorm:"index:idx_scan_runs_started_at_id,priority:1"`
 	FinishedAt      *time.Time
 	Status          string `gorm:"size:32"`
 	SeriesScanned   int

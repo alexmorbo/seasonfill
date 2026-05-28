@@ -30,7 +30,12 @@ func (r *ScanRepository) Create(ctx context.Context, rec ports.ScanRecord) error
 
 func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error {
 	model := toScanModel(rec)
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Save(&model).Error; err != nil {
+	// Save writes every column. toScanModel leaves CreatedAt at the zero
+	// value (it is GORM-managed, set on Create), so a plain Save would
+	// clobber the row's original created_at to 0001-01-01. Omit it so the
+	// stored timestamp survives the completion update. UpdatedAt stays
+	// auto-managed by GORM.
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Omit("CreatedAt").Save(&model).Error; err != nil {
 		return fmt.Errorf("update scan: %w", err)
 	}
 	return nil
@@ -87,23 +92,27 @@ func (r *ScanRepository) List(ctx context.Context, f ports.ScanFilter, p ports.P
 	if f.Status != nil {
 		q = q.Where("status = ?", *f.Status)
 	}
+	// Order/filter/paginate by started_at: scan_runs.created_at is GORM-
+	// managed and was historically zeroed by the completion Save, so it is
+	// unreliable for ordering. started_at is always populated and is the
+	// field the UI shows ("Started"), so it is the correct keyset column.
 	if f.From != nil {
-		q = q.Where("created_at >= ?", *f.From)
+		q = q.Where("started_at >= ?", *f.From)
 	}
 	if f.To != nil {
-		q = q.Where("created_at < ?", *f.To)
+		q = q.Where("started_at < ?", *f.To)
 	}
 	if p.Cursor != nil {
-		q = q.Where("(created_at, id) < (?, ?)", p.Cursor.Timestamp, p.Cursor.ID)
+		q = q.Where("(started_at, id) < (?, ?)", p.Cursor.Timestamp, p.Cursor.ID)
 	}
 	var models []database.ScanRunModel
-	if err := q.Order("created_at DESC, id DESC").Limit(p.Limit + 1).Find(&models).Error; err != nil {
+	if err := q.Order("started_at DESC, id DESC").Limit(p.Limit + 1).Find(&models).Error; err != nil {
 		return nil, nil, fmt.Errorf("scan list: %w", err)
 	}
 	var next *ports.Cursor
 	if len(models) > p.Limit {
 		last := models[p.Limit-1]
-		next = &ports.Cursor{Timestamp: last.CreatedAt.UTC(), ID: last.ID}
+		next = &ports.Cursor{Timestamp: last.StartedAt.UTC(), ID: last.ID}
 		models = models[:p.Limit]
 	}
 	out := make([]ports.ScanRecord, 0, len(models))

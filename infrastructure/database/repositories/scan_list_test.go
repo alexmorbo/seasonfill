@@ -14,10 +14,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 )
 
-// seedScans inserts n scan rows for (instance, status) and forces
-// created_at to a deterministic series (base, base+1s, ...). The override
-// is required because ScanRunModel.CreatedAt is GORM-managed (auto-set
-// on Create) and we want the cursor pagination to walk a known order.
+// seedScans inserts n scan rows for (instance, status) with a deterministic
+// started_at series (base, base+1s, ...). ScanRepository.List orders,
+// filters and paginates by started_at (created_at is unreliable — it was
+// historically zeroed by the completion Save), so distinct StartedAt values
+// are all that is needed to drive a known order.
 func seedScans(t *testing.T, db *gorm.DB, n int, instance, status string, base time.Time) []ports.ScanRecord {
 	t.Helper()
 	repo := NewScanRepository(db)
@@ -33,8 +34,6 @@ func seedScans(t *testing.T, db *gorm.DB, n int, instance, status string, base t
 			DryRun:       true,
 		}
 		require.NoError(t, repo.Create(ctx, rec))
-		ts := base.Add(time.Duration(i) * time.Second)
-		require.NoError(t, db.Table("scan_runs").Where("id = ?", rec.ID.String()).Update("created_at", ts).Error)
 		recs = append(recs, rec)
 	}
 	return recs
@@ -48,6 +47,53 @@ func TestScanRepository_List_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Nil(t, next)
+}
+
+// TestScanRepository_List_OrdersByStartedAt_ZeroCreatedAt is the exact
+// production regression: every scan_runs.created_at is the Go zero value
+// (0001-01-01) because the completion Save clobbered it, yet started_at is
+// populated and distinct. The list must come back strictly started_at-DESC
+// regardless of created_at. We force created_at to zero on every row (and
+// shuffle which row gets the newest started_at vs the smallest id) so the
+// only signal that can produce a correct order is started_at.
+func TestScanRepository_List_OrdersByStartedAt_ZeroCreatedAt(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewScanRepository(db)
+	ctx := context.Background()
+
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	// Insert rows whose started_at order is intentionally NOT the id order.
+	offsets := []int{40, 10, 30, 0, 20}
+	for _, off := range offsets {
+		rec := ports.ScanRecord{
+			ID:           uuid.New(),
+			InstanceName: "main",
+			Trigger:      "manual",
+			StartedAt:    base.Add(time.Duration(off) * time.Second),
+			Status:       "completed",
+			DryRun:       true,
+		}
+		require.NoError(t, repo.Create(ctx, rec))
+	}
+	// Zero out created_at for every row — reproduces the prod corruption.
+	require.NoError(t, db.Table("scan_runs").
+		Where("1 = 1").Update("created_at", time.Time{}).Error)
+
+	got, _, err := repo.List(ctx, ports.ScanFilter{}, ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, got, 5)
+
+	for i := 0; i < len(got)-1; i++ {
+		assert.True(t, got[i].StartedAt.After(got[i+1].StartedAt),
+			"row %d started_at %s must be after row %d started_at %s",
+			i, got[i].StartedAt, i+1, got[i+1].StartedAt)
+	}
+	// Sanity: every created_at really is zero, so the order can only have
+	// come from started_at.
+	for _, r := range got {
+		assert.True(t, r.CreatedAt.IsZero(), "created_at must be zero in this scenario")
+	}
 }
 
 func TestScanRepository_List_FirstPage(t *testing.T) {
