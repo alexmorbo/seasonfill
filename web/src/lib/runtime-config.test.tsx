@@ -102,6 +102,56 @@ describe('useUpdateRuntimeConfig()', () => {
     expect(invalidateSpy).toHaveBeenCalled();
   });
 
+  it('412 seeds cached lastModified from the response header for instant recovery', async () => {
+    const captured: { lastIUS?: string | undefined } = {};
+    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const hdrs = (init.headers ?? {}) as Record<string, string>;
+        captured.lastIUS = hdrs['If-Unmodified-Since'];
+        // Server rejects the stale write but returns the row's current
+        // Last-Modified so the client can re-precondition immediately.
+        return jsonResp({ error: 'stale', code: 'STALE_WRITE' }, 412, {
+          'Last-Modified': 'Wed, 21 Oct 2025 09:00:00 GMT',
+        });
+      }
+      // Background refetch from invalidateQueries.
+      return jsonResp({ dry_run: false }, 200, {
+        'Last-Modified': 'Wed, 21 Oct 2025 09:00:00 GMT',
+      });
+    }) as typeof fetch;
+
+    const qc = makeQC();
+    const seed: RuntimeConfigWithMeta = {
+      config: { dry_run: true } as never,
+      lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
+    };
+    qc.setQueryData(runtimeConfigKey, seed);
+
+    // An active observer keeps the cache alive under gcTime=0.
+    const { result } = renderHook(
+      () => ({ update: useUpdateRuntimeConfig(), q: useRuntimeConfig() }),
+      { wrapper: wrap(qc) },
+    );
+
+    // First PUT sends the stale seed IUS and gets a 412.
+    result.current.update.mutate({ dry_run: false } as never);
+    await waitFor(() => expect(result.current.update.isError).toBe(true));
+    expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 07:28:00 GMT');
+
+    // onError must have refreshed the cached lastModified to the header
+    // value so the very next save uses the fresh precondition.
+    await waitFor(() => {
+      const after = qc.getQueryData<RuntimeConfigWithMeta>(runtimeConfigKey);
+      expect(after?.lastModified).toBe('Wed, 21 Oct 2025 09:00:00 GMT');
+    });
+
+    // The retry now sends the fresh IUS rather than the stale one.
+    result.current.update.mutate({ dry_run: false } as never);
+    await waitFor(() =>
+      expect(captured.lastIUS).toBe('Wed, 21 Oct 2025 09:00:00 GMT'),
+    );
+  });
+
   it('400 surfaces the server message verbatim', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ error: 'invalid cron: foo', code: 'BAD_REQUEST' }, 400),

@@ -1,7 +1,12 @@
 import type { paths } from '@/api/schema';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public body?: unknown) {
+  constructor(
+    public status: number,
+    message: string,
+    public body?: unknown,
+    public headers?: Headers,
+  ) {
     super(message);
     this.name = 'ApiError';
   }

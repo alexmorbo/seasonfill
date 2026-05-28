@@ -226,12 +226,12 @@ export function SecurityTab() {
       <div className="flex justify-end gap-2 pt-2 border-t border-border">
         <Button
           type="button" variant="ghost"
-          disabled={!isDirty || isSubmitting} onClick={onDiscard}
+          disabled={!isDirty || isSubmitting || mut.isPending} onClick={onDiscard}
         >
           {t('common.discard')}
         </Button>
-        <Button type="submit" disabled={!isDirty || isSubmitting}>
-          {isSubmitting ? t('common.saving') : t('common.save')}
+        <Button type="submit" disabled={!isDirty || isSubmitting || mut.isPending}>
+          {isSubmitting || mut.isPending ? t('common.saving') : t('common.save')}
         </Button>
       </div>
     </form>

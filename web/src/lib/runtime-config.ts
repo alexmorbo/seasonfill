@@ -74,7 +74,9 @@ export function useUpdateRuntimeConfig() {
         const msg = typeof parsed === 'object' && parsed && 'error' in parsed
           ? String((parsed as { error: unknown }).error)
           : res.statusText;
-        throw new ApiError(res.status, msg, parsed);
+        // Carry the response headers on the error so onError can recover
+        // the fresh Last-Modified from a 412 without waiting on a refetch.
+        throw new ApiError(res.status, msg, parsed, res.headers);
       }
       const config = (await res.json()) as RuntimeConfig;
       return { config, lastModified: res.headers.get('Last-Modified') };
@@ -91,7 +93,18 @@ export function useUpdateRuntimeConfig() {
     },
     onError: async (err) => {
       if (err.status === 412) {
+        // The 412 response carries the row's current Last-Modified.
+        // Seed it into the cache synchronously so the immediate next
+        // save sends the correct If-Unmodified-Since — recovery no
+        // longer depends on the background refetch landing first.
+        const fresh = err.headers?.get('Last-Modified') ?? null;
+        if (fresh) {
+          qc.setQueryData<RuntimeConfigWithMeta>(runtimeConfigKey, (prev) =>
+            prev ? { ...prev, lastModified: fresh } : prev,
+          );
+        }
         toast.message('Settings changed by another tab — reloaded');
+        // Background refetch also refreshes the displayed config values.
         await qc.invalidateQueries({ queryKey: runtimeConfigKey });
         return;
       }
