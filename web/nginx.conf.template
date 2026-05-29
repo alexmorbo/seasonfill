@@ -30,14 +30,11 @@ server {
         text/xml
         image/svg+xml;
 
-    # Security headers — applied to every response. `always` ensures
-    # they are emitted even on 4xx/5xx so an intermediate proxy doesn't
-    # strip them on error pages.
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    # Security headers — see snippets/security-headers.conf. Included
+    # (not inlined) so the SAME set is reapplied in every location that
+    # declares its own add_header, since nginx add_header resets on
+    # redeclare and would otherwise drop the CSP there.
+    include /etc/nginx/snippets/security-headers.conf;
 
     # Backend fan-out. The frontend proxies these path prefixes to the
     # backend container so end users hit a single host:port. The
@@ -124,8 +121,7 @@ server {
     location ^~ /assets/ {
         expires 1y;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        include /etc/nginx/snippets/security-headers.conf;
         try_files $uri =404;
     }
 
@@ -139,8 +135,7 @@ server {
     location / {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        include /etc/nginx/snippets/security-headers.conf;
         try_files $uri $uri/ /index.html;
     }
 }

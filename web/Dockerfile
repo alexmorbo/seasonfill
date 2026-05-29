@@ -57,6 +57,7 @@ RUN apk add --no-cache gettext \
 
 # Template is rendered at container start (see entrypoint.sh).
 COPY nginx.conf.template /etc/nginx/templates/seasonfill.conf.template
+COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 
 USER 101
