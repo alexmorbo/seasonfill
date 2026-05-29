@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, ArrowUpRight, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CategoryChip } from '@/components/CategoryChip';
@@ -11,6 +12,7 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
   onToggle: () => void;
   onOpenDecision: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const seasonCount = group.seasons.length;
   return (
     <div className="border-b border-border-faint last:border-b-0">
@@ -24,23 +26,21 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
         <span className="font-medium min-w-[200px] truncate" data-testid="series-title">{group.seriesTitle}</span>
         <CategoryChip value={group.worstCategory} variant="compact" />
         <span className="text-[11px] text-faint font-mono">
-          {seasonCount} season{seasonCount === 1 ? '' : 's'}
+          {t('seriesGroup.seasonCount', { count: seasonCount })}
         </span>
       </button>
       {expanded && (
         <ul id={`series-body-${group.seriesId}`}
           className="flex flex-col gap-1 px-12 py-2"
-          aria-label={`Seasons for ${group.seriesTitle}`}>
+          aria-label={t('seriesGroup.seasonsAria', { title: group.seriesTitle })}>
           {group.seasons.map((row) => {
             const d = row.decision;
             const guidShort = d.selected_guid ? d.selected_guid.slice(0, 10) : null;
             return (
               <li
                 key={d.id}
-                className={
-                  'flex items-center gap-2 text-[12px] font-mono px-2 py-1.5 rounded bg-surface' +
-                  (d.superseded_by_id ? ' line-through opacity-60' : '')
-                }
+                className={'flex items-center gap-2 text-[12px] font-mono px-2 py-1.5 rounded bg-surface' +
+                  (d.superseded_by_id ? ' line-through opacity-60' : '')}
                 data-testid={d.superseded_by_id ? 'series-row-superseded' : 'series-row'}
               >
                 <span className="text-faint shrink-0 w-10">S{String(row.seasonNumber).padStart(2, '0')}</span>
@@ -50,27 +50,26 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Error: ${d.error_detail}`}
+                        aria-label={t('seriesGroup.errorTooltipAria', { message: d.error_detail })}
                         data-testid="series-row-error-icon"
                         className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-hidden focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
                       >
                         <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      className="max-w-md whitespace-pre-wrap font-mono text-[11px]"
-                    >
+                    <TooltipContent side="top" className="max-w-md whitespace-pre-wrap font-mono text-[11px]">
                       {d.error_detail}
                     </TooltipContent>
                   </Tooltip>
                 )}
                 <StatusBadge value={d.decision} mode="outcome" />
-                <span className="text-muted truncate flex-1">{d.reason ?? ''}</span>
+                <span className="text-muted truncate flex-1">
+                  {d.reason ? t(`reasons.${d.reason}`, { defaultValue: d.reason }) : ''}
+                </span>
                 {guidShort && <span className="text-faint">{guidShort}…</span>}
                 <button type="button"
                   className="ml-1 p-1 rounded text-muted hover:text-foreground hover:bg-surface-2"
-                  aria-label={`Open decision for ${group.seriesTitle} season ${row.seasonNumber}`}
+                  aria-label={t('seriesGroup.openDecisionAria', { title: group.seriesTitle, season: row.seasonNumber })}
                   onClick={() => d.id && onOpenDecision(d.id)}>
                   <ArrowUpRight className="w-3.5 h-3.5" />
                 </button>

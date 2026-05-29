@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +26,7 @@ import { groupBySeries, sortGroups } from '@/lib/decision-grouping';
 import { readExpanded, writeExpanded } from '@/lib/url-expand';
 
 export function ScanDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -104,16 +106,16 @@ export function ScanDetail() {
 
   const s = scan.data;
   const copy = () => {
-    if (s?.id) { navigator.clipboard?.writeText(s.id); toast.success('Scan id copied'); }
+    if (s?.id) { navigator.clipboard?.writeText(s.id); toast.success(t('scanDetail.copyScanIdToast')); }
   };
 
-  if (scan.isPending) return <div className="max-w-[1440px] mx-auto p-6 text-muted">Loading scan…</div>;
+  if (scan.isPending) return <div className="max-w-[1440px] mx-auto p-6 text-muted">{t('scanDetail.loading')}</div>;
   if (scan.isError || !s) return (
     <div className="max-w-[1440px] mx-auto p-6">
       <Alert variant="destructive">
         <AlertTriangle className="w-4 h-4" />
-        <AlertTitle>Scan not found</AlertTitle>
-        <AlertDescription>{scan.error?.message ?? 'No scan with that id.'}</AlertDescription>
+        <AlertTitle>{t('scanDetail.notFoundTitle')}</AlertTitle>
+        <AlertDescription>{scan.error?.message ?? t('scanDetail.notFoundBodyFallback')}</AlertDescription>
       </Alert>
     </div>
   );
@@ -124,21 +126,21 @@ export function ScanDetail() {
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
       <Button variant="ghost" size="sm" className="self-start -ml-2 h-8" onClick={() => navigate('/scans')}>
-        <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back to scans
+        <ArrowLeft className="w-3.5 h-3.5 mr-1" /> {t('scanDetail.backToScans')}
       </Button>
 
       <header className="flex flex-col gap-1.5">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-[22px] font-semibold tracking-tight">
-            Scan <span className="font-mono font-medium">{(s.id ?? '').slice(0, 8)}</span>
+            {t('scanDetail.scanIdLabel')} <span className="font-mono font-medium">{(s.id ?? '').slice(0, 8)}</span>
           </h1>
-          <button onClick={copy} aria-label="Copy full scan id" className="text-muted hover:text-foreground p-1 rounded">
+          <button onClick={copy} aria-label={t('scanDetail.copyScanId')} className="text-muted hover:text-foreground p-1 rounded">
             <Copy className="w-3.5 h-3.5" />
           </button>
           <StatusBadge value={s.status} />
           {s.status === 'running' && (
             <>
-              <span className="font-mono text-[11px] text-faint" data-testid="poll-indicator">polling every 2s</span>
+              <span className="font-mono text-[11px] text-faint" data-testid="poll-indicator">{t('scanDetail.pollIndicator')}</span>
               {s.id && <CancelScanDialog scanId={s.id} />}
             </>
           )}
@@ -163,23 +165,23 @@ export function ScanDetail() {
         {...(s.finished_at && { finishedAt: s.finished_at })} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Series scanned" value={s.series_scanned ?? 0} />
-        <StatCard label="Candidates" value={s.candidates_found ?? 0} />
-        <StatCard label="Grabs" value={grabsOk}
-          {...(grabsFailed > 0 ? { suffix: `/ ${grabsFailed} fail` } : {})}
+        <StatCard label={t('scanDetail.statSeriesScanned')} value={s.series_scanned ?? 0} />
+        <StatCard label={t('scanDetail.statCandidates')} value={s.candidates_found ?? 0} />
+        <StatCard label={t('scanDetail.statGrabs')} value={grabsOk}
+          {...(grabsFailed > 0 ? { suffix: t('scanDetail.grabsFailSuffix', { count: grabsFailed }) } : {})}
           variant={grabsFailed > 0 ? 'warning' : 'success'} />
-        <StatCard label="Status" variant={statusVariant}
+        <StatCard label={t('scanDetail.statStatus')} variant={statusVariant}
           value={<span className="text-[18px] lowercase">{s.status ?? '—'}</span>} />
       </div>
 
       <div className="text-[12px] text-muted font-mono">
-        {linkedDecisions.length} decisions · {linkedGrabs.length} grabs
+        {t('scanDetail.counter', { decisions: linkedDecisions.length, grabs: linkedGrabs.length })}
       </div>
 
       {s.status === 'failed' && s.error_message && (
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
-          <AlertTitle>Scan failed</AlertTitle>
+          <AlertTitle>{t('scanDetail.failedTitle')}</AlertTitle>
           <AlertDescription className="font-mono text-[12px]">{s.error_message}</AlertDescription>
         </Alert>
       )}
@@ -187,20 +189,24 @@ export function ScanDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between py-3">
           <CardTitle className="text-[14px] font-semibold">
-            Decisions{' '}
+            {t('scanDetail.decisionsCardTitle')}{' '}
             <span className="text-faint font-mono text-[11px] ml-2">
-              {groups.length} series · {linkedDecisions.length} seasons
+              {t('scanDetail.decisionsCardSubtitle', { series: groups.length, seasons: linkedDecisions.length })}
             </span>
           </CardTitle>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-faint uppercase tracking-[0.06em]">outcome</span>
+            <span className="text-[11px] text-faint uppercase tracking-[0.06em]">{t('decisions.columns.outcome').toLowerCase()}</span>
             <Select value={outcome} onValueChange={(v) => setParam('outcome', v === 'all' ? '' : v)}>
-              <SelectTrigger className="h-7 w-[160px] text-[12px]" aria-label="Outcome filter">
-                <SelectValue placeholder="all" />
+              <SelectTrigger className="h-7 w-[160px] text-[12px]" aria-label={t('scanDetail.outcomeFilterAria')}>
+                <SelectValue placeholder={t('scanDetail.outcomeFilterAll')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">all</SelectItem>
-                {OUTCOMES.map((o) => (<SelectItem key={o} value={o}>{o}</SelectItem>))}
+                <SelectItem value="all">{t('scanDetail.outcomeFilterAll')}</SelectItem>
+                {OUTCOMES.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {t(`outcomes.${o}`, { defaultValue: o })}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -214,8 +220,8 @@ export function ScanDetail() {
             </Table>
           )}
           {!decisions.isPending && groups.length === 0 && (
-            <EmptyState title="No decisions for this scan"
-              body="Either the scan made no decisions or none match the current filter." />
+            <EmptyState title={t('scanDetail.decisionsEmptyTitle')}
+              body={t('scanDetail.decisionsEmptyBody')} />
           )}
           {groups.map((g) => (
             <SeriesGroup key={g.seriesId} group={g}
@@ -229,23 +235,25 @@ export function ScanDetail() {
       {linkedGrabs.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between py-3">
-            <CardTitle className="text-[14px] font-semibold">Linked grabs</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/grabs')}>All grabs →</Button>
+            <CardTitle className="text-[14px] font-semibold">{t('scanDetail.linkedGrabsTitle')}</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/grabs')}>{t('scanDetail.linkedGrabsAllLink')}</Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Release</TableHead><TableHead>Status</TableHead>
-                  <TableHead>Indexer</TableHead><TableHead>Updated</TableHead>
-                  <TableHead>Attempts</TableHead>
+                  <TableHead>{t('scanDetail.linkedColRelease')}</TableHead>
+                  <TableHead>{t('scanDetail.linkedColStatus')}</TableHead>
+                  <TableHead>{t('scanDetail.linkedColIndexer')}</TableHead>
+                  <TableHead>{t('scanDetail.linkedColUpdated')}</TableHead>
+                  <TableHead>{t('scanDetail.linkedColAttempts')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {linkedGrabs.map((g) => (
                   <TableRow key={g.id} tabIndex={0} role="button"
                     onClick={() => g.id && navigate(`/grabs?drawer=${encodeURIComponent(g.id)}`)}
-                    aria-label={`Open grab ${g.release_title ?? g.id}`}
+                    aria-label={t('scanDetail.openGrabAria', { title: g.release_title ?? g.id ?? '' })}
                     className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
                     <TableCell className="font-mono text-[12px] max-w-md truncate">{g.release_title ?? '—'}</TableCell>
                     <TableCell><StatusBadge value={g.status} /></TableCell>
@@ -263,7 +271,7 @@ export function ScanDetail() {
       {decisions.hasNextPage && (
         <div className="flex justify-center">
           <Button variant="outline" onClick={() => decisions.fetchNextPage()} disabled={decisions.isFetchingNextPage}>
-            {decisions.isFetchingNextPage ? 'Loading…' : 'Show more decisions'}
+            {decisions.isFetchingNextPage ? t('common.loading') : t('scanDetail.showMoreDecisions')}
           </Button>
         </div>
       )}
