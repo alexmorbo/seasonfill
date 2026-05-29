@@ -15,11 +15,6 @@ vi.mock('sonner', () => ({
 function wrap() {
   const qc = new QueryClient({
     defaultOptions: {
-      // gcTime must be > 0: pre-seeded ['decisions', ...] caches have
-      // no observers (no component is rendering useDecisions in this
-      // hook-only test), so gcTime:0 would garbage-collect them the
-      // microtask after setQueryData and setQueriesData wouldn't find
-      // anything to update (019 cache-seed test).
       queries: { retry: false, gcTime: 5 * 60_000, staleTime: 0 },
       mutations: { retry: false },
     },
@@ -56,17 +51,20 @@ afterEach(() => {
 });
 
 describe('useRescanDecision()', () => {
-  it('POSTs /decisions/:id/rescan and invalidates decisions+scans on success', async () => {
+  it('POSTs /decisions/:id/rescan and invalidates decisions+scans+instances on success', async () => {
     const captured: { url?: string; method?: string } = {};
     globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
       captured.url = typeof u === 'string' ? u : u.toString();
       if (init?.method) captured.method = init.method;
-      return jsonResp({
-        id: 'dec-new', instance: 'alpha', series_title: 'Severance',
-        season_number: 2, decision: 'grab', reason: 'grab_selected',
-        category: 'action_taken', scan_run_id: 'scan-1',
-        created_at: new Date().toISOString(),
-      });
+      return jsonResp(
+        [{
+          scan_run_id: 'run-new',
+          instance: 'alpha',
+          status: 'running',
+          started_at: new Date().toISOString(),
+        }],
+        202,
+      );
     }) as typeof fetch;
 
     const { Wrapper, invalidations } = wrap();
@@ -76,22 +74,26 @@ describe('useRescanDecision()', () => {
 
     expect(captured.url).toBe('/api/v1/decisions/dec-old/rescan');
     expect(captured.method).toBe('POST');
-    expect(toastSuccess).toHaveBeenCalledWith(
-      'Rescan complete — showing new decision',
-    );
+    expect(toastSuccess).toHaveBeenCalledWith('Rescan started');
+    // The mutation now returns the raw items[] (matching POST /scan).
+    expect(result.current.data?.[0]?.scan_run_id).toBe('run-new');
+    // Invalidations mirror useTriggerScan: decisions, scans, instances.
     expect(invalidations.flat()).toEqual(
-      expect.arrayContaining(['decisions', 'scans', 'scan']),
+      expect.arrayContaining(['decisions', 'scans', 'instances']),
     );
   });
 
-  it('seeds existing decisions infinite-cache with the new row before invalidating', async () => {
+  it('does NOT mutate the decisions infinite-cache (no in-place seeding under the new contract)', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({
-        id: 'dec-new', instance: 'alpha', series_title: 'Severance',
-        season_number: 2, decision: 'grab', reason: 'grab_selected',
-        category: 'action_taken', scan_run_id: 'scan-1',
-        created_at: new Date().toISOString(),
-      }),
+      jsonResp(
+        [{
+          scan_run_id: 'run-x',
+          instance: 'alpha',
+          status: 'running',
+          started_at: new Date().toISOString(),
+        }],
+        202,
+      ),
     ) as typeof fetch;
 
     const { qc, Wrapper } = wrap();
@@ -105,34 +107,15 @@ describe('useRescanDecision()', () => {
     result.current.mutate({ decisionId: 'dec-old' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // After success, the new row sits at index 0 of the first page.
+    // The pre-seed should remain untouched in shape — invalidation may
+    // refetch lazily, but the rescan hook itself MUST NOT prepend a
+    // synthetic decision row anymore (no Decision returned by the new
+    // backend contract).
     const cached = qc.getQueryData<{
       readonly pages: readonly { readonly items: readonly { readonly id: string }[] }[];
     }>(['decisions', null, {}]);
-    expect(cached?.pages[0]?.items[0]?.id).toBe('dec-new');
-    expect(cached?.pages[0]?.items[1]?.id).toBe('dec-old');
-  });
-
-  it('falls back to plain success toast when response is missing id', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      jsonResp({
-        // id intentionally absent — defensive branch for partial DTOs.
-        instance: 'alpha', series_title: 'Severance', season_number: 2,
-        decision: 'skip', reason: 'skip_no_releases',
-        category: 'nothing_found', scan_run_id: 'scan-1',
-        created_at: new Date().toISOString(),
-      }),
-    ) as typeof fetch;
-
-    const { Wrapper } = wrap();
-    const { result } = renderHook(() => useRescanDecision(), { wrapper: Wrapper });
-    result.current.mutate({ decisionId: 'dec-old' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(toastSuccess).toHaveBeenCalledWith('Rescan complete');
-    expect(toastSuccess).not.toHaveBeenCalledWith(
-      'Rescan complete — showing new decision',
-    );
+    expect(cached?.pages[0]?.items).toHaveLength(1);
+    expect(cached?.pages[0]?.items[0]?.id).toBe('dec-old');
   });
 
   it.each([
@@ -154,5 +137,20 @@ describe('useRescanDecision()', () => {
     result.current.mutate({ decisionId: 'dec-old' });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastError).toHaveBeenCalledWith(expected);
+  });
+
+  it('surfaces SCAN_IN_PROGRESS conflict envelope as a toast', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp(
+        { code: 'SCAN_IN_PROGRESS', error: 'scan already running', instance: 'alpha' },
+        409,
+      ),
+    ) as typeof fetch;
+    const { Wrapper } = wrap();
+    const { result } = renderHook(() => useRescanDecision(), { wrapper: Wrapper });
+    result.current.mutate({ decisionId: 'dec-old' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    // ApiError.message is the parsed `error` field (per lib/api.ts).
+    expect(toastError).toHaveBeenCalledWith('scan already running');
   });
 });

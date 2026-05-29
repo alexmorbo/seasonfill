@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
@@ -9,6 +10,7 @@ import { Loader2, Zap, AlertCircle, Copy, RotateCcw, ArrowUpRight } from 'lucide
 import { toast } from 'sonner';
 import { useGrabDecision } from '@/lib/grab-mutation';
 import { useRescanDecision } from '@/lib/rescan-mutation';
+import { firstScanRunId, NoScanStartedError } from '@/lib/scan-mutations';
 import { useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
 import { relativeTime } from '@/lib/format';
 
@@ -230,6 +232,7 @@ function SupersededByLine({ successorId }: { successorId: string }) {
 // one supersede pointer; no upstream grab POST).
 function RescanSection({ d }: { d: Decision }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const rescan = useRescanDecision();
   // Server is authoritative for the "is it already executed?" gate;
   // here we only hide the section when this row is itself already
@@ -243,17 +246,21 @@ function RescanSection({ d }: { d: Decision }) {
     rescan.mutate(
       { decisionId: d.id },
       {
-        // Per-call onSuccess fires AFTER the hook-level onSuccess
-        // (TanStack Query ordering contract), so by this point:
-        //   1. The new decision has been seeded into every
-        //      `['decisions', ...]` cache (rescan-mutation.ts §5.1).
-        //   2. invalidateQueries has been queued.
-        // Both ensure the drawer's flattenDecisions() finds the new
-        // id immediately when we swap the URL param — no "Decision
-        // not found" flash.
-        onSuccess: (fresh) => {
-          if (!fresh.id) return;
-          openDrawerForDecision(fresh.id);
+        // firstScanRunId lives at the call-site (not the hook) so a
+        // future caller that wants the raw items[] doesn't pay the
+        // navigation tax — mirrors useTriggerScan callers.
+        onSuccess: (items) => {
+          let runId: string;
+          try {
+            runId = firstScanRunId(items);
+          } catch (err) {
+            if (err instanceof NoScanStartedError) {
+              toast.error(t('decisions.detail.rescanNoScanStarted'));
+              return;
+            }
+            throw err;
+          }
+          navigate(`/scans/${runId}`);
         },
       },
     );
@@ -293,46 +300,8 @@ function RescanSection({ d }: { d: Decision }) {
           )}
           {rescan.isPending ? t('decisions.detail.rescanning') : t('decisions.detail.rescan')}
         </Button>
-        {rescan.isSuccess && rescan.data?.id && (
-          <span className="text-[11.5px] font-mono text-status-success">
-            new: {rescan.data.id.slice(0, 8)}
-          </span>
-        )}
       </div>
     </section>
   );
 }
 
-// Swap the consumer page's `?drawer=<id>` to the new decision. We
-// reuse the exact mechanism `SupersededByLine` already uses (lines
-// ~195–219): mutate URL via history.replaceState + dispatch a
-// synthetic popstate so useSearchParams in the parent picks up the
-// new value and re-renders.
-//
-// This stays out of react-router intentionally — DecisionDrawer is
-// rendered in two pages with subtly different router state, and
-// 017b chose the popstate route for the same boundary reason.
-// M-019-1 tracks the future refactor to a shared search-param hook.
-//
-// Defensive notes (019 fix):
-//   - `window.location.href` may be undefined when callers stub
-//     `window.location` in tests; fall back to `pathname + search`.
-//   - `replaceState` is called with a relative path (just
-//     `pathname?query`) instead of a full absolute URL — JSDOM's
-//     same-origin guard rejects absolute URLs whose host differs
-//     from the document's actual origin (the JSDOM default URL is
-//     `about:blank` even when `window.location` has been redefined).
-//     Relative paths sidestep the check entirely and behave the
-//     same way in real browsers.
-function openDrawerForDecision(successorId: string) {
-  const loc = window.location;
-  const base =
-    typeof loc.href === 'string' && loc.href
-      ? loc.href
-      : `http://localhost${loc.pathname ?? ''}${loc.search ?? ''}`;
-  const url = new URL(base);
-  url.searchParams.set('drawer', successorId);
-  const relative = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState({}, '', relative);
-  window.dispatchEvent(new PopStateEvent('popstate'));
-}

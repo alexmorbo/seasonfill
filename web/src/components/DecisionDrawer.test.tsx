@@ -7,9 +7,15 @@ import type { Decision } from '@/lib/decisions';
 import { DtoDecisionCategory, DtoDecisionDecision } from '@/api/schema';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
 
-vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() },
+const { navigateSpy, toastSpies } = vi.hoisted(() => ({
+  navigateSpy: vi.fn(),
+  toastSpies: { success: vi.fn(), error: vi.fn(), message: vi.fn() },
 }));
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return { ...actual, useNavigate: () => navigateSpy };
+});
+vi.mock('sonner', () => ({ toast: toastSpies }));
 
 const ctxValue = { filter: null, setFilter: vi.fn() };
 
@@ -20,6 +26,10 @@ const jsonResp = (body: unknown, status = 200) =>
   });
 
 beforeEach(() => {
+  navigateSpy.mockClear();
+  toastSpies.success.mockClear();
+  toastSpies.error.mockClear();
+  toastSpies.message.mockClear();
   Object.defineProperty(window, 'location', {
     writable: true,
     value: { pathname: '/decisions', search: '', assign: vi.fn() },
@@ -220,7 +230,8 @@ describe('<DecisionDrawer /> rescan', () => {
     expect(screen.getByTestId('superseded-by-link')).toHaveTextContent('11111111');
   });
 
-  it('POSTs to /decisions/:id/rescan and shows new id on success', async () => {
+  it('POSTs to /decisions/:id/rescan and navigates to /scans/<scan_run_id>', async () => {
+    const newScanId = '7b3d4a92-1234-4abc-9def-000000000999';
     type Captured = { urls: string[]; methods: string[] };
     const captured: Captured = { urls: [], methods: [] };
     globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
@@ -228,13 +239,15 @@ describe('<DecisionDrawer /> rescan', () => {
       captured.urls.push(url);
       captured.methods.push(init?.method ?? 'GET');
       if (url.endsWith('/rescan') && init?.method === 'POST') {
-        return jsonResp({
-          id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111',
-          instance: 'alpha', series_title: 'Severance',
-          season_number: 2, decision: 'skip', reason: 'skip_no_releases',
-          category: 'nothing_found', scan_run_id: rescanable.scan_run_id,
-          created_at: new Date().toISOString(),
-        });
+        return jsonResp(
+          [{
+            scan_run_id: newScanId,
+            instance: 'alpha',
+            status: 'running',
+            started_at: new Date().toISOString(),
+          }],
+          202,
+        );
       }
       return jsonResp({ items: [rescanable], next_cursor: '' });
     }) as typeof fetch;
@@ -250,39 +263,30 @@ describe('<DecisionDrawer /> rescan', () => {
       );
       expect(i).toBeGreaterThanOrEqual(0);
     });
+    // navigate('/scans/<scan_run_id>') — same UX as POST /scan callers.
     await waitFor(() =>
-      expect(screen.getByText(/new: aaaabbbb/i)).toBeInTheDocument(),
+      expect(navigateSpy).toHaveBeenCalledWith(`/scans/${newScanId}`),
     );
+    // No more in-drawer "new: <id>" span under the new contract — the
+    // user is taken to the scan-detail page directly.
+    expect(screen.queryByText(/^new: /i)).not.toBeInTheDocument();
   });
 
-  it('navigates the drawer URL to the new decision id on success', async () => {
-    // Stable window.location across the test so dispatched popstate
-    // doesn't fight with JSDOM defaults. Match the per-test beforeEach
-    // shape but extend with search params + a writable assign.
-    const newId = 'aaaabbbb-cccc-dddd-eeee-ffff00001111';
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      value: {
-        href: 'http://localhost/decisions?drawer=dec-rescanable',
-        pathname: '/decisions',
-        search: '?drawer=dec-rescanable',
-        origin: 'http://localhost',
-        assign: vi.fn(),
-      },
-    });
+  it('does NOT mutate the drawer URL on success (replaced by router navigate)', async () => {
+    const newScanId = '7b3d4a92-1234-4abc-9def-000000000998';
     const replaceState = vi.spyOn(window.history, 'replaceState');
-    const popstate = vi.fn();
-    window.addEventListener('popstate', popstate);
-
     globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof u === 'string' ? u : u.toString();
       if (url.endsWith('/rescan') && init?.method === 'POST') {
-        return jsonResp({
-          id: newId, instance: 'alpha', series_title: 'Severance',
-          season_number: 2, decision: 'skip', reason: 'skip_no_releases',
-          category: 'nothing_found', scan_run_id: rescanable.scan_run_id,
-          created_at: new Date().toISOString(),
-        });
+        return jsonResp(
+          [{
+            scan_run_id: newScanId,
+            instance: 'alpha',
+            status: 'running',
+            started_at: new Date().toISOString(),
+          }],
+          202,
+        );
       }
       return jsonResp({ items: [rescanable], next_cursor: '' });
     }) as typeof fetch;
@@ -290,20 +294,34 @@ describe('<DecisionDrawer /> rescan', () => {
     renderDrawer(rescanable);
     await userEvent.click(await screen.findByTestId('rescan-button'));
 
-    // replaceState was called with a URL whose ?drawer param is the
-    // new id. popstate fires after, so useSearchParams in the parent
-    // page picks up the change.
-    await waitFor(() => {
-      const calls = replaceState.mock.calls;
-      const matched = calls.some((args) => {
-        const target = args[2];
-        return typeof target === 'string' &&
-          target.includes(`drawer=${encodeURIComponent(newId)}`);
-      });
-      expect(matched).toBe(true);
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalled());
+    // The drawer used to flip ?drawer=<successor_id> via history; now
+    // it must not — navigation owns the post-rescan UX.
+    const drawerMutation = replaceState.mock.calls.some((args) => {
+      const target = args[2];
+      return typeof target === 'string' && target.includes('drawer=');
     });
-    await waitFor(() => expect(popstate).toHaveBeenCalled());
+    expect(drawerMutation).toBe(false);
+  });
 
-    window.removeEventListener('popstate', popstate);
+  it('surfaces SCAN_IN_PROGRESS conflict as a toast and does NOT navigate', async () => {
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.endsWith('/rescan') && init?.method === 'POST') {
+        return jsonResp(
+          { code: 'SCAN_IN_PROGRESS', error: 'scan already running', instance: 'alpha' },
+          409,
+        );
+      }
+      return jsonResp({ items: [rescanable], next_cursor: '' });
+    }) as typeof fetch;
+
+    renderDrawer(rescanable);
+    await userEvent.click(await screen.findByTestId('rescan-button'));
+
+    await waitFor(() =>
+      expect(toastSpies.error).toHaveBeenCalledWith('scan already running'),
+    );
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });
