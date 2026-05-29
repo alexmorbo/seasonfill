@@ -113,6 +113,9 @@ itself does not host a live UI for the spec.
   ("Invalid credentials") for both unknown-user and wrong-password.
 - `GET /api/v1/instances` masks Sonarr `api_key` — never returned
   by any read endpoint.
+- All web responses carry a strict Content-Security-Policy plus
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, and `Permissions-Policy` (set at the nginx layer).
 - CI gates image publication on dependency vulnerabilities:
   `govulncheck` (Go, reachability mode) and `npm audit` (web,
   high+). Weekly Dependabot keeps dependencies current.
