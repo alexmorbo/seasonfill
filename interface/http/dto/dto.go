@@ -86,7 +86,7 @@ type Instance struct {
 	Name             string     `json:"name"   example:"alpha"`
 	URL              string     `json:"url"    example:"http://sonarr:8989"`
 	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`
-	Health           string     `json:"health" example:"available" enums:"available,degraded,unavailable,unknown"`
+	Health           string     `json:"health" example:"Available" enums:"Available,UnavailableAuth,UnavailableNetwork,UnavailableUnknown"`
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
 	TransitionsCount int        `json:"transitions_count"`

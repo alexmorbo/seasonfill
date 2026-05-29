@@ -151,11 +151,11 @@ components:
       properties:
         health:
           enum:
-          - available
-          - degraded
-          - unavailable
-          - unknown
-          example: available
+          - Available
+          - UnavailableAuth
+          - UnavailableNetwork
+          - UnavailableUnknown
+          example: Available
           type: string
         last_check_at:
           type: string

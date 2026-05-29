@@ -1577,7 +1577,7 @@ export type components = {
         };
         readonly "dto.Instance": {
             /**
-             * @example available
+             * @example Available
              * @enum {string}
              */
             readonly health?: DtoInstanceHealth;
@@ -1950,10 +1950,10 @@ export enum DtoGrabStatus {
     expired = "expired"
 }
 export enum DtoInstanceHealth {
-    available = "available",
-    degraded = "degraded",
-    unavailable = "unavailable",
-    unknown = "unknown"
+    Available = "Available",
+    UnavailableAuth = "UnavailableAuth",
+    UnavailableNetwork = "UnavailableNetwork",
+    UnavailableUnknown = "UnavailableUnknown"
 }
 export enum DtoInstanceMode {
     auto = "auto",
