@@ -31,7 +31,7 @@ function makeInstanceList(names: string[]) {
     instances: names.map((n) => ({
       name: n,
       mode: 'auto',
-      health: 'available',
+      health: 'Available',
       last_check_at: new Date().toISOString(),
       transitions_count: 0,
     })),
@@ -87,14 +87,14 @@ describe('<Instances /> — list rendering', () => {
             {
               name: 'alpha',
               mode: 'manual',
-              health: 'available',
+              health: 'Available',
               last_check_at: new Date().toISOString(),
               transitions_count: 0,
             },
             {
               name: 'beta',
               mode: 'auto',
-              health: 'degraded',
+              health: 'UnavailableNetwork',
               last_check_at: new Date().toISOString(),
               transitions_count: 3,
               last_error: 'connection refused',
@@ -120,6 +120,50 @@ describe('<Instances /> — list rendering', () => {
     const betaLink = screen.getByRole('link', { name: /open queue for beta/i });
     expect(betaLink).toHaveAttribute('href', '/instances/beta/queue');
     expect(betaLink).toHaveTextContent(/view queue/i);
+  });
+
+  it('renders the single colored health badge with localized labels (guards casing)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          instances: [
+            {
+              name: 'alpha',
+              mode: 'auto',
+              health: 'Available',
+              last_check_at: new Date().toISOString(),
+              transitions_count: 0,
+            },
+            {
+              name: 'beta',
+              mode: 'auto',
+              health: 'UnavailableAuth',
+              last_check_at: new Date().toISOString(),
+              transitions_count: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as typeof fetch;
+
+    renderWithProviders(wrap(<Instances />));
+
+    const alphaHealth = await screen.findByTestId('health-alpha');
+    // The label is the resolved i18n value, NOT the raw backend string.
+    // A lowercase compare would map 'Available' to 'neutral'/'Unknown'.
+    expect(alphaHealth).toHaveTextContent('Available');
+    expect(alphaHealth).toHaveTextContent(/^Available$/);
+    expect(alphaHealth.className).toContain('text-status-success');
+
+    const betaHealth = screen.getByTestId('health-beta');
+    expect(betaHealth).toHaveTextContent('Unavailable (auth)');
+    expect(betaHealth.className).toContain('text-status-danger');
+
+    // The standalone top-right status dot was removed: no aria-hidden span.
+    expect(document.querySelector('span[aria-hidden="true"]')).toBeNull();
+    // The name-badge next to the instance name is gone — the only rendered
+    // health text lives inside the health pill (asserted above).
   });
 
   it('renders empty state when instances=[]', async () => {

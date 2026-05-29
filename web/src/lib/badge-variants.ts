@@ -33,6 +33,34 @@ export function outcomeKind(o?: string): BadgeKind {
   return (o ? OUTCOME[o] : undefined) ?? 'neutral';
 }
 
+export function healthKind(h?: string): BadgeKind {
+  switch (h) {
+    case 'Available':
+      return 'success';
+    case 'UnavailableAuth':
+    case 'UnavailableNetwork':
+    case 'UnavailableUnknown':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
+}
+
+export function healthLabelKey(h?: string): string {
+  switch (h) {
+    case 'Available':
+      return 'health.available';
+    case 'UnavailableAuth':
+      return 'health.unavailableAuth';
+    case 'UnavailableNetwork':
+      return 'health.unavailableNetwork';
+    case 'UnavailableUnknown':
+      return 'health.unavailableUnknown';
+    default:
+      return 'health.unknown';
+  }
+}
+
 export const KIND_CLASS: Record<BadgeKind, string> = {
   success: 'bg-status-success/15 text-status-success border-status-success/30',
   danger: 'bg-status-danger/15 text-status-danger border-status-danger/30',

@@ -14,8 +14,8 @@ const json = (body: unknown, status = 200) =>
 
 const instances = {
   instances: [
-    { name: 'alpha', health: 'available' },
-    { name: 'beta',  health: 'degraded'  },
+    { name: 'alpha', health: 'Available' },
+    { name: 'beta',  health: 'UnavailableNetwork' },
   ],
 };
 
@@ -64,17 +64,44 @@ describe('<NewScanModal />', () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
-  it('shows a warning when the selected instance is degraded', async () => {
+  it('shows the friendly-labeled warning when an unavailable instance is selected, none for Available', async () => {
     globalThis.fetch = handler({
       '/instances': () => json(instances),
     }) as typeof fetch;
     renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
 
+    // Available preselected → no warning. Guards: a lowercase healthKind
+    // revert would treat every real (capitalized) value as non-success and
+    // fire the warning here.
     await screen.findByText('alpha');
+    expect(screen.queryByText(/scan may produce errors/i)).toBeNull();
+
+    // Select the UnavailableNetwork instance → warning shows the friendly
+    // localized label ('Unavailable (network)'), not the raw enum.
     await userEvent.click(screen.getByRole('radio', { name: /beta/i }));
     await waitFor(() =>
-      expect(screen.getByText(/beta is degraded/i)).toBeInTheDocument(),
+      expect(screen.getByText(/beta is Unavailable \(network\)/i)).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/UnavailableNetwork/)).toBeNull();
+  });
+
+  it('preselects the truly-Available instance, not list[0], when list[0] is unavailable', async () => {
+    // list[0] is unavailable, a later instance is Available. A lowercase
+    // healthKind revert matches nothing and falls through to list[0] ('down'),
+    // failing this assertion.
+    const mixed = {
+      instances: [
+        { name: 'down', health: 'UnavailableAuth' },
+        { name: 'up',   health: 'Available' },
+      ],
+    };
+    globalThis.fetch = handler({
+      '/instances': () => json(mixed),
+    }) as typeof fetch;
+    renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
+
+    expect(await screen.findByRole('radio', { name: /up/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /down/i })).not.toBeChecked();
   });
 
   it('keeps the modal open and surfaces a toast-error on 409', async () => {

@@ -20,6 +20,7 @@ import { SeriesPicker } from '@/components/SeriesPicker';
 import { ApiError } from '@/lib/api';
 import { useInstances, type Instance } from '@/lib/instances';
 import { firstScanRunId, useTriggerScan } from '@/lib/scan-mutations';
+import { KIND_DOT, healthKind, healthLabelKey } from '@/lib/badge-variants';
 import { cn } from '@/lib/utils';
 
 // 'default' = omit dry_run from payload (use instance config)
@@ -34,15 +35,8 @@ const schema = z.object({
 });
 export type NewScanFormValues = z.infer<typeof schema>;
 
-const HEALTH_DOT: Record<NonNullable<Instance['health']> | 'unknown', string> = {
-  available:   'bg-status-success',
-  degraded:    'bg-status-warning',
-  unavailable: 'bg-status-danger',
-  unknown:     'bg-status-neutral',
-};
-
 function pickDefaultInstance(list: readonly Instance[]): string {
-  const healthy = list.find((i) => i.health === 'available' && i.name);
+  const healthy = list.find((i) => i.name && healthKind(i.health) === 'success');
   if (healthy?.name) return healthy.name;
   return list[0]?.name ?? '';
 }
@@ -84,7 +78,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
 
   const selectedName = form.watch('instance');
   const selected = instances.find((i) => i.name === selectedName);
-  const degraded = selected && selected.health && selected.health !== 'available';
+  const degraded = selected && selected.health && healthKind(selected.health) !== 'success';
 
   const watchedInstance = form.watch('instance');
   useEffect(() => { setSeriesIds([]); }, [watchedInstance]);
@@ -157,7 +151,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
                     const name = inst.name ?? '';
                     if (!name) return null;
                     const checked = selectedName === name;
-                    const dot = HEALTH_DOT[inst.health ?? 'unknown'];
+                    const dot = KIND_DOT[healthKind(inst.health)];
                     return (
                       <Label
                         key={name}
@@ -173,7 +167,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
                         <span className="font-mono text-[13px] flex-1">{name}</span>
                         <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted">
                           <span className={cn('inline-block w-1.5 h-1.5 rounded-full', dot)} />
-                          {inst.health ?? 'unknown'}
+                          {t(healthLabelKey(inst.health))}
                         </span>
                       </Label>
                     );
@@ -187,7 +181,7 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
               )}
               {degraded && (
                 <p className="text-[12px] text-status-warning">
-                  {t('scans.newScanModal.degradedWarning', { name: selected?.name, health: selected?.health })}
+                  {t('scans.newScanModal.degradedWarning', { name: selected?.name, health: t(healthLabelKey(selected?.health)) })}
                 </p>
               )}
             </fieldset>

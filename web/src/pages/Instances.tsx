@@ -12,12 +12,11 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { InstanceFormDialog } from '@/components/settings/InstanceFormDialog';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { KIND_CLASS, KIND_DOT, statusKind } from '@/lib/badge-variants';
+import { KIND_CLASS, KIND_DOT, healthKind, healthLabelKey } from '@/lib/badge-variants';
 
 export function Instances() {
   const { t } = useTranslation();
@@ -116,13 +115,6 @@ export function Instances() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {instances.map((inst: Instance) => (
             <Card key={inst.name} className="relative group">
-              <span
-                className={cn(
-                  'absolute top-4 right-4 w-2 h-2 rounded-full',
-                  KIND_DOT[statusKind(inst.health)],
-                )}
-                aria-hidden="true"
-              />
               <div
                 className={cn(
                   'absolute top-3 right-9 flex items-center gap-0.5',
@@ -150,15 +142,25 @@ export function Instances() {
               <CardHeader className="pb-2">
                 <h3 className="text-[15px] font-semibold tracking-tight flex items-center gap-2">
                   <span className="font-mono">{inst.name}</span>
-                  {inst.health && inst.health !== 'available' && (
-                    <StatusBadge value={inst.health} />
-                  )}
                 </h3>
               </CardHeader>
               <CardContent className="text-[13px] flex flex-col gap-3">
                 <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[12.5px]">
                   <dt className="text-faint">{t('dashboard.health.healthCol')}</dt>
-                  <dd className="font-mono">{inst.health ?? t('common.unknown').toLowerCase()}</dd>
+                  <dd>
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 px-1.5 h-[18px] rounded border font-mono text-[10.5px]',
+                        KIND_CLASS[healthKind(inst.health)],
+                      )}
+                      data-testid={`health-${inst.name}`}
+                    >
+                      <span
+                        className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(inst.health)])}
+                      />
+                      {t(healthLabelKey(inst.health))}
+                    </span>
+                  </dd>
                   <dt className="text-faint">{t('instances.columns.mode')}</dt>
                   <dd>
                     <span

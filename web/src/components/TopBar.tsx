@@ -11,21 +11,15 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/api';
 import { logout, useSession } from '@/lib/auth';
-import { useInstances, type Instance } from '@/lib/instances';
+import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useDebugActions } from '@/lib/use-debug-actions';
+import { KIND_DOT, healthKind } from '@/lib/badge-variants';
 import { cn } from '@/lib/utils';
 import { PasswordChangeDialog } from './PasswordChangeDialog';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
-
-const HEALTH_BG: Record<NonNullable<Instance['health']> | 'unknown', string> = {
-  available:   'bg-status-success',
-  degraded:    'bg-status-warning',
-  unavailable: 'bg-status-danger',
-  unknown:     'bg-status-neutral',
-};
 
 export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const { t } = useTranslation();
@@ -65,7 +59,7 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           const name = inst.name ?? '';
           if (!name) return null;
           const active = filter === name;
-          const bg = HEALTH_BG[inst.health ?? 'unknown'];
+          const bg = KIND_DOT[healthKind(inst.health)];
           return (
             <Tooltip key={name}>
               <TooltipTrigger asChild>

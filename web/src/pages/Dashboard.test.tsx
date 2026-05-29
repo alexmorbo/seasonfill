@@ -46,8 +46,8 @@ describe('<Dashboard />', () => {
     globalThis.fetch = fetchStub({
       '/instances': {
         instances: [
-          { name: 'alpha', health: 'available', last_check_at: new Date().toISOString() },
-          { name: 'beta', health: 'degraded', last_check_at: new Date().toISOString() },
+          { name: 'alpha', health: 'Available', last_check_at: new Date().toISOString() },
+          { name: 'beta', health: 'UnavailableNetwork', last_check_at: new Date().toISOString() },
         ],
       },
       '/scans': { items: [] },
@@ -57,6 +57,31 @@ describe('<Dashboard />', () => {
     expect(await screen.findByText('alpha')).toBeInTheDocument();
     expect(screen.getByText('beta')).toBeInTheDocument();
     expect(screen.getByText(/instances/i)).toBeInTheDocument();
+  });
+
+  it('counts healthy/down against the real backend health strings (guards casing)', async () => {
+    globalThis.fetch = fetchStub({
+      '/instances': {
+        instances: [
+          { name: 'alpha', health: 'Available', last_check_at: new Date().toISOString() },
+          { name: 'beta', health: 'Available', last_check_at: new Date().toISOString() },
+          { name: 'gamma', health: 'UnavailableAuth', last_check_at: new Date().toISOString() },
+        ],
+      },
+      '/scans': { items: [] },
+      '/grabs': { items: [] },
+    }) as typeof fetch;
+    renderWithProviders(wrap(<Dashboard />));
+
+    // 2 of 3 are 'Available'. A lowercase compare ('available') would yield 0.
+    expect(await screen.findByText('2')).toBeInTheDocument();
+    expect(screen.getByText('/ 3')).toBeInTheDocument();
+    // Footer reflects the real counts: 2 healthy, 1 down.
+    expect(screen.getByText(/2 healthy/)).toBeInTheDocument();
+    expect(screen.getByText(/1 down/)).toBeInTheDocument();
+
+    // The health table renders the localized danger label, not the raw string.
+    expect(screen.getByText('Unavailable (auth)')).toBeInTheDocument();
   });
 
   it('renders empty state for recent scans when items=[]', async () => {

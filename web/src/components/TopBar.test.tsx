@@ -23,8 +23,8 @@ beforeEach(() => {
   });
   globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
     instances: [
-      { name: 'alpha', health: 'available' },
-      { name: 'beta',  health: 'degraded' },
+      { name: 'alpha', health: 'Available' },
+      { name: 'beta',  health: 'UnavailableNetwork' },
     ],
   }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
   vi.spyOn(auth, 'useSession').mockReturnValue({
@@ -57,6 +57,19 @@ describe('<TopBar />', () => {
     // — and crucially awaits the async React Query fetch that populates them.
     expect(await screen.findByRole('button', { name: 'alpha' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'beta' })).toBeInTheDocument();
+  });
+
+  it('colors the chip dot from health: green for Available, red for Unavailable*', async () => {
+    renderWithProviders(ui());
+    // The dot is the chip button's first child span. With capitalized
+    // backend values, healthKind() maps Available→success (green) and the
+    // Unavailable* family→danger (red). A lowercase revert would miss every
+    // real value and fall through to neutral, failing both assertions.
+    const alpha = await screen.findByRole('button', { name: 'alpha' });
+    expect(alpha.querySelector('span')).toHaveClass('bg-status-success');
+
+    const beta = screen.getByRole('button', { name: 'beta' });
+    expect(beta.querySelector('span')).toHaveClass('bg-status-danger');
   });
 
   it('toggles aria-pressed when chip is clicked', async () => {

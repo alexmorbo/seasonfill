@@ -21,6 +21,7 @@ import { useInstances } from '@/lib/instances';
 import { useScans, flattenScans } from '@/lib/scans';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { relativeTime, durationMs } from '@/lib/format';
+import { healthKind } from '@/lib/badge-variants';
 
 type Variant = 'default' | 'success' | 'warning' | 'danger';
 
@@ -39,10 +40,9 @@ export function Dashboard() {
   };
 
   const instances = inst.data?.instances ?? [];
-  const healthy = instances.filter((i) => i.health === 'available').length;
-  const degraded = instances.filter((i) => i.health === 'degraded').length;
-  const unavailable = instances.filter((i) => i.health === 'unavailable').length;
-  const instVariant: Variant = unavailable > 0 ? 'danger' : degraded > 0 ? 'warning' : 'success';
+  const healthy = instances.filter((i) => healthKind(i.health) === 'success').length;
+  const unavailable = instances.filter((i) => healthKind(i.health) === 'danger').length;
+  const instVariant: Variant = unavailable > 0 ? 'danger' : 'success';
 
   const allScans = useMemo(() => flattenScans(scans.data?.pages), [scans.data]);
   const recentScans = allScans.slice(0, 5);
@@ -62,14 +62,12 @@ export function Dashboard() {
         <StatCard
           label={t('dashboard.cards.instances')}
           variant={instVariant}
-          value={`${healthy + degraded}`}
+          value={`${healthy}`}
           suffix={`/ ${instances.length}`}
           foot={
             unavailable
-              ? t('dashboard.cards.healthyFootDown', {
-                  healthy, degraded, down: unavailable,
-                })
-              : t('dashboard.cards.healthyFoot', { healthy, degraded })
+              ? t('dashboard.cards.healthyFootDown', { healthy, down: unavailable })
+              : t('dashboard.cards.healthyFoot', { healthy })
           }
         />
         <StatCard
@@ -137,7 +135,7 @@ export function Dashboard() {
                 >
                   <TableCell className="font-mono font-medium">{i.name}</TableCell>
                   <TableCell>
-                    <StatusBadge value={i.health} />
+                    <StatusBadge value={i.health} mode="health" />
                   </TableCell>
                   <TableCell className="text-muted">{relativeTime(i.last_check_at)}</TableCell>
                   <TableCell className="font-mono">{i.transitions_count ?? 0}</TableCell>
