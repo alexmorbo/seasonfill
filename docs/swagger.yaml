@@ -1044,10 +1044,12 @@ paths:
   /decisions/{id}/rescan:
     post:
       description: |-
-        Re-evaluates (instance, series, season). Bypasses GUID
-        cooldowns. New decision shares scan_run_id; original is
-        marked superseded. 409 if original already produced a
-        grab_records row.
+        Asynchronously re-evaluates (instance, series, season).
+        Bypasses GUID cooldowns. Returns 202 immediately with a
+        fresh scan_run_id; the goroutine writes the new decision
+        and marks the original superseded. 409 if the original
+        already produced a grab_records row or if another scan
+        is running on the same instance.
       parameters:
       - description: Decision UUID
         in: path
@@ -1056,42 +1058,40 @@ paths:
         schema:
           type: string
       responses:
-        "200":
+        "202":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/dto.Decision'
-          description: OK
+                items:
+                  $ref: '#/components/schemas/dto.ScanTriggerItem'
+                type: array
+          description: Accepted
         "400":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
+          description: invalid id
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
+          description: decision or instance not found
         "409":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
+                oneOf:
+                - $ref: '#/components/schemas/dto.ScanConflictResponse'
+                - $ref: '#/components/schemas/dto.ErrorResponse'
+          description: decision already superseded or already executed
         "500":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
-        "502":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
+          description: Internal Server Error
       security:
       - CookieAuth: []
       - ApiKeyAuth: []

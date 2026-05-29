@@ -498,10 +498,12 @@ export type paths = {
         readonly put?: never;
         /**
          * Rescan a single decision
-         * @description Re-evaluates (instance, series, season). Bypasses GUID
-         *     cooldowns. New decision shares scan_run_id; original is
-         *     marked superseded. 409 if original already produced a
-         *     grab_records row.
+         * @description Asynchronously re-evaluates (instance, series, season).
+         *     Bypasses GUID cooldowns. Returns 202 immediately with a
+         *     fresh scan_run_id; the goroutine writes the new decision
+         *     and marks the original superseded. 409 if the original
+         *     already produced a grab_records row or if another scan
+         *     is running on the same instance.
          */
         readonly post: {
             readonly parameters: {
@@ -515,16 +517,16 @@ export type paths = {
             };
             readonly requestBody?: never;
             readonly responses: {
-                /** @description OK */
-                readonly 200: {
+                /** @description Accepted */
+                readonly 202: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.Decision"];
+                        readonly "application/json": readonly components["schemas"]["dto.ScanTriggerItem"][];
                     };
                 };
-                /** @description Bad Request */
+                /** @description invalid id */
                 readonly 400: {
                     headers: {
                         readonly [name: string]: unknown;
@@ -533,7 +535,7 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description Bad Request */
+                /** @description decision or instance not found */
                 readonly 404: {
                     headers: {
                         readonly [name: string]: unknown;
@@ -542,26 +544,17 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description Bad Request */
+                /** @description decision already superseded or already executed */
                 readonly 409: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                        readonly "application/json": components["schemas"]["dto.ScanConflictResponse"] | components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description Bad Request */
+                /** @description Internal Server Error */
                 readonly 500: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Bad Request */
-                readonly 502: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
