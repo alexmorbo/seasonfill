@@ -195,6 +195,9 @@ func validateProbeURL(raw string) (string, error) {
 	if u.Host == "" {
 		return "", errors.New("url must include a host")
 	}
+	if u.User != nil {
+		return "", errors.New("url must not include userinfo")
+	}
 	trimmed := strings.TrimRight(u.String(), "/")
 	return trimmed + "/api/v3/system/status", nil
 }

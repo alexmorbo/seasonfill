@@ -127,6 +127,16 @@ func TestProbe_BadScheme(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "scheme")
 }
 
+func TestProbe_UserinfoRejected(t *testing.T) {
+	t.Parallel()
+	h := NewInstanceProbeHandler(nil, nil)
+	r := newProbeRouter(t, h)
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://user:pass@sonarr:8989", APIKey: "x"})
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+	assert.Contains(t, w.Body.String(), "userinfo")
+}
+
 func TestProbe_MissingURL(t *testing.T) {
 	t.Parallel()
 	h := NewInstanceProbeHandler(nil, nil)
