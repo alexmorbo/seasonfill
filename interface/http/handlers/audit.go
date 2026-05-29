@@ -226,7 +226,7 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 // @Param       scan_run_id    query  string  false  "Filter by parent scan_run UUID"
 // @Param       series_id      query  int     false  "Filter by series ID"
 // @Param       season_number  query  int     false  "Filter by season"
-// @Param       decision       query  string  false  "Filter by outcome"  Enums(grab,skip,blocked_cooldown,already_optimal,expired)
+// @Param       decision       query  string  false  "Filter by outcome"  Enums(grab,skip,blocked_cooldown,already_optimal,expired,error)
 // @Param       from           query  string  false  "RFC3339 lower bound"
 // @Param       to             query  string  false  "RFC3339 upper bound"
 // @Success     200  {object}  dto.DecisionList

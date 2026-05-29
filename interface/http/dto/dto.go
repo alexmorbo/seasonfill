@@ -123,7 +123,7 @@ type Decision struct {
 	SeriesID        int       `json:"series_id"`
 	SeriesTitle     string    `json:"series_title"     example:"Severance"`
 	SeasonNumber    int       `json:"season_number"`
-	Decision        string    `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired"`
+	Decision        string    `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
 	Reason          string    `json:"reason"           example:"upgrade_available"`
 	Category        string    `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
 	MissingCount    int       `json:"missing_count"`

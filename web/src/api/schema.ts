@@ -1899,7 +1899,8 @@ export enum PathsDecisionsGetParametersQueryDecision {
     skip = "skip",
     blocked_cooldown = "blocked_cooldown",
     already_optimal = "already_optimal",
-    expired = "expired"
+    expired = "expired",
+    error = "error"
 }
 export enum PathsGrabsGetParametersQueryStatus {
     grabbed = "grabbed",
@@ -1933,7 +1934,8 @@ export enum DtoDecisionDecision {
     skip = "skip",
     blocked_cooldown = "blocked_cooldown",
     already_optimal = "already_optimal",
-    expired = "expired"
+    expired = "expired",
+    error = "error"
 }
 export enum DtoGrabStatus {
     grabbed = "grabbed",

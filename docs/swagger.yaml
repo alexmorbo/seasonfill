@@ -24,6 +24,7 @@ components:
           - blocked_cooldown
           - already_optimal
           - expired
+          - error
           example: grab
           type: string
         dry_run_would_grab:
@@ -948,6 +949,7 @@ paths:
           - blocked_cooldown
           - already_optimal
           - expired
+          - error
           type: string
       - description: RFC3339 lower bound
         in: query

@@ -1,7 +1,15 @@
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { KIND_DOT, outcomeKind } from '@/lib/badge-variants';
 
-export const OUTCOMES = ['grab', 'skip', 'already_optimal', 'blocked_cooldown', 'expired'] as const;
+export const OUTCOMES = [
+  'grab',
+  'skip',
+  'already_optimal',
+  'blocked_cooldown',
+  'expired',
+  'error',
+] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 export function OutcomeChips({
@@ -11,10 +19,11 @@ export function OutcomeChips({
   selected: ReadonlySet<string>;
   onToggle: (o: Outcome) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1 self-center">
-        Outcome
+        {t('decisions.columns.outcome')}
       </span>
       {OUTCOMES.map((o) => {
         const on = selected.has(o);
@@ -34,7 +43,7 @@ export function OutcomeChips({
             <span
               className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[outcomeKind(o)])}
             />
-            {o}
+            {t(`outcomes.${o}`, { defaultValue: o })}
           </button>
         );
       })}

@@ -1,4 +1,5 @@
-const RTF = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' });
+import i18n from '@/i18n';
+
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['year', 31_536_000_000],
   ['month', 2_592_000_000],
@@ -8,14 +9,20 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['second', 1_000],
 ];
 
+function rtf(): Intl.RelativeTimeFormat {
+  const lng = i18n.resolvedLanguage ?? 'en';
+  return new Intl.RelativeTimeFormat(lng, { numeric: 'auto', style: 'narrow' });
+}
+
 export function relativeTime(input: string | number | Date | null | undefined): string {
   if (!input) return '—';
   const ts = typeof input === 'string' || typeof input === 'number' ? new Date(input) : input;
   const ms = ts.getTime();
   if (Number.isNaN(ms)) return '—';
   const diff = ms - Date.now();
+  const fmt = rtf();
   for (const [unit, span] of UNITS) {
-    if (Math.abs(diff) >= span || unit === 'second') return RTF.format(Math.round(diff / span), unit);
+    if (Math.abs(diff) >= span || unit === 'second') return fmt.format(Math.round(diff / span), unit);
   }
   return '—';
 }

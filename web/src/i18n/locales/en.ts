@@ -536,7 +536,15 @@ export const en = {
   },
   outcomes: {
     grab: 'Grab',
+    force_grab: 'Force grab',
     skip: 'Skip',
+    already_optimal: 'Already optimal',
+    blocked_cooldown: 'In cooldown',
+    expired: 'Expired',
+    error: 'Error',
+    // Kept for backwards compat with callers using `outcomes.blocked` /
+    // `outcomes.failed` style (status badge legacy). Safe to remove
+    // once consumers move to outcomes.<wire-value>.
     blocked: 'Blocked',
     failed: 'Failed',
   },
@@ -548,8 +556,22 @@ export const en = {
     starting: 'Starting',
     running: 'Running',
     completed: 'Completed',
-    canceled: 'Canceled',
+    cancelled: 'Cancelled',
+    canceled: 'Cancelled',
+    aborted: 'Aborted',
     failed: 'Failed',
+    pending: 'Pending',
+    // Grab wire values rendered by StatusBadge in status mode.
+    grabbed: 'Grabbed',
+    imported: 'Imported',
+    import_failed: 'Import failed',
+    grab_failed: 'Grab failed',
+    expired: 'Expired',
+    // Scan trigger wire values rendered by StatusBadge in status mode.
+    manual: 'Manual',
+    scheduled: 'Scheduled',
+    startup: 'Startup',
+    webhook: 'Webhook',
   },
   passwordChange: {
     title: 'Change password',

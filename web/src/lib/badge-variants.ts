@@ -23,6 +23,7 @@ const OUTCOME: Record<string, BadgeKind> = {
   already_optimal: 'neutral',
   blocked_cooldown: 'danger',
   expired: 'neutral',
+  error: 'danger',
 };
 
 export function statusKind(s?: string): BadgeKind {
@@ -31,6 +32,20 @@ export function statusKind(s?: string): BadgeKind {
 
 export function outcomeKind(o?: string): BadgeKind {
   return (o ? OUTCOME[o] : undefined) ?? 'neutral';
+}
+
+// Return the i18n key for an outcome wire value. Caller passes the
+// returned key into `t(..., { defaultValue: raw })` so an unknown wire
+// value falls back to the raw string rather than rendering the key.
+export function outcomeLabelKey(o?: string): string {
+  return o ? `outcomes.${o}` : '';
+}
+
+// Same shape as outcomeLabelKey for status wire values used by
+// scans / grabs / triggers — anything fed through StatusBadge in
+// non-outcome mode.
+export function statusLabelKey(s?: string): string {
+  return s ? `statuses.${s}` : '';
 }
 
 export function healthKind(h?: string): BadgeKind {

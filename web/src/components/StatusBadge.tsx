@@ -6,7 +6,9 @@ import {
   healthKind,
   healthLabelKey,
   outcomeKind,
+  outcomeLabelKey,
   statusKind,
+  statusLabelKey,
   type BadgeKind,
 } from '@/lib/badge-variants';
 
@@ -17,6 +19,7 @@ const DOTTED = new Set([
   'failed',
   'grab_failed',
   'blocked_cooldown',
+  'error',
 ]);
 
 export function StatusBadge({
@@ -45,6 +48,8 @@ export function StatusBadge({
   }
 
   const kind: BadgeKind = mode === 'outcome' ? outcomeKind(value) : statusKind(value);
+  const labelKey = mode === 'outcome' ? outcomeLabelKey(value) : statusLabelKey(value);
+  const label = t(labelKey, { defaultValue: value });
   return (
     <span
       className={cn(
@@ -55,7 +60,7 @@ export function StatusBadge({
       {DOTTED.has(value) && (
         <span className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[kind])} />
       )}
-      {value}
+      {label}
     </span>
   );
 }
