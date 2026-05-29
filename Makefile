@@ -1,10 +1,10 @@
-.PHONY: build test test-race test-coverage test-integration lint run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
 
 help:
-	@echo "Targets: build test test-race test-coverage lint run clean tidy docker-build"
+	@echo "Targets: build test test-race test-coverage lint vuln run clean tidy docker-build"
 
 build:
 	CGO_ENABLED=0 go build -ldflags='-w -s' -trimpath -o bin/$(BINARY) ./cmd/server
@@ -29,6 +29,14 @@ test-integration:
 
 lint:
 	golangci-lint run ./...
+
+vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
+
+vuln-go: ## Scan Go code for known vulnerabilities (govulncheck, reachability mode)
+	go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+
+vuln-web: ## Audit web dependencies for high+ severity vulnerabilities
+	cd web && npm audit --audit-level=high
 
 run:
 	go run ./cmd/server -config config.yaml
