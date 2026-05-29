@@ -40,6 +40,11 @@ type Input struct {
 	// (D-2.1). Optional; nil means no DB-backed guid filtering.
 	Cooldowns      ports.CooldownRepository
 	IgnoreCooldown bool // 017 §3.3: rescan sets true; default false
+	// PreferredDecisionID, when non-nil, overrides the freshly-allocated
+	// decision UUID. The async rescan path pre-allocates the id so it
+	// can wire the supersede pointer before the goroutine writes the
+	// new decision row. nil = use decision.New's default (uuid.New()).
+	PreferredDecisionID *uuid.UUID
 }
 
 type UseCase struct {
@@ -58,6 +63,9 @@ func NewPerInstanceUseCase(decisions ports.DecisionRepository, logger *slog.Logg
 
 func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, error) {
 	d := decision.New(in.ScanRunID, in.Instance, in.Series.Title, in.Series.ID, in.Season.Number)
+	if in.PreferredDecisionID != nil {
+		d.ID = *in.PreferredDecisionID
+	}
 
 	if in.SkipSpecials && in.Season.Number == 0 {
 		d.Outcome = decision.OutcomeSkip

@@ -94,6 +94,8 @@ func (noopDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) err
 	return nil
 }
 
+func (noopDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
+
 type noopGrabRepo struct{}
 
 func (noopGrabRepo) Create(context.Context, grab.Record) error { return nil }

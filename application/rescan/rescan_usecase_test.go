@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,17 +57,35 @@ func (f *rescanFakeDec) UpdateSupersededBy(_ context.Context, id, newID uuid.UUI
 	f.store[id] = d
 	return nil
 }
+func (f *rescanFakeDec) ClearSupersededBy(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.store[id]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	d.SupersededByID = nil
+	f.store[id] = d
+	return nil
+}
 func (f *rescanFakeDec) List(context.Context, ports.DecisionFilter, ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	return nil, nil, nil
 }
 
-type rescanFakeGrab struct{ stored []grab.Record }
+type rescanFakeGrab struct {
+	mu     sync.Mutex
+	stored []grab.Record
+}
 
 func (f *rescanFakeGrab) Create(_ context.Context, r grab.Record) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.stored = append(f.stored, r)
 	return nil
 }
 func (f *rescanFakeGrab) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagination) ([]grab.Record, *ports.Cursor, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([]grab.Record, len(f.stored))
 	copy(out, f.stored)
 	return out, nil, nil
@@ -81,7 +100,55 @@ func (f *rescanFakeGrab) FindExisting4Tuple(context.Context, string, int, int, s
 	return grab.Record{}, ports.ErrNotFound
 }
 
-type rescanFakeSonarr struct{ releases []release.Release }
+type rescanFakeScans struct {
+	mu      sync.Mutex
+	created map[uuid.UUID]ports.ScanRecord
+	updated map[uuid.UUID]ports.ScanRecord
+}
+
+func (f *rescanFakeScans) Create(_ context.Context, rec ports.ScanRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.created == nil {
+		f.created = map[uuid.UUID]ports.ScanRecord{}
+	}
+	f.created[rec.ID] = rec
+	return nil
+}
+func (f *rescanFakeScans) Update(_ context.Context, rec ports.ScanRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.updated == nil {
+		f.updated = map[uuid.UUID]ports.ScanRecord{}
+	}
+	f.updated[rec.ID] = rec
+	return nil
+}
+func (f *rescanFakeScans) GetByID(_ context.Context, id uuid.UUID) (ports.ScanRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.updated[id]; ok {
+		return r, nil
+	}
+	if r, ok := f.created[id]; ok {
+		return r, nil
+	}
+	return ports.ScanRecord{}, ports.ErrNotFound
+}
+func (f *rescanFakeScans) MarkAborted(context.Context, uuid.UUID, string) error { return nil }
+func (f *rescanFakeScans) IncrementSeriesScanned(context.Context, uuid.UUID, int) error {
+	return nil
+}
+func (f *rescanFakeScans) List(context.Context, ports.ScanFilter, ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	return nil, nil, nil
+}
+
+type rescanFakeSonarr struct {
+	releases []release.Release
+	failOn   string // "search" -> SearchReleases returns errSonarrSearch
+}
+
+var errSonarrSearch = errors.New("sonarr search exploded")
 
 func (f *rescanFakeSonarr) GetSeries(_ context.Context, id int) (series.Series, error) {
 	return series.Series{ID: id, Title: "Severance", Monitored: true, QualityProfile: 7}, nil
@@ -96,6 +163,9 @@ func (f *rescanFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]i
 	return map[int]int{}, nil
 }
 func (f *rescanFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+	if f.failOn == "search" {
+		return nil, errSonarrSearch
+	}
 	return f.releases, nil
 }
 func (f *rescanFakeSonarr) GetQualityProfile(_ context.Context, id int) (ports.QualityProfile, error) {
@@ -116,14 +186,57 @@ func (f *rescanFakeSonarr) GrabHistory(context.Context, int) ([]ports.HistoryEve
 func (f *rescanFakeSonarr) ForceGrab(context.Context, string, int) (string, error) { return "DL", nil }
 func (f *rescanFakeSonarr) Name() string                                           { return "alpha" }
 
-func newUC(t *testing.T, sn *rescanFakeSonarr) (*UseCase, *rescanFakeDec, *rescanFakeGrab) {
+// fakeInflight: minimal scan.InflightController + drain hook.
+type fakeInflight struct {
+	mu      sync.Mutex
+	busy    map[string]uuid.UUID
+	cancels map[string]context.CancelFunc
+	wg      sync.WaitGroup
+	preFail atomic.Bool
+}
+
+func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
+	if f.preFail.Load() {
+		return scan.ErrScanAlreadyRunning
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.busy == nil {
+		f.busy = map[string]uuid.UUID{}
+	}
+	if _, ok := f.busy[name]; ok {
+		return scan.ErrScanAlreadyRunning
+	}
+	f.busy[name] = scanID
+	return nil
+}
+func (f *fakeInflight) ReleaseInstance(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.busy, name)
+	delete(f.cancels, name)
+}
+func (f *fakeInflight) SetInflightCancel(name string, cancel context.CancelFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancels == nil {
+		f.cancels = map[string]context.CancelFunc{}
+	}
+	f.cancels[name] = cancel
+}
+func (f *fakeInflight) BackgroundWG() *sync.WaitGroup { return &f.wg }
+
+func newUC(t *testing.T, sn *rescanFakeSonarr) (*UseCase, *rescanFakeDec, *rescanFakeGrab, *rescanFakeScans, *fakeInflight) {
 	t.Helper()
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	dec, gr := &rescanFakeDec{}, &rescanFakeGrab{}
+	scans := &rescanFakeScans{}
+	inflight := &fakeInflight{}
 	ev := evaluate.NewUseCase(sn, dec, lg)
 	inst := scan.Instance{Config: config.SonarrInstance{Name: "alpha"}, Client: sn}
 	m := map[string]scan.Instance{"alpha": inst}
-	return NewUseCase(dec, gr, ev, func() map[string]scan.Instance { return m }, lg), dec, gr
+	return NewUseCase(dec, gr, scans, inflight, ev,
+		func() map[string]scan.Instance { return m }, lg), dec, gr, scans, inflight
 }
 
 func seedOriginal(t *testing.T, dec *rescanFakeDec, withGUID bool) decision.Decision {
@@ -139,56 +252,139 @@ func seedOriginal(t *testing.T, dec *rescanFakeDec, withGUID bool) decision.Deci
 	return d
 }
 
-func TestExecute_HappyPath_PicksNewReleaseAndSupersedes(t *testing.T) {
+func drain(t *testing.T, inflight *fakeInflight) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { inflight.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rescan goroutine did not drain within 5s")
+	}
+}
+
+func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 	sn := &rescanFakeSonarr{releases: []release.Release{
 		{GUID: "g-new", Title: "rescan-pick", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	}}
-	uc, dec, _ := newUC(t, sn)
+	uc, dec, _, scans, inflight := newUC(t, sn)
 	original := seedOriginal(t, dec, false)
-	out, err := uc.Execute(context.Background(), Input{DecisionID: original.ID})
+
+	res, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
 	require.NoError(t, err)
-	assert.NotEqual(t, original.ID, out.NewDecision.ID)
-	assert.Equal(t, original.ScanRunID, out.NewDecision.ScanRunID,
-		"017 §3.4: new decision shares scan_run_id")
+	assert.NotEqual(t, uuid.Nil, res.ScanRunID)
+	assert.NotEqual(t, original.ScanRunID, res.ScanRunID,
+		"async rescan creates a NEW scan_run_id (breaks 017 §3.4)")
+	assert.Equal(t, "alpha", res.Instance)
+	assert.Equal(t, "running", res.Status)
+
+	// Scan row created with trigger=rescan, status=running BEFORE the
+	// goroutine drains.
+	created, err := scans.GetByID(context.Background(), res.ScanRunID)
+	require.NoError(t, err)
+	assert.Equal(t, "running", created.Status)
+	assert.Equal(t, string(scan.TriggerRescan), created.Trigger)
+	assert.Equal(t, "alpha", created.InstanceName)
+	assert.False(t, created.DryRun, "rescan is never dry")
+
+	// Supersede pointer is set before the goroutine runs (rescan pre-applies).
 	loaded, _ := dec.GetByID(context.Background(), original.ID)
 	require.NotNil(t, loaded.SupersededByID)
-	assert.Equal(t, out.NewDecision.ID, *loaded.SupersededByID)
+	preAllocatedID := *loaded.SupersededByID
+
+	drain(t, inflight)
+
+	// Goroutine persisted the new decision under the pre-allocated id.
+	persisted, err := dec.GetByID(context.Background(), preAllocatedID)
+	require.NoError(t, err)
+	assert.Equal(t, res.ScanRunID, persisted.ScanRunID,
+		"new decision points at the NEW scan_run_id")
+
+	// Scan row finalised as completed.
+	finalRec, err := scans.GetByID(context.Background(), res.ScanRunID)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", finalRec.Status)
+	require.NotNil(t, finalRec.FinishedAt)
 }
 
-func TestExecute_AlreadySuperseded(t *testing.T) {
-	uc, dec, _ := newUC(t, &rescanFakeSonarr{})
+func TestStart_RollsBackSupersedeOnEvaluatorError(t *testing.T) {
+	sn := &rescanFakeSonarr{failOn: "search"}
+	uc, dec, _, scans, inflight := newUC(t, sn)
+	original := seedOriginal(t, dec, false)
+
+	res, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
+	require.NoError(t, err, "prelude must succeed; failure is async")
+	drain(t, inflight)
+
+	finalRec, err := scans.GetByID(context.Background(), res.ScanRunID)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", finalRec.Status)
+	assert.Contains(t, finalRec.ErrorMessage, "sonarr search exploded")
+
+	loaded, _ := dec.GetByID(context.Background(), original.ID)
+	assert.Nil(t, loaded.SupersededByID,
+		"supersede pointer must be rolled back when the goroutine fails")
+
+	// Inflight slot released.
+	assert.Empty(t, inflight.busy)
+}
+
+func TestStart_ReturnsConflictWhenAcquireFails(t *testing.T) {
+	sn := &rescanFakeSonarr{releases: []release.Release{
+		{GUID: "g-new", Title: "rescan-pick", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
+	}}
+	uc, dec, _, scans, inflight := newUC(t, sn)
+	original := seedOriginal(t, dec, false)
+	inflight.preFail.Store(true)
+
+	_, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, scan.ErrScanAlreadyRunning))
+
+	// No scan row, no supersede.
+	assert.Empty(t, scans.created)
+	loaded, _ := dec.GetByID(context.Background(), original.ID)
+	assert.Nil(t, loaded.SupersededByID)
+}
+
+func TestStart_AlreadySuperseded(t *testing.T) {
+	uc, dec, _, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, false)
 	require.NoError(t, dec.UpdateSupersededBy(context.Background(), original.ID, uuid.New()))
-	_, err := uc.Execute(context.Background(), Input{DecisionID: original.ID})
+	_, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrAlreadySuperseded))
+	assert.Empty(t, scans.created, "no scan row when prelude rejects")
 }
 
-func TestExecute_AlreadyExecuted(t *testing.T) {
-	uc, dec, gr := newUC(t, &rescanFakeSonarr{})
+func TestStart_AlreadyExecuted(t *testing.T) {
+	uc, dec, gr, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, true) // with GUID "g-orig"
 	require.NoError(t, gr.Create(context.Background(), grab.Record{
 		ID: uuid.New(), InstanceName: "alpha", SeriesID: 1, SeasonNumber: 1,
 		ReleaseGUID: "g-orig", Status: grab.StatusGrabbed,
 		ScanRunID: original.ScanRunID, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}))
-	_, err := uc.Execute(context.Background(), Input{DecisionID: original.ID})
+	_, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrAlreadyExecuted))
+	assert.Empty(t, scans.created)
 }
 
-func TestExecute_NotFound(t *testing.T) {
-	uc, _, _ := newUC(t, &rescanFakeSonarr{})
-	_, err := uc.Execute(context.Background(), Input{DecisionID: uuid.New()})
+func TestStart_NotFound(t *testing.T) {
+	uc, _, _, scans, _ := newUC(t, &rescanFakeSonarr{})
+	_, err := uc.Start(context.Background(), Input{DecisionID: uuid.New()})
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+	assert.Empty(t, scans.created)
 }
 
-func TestExecute_UnknownInstance(t *testing.T) {
-	uc, dec, _ := newUC(t, &rescanFakeSonarr{})
+func TestStart_UnknownInstance(t *testing.T) {
+	uc, dec, _, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, false)
 	original.InstanceName = "ghost"
 	require.NoError(t, dec.Save(context.Background(), original))
-	_, err := uc.Execute(context.Background(), Input{DecisionID: original.ID})
+	_, err := uc.Start(context.Background(), Input{DecisionID: original.ID})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown instance")
+	assert.Empty(t, scans.created)
 }

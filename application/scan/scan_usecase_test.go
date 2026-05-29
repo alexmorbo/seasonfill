@@ -199,6 +199,10 @@ func (r *fakeDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) 
 	return nil
 }
 
+func (r *fakeDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error {
+	return nil
+}
+
 type fakeCDRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

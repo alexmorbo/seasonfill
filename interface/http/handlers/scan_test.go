@@ -87,6 +87,8 @@ func (stubDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) err
 	return nil
 }
 
+func (stubDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
+
 func newScanUseCase() *scan.UseCase {
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	sonarr := &stubSonarr{name: "main"}

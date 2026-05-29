@@ -60,6 +60,8 @@ func (f *fakeDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) 
 	return nil
 }
 
+func (f *fakeDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
+
 type fakeGrabRepo struct {
 	mu     sync.Mutex
 	stored []grab.Record

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -60,17 +62,35 @@ func (f *rescanFakeDec) UpdateSupersededBy(_ context.Context, id, newID uuid.UUI
 	f.store[id] = d
 	return nil
 }
+func (f *rescanFakeDec) ClearSupersededBy(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.store[id]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	d.SupersededByID = nil
+	f.store[id] = d
+	return nil
+}
 func (f *rescanFakeDec) List(context.Context, ports.DecisionFilter, ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	return nil, nil, nil
 }
 
-type rescanFakeGrab struct{ stored []grab.Record }
+type rescanFakeGrab struct {
+	mu     sync.Mutex
+	stored []grab.Record
+}
 
 func (f *rescanFakeGrab) Create(_ context.Context, r grab.Record) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.stored = append(f.stored, r)
 	return nil
 }
 func (f *rescanFakeGrab) List(_ context.Context, _ ports.GrabFilter, _ ports.Pagination) ([]grab.Record, *ports.Cursor, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([]grab.Record, len(f.stored))
 	copy(out, f.stored)
 	return out, nil, nil
@@ -83,6 +103,49 @@ func (f *rescanFakeGrab) UpdateStatus(context.Context, uuid.UUID, grab.Status, s
 }
 func (f *rescanFakeGrab) FindExisting4Tuple(context.Context, string, int, int, string) (grab.Record, error) {
 	return grab.Record{}, ports.ErrNotFound
+}
+
+type rescanFakeScans struct {
+	mu      sync.Mutex
+	created map[uuid.UUID]ports.ScanRecord
+	updated map[uuid.UUID]ports.ScanRecord
+}
+
+func (f *rescanFakeScans) Create(_ context.Context, rec ports.ScanRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.created == nil {
+		f.created = map[uuid.UUID]ports.ScanRecord{}
+	}
+	f.created[rec.ID] = rec
+	return nil
+}
+func (f *rescanFakeScans) Update(_ context.Context, rec ports.ScanRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.updated == nil {
+		f.updated = map[uuid.UUID]ports.ScanRecord{}
+	}
+	f.updated[rec.ID] = rec
+	return nil
+}
+func (f *rescanFakeScans) GetByID(_ context.Context, id uuid.UUID) (ports.ScanRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.updated[id]; ok {
+		return r, nil
+	}
+	if r, ok := f.created[id]; ok {
+		return r, nil
+	}
+	return ports.ScanRecord{}, ports.ErrNotFound
+}
+func (f *rescanFakeScans) MarkAborted(context.Context, uuid.UUID, string) error { return nil }
+func (f *rescanFakeScans) IncrementSeriesScanned(context.Context, uuid.UUID, int) error {
+	return nil
+}
+func (f *rescanFakeScans) List(context.Context, ports.ScanFilter, ports.Pagination) ([]ports.ScanRecord, *ports.Cursor, error) {
+	return nil, nil, nil
 }
 
 type rescanFakeSonarr struct{ releases []release.Release }
@@ -120,25 +183,73 @@ func (f *rescanFakeSonarr) GrabHistory(context.Context, int) ([]ports.HistoryEve
 func (f *rescanFakeSonarr) ForceGrab(context.Context, string, int) (string, error) { return "DL", nil }
 func (f *rescanFakeSonarr) Name() string                                           { return "alpha" }
 
+// fakeInflight is a minimal scan.InflightController for handler tests.
+// It uses a sync.Map-equivalent to track per-instance ownership and
+// exposes a WaitGroup so test cases can drain in-flight goroutines.
+type fakeInflight struct {
+	mu       sync.Mutex
+	busy     map[string]uuid.UUID
+	cancels  map[string]context.CancelFunc
+	wg       sync.WaitGroup
+	preFail  atomic.Bool // when true, AcquireInstance returns ErrScanAlreadyRunning
+	acquired int32
+}
+
+func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
+	if f.preFail.Load() {
+		return scan.ErrScanAlreadyRunning
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.busy == nil {
+		f.busy = map[string]uuid.UUID{}
+	}
+	if _, ok := f.busy[name]; ok {
+		return scan.ErrScanAlreadyRunning
+	}
+	f.busy[name] = scanID
+	atomic.AddInt32(&f.acquired, 1)
+	return nil
+}
+func (f *fakeInflight) ReleaseInstance(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.busy, name)
+	delete(f.cancels, name)
+}
+func (f *fakeInflight) SetInflightCancel(name string, cancel context.CancelFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancels == nil {
+		f.cancels = map[string]context.CancelFunc{}
+	}
+	f.cancels[name] = cancel
+}
+func (f *fakeInflight) BackgroundWG() *sync.WaitGroup { return &f.wg }
+
 type rescanFixture struct {
-	dec    *rescanFakeDec
-	gr     *rescanFakeGrab
-	router *gin.Engine
+	dec      *rescanFakeDec
+	gr       *rescanFakeGrab
+	scans    *rescanFakeScans
+	inflight *fakeInflight
+	router   *gin.Engine
 }
 
 func newRescanFixture(t *testing.T, releases []release.Release) *rescanFixture {
 	t.Helper()
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	dec, gr := &rescanFakeDec{}, &rescanFakeGrab{}
+	scans := &rescanFakeScans{}
+	inflight := &fakeInflight{}
 	sn := &rescanFakeSonarr{releases: releases}
 	ev := evaluate.NewUseCase(sn, dec, lg)
 	inst := scan.Instance{Config: config.SonarrInstance{Name: "alpha"}, Client: sn}
 	m := map[string]scan.Instance{"alpha": inst}
-	uc := rescan.NewUseCase(dec, gr, ev, func() map[string]scan.Instance { return m }, lg)
+	uc := rescan.NewUseCase(dec, gr, scans, inflight, ev, func() map[string]scan.Instance { return m }, lg)
 	h := NewRescanHandler(uc, lg)
 	r := gin.New()
 	r.POST("/api/v1/decisions/:id/rescan", h.ByDecision)
-	return &rescanFixture{dec: dec, gr: gr, router: r}
+	return &rescanFixture{dec: dec, gr: gr, scans: scans, inflight: inflight, router: r}
 }
 
 func (f *rescanFixture) seed(t *testing.T, withGUID bool) decision.Decision {
@@ -163,18 +274,37 @@ func (f *rescanFixture) do(t *testing.T, id string) *httptest.ResponseRecorder {
 	return w
 }
 
-func TestRescan_OK_ReturnsNewDecision(t *testing.T) {
+// drain blocks until every goroutine the inflight WG knows about exits.
+// Handler tests use this so they can assert on terminal scan-row state
+// without sleep-polling.
+func (f *rescanFixture) drain(t *testing.T) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { f.inflight.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rescan goroutine did not drain within 5s")
+	}
+}
+
+func TestRescan_OK_Returns202WithScanTriggerItem(t *testing.T) {
 	f := newRescanFixture(t, []release.Release{
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	})
 	d := f.seed(t, false)
 	w := f.do(t, d.ID.String())
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body map[string]any
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var body []dto.ScanTriggerItem
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.NotEqual(t, d.ID.String(), body["id"])
-	assert.Equal(t, d.ScanRunID.String(), body["scan_run_id"],
-		"017 §3.4: new decision shares scan_run_id")
+	require.Len(t, body, 1)
+	assert.NotEmpty(t, body[0].ScanRunID)
+	assert.Equal(t, "alpha", body[0].InstanceName)
+	assert.Equal(t, "running", body[0].Status)
+	// scan_run_id is fresh (not the original's)
+	assert.NotEqual(t, d.ScanRunID.String(), body[0].ScanRunID,
+		"async rescan creates a NEW scan_run_id")
+	f.drain(t)
 }
 
 func TestRescan_OriginalMarkedSuperseded(t *testing.T) {
@@ -182,9 +312,11 @@ func TestRescan_OriginalMarkedSuperseded(t *testing.T) {
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	})
 	d := f.seed(t, false)
-	require.Equal(t, http.StatusOK, f.do(t, d.ID.String()).Code)
+	require.Equal(t, http.StatusAccepted, f.do(t, d.ID.String()).Code)
+	f.drain(t)
 	loaded, _ := f.dec.GetByID(context.Background(), d.ID)
-	require.NotNil(t, loaded.SupersededByID)
+	require.NotNil(t, loaded.SupersededByID,
+		"supersede pointer must be set before the goroutine starts")
 }
 
 func TestRescan_BadID(t *testing.T) {
@@ -231,7 +363,26 @@ func TestRescan_UnknownInstance_404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, f.do(t, d.ID.String()).Code)
 }
 
-// 017 §3.8 — last-writer-wins: no crash, ≥1 OK, original superseded.
+func TestRescan_ScanAlreadyRunning_409(t *testing.T) {
+	f := newRescanFixture(t, nil)
+	d := f.seed(t, false)
+	f.inflight.preFail.Store(true)
+	w := f.do(t, d.ID.String())
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	var body dto.ScanConflictResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "SCAN_IN_PROGRESS", body.Code)
+	assert.Equal(t, "scan already running", body.Error)
+	assert.Equal(t, "alpha", body.Instance)
+	// no scan row was created, supersede pointer untouched
+	loaded, _ := f.dec.GetByID(context.Background(), d.ID)
+	assert.Nil(t, loaded.SupersededByID)
+}
+
+// 017 §3.8 — last-writer-wins: concurrent requests on the same decision
+// must not crash. With per-instance single-flight one wins with 202, the
+// rest 409 (SCAN_IN_PROGRESS) until the goroutine releases. We assert ≥1
+// 202 and ≥1 409 (the runner-up); supersede pointer set after drain.
 func TestRescan_ConcurrentRequests_NoCrash(t *testing.T) {
 	f := newRescanFixture(t, []release.Release{
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
@@ -245,13 +396,14 @@ func TestRescan_ConcurrentRequests_NoCrash(t *testing.T) {
 		go func() { defer wg.Done(); results[i] = f.do(t, d.ID.String()) }()
 	}
 	wg.Wait()
-	ok := 0
+	accepted := 0
 	for _, w := range results {
-		if w.Code == http.StatusOK {
-			ok++
+		if w.Code == http.StatusAccepted {
+			accepted++
 		}
 	}
-	assert.GreaterOrEqual(t, ok, 1)
+	assert.GreaterOrEqual(t, accepted, 1)
+	f.drain(t)
 	loaded, _ := f.dec.GetByID(context.Background(), d.ID)
 	require.NotNil(t, loaded.SupersededByID)
 }

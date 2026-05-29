@@ -71,6 +71,10 @@ func (r *recDecisions) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID)
 	return nil
 }
 
+func (r *recDecisions) ClearSupersededBy(context.Context, uuid.UUID) error {
+	return nil
+}
+
 func makeSeason(missing []int, have []int) series.Season {
 	eps := make([]series.Episode, 0, len(missing)+len(have))
 	for _, n := range missing {

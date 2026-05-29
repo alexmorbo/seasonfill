@@ -65,6 +65,11 @@ type DecisionRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error)
 	// UpdateSupersededBy: ports.ErrNotFound on unknown id.
 	UpdateSupersededBy(ctx context.Context, id, newID uuid.UUID) error
+	// ClearSupersededBy resets superseded_by_id to NULL. Used by the
+	// async rescan rollback when the goroutine fails after the
+	// prelude already pre-applied the supersede pointer.
+	// ports.ErrNotFound on unknown id.
+	ClearSupersededBy(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, f DecisionFilter, p Pagination) ([]decision.Decision, *Cursor, error)
 }
 

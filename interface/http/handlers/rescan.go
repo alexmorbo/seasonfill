@@ -11,7 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/rescan"
-	"github.com/alexmorbo/seasonfill/domain"
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
@@ -30,15 +30,21 @@ func NewRescanHandler(uc *rescan.UseCase, logger *slog.Logger) *RescanHandler {
 // ByDecision handles POST /api/v1/decisions/{id}/rescan.
 //
 // @Summary     Rescan a single decision
-// @Description Re-evaluates (instance, series, season). Bypasses GUID
-// @Description cooldowns. New decision shares scan_run_id; original is
-// @Description marked superseded. 409 if original already produced a
-// @Description grab_records row.
+// @Description Asynchronously re-evaluates (instance, series, season).
+// @Description Bypasses GUID cooldowns. Returns 202 immediately with a
+// @Description fresh scan_run_id; the goroutine writes the new decision
+// @Description and marks the original superseded. 409 if the original
+// @Description already produced a grab_records row or if another scan
+// @Description is running on the same instance.
 // @Tags        decisions
 // @Produce     json
-// @Param       id   path      string  true  "Decision UUID"
-// @Success     200  {object}  dto.Decision
-// @Failure     400,404,409,500,502  {object}  dto.ErrorResponse
+// @Param       id   path      string                    true  "Decision UUID"
+// @Success     202  {array}   dto.ScanTriggerItem
+// @Failure     400  {object}  dto.ErrorResponse         "invalid id"
+// @Failure     404  {object}  dto.ErrorResponse         "decision or instance not found"
+// @Failure     409  {object}  dto.ScanConflictResponse  "scan already running on instance"
+// @Failure     409  {object}  dto.ErrorResponse         "decision already superseded or already executed"
+// @Failure     500  {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
 // @Router      /decisions/{id}/rescan [post]
@@ -49,7 +55,7 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid id")
 		return
 	}
-	out, err := h.rescanUC.Execute(ctx, rescan.Input{DecisionID: id})
+	res, err := h.rescanUC.Start(ctx, rescan.Input{DecisionID: id})
 	if err != nil {
 		switch {
 		case errors.Is(err, ports.ErrNotFound):
@@ -60,14 +66,12 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 		case errors.Is(err, rescan.ErrAlreadyExecuted):
 			c.JSON(http.StatusConflict, dto.ErrorResponse{
 				Error: "decision already executed; create a new scan instead"})
-		case errors.Is(err, domain.ErrInstanceUnauthorized):
-			h.logger.WarnContext(ctx, "rescan_upstream_unauthorized",
-				slog.String("decision_id", id.String()), slog.String("error", err.Error()))
-			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
-		case errors.Is(err, domain.ErrInstanceNetwork):
-			h.logger.WarnContext(ctx, "rescan_upstream_network_error",
-				slog.String("decision_id", id.String()), slog.String("error", err.Error()))
-			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unavailable"})
+		case errors.Is(err, scan.ErrScanAlreadyRunning):
+			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
+				Error:    "scan already running",
+				Instance: res.Instance,
+				Code:     "SCAN_IN_PROGRESS",
+			})
 		case strings.HasPrefix(err.Error(), "unknown instance: "):
 			writeError(c, http.StatusNotFound, err.Error())
 		default:
@@ -76,5 +80,10 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, toDecisionDTO(out.NewDecision))
+	c.JSON(http.StatusAccepted, []dto.ScanTriggerItem{{
+		ScanRunID:    res.ScanRunID.String(),
+		InstanceName: res.Instance,
+		Status:       res.Status,
+		Started:      res.Started,
+	}})
 }

@@ -91,6 +91,23 @@ func (r *DecisionRepository) UpdateSupersededBy(ctx context.Context, id, newID u
 	return nil
 }
 
+// ClearSupersededBy nulls the column. Used by the async rescan rollback
+// path (the goroutine failed after the prelude already pre-applied the
+// supersede pointer; the original must look live again).
+func (r *DecisionRepository) ClearSupersededBy(ctx context.Context, id uuid.UUID) error {
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.DecisionModel{}).
+		Where("id = ?", id.String()).
+		Update("superseded_by_id", gorm.Expr("NULL"))
+	if res.Error != nil {
+		return fmt.Errorf("clear superseded_by_id: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 func (r *DecisionRepository) List(ctx context.Context, f ports.DecisionFilter, p ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
 		return nil, nil, fmt.Errorf("decision list: %w", ports.ErrInvalidLimit)

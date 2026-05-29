@@ -243,13 +243,13 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
-	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, evaluator, holder.load, log)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
 		WithOrigins(originRepo).
 		WithHealthRegistry(checker.Registry()).
 		WithWaitGroup(&bgWG)
+	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, holder.load, log)
 
 	// 032e: per-instance webhook cooldown lookup reads live from the
 	// instanceMapHolder so PUT /instances/<name> mutations to

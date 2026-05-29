@@ -39,7 +39,43 @@ const (
 	TriggerCron    Trigger = "cron"
 	TriggerManual  Trigger = "manual"
 	TriggerStartup Trigger = "startup"
+	TriggerRescan  Trigger = "rescan"
 )
+
+// InflightController is the narrow surface the rescan use case needs to
+// hook into the scan use case's per-instance single-flight lock and
+// background WaitGroup. *UseCase satisfies this — see the compile-time
+// assertion below.
+type InflightController interface {
+	AcquireInstance(name string, scanID uuid.UUID) error
+	ReleaseInstance(name string)
+	SetInflightCancel(name string, cancel context.CancelFunc)
+	BackgroundWG() *sync.WaitGroup
+}
+
+var _ InflightController = (*UseCase)(nil)
+
+// AcquireInstance reserves the per-instance scan slot for scanID.
+// Returns ErrScanAlreadyRunning if the instance is busy.
+func (u *UseCase) AcquireInstance(name string, scanID uuid.UUID) error {
+	return u.acquire(name, scanID)
+}
+
+// ReleaseInstance frees the per-instance scan slot. Safe to call when
+// no slot is held (no-op).
+func (u *UseCase) ReleaseInstance(name string) { u.release(name) }
+
+// SetInflightCancel swaps the no-op CancelFunc seeded by AcquireInstance
+// for the real one held by the goroutine, so /scans/:id/cancel can
+// signal an in-flight rescan goroutine the same way it signals a scan.
+func (u *UseCase) SetInflightCancel(name string, cancel context.CancelFunc) {
+	u.setInflightCancel(name, cancel)
+}
+
+// BackgroundWG returns the process-wide drain WaitGroup (nil if not
+// wired). The rescan use case Add(1)s on goroutine spawn and Done()s on
+// exit so SIGTERM-drain blocks on outstanding rescans too.
+func (u *UseCase) BackgroundWG() *sync.WaitGroup { return u.bgWG }
 
 // Barrier is an optional synchronization hook used by tests to make
 // runOne deterministically overlap two goroutines. nil in production.
