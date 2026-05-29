@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { api, ApiError } from './api';
 import type { Grab } from './grabs';
 
@@ -23,7 +24,7 @@ export function useGrabDecision() {
       qc.invalidateQueries({ queryKey: ['grabs'] });
       qc.invalidateQueries({ queryKey: ['scans'] });
       qc.invalidateQueries({ queryKey: ['scan'] });
-      toast.success('Grab dispatched');
+      toast.success(i18n.t('toasts.grabDispatched'));
     },
     onError: (err) => {
       if (err.status === 409) {
@@ -31,17 +32,17 @@ export function useGrabDecision() {
         // "blocked by cooldown: series:..." — substring match is OK here
         // because both prefixes are stable contract from 011a §7.
         if (err.message.startsWith('blocked by cooldown')) {
-          toast.error('On cooldown — try again later');
+          toast.error(i18n.t('toasts.onCooldown'));
         } else if (err.message.startsWith('already grabbed')) {
-          toast.error('Already grabbed');
+          toast.error(i18n.t('toasts.alreadyGrabbed'));
         } else if (err.message.startsWith('already executed')) {
-          toast.error('Already executed at scan time');
+          toast.error(i18n.t('toasts.alreadyExecuted'));
         } else {
           toast.error(err.message);
         }
         return;
       }
-      toast.error(`Grab failed: ${err.message}`);
+      toast.error(i18n.t('toasts.grabFailed', { error: err.message }));
     },
   });
 }

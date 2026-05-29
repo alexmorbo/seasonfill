@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ export interface TrustedProxiesEditorProps {
 }
 
 export function TrustedProxiesEditor({ value, onChange, id }: TrustedProxiesEditorProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -47,11 +49,11 @@ export function TrustedProxiesEditor({ value, onChange, id }: TrustedProxiesEdit
       return;
     }
     if (!isValidCIDR(v)) {
-      setError(`"${v}" is not a valid IP or CIDR`);
+      setError(t('settings.security.proxies.invalidCidr', { cidr: v }));
       return;
     }
     if (value.includes(v)) {
-      setError(`"${v}" is already in the list`);
+      setError(t('settings.security.proxies.duplicate', { cidr: v }));
       return;
     }
     onChange([...value, v]);
@@ -76,7 +78,7 @@ export function TrustedProxiesEditor({ value, onChange, id }: TrustedProxiesEdit
       <div className="flex flex-wrap gap-1.5">
         {value.length === 0 && (
           <span className="text-[11.5px] text-muted">
-            No trusted proxies. All requests treated as direct.
+            {t('settings.security.proxies.emptyHint')}
           </span>
         )}
         {value.map((p, i) => (
@@ -88,7 +90,7 @@ export function TrustedProxiesEditor({ value, onChange, id }: TrustedProxiesEdit
             {p}
             <button
               type="button"
-              aria-label={`Remove ${p}`}
+              aria-label={t('settings.security.proxies.removeAria', { cidr: p })}
               onClick={() => remove(i)}
               className="rounded hover:bg-surface-2 p-0.5"
             >
@@ -103,11 +105,11 @@ export function TrustedProxiesEditor({ value, onChange, id }: TrustedProxiesEdit
           value={draft}
           onChange={(e) => { setDraft(e.target.value); setError(null); }}
           onKeyDown={onKey}
-          placeholder="10.0.0.0/8 or 192.168.1.5"
+          placeholder={t('settings.security.proxies.addPlaceholder')}
           aria-invalid={Boolean(error) || undefined}
         />
         <Button type="button" variant="outline" onClick={add} className="gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add
+          <Plus className="w-3.5 h-3.5" /> {t('settings.security.proxies.addButton')}
         </Button>
       </div>
       {error && (

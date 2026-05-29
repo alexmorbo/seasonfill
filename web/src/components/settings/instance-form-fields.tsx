@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Controller, type Control, type FieldPath, type FieldValues } from 'react-hook-form';
 import { X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -115,6 +116,7 @@ export interface TagListEditorProps {
 }
 
 export function TagListEditor({ value, onChange, id, placeholder }: TagListEditorProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -128,7 +130,7 @@ export function TagListEditor({ value, onChange, id, placeholder }: TagListEdito
       return;
     }
     for (const p of pieces) {
-      if (p.length > 64) { setError(`"${p}" exceeds 64 chars`); return; }
+      if (p.length > 64) { setError(t('settings.instances.tagsEditor.tooLong', { tag: p })); return; }
     }
     const merged = [...value];
     for (const p of pieces) {
@@ -154,14 +156,14 @@ export function TagListEditor({ value, onChange, id, placeholder }: TagListEdito
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-1.5 min-h-6">
         {value.length === 0 && (
-          <span className="text-[11.5px] text-muted">No tags</span>
+          <span className="text-[11.5px] text-muted">{t('settings.instances.tagsEditor.empty')}</span>
         )}
         {value.map((tag, i) => (
           <Badge key={`${tag}-${i}`} variant="secondary" className="gap-1 pl-2.5 pr-1">
             {tag}
             <button
               type="button"
-              aria-label={`Remove ${tag}`}
+              aria-label={t('settings.instances.tagsEditor.removeAria', { tag })}
               onClick={() => remove(i)}
               className="rounded hover:bg-surface-2 p-0.5"
             >
@@ -174,14 +176,14 @@ export function TagListEditor({ value, onChange, id, placeholder }: TagListEdito
         <Input
           id={id}
           value={draft}
-          placeholder={placeholder ?? 'tag (Enter or comma to add)'}
+          placeholder={placeholder ?? t('settings.instances.tagsEditor.placeholder')}
           onChange={(e) => { setDraft(e.target.value); setError(null); }}
           onKeyDown={onKey}
           onBlur={commit}
           aria-invalid={Boolean(error) || undefined}
         />
         <Button type="button" variant="outline" onClick={commit} className="gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add
+          <Plus className="w-3.5 h-3.5" /> {t('settings.instances.tagsEditor.addButton')}
         </Button>
       </div>
       {error && <p role="alert" className="text-status-danger text-[11.5px]">{error}</p>}

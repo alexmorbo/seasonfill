@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORY, categoryOf, type CategoryKind } from './decision-category';
+import { CATEGORY, categoryLabelKey, categoryOf, type CategoryKind } from './decision-category';
 
 const ALL: readonly CategoryKind[] = [
   'all_complete', 'sonarr_handles', 'action_taken', 'blocked',
@@ -7,11 +7,14 @@ const ALL: readonly CategoryKind[] = [
 ];
 
 describe('CATEGORY map', () => {
-  it.each(ALL)('descriptor for %s has label + kind + priority', (k) => {
+  it.each(ALL)('descriptor for %s has kind + priority', (k) => {
     const d = CATEGORY[k];
-    expect(d.label.length).toBeGreaterThan(0);
     expect(d.kind).toMatch(/^(success|danger|warning|info|neutral)$/);
     expect(typeof d.priority).toBe('number');
+  });
+
+  it.each(ALL)('categoryLabelKey(%s) returns categories.<kind>', (k) => {
+    expect(categoryLabelKey(k)).toBe(`categories.${k}`);
   });
 
   it('action_taken has highest priority', () => {

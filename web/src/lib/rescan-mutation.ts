@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { api, ApiError } from './api';
 import type { ScanTriggerItem } from './scan-mutations';
 
@@ -23,21 +24,21 @@ export function useRescanDecision() {
       qc.invalidateQueries({ queryKey: ['decisions'] });
       qc.invalidateQueries({ queryKey: ['scans'] });
       qc.invalidateQueries({ queryKey: ['instances'] });
-      toast.success('Rescan started');
+      toast.success(i18n.t('toasts.rescanStarted'));
     },
     onError: (err) => {
       if (err.status === 409) {
         if (err.message.startsWith('decision already superseded')) {
-          toast.error('Already rescanned — open the successor');
+          toast.error(i18n.t('toasts.alreadyRescanned'));
         } else if (err.message.startsWith('decision already executed')) {
-          toast.error('Already grabbed against Sonarr — create a new scan');
+          toast.error(i18n.t('toasts.alreadyGrabbedSonarr'));
         } else {
           // SCAN_IN_PROGRESS or any other 409 from the new conflict envelope.
           toast.error(err.message);
         }
         return;
       }
-      toast.error(`Rescan failed: ${err.message}`);
+      toast.error(i18n.t('toasts.rescanFailed', { error: err.message }));
     },
   });
 }

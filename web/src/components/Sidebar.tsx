@@ -79,11 +79,12 @@ export function MobileSidebar({
   onOpenChange: (v: boolean) => void;
   onNewScan: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[240px] p-3 bg-bg border-r border-border">
         <SheetHeader className="sr-only">
-          <SheetTitle>Navigation</SheetTitle>
+          <SheetTitle>{t('nav.navigation')}</SheetTitle>
         </SheetHeader>
         <NavList onNewScan={onNewScan} onNavigate={() => onOpenChange(false)} />
       </SheetContent>

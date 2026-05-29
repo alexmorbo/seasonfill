@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { ApiError } from './api';
 import type { components } from '@/api/schema';
 
@@ -93,14 +94,14 @@ export function useCreateInstance() {
         );
       }
       qc.invalidateQueries({ queryKey: ['instances'] });
-      toast.success('Instance created');
+      toast.success(i18n.t('toasts.instanceCreated'));
     },
     onError: (err) => {
       if (err.status === 409) {
-        toast.error(err.message || 'Conflict: name already exists');
+        toast.error(err.message || i18n.t('toasts.instanceNameConflict'));
         return;
       }
-      toast.error(`Create failed: ${err.message}`);
+      toast.error(i18n.t('toasts.instanceCreateFailed', { error: err.message }));
     },
   });
 }
@@ -134,10 +135,10 @@ export function useUpdateInstance() {
       );
       qc.invalidateQueries({ queryKey: ['instances'] });
       qc.invalidateQueries({ queryKey: instanceDetailKey(vars.name) });
-      toast.success('Instance saved');
+      toast.success(i18n.t('toasts.instanceSaved'));
     },
     onError: (err) => {
-      toast.error(`Save failed: ${err.message}`);
+      toast.error(i18n.t('toasts.instanceSaveFailed', { error: err.message }));
     },
   });
 }
@@ -160,10 +161,10 @@ export function useDeleteInstance() {
       qc.invalidateQueries({ queryKey: ['scans'] });
       qc.invalidateQueries({ queryKey: ['decisions'] });
       qc.invalidateQueries({ queryKey: ['grabs'] });
-      toast.success('Instance deleted');
+      toast.success(i18n.t('toasts.instanceDeleted'));
     },
     onError: (err) => {
-      toast.error(`Delete failed: ${err.message}`);
+      toast.error(i18n.t('toasts.instanceDeleteFailed', { error: err.message }));
     },
   });
 }
@@ -194,24 +195,24 @@ export function useTestInstance() {
       // narrower body.code refinement for the cases where multiple
       // distinct failure shapes share the same HTTP status.
       if (err.status === 504) {
-        toast.error('Timed out — Sonarr did not respond');
+        toast.error(i18n.t('toasts.probeTimeout'));
         return;
       }
       if (err.status === 401 || err.status === 403) {
-        toast.error('Unauthorized — check the API key');
+        toast.error(i18n.t('toasts.probeUnauthorized'));
         return;
       }
       if (err.status === 400) {
         const code = errorCode(err);
         if (code === 'INVALID_HOST') {
-          toast.error('URL resolves to a private or loopback address');
+          toast.error(i18n.t('toasts.probePrivateBlocked'));
           return;
         }
         // Generic 400 (malformed URL, missing fields, body too large…).
-        toast.error(err.message || 'Bad request');
+        toast.error(err.message || i18n.t('toasts.probeBadRequest'));
         return;
       }
-      toast.error(`Probe failed: ${err.message}`);
+      toast.error(i18n.t('toasts.probeFailed', { error: err.message }));
     },
   });
 }
