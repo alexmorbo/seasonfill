@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -46,6 +47,7 @@ const GRAB_COMPARATORS: Readonly<Record<string, Comparator<Grab>>> = {
 const STATUSES = ['grabbed', 'imported', 'import_failed', 'grab_failed', 'expired'] as const;
 
 export function Grabs() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const { filter: instance } = useInstanceFilter();
   const status = params.get('status') ?? '';
@@ -89,49 +91,49 @@ export function Grabs() {
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
       <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">Grabs</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('grabs.title')}</h1>
         <span className="font-mono text-[12px] text-faint">
-          {rows.length} loaded{instance ? ` · ${instance}` : ''}
+          {t('grabs.loadedCount', { count: rows.length })}{instance ? ` · ${instance}` : ''}
         </span>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">Filter</span>
+        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('grabs.filter')}</span>
         <Select
           value={status || 'all'}
           onValueChange={(v) => setParam('status', v === 'all' ? '' : v)}
         >
-          <SelectTrigger className="h-8 w-[160px] text-[12.5px]" aria-label="Any status">
-            <SelectValue placeholder="Any status" />
+          <SelectTrigger className="h-8 w-[160px] text-[12.5px]" aria-label={t('grabs.anyStatus')}>
+            <SelectValue placeholder={t('grabs.anyStatus')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Any status</SelectItem>
+            <SelectItem value="all">{t('grabs.anyStatus')}</SelectItem>
             {STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s}
+                {t(`statuses.${s}`, { defaultValue: s })}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Input
-          placeholder="Search series or release…"
+          placeholder={t('grabs.searchPlaceholder')}
           value={q}
           onChange={(e) => setParam('q', e.target.value)}
           className="h-8 w-[260px] text-[12.5px]"
         />
         <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label="Time range (decorative)">
+          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('grabs.timeRangeAria')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="24h">Last 24h</SelectItem>
-            <SelectItem value="7d">Last 7d</SelectItem>
-            <SelectItem value="30d">Last 30d</SelectItem>
+            <SelectItem value="24h">{t('grabs.range.h24')}</SelectItem>
+            <SelectItem value="7d">{t('grabs.range.d7')}</SelectItem>
+            <SelectItem value="30d">{t('grabs.range.d30')}</SelectItem>
           </SelectContent>
         </Select>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" onClick={clear} disabled={!status && !q}>
-          Clear
+          {t('grabs.clear')}
         </Button>
       </div>
 
@@ -140,11 +142,11 @@ export function Grabs() {
           {query.isError ? (
             <Alert variant="destructive" className="m-4">
               <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>Failed to load grabs</AlertTitle>
+              <AlertTitle>{t('grabs.loadFailed')}</AlertTitle>
               <AlertDescription>
                 {query.error.message}{' '}
                 <Button variant="link" size="sm" onClick={() => query.refetch()}>
-                  Retry
+                  {t('common.retry')}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -154,7 +156,7 @@ export function Grabs() {
                 <TableRow>
                   <TableHead>
                     <SortableHeader
-                      label="Time"
+                      label={t('grabs.columns.time')}
                       sortKey="created_at"
                       currentKey={sortKey}
                       currentDir={dir}
@@ -163,7 +165,7 @@ export function Grabs() {
                   </TableHead>
                   <TableHead>
                     <SortableHeader
-                      label="Instance"
+                      label={t('grabs.columns.instance')}
                       sortKey="instance"
                       currentKey={sortKey}
                       currentDir={dir}
@@ -172,25 +174,25 @@ export function Grabs() {
                   </TableHead>
                   <TableHead>
                     <SortableHeader
-                      label="Series"
+                      label={t('grabs.columns.series')}
                       sortKey="series_title"
                       currentKey={sortKey}
                       currentDir={dir}
                       onToggle={toggle}
                     />
                   </TableHead>
-                  <TableHead>Release</TableHead>
+                  <TableHead>{t('grabs.columns.release')}</TableHead>
                   <TableHead>
                     <SortableHeader
-                      label="Status"
+                      label={t('grabs.columns.status')}
                       sortKey="status"
                       currentKey={sortKey}
                       currentDir={dir}
                       onToggle={toggle}
                     />
                   </TableHead>
-                  <TableHead>Indexer</TableHead>
-                  <TableHead>Attempts</TableHead>
+                  <TableHead>{t('grabs.columns.indexer')}</TableHead>
+                  <TableHead>{t('grabs.columns.attempts')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -204,13 +206,13 @@ export function Grabs() {
                   <TableRow>
                     <TableCell colSpan={7}>
                       <EmptyState
-                        title="No grabs match"
-                        body="Try clearing filters."
+                        title={t('grabs.empty.matchTitle')}
+                        body={t('grabs.empty.matchBody')}
                         {...(status || q
                           ? {
                               action: (
                                 <Button variant="outline" size="sm" onClick={clear}>
-                                  Clear filters
+                                  {t('grabs.clearFilters')}
                                 </Button>
                               ),
                             }
@@ -226,7 +228,7 @@ export function Grabs() {
                     onKeyDown={(e) => onKey(e, g.id)}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Open grab ${g.id ?? ''}`}
+                    aria-label={t('grabs.openGrabAria', { id: g.id ?? '' })}
                     className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <TableCell className="text-muted">
@@ -257,7 +259,7 @@ export function Grabs() {
             onClick={() => query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
           >
-            {query.isFetchingNextPage ? 'Loading…' : 'Show more'}
+            {query.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
           </Button>
         </div>
       )}

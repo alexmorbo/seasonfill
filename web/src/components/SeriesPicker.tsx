@@ -2,6 +2,7 @@ import {
   useCallback, useEffect, useMemo, useRef, useState,
   type ReactNode, type KeyboardEvent, type ChangeEvent,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, X, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useSeriesSearch, type SeriesSearchItem } from '@/lib/series-search';
@@ -25,6 +26,7 @@ export function SeriesPicker({
   instance, value, onChange, onLoadingChange,
   disabled, placeholder, helperText, className,
 }: SeriesPickerProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -143,7 +145,7 @@ export function SeriesPicker({
                   className="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-surface-3 disabled:opacity-50"
                   onClick={() => remove(id)}
                   disabled={disabled}
-                  aria-label={`Remove ${label}`}
+                  aria-label={t('seriesPicker.removeChipAria', { label })}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -165,7 +167,7 @@ export function SeriesPicker({
             // briefly) registers as a pick first.
             onBlur={() => { setTimeout(() => setOpen(false), 150); }}
             onKeyDown={onKeyDown}
-            placeholder={placeholder ?? 'Filter by series (optional)'}
+            placeholder={placeholder ?? t('seriesPicker.placeholder')}
             disabled={disabled || instance.length === 0}
             autoComplete="off"
             role="combobox"
@@ -178,7 +180,7 @@ export function SeriesPicker({
           {isLoading && (
             <Loader2
               className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-faint animate-spin"
-              aria-label="Searching"
+              aria-label={t('seriesPicker.searchingAria')}
               data-testid="series-picker-spinner"
             />
           )}
@@ -193,15 +195,15 @@ export function SeriesPicker({
           >
             {hasError && (
               <li className="px-3 py-2 text-[12px] text-status-danger">
-                Search failed — retry typing.
+                {t('seriesPicker.searchFailed')}
               </li>
             )}
             {!hasError && search.isPending && (
-              <li className="px-3 py-2 text-[12px] text-muted">Loading…</li>
+              <li className="px-3 py-2 text-[12px] text-muted">{t('seriesPicker.loading')}</li>
             )}
             {!hasError && !search.isPending && visible.length === 0 && (
               <li className="px-3 py-2 text-[12px] text-muted">
-                {debouncedQuery ? 'No series match' : 'Type to search'}
+                {debouncedQuery ? t('seriesPicker.noMatch') : t('seriesPicker.typeToSearch')}
               </li>
             )}
             {!hasError && visible.map((s, idx) => {
@@ -228,7 +230,7 @@ export function SeriesPicker({
                   <span className="flex-1 truncate">{s.title ?? `#${id}`}</span>
                   {s.missing_aired_count !== undefined && s.missing_aired_count > 0 && (
                     <span className="font-mono text-[10.5px] text-faint shrink-0">
-                      {s.missing_aired_count} missing
+                      {t('seriesPicker.missingSuffix', { count: s.missing_aired_count })}
                     </span>
                   )}
                   <span className="font-mono text-[10.5px] text-faint shrink-0">#{id}</span>
@@ -238,7 +240,7 @@ export function SeriesPicker({
             {!hasError && search.data && search.data.total !== undefined &&
               search.data.total > visible.length && (
               <li className="px-3 py-1 text-[10.5px] text-faint font-mono border-t border-border-faint">
-                showing {visible.length} of {search.data.total} — type to narrow
+                {t('seriesPicker.showingFooter', { shown: visible.length, total: search.data.total })}
               </li>
             )}
           </ul>
