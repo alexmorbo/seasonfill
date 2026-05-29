@@ -121,7 +121,7 @@ describe('<InstanceFormDialog />', () => {
     seedDetail(qc, 'alpha', minDetail);
 
     // Wait for the Save button to become enabled (detail loaded from cache).
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
     await userEvent.click(saveBtn);
     await waitFor(() => expect(captured.method).toBe('PUT'));
@@ -191,7 +191,7 @@ describe('<InstanceFormDialog />', () => {
     // Wait for the form to be fully hydrated from detail before editing —
     // the new form re-seeds all fields (including URL) from formFromDetail
     // when detail first arrives, so we must wait for that to settle.
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Edit a form field (URL) so we can prove ONLY form fields are
@@ -251,7 +251,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }}
       />,
     );
-    const save = await screen.findByRole('button', { name: /^save$/i });
+    const save = await screen.findByRole('button', { name: /^save instance$/i });
     expect(save).toBeDisabled();
     expect(await screen.findByText(/loading instance details/i)).toBeVisible();
   });
@@ -335,7 +335,7 @@ describe('<InstanceFormDialog />', () => {
     seedDetail(qc, 'alpha', minDetail);
 
     // Wait for the form to settle (Save enabled = detail loaded).
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Type into the api_key field.
@@ -385,7 +385,7 @@ describe('<InstanceFormDialog />', () => {
     );
     seedDetail(qc, 'alpha', seedDetailVal);
 
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // User edits the URL — form becomes dirty.
@@ -435,14 +435,14 @@ describe('<InstanceFormDialog />', () => {
     seedDetail(qc, 'alpha', maskedDetail);
 
     // Wait for Save to enable.
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Flip mode auto→manual via the select (mimics the real incident).
     // The mode select uses Radix; clicking the trigger opens the
     // listbox, then we pick "manual".
     await userEvent.click(screen.getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: 'manual' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Manual (per-series only)' }));
 
     await userEvent.click(saveBtn);
     await waitFor(() => expect(captured.method).toBe('PUT'));
@@ -478,7 +478,7 @@ describe('<InstanceFormDialog />', () => {
     );
     seedDetail(qc, 'alpha', maskedDetail);
 
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     const keyInput = await screen.findByLabelText(/api key/i);
@@ -540,7 +540,7 @@ describe('<InstanceFormDialog />', () => {
     );
     seedDetail(qc, 'alpha', seed);
 
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
     await userEvent.click(saveBtn);
     await waitFor(() => expect(captured.method).toBe('PUT'));
@@ -566,7 +566,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
     );
     seedDetail(qc, 'alpha', seed);
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Initial state should be "on" (radio "on" checked).
@@ -597,7 +597,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
     );
     seedDetail(qc, 'alpha', seed);
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     const timeoutInput = await screen.findByLabelText(/^timeout/i);
@@ -628,7 +628,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
     );
     seedDetail(qc, 'alpha', seed);
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Jump to Behavior tab.
@@ -659,7 +659,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
     );
     seedDetail(qc, 'alpha', seed);
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     await userEvent.click(screen.getByRole('tab', { name: /behavior/i }));
@@ -698,7 +698,7 @@ describe('<InstanceFormDialog />', () => {
     );
     seedDetail(qc, 'alpha', nullTagsSeed);
 
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Click Save without making any changes.
@@ -730,7 +730,7 @@ describe('<InstanceFormDialog />', () => {
         initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
     );
     seedDetail(qc, 'alpha', seed);
-    const saveBtn = await screen.findByRole('button', { name: /^save$/i });
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     await userEvent.click(screen.getByRole('tab', { name: /behavior/i }));

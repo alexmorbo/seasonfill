@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Controller, useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -39,16 +40,16 @@ import {
 
 const nameRule = z
   .string()
-  .min(1, 'Name is required')
-  .max(128, 'Max 128 characters')
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Allowed: a-z, A-Z, 0-9, _ and -');
+  .min(1, 'settings.instances.form.errors.nameRequired')
+  .max(128, 'settings.instances.form.errors.nameTooLong')
+  .regex(/^[a-zA-Z0-9_-]+$/, 'settings.instances.form.errors.nameRegex');
 
 const urlRule = z
   .string()
-  .min(1, 'URL is required')
-  .url('Must be a valid URL')
+  .min(1, 'settings.instances.form.errors.urlRequired')
+  .url('settings.instances.form.errors.urlInvalid')
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'),
-    'URL must start with http:// or https://');
+    'settings.instances.form.errors.urlScheme');
 
 const modeRule = z.enum(['auto', 'manual']);
 const dryRunRule = z.enum(['auto', 'on', 'off']);
@@ -95,7 +96,7 @@ const baseShape = {
   health_recheck_network_sec: int(10, 86400, 'health.recheck_network'),
 };
 
-const createSchema = z.object({ ...baseShape, api_key: z.string().min(1, 'API key required for new instances') });
+const createSchema = z.object({ ...baseShape, api_key: z.string().min(1, 'settings.instances.form.errors.apiKeyRequiredCreate') });
 const editSchema   = z.object({ ...baseShape, api_key: z.string() });
 type FormValues = z.infer<typeof createSchema>;
 const pickSchema = (m: 'create' | 'edit') => (m === 'create' ? createSchema : editSchema);
@@ -215,6 +216,7 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
 export function InstanceFormDialog({
   open, onOpenChange, mode, initial,
 }: InstanceFormDialogProps) {
+  const { t } = useTranslation();
   const isEdit = mode === 'edit';
   const create = useCreateInstance();
   const update = useUpdateInstance();
@@ -266,7 +268,7 @@ export function InstanceFormDialog({
     if (!isEdit && errs.api_key) {
       setActiveTab('connection');
       setFocus('api_key');
-      toast.error('Save failed — check errors in the Connection tab');
+      toast.error(t('settings.instances.form.saveFailedConnectionTab'));
       return;
     }
     // Jump to the first tab containing an error so the user sees the
@@ -291,8 +293,8 @@ export function InstanceFormDialog({
       tab = 'advanced';
     }
     setActiveTab(tab);
-    const tabLabel = tab.charAt(0).toUpperCase() + tab.slice(1);
-    toast.error(`Save failed — please fix errors in the ${tabLabel} tab`);
+    const tabLabel = t(`settings.instances.form.tabs.${tab}`, { defaultValue: tab });
+    toast.error(t('settings.instances.form.saveFailedTabFmt', { tab: tabLabel }));
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -330,17 +332,17 @@ export function InstanceFormDialog({
     setProbeResult(null);
     const { url, api_key } = getValues();
     if (!url || !api_key) {
-      setProbeResult('URL and api_key are required to test');
+      setProbeResult(t('settings.instances.form.probeNeedsCredentials'));
       return;
     }
     try {
       const resp = await probe.mutateAsync({ url, api_key });
       if (resp.ok) {
         setProbeResult(resp.version && resp.version.length > 0
-          ? `Connected to Sonarr ${resp.version}`
-          : 'Connected (version unknown)');
+          ? t('settings.instances.form.probeConnected', { version: resp.version })
+          : t('settings.instances.form.probeConnectedUnknownVersion'));
       } else {
-        setProbeResult(resp.reason || 'Connection failed');
+        setProbeResult(resp.reason || t('settings.instances.form.probeConnectionFailed'));
       }
     } catch {
       // network failure: leave result as null (already reset at top)
@@ -353,27 +355,27 @@ export function InstanceFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit instance' : 'Add Sonarr instance'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('settings.instances.form.editTitle') : t('settings.instances.form.createTitle')}</DialogTitle>
         </DialogHeader>
         <DialogDescription className="sr-only">
           {mode === 'create'
-            ? 'Create a new Sonarr instance.'
-            : `Edit the ${initial?.name ?? ''} Sonarr instance configuration.`}
+            ? t('settings.instances.form.srCreateDescription')
+            : t('settings.instances.form.srEditDescription', { name: initial?.name ?? '' })}
         </DialogDescription>
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
-              <TabsTrigger value="connection">Connection</TabsTrigger>
-              <TabsTrigger value="behavior">Behavior</TabsTrigger>
-              <TabsTrigger value="performance">Performance</TabsTrigger>
-              <TabsTrigger value="advanced">Advanced</TabsTrigger>
+              <TabsTrigger value="connection">{t('settings.instances.form.tabs.connection')}</TabsTrigger>
+              <TabsTrigger value="behavior">{t('settings.instances.form.tabs.behavior')}</TabsTrigger>
+              <TabsTrigger value="performance">{t('settings.instances.form.tabs.performance')}</TabsTrigger>
+              <TabsTrigger value="advanced">{t('settings.instances.form.tabs.advanced')}</TabsTrigger>
             </TabsList>
 
             {/* CONNECTION -------------------------------------------- */}
             <TabsContent value="connection" className="mt-4 flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-name">Name</Label>
+                <Label htmlFor="inst-name">{t('settings.instances.form.nameLabel')}</Label>
                 <Input
                   id="inst-name"
                   autoFocus={!isEdit}
@@ -383,18 +385,18 @@ export function InstanceFormDialog({
                 />
                 {isEdit && (
                   <p className="text-[11.5px] text-muted">
-                    Name is immutable. Delete and recreate to rename.
+                    {t('settings.instances.form.nameImmutableHint')}
                   </p>
                 )}
                 {errors.name && (
                   <p role="alert" className="text-status-danger text-[11.5px]">
-                    {errors.name.message}
+                    {t(errors.name.message ?? '', { defaultValue: errors.name.message ?? '' })}
                   </p>
                 )}
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-url">URL</Label>
+                <Label htmlFor="inst-url">{t('settings.instances.form.urlLabel')}</Label>
                 <Input
                   id="inst-url"
                   type="url"
@@ -403,24 +405,24 @@ export function InstanceFormDialog({
                 />
                 {errors.url && (
                   <p role="alert" className="text-status-danger text-[11.5px]">
-                    {errors.url.message}
+                    {t(errors.url.message ?? '', { defaultValue: errors.url.message ?? '' })}
                   </p>
                 )}
               </div>
 
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="inst-key">API key</Label>
+                  <Label htmlFor="inst-key">{t('settings.instances.form.apiKeyLabel')}</Label>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Badge variant="secondary" className="gap-1 text-[10.5px]">
                           <KeyRound className="w-3 h-3" />
-                          Encrypted at rest
+                          {t('settings.instances.form.apiKeyEncrypted')}
                         </Badge>
                       </TooltipTrigger>
                       <TooltipContent>
-                        Stored AES-256-GCM with a key derived per-row via HKDF.
+                        {t('settings.instances.form.apiKeyEncryptedTooltip')}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -429,26 +431,25 @@ export function InstanceFormDialog({
                   id="inst-key"
                   type="password"
                   autoComplete="off"
-                  placeholder={isEdit ? 'Leave blank to keep existing key' : ''}
+                  placeholder={isEdit ? t('settings.instances.form.apiKeyKeepPlaceholder') : ''}
                   aria-invalid={Boolean(errors.api_key) || undefined}
                   {...register('api_key')}
                 />
                 {isEdit && (
                   <p className="text-[11.5px] text-muted">
-                    Leave the field empty to keep the current key. The stored
-                    key is never sent to the browser.
+                    {t('settings.instances.form.apiKeyKeepHint')}
                   </p>
                 )}
                 {errors.api_key && (
                   <p role="alert" className="text-status-danger text-[11.5px]">
-                    {errors.api_key.message}
+                    {t(errors.api_key.message ?? '', { defaultValue: errors.api_key.message ?? '' })}
                   </p>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-mode">Mode</Label>
+                  <Label htmlFor="inst-mode">{t('settings.instances.form.modeLabel')}</Label>
                   <Controller
                     name="mode"
                     control={control}
@@ -458,8 +459,8 @@ export function InstanceFormDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="auto">auto</SelectItem>
-                          <SelectItem value="manual">manual</SelectItem>
+                          <SelectItem value="auto">{t('settings.instances.form.modes.auto')}</SelectItem>
+                          <SelectItem value="manual">{t('settings.instances.form.modes.manual')}</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -467,7 +468,7 @@ export function InstanceFormDialog({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <Label>Dry run</Label>
+                  <Label>{t('settings.instances.form.dryRunLabel')}</Label>
                   <Controller
                     name="dry_run"
                     control={control}
@@ -484,14 +485,14 @@ export function InstanceFormDialog({
                             className="flex items-center gap-1.5 border border-border rounded-md px-2 py-1.5 cursor-pointer hover:bg-surface-2 font-normal"
                           >
                             <RadioGroupItem id={`dry-${c}`} value={c} />
-                            <span className="text-[12.5px]">{c}</span>
+                            <span className="text-[12.5px]">{t(`settings.instances.form.dryRunChoice.${c}`)}</span>
                           </Label>
                         ))}
                       </RadioGroup>
                     )}
                   />
                   <p className="text-[11.5px] text-muted">
-                    auto = inherit global default; on/off override per-instance.
+                    {t('settings.instances.form.dryRunHelpInline')}
                   </p>
                 </div>
               </div>
@@ -501,8 +502,8 @@ export function InstanceFormDialog({
                   control={control}
                   name="timeout_sec"
                   id="inst-timeout"
-                  label="Timeout"
-                  suffix="seconds"
+                  label={t('settings.instances.form.timeoutLabel')}
+                  suffix={t('settings.instances.form.timeoutSuffix')}
                   min={1} max={300}
                   error={errors.timeout_sec?.message}
                 />
@@ -510,8 +511,8 @@ export function InstanceFormDialog({
                   control={control}
                   name="search_timeout_sec"
                   id="inst-search-timeout"
-                  label="Search timeout"
-                  suffix="seconds"
+                  label={t('settings.instances.form.searchTimeoutLabel')}
+                  suffix={t('settings.instances.form.timeoutSuffix')}
                   min={1} max={600}
                   error={errors.search_timeout_sec?.message}
                 />
@@ -525,7 +526,7 @@ export function InstanceFormDialog({
                   disabled={probe.isPending}
                 >
                   {probe.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
-                  Test connection
+                  {t('settings.instances.form.testConnection')}
                 </Button>
                 {probeResult && (
                   <span role="status" className="text-[12px] text-foreground-2">
@@ -538,7 +539,7 @@ export function InstanceFormDialog({
             {/* BEHAVIOR ---------------------------------------------- */}
             <TabsContent value="behavior" className="mt-4 flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-tags-mode">Tag mode</Label>
+                <Label htmlFor="inst-tags-mode">{t('settings.instances.form.tagModeLabel')}</Label>
                 <Controller
                   name="tags_mode"
                   control={control}
@@ -548,10 +549,10 @@ export function InstanceFormDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="off">off</SelectItem>
-                        <SelectItem value="include">include</SelectItem>
-                        <SelectItem value="exclude">exclude</SelectItem>
-                        <SelectItem value="both">both</SelectItem>
+                        <SelectItem value="off">{t('settings.instances.form.tagsModes.off')}</SelectItem>
+                        <SelectItem value="include">{t('settings.instances.form.tagsModes.include')}</SelectItem>
+                        <SelectItem value="exclude">{t('settings.instances.form.tagsModes.exclude')}</SelectItem>
+                        <SelectItem value="both">{t('settings.instances.form.tagsModes.both')}</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -560,7 +561,7 @@ export function InstanceFormDialog({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-tags-include">Include tags</Label>
+                  <Label htmlFor="inst-tags-include">{t('settings.instances.form.includeTagsLabel')}</Label>
                   <Controller
                     name="tags_include"
                     control={control}
@@ -574,7 +575,7 @@ export function InstanceFormDialog({
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-tags-exclude">Exclude tags</Label>
+                  <Label htmlFor="inst-tags-exclude">{t('settings.instances.form.excludeTagsLabel')}</Label>
                   <Controller
                     name="tags_exclude"
                     control={control}
@@ -591,16 +592,16 @@ export function InstanceFormDialog({
 
               <div className="grid grid-cols-2 gap-y-2 gap-x-4 pt-1">
                 <SwitchField control={control} name="search_require_all_aired"
-                  id="search-require-all-aired" label="Require all aired"
-                  hint="Only grab when all aired episodes are missing." />
+                  id="search-require-all-aired" label={t('settings.instances.form.requireAllAiredLabel')}
+                  hint={t('settings.instances.form.requireAllAiredHint')} />
                 <SwitchField control={control} name="search_skip_specials"
-                  id="search-skip-specials" label="Skip specials"
-                  hint="Ignore season 0." />
+                  id="search-skip-specials" label={t('settings.instances.form.skipSpecialsLabel')}
+                  hint={t('settings.instances.form.skipSpecialsHint')} />
                 <SwitchField control={control} name="search_skip_anime"
-                  id="search-skip-anime" label="Skip anime"
-                  hint="Ignore series flagged as anime." />
+                  id="search-skip-anime" label={t('settings.instances.form.skipAnimeLabel')}
+                  hint={t('settings.instances.form.skipAnimeHint')} />
                 <NumberField control={control} name="search_min_custom_format_score"
-                  id="search-mcfs" label="Min custom format score"
+                  id="search-mcfs" label={t('settings.instances.form.minCustomFormatScoreLabel')}
                   min={-1000} max={1000}
                   error={errors.search_min_custom_format_score?.message} />
               </div>
@@ -610,36 +611,37 @@ export function InstanceFormDialog({
             <TabsContent value="performance" className="mt-4 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <NumberField control={control} name="rate_limit_rpm"
-                  id="rate-limit-rpm" label="Rate limit" suffix="req/min"
+                  id="rate-limit-rpm" label={t('settings.instances.form.rateLimitRpmLabel')}
+                  suffix={t('settings.instances.form.rateLimitRpmSuffix')}
                   min={0} max={10000}
                   error={errors.rate_limit_rpm?.message} />
                 <NumberField control={control} name="rate_limit_burst"
-                  id="rate-limit-burst" label="Rate limit burst"
+                  id="rate-limit-burst" label={t('settings.instances.form.rateLimitBurstLabel')}
                   min={0} max={10000}
                   error={errors.rate_limit_burst?.message} />
                 <NumberField control={control} name="limits_scan_max_series"
-                  id="limits-scan-max" label="Max series per scan"
+                  id="limits-scan-max" label={t('settings.instances.form.scanMaxSeriesLabel')}
                   min={0} max={100000}
-                  hint="0 = no cap."
+                  hint={t('settings.instances.form.scanMaxSeriesHint')}
                   error={errors.limits_scan_max_series?.message} />
                 <NumberField control={control} name="limits_max_grabs_per_scan"
-                  id="limits-grabs" label="Max grabs per scan"
+                  id="limits-grabs" label={t('settings.instances.form.maxGrabsPerScanLabel')}
                   min={0} max={100}
                   error={errors.limits_max_grabs_per_scan?.message} />
                 <NumberField control={control} name="ranking_origin_bonus"
-                  id="ranking-origin-bonus" label="Origin bonus"
+                  id="ranking-origin-bonus" label={t('settings.instances.form.originBonusLabel')}
                   min={-100} max={100} step={0.1}
                   error={errors.ranking_origin_bonus?.message} />
                 <SwitchField control={control} name="ranking_indexer_priority_enabled"
-                  id="ranking-indexer-priority" label="Use indexer priority"
-                  hint="Tiebreak by indexer priority field." />
+                  id="ranking-indexer-priority" label={t('settings.instances.form.indexerPriorityLabel')}
+                  hint={t('settings.instances.form.indexerPriorityHint')} />
               </div>
             </TabsContent>
 
             {/* ADVANCED ---------------------------------------------- */}
             <TabsContent value="advanced" className="mt-4 flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cooldown-mode">Cooldown mode</Label>
+                <Label htmlFor="cooldown-mode">{t('settings.instances.form.cooldownModeLabel')}</Label>
                 <Controller
                   name="cooldown_mode"
                   control={control}
@@ -649,8 +651,8 @@ export function InstanceFormDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="smart">smart</SelectItem>
-                        <SelectItem value="strict">strict</SelectItem>
+                        <SelectItem value="smart">{t('settings.instances.form.cooldownModes.smart')}</SelectItem>
+                        <SelectItem value="strict">{t('settings.instances.form.cooldownModes.strict')}</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -658,39 +660,39 @@ export function InstanceFormDialog({
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <NumberField control={control} name="cooldown_series_after_grab_sec"
-                  id="cd-series" label="Series after grab" suffix="seconds"
+                  id="cd-series" label={t('settings.instances.form.cdSeriesLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
                   error={errors.cooldown_series_after_grab_sec?.message} />
                 <NumberField control={control} name="cooldown_guid_after_failed_grab_sec"
-                  id="cd-guid-grab" label="GUID after failed grab" suffix="seconds"
+                  id="cd-guid-grab" label={t('settings.instances.form.cdGuidGrabLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
                   error={errors.cooldown_guid_after_failed_grab_sec?.message} />
                 <NumberField control={control} name="cooldown_guid_after_failed_import_sec"
-                  id="cd-guid-import" label="GUID after failed import" suffix="seconds"
+                  id="cd-guid-import" label={t('settings.instances.form.cdGuidImportLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
                   error={errors.cooldown_guid_after_failed_import_sec?.message} />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <NumberField control={control} name="retry_max_attempts"
-                  id="retry-attempts" label="Max retry attempts"
+                  id="retry-attempts" label={t('settings.instances.form.retryMaxAttemptsLabel')}
                   min={0} max={10}
                   error={errors.retry_max_attempts?.message} />
                 <NumberField control={control} name="retry_initial_backoff_sec"
-                  id="retry-initial" label="Initial backoff" suffix="seconds"
+                  id="retry-initial" label={t('settings.instances.form.retryInitialBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={3600}
                   error={errors.retry_initial_backoff_sec?.message} />
                 <NumberField control={control} name="retry_max_backoff_sec"
-                  id="retry-max" label="Max backoff" suffix="seconds"
+                  id="retry-max" label={t('settings.instances.form.retryMaxBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={3600}
                   error={errors.retry_max_backoff_sec?.message} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <NumberField control={control} name="health_recheck_auth_sec"
-                  id="hc-auth" label="Recheck auth" suffix="seconds"
+                  id="hc-auth" label={t('settings.instances.form.healthRecheckAuthLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={10} max={86400}
                   error={errors.health_recheck_auth_sec?.message} />
                 <NumberField control={control} name="health_recheck_network_sec"
-                  id="hc-net" label="Recheck network" suffix="seconds"
+                  id="hc-net" label={t('settings.instances.form.healthRecheckNetworkLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={10} max={86400}
                   error={errors.health_recheck_network_sec?.message} />
               </div>
@@ -700,22 +702,21 @@ export function InstanceFormDialog({
           {isEdit && detailQuery.isPending && (
             <p className="text-[11.5px] text-muted flex items-center gap-1.5">
               <Loader2 className="w-3 h-3 animate-spin" />
-              Loading instance details…
+              {t('settings.instances.form.loadingDetails')}
             </p>
           )}
           {isEdit && detailQuery.isError && (
             <p role="alert" className="text-[11.5px] text-status-danger">
-              Could not load instance details. Close and retry to avoid
-              overwriting per-instance settings.
+              {t('settings.instances.form.loadDetailsFailed')}
             </p>
           )}
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('settings.instances.form.cancel')}
             </Button>
             <Button type="submit" disabled={isSubmitting || editBlocked}>
-              {isSubmitting ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+              {isSubmitting ? t('settings.instances.form.saving') : isEdit ? t('settings.instances.form.save') : t('settings.instances.form.create')}
             </Button>
           </DialogFooter>
         </form>
