@@ -90,10 +90,10 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	}
 }
 
-func Ping(db *gorm.DB) error {
+func Ping(ctx context.Context, db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return fmt.Errorf("driver: %w", err)
 	}
-	return sqlDB.Ping()
+	return sqlDB.PingContext(ctx)
 }

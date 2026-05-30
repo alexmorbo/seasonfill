@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func TestOpen_SQLite_InMemory(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, db)
-	assert.NoError(t, Ping(db))
+	assert.NoError(t, Ping(context.Background(), db))
 }
 
 func TestOpen_SQLite_FileInTempDir(t *testing.T) {
@@ -35,7 +36,7 @@ func TestOpen_SQLite_FileInTempDir(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, db)
-	assert.NoError(t, Ping(db))
+	assert.NoError(t, Ping(context.Background(), db))
 	assert.FileExists(t, path, "sqlite file must be created")
 }
 
@@ -88,7 +89,7 @@ func TestPing_OK(t *testing.T) {
 		SQLite: config.SQLiteConfig{Path: ":memory:"},
 	})
 	require.NoError(t, err)
-	assert.NoError(t, Ping(db))
+	assert.NoError(t, Ping(context.Background(), db))
 }
 
 func TestOpen_SQLite_NowFuncIsInvoked(t *testing.T) {
@@ -145,5 +146,5 @@ func TestPing_Error(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	assert.Error(t, Ping(db))
+	assert.Error(t, Ping(context.Background(), db))
 }
