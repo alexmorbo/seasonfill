@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test-utils';
+import i18n from '@/i18n';
 import { InstanceFormDialog } from './InstanceFormDialog';
 import {
   instanceDetailKey,
@@ -750,5 +751,54 @@ describe('<InstanceFormDialog />', () => {
     await waitFor(() => expect(captured.body).toBeDefined());
     const sent = JSON.parse(captured.body ?? '{}') as { tags?: { include?: string[] } };
     expect(sent.tags?.include).toEqual(['hbo']);
+  });
+
+  it('localises numeric-range validation errors (RU): timeout >300 shows label + bound', async () => {
+    // Track C regression: zod validator messages used to be hardcoded
+    // English strings ("timeout_sec <= 300"). They are now JSON envelopes
+    // resolved through i18n at render time so both the template and the
+    // technical field label flow through translations.
+    const saved = i18n.resolvedLanguage ?? 'en';
+    await i18n.changeLanguage('ru');
+    try {
+      const seed: InstanceDetail = {
+        name: 'alpha', url: 'http://x', mode: DtoInstanceDetailMode.auto,
+        api_key: '***',
+      } as InstanceDetail;
+      globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof u === 'string' ? u : u.toString();
+        if (url.includes('/instances/alpha') && (!init?.method || init.method === 'GET')) {
+          return jsonResp(seed, 200);
+        }
+        return jsonResp({}, 500);
+      }) as typeof fetch;
+
+      const { qc } = renderWithProviders(
+        <InstanceFormDialog open onOpenChange={() => {}} mode="edit"
+          initial={{ name: 'alpha', url: 'http://x', mode: 'auto' }} />,
+      );
+      seedDetail(qc, 'alpha', seed);
+
+      const saveBtn = await screen.findByRole('button', { name: /^сохранить инстанс$/i });
+      await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+      // Drive timeout out of bounds (max=300) and submit. The Connection
+      // tab has two "Таймаут*" labels (timeout + search timeout); target
+      // the bare "Таймаут (секунд)" by id-based lookup instead.
+      const timeoutInput = document.getElementById('inst-timeout') as HTMLInputElement;
+      expect(timeoutInput).toBeTruthy();
+      await userEvent.clear(timeoutInput);
+      await userEvent.type(timeoutInput, '999999');
+      await userEvent.tab();
+      await userEvent.click(saveBtn);
+
+      // The translated message embeds both the localised label and the
+      // boundary value — proving both the i18n template AND the nested
+      // label-key resolution work end-to-end.
+      const alert = await screen.findByText(/Таймаут.*≤\s*300/i);
+      expect(alert).toBeVisible();
+    } finally {
+      await i18n.changeLanguage(saved);
+    }
   });
 });

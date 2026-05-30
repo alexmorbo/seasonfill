@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Controller, useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -62,10 +63,61 @@ const cooldownModeRule = z.enum(['smart', 'strict']);
 // inline here is deliberate — the constants don't ship to TS and the
 // values rarely move; a typo would surface as a server 400 the test
 // suite would catch.
+//
+// Validator error messages are encoded as JSON ({i18n,params}) so the
+// schema can stay at module scope (no `t` available at build time) while
+// the render layer resolves both the message key and the embedded
+// field-label key. `tValidationError` below is the inverse decoder.
+const fieldLabelKey = (technicalLabel: string) =>
+  `settings.instances.form.fieldLabels.${technicalLabel}`;
+
+type NumberErrKind = 'integer' | 'min' | 'max';
+const numberErrKey: Record<NumberErrKind, string> = {
+  integer: 'settings.instances.form.errors.numberMustBeInteger',
+  min:     'settings.instances.form.errors.numberMin',
+  max:     'settings.instances.form.errors.numberMax',
+};
+const numMsg = (kind: NumberErrKind, label: string, value?: number) =>
+  JSON.stringify({
+    i18n: numberErrKey[kind],
+    params: { label: fieldLabelKey(label), ...(value !== undefined ? { value } : {}) },
+  });
+
 const int = (min: number, max: number, label: string) =>
-  z.number().int(`${label} must be an integer`).min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
+  z.number()
+    .int(numMsg('integer', label))
+    .min(min, numMsg('min', label, min))
+    .max(max, numMsg('max', label, max));
 const float = (min: number, max: number, label: string) =>
-  z.number().min(min, `${label} >= ${min}`).max(max, `${label} <= ${max}`);
+  z.number()
+    .min(min, numMsg('min', label, min))
+    .max(max, numMsg('max', label, max));
+
+// Resolve a validator error message produced by zod into a localised
+// string. Numeric-field messages are JSON envelopes {i18n,params} so
+// both the template AND the field label go through i18n. Static-rule
+// messages (name/url/api_key) remain plain keys and fall through the
+// catch path unchanged.
+function tValidationError(msg: string | undefined, t: TFunction): string {
+  if (!msg) return '';
+  try {
+    const parsed = JSON.parse(msg) as { i18n?: string; params?: Record<string, unknown> };
+    if (parsed?.i18n) {
+      const params: Record<string, string | number> = {};
+      for (const [k, v] of Object.entries(parsed.params ?? {})) {
+        if (typeof v === 'string' || typeof v === 'number') params[k] = v;
+      }
+      if (typeof params.label === 'string'
+        && params.label.startsWith('settings.instances.form.fieldLabels.')) {
+        params.label = t(params.label);
+      }
+      return t(parsed.i18n, params);
+    }
+  } catch {
+    // not JSON — legacy plain-key path
+  }
+  return t(msg, { defaultValue: msg });
+}
 
 const baseShape = {
   name: nameRule,
@@ -88,14 +140,14 @@ const baseShape = {
   limits_scan_max_series: int(0, 100000, 'scan_max_series'),
   limits_max_grabs_per_scan: int(0, 100, 'max_grabs_per_scan'),
   cooldown_mode: cooldownModeRule,
-  cooldown_series_after_grab_sec: int(0, 604800, 'cooldown.series_after_grab'),
-  cooldown_guid_after_failed_grab_sec: int(0, 604800, 'cooldown.guid_after_failed_grab'),
-  cooldown_guid_after_failed_import_sec: int(0, 604800, 'cooldown.guid_after_failed_import'),
-  retry_max_attempts: int(0, 10, 'retry.max_attempts'),
-  retry_initial_backoff_sec: int(0, 3600, 'retry.initial_backoff'),
-  retry_max_backoff_sec: int(0, 3600, 'retry.max_backoff'),
-  health_recheck_auth_sec: int(10, 86400, 'health.recheck_auth'),
-  health_recheck_network_sec: int(10, 86400, 'health.recheck_network'),
+  cooldown_series_after_grab_sec: int(0, 604800, 'cooldown_series_after_grab'),
+  cooldown_guid_after_failed_grab_sec: int(0, 604800, 'cooldown_guid_after_failed_grab'),
+  cooldown_guid_after_failed_import_sec: int(0, 604800, 'cooldown_guid_after_failed_import'),
+  retry_max_attempts: int(0, 10, 'retry_max_attempts'),
+  retry_initial_backoff_sec: int(0, 3600, 'retry_initial_backoff'),
+  retry_max_backoff_sec: int(0, 3600, 'retry_max_backoff'),
+  health_recheck_auth_sec: int(10, 86400, 'health_recheck_auth'),
+  health_recheck_network_sec: int(10, 86400, 'health_recheck_network'),
 };
 
 const createSchema = z.object({ ...baseShape, api_key: z.string().min(1, 'settings.instances.form.errors.apiKeyRequiredCreate') });
@@ -507,7 +559,7 @@ export function InstanceFormDialog({
                   label={t('settings.instances.form.timeoutLabel')}
                   suffix={t('settings.instances.form.timeoutSuffix')}
                   min={1} max={300}
-                  error={errors.timeout_sec?.message}
+                  error={tValidationError(errors.timeout_sec?.message, t)}
                 />
                 <NumberField
                   control={control}
@@ -516,7 +568,7 @@ export function InstanceFormDialog({
                   label={t('settings.instances.form.searchTimeoutLabel')}
                   suffix={t('settings.instances.form.timeoutSuffix')}
                   min={1} max={600}
-                  error={errors.search_timeout_sec?.message}
+                  error={tValidationError(errors.search_timeout_sec?.message, t)}
                 />
               </div>
 
@@ -605,7 +657,7 @@ export function InstanceFormDialog({
                 <NumberField control={control} name="search_min_custom_format_score"
                   id="search-mcfs" label={t('settings.instances.form.minCustomFormatScoreLabel')}
                   min={-1000} max={1000}
-                  error={errors.search_min_custom_format_score?.message} />
+                  error={tValidationError(errors.search_min_custom_format_score?.message, t)} />
               </div>
             </TabsContent>
 
@@ -616,24 +668,24 @@ export function InstanceFormDialog({
                   id="rate-limit-rpm" label={t('settings.instances.form.rateLimitRpmLabel')}
                   suffix={t('settings.instances.form.rateLimitRpmSuffix')}
                   min={0} max={10000}
-                  error={errors.rate_limit_rpm?.message} />
+                  error={tValidationError(errors.rate_limit_rpm?.message, t)} />
                 <NumberField control={control} name="rate_limit_burst"
                   id="rate-limit-burst" label={t('settings.instances.form.rateLimitBurstLabel')}
                   min={0} max={10000}
-                  error={errors.rate_limit_burst?.message} />
+                  error={tValidationError(errors.rate_limit_burst?.message, t)} />
                 <NumberField control={control} name="limits_scan_max_series"
                   id="limits-scan-max" label={t('settings.instances.form.scanMaxSeriesLabel')}
                   min={0} max={100000}
                   hint={t('settings.instances.form.scanMaxSeriesHint')}
-                  error={errors.limits_scan_max_series?.message} />
+                  error={tValidationError(errors.limits_scan_max_series?.message, t)} />
                 <NumberField control={control} name="limits_max_grabs_per_scan"
                   id="limits-grabs" label={t('settings.instances.form.maxGrabsPerScanLabel')}
                   min={0} max={100}
-                  error={errors.limits_max_grabs_per_scan?.message} />
+                  error={tValidationError(errors.limits_max_grabs_per_scan?.message, t)} />
                 <NumberField control={control} name="ranking_origin_bonus"
                   id="ranking-origin-bonus" label={t('settings.instances.form.originBonusLabel')}
                   min={-100} max={100} step={0.1}
-                  error={errors.ranking_origin_bonus?.message} />
+                  error={tValidationError(errors.ranking_origin_bonus?.message, t)} />
                 <SwitchField control={control} name="ranking_indexer_priority_enabled"
                   id="ranking-indexer-priority" label={t('settings.instances.form.indexerPriorityLabel')}
                   hint={t('settings.instances.form.indexerPriorityHint')} />
@@ -664,39 +716,39 @@ export function InstanceFormDialog({
                 <NumberField control={control} name="cooldown_series_after_grab_sec"
                   id="cd-series" label={t('settings.instances.form.cdSeriesLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
-                  error={errors.cooldown_series_after_grab_sec?.message} />
+                  error={tValidationError(errors.cooldown_series_after_grab_sec?.message, t)} />
                 <NumberField control={control} name="cooldown_guid_after_failed_grab_sec"
                   id="cd-guid-grab" label={t('settings.instances.form.cdGuidGrabLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
-                  error={errors.cooldown_guid_after_failed_grab_sec?.message} />
+                  error={tValidationError(errors.cooldown_guid_after_failed_grab_sec?.message, t)} />
                 <NumberField control={control} name="cooldown_guid_after_failed_import_sec"
                   id="cd-guid-import" label={t('settings.instances.form.cdGuidImportLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={604800}
-                  error={errors.cooldown_guid_after_failed_import_sec?.message} />
+                  error={tValidationError(errors.cooldown_guid_after_failed_import_sec?.message, t)} />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <NumberField control={control} name="retry_max_attempts"
                   id="retry-attempts" label={t('settings.instances.form.retryMaxAttemptsLabel')}
                   min={0} max={10}
-                  error={errors.retry_max_attempts?.message} />
+                  error={tValidationError(errors.retry_max_attempts?.message, t)} />
                 <NumberField control={control} name="retry_initial_backoff_sec"
                   id="retry-initial" label={t('settings.instances.form.retryInitialBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={3600}
-                  error={errors.retry_initial_backoff_sec?.message} />
+                  error={tValidationError(errors.retry_initial_backoff_sec?.message, t)} />
                 <NumberField control={control} name="retry_max_backoff_sec"
                   id="retry-max" label={t('settings.instances.form.retryMaxBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={0} max={3600}
-                  error={errors.retry_max_backoff_sec?.message} />
+                  error={tValidationError(errors.retry_max_backoff_sec?.message, t)} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <NumberField control={control} name="health_recheck_auth_sec"
                   id="hc-auth" label={t('settings.instances.form.healthRecheckAuthLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={10} max={86400}
-                  error={errors.health_recheck_auth_sec?.message} />
+                  error={tValidationError(errors.health_recheck_auth_sec?.message, t)} />
                 <NumberField control={control} name="health_recheck_network_sec"
                   id="hc-net" label={t('settings.instances.form.healthRecheckNetworkLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
                   min={10} max={86400}
-                  error={errors.health_recheck_network_sec?.message} />
+                  error={tValidationError(errors.health_recheck_network_sec?.message, t)} />
               </div>
             </TabsContent>
           </Tabs>
