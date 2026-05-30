@@ -12,7 +12,8 @@ import { AlertTriangle, Info, Loader2, Lock } from 'lucide-react';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
 } from '@/lib/runtime-config';
-import { TrustedProxiesEditor, isValidCIDR } from './TrustedProxiesEditor';
+import { TrustedProxiesEditor } from './TrustedProxiesEditor';
+import { isValidCIDR } from '@/lib/cidr';
 
 const schema = z.object({
   session_ttl_min: z

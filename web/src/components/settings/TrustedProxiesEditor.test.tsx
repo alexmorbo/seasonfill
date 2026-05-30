@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { isValidCIDR, TrustedProxiesEditor } from './TrustedProxiesEditor';
+import { TrustedProxiesEditor } from './TrustedProxiesEditor';
+import { isValidCIDR } from '@/lib/cidr';
 
 describe('isValidCIDR', () => {
   it.each([

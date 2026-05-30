@@ -34,9 +34,11 @@ import {
 } from '@/lib/instances-mutations';
 import { DtoInstanceCooldownMode, DtoInstanceTagsMode } from '@/api/schema';
 import {
-  FORM_DEFAULTS, NumberField, SwitchField, TagListEditor,
-  dryRunFromWire, dryRunToWire, type DryRunChoice,
+  NumberField, SwitchField, TagListEditor,
 } from './instance-form-fields';
+import {
+  FORM_DEFAULTS, dryRunFromWire, dryRunToWire, type DryRunChoice,
+} from './instance-form-helpers';
 
 const nameRule = z
   .string()

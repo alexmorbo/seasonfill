@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
-import { OutcomeChips, OUTCOMES } from './OutcomeChips';
+import { OutcomeChips } from './OutcomeChips';
+import { OUTCOMES } from '@/lib/outcomes';
 
 function renderChips(selected: Set<string>, onToggle = vi.fn()) {
   return {

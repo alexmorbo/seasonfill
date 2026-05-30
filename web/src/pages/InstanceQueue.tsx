@@ -73,7 +73,7 @@ export function InstanceQueue() {
         },
       );
     },
-    [name, trigger, navigate],
+    [name, trigger, navigate, t],
   );
 
   if (!name) {

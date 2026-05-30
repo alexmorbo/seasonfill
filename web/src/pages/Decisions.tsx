@@ -25,7 +25,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { CategoryChip } from '@/components/CategoryChip';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
-import { OutcomeChips, OUTCOMES, type Outcome } from '@/components/OutcomeChips';
+import { OutcomeChips } from '@/components/OutcomeChips';
+import { OUTCOMES, type Outcome } from '@/lib/outcomes';
 import { DecisionDrawer } from '@/components/DecisionDrawer';
 import {
   useDecisions,

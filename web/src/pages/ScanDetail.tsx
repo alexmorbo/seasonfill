@@ -17,7 +17,7 @@ import { ScanProgressBar } from '@/components/ScanProgressBar';
 import { SeriesGroup } from '@/components/SeriesGroup';
 import { DecisionDrawer } from '@/components/DecisionDrawer';
 import { CancelScanDialog } from '@/components/CancelScanDialog';
-import { OUTCOMES } from '@/components/OutcomeChips';
+import { OUTCOMES } from '@/lib/outcomes';
 import { useScan } from '@/lib/scans';
 import { useDecisions, flattenDecisions } from '@/lib/decisions';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';

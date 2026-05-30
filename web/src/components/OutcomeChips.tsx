@@ -1,16 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { KIND_DOT, outcomeKind } from '@/lib/badge-variants';
-
-export const OUTCOMES = [
-  'grab',
-  'skip',
-  'already_optimal',
-  'blocked_cooldown',
-  'expired',
-  'error',
-] as const;
-export type Outcome = (typeof OUTCOMES)[number];
+import { OUTCOMES, type Outcome } from '@/lib/outcomes';
 
 export function OutcomeChips({
   selected,
