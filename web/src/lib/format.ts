@@ -11,7 +11,7 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
 
 function rtf(): Intl.RelativeTimeFormat {
   const lng = i18n.resolvedLanguage ?? 'en';
-  return new Intl.RelativeTimeFormat(lng, { numeric: 'auto', style: 'narrow' });
+  return new Intl.RelativeTimeFormat(lng, { numeric: 'auto', style: 'short' });
 }
 
 export function relativeTime(input: string | number | Date | null | undefined): string {
