@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS instance_secret;
+DROP TABLE IF EXISTS sonarr_instance;
+DROP TABLE IF EXISTS runtime_config;
+DROP TABLE IF EXISTS admin_users;
+DROP TABLE IF EXISTS cooldowns;
+DROP TABLE IF EXISTS origin_releases;
+DROP TABLE IF EXISTS grab_records;
+DROP TABLE IF EXISTS decisions;
+DROP TABLE IF EXISTS scan_runs;

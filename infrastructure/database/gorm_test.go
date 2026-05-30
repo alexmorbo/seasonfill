@@ -98,7 +98,7 @@ func TestOpen_SQLite_NowFuncIsInvoked(t *testing.T) {
 		SQLite: config.SQLiteConfig{Path: ":memory:"},
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&ScanRunModel{}))
+	require.NoError(t, Migrate(db))
 	// Insert a record — GORM calls NowFunc to populate CreatedAt/UpdatedAt.
 	row := ScanRunModel{
 		ID:     NewScanID(),

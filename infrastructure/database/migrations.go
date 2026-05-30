@@ -1,24 +1,161 @@
 package database
 
 import (
+	"context"
+	"database/sql"
+	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database"
+	pgdriver "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"gorm.io/gorm"
+
+	sqlitedriver "github.com/alexmorbo/seasonfill/infrastructure/database/internal/migratesqlite"
 )
 
+//go:embed migrations/postgres/*.sql migrations/sqlite/*.sql
+var migrationsFS embed.FS
+
+const baselineVersion = 1
+
+// Migrate applies all pending versioned migrations. Signature is preserved
+// so callers (server bootstrap, tests) keep working; the body dispatches
+// on the underlying dialect because Postgres (prod) and SQLite (tests) use
+// driver-specific SQL.
+//
+// Pre-existing prod databases were created by the legacy GORM auto-migrate
+// path and have no schema_migrations table. When we detect application
+// tables already present but no schema_migrations, we stamp baseline as
+// applied so golang-migrate treats the existing schema as version 1.
+// Idempotent.
 func Migrate(db *gorm.DB) error {
-	if err := db.AutoMigrate(
-		&ScanRunModel{},
-		&DecisionModel{},
-		&GrabRecordModel{},
-		&OriginReleaseModel{},
-		&CooldownModel{},
-		&AdminUserModel{},
-		&RuntimeConfigModel{},
-		&SonarrInstanceModel{},
-		&InstanceSecretModel{},
-	); err != nil {
-		return fmt.Errorf("auto-migrate: %w", err)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("get sql.DB: %w", err)
+	}
+
+	dialect := db.Name()
+	ctx := context.Background()
+
+	// Stamp must run before constructing the migrate driver because driver
+	// construction creates schema_migrations as a side effect, which would
+	// mask the "app tables present, no bookkeeping" condition we need to
+	// detect here.
+	if err := stampBaselineIfNeeded(ctx, sqlDB, dialect); err != nil {
+		return fmt.Errorf("stamp baseline: %w", err)
+	}
+
+	driver, subdir, err := newMigrateDriver(dialect, sqlDB)
+	if err != nil {
+		return err
+	}
+
+	subFS, err := fs.Sub(migrationsFS, "migrations/"+subdir)
+	if err != nil {
+		return fmt.Errorf("sub fs %s: %w", subdir, err)
+	}
+	src, err := iofs.New(subFS, ".")
+	if err != nil {
+		return fmt.Errorf("iofs source: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", src, dialect, driver)
+	if err != nil {
+		return fmt.Errorf("migrate instance: %w", err)
+	}
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
+}
+
+func newMigrateDriver(dialect string, sqlDB *sql.DB) (database.Driver, string, error) {
+	switch dialect {
+	case "postgres":
+		d, err := pgdriver.WithInstance(sqlDB, &pgdriver.Config{})
+		if err != nil {
+			return nil, "", fmt.Errorf("postgres driver: %w", err)
+		}
+		return d, "postgres", nil
+	case "sqlite":
+		d, err := sqlitedriver.WithInstance(sqlDB, &sqlitedriver.Config{})
+		if err != nil {
+			return nil, "", fmt.Errorf("sqlite driver: %w", err)
+		}
+		return d, "sqlite", nil
+	default:
+		return nil, "", fmt.Errorf("unsupported dialect: %s", dialect)
+	}
+}
+
+// stampBaselineIfNeeded inserts (baselineVersion, dirty=false) into
+// schema_migrations when the DB already contains application tables but
+// no migrations bookkeeping. We do a direct INSERT instead of m.Force(1)
+// because Force historically left dirty=true in some library versions; a
+// raw stamp is unambiguous and lets m.Up() proceed without a clean step.
+func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) error {
+	hasMigrations, err := tableExists(ctx, sqlDB, dialect, "schema_migrations")
+	if err != nil {
+		return err
+	}
+	if hasMigrations {
+		return nil
+	}
+	hasApp, err := tableExists(ctx, sqlDB, dialect, "scan_runs")
+	if err != nil {
+		return err
+	}
+	if !hasApp {
+		return nil
+	}
+	createStmt, insertStmt := stampStatements(dialect)
+	if createStmt == "" {
+		return fmt.Errorf("unsupported dialect: %s", dialect)
+	}
+	if _, err := sqlDB.ExecContext(ctx, createStmt); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, insertStmt, baselineVersion); err != nil {
+		return fmt.Errorf("stamp baseline row: %w", err)
+	}
+	return nil
+}
+
+func stampStatements(dialect string) (createStmt, insertStmt string) {
+	switch dialect {
+	case "postgres":
+		return `CREATE TABLE IF NOT EXISTS schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL)`,
+			`INSERT INTO schema_migrations (version, dirty) VALUES ($1, false) ON CONFLICT (version) DO NOTHING`
+	case "sqlite":
+		return `CREATE TABLE IF NOT EXISTS schema_migrations (version uint64, dirty bool); CREATE UNIQUE INDEX IF NOT EXISTS version_unique ON schema_migrations (version)`,
+			`INSERT OR IGNORE INTO schema_migrations (version, dirty) VALUES (?, 0)`
+	default:
+		return "", ""
+	}
+}
+
+func tableExists(ctx context.Context, sqlDB *sql.DB, dialect, name string) (bool, error) {
+	var q string
+	switch dialect {
+	case "postgres":
+		q = `SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1`
+	case "sqlite":
+		q = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`
+	default:
+		return false, fmt.Errorf("unsupported dialect: %s", dialect)
+	}
+	var one int
+	err := sqlDB.QueryRowContext(ctx, q, name).Scan(&one)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("probe %s: %w", name, err)
+	}
+	return true, nil
 }
