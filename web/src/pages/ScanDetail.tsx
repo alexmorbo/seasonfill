@@ -24,6 +24,7 @@ import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { relativeTime, durationMs } from '@/lib/format';
 import { groupBySeries, sortGroups } from '@/lib/decision-grouping';
 import { readExpanded, writeExpanded } from '@/lib/url-expand';
+import { useInfiniteScroll } from '@/lib/use-infinite-scroll';
 
 export function ScanDetail() {
   const { t } = useTranslation();
@@ -90,6 +91,12 @@ export function ScanDetail() {
     for (const g of groups) if (g.worstCategory !== 'all_complete') out.add(g.seriesTitle);
     return out;
   }, [hasExplicitExpand, urlExpanded, groups]);
+
+  const { sentinelRef } = useInfiniteScroll({
+    hasNextPage: decisions.hasNextPage,
+    isFetchingNextPage: decisions.isFetchingNextPage,
+    fetchNextPage: decisions.fetchNextPage,
+  });
 
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
@@ -215,7 +222,7 @@ export function ScanDetail() {
           {decisions.isPending && (
             <Table>
               <TableBody>
-                <SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} />
+                <SkeletonRows rows={8} cols={['lg', 'sm', 'md', 'xl']} />
               </TableBody>
             </Table>
           )}
@@ -228,6 +235,16 @@ export function ScanDetail() {
               expanded={expanded.has(g.seriesTitle)}
               onToggle={() => toggle(g.seriesTitle)} onOpenDecision={openDrawer} />
           ))}
+          {decisions.isFetchingNextPage && groups.length > 0 && (
+            <Table>
+              <TableBody>
+                <SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} />
+              </TableBody>
+            </Table>
+          )}
+          {decisions.hasNextPage && (
+            <div ref={sentinelRef} aria-hidden="true" className="h-1" />
+          )}
         </CardContent>
       </Card>
 
@@ -266,14 +283,6 @@ export function ScanDetail() {
             </Table>
           </CardContent>
         </Card>
-      )}
-
-      {decisions.hasNextPage && (
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={() => decisions.fetchNextPage()} disabled={decisions.isFetchingNextPage}>
-            {decisions.isFetchingNextPage ? t('common.loading') : t('scanDetail.showMoreDecisions')}
-          </Button>
-        </div>
       )}
 
       <DecisionDrawer

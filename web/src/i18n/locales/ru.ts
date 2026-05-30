@@ -334,7 +334,6 @@ export const ru: Translations = {
     linkedColIndexer: 'Индексер',
     linkedColUpdated: 'Обновлён',
     linkedColAttempts: 'Попытки',
-    showMoreDecisions: 'Показать ещё решения',
     openGrabAria: 'Открыть захват {{title}}',
   },
   seriesGroup: {

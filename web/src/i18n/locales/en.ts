@@ -332,7 +332,6 @@ export const en = {
     linkedColIndexer: 'Indexer',
     linkedColUpdated: 'Updated',
     linkedColAttempts: 'Attempts',
-    showMoreDecisions: 'Show more decisions',
     openGrabAria: 'Open grab {{title}}',
   },
   seriesGroup: {

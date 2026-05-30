@@ -44,6 +44,7 @@ import {
   type Comparator,
 } from '@/lib/use-sort';
 import { SortableHeader } from '@/components/SortableHeader';
+import { useInfiniteScroll } from '@/lib/use-infinite-scroll';
 
 const DECISION_COMPARATORS: Readonly<Record<string, Comparator<Decision>>> = {
   created_at: cmpDate<Decision>((d) => d.created_at),
@@ -90,6 +91,12 @@ export function Decisions() {
     () => applySort(filtered, DECISION_COMPARATORS, sortKey, dir),
     [filtered, sortKey, dir],
   );
+
+  const { sentinelRef } = useInfiniteScroll({
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  });
 
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
@@ -221,9 +228,9 @@ export function Decisions() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {query.isPending && (
+                {query.isPending && rows.length === 0 && (
                   <SkeletonRows
-                    rows={6}
+                    rows={8}
                     cols={['sm', 'md', 'lg', 'sm', 'md', 'md', 'xl', 'sm']}
                   />
                 )}
@@ -274,6 +281,12 @@ export function Decisions() {
                     <TableCell className="font-mono">{d.candidates_count ?? 0}</TableCell>
                   </TableRow>
                 ))}
+                {query.isFetchingNextPage && rows.length > 0 && (
+                  <SkeletonRows
+                    rows={3}
+                    cols={['sm', 'md', 'lg', 'sm', 'md', 'md', 'xl', 'sm']}
+                  />
+                )}
               </TableBody>
             </Table>
           )}
@@ -281,15 +294,7 @@ export function Decisions() {
       </Card>
 
       {query.hasNextPage && (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            onClick={() => query.fetchNextPage()}
-            disabled={query.isFetchingNextPage}
-          >
-            {query.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
-          </Button>
-        </div>
+        <div ref={sentinelRef} aria-hidden="true" className="h-1" />
       )}
 
       <DecisionDrawer
