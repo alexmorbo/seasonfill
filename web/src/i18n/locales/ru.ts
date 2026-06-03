@@ -129,6 +129,10 @@ export const ru: Translations = {
     invalid: 'Неверные учётные данные',
     serviceUnavailable: 'Сервис недоступен, повторите позже',
     rateLimited: 'Слишком много попыток. Попробуйте позже.',
+    sso: {
+      intro: 'Вы будете перенаправлены к провайдеру единого входа.',
+      button: 'Войти через SSO',
+    },
   },
   dashboard: {
     title: 'Дашборд',
@@ -521,11 +525,13 @@ export const ru: Translations = {
           forms: 'Forms (страница входа)',
           basic: 'Basic (browser popup)',
           none: 'None (без аутентификации)',
+          oidc: 'OIDC (единый вход)',
         },
         modeHints: {
           forms: 'Пользователи входят через страницу логина Seasonfill. Подходит для большинства развёртываний.',
           basic: 'Браузер показывает Basic Auth popup. Удобно для CLI / скриптов.',
           none: 'Без аутентификации. Используйте ТОЛЬКО за reverse-proxy с собственной авторизацией.',
+          oidc: 'Делегировать аутентификацию внешнему OpenID Connect провайдеру (Keycloak, Authelia, Authentik).',
         },
         noneWarningTitle: 'Аутентификация отключена',
         noneWarning: 'Используйте только за reverse-proxy с собственной аутентификацией (Pangolin, oauth2-proxy, Authelia и т. п.).',
@@ -576,6 +582,44 @@ export const ru: Translations = {
         removeAria: 'Убрать {{cidr}}',
         invalidCidr: '«{{cidr}}» не похоже на IP или CIDR',
         duplicate: '«{{cidr}}» уже в списке',
+      },
+      oidc: {
+        section: 'Настройки OIDC',
+        clientSecret: {
+          title: 'Секрет клиента управляется через окружение',
+          body: 'Установите OIDC_CLIENT_SECRET в окружении деплоя (Helm secret или docker-compose env). Здесь не редактируется.',
+        },
+        issuer: {
+          label: 'URL издателя',
+          hint: 'URL издателя провайдера (например, https://keycloak.example.com/realms/homelab).',
+          required: 'URL издателя обязателен для режима OIDC',
+        },
+        clientId: {
+          label: 'Client ID',
+          required: 'Client ID обязателен для режима OIDC',
+        },
+        redirectUrl: {
+          label: 'Redirect URL',
+          hint: 'Должен точно совпадать с redirect URL, зарегистрированным у провайдера.',
+          required: 'Redirect URL обязателен для режима OIDC',
+        },
+        scopes: {
+          label: 'Scopes',
+          hint: 'Запрашиваемые scopes при авторизации. Должен включать "openid".',
+          addAria: 'Добавить scope',
+          removeAria: 'Удалить scope {{scope}}',
+          openidRequired: 'Scopes должен включать "openid"',
+        },
+        usernameClaim: {
+          label: 'Claim для имени пользователя',
+          hint: 'Claim из ID-токена, используемый как локальное имя администратора при первом OIDC-входе.',
+        },
+        allowedGroups: {
+          label: 'Разрешённые группы',
+          hint: 'Необязательно. Если список непуст, OIDC-пользователь должен состоять хотя бы в одной из групп.',
+          addAria: 'Добавить разрешённую группу',
+          removeAria: 'Удалить разрешённую группу {{group}}',
+        },
       },
     },
     instances: {

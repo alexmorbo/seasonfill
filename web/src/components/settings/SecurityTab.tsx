@@ -18,8 +18,9 @@ import {
 import { TrustedProxiesEditor } from './TrustedProxiesEditor';
 import { LocalNetworksEditor, LOCAL_NETWORK_DEFAULTS } from './LocalNetworksEditor';
 import { isValidCIDR } from '@/lib/cidr';
+import { OIDCConfigBlock, type OIDCFormShape } from './OIDCConfigBlock';
 
-const AUTH_MODES = ['forms', 'basic', 'none'] as const;
+const AUTH_MODES = ['forms', 'basic', 'none', 'oidc'] as const;
 type AuthModeValue = (typeof AUTH_MODES)[number];
 
 const schema = z.object({
@@ -37,6 +38,42 @@ const schema = z.object({
   auth_local_networks: z
     .array(z.string())
     .refine((arr) => arr.every(isValidCIDR), 'settings.security.localNetworks.invalid'),
+  oidc_issuer: z.string(),
+  oidc_client_id: z.string(),
+  oidc_redirect_url: z.string(),
+  oidc_scopes: z.array(z.string()),
+  oidc_username_claim: z.string(),
+  oidc_allowed_groups: z.array(z.string()),
+}).superRefine((v, ctx) => {
+  if (v.auth_mode !== 'oidc') return;
+  if (v.oidc_issuer.trim() === '') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['oidc_issuer'],
+      message: 'settings.security.oidc.issuer.required',
+    });
+  }
+  if (v.oidc_client_id.trim() === '') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['oidc_client_id'],
+      message: 'settings.security.oidc.clientId.required',
+    });
+  }
+  if (v.oidc_redirect_url.trim() === '') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['oidc_redirect_url'],
+      message: 'settings.security.oidc.redirectUrl.required',
+    });
+  }
+  if (!v.oidc_scopes.includes('openid')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['oidc_scopes'],
+      message: 'settings.security.oidc.scopes.openidRequired',
+    });
+  }
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -77,7 +114,9 @@ function parseTTL(raw: string | undefined): number | null {
 }
 
 function narrowMode(raw: string | undefined): AuthModeValue {
-  return raw === 'basic' || raw === 'none' || raw === 'forms' ? raw : 'forms';
+  return raw === 'basic' || raw === 'none' || raw === 'forms' || raw === 'oidc'
+    ? raw
+    : 'forms';
 }
 
 function configToForm(c: RuntimeConfig | undefined): FormValues {
@@ -88,6 +127,12 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     auth_mode: narrowMode(c?.auth?.mode),
     auth_local_bypass: Boolean(c?.auth?.local_bypass ?? false),
     auth_local_networks: (c?.auth?.local_networks ?? []) as string[],
+    oidc_issuer: c?.auth?.oidc?.issuer ?? '',
+    oidc_client_id: c?.auth?.oidc?.client_id ?? '',
+    oidc_redirect_url: c?.auth?.oidc?.redirect_url ?? '',
+    oidc_scopes: (c?.auth?.oidc?.scopes ?? ['openid', 'profile', 'email']) as string[],
+    oidc_username_claim: c?.auth?.oidc?.username_claim ?? 'preferred_username',
+    oidc_allowed_groups: (c?.auth?.oidc?.allowed_groups ?? []) as string[],
   };
 }
 
@@ -104,6 +149,14 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
       mode: v.auth_mode,
       local_bypass: v.auth_local_bypass,
       local_networks: v.auth_local_networks,
+      oidc: {
+        issuer: v.oidc_issuer.trim(),
+        client_id: v.oidc_client_id.trim(),
+        redirect_url: v.oidc_redirect_url.trim(),
+        scopes: v.oidc_scopes,
+        username_claim: v.oidc_username_claim.trim() || 'preferred_username',
+        allowed_groups: v.oidc_allowed_groups,
+      },
       // session_epoch deliberately omitted — server manages it.
     },
   } as RuntimeConfig;
@@ -153,6 +206,12 @@ export function SecurityTab() {
   const localNetworks = useWatch({ control, name: 'auth_local_networks', defaultValue: [] });
   const secureCookie = useWatch({ control, name: 'secure_cookie', defaultValue: false });
   const trustedProxies = useWatch({ control, name: 'trusted_proxies', defaultValue: [] });
+  const oidcIssuer = useWatch({ control, name: 'oidc_issuer', defaultValue: '' });
+  const oidcClientId = useWatch({ control, name: 'oidc_client_id', defaultValue: '' });
+  const oidcRedirectUrl = useWatch({ control, name: 'oidc_redirect_url', defaultValue: '' });
+  const oidcScopes = useWatch({ control, name: 'oidc_scopes', defaultValue: ['openid', 'profile', 'email'] });
+  const oidcUsernameClaim = useWatch({ control, name: 'oidc_username_claim', defaultValue: 'preferred_username' });
+  const oidcAllowedGroups = useWatch({ control, name: 'oidc_allowed_groups', defaultValue: [] });
 
   const onDiscard = () => reset(configToForm(q.data?.config));
 
@@ -205,6 +264,7 @@ export function SecurityTab() {
               <SelectItem value="forms">{t('settings.security.auth.modes.forms')}</SelectItem>
               <SelectItem value="basic">{t('settings.security.auth.modes.basic')}</SelectItem>
               <SelectItem value="none">{t('settings.security.auth.modes.none')}</SelectItem>
+              <SelectItem value="oidc">{t('settings.security.auth.modes.oidc')}</SelectItem>
             </SelectContent>
           </Select>
           <p className="text-[11.5px] text-muted">
@@ -218,6 +278,33 @@ export function SecurityTab() {
             <AlertTitle>{t('settings.security.auth.noneWarningTitle')}</AlertTitle>
             <AlertDescription>{t('settings.security.auth.noneWarning')}</AlertDescription>
           </Alert>
+        )}
+
+        {authMode === 'oidc' && (
+          <OIDCConfigBlock
+            value={{
+              issuer: oidcIssuer,
+              client_id: oidcClientId,
+              redirect_url: oidcRedirectUrl,
+              scopes: oidcScopes,
+              username_claim: oidcUsernameClaim,
+              allowed_groups: oidcAllowedGroups,
+            }}
+            onChange={(next: OIDCFormShape) => {
+              setValue('oidc_issuer', next.issuer, { shouldDirty: true });
+              setValue('oidc_client_id', next.client_id, { shouldDirty: true });
+              setValue('oidc_redirect_url', next.redirect_url, { shouldDirty: true });
+              setValue('oidc_scopes', [...next.scopes], { shouldDirty: true });
+              setValue('oidc_username_claim', next.username_claim, { shouldDirty: true });
+              setValue('oidc_allowed_groups', [...next.allowed_groups], { shouldDirty: true });
+            }}
+            errors={{
+              ...(errors.oidc_issuer?.message !== undefined && { issuer: errors.oidc_issuer.message }),
+              ...(errors.oidc_client_id?.message !== undefined && { client_id: errors.oidc_client_id.message }),
+              ...(errors.oidc_redirect_url?.message !== undefined && { redirect_url: errors.oidc_redirect_url.message }),
+              ...(typeof errors.oidc_scopes?.message === 'string' && { scopes: errors.oidc_scopes.message }),
+            }}
+          />
         )}
 
         <div className="flex flex-col gap-1.5 max-w-md">

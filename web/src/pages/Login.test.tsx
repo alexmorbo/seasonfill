@@ -118,4 +118,26 @@ describe('<Login />', () => {
     await fillAndSubmit();
     expect(await screen.findByRole('alert')).toHaveTextContent(/service unavailable/i);
   });
+
+  it('renders SSO button when mode=oidc', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start' } });
+    renderWithProviders(<Login />, { route: '/login' });
+    const link = await screen.findByTestId('oidc-login-link');
+    expect(link).toHaveAttribute('href', '/api/v1/auth/oidc/start');
+  });
+
+  it('appends ?next= to SSO href when present', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start' } });
+    renderWithProviders(<Login />, { route: '/login?next=%2Finstances' });
+    const link = await screen.findByTestId('oidc-login-link');
+    expect(link).toHaveAttribute('href', '/api/v1/auth/oidc/start?next=%2Finstances');
+  });
+
+  it('does NOT redirect on mode=oidc (keeps user on login)', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false } });
+    renderWithProviders(<Login />, { route: '/login' });
+    // Small wait to ensure useEffect has run
+    await waitFor(() => expect(screen.queryByTestId('oidc-login-link')).toBeInTheDocument());
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
 });

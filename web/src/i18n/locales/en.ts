@@ -127,6 +127,10 @@ export const en = {
     invalid: 'Invalid credentials',
     serviceUnavailable: 'Service unavailable, try again',
     rateLimited: 'Too many attempts. Please try again later.',
+    sso: {
+      intro: 'You will be redirected to your single sign-on provider.',
+      button: 'Login with SSO',
+    },
   },
   dashboard: {
     title: 'Dashboard',
@@ -519,11 +523,13 @@ export const en = {
           forms: 'Forms (login page)',
           basic: 'Basic (browser popup)',
           none: 'None (no authentication)',
+          oidc: 'OIDC (single sign-on)',
         },
         modeHints: {
           forms: 'Users sign in through the Seasonfill login page. Recommended for most deployments.',
           basic: 'Browser shows a Basic Auth popup. Useful for CLI / scripted clients.',
           none: 'No authentication. Use ONLY behind a reverse proxy that authenticates.',
+          oidc: 'Delegate authentication to an external OpenID Connect provider (Keycloak, Authelia, Authentik).',
         },
         noneWarningTitle: 'No authentication enabled',
         noneWarning: 'Use only behind a reverse proxy with authentication (Pangolin, oauth2-proxy, Authelia, etc).',
@@ -574,6 +580,44 @@ export const en = {
         removeAria: 'Remove {{cidr}}',
         invalidCidr: '"{{cidr}}" is not a valid IP or CIDR',
         duplicate: '"{{cidr}}" is already in the list',
+      },
+      oidc: {
+        section: 'OIDC configuration',
+        clientSecret: {
+          title: 'Client secret managed via environment',
+          body: 'Set OIDC_CLIENT_SECRET in the deployment environment (Helm secret / docker-compose env). Not editable here.',
+        },
+        issuer: {
+          label: 'Issuer URL',
+          hint: 'Provider issuer URL (e.g. https://keycloak.example.com/realms/homelab).',
+          required: 'Issuer URL is required for OIDC mode',
+        },
+        clientId: {
+          label: 'Client ID',
+          required: 'Client ID is required for OIDC mode',
+        },
+        redirectUrl: {
+          label: 'Redirect URL',
+          hint: 'Must exactly match the redirect URL registered with the OIDC provider.',
+          required: 'Redirect URL is required for OIDC mode',
+        },
+        scopes: {
+          label: 'Scopes',
+          hint: 'Scopes requested during authorization. Must include "openid".',
+          addAria: 'Add scope',
+          removeAria: 'Remove scope {{scope}}',
+          openidRequired: 'Scopes must include "openid"',
+        },
+        usernameClaim: {
+          label: 'Username claim',
+          hint: 'ID token claim used as the local admin username on first OIDC login.',
+        },
+        allowedGroups: {
+          label: 'Allowed groups',
+          hint: 'Optional. When non-empty, the OIDC user must belong to at least one of these groups.',
+          addAria: 'Add allowed group',
+          removeAria: 'Remove allowed group {{group}}',
+        },
       },
     },
     instances: {

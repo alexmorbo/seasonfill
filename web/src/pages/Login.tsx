@@ -38,13 +38,12 @@ export function Login() {
       defaultValues: { username: '', password: '' },
     });
 
-  // Mode-aware redirect: Login page only makes sense for mode=forms.
-  // Under basic / none the browser popup or open-access path takes over;
-  // landing on /login is a stale-URL artifact and we send the user home.
-  // Effect (not conditional render) so the form below remains the
-  // graceful-degradation path when cfg.isError.
+  // Mode-aware redirect: under mode=basic / mode=none the browser popup
+  // or open-access path handles auth, so landing on /login is a stale
+  // URL and we send the user home. mode=oidc renders the SSO button
+  // below instead (no auto-redirect — the user explicitly clicks).
   useEffect(() => {
-    if (cfg.isSuccess && cfg.data.mode !== 'forms') {
+    if (cfg.isSuccess && (cfg.data.mode === 'basic' || cfg.data.mode === 'none')) {
       navigate(safeNext(params.get('next')), { replace: true });
     }
   }, [cfg.isSuccess, cfg.data?.mode, navigate, params]);
@@ -58,9 +57,6 @@ export function Login() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401 || err.status === 429) {
-          // 429 deliberately surfaces the same message as 401: a distinct
-          // "rate-limited" copy would tell an attacker which usernames are
-          // worth retrying.
           setServerErr(t('login.invalid'));
         } else if (err.status >= 500) {
           setServerErr(t('login.serviceUnavailable'));
@@ -73,9 +69,9 @@ export function Login() {
     }
   });
 
-  // While the config is in flight, render a skeleton instead of the form.
-  // This avoids users on a mode=basic deployment briefly seeing — and
-  // potentially submitting — the Forms login before the redirect fires.
+  // While the config is in flight, render a skeleton — avoids flashing
+  // the password form on a mode=oidc deployment before the SSO button
+  // would render.
   if (cfg.isPending) {
     return (
       <div className="min-h-screen grid place-items-center bg-bg px-4">
@@ -85,6 +81,33 @@ export function Login() {
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-10 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  // mode=oidc → render a single "Login with SSO" anchor that drives
+  // a full-page navigation to /api/v1/auth/oidc/start. The backend
+  // handler sets the PKCE/nonce/state cookies and 302s to the provider.
+  if (cfg.isSuccess && cfg.data.mode === 'oidc') {
+    const next = safeNext(params.get('next'));
+    const loginHref = cfg.data.loginUrl ?? '/api/v1/auth/oidc/start';
+    const href = next === '/' ? loginHref : `${loginHref}?next=${encodeURIComponent(next)}`;
+    return (
+      <div className="min-h-screen grid place-items-center bg-bg px-4">
+        <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
+            <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
+          </div>
+          <p className="text-[13px] text-foreground-2">
+            {t('login.sso.intro')}
+          </p>
+          <Button asChild className="h-10 font-semibold">
+            <a href={href} data-testid="oidc-login-link">
+              {t('login.sso.button')}
+            </a>
+          </Button>
         </div>
       </div>
     );

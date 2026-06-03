@@ -41,10 +41,19 @@ describe('getAuthConfig()', () => {
 
   it('falls back to forms on unknown mode', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'oidc', local_bypass: false }),
+      jsonResp({ mode: 'unknown_mode', local_bypass: false }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
       mode: 'forms', localBypass: false,
+    });
+  });
+
+  it('maps mode=oidc and includes loginUrl when present', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ mode: 'oidc', local_bypass: false, login_url: '/api/v1/auth/oidc/start' }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toEqual({
+      mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start',
     });
   });
 
