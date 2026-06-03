@@ -49,6 +49,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "auth-mode" {
+		if err := runAuthMode(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "auth-mode: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)

@@ -64,11 +64,11 @@ const (
 	// trustedProxiesMaxLen caps the list length so a misconfigured
 	// caller can't blow the gin XFF parser with arbitrary input.
 	trustedProxiesMaxLen = 64
+	// localNetworksMaxLen caps the per-request CIDR allow-list. Larger
+	// values blow the per-request linear scan on the bypass hot path.
+	localNetworksMaxLen = 64
 )
 
-// cronParser matches the parser used in infrastructure/scheduler/cron.go
-// so any expression that survives validation here is acceptable to the
-// live scheduler after reload.
 var cronParser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
@@ -79,6 +79,7 @@ type UseCase struct {
 	cipher    *crypto.Cipher
 	bus       *runtime.Bus
 	logger    *slog.Logger
+	now       func() time.Time
 }
 
 func New(
@@ -94,13 +95,22 @@ func New(
 	return &UseCase{
 		runtimes: runtimes, instances: instances,
 		cipher: cipher, bus: bus, logger: logger,
+		now: time.Now,
 	}
 }
 
+// WithClock swaps the wall-clock source used to compute new SessionEpoch
+// values on mode/bypass/networks changes. Tests use this to assert
+// monotonic bump behaviour without race-prone real-time sleeps.
+func (u *UseCase) WithClock(now func() time.Time) *UseCase {
+	if now != nil {
+		u.now = now
+	}
+	return u
+}
+
 // Get returns the singleton row as an Output, falling back to
-// runtime.Defaults() when the row is missing. Second-truncated
-// updated_at is returned separately so the handler can both serialize
-// it in the body AND emit it as Last-Modified.
+// runtime.Defaults() when the row is missing.
 func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 	row, err := u.runtimes.Get(ctx)
 	switch {
@@ -121,21 +131,43 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 }
 
 // Update validates the incoming Input, persists it, then republishes a
-// fresh Snapshot built from (new runtime row + current instances).
-// ifUnmodifiedSince (nil = ignore) implements optimistic concurrency:
-// the IUS pointer is forwarded as-is to the repo's Upsert, where the
-// stored vs provided comparison runs INSIDE the same DB transaction
-// as the write (no TOCTOU window). `ports.ErrStaleWrite` is
-// translated to `runtimeconfig.ErrStaleWrite` so HTTP can map to 412.
+// fresh Snapshot. Bumps SessionEpoch when any auth-invalidating field
+// changes (Mode / LocalBypass / LocalNetworks). The bump uses the
+// usecase clock (UnixNano) which is monotonic across normal real-world
+// gaps and stable in tests.
 func (u *UseCase) Update(
 	ctx context.Context,
 	in Input,
 	ifUnmodifiedSince *time.Time,
 ) (Output, time.Time, error) {
+	// Read the existing row first so we can decide whether to bump the
+	// epoch. ErrNotFound → treat as defaults (first ever PUT).
+	prevRow, err := u.runtimes.Get(ctx)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return Output{}, time.Time{},
+			fmt.Errorf("runtimeconfig: pre-read: %w", err)
+	}
+	prevEpoch := prevRow.Auth.SessionEpoch
+	prevMode := prevRow.Auth.Mode
+	prevBypass := prevRow.Auth.LocalBypass
+	prevNetworks := append([]string(nil), prevRow.Auth.LocalNetworks...)
+
 	snap, err := u.inputToSnapshot(in)
 	if err != nil {
 		return Output{}, time.Time{}, err
 	}
+	// Decide epoch: keep previous unless an invalidating field changed.
+	if epochShouldBump(prevMode, snap.Auth.Mode, prevBypass, snap.Auth.LocalBypass,
+		prevNetworks, snap.Auth.LocalNetworks) {
+		next := u.now().UTC().UnixNano()
+		if next <= prevEpoch {
+			next = prevEpoch + 1
+		}
+		snap.Auth.SessionEpoch = next
+	} else {
+		snap.Auth.SessionEpoch = prevEpoch
+	}
+
 	if err := u.runtimes.Upsert(ctx, snap, ifUnmodifiedSince); err != nil {
 		if errors.Is(err, ports.ErrStaleWrite) {
 			return Output{}, time.Time{}, ErrStaleWrite
@@ -149,13 +181,89 @@ func (u *UseCase) Update(
 			fmt.Errorf("runtimeconfig: re-read: %w", err)
 	}
 	if err := u.publish(ctx, stored); err != nil {
-		// Publish failure must not roll back the DB write — subscribers
-		// can rebuild from the next publish. Log + continue.
 		u.logger.WarnContext(ctx, "runtimeconfig.publish_failed",
 			slog.String("error", err.Error()))
 	}
 	ts := stored.UpdatedAt.Truncate(time.Second)
 	return rowToOutput(stored, ts), ts, nil
+}
+
+// SetAuthMode is a focused rescue path used by the CLI: read the row,
+// switch Mode, bump epoch, write. Does NOT consult If-Unmodified-Since
+// (the operator is explicitly overriding). Returns the new epoch so the
+// caller can log it.
+func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
+	if !validAuthMode(mode) {
+		return 0, newValidationErr("auth.mode", "INVALID_AUTH_MODE",
+			fmt.Sprintf("must be one of forms|basic|none, got %q", mode))
+	}
+	row, err := u.runtimes.Get(ctx)
+	switch {
+	case err == nil:
+		// happy path
+	case errors.Is(err, ports.ErrNotFound):
+		def := runtime.Defaults()
+		row = ports.RuntimeConfigRow{
+			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
+			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
+		}
+	default:
+		return 0, fmt.Errorf("runtimeconfig: get row: %w", err)
+	}
+	next := u.now().UTC().UnixNano()
+	if next <= row.Auth.SessionEpoch {
+		next = row.Auth.SessionEpoch + 1
+	}
+	snap := runtime.Snapshot{
+		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
+		GlobalRateLimit: row.GlobalRateLimit,
+		Auth: runtime.AuthSnapshot{
+			SessionTTL:     row.Auth.SessionTTL,
+			SecureCookie:   row.Auth.SecureCookie,
+			TrustedProxies: append([]string(nil), row.Auth.TrustedProxies...),
+			Mode:           mode,
+			LocalBypass:    row.Auth.LocalBypass,
+			LocalNetworks:  append([]string(nil), row.Auth.LocalNetworks...),
+			SessionEpoch:   next,
+		},
+	}
+	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
+		return 0, fmt.Errorf("runtimeconfig: upsert: %w", err)
+	}
+	stored, gerr := u.runtimes.Get(ctx)
+	if gerr == nil {
+		if perr := u.publish(ctx, stored); perr != nil {
+			u.logger.WarnContext(ctx, "runtimeconfig.publish_failed",
+				slog.String("error", perr.Error()))
+		}
+	}
+	return next, nil
+}
+
+func epochShouldBump(prevMode, nextMode string, prevBypass, nextBypass bool,
+	prevNet, nextNet []string) bool {
+	if prevMode != nextMode {
+		return true
+	}
+	if prevBypass != nextBypass {
+		return true
+	}
+	if !stringSliceEqual(prevNet, nextNet) {
+		return true
+	}
+	return false
+}
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error {
@@ -180,9 +288,6 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 	return nil
 }
 
-// inputToSnapshot validates every field and converts a typed Input to a
-// runtime.Snapshot. Instances stays nil — the Upsert path only writes
-// the singleton row. Duration values are already parsed by the caller.
 func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 	if _, err := cronParser.Parse(in.Cron.Schedule); err != nil {
 		return runtime.Snapshot{}, newValidationErr(
@@ -225,6 +330,14 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 	if err := validateTrustedProxies(in.Auth.TrustedProxies); err != nil {
 		return runtime.Snapshot{}, err
 	}
+	if !validAuthMode(in.Auth.Mode) {
+		return runtime.Snapshot{}, newValidationErr(
+			"auth.mode", "INVALID_AUTH_MODE",
+			fmt.Sprintf("must be one of forms|basic|none, got %q", in.Auth.Mode))
+	}
+	if err := validateLocalNetworks(in.Auth.LocalNetworks); err != nil {
+		return runtime.Snapshot{}, err
+	}
 	return runtime.Snapshot{
 		Cron: runtime.CronSnapshot{
 			Enabled:  in.Cron.Enabled,
@@ -244,12 +357,47 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 			SessionTTL:     in.Auth.SessionTTL,
 			SecureCookie:   in.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), in.Auth.TrustedProxies...),
+			Mode:           in.Auth.Mode,
+			LocalBypass:    in.Auth.LocalBypass,
+			LocalNetworks:  append([]string(nil), in.Auth.LocalNetworks...),
 		},
 	}, nil
 }
 
-// boundDuration returns nil if d ∈ [min, max], a typed
-// ValidationError otherwise.
+func validAuthMode(m string) bool {
+	switch m {
+	case runtime.AuthModeForms, runtime.AuthModeBasic, runtime.AuthModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// validateLocalNetworks accepts CIDRs only — bare IPs are intentionally
+// rejected here (callers should write `127.0.0.1/32`). The 036c bypass
+// hot path expects parsed *net.IPNet entries so CIDR-only keeps the
+// contract uniform.
+func validateLocalNetworks(list []string) error {
+	if len(list) > localNetworksMaxLen {
+		return newValidationErr("auth.local_networks",
+			"INVALID_LOCAL_NETWORKS_TOO_MANY",
+			fmt.Sprintf("at most %d entries allowed", localNetworksMaxLen))
+	}
+	for _, raw := range list {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			return newValidationErr("auth.local_networks",
+				"INVALID_LOCAL_NETWORK", "empty entry not allowed")
+		}
+		if _, _, err := net.ParseCIDR(entry); err != nil {
+			return newValidationErr("auth.local_networks",
+				"INVALID_LOCAL_NETWORK",
+				fmt.Sprintf("%q is not a valid CIDR: %s", entry, err.Error()))
+		}
+	}
+	return nil
+}
+
 func boundDuration(field, code string, d, min, max time.Duration) error {
 	if d < min || d > max {
 		return newValidationErr(field, code,
@@ -258,7 +406,6 @@ func boundDuration(field, code string, d, min, max time.Duration) error {
 	return nil
 }
 
-// boundInt mirrors boundDuration for int-valued fields.
 func boundInt(field, code string, v, min, max int) error {
 	if v < min || v > max {
 		return newValidationErr(field, code,
@@ -267,14 +414,6 @@ func boundInt(field, code string, v, min, max int) error {
 	return nil
 }
 
-// validateTrustedProxies accepts both bare IPs and CIDRs. Empty list
-// is OK — it disables XFF entirely (documented behaviour).
-//
-// Rejects entries that span the entire address space (0.0.0.0, ::,
-// 0.0.0.0/0, ::/0) — accepting them would trust every client header
-// and defeat the proxy allow-list. Also caps list length at
-// trustedProxiesMaxLen so a misconfigured caller can't blow the gin
-// XFF parser with arbitrary input.
 func validateTrustedProxies(list []string) error {
 	if len(list) > trustedProxiesMaxLen {
 		return newValidationErr("auth.trusted_proxies",
@@ -316,6 +455,14 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
 	if proxies == nil {
 		proxies = []string{}
 	}
+	networks := append([]string(nil), row.Auth.LocalNetworks...)
+	if networks == nil {
+		networks = []string{}
+	}
+	mode := row.Auth.Mode
+	if mode == "" {
+		mode = runtime.AuthModeForms
+	}
 	return Output{
 		Cron: CronInput{
 			Enabled:  row.Cron.Enabled,
@@ -331,10 +478,14 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
 		GlobalRateLimit: GlobalRateLimitInput{
 			RPM: row.GlobalRateLimit.RPM, Burst: row.GlobalRateLimit.Burst,
 		},
-		Auth: AuthInput{
+		Auth: AuthOutput{
 			SessionTTL:     row.Auth.SessionTTL,
 			SecureCookie:   row.Auth.SecureCookie,
 			TrustedProxies: proxies,
+			Mode:           mode,
+			LocalBypass:    row.Auth.LocalBypass,
+			LocalNetworks:  networks,
+			SessionEpoch:   row.Auth.SessionEpoch,
 		},
 		AutoGeneratedAPIKey: row.APIKeyAutoGenerated,
 		UpdatedAt:           ts.UTC(),

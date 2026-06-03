@@ -120,6 +120,9 @@ func validRCBody() map[string]any {
 			"session_ttl":     "12h",
 			"secure_cookie":   false,
 			"trusted_proxies": []string{"127.0.0.1", "::1"},
+			"mode":            "forms",
+			"local_bypass":    false,
+			"local_networks":  []string{"127.0.0.0/8", "10.0.0.0/8"},
 		},
 	}
 }

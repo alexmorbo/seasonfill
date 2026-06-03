@@ -156,3 +156,54 @@ func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 	snap := runtime.Defaults()
 	require.NoError(t, repo.Upsert(ctx, snap, &header))
 }
+
+func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	snap.Auth.Mode = runtime.AuthModeBasic
+	snap.Auth.LocalBypass = true
+	snap.Auth.LocalNetworks = []string{"127.0.0.0/8", "10.0.0.0/8"}
+	snap.Auth.SessionEpoch = 123456789
+
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, runtime.AuthModeBasic, row.Auth.Mode)
+	assert.True(t, row.Auth.LocalBypass)
+	assert.Equal(t, []string{"127.0.0.0/8", "10.0.0.0/8"}, row.Auth.LocalNetworks)
+	assert.Equal(t, int64(123456789), row.Auth.SessionEpoch)
+}
+
+func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	snap.Auth.Mode = "" // legacy / mis-seeded row
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, runtime.AuthModeForms, row.Auth.Mode,
+		"empty mode must normalize to forms")
+}
+
+func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	snap.Auth.LocalNetworks = nil
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	// Empty list → fall back to the hardcoded default network set so
+	// the bypass middleware never operates on an empty allow-list by
+	// accident.
+	assert.NotEmpty(t, row.Auth.LocalNetworks)
+	assert.Contains(t, row.Auth.LocalNetworks, "127.0.0.0/8")
+}

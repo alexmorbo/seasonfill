@@ -1,5 +1,14 @@
 components:
   schemas:
+    dto.AuthConfigDTO:
+      properties:
+        local_bypass:
+          example: false
+          type: boolean
+        mode:
+          example: forms
+          type: string
+      type: object
     dto.Decision:
       properties:
         candidates_count:
@@ -474,8 +483,31 @@ components:
       type: object
     dto.RuntimeAuthDTO:
       properties:
+        local_bypass:
+          description: LocalBypass enables the local-address bypass middleware (036c).
+          type: boolean
+        local_networks:
+          description: LocalNetworks is the CIDR allow-list driving local-bypass.
+          example:
+          - 127.0.0.0/8
+          - 10.0.0.0/8
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        mode:
+          description: Mode is one of "forms" | "basic" | "none". Default "forms".
+          example: forms
+          type: string
         secure_cookie:
           type: boolean
+        session_epoch:
+          description: |-
+            SessionEpoch is read-only — the server bumps it whenever any
+            auth-invalidating field changes. PUT bodies that include it are
+            silently ignored (the usecase manages the value).
+          example: 0
+          type: integer
         session_ttl:
           example: 12h
           type: string
@@ -712,6 +744,22 @@ info:
   version: "1.0"
 openapi: 3.1.0
 paths:
+  /auth/config:
+    get:
+      description: |-
+        Returns the active auth backend (forms|basic|none) and
+        whether local-address bypass is enabled. Public endpoint —
+        no authentication required.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.AuthConfigDTO'
+          description: OK
+      summary: Public auth-mode bootstrap
+      tags:
+      - auth
   /auth/login:
     post:
       description: |-

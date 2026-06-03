@@ -107,8 +107,49 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	assert.Equal(t, 1, version)
+	// After running full migrations and re-stamping, the version must be
+	// the latest (2 after 036a) because the DB already has v2 columns
+	// (auth_mode etc.); stampBaselineIfNeeded detects this and stamps at
+	// latestVersion rather than baselineVersion.
+	assert.Equal(t, 2, version)
 	assert.False(t, dirty)
+}
+
+// TestMigrate_UpgradesToV2 asserts that applying the migration chain
+// (v1 baseline → v2 auth_modes) leaves the runtime_config row shape
+// extended with the 4 new auth columns + the expected defaults.
+func TestMigrate_UpgradesToV2(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, Migrate(db))
+
+	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "auth_mode"))
+	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "auth_local_bypass"))
+	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "auth_local_networks"))
+	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "auth_session_epoch"))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = sqlDB.ExecContext(ctx,
+		`INSERT INTO runtime_config (id, cron_enabled, cron_schedule) VALUES (1, 1, 'x')`)
+	require.NoError(t, err)
+	var mode string
+	var bypass int
+	var networks string
+	var epoch int64
+	require.NoError(t, sqlDB.QueryRowContext(ctx,
+		`SELECT auth_mode, auth_local_bypass, auth_local_networks, auth_session_epoch FROM runtime_config WHERE id=1`).
+		Scan(&mode, &bypass, &networks, &epoch))
+	assert.Equal(t, "forms", mode)
+	assert.Equal(t, 0, bypass)
+	assert.Contains(t, networks, "127.0.0.0/8")
+	assert.Equal(t, int64(0), epoch)
 }
 
 // TestMigrationFilesEmbedded asserts the embed.FS is wired correctly.

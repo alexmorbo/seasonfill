@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net"
 	"sync/atomic"
 	"time"
 )
@@ -11,6 +12,11 @@ import (
 //   - SessionTTL     → AuthHandler.Login (cookie max-age + token exp)
 //   - TrustedProxies → gin engine SetTrustedProxies on rebuild
 //   - SecureCookie   → AuthHandler.Login / Logout cookie Secure flag
+//   - Mode           → RequireAuth dispatcher (forms|basic|none)
+//   - LocalBypass    → 036c bypass middleware
+//   - LocalNetworks  → 036c pre-parsed CIDR allow-list (subscriber
+//     parses once, hot path does pure compare)
+//   - SessionEpoch   → cookie verifier rejects payloads with ep < this
 //
 // Callers MUST Load() the atomic per request — never cache the pointer
 // across requests.
@@ -18,11 +24,17 @@ type AuthRuntime struct {
 	SessionTTL     time.Duration
 	TrustedProxies []string
 	SecureCookie   bool
+	Mode           string
+	LocalBypass    bool
+	LocalNetworks  []*net.IPNet
+	SessionEpoch   int64
 }
 
 // AuthRuntimePointer is the atomic published by cmd/server to:
 //   - AuthHandler, which reads SessionTTL + SecureCookie on every request.
 //   - AuthMiddlewareSubscriber, which Stores a fresh value per snapshot.
+//   - AuthConfigHandler, which reads Mode + LocalBypass.
+//   - RequireAuthWithRuntime dispatcher.
 //
 // Default = boot-time values; never nil after cmd/server init.
 type AuthRuntimePointer = atomic.Pointer[AuthRuntime]

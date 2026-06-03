@@ -183,7 +183,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	ttl := h.sessionTTL()
 	exp := h.now().Add(ttl)
-	tok, err := middleware.SignSession(h.sessionKey, user.Username, exp)
+	epoch := int64(0)
+	if v := h.authRuntime.Load(); v != nil {
+		epoch = v.SessionEpoch
+	}
+	tok, err := middleware.SignSession(h.sessionKey, user.Username, exp, epoch)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "auth.login.sign_failed",
 			slog.String("error", err.Error()))

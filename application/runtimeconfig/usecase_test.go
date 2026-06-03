@@ -97,6 +97,9 @@ func validInput() Input {
 			SessionTTL:     12 * time.Hour,
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1", "10.0.0.0/8"},
+			Mode:           runtime.AuthModeForms,
+			LocalBypass:    false,
+			LocalNetworks:  []string{"127.0.0.0/8", "10.0.0.0/8"},
 		},
 	}
 }
@@ -425,4 +428,128 @@ func TestUpdate_NoIUS_SucceedsThroughRepo(t *testing.T) {
 	uc := New(staleOnIUSRepo{}, fakeInstanceRepo{}, nil, bus, nil)
 	_, _, err := uc.Update(context.Background(), validInput(), nil)
 	require.NoError(t, err)
+}
+
+func TestUsecase_RejectsInvalidAuthMode(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	in := validInput()
+	in.Auth.Mode = "oidc"
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.Error(t, err)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
+}
+
+func TestUsecase_RejectsInvalidLocalNetwork(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	in := validInput()
+	in.Auth.LocalNetworks = []string{"127.0.0.0/8", "not-a-cidr"}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.Error(t, err)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
+}
+
+func TestUsecase_EpochBumpsOnModeChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	firstEpoch := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.Mode = runtime.AuthModeNone
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, firstEpoch,
+		"mode change MUST bump epoch")
+}
+
+func TestUsecase_EpochUnchangedWhenAuthFieldsStable(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	in := validInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	// Change a non-auth field — epoch must stay put.
+	in.Cron.Schedule = "0 0 * * *"
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Equal(t, first, repo.row.Auth.SessionEpoch)
+}
+
+func TestUsecase_EpochBumpsOnBypassToggle(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.LocalBypass = true
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first)
+}
+
+func TestUsecase_EpochBumpsOnNetworksChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.LocalNetworks = append(in.Auth.LocalNetworks, "192.168.0.0/16")
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first)
+}
+
+func TestUsecase_SetAuthMode_BumpsEpoch(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 5_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+
+	// First call must succeed even though row is missing (falls back
+	// to Defaults).
+	epoch, err := uc.SetAuthMode(context.Background(), runtime.AuthModeBasic)
+	require.NoError(t, err)
+	assert.Greater(t, epoch, int64(0))
+	assert.Equal(t, runtime.AuthModeBasic, repo.row.Auth.Mode)
+	assert.Equal(t, epoch, repo.row.Auth.SessionEpoch)
+}
+
+func TestUsecase_SetAuthMode_RejectsInvalid(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	_, err := uc.SetAuthMode(context.Background(), "oidc")
+	require.Error(t, err)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
 }

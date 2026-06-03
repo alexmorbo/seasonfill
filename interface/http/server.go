@@ -97,9 +97,14 @@ func NewServer(
 		// shared AuthRuntime pointer out at startup.
 		serverAuthHandler = authHandler
 		api.POST("/auth/login", authHandler.Login)
+		// Public bootstrap endpoint — MUST be registered before the
+		// guarded group so it inherits NO RequireAuth middleware.
+		// Reads from the same AuthRuntime atomic the dispatcher uses.
+		authConfigHandler := handlers.NewAuthConfigHandler(authHandler.AuthRuntime())
+		api.GET("/auth/config", authConfigHandler.Get)
 
 		guarded := api.Group("")
-		guarded.Use(middleware.RequireAuth(cfg.Auth.APIKey, sessionKey))
+		guarded.Use(middleware.RequireAuthWithRuntime(cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime()))
 		guarded.GET("/auth/session", authHandler.Session)
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
@@ -128,7 +133,12 @@ func NewServer(
 
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")
-		wh.Use(middleware.RequireAuth(cfg.Auth.APIKey, sessionKey))
+		// Webhook is mode-invariant: X-Api-Key only. RequireAuthWithRuntime
+		// still honors the api-key short-circuit in every mode, so reusing
+		// it here preserves the invariant (D-3). Cookie/Basic/none paths
+		// never apply because Sonarr always sends X-Api-Key. 036c will
+		// additionally exclude this route from any local-bypass logic.
+		wh.Use(middleware.RequireAuthWithRuntime(cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime()))
 		if webhookLimiter != nil {
 			wh.Use(webhookRateLimit(webhookLimiter))
 		}

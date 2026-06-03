@@ -20,7 +20,10 @@ import (
 //go:embed migrations/postgres/*.sql migrations/sqlite/*.sql
 var migrationsFS embed.FS
 
-const baselineVersion = 1
+const (
+	baselineVersion = 1
+	latestVersion   = 2
+)
 
 // Migrate applies all pending versioned migrations. Signature is preserved
 // so callers (server bootstrap, tests) keep working; the body dispatches
@@ -93,11 +96,13 @@ func newMigrateDriver(dialect string, sqlDB *sql.DB) (database.Driver, string, e
 	}
 }
 
-// stampBaselineIfNeeded inserts (baselineVersion, dirty=false) into
+// stampBaselineIfNeeded inserts the current schema version into
 // schema_migrations when the DB already contains application tables but
-// no migrations bookkeeping. We do a direct INSERT instead of m.Force(1)
+// no migrations bookkeeping. We do a direct INSERT instead of m.Force(n)
 // because Force historically left dirty=true in some library versions; a
 // raw stamp is unambiguous and lets m.Up() proceed without a clean step.
+// The stamped version is determined by probing for known v2 columns so
+// that a database which already has v2 schema is not re-stamped at v1.
 func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) error {
 	hasMigrations, err := tableExists(ctx, sqlDB, dialect, "schema_migrations")
 	if err != nil {
@@ -113,6 +118,17 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	if !hasApp {
 		return nil
 	}
+	// Detect whether v2 columns already exist so we stamp at the right
+	// version. This prevents re-applying v2 on a DB that lost its
+	// schema_migrations bookkeeping but retained the v2 schema.
+	version := baselineVersion
+	hasV2, err := columnExists(ctx, sqlDB, dialect, "runtime_config", "auth_mode")
+	if err != nil {
+		return err
+	}
+	if hasV2 {
+		version = latestVersion
+	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {
 		return fmt.Errorf("unsupported dialect: %s", dialect)
@@ -120,7 +136,7 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	if _, err := sqlDB.ExecContext(ctx, createStmt); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
-	if _, err := sqlDB.ExecContext(ctx, insertStmt, baselineVersion); err != nil {
+	if _, err := sqlDB.ExecContext(ctx, insertStmt, version); err != nil {
 		return fmt.Errorf("stamp baseline row: %w", err)
 	}
 	return nil
@@ -137,6 +153,27 @@ func stampStatements(dialect string) (createStmt, insertStmt string) {
 	default:
 		return "", ""
 	}
+}
+
+func columnExists(ctx context.Context, sqlDB *sql.DB, dialect, table, column string) (bool, error) {
+	var q string
+	switch dialect {
+	case "postgres":
+		q = `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`
+	case "sqlite":
+		// pragma_table_info returns one row per column; filter by name.
+		q = `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`
+	default:
+		return false, fmt.Errorf("unsupported dialect: %s", dialect)
+	}
+	var one int
+	if err := sqlDB.QueryRowContext(ctx, q, table, column).Scan(&one); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("probe column %s.%s: %w", table, column, err)
+	}
+	return true, nil
 }
 
 func tableExists(ctx context.Context, sqlDB *sql.DB, dialect, name string) (bool, error) {

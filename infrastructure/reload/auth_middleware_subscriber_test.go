@@ -162,3 +162,91 @@ func TestAuthMiddleware_SecureCookieFlipped(t *testing.T) {
 	require.NotNil(t, v)
 	assert.True(t, v.SecureCookie, "SecureCookie must propagate via atomic")
 }
+
+// TestAuthMiddleware_ModeAndEpochPropagate confirms the new auth-mode
+// + session-epoch fields flow through the apply path.
+func TestAuthMiddleware_ModeAndEpochPropagate(t *testing.T) {
+	t.Parallel()
+	ptr := &middleware.AuthRuntimePointer{}
+	ptr.Store(&middleware.AuthRuntime{SessionTTL: time.Hour, Mode: runtime.AuthModeForms})
+
+	gin.SetMode(gin.TestMode)
+	eng := gin.New()
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := runtime.NewBus(slog.Default())
+	defer bus.Close()
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	<-ready
+
+	bus.Publish(ctx, runtime.Snapshot{
+		Auth: runtime.AuthSnapshot{
+			SessionTTL:   time.Hour,
+			Mode:         runtime.AuthModeBasic,
+			SessionEpoch: 42,
+		},
+	})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if v := ptr.Load(); v != nil && v.Mode == runtime.AuthModeBasic {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	v := ptr.Load()
+	require.NotNil(t, v)
+	assert.Equal(t, runtime.AuthModeBasic, v.Mode)
+	assert.Equal(t, int64(42), v.SessionEpoch)
+}
+
+// TestAuthMiddleware_LocalNetworks_ParsedSilentlySkipsBad verifies a
+// single malformed CIDR in the snapshot does NOT poison the apply —
+// good entries still publish, bad entries are logged + skipped.
+func TestAuthMiddleware_LocalNetworks_ParsedSilentlySkipsBad(t *testing.T) {
+	t.Parallel()
+	ptr := &middleware.AuthRuntimePointer{}
+	ptr.Store(&middleware.AuthRuntime{SessionTTL: time.Hour})
+
+	gin.SetMode(gin.TestMode)
+	eng := gin.New()
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := runtime.NewBus(slog.Default())
+	defer bus.Close()
+	var alive int32 = 1
+	ready := make(chan struct{})
+	go func() {
+		sub.Run(ctx, bus, func() { close(ready) })
+		atomic.StoreInt32(&alive, 0)
+	}()
+	<-ready
+
+	bus.Publish(ctx, runtime.Snapshot{
+		Auth: runtime.AuthSnapshot{
+			SessionTTL:    time.Hour,
+			Mode:          runtime.AuthModeForms,
+			LocalBypass:   true,
+			LocalNetworks: []string{"127.0.0.0/8", "not-a-cidr", "10.0.0.0/8"},
+		},
+	})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		v := ptr.Load()
+		if v != nil && len(v.LocalNetworks) == 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	assert.Equal(t, int32(1), atomic.LoadInt32(&alive),
+		"subscriber must not die on a malformed CIDR")
+	v := ptr.Load()
+	require.NotNil(t, v)
+	require.Len(t, v.LocalNetworks, 2)
+	assert.Equal(t, "127.0.0.0/8", v.LocalNetworks[0].String())
+	assert.Equal(t, "10.0.0.0/8", v.LocalNetworks[1].String())
+}
