@@ -16,9 +16,17 @@ docker compose up -d
 docker compose logs -f backend | grep 'FIRST-RUN'
 ```
 
-Open http://localhost:8080 and log in with `admin` + the password
-from the logs. Capture the printed `SEASONFILL_API_KEY` and paste it
-into your `.env` so the next restart can decrypt the DB.
+Open http://localhost:8080 and log in with `admin` / `admin` (the
+default credentials shipped in `.env.example`). **Change this
+password immediately** via Settings → Security → Change Password, or
+via the `reset-password` CLI described below.
+
+Capture the printed `SEASONFILL_API_KEY` and paste it into your
+`.env` so the next restart can decrypt the DB.
+
+> **If you delete `SEASONFILL_WEB_PASSWORD` from `.env`** the backend
+> falls back to auto-generating a 24-char password on first start and
+> printing it once to the logs — same as a Kubernetes/Helm deploy.
 
 All other settings — Sonarr instances, cron schedule, dry_run, rate
 limits, session TTL, trusted proxies — are configured via the Web UI
@@ -77,6 +85,50 @@ under Settings → Auth & Security so the session cookie carries the
 `Secure` flag. Do NOT flip this to true while still serving plain
 HTTP — browsers refuse Secure cookies over HTTP and login will
 silently fail.
+
+## Authentication modes
+
+Auth mode is a runtime setting — change it in the web UI at
+**Settings → Security** with no restart required.
+
+| Mode | Description | When to use |
+|------|-------------|-------------|
+| **Forms** (default) | Username/password via the web login page; session cookie issued on success. | Recommended for direct browser access or any public-facing deploy. |
+| **Basic** | HTTP Basic Auth — the browser shows a native credentials popup; no login page rendered. | Useful for CLI/scripted clients or simple setups behind an IP allowlist. |
+| **None** | No authentication enforced by seasonfill. | **WARNING:** use ONLY behind a reverse proxy that authenticates (Pangolin, oauth2-proxy, Authelia, etc.). Enabling None without a protecting proxy exposes the entire UI to anyone. |
+
+### Authentication Required toggle
+
+The "Authentication Required" dropdown offers an optional
+**Disabled for Local Addresses** mode: requests originating from
+local CIDRs skip auth entirely regardless of the mode setting above.
+
+Default local network list (editable in the UI):
+
+- `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` — RFC1918 private
+- `127.0.0.0/8` — IPv4 loopback
+- `::1/128` — IPv6 loopback
+- `169.254.0.0/16` — IPv4 link-local
+- `fe80::/10` — IPv6 link-local
+- `fc00::/7` — IPv6 ULA
+
+> **Webhook invariant:** `POST /api/v1/webhook/*` always requires
+> `X-Api-Key` regardless of auth mode or local-bypass state. The
+> webhook endpoint is a public-facing surface that must not be
+> bypassed.
+
+### Lockout rescue
+
+If you accidentally lock yourself out (e.g. set mode=None on a
+public surface and now need to restore Forms), reset via the CLI:
+
+```sh
+docker compose exec backend /app/seasonfill auth-mode --set forms
+```
+
+This writes directly to the DB, bumps the session epoch (invalidates
+all active cookies), and exits. The next page load will show the
+login form again.
 
 ## Operations
 

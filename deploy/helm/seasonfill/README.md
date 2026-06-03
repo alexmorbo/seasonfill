@@ -132,8 +132,17 @@ Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --vers
 | `web.replicaCount` | `1` | Frontend can scale horizontally (stateless). |
 
 Everything else — cron schedule, scan tuning, `dry_run`, instances,
-session TTL, secure cookie toggle, trusted proxies — is managed via
-the Settings UI at `/settings`. Not in the chart values.
+session TTL, secure cookie toggle, trusted proxies, **auth mode** —
+is managed via the Settings UI at `/settings`. Not in the chart values.
+
+**Auth mode** defaults to `forms` on first boot (username + password
+login page). To change it after deploy, open Settings → Security and
+select Forms / Basic / None from the dropdown — no restart or chart
+upgrade required. For a CLI fallback (e.g. lockout recovery):
+
+```sh
+kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill auth-mode --set forms
+```
 
 ## Terragrunt example
 

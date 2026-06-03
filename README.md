@@ -99,15 +99,45 @@ itself does not host a live UI for the spec.
 
 ## Security model
 
+### Authentication modes
+
+Three modes are available, configured at runtime via **Settings →
+Security** (no restart needed):
+
+| Mode | Use case | Local bypass advisable? | Reverse proxy required? |
+|------|----------|------------------------|------------------------|
+| **Forms** (default) | Direct browser access, public-facing | Optional | No |
+| **Basic** | CLI/scripted clients, IP-restricted deploys | Optional | Recommended for public |
+| **None** | Fully behind an authenticating proxy | N/A | **Yes — mandatory** |
+
+> **Deployment scenarios:**
+>
+> | Scenario | Recommended setup |
+> |----------|-------------------|
+> | Local docker-compose, trusted LAN | Forms + Disabled-for-Local (defaults seeded via `.env.example`) |
+> | Public via Pangolin / oauth2-proxy / Authelia | None + reverse-proxy auth |
+> | Public direct | Forms + strong rotated password + HTTPS |
+
+### Webhook invariant
+
+`POST /api/v1/webhook/sonarr/<instance-name>` always requires the
+`X-Api-Key` header regardless of auth mode or local-bypass state.
+This endpoint is a public-facing surface and is never bypassed.
+
+### Other security properties
+
 - One admin user (username + password, bcrypt-hashed in DB).
   Auto-generated 24-char password on first start when none configured,
-  printed once to logs with a `FIRST-RUN PASSWORD` banner.
+  printed once to logs with a `FIRST-RUN PASSWORD` banner. Docker
+  Compose ships `admin/admin` via `.env.example` — **rotate on first
+  login** via Settings → Security.
 - Cookie HMAC-signed with the API key. `HttpOnly`, `SameSite=Strict`,
-  `Secure` flag opt-in (`http.auth.secure_cookie: true` when behind
-  HTTPS).
+  `Secure` flag opt-in (toggle in Settings → Security when behind
+  HTTPS). Mode change bumps the session epoch — all active cookies
+  are invalidated immediately.
 - API key persists across restarts. Rotated via Secret / `.env` edit
   + redeploy. Sonarr's `Connect → Webhook` provides it as a Custom
-  header (`X-Api-Key`).
+  header (`X-Api-Key`). Works in every auth mode.
 - Rate-limited `/auth/login` (5 attempts per IP per 15min) and
   `/webhook`. Constant-time password compare. Generic error message
   ("Invalid credentials") for both unknown-user and wrong-password.
@@ -119,6 +149,9 @@ itself does not host a live UI for the spec.
 - CI gates image publication on dependency vulnerabilities:
   `govulncheck` (Go, reachability mode) and `npm audit` (web,
   high+). Weekly Dependabot keeps dependencies current.
+
+See [`deploy/compose/README.md`](deploy/compose/README.md) for
+runtime configuration details and the lockout rescue command.
 
 ## Contributing
 
