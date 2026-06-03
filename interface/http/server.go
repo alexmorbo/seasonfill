@@ -136,12 +136,12 @@ func NewServer(
 
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")
-		// Webhook is mode-invariant: X-Api-Key only. RequireAuthWithRuntime
-		// still honors the api-key short-circuit in every mode, so reusing
-		// it here preserves the invariant (D-3). Cookie/Basic/none paths
-		// never apply because Sonarr always sends X-Api-Key. 036c will
-		// additionally exclude this route from any local-bypass logic.
-		wh.Use(middleware.RequireAuthWithRuntime(
+		// Webhook is mode-invariant AND local-bypass-invariant per
+		// D-3 / AC-8 — X-Api-Key only. RequireAuthWebhook pins the
+		// local-bypass branch off so a local IP can NEVER POST a
+		// webhook without a valid X-Api-Key. Mode dispatch still
+		// runs but in practice Sonarr always sends the key.
+		wh.Use(middleware.RequireAuthWebhook(
 			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
 			adminRepo, loginLimiter,
 		))

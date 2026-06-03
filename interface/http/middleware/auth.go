@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -18,35 +19,23 @@ const UsernameContextKey = "auth.username"
 
 // RequireAuth preserves the pre-036a signature so existing callers
 // (tests, helm-deployed binaries that haven't been rebuilt) keep
-// compiling and behave as forms-mode. Internally it builds a
-// throwaway AuthRuntimePointer seeded with mode=forms + epoch=0 and
-// delegates to RequireAuthWithRuntime with nil basic deps — Basic
-// mode is not reachable through this shim because the default
-// snapshot is forms.
+// compiling and behave as forms-mode. Internally builds a throwaway
+// AuthRuntimePointer seeded with mode=forms + epoch=0 and delegates to
+// RequireAuthWithRuntime with nil basic deps.
 func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 	ptr := &AuthRuntimePointer{}
 	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeForms})
 	return RequireAuthWithRuntime(apiKey, sessionKey, ptr, nil, nil)
 }
 
-// RequireAuthWithRuntime gates protected routes. Mode is dispatched per
-// request from the AuthRuntime atomic (hot-reload safe — never cache
-// the pointer across requests). Order of evaluation:
+// RequireAuthWithRuntime gates protected non-webhook routes. Dispatch order:
 //
-//  1. X-Api-Key — honored in ALL modes (automation invariant, D-9)
-//  2. Mode-specific path:
-//     - forms → cookie check + epoch validation
-//     - basic → Authorization: Basic header parse + constant-latency
-//     bcrypt compare against admin_users.password_hash. Missing or
-//     malformed header → 401 + WWW-Authenticate. Bad creds → 401
-//     without WWW-Authenticate (no popup re-prompt loop).
-//     - none  → pass through as anonymous (no cookie required)
-//  3. Fallthrough → 401 UNAUTHORIZED with the identical envelope
-//     pre-036a returned.
+//  1. X-Api-Key check (precedence — automation must never be silently
+//     attributed to "local")
+//  2. Local-bypass (if rt.LocalBypass=true AND client IP ∈ rt.LocalNetworks)
+//  3. Mode-specific path (forms | basic | none)
 //
-// adminRepo + loginLimiter are required for Basic mode; if nil and
-// mode=basic happens to be active (test shim only), the dispatcher
-// falls through to the generic 401.
+// adminRepo + loginLimiter are required only for Basic mode.
 func RequireAuthWithRuntime(
 	apiKey string,
 	sessionKey []byte,
@@ -54,11 +43,42 @@ func RequireAuthWithRuntime(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true)
+}
+
+// RequireAuthWebhook is the webhook-route variant. IDENTICAL to
+// RequireAuthWithRuntime except step 2 (local-bypass) is unconditionally
+// skipped. Webhook ALWAYS requires X-Api-Key — invariant D-3 / AC-8.
+// Mode dispatch still runs after the X-Api-Key check, but in production
+// Sonarr always sends X-Api-Key, so the fallthrough is effectively a
+// safety net (401 on any non-keyed webhook call regardless of mode).
+func RequireAuthWebhook(
+	apiKey string,
+	sessionKey []byte,
+	ptr *AuthRuntimePointer,
+	adminRepo ports.AdminUserRepository,
+	loginLimiter *auth.IPLimiter,
+) gin.HandlerFunc {
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false)
+}
+
+// buildAuth is the shared pipeline. localBypassAllowed=false pins the
+// bypass branch off (webhook constructor); =true lets the snapshot
+// decide per request.
+func buildAuth(
+	apiKey string,
+	sessionKey []byte,
+	ptr *AuthRuntimePointer,
+	adminRepo ports.AdminUserRepository,
+	loginLimiter *auth.IPLimiter,
+	localBypassAllowed bool,
+) gin.HandlerFunc {
 	rawKeyBytes := []byte(apiKey)
 	return func(c *gin.Context) {
 		rt := loadAuthRuntime(ptr)
 
-		// X-Api-Key first — automation must never be blocked by a mode.
+		// Step 1: X-Api-Key first — automation must never be blocked
+		// by mode OR silently collapsed to "local" by step 2.
 		if apiKey != "" {
 			got := c.GetHeader("X-Api-Key")
 			if got != "" && subtle.ConstantTimeCompare([]byte(got), rawKeyBytes) == 1 {
@@ -68,6 +88,18 @@ func RequireAuthWithRuntime(
 			}
 		}
 
+		// Step 2: local-bypass (non-webhook routes only).
+		if localBypassAllowed && rt.LocalBypass && len(rt.LocalNetworks) > 0 {
+			if ip := net.ParseIP(c.ClientIP()); ip != nil {
+				if IsLocalAddress(ip, rt.LocalNetworks) {
+					c.Set(UsernameContextKey, "local")
+					c.Next()
+					return
+				}
+			}
+		}
+
+		// Step 3: mode dispatch.
 		switch rt.Mode {
 		case runtime.AuthModeNone:
 			c.Set(UsernameContextKey, "anonymous")
@@ -80,7 +112,6 @@ func RequireAuthWithRuntime(
 			handleBasicAuth(c, adminRepo, loginLimiter)
 			return
 		default:
-			// runtime.AuthModeForms (or empty-string fallback).
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 				if p, verr := VerifySession(sessionKey, cookie, time.Now(), rt.SessionEpoch); verr == nil {
 					c.Set(UsernameContextKey, p.Username)
@@ -95,19 +126,8 @@ func RequireAuthWithRuntime(
 	}
 }
 
-// handleBasicAuth runs the Basic-mode credential check. It is split out
-// so RequireAuthWithRuntime stays readable. On success it sets the
-// username context key and calls c.Next(). On any failure it writes a
-// 401 (or 429 / 500 as appropriate) and returns without calling Next.
-//
-// Branch outcomes:
-//   - header absent or malformed → 401 + WWW-Authenticate: Basic realm=…
-//   - rate-limit tripped → 429 (identical envelope to Login's 429)
-//   - repo error other than not-found → 500
-//   - creds bad (any of: user mismatch, password mismatch, no row) → 401
-//     WITHOUT WWW-Authenticate. Constant-latency bcrypt still runs even
-//     on user-not-found via auth.ConstantLatencyVerify.
-//   - creds good → set context user, c.Next()
+// handleBasicAuth runs the Basic-mode credential check. Split out so
+// buildAuth stays readable.
 func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.IPLimiter) {
 	header := c.GetHeader("Authorization")
 	user, pass, ok := parseBasicHeader(header)
@@ -152,8 +172,6 @@ func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.I
 	c.Next()
 }
 
-// loadAuthRuntime returns the current snapshot or a forms-mode default
-// when the atomic is nil/unset. Never returns nil.
 func loadAuthRuntime(ptr *AuthRuntimePointer) *AuthRuntime {
 	if ptr == nil {
 		return &AuthRuntime{Mode: runtime.AuthModeForms}

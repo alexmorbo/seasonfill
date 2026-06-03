@@ -553,3 +553,77 @@ func TestUsecase_SetAuthMode_RejectsInvalid(t *testing.T) {
 	require.ErrorAs(t, err, &verr)
 	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
 }
+
+func TestValidate_LocalNetworks_TooMany(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	too := make([]string, 0, localNetworksMaxLen+1)
+	for i := 0; i <= localNetworksMaxLen; i++ {
+		too = append(too, "10.0.0.0/8")
+	}
+	in.Auth.LocalNetworks = too
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_LOCAL_NETWORKS_TOO_MANY", verr.Code)
+}
+
+func TestValidate_LocalNetworks_BadCIDR(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.LocalNetworks = []string{"10.0.0.0/8", "not.a.cidr"}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
+	assert.Contains(t, verr.Message, "not.a.cidr")
+}
+
+func TestValidate_LocalNetworks_EmptyEntry(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.LocalNetworks = []string{"10.0.0.0/8", "   "}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
+}
+
+func TestValidate_LocalNetworks_TrimAndDedup(t *testing.T) {
+	t.Parallel()
+	uc, repo, _ := setup(t)
+	in := validInput()
+	in.Auth.LocalNetworks = []string{
+		" 10.0.0.0/8 ",
+		"10.0.0.0/8",
+		"192.168.0.0/16",
+		" 192.168.0.0/16",
+	}
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, out.Auth.LocalNetworks,
+		"validator must trim whitespace and dedupe by canonical CIDR")
+	// Stored row must contain the canonical form too.
+	repo.mu.Lock()
+	stored := append([]string(nil), repo.row.Auth.LocalNetworks...)
+	repo.mu.Unlock()
+	assert.Equal(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, stored)
+}
+
+func TestValidate_LocalNetworks_MixedIPv4IPv6(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.LocalNetworks = []string{
+		"10.0.0.0/8",
+		"fc00::/7",
+		"::1/128",
+		"192.168.0.0/16",
+	}
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Len(t, out.Auth.LocalNetworks, 4)
+}

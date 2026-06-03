@@ -335,7 +335,8 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 			"auth.mode", "INVALID_AUTH_MODE",
 			fmt.Sprintf("must be one of forms|basic|none, got %q", in.Auth.Mode))
 	}
-	if err := validateLocalNetworks(in.Auth.LocalNetworks); err != nil {
+	cleanedNetworks, err := validateLocalNetworks(in.Auth.LocalNetworks)
+	if err != nil {
 		return runtime.Snapshot{}, err
 	}
 	return runtime.Snapshot{
@@ -359,7 +360,7 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 			TrustedProxies: append([]string(nil), in.Auth.TrustedProxies...),
 			Mode:           in.Auth.Mode,
 			LocalBypass:    in.Auth.LocalBypass,
-			LocalNetworks:  append([]string(nil), in.Auth.LocalNetworks...),
+			LocalNetworks:  cleanedNetworks,
 		},
 	}, nil
 }
@@ -374,28 +375,45 @@ func validAuthMode(m string) bool {
 }
 
 // validateLocalNetworks accepts CIDRs only — bare IPs are intentionally
-// rejected here (callers should write `127.0.0.1/32`). The 036c bypass
-// hot path expects parsed *net.IPNet entries so CIDR-only keeps the
-// contract uniform.
-func validateLocalNetworks(list []string) error {
+// rejected (callers should write `127.0.0.1/32`). Returns the cleaned
+// list (trimmed + deduplicated by canonical CIDR string) so the caller
+// can persist canonical form instead of raw user input.
+//
+// Rules:
+//   - len ≤ localNetworksMaxLen (DoS bound on the bypass hot path)
+//   - each entry trimmed; empty entries rejected
+//   - net.ParseCIDR must succeed; the *canonical* form (ipnet.String())
+//     is what we dedupe on, so " 10.0.0.0/8 " and "10.0.0.0/8"
+//     collapse to one entry
+//   - mixed IPv4 / IPv6 allowed
+func validateLocalNetworks(list []string) ([]string, error) {
 	if len(list) > localNetworksMaxLen {
-		return newValidationErr("auth.local_networks",
+		return nil, newValidationErr("auth.local_networks",
 			"INVALID_LOCAL_NETWORKS_TOO_MANY",
 			fmt.Sprintf("at most %d entries allowed", localNetworksMaxLen))
 	}
+	seen := make(map[string]struct{}, len(list))
+	out := make([]string, 0, len(list))
 	for _, raw := range list {
 		entry := strings.TrimSpace(raw)
 		if entry == "" {
-			return newValidationErr("auth.local_networks",
+			return nil, newValidationErr("auth.local_networks",
 				"INVALID_LOCAL_NETWORK", "empty entry not allowed")
 		}
-		if _, _, err := net.ParseCIDR(entry); err != nil {
-			return newValidationErr("auth.local_networks",
+		_, ipnet, err := net.ParseCIDR(entry)
+		if err != nil {
+			return nil, newValidationErr("auth.local_networks",
 				"INVALID_LOCAL_NETWORK",
 				fmt.Sprintf("%q is not a valid CIDR: %s", entry, err.Error()))
 		}
+		canon := ipnet.String()
+		if _, dup := seen[canon]; dup {
+			continue
+		}
+		seen[canon] = struct{}{}
+		out = append(out, canon)
 	}
-	return nil
+	return out, nil
 }
 
 func boundDuration(field, code string, d, min, max time.Duration) error {
