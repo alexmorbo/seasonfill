@@ -104,7 +104,10 @@ func NewServer(
 		api.GET("/auth/config", authConfigHandler.Get)
 
 		guarded := api.Group("")
-		guarded.Use(middleware.RequireAuthWithRuntime(cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime()))
+		guarded.Use(middleware.RequireAuthWithRuntime(
+			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
+			adminRepo, loginLimiter,
+		))
 		guarded.GET("/auth/session", authHandler.Session)
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
@@ -138,7 +141,10 @@ func NewServer(
 		// it here preserves the invariant (D-3). Cookie/Basic/none paths
 		// never apply because Sonarr always sends X-Api-Key. 036c will
 		// additionally exclude this route from any local-bypass logic.
-		wh.Use(middleware.RequireAuthWithRuntime(cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime()))
+		wh.Use(middleware.RequireAuthWithRuntime(
+			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
+			adminRepo, loginLimiter,
+		))
 		if webhookLimiter != nil {
 			wh.Use(webhookRateLimit(webhookLimiter))
 		}

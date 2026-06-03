@@ -35,7 +35,7 @@ func setupAuthWithRuntime(t *testing.T, apiKey string, rt *AuthRuntime) (*gin.En
 	ptr.Store(rt)
 	r := gin.New()
 	api := r.Group("/api")
-	api.Use(RequireAuthWithRuntime(apiKey, sessionKey, ptr))
+	api.Use(RequireAuthWithRuntime(apiKey, sessionKey, ptr, nil, nil))
 	api.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"user": c.GetString(UsernameContextKey)})
 	})
@@ -136,9 +136,9 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 		{"forms+valid_apikey", runtime.AuthModeForms, apiKey, "", want{http.StatusOK, "api-key"}},
 		{"forms+no_auth", runtime.AuthModeForms, "", "", want{http.StatusUnauthorized, ""}},
 		{"forms+wrong_apikey", runtime.AuthModeForms, "nope", "", want{http.StatusUnauthorized, ""}},
-		{"basic+no_header_stub", runtime.AuthModeBasic, "", "", want{http.StatusNotImplemented, ""}},
+		{"basic+no_header_falls_through", runtime.AuthModeBasic, "", "", want{http.StatusUnauthorized, ""}},
 		{"basic+apikey_works", runtime.AuthModeBasic, apiKey, "", want{http.StatusOK, "api-key"}},
-		{"basic+cookie_still_stubbed", runtime.AuthModeBasic, "", validCookie, want{http.StatusNotImplemented, ""}},
+		{"basic+cookie_ignored_no_repo", runtime.AuthModeBasic, "", validCookie, want{http.StatusUnauthorized, ""}},
 		{"none+no_auth_passes", runtime.AuthModeNone, "", "", want{http.StatusOK, "anonymous"}},
 		{"none+apikey_identity", runtime.AuthModeNone, apiKey, "", want{http.StatusOK, "api-key"}},
 		{"none+cookie_irrelevant", runtime.AuthModeNone, "", validCookie, want{http.StatusOK, "anonymous"}},

@@ -1,12 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/auth"
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
@@ -16,11 +20,13 @@ const UsernameContextKey = "auth.username"
 // (tests, helm-deployed binaries that haven't been rebuilt) keep
 // compiling and behave as forms-mode. Internally it builds a
 // throwaway AuthRuntimePointer seeded with mode=forms + epoch=0 and
-// delegates to RequireAuthWithRuntime.
+// delegates to RequireAuthWithRuntime with nil basic deps — Basic
+// mode is not reachable through this shim because the default
+// snapshot is forms.
 func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 	ptr := &AuthRuntimePointer{}
 	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeForms})
-	return RequireAuthWithRuntime(apiKey, sessionKey, ptr)
+	return RequireAuthWithRuntime(apiKey, sessionKey, ptr, nil, nil)
 }
 
 // RequireAuthWithRuntime gates protected routes. Mode is dispatched per
@@ -30,12 +36,24 @@ func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 //  1. X-Api-Key — honored in ALL modes (automation invariant, D-9)
 //  2. Mode-specific path:
 //     - forms → cookie check + epoch validation
-//     - basic → 036b stub: returns 501 NOT_IMPLEMENTED (036b lands the
-//     Authorization-header parser + WWW-Authenticate response)
+//     - basic → Authorization: Basic header parse + constant-latency
+//     bcrypt compare against admin_users.password_hash. Missing or
+//     malformed header → 401 + WWW-Authenticate. Bad creds → 401
+//     without WWW-Authenticate (no popup re-prompt loop).
 //     - none  → pass through as anonymous (no cookie required)
 //  3. Fallthrough → 401 UNAUTHORIZED with the identical envelope
-//     pre-036a returned (rejection sentinel is not leaked).
-func RequireAuthWithRuntime(apiKey string, sessionKey []byte, ptr *AuthRuntimePointer) gin.HandlerFunc {
+//     pre-036a returned.
+//
+// adminRepo + loginLimiter are required for Basic mode; if nil and
+// mode=basic happens to be active (test shim only), the dispatcher
+// falls through to the generic 401.
+func RequireAuthWithRuntime(
+	apiKey string,
+	sessionKey []byte,
+	ptr *AuthRuntimePointer,
+	adminRepo ports.AdminUserRepository,
+	loginLimiter *auth.IPLimiter,
+) gin.HandlerFunc {
 	rawKeyBytes := []byte(apiKey)
 	return func(c *gin.Context) {
 		rt := loadAuthRuntime(ptr)
@@ -56,15 +74,10 @@ func RequireAuthWithRuntime(apiKey string, sessionKey []byte, ptr *AuthRuntimePo
 			c.Next()
 			return
 		case runtime.AuthModeBasic:
-			// 036b replaces this stub with a full Basic Auth handler
-			// (WWW-Authenticate: Basic realm="Seasonfill" + constant-
-			// time compare against admin_users.password_hash). Until
-			// then, surface a distinct 501 so an operator who flips
-			// the mode pre-036b deploy sees an unambiguous error
-			// instead of a silent 401.
-			c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{
-				"error": "basic auth not yet implemented", "code": "NOT_IMPLEMENTED",
-			})
+			if adminRepo == nil {
+				break
+			}
+			handleBasicAuth(c, adminRepo, loginLimiter)
 			return
 		default:
 			// runtime.AuthModeForms (or empty-string fallback).
@@ -80,6 +93,63 @@ func RequireAuthWithRuntime(apiKey string, sessionKey []byte, ptr *AuthRuntimePo
 			"error": "unauthorized", "code": "UNAUTHORIZED",
 		})
 	}
+}
+
+// handleBasicAuth runs the Basic-mode credential check. It is split out
+// so RequireAuthWithRuntime stays readable. On success it sets the
+// username context key and calls c.Next(). On any failure it writes a
+// 401 (or 429 / 500 as appropriate) and returns without calling Next.
+//
+// Branch outcomes:
+//   - header absent or malformed → 401 + WWW-Authenticate: Basic realm=…
+//   - rate-limit tripped → 429 (identical envelope to Login's 429)
+//   - repo error other than not-found → 500
+//   - creds bad (any of: user mismatch, password mismatch, no row) → 401
+//     WITHOUT WWW-Authenticate. Constant-latency bcrypt still runs even
+//     on user-not-found via auth.ConstantLatencyVerify.
+//   - creds good → set context user, c.Next()
+func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.IPLimiter) {
+	header := c.GetHeader("Authorization")
+	user, pass, ok := parseBasicHeader(header)
+	if !ok {
+		c.Header("WWW-Authenticate", basicRealmHeader)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "unauthorized", "code": "UNAUTHORIZED",
+		})
+		return
+	}
+
+	if lim != nil && !lim.Allow(c.ClientIP()) {
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			"error": "Invalid credentials", "code": "UNAUTHORIZED",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	row, err := repo.Get(ctx)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	usernameMatches := err == nil && row.Username == user
+	hashToCompare := row.PasswordHash
+	if !usernameMatches {
+		hashToCompare = ""
+	}
+	if !auth.ConstantLatencyVerify(hashToCompare, pass) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "unauthorized", "code": "UNAUTHORIZED",
+		})
+		return
+	}
+
+	c.Set(UsernameContextKey, row.Username)
+	c.Next()
 }
 
 // loadAuthRuntime returns the current snapshot or a forms-mode default
