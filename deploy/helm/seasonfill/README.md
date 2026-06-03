@@ -291,6 +291,31 @@ the backend logs for `webhook_event_received` followed by
   `webPassword` xor `webPasswordHash`). The error message names the
   offending path.
 
+## OIDC mode
+
+To run Seasonfill behind an OpenID Connect provider (Keycloak, Authelia,
+Authentik):
+
+1. Set `oidc.enabled: true` in your values.
+2. Provide the client secret either inline (`secrets.oidcClientSecret`) or
+   via an existing Secret with key `oidc-client-secret`.
+3. Deploy.
+4. Open the UI, go to Settings → Security, switch the Authentication
+   dropdown to `OIDC`, and fill in issuer URL, client ID, redirect URL,
+   scopes, username claim, and (optionally) allowed groups.
+5. Save. All live cookies invalidate; the next request triggers the OIDC
+   flow.
+
+If you lock yourself out (e.g. wrong issuer URL after a deploy), use the
+rescue command:
+
+```
+kubectl exec deploy/seasonfill -- seasonfill auth-mode --set forms
+```
+
+This flips the backend back to forms-auth mode without touching the OIDC
+config (so the values are still there when you flip back).
+
 ## License
 
 [GPL-3.0](../../../LICENSE).

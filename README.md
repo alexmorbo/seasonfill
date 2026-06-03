@@ -109,6 +109,7 @@ Security** (no restart needed):
 | **Forms** (default) | Direct browser access, public-facing | Optional | No |
 | **Basic** | CLI/scripted clients, IP-restricted deploys | Optional | Recommended for public |
 | **None** | Fully behind an authenticating proxy | N/A | **Yes — mandatory** |
+| **OIDC** | SSO browser auth via OIDC | Optional | Reverse proxy with TLS recommended |
 
 > **Deployment scenarios:**
 >
@@ -152,6 +153,38 @@ This endpoint is a public-facing surface and is never bypassed.
 
 See [`deploy/compose/README.md`](deploy/compose/README.md) for
 runtime configuration details and the lockout rescue command.
+
+### Configuring OIDC (Keycloak example)
+
+1. Deploy with `oidc.enabled=true` (Helm) or `OIDC_CLIENT_SECRET=...` (compose).
+2. In Keycloak, create:
+   - A realm (e.g. `homelab`)
+   - A client (e.g. `seasonfill`) with:
+     - Access Type: confidential
+     - Standard Flow Enabled
+     - Valid Redirect URIs: `https://<host>/api/v1/auth/oidc/callback`
+     - Web Origins: `https://<host>`
+   - Copy the client secret → `OIDC_CLIENT_SECRET` env on Seasonfill
+3. In Seasonfill: Settings → Security → Authentication: `OIDC`. Fill in:
+   - Issuer URL: `https://<keycloak-host>/realms/homelab`
+   - Client ID: `seasonfill`
+   - Redirect URL: `https://<host>/api/v1/auth/oidc/callback`
+   - Scopes: `openid`, `profile`, `email`
+   - Username claim: `preferred_username` (default; matches Keycloak default)
+   - Allowed groups: optional; leave empty for "any verified user"
+4. Save. All live cookies invalidate (session epoch bump). Re-login via
+   the SSO button on the login page.
+
+### Recovery
+
+If you lock yourself out, run:
+
+```
+seasonfill auth-mode --set forms
+```
+
+from the container shell. This restores forms-auth without clearing the
+OIDC config, so you can fix the issue and switch back.
 
 ## Contributing
 

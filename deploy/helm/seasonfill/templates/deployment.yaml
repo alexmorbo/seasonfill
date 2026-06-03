@@ -87,6 +87,13 @@ spec:
                   name: {{ include "seasonfill.secretName" . }}
                   key: {{ .Values.secrets.keys.webPasswordHash }}
                   optional: true
+            {{- if .Values.oidc.enabled }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seasonfill.secretName" . }}
+                  key: {{ .Values.secrets.keys.oidcClientSecret }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

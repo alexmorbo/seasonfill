@@ -86,6 +86,10 @@ secrets:
   webPassword: ""
   webPasswordHash: ""
   postgresDSN: ""
+  # Set only when `oidc.enabled=true` (and `secrets.existingSecret` is empty).
+  # When `secrets.existingSecret` is set, this key must come from the external
+  # Secret instead.
+  oidcClientSecret: ""
 
   keys:
     apiKey: "api-key"
@@ -93,6 +97,19 @@ secrets:
     webPassword: "web-password"
     webPasswordHash: "web-password-hash"
     postgresDSN: "postgres-dsn"
+    oidcClientSecret: "oidc-client-secret"
+
+# OIDC mode (Story 037). Defaults to disabled; flip `enabled: true` AND
+# either provide `secrets.oidcClientSecret` inline OR point at an
+# `existingSecret` that contains the `oidc-client-secret` key. The rest
+# of the OIDC config (issuer, client_id, redirect_url, scopes,
+# username_claim, allowed_groups) is set at runtime via the Settings →
+# Security UI and persists in the runtime_config DB row.
+oidc:
+  enabled: false
+  # clientSecret is sourced from the Secret rendered by this chart
+  # (key: oidc-client-secret) — DO NOT put the literal value here.
+  # Set `secrets.oidcClientSecret` instead.
 
 persistence:
   enabled: false

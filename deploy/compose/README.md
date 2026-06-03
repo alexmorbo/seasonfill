@@ -161,6 +161,39 @@ docker compose down            # keeps the SQLite volume
 docker compose down -v         # wipes the SQLite volume too
 ```
 
+## OIDC mode
+
+Seasonfill can delegate browser authentication to an external OpenID Connect
+provider (Keycloak, Authelia, Authentik). Automation clients (webhooks,
+scripts using X-Api-Key) continue to work unchanged.
+
+### Setup
+
+1. Provision the OIDC client in your provider. Redirect URI must match
+   Seasonfill's `redirect_url` exactly. For local docker-compose, that's
+   `http://localhost:8080/api/v1/auth/oidc/callback`.
+2. Copy the client secret into a `.env` next to the compose file:
+   `OIDC_CLIENT_SECRET=...`. Uncomment the `OIDC_CLIENT_SECRET:` env line
+   in `docker-compose.yaml`.
+3. `docker compose up -d`.
+4. Open the Seasonfill UI, go to Settings → Security, switch the
+   Authentication dropdown to `OIDC`, fill in issuer URL, client ID,
+   redirect URL, scopes, and username claim. Save.
+
+The example `docker-compose.yaml` contains a commented Keycloak side-service
+(`quay.io/keycloak/keycloak:25.0`) you can uncomment for testing.
+
+### Recovery
+
+If you lock yourself out (e.g. wrong issuer URL or revoked provider):
+
+```
+docker exec seasonfill-backend seasonfill auth-mode --set forms
+```
+
+This flips the backend back to forms-auth without touching the OIDC config —
+the values are still there when you flip back.
+
 ## Troubleshooting
 
 - **Login page loads but credentials are rejected.** Tail

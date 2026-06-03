@@ -32,6 +32,8 @@ services:
       SEASONFILL_WEB_USER: ${SEASONFILL_WEB_USER:-admin}
       SEASONFILL_WEB_PASSWORD: ${SEASONFILL_WEB_PASSWORD:-admin}
       SEASONFILL_WEB_PASSWORD_HASH: ${SEASONFILL_WEB_PASSWORD_HASH:-}
+      # Uncomment AND set when switching Settings → Security → Authentication to `OIDC`.
+      # OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
     volumes:
       - seasonfill-data:/data
 
@@ -55,3 +57,20 @@ services:
 volumes:
   seasonfill-data:
     driver: local
+
+# Example Keycloak side-service for testing OIDC mode. Uncomment to enable.
+# After `docker compose up -d`, open http://localhost:8180, log in as admin/admin,
+# create a realm `homelab`, a client `seasonfill` with redirect URI
+# `http://localhost:8080/api/v1/auth/oidc/callback`, copy the client secret into
+# `.env` as OIDC_CLIENT_SECRET=..., then configure Seasonfill in Settings →
+# Security with issuer `http://keycloak:8080/realms/homelab`.
+#
+#   keycloak:
+#     image: quay.io/keycloak/keycloak:25.0
+#     container_name: seasonfill-keycloak
+#     command: ["start-dev"]
+#     environment:
+#       KEYCLOAK_ADMIN: admin
+#       KEYCLOAK_ADMIN_PASSWORD: admin
+#     ports:
+#       - "8180:8080"

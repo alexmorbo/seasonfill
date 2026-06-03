@@ -15,6 +15,7 @@
         "webPassword":     {"type": "string"},
         "webPasswordHash": {"type": "string"},
         "postgresDSN":     {"type": "string"},
+        "oidcClientSecret": {"type": "string", "default": ""},
         "keys": {
           "type": "object",
           "additionalProperties": false,
@@ -27,7 +28,8 @@
             "webUser":         {"type": "string", "minLength": 1},
             "webPassword":     {"type": "string", "minLength": 1},
             "webPasswordHash": {"type": "string", "minLength": 1},
-            "postgresDSN":     {"type": "string", "minLength": 1}
+            "postgresDSN":     {"type": "string", "minLength": 1},
+            "oidcClientSecret": {"type": "string", "default": "oidc-client-secret"}
           }
         }
       },
@@ -88,6 +90,13 @@
       "additionalProperties": true,
       "properties": {
         "bind": {"type": "string"}
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean", "default": false}
       }
     },
     "ingress": {
