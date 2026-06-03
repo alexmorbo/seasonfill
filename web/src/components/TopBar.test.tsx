@@ -6,6 +6,7 @@ import { TopBar } from './TopBar';
 import { InstanceFilterProvider } from '@/lib/instance-filter-context';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import * as auth from '@/lib/auth';
+import * as authConfig from '@/lib/auth-config';
 
 const { navigateSpy, toastSpies } = vi.hoisted(() => ({
   navigateSpy: vi.fn(),
@@ -16,6 +17,13 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => navigateSpy };
 });
 vi.mock('sonner', () => ({ toast: toastSpies }));
+
+function mockCfg(mode: 'forms' | 'basic' | 'none') {
+  vi.spyOn(authConfig, 'useAuthConfig').mockReturnValue({
+    data: { mode, localBypass: false },
+    isSuccess: true, isPending: false, isError: false, error: null,
+  } as unknown as ReturnType<typeof authConfig.useAuthConfig>);
+}
 
 beforeEach(() => {
   Object.defineProperty(window, 'location', {
@@ -34,15 +42,13 @@ beforeEach(() => {
     isError: false,
     error: null,
   } as unknown as ReturnType<typeof auth.useSession>);
+  mockCfg('forms');
 });
 afterEach(() => {
   vi.restoreAllMocks();
   navigateSpy.mockReset(); toastSpies.success.mockReset(); toastSpies.error.mockReset();
 });
 
-// Local TooltipProvider with delayDuration=0 mirrors the production
-// provider in main.tsx and keeps tooltip-open semantics synchronous-ish
-// in unit tests. See SeriesGroup.test.tsx for the canonical pattern.
 const ui = () => (
   <TooltipProvider delayDuration={0}>
     <InstanceFilterProvider><TopBar onMenuClick={() => {}} /></InstanceFilterProvider>
@@ -52,22 +58,14 @@ const ui = () => (
 describe('<TopBar />', () => {
   it('renders one chip per instance from useInstances()', async () => {
     renderWithProviders(ui());
-    // Chip accessible name = visible instance name. The chip names ('alpha',
-    // 'beta') are unique within TopBar, so screen-level findByRole is enough
-    // — and crucially awaits the async React Query fetch that populates them.
     expect(await screen.findByRole('button', { name: 'alpha' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'beta' })).toBeInTheDocument();
   });
 
   it('colors the chip dot from health: green for Available, red for Unavailable*', async () => {
     renderWithProviders(ui());
-    // The dot is the chip button's first child span. With capitalized
-    // backend values, healthKind() maps Available→success (green) and the
-    // Unavailable* family→danger (red). A lowercase revert would miss every
-    // real value and fall through to neutral, failing both assertions.
     const alpha = await screen.findByRole('button', { name: 'alpha' });
     expect(alpha.querySelector('span')).toHaveClass('bg-status-success');
-
     const beta = screen.getByRole('button', { name: 'beta' });
     expect(beta.querySelector('span')).toHaveClass('bg-status-danger');
   });
@@ -80,7 +78,30 @@ describe('<TopBar />', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('logout calls auth.logout() and navigates to /login', async () => {
+  it('mode=forms: account menu shows Logout + Change password', async () => {
+    renderWithProviders(ui());
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(await screen.findByRole('menuitem', { name: /logout/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /change password/i })).toBeInTheDocument();
+  });
+
+  it('mode=basic: hides Logout and Change-password', async () => {
+    mockCfg('basic');
+    renderWithProviders(ui());
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(screen.queryByRole('menuitem', { name: /logout/i })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /change password/i })).toBeNull();
+  });
+
+  it('mode=none: hides Logout/Change-password and shows Anonymous label', async () => {
+    mockCfg('none');
+    renderWithProviders(ui());
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(screen.queryByRole('menuitem', { name: /logout/i })).toBeNull();
+    expect(await screen.findByText(/anonymous/i)).toBeInTheDocument();
+  });
+
+  it('logout calls auth.logout() and navigates to /login under mode=forms', async () => {
     const spy = vi.spyOn(auth, 'logout').mockResolvedValue(undefined);
     renderWithProviders(ui());
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
@@ -90,7 +111,7 @@ describe('<TopBar />', () => {
     expect(navigateSpy).toHaveBeenCalledWith('/login', { replace: true });
   });
 
-  it('account menu shows the session username as the label', async () => {
+  it('mode=forms: account menu shows the session username as the label', async () => {
     renderWithProviders(ui());
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     expect(await screen.findByText('admin')).toBeInTheDocument();

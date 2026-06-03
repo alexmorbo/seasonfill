@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Info, Loader2, Lock } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { AlertTriangle, Info, Loader2, Lock, ShieldAlert } from 'lucide-react';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
 } from '@/lib/runtime-config';
 import { TrustedProxiesEditor } from './TrustedProxiesEditor';
+import { LocalNetworksEditor, LOCAL_NETWORK_DEFAULTS } from './LocalNetworksEditor';
 import { isValidCIDR } from '@/lib/cidr';
+
+const AUTH_MODES = ['forms', 'basic', 'none'] as const;
+type AuthModeValue = (typeof AUTH_MODES)[number];
 
 const schema = z.object({
   session_ttl_min: z
@@ -25,6 +32,11 @@ const schema = z.object({
   trusted_proxies: z
     .array(z.string())
     .refine((arr) => arr.every(isValidCIDR), 'settings.security.proxies.invalid'),
+  auth_mode: z.enum(AUTH_MODES),
+  auth_local_bypass: z.boolean(),
+  auth_local_networks: z
+    .array(z.string())
+    .refine((arr) => arr.every(isValidCIDR), 'settings.security.localNetworks.invalid'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -64,23 +76,35 @@ function parseTTL(raw: string | undefined): number | null {
   return Math.max(1, Math.round(minutes));
 }
 
+function narrowMode(raw: string | undefined): AuthModeValue {
+  return raw === 'basic' || raw === 'none' || raw === 'forms' ? raw : 'forms';
+}
+
 function configToForm(c: RuntimeConfig | undefined): FormValues {
   return {
     session_ttl_min: parseTTL(c?.auth?.session_ttl) ?? DEFAULT_TTL_MIN,
     secure_cookie: Boolean(c?.auth?.secure_cookie ?? false),
     trusted_proxies: (c?.auth?.trusted_proxies ?? []) as string[],
+    auth_mode: narrowMode(c?.auth?.mode),
+    auth_local_bypass: Boolean(c?.auth?.local_bypass ?? false),
+    auth_local_networks: (c?.auth?.local_networks ?? []) as string[],
   };
 }
 
 function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues): RuntimeConfig {
   const base = prev ?? {};
+  const { session_epoch: _epoch, ...baseAuthWithoutEpoch } = base.auth ?? {};
   return {
     ...base,
     auth: {
-      ...(base.auth ?? {}),
+      ...baseAuthWithoutEpoch,
       session_ttl: `${v.session_ttl_min}m`,
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
+      mode: v.auth_mode,
+      local_bypass: v.auth_local_bypass,
+      local_networks: v.auth_local_networks,
+      // session_epoch deliberately omitted — server manages it.
     },
   } as RuntimeConfig;
 }
@@ -92,12 +116,13 @@ export function SecurityTab() {
   const onPlainHTTP =
     typeof window !== 'undefined' && window.location.protocol === 'http:';
 
+  const initialDefaults = useMemo(() => configToForm(undefined), []);
   const {
-    register, handleSubmit, reset, watch, setValue,
+    register, handleSubmit, reset, control, setValue,
     formState: { errors, isDirty, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: configToForm(undefined),
+    defaultValues: initialDefaults,
     mode: 'onBlur',
   });
 
@@ -123,6 +148,12 @@ export function SecurityTab() {
     });
   });
 
+  const authMode = useWatch({ control, name: 'auth_mode', defaultValue: 'forms' });
+  const localBypass = useWatch({ control, name: 'auth_local_bypass', defaultValue: false });
+  const localNetworks = useWatch({ control, name: 'auth_local_networks', defaultValue: [] });
+  const secureCookie = useWatch({ control, name: 'secure_cookie', defaultValue: false });
+  const trustedProxies = useWatch({ control, name: 'trusted_proxies', defaultValue: [] });
+
   const onDiscard = () => reset(configToForm(q.data?.config));
 
   if (q.isPending) {
@@ -142,8 +173,96 @@ export function SecurityTab() {
     );
   }
 
+  // Migrate empty-on-load: when the user toggles bypass ON for the first
+  // time we want a sensible starting set rather than an empty CIDR list,
+  // which would semantically mean "no addresses are local" and silently
+  // defeat the toggle. Seed defaults ONLY if the list is currently empty.
+  const onBypassChange = (next: 'enabled' | 'disabledLocal') => {
+    const enabled = next === 'disabledLocal';
+    setValue('auth_local_bypass', enabled, { shouldDirty: true });
+    if (enabled && localNetworks.length === 0) {
+      setValue('auth_local_networks', [...LOCAL_NETWORK_DEFAULTS], { shouldDirty: true });
+    }
+  };
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
+      <section className="flex flex-col gap-4">
+        <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.security.auth.section')}</h3>
+
+        <div className="flex flex-col gap-1.5 max-w-md">
+          <Label htmlFor="auth-mode">{t('settings.security.auth.modeLabel')}</Label>
+          <Select
+            value={authMode}
+            onValueChange={(v) => {
+              if (v) setValue('auth_mode', v as AuthModeValue, { shouldDirty: true });
+            }}
+          >
+            <SelectTrigger id="auth-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="forms">{t('settings.security.auth.modes.forms')}</SelectItem>
+              <SelectItem value="basic">{t('settings.security.auth.modes.basic')}</SelectItem>
+              <SelectItem value="none">{t('settings.security.auth.modes.none')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11.5px] text-muted">
+            {t(`settings.security.auth.modeHints.${authMode}`)}
+          </p>
+        </div>
+
+        {authMode === 'none' && (
+          <Alert variant="destructive">
+            <ShieldAlert className="w-4 h-4" />
+            <AlertTitle>{t('settings.security.auth.noneWarningTitle')}</AlertTitle>
+            <AlertDescription>{t('settings.security.auth.noneWarning')}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex flex-col gap-1.5 max-w-md">
+          <Label htmlFor="auth-required">{t('settings.security.auth.requiredLabel')}</Label>
+          <Select
+            value={localBypass ? 'disabledLocal' : 'enabled'}
+            onValueChange={(v) => {
+              if (v) onBypassChange(v as 'enabled' | 'disabledLocal');
+            }}
+          >
+            <SelectTrigger id="auth-required">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="enabled">{t('settings.security.auth.required.enabled')}</SelectItem>
+              <SelectItem value="disabledLocal">{t('settings.security.auth.required.disabledLocal')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11.5px] text-muted">
+            {t('settings.security.auth.required.hint')}
+          </p>
+        </div>
+
+        {localBypass && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="local-networks">{t('settings.security.localNetworks.section')}</Label>
+            <p className="text-[12px] text-muted">
+              {t('settings.security.localNetworks.hint')}
+            </p>
+            <LocalNetworksEditor
+              id="local-networks"
+              value={localNetworks}
+              onChange={(next) =>
+                setValue('auth_local_networks', [...next], { shouldDirty: true })
+              }
+            />
+            {errors.auth_local_networks && (
+              <p role="alert" className="text-[11.5px] text-status-danger">
+                {t(errors.auth_local_networks.message ?? '')}
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
       <section className="flex flex-col gap-4">
         <h3 className="text-[14px] font-semibold tracking-tight">{t('settings.security.sessions.section')}</h3>
 
@@ -203,7 +322,7 @@ export function SecurityTab() {
             </div>
             <Switch
               id="secure"
-              checked={watch('secure_cookie')}
+              checked={secureCookie}
               onCheckedChange={(v) => setValue('secure_cookie', v, { shouldDirty: true })}
             />
           </div>
@@ -217,7 +336,7 @@ export function SecurityTab() {
         </p>
         <TrustedProxiesEditor
           id="proxies"
-          value={watch('trusted_proxies')}
+          value={trustedProxies}
           onChange={(next) => setValue('trusted_proxies', [...next], { shouldDirty: true })}
         />
         {errors.trusted_proxies && (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,8 +8,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
 import { loginWithPassword, sessionQueryKey } from '@/lib/auth';
+import { useAuthConfig } from '@/lib/auth-config';
 
 const schema = z.object({
   username: z.string().min(1, 'login.usernameRequired'),
@@ -28,12 +30,24 @@ export function Login() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const qc = useQueryClient();
+  const cfg = useAuthConfig();
   const [serverErr, setServerErr] = useState<string | null>(null);
   const { register, handleSubmit, formState: { errors, isSubmitting } } =
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: { username: '', password: '' },
     });
+
+  // Mode-aware redirect: Login page only makes sense for mode=forms.
+  // Under basic / none the browser popup or open-access path takes over;
+  // landing on /login is a stale-URL artifact and we send the user home.
+  // Effect (not conditional render) so the form below remains the
+  // graceful-degradation path when cfg.isError.
+  useEffect(() => {
+    if (cfg.isSuccess && cfg.data.mode !== 'forms') {
+      navigate(safeNext(params.get('next')), { replace: true });
+    }
+  }, [cfg.isSuccess, cfg.data?.mode, navigate, params]);
 
   const onSubmit = handleSubmit(async ({ username, password }) => {
     setServerErr(null);
@@ -58,6 +72,23 @@ export function Login() {
       }
     }
   });
+
+  // While the config is in flight, render a skeleton instead of the form.
+  // This avoids users on a mode=basic deployment briefly seeing — and
+  // potentially submitting — the Forms login before the redirect fires.
+  if (cfg.isPending) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-bg px-4">
+        <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen grid place-items-center bg-bg px-4">

@@ -5,6 +5,7 @@ import {
   runtimeConfigKey, useRuntimeConfig, useUpdateRuntimeConfig,
   type RuntimeConfigWithMeta,
 } from './runtime-config';
+import { authConfigQueryKey } from './auth-config';
 
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
@@ -72,8 +73,6 @@ describe('useUpdateRuntimeConfig()', () => {
     }) as typeof fetch;
 
     const qc = makeQC();
-    // Even with a cached Last-Modified present, the PUT must NOT send a
-    // precondition — runtime config is last-write-wins.
     const seed: RuntimeConfigWithMeta = {
       config: { dry_run: true } as never,
       lastModified: 'Wed, 21 Oct 2025 07:28:00 GMT',
@@ -85,6 +84,21 @@ describe('useUpdateRuntimeConfig()', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(captured.headers?.['If-Unmodified-Since']).toBeUndefined();
     expect(toastSuccess).toHaveBeenCalledWith('Settings saved');
+  });
+
+  it('invalidates authConfigQueryKey on save (mode change propagation)', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResp({ dry_run: false }, 200)) as typeof fetch;
+    const qc = makeQC();
+    // Seed the auth-config cache with a stale value so we can verify it
+    // gets invalidated; we test via QueryClient state rather than a spy on
+    // invalidateQueries because the latter is more brittle.
+    qc.setQueryData(authConfigQueryKey, { mode: 'forms', localBypass: false });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateRuntimeConfig(), { wrapper: wrap(qc) });
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const calls = invalidateSpy.mock.calls.map((c) => c[0]);
+    expect(calls).toContainEqual({ queryKey: authConfigQueryKey });
   });
 
   it('400 surfaces the server message verbatim', async () => {

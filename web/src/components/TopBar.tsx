@@ -11,6 +11,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/api';
 import { logout, useSession } from '@/lib/auth';
+import { useAuthConfig } from '@/lib/auth-config';
 import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useDebugActions } from '@/lib/use-debug-actions';
@@ -30,7 +31,19 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const dbg = useDebugActions();
   const instances = data?.instances ?? [];
   const { data: session } = useSession();
+  const cfg = useAuthConfig();
   const [pwOpen, setPwOpen] = useState(false);
+
+  // Formal auth surface (Logout + Change password) only makes sense when
+  // we own the credential flow. Under Basic, the browser controls the
+  // popup; under None, there's nothing to sign out from. Default to
+  // 'forms' when the config is still loading to avoid hiding controls
+  // mid-flight on first paint.
+  const mode = cfg.data?.mode ?? 'forms';
+  const showFormsControls = mode === 'forms';
+  const accountLabel = showFormsControls
+    ? (session?.username ?? t('nav.account'))
+    : t('nav.anonymous');
 
   const onLogout = async () => {
     try { await logout(); toast.success(t('nav.signedOut')); }
@@ -98,16 +111,22 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[220px]">
           <DropdownMenuLabel>
-            {session?.username ?? t('nav.account')}
+            {accountLabel}
           </DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => setPwOpen(true)}>
-            <KeyRound className="w-3.5 h-3.5 mr-2" /> {t('nav.changePassword')}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onLogout}>
-            <LogOut className="w-3.5 h-3.5 mr-2" /> {t('nav.logout')}
-            <span className="ml-auto mono text-[11px] text-faint">⌘⇧Q</span>
-          </DropdownMenuItem>
+          {showFormsControls && (
+            <DropdownMenuItem onSelect={() => setPwOpen(true)}>
+              <KeyRound className="w-3.5 h-3.5 mr-2" /> {t('nav.changePassword')}
+            </DropdownMenuItem>
+          )}
+          {showFormsControls && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onLogout}>
+                <LogOut className="w-3.5 h-3.5 mr-2" /> {t('nav.logout')}
+                <span className="ml-auto mono text-[11px] text-faint">⌘⇧Q</span>
+              </DropdownMenuItem>
+            </>
+          )}
           {import.meta.env.DEV && (
             <>
               <DropdownMenuSeparator />

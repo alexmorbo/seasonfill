@@ -4,6 +4,7 @@ import {
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ApiError } from './api';
+import { authConfigQueryKey } from './auth-config';
 import type { components } from '@/api/schema';
 
 export type RuntimeConfig = components['schemas']['dto.RuntimeConfigDTO'];
@@ -81,6 +82,11 @@ export function useUpdateRuntimeConfig() {
         runtimeConfigKey, { config, lastModified },
       );
       qc.invalidateQueries({ queryKey: runtimeConfigKey });
+      // Auth mode / local-bypass may have changed — drop the cached
+      // /auth/config snapshot so Login, TopBar, banner re-evaluate the
+      // next render. Must run BEFORE the mutation promise resolves so
+      // Settings doesn't show the old mode briefly after Save.
+      qc.invalidateQueries({ queryKey: authConfigQueryKey });
       toast.success('Settings saved');
     },
     onError: (err) => {

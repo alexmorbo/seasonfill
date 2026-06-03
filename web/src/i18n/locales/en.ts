@@ -108,6 +108,7 @@ export const en = {
     documentation: 'Documentation',
     account: 'Account',
     accountMenu: 'Account menu',
+    anonymous: 'Anonymous',
     toggleNav: 'Toggle navigation',
     connectionLost: 'Connection lost',
     allSystemsNominal: 'All systems nominal',
@@ -511,6 +512,40 @@ export const en = {
       },
     },
     security: {
+      auth: {
+        section: 'Authentication',
+        modeLabel: 'Authentication',
+        modes: {
+          forms: 'Forms (login page)',
+          basic: 'Basic (browser popup)',
+          none: 'None (no authentication)',
+        },
+        modeHints: {
+          forms: 'Users sign in through the Seasonfill login page. Recommended for most deployments.',
+          basic: 'Browser shows a Basic Auth popup. Useful for CLI / scripted clients.',
+          none: 'No authentication. Use ONLY behind a reverse proxy that authenticates.',
+        },
+        noneWarningTitle: 'No authentication enabled',
+        noneWarning: 'Use only behind a reverse proxy with authentication (Pangolin, oauth2-proxy, Authelia, etc).',
+        requiredLabel: 'Authentication required',
+        required: {
+          enabled: 'Enabled for all addresses',
+          disabledLocal: 'Disabled for local addresses',
+          hint: 'When disabled for local addresses, requests from the listed CIDR ranges bypass authentication.',
+        },
+      },
+      localNetworks: {
+        section: 'Local networks',
+        hint: 'CIDR ranges that bypass authentication when enabled. Defaults cover RFC1918, loopback, link-local, and ULA.',
+        emptyHint: 'No local networks defined — bypass is effectively off.',
+        addPlaceholder: '192.168.1.0/24 or fd00::/8',
+        addButton: 'Add',
+        resetDefaults: 'Reset to defaults',
+        removeAria: 'Remove {{cidr}}',
+        invalidCidr: '"{{cidr}}" is not a valid IP or CIDR',
+        duplicate: '"{{cidr}}" is already in the list',
+        invalid: 'One or more local-network entries are invalid',
+      },
       sessions: {
         section: 'Sessions',
         ttl: 'Session TTL (minutes)',

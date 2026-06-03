@@ -110,6 +110,7 @@ export const ru: Translations = {
     documentation: 'Документация',
     account: 'Аккаунт',
     accountMenu: 'Меню аккаунта',
+    anonymous: 'Аноним',
     toggleNav: 'Переключить меню',
     connectionLost: 'Связь потеряна',
     allSystemsNominal: 'Все системы в норме',
@@ -513,6 +514,40 @@ export const ru: Translations = {
       },
     },
     security: {
+      auth: {
+        section: 'Аутентификация',
+        modeLabel: 'Способ аутентификации',
+        modes: {
+          forms: 'Forms (страница входа)',
+          basic: 'Basic (browser popup)',
+          none: 'None (без аутентификации)',
+        },
+        modeHints: {
+          forms: 'Пользователи входят через страницу логина Seasonfill. Подходит для большинства развёртываний.',
+          basic: 'Браузер показывает Basic Auth popup. Удобно для CLI / скриптов.',
+          none: 'Без аутентификации. Используйте ТОЛЬКО за reverse-proxy с собственной авторизацией.',
+        },
+        noneWarningTitle: 'Аутентификация отключена',
+        noneWarning: 'Используйте только за reverse-proxy с собственной аутентификацией (Pangolin, oauth2-proxy, Authelia и т. п.).',
+        requiredLabel: 'Требовать аутентификацию',
+        required: {
+          enabled: 'Для всех адресов',
+          disabledLocal: 'Не требовать для локальных адресов',
+          hint: 'Когда отключено для локальных адресов, запросы из перечисленных CIDR-диапазонов проходят без аутентификации.',
+        },
+      },
+      localNetworks: {
+        section: 'Локальные сети',
+        hint: 'CIDR-диапазоны, которые обходят аутентификацию при включённой опции. По умолчанию: RFC1918, loopback, link-local и ULA.',
+        emptyHint: 'Локальные сети не заданы — обход фактически выключен.',
+        addPlaceholder: '192.168.1.0/24 или fd00::/8',
+        addButton: 'Добавить',
+        resetDefaults: 'Сбросить к умолчанию',
+        removeAria: 'Убрать {{cidr}}',
+        invalidCidr: '«{{cidr}}» не похоже на IP или CIDR',
+        duplicate: '«{{cidr}}» уже в списке',
+        invalid: 'Одна или несколько записей локальных сетей некорректны',
+      },
       sessions: {
         section: 'Сессии',
         ttl: 'Session TTL (минуты)',
