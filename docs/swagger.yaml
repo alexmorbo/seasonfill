@@ -5,6 +5,12 @@ components:
         local_bypass:
           example: false
           type: boolean
+        login_url:
+          description: |-
+            LoginURL is set when mode=oidc — points at the public /auth/oidc/start
+            endpoint. Empty string for other modes.
+          example: /api/v1/auth/oidc/start
+          type: string
         mode:
           example: forms
           type: string
@@ -496,9 +502,12 @@ components:
           type: array
           uniqueItems: false
         mode:
-          description: Mode is one of "forms" | "basic" | "none". Default "forms".
+          description: Mode is one of "forms" | "basic" | "none" | "oidc". Default
+            "forms".
           example: forms
           type: string
+        oidc:
+          $ref: '#/components/schemas/dto.RuntimeOIDCDTO'
         secure_cookie:
           type: boolean
         session_epoch:
@@ -549,6 +558,37 @@ components:
           type: boolean
         schedule:
           example: 0 */6 * * *
+          type: string
+      type: object
+    dto.RuntimeOIDCDTO:
+      properties:
+        allowed_groups:
+          example:
+          - admins
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        client_id:
+          example: seasonfill
+          type: string
+        issuer:
+          example: https://keycloak.example.com/realms/homelab
+          type: string
+        redirect_url:
+          example: https://seasonfill.example.com/api/v1/auth/oidc/callback
+          type: string
+        scopes:
+          example:
+          - openid
+          - profile
+          - email
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        username_claim:
+          example: preferred_username
           type: string
       type: object
     dto.RuntimeRateLimitDTO:
@@ -746,10 +786,6 @@ openapi: 3.1.0
 paths:
   /auth/config:
     get:
-      description: |-
-        Returns the active auth backend (forms|basic|none) and
-        whether local-address bypass is enabled. Public endpoint —
-        no authentication required.
       responses:
         "200":
           content:
@@ -803,6 +839,41 @@ paths:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Too Many Requests
       summary: Authenticate and issue a session cookie
+      tags:
+      - auth
+  /auth/oidc/callback:
+    get:
+      parameters:
+      - description: authorization code
+        in: query
+        name: code
+        required: true
+        schema:
+          type: string
+      - description: echoed state
+        in: query
+        name: state
+        required: true
+        schema:
+          type: string
+      responses:
+        "302":
+          description: Found
+      summary: OIDC callback
+      tags:
+      - auth
+  /auth/oidc/start:
+    get:
+      parameters:
+      - description: same-origin path to return to after login
+        in: query
+        name: next
+        schema:
+          type: string
+      responses:
+        "302":
+          description: Found
+      summary: OIDC start
       tags:
       - auth
   /auth/password:

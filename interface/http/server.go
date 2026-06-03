@@ -47,6 +47,7 @@ func NewServer(
 	instanceCRUD *handlers.InstanceCRUDHandler,
 	instanceProbe *handlers.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
+	oidcUC *auth.OIDCLoginUseCase,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -102,6 +103,14 @@ func NewServer(
 		// Reads from the same AuthRuntime atomic the dispatcher uses.
 		authConfigHandler := handlers.NewAuthConfigHandler(authHandler.AuthRuntime())
 		api.GET("/auth/config", authConfigHandler.Get)
+
+		oidcHandler := handlers.NewOIDCHandler(
+			oidcUC, authHandler.AuthRuntime(), sessionKey,
+			cfg.Auth.SessionTTL, cfg.Auth.SecureCookie,
+			cfg.Auth.OIDCClientSecret, logger,
+		)
+		api.GET("/auth/oidc/start", oidcHandler.Start)
+		api.GET("/auth/oidc/callback", oidcHandler.Callback)
 
 		guarded := api.Group("")
 		guarded.Use(middleware.RequireAuthWithRuntime(

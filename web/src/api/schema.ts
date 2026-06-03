@@ -9,12 +9,7 @@ export type paths = {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /**
-         * Public auth-mode bootstrap
-         * @description Returns the active auth backend (forms|basic|none) and
-         *     whether local-address bypass is enabled. Public endpoint —
-         *     no authentication required.
-         */
+        /** Public auth-mode bootstrap */
         readonly get: {
             readonly parameters: {
                 readonly query?: never;
@@ -111,6 +106,82 @@ export type paths = {
                 };
             };
         };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/auth/oidc/callback": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** OIDC callback */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description authorization code */
+                    readonly code: string;
+                    /** @description echoed state */
+                    readonly state: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description Found */
+                readonly 302: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/auth/oidc/start": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** OIDC start */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description same-origin path to return to after login */
+                    readonly next?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description Found */
+                readonly 302: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -1531,6 +1602,12 @@ export type components = {
         readonly "dto.AuthConfigDTO": {
             /** @example false */
             readonly local_bypass?: boolean;
+            /**
+             * @description LoginURL is set when mode=oidc — points at the public /auth/oidc/start
+             *     endpoint. Empty string for other modes.
+             * @example /api/v1/auth/oidc/start
+             */
+            readonly login_url?: string;
             /** @example forms */
             readonly mode?: string;
         };
@@ -1812,10 +1889,11 @@ export type components = {
              */
             readonly local_networks?: readonly string[];
             /**
-             * @description Mode is one of "forms" | "basic" | "none". Default "forms".
+             * @description Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
              * @example forms
              */
             readonly mode?: string;
+            readonly oidc?: components["schemas"]["dto.RuntimeOIDCDTO"];
             readonly secure_cookie?: boolean;
             /**
              * @description SessionEpoch is read-only — the server bumps it whenever any
@@ -1851,6 +1929,30 @@ export type components = {
             readonly on_start?: boolean;
             /** @example 0 *\/6 * * * */
             readonly schedule?: string;
+        };
+        readonly "dto.RuntimeOIDCDTO": {
+            /**
+             * @example [
+             *       "admins"
+             *     ]
+             */
+            readonly allowed_groups?: readonly string[];
+            /** @example seasonfill */
+            readonly client_id?: string;
+            /** @example https://keycloak.example.com/realms/homelab */
+            readonly issuer?: string;
+            /** @example https://seasonfill.example.com/api/v1/auth/oidc/callback */
+            readonly redirect_url?: string;
+            /**
+             * @example [
+             *       "openid",
+             *       "profile",
+             *       "email"
+             *     ]
+             */
+            readonly scopes?: readonly string[];
+            /** @example preferred_username */
+            readonly username_claim?: string;
         };
         readonly "dto.RuntimeRateLimitDTO": {
             /** @example 10 */

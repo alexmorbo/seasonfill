@@ -47,11 +47,12 @@ func NewHealthCheckConfig(hc runtime.HealthCheckSnapshot) HealthCheckConfig {
 // For compatibility with existing HTTP handler code, we define a type that
 // bridges both sources.
 type Auth struct {
-	Enabled        bool
-	APIKey         string
-	SessionTTL     time.Duration
-	SecureCookie   bool
-	TrustedProxies []string
+	Enabled          bool
+	APIKey           string
+	SessionTTL       time.Duration
+	SecureCookie     bool
+	TrustedProxies   []string
+	OIDCClientSecret string
 	// Below are bootstrap-only; kept on this struct for test-fixture
 	// compatibility. Server runtime does not read them — see AuthBootstrap.
 	WebUser         string
@@ -106,10 +107,11 @@ type PostgresConfig struct {
 // admin row and the HKDF input for AES-GCM. Everything else
 // (session_ttl, secure_cookie, trusted_proxies) lives in DB.
 type AuthBootstrap struct {
-	APIKey          string
-	WebUser         string
-	WebPassword     string
-	WebPasswordHash string
+	APIKey           string
+	WebUser          string
+	WebPassword      string
+	WebPasswordHash  string
+	OIDCClientSecret string
 }
 
 var (
@@ -146,10 +148,11 @@ func FromEnv() (*Bootstrap, error) {
 			},
 		},
 		Auth: AuthBootstrap{
-			APIKey:          os.Getenv("SEASONFILL_API_KEY"),
-			WebUser:         getenv("SEASONFILL_WEB_USER", "admin"),
-			WebPassword:     os.Getenv("SEASONFILL_WEB_PASSWORD"),
-			WebPasswordHash: os.Getenv("SEASONFILL_WEB_PASSWORD_HASH"),
+			APIKey:           os.Getenv("SEASONFILL_API_KEY"),
+			WebUser:          getenv("SEASONFILL_WEB_USER", "admin"),
+			WebPassword:      os.Getenv("SEASONFILL_WEB_PASSWORD"),
+			WebPasswordHash:  os.Getenv("SEASONFILL_WEB_PASSWORD_HASH"),
+			OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		},
 	}
 	if err := cfg.Validate(); err != nil {

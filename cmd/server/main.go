@@ -26,6 +26,7 @@ import (
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
@@ -155,6 +156,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	runtimeConfigHandler := handlers.NewRuntimeConfigHandler(runtimeConfigUC, log)
 
 	adminRepo := repositories.NewAdminUserRepository(db)
+	oidcCache := infraoidc.NewProviderCache()
+	oidcUC := authapp.NewOIDCLoginUseCase(oidcCache, adminRepo)
 	if err := authapp.Bootstrap(bgCtx, adminRepo, authapp.BootstrapConfig{
 		WebUser:         bootCfg.Auth.WebUser,
 		WebPassword:     bootCfg.Auth.WebPassword,
@@ -165,11 +168,12 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	// cfg now reads from snap instead of bootstrap config
 	authCfg := config.Auth{
-		Enabled:        true,
-		APIKey:         masterKey,
-		SessionTTL:     snap.Auth.SessionTTL,
-		SecureCookie:   snap.Auth.SecureCookie,
-		TrustedProxies: snap.Auth.TrustedProxies,
+		Enabled:          true,
+		APIKey:           masterKey,
+		SessionTTL:       snap.Auth.SessionTTL,
+		SecureCookie:     snap.Auth.SecureCookie,
+		TrustedProxies:   snap.Auth.TrustedProxies,
+		OIDCClientSecret: bootCfg.Auth.OIDCClientSecret,
 	}
 	httpCfg := bootCfg.HTTP
 	httpCfg.Auth = authCfg
@@ -307,7 +311,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		adminRepo, loginLimiter, webhookLimiter,
 		instanceReg,
 		cooldownRepo, grabUC, rescanUC,
-		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, log)
+		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, oidcUC, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -357,6 +361,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
 	}
+
+	oidcProviderSub := reload.NewOIDCProviderSubscriber(oidcCache, log)
+	go oidcProviderSub.Run(rootCtx, bus, func() {})
 
 	// Re-publish the boot snapshot now that subscribers are alive
 	// — they all apply it once and increment their success metric.
