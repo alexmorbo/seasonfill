@@ -435,7 +435,7 @@ func TestUsecase_RejectsInvalidAuthMode(t *testing.T) {
 	repo := &fakeRuntimeRepo{}
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
 	in := validInput()
-	in.Auth.Mode = "oidc"
+	in.Auth.Mode = "foobar"
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.Error(t, err)
 	var verr *ValidationError
@@ -547,7 +547,7 @@ func TestUsecase_SetAuthMode_RejectsInvalid(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRuntimeRepo{}
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
-	_, err := uc.SetAuthMode(context.Background(), "oidc")
+	_, err := uc.SetAuthMode(context.Background(), "foobar")
 	require.Error(t, err)
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
@@ -626,4 +626,228 @@ func TestValidate_LocalNetworks_MixedIPv4IPv6(t *testing.T) {
 	out, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
 	assert.Len(t, out.Auth.LocalNetworks, 4)
+}
+
+// validOIDCInput returns a minimal-valid set of OIDC fields for use in
+// mode=oidc tests. Callers may further mutate individual sub-fields.
+func validOIDCInput() OIDCInput {
+	return OIDCInput{
+		Issuer:        "https://sso.example.com",
+		ClientID:      "seasonfill",
+		RedirectURL:   "https://app.example.com/callback",
+		Scopes:        []string{"openid", "profile", "email"},
+		UsernameClaim: "preferred_username",
+		AllowedGroups: []string{},
+	}
+}
+
+// --- OIDC validation tests ---
+
+func TestValidate_OIDC_MissingIssuer(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	in.Auth.OIDC.Issuer = ""
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_OIDC_ISSUER", verr.Code)
+}
+
+func TestValidate_OIDC_MissingClientID(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	in.Auth.OIDC.ClientID = ""
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_OIDC_CLIENT_ID", verr.Code)
+}
+
+func TestValidate_OIDC_MissingRedirectURL(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	in.Auth.OIDC.RedirectURL = ""
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_OIDC_REDIRECT_URL", verr.Code)
+}
+
+func TestValidate_OIDC_ScopesWithoutOpenID(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	in.Auth.OIDC.Scopes = []string{"profile", "email"} // missing "openid"
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_OIDC_SCOPES", verr.Code)
+}
+
+func TestValidate_OIDC_AllowedGroupsTooMany(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	groups := make([]string, 65)
+	for i := range groups {
+		groups[i] = "group"
+	}
+	in.Auth.OIDC.AllowedGroups = groups
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_OIDC_GROUPS_TOO_MANY", verr.Code)
+}
+
+// TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK confirms that empty OIDC
+// fields do NOT produce a validation error when auth_mode != oidc.
+// Operators may pre-fill OIDC before switching modes, so the inverse
+// (non-oidc with populated OIDC fields) must also pass — but the
+// minimum requirement here is "empty fields on non-oidc mode = OK".
+func TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		runtime.AuthModeForms,
+		runtime.AuthModeBasic,
+		runtime.AuthModeNone,
+	}
+	for _, mode := range cases {
+		mode := mode
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _ := setup(t)
+			in := validInput()
+			in.Auth.Mode = mode
+			in.Auth.OIDC = OIDCInput{} // all empty
+			_, _, err := uc.Update(context.Background(), in, nil)
+			require.NoError(t, err, "mode=%s with empty OIDC must not fail", mode)
+		})
+	}
+}
+
+// TestUsecase_EpochBumpsOnOIDCIssuerChange confirms that changing the
+// OIDC issuer URL forces session invalidation.
+func TestUsecase_EpochBumpsOnOIDCIssuerChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.OIDC.Issuer = "https://other-sso.example.com"
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first,
+		"OIDC issuer change MUST bump epoch")
+}
+
+// TestUsecase_EpochBumpsOnOIDCClientIDChange confirms that changing the
+// OIDC client_id forces session invalidation.
+func TestUsecase_EpochBumpsOnOIDCClientIDChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.OIDC.ClientID = "new-client-id"
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first,
+		"OIDC client_id change MUST bump epoch")
+}
+
+// TestUsecase_EpochBumpsOnOIDCScopesChange confirms that changing the
+// OIDC scopes list forces session invalidation.
+func TestUsecase_EpochBumpsOnOIDCScopesChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.OIDC.Scopes = []string{"openid", "groups"} // different set
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first,
+		"OIDC scopes change MUST bump epoch")
+}
+
+// TestUsecase_EpochBumpsOnOIDCAllowedGroupsChange confirms that changing
+// the allowed_groups list forces session invalidation.
+func TestUsecase_EpochBumpsOnOIDCAllowedGroupsChange(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	clock := time.Unix(0, 1_000_000_000).UTC()
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClock(func() time.Time { return clock })
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	clock = time.Unix(0, 2_000_000_000).UTC()
+	in.Auth.OIDC.AllowedGroups = []string{"admins"}
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Greater(t, repo.row.Auth.SessionEpoch, first,
+		"OIDC allowed_groups change MUST bump epoch")
+}
+
+// TestUsecase_EpochUnchangedWhenOIDCFieldsStable confirms that re-saving
+// identical OIDC values does NOT bump the epoch. Companion to the
+// "bumps" tests — we lock both directions.
+func TestUsecase_EpochUnchangedWhenOIDCFieldsStable(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRuntimeRepo{}
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeOIDC
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	first := repo.row.Auth.SessionEpoch
+
+	// Identical OIDC fields — only a non-auth field changes.
+	in.Cron.Schedule = "0 0 * * *"
+	_, _, err = uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Equal(t, first, repo.row.Auth.SessionEpoch,
+		"stable OIDC fields must NOT bump epoch")
 }

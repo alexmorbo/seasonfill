@@ -34,7 +34,7 @@ type AuthInput struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
-	// Mode is one of runtime.AuthMode{Forms,Basic,None}. Validated by
+	// Mode is one of runtime.AuthMode{Forms,Basic,None,OIDC}. Validated by
 	// the usecase; rejected at the boundary so a bogus value never
 	// reaches the dispatcher.
 	Mode string
@@ -42,6 +42,19 @@ type AuthInput struct {
 	// Both are wired here so a single PUT applies the full set atomically.
 	LocalBypass   bool
 	LocalNetworks []string
+	OIDC          OIDCInput
+}
+
+// OIDCInput is the wire-validated OIDC config. ClientSecret is NOT here
+// — it ships via OIDC_CLIENT_SECRET env (C6 invariant). Other fields
+// are full-trip on the PUT body and editable from the UI Settings tab.
+type OIDCInput struct {
+	Issuer        string
+	ClientID      string
+	RedirectURL   string
+	Scopes        []string
+	UsernameClaim string
+	AllowedGroups []string
 }
 
 // Output is the typed representation returned by Get and Update.
@@ -66,4 +79,14 @@ type AuthOutput struct {
 	LocalBypass    bool
 	LocalNetworks  []string
 	SessionEpoch   int64
+	OIDC           OIDCOutput
+}
+
+type OIDCOutput struct {
+	Issuer        string
+	ClientID      string
+	RedirectURL   string
+	Scopes        []string
+	UsernameClaim string
+	AllowedGroups []string
 }

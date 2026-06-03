@@ -66,6 +66,27 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 	if len(row.Auth.LocalNetworks) == 0 {
 		row.Auth.LocalNetworks = runtime.DefaultAuthLocalNetworks()
 	}
+	row.Auth.OIDC = runtime.OIDCSnapshot{
+		Issuer:        m.OIDCIssuer,
+		ClientID:      m.OIDCClientID,
+		RedirectURL:   m.OIDCRedirectURL,
+		UsernameClaim: m.OIDCUsernameClaim,
+	}
+	if m.OIDCScopes != "" {
+		_ = json.Unmarshal([]byte(m.OIDCScopes), &row.Auth.OIDC.Scopes)
+	}
+	if len(row.Auth.OIDC.Scopes) == 0 {
+		row.Auth.OIDC.Scopes = runtime.DefaultOIDCSnapshot().Scopes
+	}
+	if row.Auth.OIDC.UsernameClaim == "" {
+		row.Auth.OIDC.UsernameClaim = runtime.DefaultOIDCSnapshot().UsernameClaim
+	}
+	if m.OIDCAllowedGroups != "" {
+		_ = json.Unmarshal([]byte(m.OIDCAllowedGroups), &row.Auth.OIDC.AllowedGroups)
+	}
+	if row.Auth.OIDC.AllowedGroups == nil {
+		row.Auth.OIDC.AllowedGroups = []string{}
+	}
 	return row, nil
 }
 
@@ -74,7 +95,7 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 // the v2 migration. Falls back to forms (the safe pre-036 behaviour).
 func normalizeAuthMode(raw string) string {
 	switch raw {
-	case runtime.AuthModeBasic, runtime.AuthModeNone, runtime.AuthModeForms:
+	case runtime.AuthModeBasic, runtime.AuthModeNone, runtime.AuthModeForms, runtime.AuthModeOIDC:
 		return raw
 	default:
 		return runtime.AuthModeForms
@@ -93,6 +114,8 @@ func (r *RuntimeConfigRepository) Upsert(
 ) error {
 	proxies, _ := json.Marshal(snap.Auth.TrustedProxies)
 	networks, _ := json.Marshal(snap.Auth.LocalNetworks)
+	oidcScopes, _ := json.Marshal(snap.Auth.OIDC.Scopes)
+	oidcGroups, _ := json.Marshal(snap.Auth.OIDC.AllowedGroups)
 
 	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
@@ -124,6 +147,12 @@ func (r *RuntimeConfigRepository) Upsert(
 			existing.AuthLocalBypass = snap.Auth.LocalBypass
 			existing.AuthLocalNetworks = string(networks)
 			existing.AuthSessionEpoch = snap.Auth.SessionEpoch
+			existing.OIDCIssuer = snap.Auth.OIDC.Issuer
+			existing.OIDCClientID = snap.Auth.OIDC.ClientID
+			existing.OIDCRedirectURL = snap.Auth.OIDC.RedirectURL
+			existing.OIDCScopes = string(oidcScopes)
+			existing.OIDCUsernameClaim = snap.Auth.OIDC.UsernameClaim
+			existing.OIDCAllowedGroups = string(oidcGroups)
 			existing.UpdatedAt = now
 			return tx.Save(&existing).Error
 		case errors.Is(err, gorm.ErrRecordNotFound):
@@ -143,6 +172,12 @@ func (r *RuntimeConfigRepository) Upsert(
 				AuthLocalBypass:    snap.Auth.LocalBypass,
 				AuthLocalNetworks:  string(networks),
 				AuthSessionEpoch:   snap.Auth.SessionEpoch,
+				OIDCIssuer:         snap.Auth.OIDC.Issuer,
+				OIDCClientID:       snap.Auth.OIDC.ClientID,
+				OIDCRedirectURL:    snap.Auth.OIDC.RedirectURL,
+				OIDCScopes:         string(oidcScopes),
+				OIDCUsernameClaim:  snap.Auth.OIDC.UsernameClaim,
+				OIDCAllowedGroups:  string(oidcGroups),
 				CreatedAt:          now, UpdatedAt: now,
 			}
 			return tx.Create(&row).Error
@@ -188,11 +223,19 @@ func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, aut
 			AuthLocalBypass:      def.Auth.LocalBypass,
 			AuthLocalNetworks:    string(networksJSON),
 			AuthSessionEpoch:     def.Auth.SessionEpoch,
+			OIDCIssuer:           def.Auth.OIDC.Issuer,
+			OIDCClientID:         def.Auth.OIDC.ClientID,
+			OIDCRedirectURL:      def.Auth.OIDC.RedirectURL,
+			OIDCScopes:           string(mustJSON(def.Auth.OIDC.Scopes)),
+			OIDCUsernameClaim:    def.Auth.OIDC.UsernameClaim,
+			OIDCAllowedGroups:    string(mustJSON(def.Auth.OIDC.AllowedGroups)),
 		}
 		return db.Create(&row).Error
 	default:
 		return fmt.Errorf("save api key: %w", err)
 	}
 }
+
+func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
 var _ ports.RuntimeConfigRepository = (*RuntimeConfigRepository)(nil)

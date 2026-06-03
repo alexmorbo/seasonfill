@@ -111,6 +111,18 @@ func buildAuth(
 			}
 			handleBasicAuth(c, adminRepo, loginLimiter)
 			return
+		case runtime.AuthModeOIDC:
+			// OIDC and forms share session-cookie validation. The OIDC-
+			// specific work happens in the /auth/oidc/start +
+			// /auth/oidc/callback handlers; once a cookie is minted, the
+			// gate is identical to forms.
+			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
+				if p, verr := VerifySession(sessionKey, cookie, time.Now(), rt.SessionEpoch); verr == nil {
+					c.Set(UsernameContextKey, p.Username)
+					c.Next()
+					return
+				}
+			}
 		default:
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 				if p, verr := VerifySession(sessionKey, cookie, time.Now(), rt.SessionEpoch); verr == nil {

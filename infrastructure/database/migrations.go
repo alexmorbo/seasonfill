@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 2
+	latestVersion   = 3
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -118,15 +118,22 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	if !hasApp {
 		return nil
 	}
-	// Detect whether v2 columns already exist so we stamp at the right
-	// version. This prevents re-applying v2 on a DB that lost its
-	// schema_migrations bookkeeping but retained the v2 schema.
+	// Detect whether v2/v3 columns already exist so we stamp at the right
+	// version. This prevents re-applying migrations on a DB that lost its
+	// schema_migrations bookkeeping but retained the schema.
 	version := baselineVersion
 	hasV2, err := columnExists(ctx, sqlDB, dialect, "runtime_config", "auth_mode")
 	if err != nil {
 		return err
 	}
 	if hasV2 {
+		version = 2
+	}
+	hasV3, err := columnExists(ctx, sqlDB, dialect, "runtime_config", "oidc_issuer")
+	if err != nil {
+		return err
+	}
+	if hasV3 {
 		version = latestVersion
 	}
 	createStmt, insertStmt := stampStatements(dialect)

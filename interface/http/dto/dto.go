@@ -378,7 +378,7 @@ type RuntimeAuthDTO struct {
 	SessionTTL     string   `json:"session_ttl"     example:"12h"`
 	SecureCookie   bool     `json:"secure_cookie"`
 	TrustedProxies []string `json:"trusted_proxies" example:"127.0.0.1,::1"`
-	// Mode is one of "forms" | "basic" | "none". Default "forms".
+	// Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
 	Mode string `json:"mode" example:"forms"`
 	// LocalBypass enables the local-address bypass middleware (036c).
 	LocalBypass bool `json:"local_bypass"`
@@ -387,7 +387,17 @@ type RuntimeAuthDTO struct {
 	// SessionEpoch is read-only — the server bumps it whenever any
 	// auth-invalidating field changes. PUT bodies that include it are
 	// silently ignored (the usecase manages the value).
-	SessionEpoch int64 `json:"session_epoch" example:"0"`
+	SessionEpoch int64          `json:"session_epoch" example:"0"`
+	OIDC         RuntimeOIDCDTO `json:"oidc"`
+}
+
+type RuntimeOIDCDTO struct {
+	Issuer        string   `json:"issuer"          example:"https://keycloak.example.com/realms/homelab"`
+	ClientID      string   `json:"client_id"       example:"seasonfill"`
+	RedirectURL   string   `json:"redirect_url"    example:"https://seasonfill.example.com/api/v1/auth/oidc/callback"`
+	Scopes        []string `json:"scopes"          example:"openid,profile,email"`
+	UsernameClaim string   `json:"username_claim"  example:"preferred_username"`
+	AllowedGroups []string `json:"allowed_groups"  example:"admins"`
 }
 
 // AuthConfigDTO is the wire shape of GET /api/v1/auth/config. Public
@@ -396,4 +406,7 @@ type RuntimeAuthDTO struct {
 type AuthConfigDTO struct {
 	Mode        string `json:"mode" example:"forms"`
 	LocalBypass bool   `json:"local_bypass" example:"false"`
+	// LoginURL is set when mode=oidc — points at the public /auth/oidc/start
+	// endpoint. Empty string for other modes.
+	LoginURL string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
 }

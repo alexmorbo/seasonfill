@@ -207,3 +207,92 @@ func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
 	assert.NotEmpty(t, row.Auth.LocalNetworks)
 	assert.Contains(t, row.Auth.LocalNetworks, "127.0.0.0/8")
 }
+
+// --- OIDC round-trip tests ---
+
+func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	snap.Auth.Mode = runtime.AuthModeOIDC
+	snap.Auth.OIDC = runtime.OIDCSnapshot{
+		Issuer:        "https://sso.example.com",
+		ClientID:      "seasonfill-client",
+		RedirectURL:   "https://app.example.com/callback",
+		Scopes:        []string{"openid", "profile", "email"},
+		UsernameClaim: "preferred_username",
+		AllowedGroups: []string{"admins", "editors"},
+	}
+
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://sso.example.com", row.Auth.OIDC.Issuer)
+	assert.Equal(t, "seasonfill-client", row.Auth.OIDC.ClientID)
+	assert.Equal(t, "https://app.example.com/callback", row.Auth.OIDC.RedirectURL)
+	assert.Equal(t, []string{"openid", "profile", "email"}, row.Auth.OIDC.Scopes)
+	assert.Equal(t, "preferred_username", row.Auth.OIDC.UsernameClaim)
+	assert.Equal(t, []string{"admins", "editors"}, row.Auth.OIDC.AllowedGroups)
+}
+
+func TestRuntimeConfigRepository_OIDCFields_DefaultsWhenAbsent(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	// Upsert with all OIDC fields at zero-value (not mode=oidc, no explicit OIDC config).
+	snap := runtime.Defaults()
+	// Explicitly zero the OIDC sub-struct to simulate a pre-OIDC row.
+	snap.Auth.OIDC = runtime.OIDCSnapshot{}
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+
+	// Issuer, ClientID, RedirectURL default to empty.
+	assert.Empty(t, row.Auth.OIDC.Issuer)
+	assert.Empty(t, row.Auth.OIDC.ClientID)
+	assert.Empty(t, row.Auth.OIDC.RedirectURL)
+	// Scopes fall back to the default set when stored value is empty.
+	assert.Equal(t, runtime.DefaultOIDCSnapshot().Scopes, row.Auth.OIDC.Scopes)
+	// AllowedGroups falls back to an empty (non-nil) slice.
+	assert.NotNil(t, row.Auth.OIDC.AllowedGroups)
+	assert.Empty(t, row.Auth.OIDC.AllowedGroups)
+	// UsernameClaim falls back to the default.
+	assert.Equal(t, runtime.DefaultOIDCSnapshot().UsernameClaim, row.Auth.OIDC.UsernameClaim)
+}
+
+func TestRuntimeConfigRepository_OIDCScopes_OrderPreserved(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	ordered := []string{"openid", "profile", "email", "groups"}
+	snap := runtime.Defaults()
+	snap.Auth.OIDC.Scopes = ordered
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ordered, row.Auth.OIDC.Scopes,
+		"scopes JSON round-trip must preserve order and elements")
+}
+
+func TestRuntimeConfigRepository_OIDCAllowedGroups_OrderPreserved(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db)
+	ctx := context.Background()
+
+	ordered := []string{"zebra-team", "alpha-team", "beta-team"}
+	snap := runtime.Defaults()
+	snap.Auth.OIDC.AllowedGroups = ordered
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ordered, row.Auth.OIDC.AllowedGroups,
+		"allowed_groups JSON round-trip must preserve order and elements")
+}

@@ -142,6 +142,11 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 		{"none+no_auth_passes", runtime.AuthModeNone, "", "", want{http.StatusOK, "anonymous"}},
 		{"none+apikey_identity", runtime.AuthModeNone, apiKey, "", want{http.StatusOK, "api-key"}},
 		{"none+cookie_irrelevant", runtime.AuthModeNone, "", validCookie, want{http.StatusOK, "anonymous"}},
+		// OIDC mode: session-cookie path is identical to forms; X-Api-Key
+		// short-circuits before mode dispatch (step-1 precedence rule).
+		{"oidc+valid_cookie", runtime.AuthModeOIDC, "", validCookie, want{http.StatusOK, "admin"}},
+		{"oidc+no_cookie", runtime.AuthModeOIDC, "", "", want{http.StatusUnauthorized, ""}},
+		{"oidc+valid_apikey_no_cookie", runtime.AuthModeOIDC, apiKey, "", want{http.StatusOK, "api-key"}},
 	}
 	for _, tc := range cases {
 		tc := tc

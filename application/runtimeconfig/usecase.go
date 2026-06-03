@@ -148,17 +148,13 @@ func (u *UseCase) Update(
 			fmt.Errorf("runtimeconfig: pre-read: %w", err)
 	}
 	prevEpoch := prevRow.Auth.SessionEpoch
-	prevMode := prevRow.Auth.Mode
-	prevBypass := prevRow.Auth.LocalBypass
-	prevNetworks := append([]string(nil), prevRow.Auth.LocalNetworks...)
 
 	snap, err := u.inputToSnapshot(in)
 	if err != nil {
 		return Output{}, time.Time{}, err
 	}
 	// Decide epoch: keep previous unless an invalidating field changed.
-	if epochShouldBump(prevMode, snap.Auth.Mode, prevBypass, snap.Auth.LocalBypass,
-		prevNetworks, snap.Auth.LocalNetworks) {
+	if epochShouldBump(prevRow.Auth, snap.Auth) {
 		next := u.now().UTC().UnixNano()
 		if next <= prevEpoch {
 			next = prevEpoch + 1
@@ -195,7 +191,7 @@ func (u *UseCase) Update(
 func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 	if !validAuthMode(mode) {
 		return 0, newValidationErr("auth.mode", "INVALID_AUTH_MODE",
-			fmt.Sprintf("must be one of forms|basic|none, got %q", mode))
+			fmt.Sprintf("must be one of forms|basic|none|oidc, got %q", mode))
 	}
 	row, err := u.runtimes.Get(ctx)
 	switch {
@@ -225,6 +221,14 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 			LocalBypass:    row.Auth.LocalBypass,
 			LocalNetworks:  append([]string(nil), row.Auth.LocalNetworks...),
 			SessionEpoch:   next,
+			OIDC: runtime.OIDCSnapshot{
+				Issuer:        row.Auth.OIDC.Issuer,
+				ClientID:      row.Auth.OIDC.ClientID,
+				RedirectURL:   row.Auth.OIDC.RedirectURL,
+				Scopes:        append([]string(nil), row.Auth.OIDC.Scopes...),
+				UsernameClaim: row.Auth.OIDC.UsernameClaim,
+				AllowedGroups: append([]string(nil), row.Auth.OIDC.AllowedGroups...),
+			},
 		},
 	}
 	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
@@ -240,15 +244,26 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 	return next, nil
 }
 
-func epochShouldBump(prevMode, nextMode string, prevBypass, nextBypass bool,
-	prevNet, nextNet []string) bool {
-	if prevMode != nextMode {
+func epochShouldBump(prev, next runtime.AuthSnapshot) bool {
+	if prev.Mode != next.Mode {
 		return true
 	}
-	if prevBypass != nextBypass {
+	if prev.LocalBypass != next.LocalBypass {
 		return true
 	}
-	if !stringSliceEqual(prevNet, nextNet) {
+	if !stringSliceEqual(prev.LocalNetworks, next.LocalNetworks) {
+		return true
+	}
+	if prev.OIDC.Issuer != next.OIDC.Issuer ||
+		prev.OIDC.ClientID != next.OIDC.ClientID ||
+		prev.OIDC.RedirectURL != next.OIDC.RedirectURL ||
+		prev.OIDC.UsernameClaim != next.OIDC.UsernameClaim {
+		return true
+	}
+	if !stringSliceEqual(prev.OIDC.Scopes, next.OIDC.Scopes) {
+		return true
+	}
+	if !stringSliceEqual(prev.OIDC.AllowedGroups, next.OIDC.AllowedGroups) {
 		return true
 	}
 	return false
@@ -333,10 +348,13 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 	if !validAuthMode(in.Auth.Mode) {
 		return runtime.Snapshot{}, newValidationErr(
 			"auth.mode", "INVALID_AUTH_MODE",
-			fmt.Sprintf("must be one of forms|basic|none, got %q", in.Auth.Mode))
+			fmt.Sprintf("must be one of forms|basic|none|oidc, got %q", in.Auth.Mode))
 	}
 	cleanedNetworks, err := validateLocalNetworks(in.Auth.LocalNetworks)
 	if err != nil {
+		return runtime.Snapshot{}, err
+	}
+	if err := validateOIDCInput(in.Auth.OIDC, in.Auth.Mode); err != nil {
 		return runtime.Snapshot{}, err
 	}
 	return runtime.Snapshot{
@@ -361,13 +379,21 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 			Mode:           in.Auth.Mode,
 			LocalBypass:    in.Auth.LocalBypass,
 			LocalNetworks:  cleanedNetworks,
+			OIDC: runtime.OIDCSnapshot{
+				Issuer:        strings.TrimSpace(in.Auth.OIDC.Issuer),
+				ClientID:      strings.TrimSpace(in.Auth.OIDC.ClientID),
+				RedirectURL:   strings.TrimSpace(in.Auth.OIDC.RedirectURL),
+				Scopes:        append([]string(nil), in.Auth.OIDC.Scopes...),
+				UsernameClaim: strings.TrimSpace(in.Auth.OIDC.UsernameClaim),
+				AllowedGroups: append([]string(nil), in.Auth.OIDC.AllowedGroups...),
+			},
 		},
 	}, nil
 }
 
 func validAuthMode(m string) bool {
 	switch m {
-	case runtime.AuthModeForms, runtime.AuthModeBasic, runtime.AuthModeNone:
+	case runtime.AuthModeForms, runtime.AuthModeBasic, runtime.AuthModeNone, runtime.AuthModeOIDC:
 		return true
 	default:
 		return false
@@ -414,6 +440,49 @@ func validateLocalNetworks(list []string) ([]string, error) {
 		out = append(out, canon)
 	}
 	return out, nil
+}
+
+// validateOIDCInput enforces minimum invariants. Fields are only
+// strictly required when auth_mode=oidc; otherwise empty values are
+// accepted (operator may pre-fill before switching modes). Always
+// validates URLs/scopes shape when non-empty.
+func validateOIDCInput(in OIDCInput, mode string) error {
+	if mode == runtime.AuthModeOIDC {
+		if strings.TrimSpace(in.Issuer) == "" {
+			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
+				"issuer is required when auth_mode=oidc")
+		}
+		if !strings.HasPrefix(in.Issuer, "https://") && !strings.HasPrefix(in.Issuer, "http://") {
+			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
+				"issuer must be a valid URL")
+		}
+		if strings.TrimSpace(in.ClientID) == "" {
+			return newValidationErr("auth.oidc.client_id", "INVALID_OIDC_CLIENT_ID",
+				"client_id is required when auth_mode=oidc")
+		}
+		if strings.TrimSpace(in.RedirectURL) == "" {
+			return newValidationErr("auth.oidc.redirect_url", "INVALID_OIDC_REDIRECT_URL",
+				"redirect_url is required when auth_mode=oidc")
+		}
+	}
+	if len(in.Scopes) > 0 {
+		hasOpenID := false
+		for _, s := range in.Scopes {
+			if strings.TrimSpace(s) == "openid" {
+				hasOpenID = true
+				break
+			}
+		}
+		if !hasOpenID {
+			return newValidationErr("auth.oidc.scopes", "INVALID_OIDC_SCOPES",
+				"scopes must include 'openid'")
+		}
+	}
+	if len(in.AllowedGroups) > 64 {
+		return newValidationErr("auth.oidc.allowed_groups", "INVALID_OIDC_GROUPS_TOO_MANY",
+			"at most 64 allowed_groups entries")
+	}
+	return nil
 }
 
 func boundDuration(field, code string, d, min, max time.Duration) error {
@@ -504,6 +573,14 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
 			LocalBypass:    row.Auth.LocalBypass,
 			LocalNetworks:  networks,
 			SessionEpoch:   row.Auth.SessionEpoch,
+			OIDC: OIDCOutput{
+				Issuer:        row.Auth.OIDC.Issuer,
+				ClientID:      row.Auth.OIDC.ClientID,
+				RedirectURL:   row.Auth.OIDC.RedirectURL,
+				Scopes:        append([]string(nil), row.Auth.OIDC.Scopes...),
+				UsernameClaim: row.Auth.OIDC.UsernameClaim,
+				AllowedGroups: append([]string(nil), row.Auth.OIDC.AllowedGroups...),
+			},
 		},
 		AutoGeneratedAPIKey: row.APIKeyAutoGenerated,
 		UpdatedAt:           ts.UTC(),

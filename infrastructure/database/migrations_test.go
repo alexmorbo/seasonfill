@@ -108,10 +108,10 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
 	// After running full migrations and re-stamping, the version must be
-	// the latest (2 after 036a) because the DB already has v2 columns
-	// (auth_mode etc.); stampBaselineIfNeeded detects this and stamps at
+	// the latest (3 after 037a) because the DB already has v3 columns
+	// (oidc_issuer etc.); stampBaselineIfNeeded detects this and stamps at
 	// latestVersion rather than baselineVersion.
-	assert.Equal(t, 2, version)
+	assert.Equal(t, 3, version)
 	assert.False(t, dirty)
 }
 

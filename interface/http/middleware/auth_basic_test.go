@@ -44,6 +44,13 @@ func (r *fakeBasicAdminRepo) Create(_ context.Context, _ admin.AdminUser) error 
 func (r *fakeBasicAdminRepo) UpdatePassword(_ context.Context, _ string, _ bool) error {
 	return nil
 }
+func (r *fakeBasicAdminRepo) GetByOIDCSubject(_ context.Context, _ string) (admin.AdminUser, error) {
+	return admin.AdminUser{}, ports.ErrNotFound
+}
+func (r *fakeBasicAdminRepo) CreateFromOIDC(_ context.Context, subject, username string) (admin.AdminUser, error) {
+	sub := subject
+	return admin.AdminUser{Username: username, OIDCSubject: &sub}, nil
+}
 
 func setupAuthBasic(
 	t *testing.T,

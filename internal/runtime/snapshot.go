@@ -39,7 +39,34 @@ const (
 	AuthModeForms = "forms"
 	AuthModeBasic = "basic"
 	AuthModeNone  = "none"
+	AuthModeOIDC  = "oidc"
 )
+
+// OIDCSnapshot carries the OIDC provider settings extracted from
+// runtime_config. The client secret lives ONLY in env (loaded by
+// cmd/server/main.go from OIDC_CLIENT_SECRET and threaded into the
+// login usecase) — it is intentionally NOT in this struct so a
+// stray log of the snapshot can never leak it. Empty Issuer means
+// "OIDC not configured"; mode=oidc with empty Issuer is a
+// validation error caught in runtimeconfig.UseCase.
+type OIDCSnapshot struct {
+	Issuer        string
+	ClientID      string
+	RedirectURL   string
+	Scopes        []string
+	UsernameClaim string
+	AllowedGroups []string
+}
+
+// DefaultOIDCSnapshot returns the empty-but-defaults OIDC config used
+// at install time and when the row lacks OIDC columns.
+func DefaultOIDCSnapshot() OIDCSnapshot {
+	return OIDCSnapshot{
+		Scopes:        []string{"openid", "profile", "email"},
+		UsernameClaim: "preferred_username",
+		AllowedGroups: []string{},
+	}
+}
 
 // DefaultAuthLocalNetworks is the hardcoded private/loopback/link-local/ULA
 // allow-list used both at fresh-install seed time and as the snapshot
@@ -62,7 +89,7 @@ type AuthSnapshot struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
-	// Mode is one of AuthMode{Forms,Basic,None}.
+	// Mode is one of AuthMode{Forms,Basic,None,OIDC}.
 	Mode string
 	// LocalBypass=true → trusted-local clients skip auth entirely
 	// (except for /api/v1/webhook/*, which always requires X-Api-Key).
@@ -74,6 +101,7 @@ type AuthSnapshot struct {
 	// list change). Cookies carry the epoch they were minted under;
 	// the middleware rejects payloads with ep < SessionEpoch.
 	SessionEpoch int64
+	OIDC         OIDCSnapshot
 }
 
 type InstanceSnapshot struct {
@@ -160,6 +188,7 @@ func Defaults() Snapshot {
 			LocalBypass:    false,
 			LocalNetworks:  DefaultAuthLocalNetworks(),
 			SessionEpoch:   0,
+			OIDC:           DefaultOIDCSnapshot(),
 		},
 	}
 }

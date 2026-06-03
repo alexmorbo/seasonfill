@@ -44,6 +44,14 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 		LocalBypass:    snap.Auth.LocalBypass,
 		LocalNetworks:  parsed,
 		SessionEpoch:   snap.Auth.SessionEpoch,
+		OIDC: middleware.OIDCRuntime{
+			Issuer:        snap.Auth.OIDC.Issuer,
+			ClientID:      snap.Auth.OIDC.ClientID,
+			RedirectURL:   snap.Auth.OIDC.RedirectURL,
+			Scopes:        append([]string(nil), snap.Auth.OIDC.Scopes...),
+			UsernameClaim: snap.Auth.OIDC.UsernameClaim,
+			AllowedGroups: append([]string(nil), snap.Auth.OIDC.AllowedGroups...),
+		},
 	}
 	prev := s.ptr.Load()
 	if prev != nil && authRuntimeEqual(prev, &want) {
@@ -104,6 +112,18 @@ func authRuntimeEqual(a, b *middleware.AuthRuntime) bool {
 		if a.LocalNetworks[i].String() != b.LocalNetworks[i].String() {
 			return false
 		}
+	}
+	if a.OIDC.Issuer != b.OIDC.Issuer ||
+		a.OIDC.ClientID != b.OIDC.ClientID ||
+		a.OIDC.RedirectURL != b.OIDC.RedirectURL ||
+		a.OIDC.UsernameClaim != b.OIDC.UsernameClaim {
+		return false
+	}
+	if !reflect.DeepEqual(a.OIDC.Scopes, b.OIDC.Scopes) {
+		return false
+	}
+	if !reflect.DeepEqual(a.OIDC.AllowedGroups, b.OIDC.AllowedGroups) {
+		return false
 	}
 	return true
 }
