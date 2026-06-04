@@ -45,7 +45,7 @@ export function ProtectedLayout() {
             onOpenChange={setMobileOpen}
             onNewScan={() => setScanModalOpen(true)}
           />
-          <main className="flex-1 overflow-y-auto bg-bg">
+          <main className="flex-1 overflow-y-auto bg-bg relative">
             <Outlet />
           </main>
         </div>
