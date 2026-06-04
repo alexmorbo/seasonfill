@@ -146,11 +146,18 @@ func (f *rescanFakeScans) List(context.Context, ports.ScanFilter, ports.Paginati
 type rescanFakeSonarr struct {
 	releases []release.Release
 	failOn   string // "search" -> SearchReleases returns errSonarrSearch
+	// block, when non-nil, causes GetSeries to block until the channel is
+	// closed. This lets tests gate the goroutine before making pre-drain
+	// assertions, keeping those assertions race-free on any scheduler.
+	block chan struct{}
 }
 
 var errSonarrSearch = errors.New("sonarr search exploded")
 
 func (f *rescanFakeSonarr) GetSeries(_ context.Context, id int) (series.Series, error) {
+	if f.block != nil {
+		<-f.block
+	}
 	return series.Series{ID: id, Title: "Severance", Monitored: true, QualityProfile: 7}, nil
 }
 func (f *rescanFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
@@ -264,9 +271,15 @@ func drain(t *testing.T, inflight *fakeInflight) {
 }
 
 func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
-	sn := &rescanFakeSonarr{releases: []release.Release{
-		{GUID: "g-new", Title: "rescan-pick", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
-	}}
+	// gate blocks the goroutine inside GetSeries until we release it,
+	// making the pre-drain assertions race-free regardless of scheduler.
+	gate := make(chan struct{})
+	sn := &rescanFakeSonarr{
+		releases: []release.Release{
+			{GUID: "g-new", Title: "rescan-pick", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
+		},
+		block: gate,
+	}
 	uc, dec, _, scans, inflight := newUC(t, sn)
 	original := seedOriginal(t, dec, false)
 
@@ -279,7 +292,8 @@ func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 	assert.Equal(t, "running", res.Status)
 
 	// Scan row created with trigger=rescan, status=running BEFORE the
-	// goroutine drains.
+	// goroutine drains. The gate guarantees the goroutine hasn't called
+	// finalizeAsCompleted yet.
 	created, err := scans.GetByID(context.Background(), res.ScanRunID)
 	require.NoError(t, err)
 	assert.Equal(t, "running", created.Status)
@@ -292,6 +306,8 @@ func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 	require.NotNil(t, loaded.SupersededByID)
 	preAllocatedID := *loaded.SupersededByID
 
+	// Release the gate so the goroutine can proceed, then drain.
+	close(gate)
 	drain(t, inflight)
 
 	// Goroutine persisted the new decision under the pre-allocated id.
