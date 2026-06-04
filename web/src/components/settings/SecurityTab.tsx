@@ -27,7 +27,7 @@ async function postOIDCTest(payload: {
 }): Promise<OIDCTestResult> {
   return api<OIDCTestResult>('/auth/oidc/test', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
   });
 }
 
