@@ -1072,14 +1072,27 @@ func TestStartInstance_BgWaitGroupDrains(t *testing.T) {
 // the series. processScan resumes, sees ctx.Canceled at the
 // per-iteration check, breaks the loop, and the post-loop branch
 // (§1.5) routes to finalizeScanCancelled with status="cancelled".
+//
+// ready must be closed by the test AFTER setting scanID. ListSeries
+// blocks on ready so the goroutine cannot race past the scanID write —
+// otherwise the goroutine may call ListSeries before the test stores the
+// scan ID and completes naturally with status="completed".
 type cancelOnListSonarr struct {
 	*fakeSonarr
 	uc     *UseCase
 	scanID *uuid.UUID
 	mu     sync.Mutex
+	ready  chan struct{} // closed by test after scanID is set
 }
 
 func (s *cancelOnListSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
+	if s.ready != nil {
+		select {
+		case <-s.ready:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	id := s.scanID
 	s.mu.Unlock()
@@ -1115,6 +1128,7 @@ func TestScan_Cancel_TerminalStatusIsCancelled(t *testing.T) {
 		fakeSonarr: &fakeSonarr{name: "main", series: []series.Series{
 			monSeries(1, "A"), monSeries(2, "B"),
 		}},
+		ready: make(chan struct{}),
 	}
 	scanRepo := &fakeScanRepo{}
 	evalUC := evaluate.NewUseCase(wrap, &fakeDecRepo{}, lg)
@@ -1124,10 +1138,14 @@ func TestScan_Cancel_TerminalStatusIsCancelled(t *testing.T) {
 
 	res, err := uc.StartInstance(context.Background(), "main", TriggerManual)
 	require.NoError(t, err)
+
+	// Set scanID first, then open the gate so the goroutine is guaranteed
+	// to see a non-nil scanID on its first (and only) call to ListSeries.
 	wrap.mu.Lock()
 	id := res.ScanRunID
 	wrap.scanID = &id
 	wrap.mu.Unlock()
+	close(wrap.ready) // release the goroutine
 
 	require.Eventually(t, func() bool { return !uc.IsAnyRunning() },
 		2*time.Second, 10*time.Millisecond)
