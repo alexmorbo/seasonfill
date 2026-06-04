@@ -111,7 +111,7 @@ func TestBasicAuth_MissingHeader_401WithChallenge(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, `Basic realm="Seasonfill"`, w.Header().Get("WWW-Authenticate"))
-	assert.Contains(t, w.Body.String(), `"code":"UNAUTHORIZED"`)
+	assert.Contains(t, w.Body.String(), `"code":"AUTH_REQUIRED"`)
 }
 
 func TestBasicAuth_MalformedHeader_401WithChallenge(t *testing.T) {

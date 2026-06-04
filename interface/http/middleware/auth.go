@@ -111,13 +111,11 @@ func buildAuth(
 			}
 			handleBasicAuth(c, adminRepo, loginLimiter)
 			return
-		case runtime.AuthModeOIDC:
-			// OIDC and forms share session-cookie validation. The OIDC-
-			// specific work happens in the /auth/oidc/start +
-			// /auth/oidc/callback handlers; once a cookie is minted, the
-			// gate is identical to forms.
+		case runtime.AuthModeOIDC, runtime.AuthModeForms:
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
-				if p, verr := VerifySession(sessionKey, cookie, time.Now(), rt.SessionEpoch); verr == nil {
+				now := time.Now()
+				if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+					maybeSlideCookie(c, sessionKey, p, now, rt)
 					c.Set(UsernameContextKey, p.Username)
 					c.Next()
 					return
@@ -125,7 +123,9 @@ func buildAuth(
 			}
 		default:
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
-				if p, verr := VerifySession(sessionKey, cookie, time.Now(), rt.SessionEpoch); verr == nil {
+				now := time.Now()
+				if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+					maybeSlideCookie(c, sessionKey, p, now, rt)
 					c.Set(UsernameContextKey, p.Username)
 					c.Next()
 					return
@@ -133,9 +133,36 @@ func buildAuth(
 			}
 		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "unauthorized", "code": "UNAUTHORIZED",
+			"error": "unauthorized", "code": "AUTH_REQUIRED",
 		})
 	}
+}
+
+// maybeSlideCookie re-issues the session cookie when the remaining lifetime
+// drops below half the configured TTL. Only valid cookies reach this path.
+// The threshold (TTL/2) is hard-coded — operators control session_ttl; the
+// slide behaviour is an implementation detail. X-Api-Key paths return
+// before this point, so an API key caller never gets a Set-Cookie header.
+func maybeSlideCookie(
+	c *gin.Context, sessionKey []byte, p SessionPayload,
+	now time.Time, rt *AuthRuntime,
+) {
+	ttl := rt.SessionTTL
+	if ttl <= 0 {
+		return
+	}
+	remaining := time.Until(time.Unix(p.Exp, 0))
+	if remaining <= 0 || remaining > ttl/2 {
+		return
+	}
+	newExp := now.Add(ttl)
+	tok, err := SignSession(sessionKey, p.Username, newExp, rt.SessionEpoch)
+	if err != nil {
+		return // best-effort; original cookie still valid
+	}
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(SessionCookieName, tok,
+		int(ttl.Seconds()), "/", "", rt.SecureCookie, true)
 }
 
 // handleBasicAuth runs the Basic-mode credential check. Split out so
@@ -146,14 +173,14 @@ func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.I
 	if !ok {
 		c.Header("WWW-Authenticate", basicRealmHeader)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "unauthorized", "code": "UNAUTHORIZED",
+			"error": "unauthorized", "code": "AUTH_REQUIRED",
 		})
 		return
 	}
 
 	if lim != nil && !lim.Allow(c.ClientIP()) {
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-			"error": "Invalid credentials", "code": "UNAUTHORIZED",
+			"error": "Invalid credentials", "code": "AUTH_REQUIRED",
 		})
 		return
 	}
@@ -175,7 +202,7 @@ func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.I
 	}
 	if !auth.ConstantLatencyVerify(hashToCompare, pass) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "unauthorized", "code": "UNAUTHORIZED",
+			"error": "unauthorized", "code": "AUTH_REQUIRED",
 		})
 		return
 	}

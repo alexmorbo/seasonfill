@@ -157,6 +157,8 @@ func startSubscribers(
 	bootGlobalRateLimit runtime.RateLimitSnapshot,
 	authRuntimePtr *middleware.AuthRuntimePointer,
 	engine *gin.Engine,
+	runtimeRepo ports.RuntimeConfigRepository,
+	clientSecretEnv string,
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
 	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
 		reload.SchedulerFactory(scheduler.New), log)
@@ -166,7 +168,8 @@ func startSubscribers(
 
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
-	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log)
+	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log,
+		runtimeRepo, clientSecretEnv)
 
 	runners := []func(context.Context, *runtime.Bus, func()){
 		subSched.Run, subClients.Run, subRate.Run, subAuth.Run,

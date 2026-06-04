@@ -42,29 +42,28 @@ const (
 	AuthModeOIDC  = "oidc"
 )
 
-// OIDCSnapshot carries the OIDC provider settings extracted from
-// runtime_config. The client secret lives ONLY in env (loaded by
-// cmd/server/main.go from OIDC_CLIENT_SECRET and threaded into the
-// login usecase) — it is intentionally NOT in this struct so a
-// stray log of the snapshot can never leak it. Empty Issuer means
-// "OIDC not configured"; mode=oidc with empty Issuer is a
-// validation error caught in runtimeconfig.UseCase.
+// OIDCSnapshot carries OIDC provider settings from runtime_config plus the
+// resolved client secret (env > DB-decrypted). ClientSecret is transient —
+// populated by the reload subscriber at publish time and never written to the
+// wire. GroupsClaim is the dot-notation path into ID-token claims used by
+// the group ACL.
 type OIDCSnapshot struct {
 	Issuer        string
 	ClientID      string
+	ClientSecret  string
 	RedirectURL   string
 	Scopes        []string
 	UsernameClaim string
 	AllowedGroups []string
+	GroupsClaim   string
 }
 
-// DefaultOIDCSnapshot returns the empty-but-defaults OIDC config used
-// at install time and when the row lacks OIDC columns.
 func DefaultOIDCSnapshot() OIDCSnapshot {
 	return OIDCSnapshot{
 		Scopes:        []string{"openid", "profile", "email"},
 		UsernameClaim: "preferred_username",
 		AllowedGroups: []string{},
+		GroupsClaim:   "groups",
 	}
 }
 

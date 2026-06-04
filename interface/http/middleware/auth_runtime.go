@@ -31,17 +31,15 @@ type AuthRuntime struct {
 	OIDC           OIDCRuntime
 }
 
-// OIDCRuntime mirrors runtime.OIDCSnapshot at the middleware layer. The
-// start handler reads Issuer + ClientID + RedirectURL + Scopes from here
-// to build the authorization-endpoint URL; the callback handler reads
-// UsernameClaim + AllowedGroups to enforce the ACL.
 type OIDCRuntime struct {
 	Issuer        string
 	ClientID      string
+	ClientSecret  string
 	RedirectURL   string
 	Scopes        []string
 	UsernameClaim string
 	AllowedGroups []string
+	GroupsClaim   string
 }
 
 // AuthRuntimePointer is the atomic published by cmd/server to:

@@ -26,6 +26,15 @@ export async function getAuthConfig(): Promise<AuthConfig> {
     localBypass: Boolean(r.local_bypass),
   };
   if (r.login_url) cfg.loginUrl = r.login_url;
+  try {
+    const api = await import('./api');
+    api.__seedAuthConfigCache({
+      mode: cfg.mode,
+      ...(cfg.loginUrl ? { loginUrl: cfg.loginUrl } : {}),
+    });
+  } catch {
+    // fail-open; the 401 handler will refresh on its own
+  }
   return cfg;
 }
 

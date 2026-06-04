@@ -19,6 +19,9 @@ const empty: OIDCFormShape = {
   scopes: ['openid'],
   username_claim: 'preferred_username',
   allowed_groups: [],
+  groups_claim: 'groups',
+  client_secret_configured: false,
+  client_secret_env_override: false,
 };
 
 describe('OIDCConfigBlock', () => {

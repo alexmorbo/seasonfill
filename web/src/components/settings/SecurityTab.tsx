@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +44,7 @@ const schema = z.object({
   oidc_scopes: z.array(z.string()),
   oidc_username_claim: z.string(),
   oidc_allowed_groups: z.array(z.string()),
+  oidc_groups_claim: z.string(),
 }).superRefine((v, ctx) => {
   if (v.auth_mode !== 'oidc') return;
   if (v.oidc_issuer.trim() === '') {
@@ -133,10 +134,15 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     oidc_scopes: (c?.auth?.oidc?.scopes ?? ['openid', 'profile', 'email']) as string[],
     oidc_username_claim: c?.auth?.oidc?.username_claim ?? 'preferred_username',
     oidc_allowed_groups: (c?.auth?.oidc?.allowed_groups ?? []) as string[],
+    oidc_groups_claim: c?.auth?.oidc?.groups_claim ?? 'groups',
   };
 }
 
-function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues): RuntimeConfig {
+function formToPayload(
+  prev: Partial<RuntimeConfig> | undefined,
+  v: FormValues,
+  oidcClientSecret: string | undefined,
+): RuntimeConfig {
   const base = prev ?? {};
   const { session_epoch: _epoch, ...baseAuthWithoutEpoch } = base.auth ?? {};
   return {
@@ -156,6 +162,9 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
         scopes: v.oidc_scopes,
         username_claim: v.oidc_username_claim.trim() || 'preferred_username',
         allowed_groups: v.oidc_allowed_groups,
+        groups_claim: v.oidc_groups_claim.trim() || 'groups',
+        // client_secret: only included when dirty-bit is set (undefined = preserve existing).
+        ...(oidcClientSecret !== undefined && { client_secret: oidcClientSecret }),
       },
       // session_epoch deliberately omitted — server manages it.
     },
@@ -179,12 +188,20 @@ export function SecurityTab() {
     mode: 'onBlur',
   });
 
+  // oidcClientSecret follows the dirty-bit pattern:
+  //   undefined → preserve existing (not sent in PUT)
+  //   string    → send as-is (empty string clears the stored secret)
+  // Seeded from the server on load/save; set to undefined on discard.
+  const [oidcClientSecret, setOidcClientSecret] = useState<string | undefined>(undefined);
+
   // Sync form to fresh server data only while the form is pristine, so a
   // background refetch can't clobber unsaved edits. We hold off until
   // isDirty clears (via Discard or a successful save).
   useEffect(() => {
     if (q.data?.config && !isDirty) {
       reset(configToForm(q.data.config));
+      // Reset the client secret dirty-bit on pristine sync (discard / post-save).
+      setOidcClientSecret(undefined);
     }
   }, [q.data?.config, isDirty, reset]);
 
@@ -195,9 +212,12 @@ export function SecurityTab() {
   }, [storedTTL]);
 
   const onSubmit = handleSubmit((values) => {
-    mut.mutate(formToPayload(q.data?.config, values), {
+    mut.mutate(formToPayload(q.data?.config, values, oidcClientSecret), {
       // Reset to persisted values so isDirty clears after a save.
-      onSuccess: (data) => reset(configToForm(data.config)),
+      onSuccess: (data) => {
+        reset(configToForm(data.config));
+        setOidcClientSecret(undefined);
+      },
     });
   });
 
@@ -212,8 +232,12 @@ export function SecurityTab() {
   const oidcScopes = useWatch({ control, name: 'oidc_scopes', defaultValue: ['openid', 'profile', 'email'] });
   const oidcUsernameClaim = useWatch({ control, name: 'oidc_username_claim', defaultValue: 'preferred_username' });
   const oidcAllowedGroups = useWatch({ control, name: 'oidc_allowed_groups', defaultValue: [] });
+  const oidcGroupsClaim = useWatch({ control, name: 'oidc_groups_claim', defaultValue: 'groups' });
 
-  const onDiscard = () => reset(configToForm(q.data?.config));
+  const onDiscard = () => {
+    reset(configToForm(q.data?.config));
+    setOidcClientSecret(undefined);
+  };
 
   if (q.isPending) {
     return (
@@ -289,6 +313,10 @@ export function SecurityTab() {
               scopes: oidcScopes,
               username_claim: oidcUsernameClaim,
               allowed_groups: oidcAllowedGroups,
+              groups_claim: oidcGroupsClaim,
+              ...(oidcClientSecret !== undefined && { client_secret: oidcClientSecret }),
+              client_secret_configured: Boolean(q.data?.config?.auth?.oidc?.client_secret_configured),
+              client_secret_env_override: Boolean(q.data?.config?.auth?.oidc?.client_secret_env_override),
             }}
             onChange={(next: OIDCFormShape) => {
               setValue('oidc_issuer', next.issuer, { shouldDirty: true });
@@ -297,6 +325,8 @@ export function SecurityTab() {
               setValue('oidc_scopes', [...next.scopes], { shouldDirty: true });
               setValue('oidc_username_claim', next.username_claim, { shouldDirty: true });
               setValue('oidc_allowed_groups', [...next.allowed_groups], { shouldDirty: true });
+              setValue('oidc_groups_claim', next.groups_claim, { shouldDirty: true });
+              setOidcClientSecret(next.client_secret);
             }}
             errors={{
               ...(errors.oidc_issuer?.message !== undefined && { issuer: errors.oidc_issuer.message }),

@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info } from 'lucide-react';
+import { Info, AlertTriangle } from 'lucide-react';
 
 // OIDCField helpers — kept as a list-of-strings chip editor for scopes and
 // allowed_groups, identical UX to TrustedProxiesEditor / LocalNetworksEditor
@@ -54,6 +55,8 @@ function ChipList(props: {
   );
 }
 
+// client_secret follows the dirty-bit pattern: undefined = no change
+// (omit from PUT); string = send the value (empty string clears).
 export type OIDCFormShape = {
   issuer: string;
   client_id: string;
@@ -61,6 +64,10 @@ export type OIDCFormShape = {
   scopes: string[];
   username_claim: string;
   allowed_groups: string[];
+  groups_claim: string;
+  client_secret?: string;
+  client_secret_configured: boolean;
+  client_secret_env_override: boolean;
 };
 
 export function OIDCConfigBlock(props: {
@@ -71,12 +78,21 @@ export function OIDCConfigBlock(props: {
     client_id?: string;
     redirect_url?: string;
     scopes?: string;
+    client_secret?: string;
+    groups_claim?: string;
   };
 }) {
   const { t } = useTranslation();
   const v = props.value;
   const set = <K extends keyof OIDCFormShape>(k: K, val: OIDCFormShape[K]) =>
     props.onChange({ ...v, [k]: val });
+  const [secretFocused, setSecretFocused] = useState(false);
+  const secretDirty = v.client_secret !== undefined;
+  const secretInputValue = secretDirty
+    ? (v.client_secret ?? '')
+    : v.client_secret_configured && !secretFocused
+      ? '••••••••'
+      : '';
 
   return (
     <div className="flex flex-col gap-4">
@@ -84,13 +100,15 @@ export function OIDCConfigBlock(props: {
         {t('settings.security.oidc.section')}
       </h4>
 
-      <Alert>
-        <Info className="w-4 h-4" />
-        <AlertTitle>{t('settings.security.oidc.clientSecret.title')}</AlertTitle>
-        <AlertDescription>
-          {t('settings.security.oidc.clientSecret.body')}
-        </AlertDescription>
-      </Alert>
+      {v.client_secret_env_override && (
+        <Alert>
+          <AlertTriangle className="w-4 h-4" />
+          <AlertTitle>{t('settings.security.oidc.clientSecret.envOverrideTitle')}</AlertTitle>
+          <AlertDescription>
+            {t('settings.security.oidc.clientSecret.envOverrideBody')}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex flex-col gap-1.5 max-w-md">
         <Label htmlFor="oidc-issuer">{t('settings.security.oidc.issuer.label')}</Label>
@@ -124,6 +142,41 @@ export function OIDCConfigBlock(props: {
         {props.errors?.client_id && (
           <p role="alert" className="text-status-danger text-[11.5px]">
             {t(props.errors.client_id)}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5 max-w-md">
+        <Label htmlFor="oidc-client-secret">
+          {t('settings.security.oidc.clientSecret.label')}
+        </Label>
+        <Input
+          id="oidc-client-secret"
+          type={secretFocused || secretDirty ? 'text' : 'password'}
+          autoComplete="new-password"
+          value={secretInputValue}
+          placeholder={t('settings.security.oidc.clientSecret.placeholder')}
+          onFocus={() => {
+            setSecretFocused(true);
+            // First focus on a configured-but-not-yet-typed field clears the
+            // mask so the user types into an empty input.
+            if (!secretDirty && v.client_secret_configured) {
+              set('client_secret', '');
+            }
+          }}
+          onBlur={() => setSecretFocused(false)}
+          onChange={(e) => set('client_secret', e.target.value)}
+          aria-invalid={Boolean(props.errors?.client_secret) || undefined}
+          disabled={v.client_secret_env_override}
+        />
+        <p className="text-[11.5px] text-muted">
+          {v.client_secret_configured
+            ? t('settings.security.oidc.clientSecret.hintConfigured')
+            : t('settings.security.oidc.clientSecret.hintEmpty')}
+        </p>
+        {props.errors?.client_secret && (
+          <p role="alert" className="text-status-danger text-[11.5px]">
+            {t(props.errors.client_secret)}
           </p>
         )}
       </div>
@@ -183,6 +236,28 @@ export function OIDCConfigBlock(props: {
         </p>
       </div>
 
+      <div className="flex flex-col gap-1.5 max-w-md">
+        <Label htmlFor="oidc-groups-claim">
+          {t('settings.security.oidc.groupsClaim.label')}
+        </Label>
+        <Input
+          id="oidc-groups-claim"
+          type="text"
+          value={v.groups_claim}
+          placeholder="groups"
+          onChange={(e) => set('groups_claim', e.target.value)}
+          aria-invalid={Boolean(props.errors?.groups_claim) || undefined}
+        />
+        <p className="text-[11.5px] text-muted">
+          {t('settings.security.oidc.groupsClaim.hint')}
+        </p>
+        {props.errors?.groups_claim && (
+          <p role="alert" className="text-status-danger text-[11.5px]">
+            {t(props.errors.groups_claim)}
+          </p>
+        )}
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="oidc-groups">{t('settings.security.oidc.allowedGroups.label')}</Label>
         <ChipList
@@ -197,6 +272,11 @@ export function OIDCConfigBlock(props: {
           {t('settings.security.oidc.allowedGroups.hint')}
         </p>
       </div>
+
+      <Alert>
+        <Info className="w-4 h-4" />
+        <AlertDescription>{t('settings.security.oidc.envHint')}</AlertDescription>
+      </Alert>
     </div>
   );
 }

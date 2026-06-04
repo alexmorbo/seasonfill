@@ -9,27 +9,27 @@ import (
 func TestGroupACLAllows_EmptyAllowsAll(t *testing.T) {
 	t.Parallel()
 	claims := map[string]any{"groups": []any{"users"}}
-	assert.True(t, groupACLAllows(claims, nil))
-	assert.True(t, groupACLAllows(claims, []string{}))
+	assert.True(t, groupACLAllows(claims, "groups", nil))
+	assert.True(t, groupACLAllows(claims, "groups", []string{}))
 }
 
 func TestGroupACLAllows_NoGroupsClaimDenied(t *testing.T) {
 	t.Parallel()
 	claims := map[string]any{}
-	assert.False(t, groupACLAllows(claims, []string{"admins"}))
+	assert.False(t, groupACLAllows(claims, "groups", []string{"admins"}))
 }
 
 func TestGroupACLAllows_IntersectionMatches(t *testing.T) {
 	t.Parallel()
 	claims := map[string]any{"groups": []any{"users", "admins"}}
-	assert.True(t, groupACLAllows(claims, []string{"admins"}))
-	assert.True(t, groupACLAllows(claims, []string{"admins", "ops"}))
+	assert.True(t, groupACLAllows(claims, "groups", []string{"admins"}))
+	assert.True(t, groupACLAllows(claims, "groups", []string{"admins", "ops"}))
 }
 
 func TestGroupACLAllows_NoIntersectionDenied(t *testing.T) {
 	t.Parallel()
 	claims := map[string]any{"groups": []any{"users"}}
-	assert.False(t, groupACLAllows(claims, []string{"admins"}))
+	assert.False(t, groupACLAllows(claims, "groups", []string{"admins"}))
 }
 
 func TestGroupACLAllows_StringClaim(t *testing.T) {
@@ -38,7 +38,7 @@ func TestGroupACLAllows_StringClaim(t *testing.T) {
 	// via the case string branch.
 	t.Parallel()
 	claims := map[string]any{"groups": "admins"}
-	assert.True(t, groupACLAllows(claims, []string{"admins"}))
+	assert.True(t, groupACLAllows(claims, "groups", []string{"admins"}))
 }
 
 func TestStringClaim_Present(t *testing.T) {

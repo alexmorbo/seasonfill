@@ -30,7 +30,6 @@ type OIDCHandler struct {
 	sessionKey   []byte
 	sessionTTL   time.Duration
 	secureCookie bool
-	clientSecret string
 	logger       *slog.Logger
 	now          func() time.Time
 }
@@ -41,7 +40,6 @@ func NewOIDCHandler(
 	sessionKey []byte,
 	sessionTTL time.Duration,
 	secureCookie bool,
-	clientSecret string,
 	logger *slog.Logger,
 ) *OIDCHandler {
 	if logger == nil {
@@ -50,8 +48,7 @@ func NewOIDCHandler(
 	return &OIDCHandler{
 		uc: uc, authRuntime: rt, sessionKey: sessionKey,
 		sessionTTL: sessionTTL, secureCookie: secureCookie,
-		clientSecret: clientSecret, logger: logger,
-		now: time.Now,
+		logger: logger, now: time.Now,
 	}
 }
 
@@ -172,10 +169,11 @@ func (h *OIDCHandler) config() auth.OIDCConfig {
 	return auth.OIDCConfig{
 		Issuer:        v.OIDC.Issuer,
 		ClientID:      v.OIDC.ClientID,
-		ClientSecret:  h.clientSecret,
+		ClientSecret:  v.OIDC.ClientSecret,
 		RedirectURL:   v.OIDC.RedirectURL,
 		Scopes:        append([]string(nil), v.OIDC.Scopes...),
 		UsernameClaim: v.OIDC.UsernameClaim,
 		AllowedGroups: append([]string(nil), v.OIDC.AllowedGroups...),
+		GroupsClaim:   v.OIDC.GroupsClaim,
 	}
 }

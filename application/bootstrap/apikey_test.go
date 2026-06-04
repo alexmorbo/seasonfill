@@ -43,6 +43,14 @@ func (m *mockRuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte,
 	return nil
 }
 
+func (m *mockRuntimeConfigRepository) UpsertOIDCSecret(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRuntimeConfigRepository) DecryptOIDCSecret(_ context.Context) (string, error) {
+	return "", nil
+}
+
 func TestResolveAPIKey_ProvidedKeyValidatesProbe(t *testing.T) {
 	ctx := context.Background()
 	log := slog.Default()

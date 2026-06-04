@@ -22,7 +22,7 @@ func TestAuthMiddleware_SessionTTLUpdated(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -58,7 +58,7 @@ func TestAuthMiddleware_TrustedProxiesUpdated(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -98,7 +98,7 @@ func TestAuthMiddleware_InvalidProxy_FailOpen(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -135,7 +135,7 @@ func TestAuthMiddleware_SecureCookieFlipped(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -172,7 +172,7 @@ func TestAuthMiddleware_ModeAndEpochPropagate(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,7 +212,7 @@ func TestAuthMiddleware_LocalNetworks_ParsedSilentlySkipsBad(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default())
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

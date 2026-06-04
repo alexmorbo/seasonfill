@@ -398,6 +398,11 @@ type RuntimeOIDCDTO struct {
 	Scopes        []string `json:"scopes"          example:"openid,profile,email"`
 	UsernameClaim string   `json:"username_claim"  example:"preferred_username"`
 	AllowedGroups []string `json:"allowed_groups"  example:"admins"`
+	GroupsClaim   string   `json:"groups_claim"    example:"groups"`
+	// ClientSecret is write-only: GET responses NEVER contain a value.
+	ClientSecret            *string `json:"client_secret,omitempty"`
+	ClientSecretConfigured  bool    `json:"client_secret_configured"`
+	ClientSecretEnvOverride bool    `json:"client_secret_env_override"`
 }
 
 // AuthConfigDTO is the wire shape of GET /api/v1/auth/config. Public

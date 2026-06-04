@@ -26,8 +26,6 @@ var (
 	ErrOIDCMissingUsername = errors.New("oidc: missing username claim")
 )
 
-// OIDCConfig is the per-request snapshot threaded from middleware
-// AuthRuntime + the env-loaded client secret. Read-only; no mutex.
 type OIDCConfig struct {
 	Issuer        string
 	ClientID      string
@@ -36,6 +34,7 @@ type OIDCConfig struct {
 	Scopes        []string
 	UsernameClaim string
 	AllowedGroups []string
+	GroupsClaim   string
 }
 
 // StartResult carries everything the HTTP handler needs to set short-
@@ -175,7 +174,7 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, in Call
 		return CallbackResult{}, fmt.Errorf("oidc: claims decode: %w", err)
 	}
 
-	if !groupACLAllows(claims, cfg.AllowedGroups) {
+	if !groupACLAllows(claims, cfg.GroupsClaim, cfg.AllowedGroups) {
 		return CallbackResult{}, ErrOIDCGroupDenied
 	}
 
@@ -215,17 +214,19 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, in Call
 	return CallbackResult{Username: row.Username, Subject: idToken.Subject}, nil
 }
 
-// groupACLAllows: empty cfg.AllowedGroups → allow all (no ACL). Non-empty
-// → require at least one entry of `groups` claim to match.
-func groupACLAllows(claims map[string]any, allowed []string) bool {
+// groupACLAllows: empty allowed → allow all. Non-empty → require at least one
+// element of the configured claim path to match. claimPath is dot-separated
+// (e.g. "groups" or "realm_access.roles"). Scalar string claim values are
+// treated as a single-element list to handle providers that emit a plain
+// string when the user belongs to exactly one group.
+func groupACLAllows(claims map[string]any, claimPath string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
-	raw, ok := claims["groups"]
-	if !ok {
+	got := extractStringSlicePermissive(claims, claimPath)
+	if len(got) == 0 {
 		return false
 	}
-	got := stringSliceFromClaim(raw)
 	allowSet := make(map[string]struct{}, len(allowed))
 	for _, a := range allowed {
 		allowSet[strings.TrimSpace(a)] = struct{}{}
@@ -236,6 +237,65 @@ func groupACLAllows(claims map[string]any, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// extractStringSlice walks a dot-separated path through a JSON-decoded claims
+// map and returns its terminal value as a string slice. Missing keys,
+// non-map intermediates, scalar terminals, and empty paths all return nil.
+func extractStringSlice(claims map[string]any, path string) []string {
+	if path == "" {
+		return nil
+	}
+	segs := strings.Split(path, ".")
+	var cur any = claims
+	for _, seg := range segs {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		next, exists := m[seg]
+		if !exists {
+			return nil
+		}
+		cur = next
+	}
+	switch t := cur.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// extractStringSlicePermissive is like extractStringSlice but also handles
+// scalar string terminals by treating them as single-element slices. Used
+// by groupACLAllows to support providers that emit a plain string when the
+// user belongs to exactly one group.
+func extractStringSlicePermissive(claims map[string]any, path string) []string {
+	if path == "" {
+		return nil
+	}
+	segs := strings.Split(path, ".")
+	var cur any = claims
+	for _, seg := range segs {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		next, exists := m[seg]
+		if !exists {
+			return nil
+		}
+		cur = next
+	}
+	return stringSliceFromClaim(cur)
 }
 
 func stringClaim(claims map[string]any, key string) string {

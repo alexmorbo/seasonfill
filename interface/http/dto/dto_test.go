@@ -12,11 +12,11 @@ import (
 
 func TestErrorResponse_MatchesMiddlewareEnvelope(t *testing.T) {
 	t.Parallel()
-	// middleware/auth.go emits {"error":"unauthorized","code":"UNAUTHORIZED"}.
-	got, err := json.Marshal(ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+	// middleware/auth.go emits {"error":"unauthorized","code":"AUTH_REQUIRED"}.
+	got, err := json.Marshal(ErrorResponse{Error: "unauthorized", Code: "AUTH_REQUIRED"})
 	require.NoError(t, err)
 	var want, have map[string]any
-	require.NoError(t, json.Unmarshal([]byte(`{"error":"unauthorized","code":"UNAUTHORIZED"}`), &want))
+	require.NoError(t, json.Unmarshal([]byte(`{"error":"unauthorized","code":"AUTH_REQUIRED"}`), &want))
 	require.NoError(t, json.Unmarshal(got, &have))
 	assert.Equal(t, want, have)
 }

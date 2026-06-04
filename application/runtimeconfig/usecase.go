@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 
@@ -73,13 +74,31 @@ var cronParser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
 
+var oidcGroupsClaimPattern = regexp.MustCompile(
+	`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$`,
+)
+
+func defaultIfBlank(s, def string) string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return def
+	}
+	return t
+}
+
 type UseCase struct {
-	runtimes  ports.RuntimeConfigRepository
-	instances ports.SonarrInstanceRepository
-	cipher    *crypto.Cipher
-	bus       *runtime.Bus
-	logger    *slog.Logger
-	now       func() time.Time
+	runtimes        ports.RuntimeConfigRepository
+	instances       ports.SonarrInstanceRepository
+	cipher          *crypto.Cipher
+	bus             *runtime.Bus
+	logger          *slog.Logger
+	now             func() time.Time
+	clientSecretEnv string
+}
+
+func (u *UseCase) WithClientSecretEnv(v string) *UseCase {
+	u.clientSecretEnv = v
+	return u
 }
 
 func New(
@@ -127,7 +146,7 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 			fmt.Errorf("runtimeconfig: get row: %w", err)
 	}
 	ts := row.UpdatedAt.Truncate(time.Second)
-	return rowToOutput(row, ts), ts, nil
+	return rowToOutput(row, ts, u.clientSecretEnv), ts, nil
 }
 
 // Update validates the incoming Input, persists it, then republishes a
@@ -149,12 +168,14 @@ func (u *UseCase) Update(
 	}
 	prevEpoch := prevRow.Auth.SessionEpoch
 
-	snap, err := u.inputToSnapshot(in)
+	snap, err := u.inputToSnapshot(in, prevRow)
 	if err != nil {
 		return Output{}, time.Time{}, err
 	}
-	// Decide epoch: keep previous unless an invalidating field changed.
-	if epochShouldBump(prevRow.Auth, snap.Auth) {
+
+	clientSecretChanged := in.Auth.OIDC.ClientSecret != nil
+
+	if epochShouldBump(prevRow.Auth, snap.Auth) || clientSecretChanged {
 		next := u.now().UTC().UnixNano()
 		if next <= prevEpoch {
 			next = prevEpoch + 1
@@ -171,6 +192,14 @@ func (u *UseCase) Update(
 		return Output{}, time.Time{},
 			fmt.Errorf("runtimeconfig: upsert: %w", err)
 	}
+
+	if in.Auth.OIDC.ClientSecret != nil {
+		if err := u.runtimes.UpsertOIDCSecret(ctx, *in.Auth.OIDC.ClientSecret); err != nil {
+			return Output{}, time.Time{},
+				fmt.Errorf("runtimeconfig: oidc secret: %w", err)
+		}
+	}
+
 	stored, err := u.runtimes.Get(ctx)
 	if err != nil {
 		return Output{}, time.Time{},
@@ -181,7 +210,7 @@ func (u *UseCase) Update(
 			slog.String("error", err.Error()))
 	}
 	ts := stored.UpdatedAt.Truncate(time.Second)
-	return rowToOutput(stored, ts), ts, nil
+	return rowToOutput(stored, ts, u.clientSecretEnv), ts, nil
 }
 
 // SetAuthMode is a focused rescue path used by the CLI: read the row,
@@ -228,6 +257,7 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 				Scopes:        append([]string(nil), row.Auth.OIDC.Scopes...),
 				UsernameClaim: row.Auth.OIDC.UsernameClaim,
 				AllowedGroups: append([]string(nil), row.Auth.OIDC.AllowedGroups...),
+				GroupsClaim:   row.Auth.OIDC.GroupsClaim,
 			},
 		},
 	}
@@ -257,7 +287,8 @@ func epochShouldBump(prev, next runtime.AuthSnapshot) bool {
 	if prev.OIDC.Issuer != next.OIDC.Issuer ||
 		prev.OIDC.ClientID != next.OIDC.ClientID ||
 		prev.OIDC.RedirectURL != next.OIDC.RedirectURL ||
-		prev.OIDC.UsernameClaim != next.OIDC.UsernameClaim {
+		prev.OIDC.UsernameClaim != next.OIDC.UsernameClaim ||
+		prev.OIDC.GroupsClaim != next.OIDC.GroupsClaim {
 		return true
 	}
 	if !stringSliceEqual(prev.OIDC.Scopes, next.OIDC.Scopes) {
@@ -303,7 +334,7 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 	return nil
 }
 
-func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
+func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (runtime.Snapshot, error) {
 	if _, err := cronParser.Parse(in.Cron.Schedule); err != nil {
 		return runtime.Snapshot{}, newValidationErr(
 			"cron.schedule", "INVALID_CRON", err.Error())
@@ -354,7 +385,9 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 	if err != nil {
 		return runtime.Snapshot{}, err
 	}
-	if err := validateOIDCInput(in.Auth.OIDC, in.Auth.Mode); err != nil {
+	hasStored := len(prevRow.OIDCClientSecretCiphertext) > 0
+	if err := validateOIDCInput(in.Auth.OIDC, in.Auth.Mode,
+		u.clientSecretEnv, hasStored); err != nil {
 		return runtime.Snapshot{}, err
 	}
 	return runtime.Snapshot{
@@ -386,6 +419,7 @@ func (u *UseCase) inputToSnapshot(in Input) (runtime.Snapshot, error) {
 				Scopes:        append([]string(nil), in.Auth.OIDC.Scopes...),
 				UsernameClaim: strings.TrimSpace(in.Auth.OIDC.UsernameClaim),
 				AllowedGroups: append([]string(nil), in.Auth.OIDC.AllowedGroups...),
+				GroupsClaim:   defaultIfBlank(in.Auth.OIDC.GroupsClaim, "groups"),
 			},
 		},
 	}, nil
@@ -442,11 +476,7 @@ func validateLocalNetworks(list []string) ([]string, error) {
 	return out, nil
 }
 
-// validateOIDCInput enforces minimum invariants. Fields are only
-// strictly required when auth_mode=oidc; otherwise empty values are
-// accepted (operator may pre-fill before switching modes). Always
-// validates URLs/scopes shape when non-empty.
-func validateOIDCInput(in OIDCInput, mode string) error {
+func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) error {
 	if mode == runtime.AuthModeOIDC {
 		if strings.TrimSpace(in.Issuer) == "" {
 			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
@@ -463,6 +493,14 @@ func validateOIDCInput(in OIDCInput, mode string) error {
 		if strings.TrimSpace(in.RedirectURL) == "" {
 			return newValidationErr("auth.oidc.redirect_url", "INVALID_OIDC_REDIRECT_URL",
 				"redirect_url is required when auth_mode=oidc")
+		}
+		hasEnv := env != ""
+		hasIncoming := in.ClientSecret != nil && *in.ClientSecret != ""
+		clearing := in.ClientSecret != nil && *in.ClientSecret == ""
+		effectiveStored := hasStoredSecret && !clearing
+		if !hasEnv && !effectiveStored && !hasIncoming {
+			return newValidationErr("auth.oidc.client_secret", "OIDC_CLIENT_SECRET_MISSING",
+				"OIDC client_secret missing (set OIDC_CLIENT_SECRET env or configure in UI)")
 		}
 	}
 	if len(in.Scopes) > 0 {
@@ -481,6 +519,11 @@ func validateOIDCInput(in OIDCInput, mode string) error {
 	if len(in.AllowedGroups) > 64 {
 		return newValidationErr("auth.oidc.allowed_groups", "INVALID_OIDC_GROUPS_TOO_MANY",
 			"at most 64 allowed_groups entries")
+	}
+	claim := strings.TrimSpace(in.GroupsClaim)
+	if claim != "" && !oidcGroupsClaimPattern.MatchString(claim) {
+		return newValidationErr("auth.oidc.groups_claim", "INVALID_OIDC_GROUPS_CLAIM",
+			"groups_claim must be dot-separated identifiers (e.g. 'groups' or 'realm_access.roles')")
 	}
 	return nil
 }
@@ -537,7 +580,7 @@ func validateTrustedProxies(list []string) error {
 	return nil
 }
 
-func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
+func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Output {
 	proxies := append([]string(nil), row.Auth.TrustedProxies...)
 	if proxies == nil {
 		proxies = []string{}
@@ -574,12 +617,15 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time) Output {
 			LocalNetworks:  networks,
 			SessionEpoch:   row.Auth.SessionEpoch,
 			OIDC: OIDCOutput{
-				Issuer:        row.Auth.OIDC.Issuer,
-				ClientID:      row.Auth.OIDC.ClientID,
-				RedirectURL:   row.Auth.OIDC.RedirectURL,
-				Scopes:        append([]string(nil), row.Auth.OIDC.Scopes...),
-				UsernameClaim: row.Auth.OIDC.UsernameClaim,
-				AllowedGroups: append([]string(nil), row.Auth.OIDC.AllowedGroups...),
+				Issuer:                  row.Auth.OIDC.Issuer,
+				ClientID:                row.Auth.OIDC.ClientID,
+				RedirectURL:             row.Auth.OIDC.RedirectURL,
+				Scopes:                  append([]string(nil), row.Auth.OIDC.Scopes...),
+				UsernameClaim:           row.Auth.OIDC.UsernameClaim,
+				AllowedGroups:           append([]string(nil), row.Auth.OIDC.AllowedGroups...),
+				GroupsClaim:             defaultIfBlank(row.Auth.OIDC.GroupsClaim, "groups"),
+				ClientSecretConfigured:  envSecret != "" || len(row.OIDCClientSecretCiphertext) > 0,
+				ClientSecretEnvOverride: envSecret != "",
 			},
 		},
 		AutoGeneratedAPIKey: row.APIKeyAutoGenerated,

@@ -12,14 +12,18 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
 const runtimeConfigID = uint(1)
 
-type RuntimeConfigRepository struct{ db *gorm.DB }
+type RuntimeConfigRepository struct {
+	db     *gorm.DB
+	cipher *crypto.Cipher
+}
 
-func NewRuntimeConfigRepository(db *gorm.DB) *RuntimeConfigRepository {
-	return &RuntimeConfigRepository{db: db}
+func NewRuntimeConfigRepository(db *gorm.DB, cipher *crypto.Cipher) *RuntimeConfigRepository {
+	return &RuntimeConfigRepository{db: db, cipher: cipher}
 }
 
 func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigRow, error) {
@@ -87,6 +91,13 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 	if row.Auth.OIDC.AllowedGroups == nil {
 		row.Auth.OIDC.AllowedGroups = []string{}
 	}
+	row.Auth.OIDC.GroupsClaim = m.OIDCGroupsClaim
+	if row.Auth.OIDC.GroupsClaim == "" {
+		row.Auth.OIDC.GroupsClaim = "groups"
+	}
+	if len(m.OIDCClientSecretCiphertext) > 0 {
+		row.OIDCClientSecretCiphertext = append([]byte(nil), m.OIDCClientSecretCiphertext...)
+	}
 	return row, nil
 }
 
@@ -153,6 +164,7 @@ func (r *RuntimeConfigRepository) Upsert(
 			existing.OIDCScopes = string(oidcScopes)
 			existing.OIDCUsernameClaim = snap.Auth.OIDC.UsernameClaim
 			existing.OIDCAllowedGroups = string(oidcGroups)
+			existing.OIDCGroupsClaim = snap.Auth.OIDC.GroupsClaim
 			existing.UpdatedAt = now
 			return tx.Save(&existing).Error
 		case errors.Is(err, gorm.ErrRecordNotFound):
@@ -178,6 +190,7 @@ func (r *RuntimeConfigRepository) Upsert(
 				OIDCScopes:         string(oidcScopes),
 				OIDCUsernameClaim:  snap.Auth.OIDC.UsernameClaim,
 				OIDCAllowedGroups:  string(oidcGroups),
+				OIDCGroupsClaim:    snap.Auth.OIDC.GroupsClaim,
 				CreatedAt:          now, UpdatedAt: now,
 			}
 			return tx.Create(&row).Error
@@ -229,6 +242,7 @@ func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, aut
 			OIDCScopes:           string(mustJSON(def.Auth.OIDC.Scopes)),
 			OIDCUsernameClaim:    def.Auth.OIDC.UsernameClaim,
 			OIDCAllowedGroups:    string(mustJSON(def.Auth.OIDC.AllowedGroups)),
+			OIDCGroupsClaim:      "groups",
 		}
 		return db.Create(&row).Error
 	default:
@@ -237,5 +251,55 @@ func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, aut
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+func (r *RuntimeConfigRepository) UpsertOIDCSecret(ctx context.Context, plaintext string) error {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	now := time.Now().UTC()
+	var ct []byte
+	if plaintext != "" {
+		if r.cipher == nil {
+			return fmt.Errorf("oidc client secret: cipher not configured")
+		}
+		sealed, err := r.cipher.Seal([]byte(plaintext))
+		if err != nil {
+			return fmt.Errorf("seal oidc client secret: %w", err)
+		}
+		ct = sealed
+	}
+	res := db.Model(&database.RuntimeConfigModel{}).
+		Where("id = ?", runtimeConfigID).
+		Updates(map[string]interface{}{
+			"oidc_client_secret_ciphertext": ct,
+			"updated_at":                    now,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("upsert oidc client secret: %w", res.Error)
+	}
+	return nil
+}
+
+func (r *RuntimeConfigRepository) DecryptOIDCSecret(ctx context.Context) (string, error) {
+	if r.cipher == nil {
+		return "", nil
+	}
+	var m database.RuntimeConfigModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("oidc_client_secret_ciphertext").
+		Where("id = ?", runtimeConfigID).First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+		return "", fmt.Errorf("load oidc client secret: %w", err)
+	}
+	if len(m.OIDCClientSecretCiphertext) == 0 {
+		return "", nil
+	}
+	pt, err := r.cipher.Open(m.OIDCClientSecretCiphertext)
+	if err != nil {
+		return "", fmt.Errorf("decrypt oidc client secret: %w", err)
+	}
+	return string(pt), nil
+}
 
 var _ ports.RuntimeConfigRepository = (*RuntimeConfigRepository)(nil)

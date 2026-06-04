@@ -62,6 +62,14 @@ func (f *fakeRuntimeRepo) SaveAPIKey(_ context.Context, _ []byte, _ bool) error 
 	return nil
 }
 
+func (f *fakeRuntimeRepo) UpsertOIDCSecret(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeRuntimeRepo) DecryptOIDCSecret(_ context.Context) (string, error) {
+	return "", nil
+}
+
 type fakeInstanceRepo struct{}
 
 func (fakeInstanceRepo) List(_ context.Context, _ *crypto.Cipher) ([]runtime.InstanceSnapshot, error) {
@@ -401,6 +409,14 @@ func (staleOnIUSRepo) SaveAPIKey(_ context.Context, _ []byte, _ bool) error {
 	return nil
 }
 
+func (staleOnIUSRepo) UpsertOIDCSecret(_ context.Context, _ string) error {
+	return nil
+}
+
+func (staleOnIUSRepo) DecryptOIDCSecret(_ context.Context) (string, error) {
+	return "", nil
+}
+
 // TestUpdate_StaleIUS_FromRepo is the CR-1 + M-2 regression test.
 // The fake never compares timestamps — it just signals stale whenever
 // an IUS pointer is forwarded. The usecase must:
@@ -631,13 +647,16 @@ func TestValidate_LocalNetworks_MixedIPv4IPv6(t *testing.T) {
 // validOIDCInput returns a minimal-valid set of OIDC fields for use in
 // mode=oidc tests. Callers may further mutate individual sub-fields.
 func validOIDCInput() OIDCInput {
+	secret := "test-client-secret"
 	return OIDCInput{
 		Issuer:        "https://sso.example.com",
 		ClientID:      "seasonfill",
+		ClientSecret:  &secret,
 		RedirectURL:   "https://app.example.com/callback",
 		Scopes:        []string{"openid", "profile", "email"},
 		UsernameClaim: "preferred_username",
 		AllowedGroups: []string{},
+		GroupsClaim:   "groups",
 	}
 }
 
@@ -836,15 +855,17 @@ func TestUsecase_EpochBumpsOnOIDCAllowedGroupsChange(t *testing.T) {
 func TestUsecase_EpochUnchangedWhenOIDCFieldsStable(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRuntimeRepo{}
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
+	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
+		WithClientSecretEnv("env-secret") // env-secret satisfies OIDC_CLIENT_SECRET_MISSING guard
 	in := validInput()
 	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
+	in.Auth.OIDC.ClientSecret = nil // preserve, not dirty
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
 	first := repo.row.Auth.SessionEpoch
 
-	// Identical OIDC fields — only a non-auth field changes.
+	// Identical OIDC fields — only a non-auth field changes. ClientSecret nil = no bump.
 	in.Cron.Schedule = "0 0 * * *"
 	_, _, err = uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)

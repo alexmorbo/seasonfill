@@ -106,8 +106,7 @@ func NewServer(
 
 		oidcHandler := handlers.NewOIDCHandler(
 			oidcUC, authHandler.AuthRuntime(), sessionKey,
-			cfg.Auth.SessionTTL, cfg.Auth.SecureCookie,
-			cfg.Auth.OIDCClientSecret, logger,
+			cfg.Auth.SessionTTL, cfg.Auth.SecureCookie, logger,
 		)
 		api.GET("/auth/oidc/start", oidcHandler.Start)
 		api.GET("/auth/oidc/callback", oidcHandler.Callback)

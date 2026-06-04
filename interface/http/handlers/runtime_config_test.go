@@ -55,6 +55,8 @@ func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot, ifUnmodifi
 	return nil
 }
 func (f *rcFakeRuntime) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
+func (f *rcFakeRuntime) UpsertOIDCSecret(_ context.Context, _ string) error   { return nil }
+func (f *rcFakeRuntime) DecryptOIDCSecret(_ context.Context) (string, error)  { return "", nil }
 
 type rcFakeInstances struct{}
 
@@ -270,6 +272,8 @@ func (rcBrokenRuntime) Upsert(_ context.Context, _ runtime.Snapshot, _ *time.Tim
 	return nil
 }
 func (rcBrokenRuntime) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
+func (rcBrokenRuntime) UpsertOIDCSecret(_ context.Context, _ string) error   { return nil }
+func (rcBrokenRuntime) DecryptOIDCSecret(_ context.Context) (string, error)  { return "", nil }
 
 // TestRC_WriteError_DefaultBranch exercises the default (internal error) branch
 // of writeError directly via the Update handler path.

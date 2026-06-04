@@ -102,6 +102,8 @@ func (crudFakeRuntime) Upsert(_ context.Context, _ runtime.Snapshot, _ *time.Tim
 	return nil
 }
 func (crudFakeRuntime) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
+func (crudFakeRuntime) UpsertOIDCSecret(_ context.Context, _ string) error   { return nil }
+func (crudFakeRuntime) DecryptOIDCSecret(_ context.Context) (string, error)  { return "", nil }
 
 func setupCRUD(t *testing.T) (*gin.Engine, *crudFakeRepo) {
 	t.Helper()

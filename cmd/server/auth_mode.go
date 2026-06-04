@@ -62,7 +62,6 @@ func runAuthMode(args []string) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db)
 	instanceRepo := repositories.NewSonarrInstanceRepository(db)
 	ctx := context.Background()
 
@@ -70,7 +69,8 @@ func runAuthMode(args []string) error {
 	// publish is best-effort here (no bus subscribers — the live
 	// server process owns those). Resolve the master key the same
 	// way main does so cipher init succeeds.
-	masterKey, err := bootstrap.ResolveAPIKey(ctx, cfg.Auth.APIKey, runtimeRepo, log)
+	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	masterKey, err := bootstrap.ResolveAPIKey(ctx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
 	}
@@ -78,6 +78,7 @@ func runAuthMode(args []string) error {
 	if err != nil {
 		return fmt.Errorf("derive cipher: %w", err)
 	}
+	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
 
 	uc := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, nil, log)
 

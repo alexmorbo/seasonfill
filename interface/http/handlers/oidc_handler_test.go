@@ -40,7 +40,7 @@ func TestOIDCStart_NotConfigured_ReturnsServiceUnavailable(t *testing.T) {
 	ptr := &middleware.AuthRuntimePointer{}
 	ptr.Store(&middleware.AuthRuntime{Mode: runtime.AuthModeOIDC})
 	uc := auth.NewOIDCLoginUseCase(infraoidc.NewProviderCache(), stubAdminRepo{})
-	h := NewOIDCHandler(uc, ptr, []byte("k"), 0, false, "", nil)
+	h := NewOIDCHandler(uc, ptr, []byte("k"), 0, false, nil)
 
 	r := gin.New()
 	r.GET("/api/v1/auth/oidc/start", h.Start)
@@ -51,29 +51,31 @@ func TestOIDCStart_NotConfigured_ReturnsServiceUnavailable(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "OIDC_NOT_CONFIGURED")
 }
 
-func TestOIDCConfig_ThreadsClientSecretFromEnv(t *testing.T) {
+func TestOIDCConfig_ThreadsClientSecretFromRuntime(t *testing.T) {
 	t.Parallel()
 	ptr := &middleware.AuthRuntimePointer{}
 	ptr.Store(&middleware.AuthRuntime{
 		OIDC: middleware.OIDCRuntime{
 			Issuer: "https://example.test", ClientID: "c", RedirectURL: "https://x/cb",
 			Scopes: []string{"openid"}, UsernameClaim: "preferred_username",
+			ClientSecret: "secret-from-runtime", GroupsClaim: "groups",
 		},
 	})
-	h := NewOIDCHandler(nil, ptr, nil, 0, false, "secret-from-env", nil)
+	h := NewOIDCHandler(nil, ptr, nil, 0, false, nil)
 	cfg := h.config()
-	assert.Equal(t, "secret-from-env", cfg.ClientSecret)
+	assert.Equal(t, "secret-from-runtime", cfg.ClientSecret)
 	assert.Equal(t, "https://example.test", cfg.Issuer)
 	assert.Equal(t, "c", cfg.ClientID)
+	assert.Equal(t, "groups", cfg.GroupsClaim)
 }
 
 func TestOIDCConfig_NilRuntimeReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	ptr := &middleware.AuthRuntimePointer{}
-	h := NewOIDCHandler(nil, ptr, nil, 0, false, "secret", nil)
+	h := NewOIDCHandler(nil, ptr, nil, 0, false, nil)
 	cfg := h.config()
 	assert.Empty(t, cfg.Issuer)
-	// Client secret env still flows through but is unused without Issuer.
+	// Client secret flows from runtime; nil runtime → empty config.
 }
 
 // Full Start/Callback success paths exercise the provider cache (HTTP

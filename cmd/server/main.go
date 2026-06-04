@@ -103,12 +103,14 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db)
 	instanceRepo := repositories.NewSonarrInstanceRepository(db)
 
 	bgCtx := context.Background()
 
-	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, bootCfg.Auth.APIKey, runtimeRepo, log)
+	// We need a temporary repo without cipher to resolve the API key first.
+	// Then we rebuild the repo with the derived cipher.
+	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, bootCfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return nil, fmt.Errorf("resolve api key: %w", err)
 	}
@@ -116,6 +118,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	if err != nil {
 		return nil, fmt.Errorf("derive cipher: %w", err)
 	}
+	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
 
 	// Seed runtime_config from Defaults() on a truly-fresh install.
 	row, err := runtimeRepo.Get(bgCtx)
@@ -152,7 +155,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	bus := runtime.NewBus(log)
 	defer bus.Close()
 
-	runtimeConfigUC := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, bus, log)
+	runtimeConfigUC := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, bus, log).
+		WithClientSecretEnv(bootCfg.Auth.OIDCClientSecret)
 	runtimeConfigHandler := handlers.NewRuntimeConfigHandler(runtimeConfigUC, log)
 
 	adminRepo := repositories.NewAdminUserRepository(db)
@@ -357,7 +361,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName,
 		clientFactory, checker, wd, holder, sweeper,
-		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine())
+		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
+		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
 	}

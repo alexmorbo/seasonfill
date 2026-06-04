@@ -14,7 +14,7 @@ import (
 
 func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 
 	_, err := repo.Get(context.Background())
 	require.ErrorIs(t, err, ports.ErrNotFound)
@@ -22,7 +22,7 @@ func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
 
 func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Snapshot{
@@ -63,7 +63,7 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 
 func TestRuntimeConfigRepository_SaveAPIKey_Fresh(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	ct := []byte{0x01, 0x02, 0x03}
@@ -79,7 +79,7 @@ func TestRuntimeConfigRepository_SaveAPIKey_Fresh(t *testing.T) {
 
 func TestRuntimeConfigRepository_SaveAPIKey_Existing(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -97,7 +97,7 @@ func TestRuntimeConfigRepository_SaveAPIKey_Existing(t *testing.T) {
 
 func TestRuntimeConfigRepository_Upsert_StaleIUS_Rejects(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -116,7 +116,7 @@ func TestRuntimeConfigRepository_Upsert_StaleIUS_Rejects(t *testing.T) {
 
 func TestRuntimeConfigRepository_Upsert_FreshIUS_Writes(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -134,7 +134,7 @@ func TestRuntimeConfigRepository_Upsert_FreshIUS_Writes(t *testing.T) {
 
 func TestRuntimeConfigRepository_Upsert_NoIUS_LWW(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -149,7 +149,7 @@ func TestRuntimeConfigRepository_Upsert_NoIUS_LWW(t *testing.T) {
 func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 	// First ever PUT — no existing row to be stale against.
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	header := time.Now().UTC().Add(-time.Hour)
@@ -159,7 +159,7 @@ func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 
 func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -179,7 +179,7 @@ func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
 
 func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -193,7 +193,7 @@ func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
 
 func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -212,7 +212,7 @@ func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
 
 func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	snap := runtime.Defaults()
@@ -240,7 +240,7 @@ func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
 
 func TestRuntimeConfigRepository_OIDCFields_DefaultsWhenAbsent(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	// Upsert with all OIDC fields at zero-value (not mode=oidc, no explicit OIDC config).
@@ -267,7 +267,7 @@ func TestRuntimeConfigRepository_OIDCFields_DefaultsWhenAbsent(t *testing.T) {
 
 func TestRuntimeConfigRepository_OIDCScopes_OrderPreserved(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	ordered := []string{"openid", "profile", "email", "groups"}
@@ -283,7 +283,7 @@ func TestRuntimeConfigRepository_OIDCScopes_OrderPreserved(t *testing.T) {
 
 func TestRuntimeConfigRepository_OIDCAllowedGroups_OrderPreserved(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewRuntimeConfigRepository(db)
+	repo := NewRuntimeConfigRepository(db, nil)
 	ctx := context.Background()
 
 	ordered := []string{"zebra-team", "alpha-team", "beta-team"}

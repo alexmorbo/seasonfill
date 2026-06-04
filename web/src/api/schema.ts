@@ -1939,6 +1939,12 @@ export type components = {
             readonly allowed_groups?: readonly string[];
             /** @example seasonfill */
             readonly client_id?: string;
+            /** @description ClientSecret is write-only: GET responses NEVER contain a value. */
+            readonly client_secret?: string;
+            readonly client_secret_configured?: boolean;
+            readonly client_secret_env_override?: boolean;
+            /** @example groups */
+            readonly groups_claim?: string;
             /** @example https://keycloak.example.com/realms/homelab */
             readonly issuer?: string;
             /** @example https://seasonfill.example.com/api/v1/auth/oidc/callback */

@@ -572,6 +572,17 @@ components:
         client_id:
           example: seasonfill
           type: string
+        client_secret:
+          description: 'ClientSecret is write-only: GET responses NEVER contain a
+            value.'
+          type: string
+        client_secret_configured:
+          type: boolean
+        client_secret_env_override:
+          type: boolean
+        groups_claim:
+          example: groups
+          type: string
         issuer:
           example: https://keycloak.example.com/realms/homelab
           type: string

@@ -9,21 +9,33 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
 type AuthMiddlewareSubscriber struct {
-	ptr    *middleware.AuthRuntimePointer
-	engine *gin.Engine
-	logger *slog.Logger
+	ptr             *middleware.AuthRuntimePointer
+	engine          *gin.Engine
+	logger          *slog.Logger
+	runtimeRepo     ports.RuntimeConfigRepository
+	clientSecretEnv string
 }
 
-func NewAuthMiddlewareSubscriber(ptr *middleware.AuthRuntimePointer, engine *gin.Engine, logger *slog.Logger) *AuthMiddlewareSubscriber {
+func NewAuthMiddlewareSubscriber(
+	ptr *middleware.AuthRuntimePointer,
+	engine *gin.Engine,
+	logger *slog.Logger,
+	runtimeRepo ports.RuntimeConfigRepository,
+	clientSecretEnv string,
+) *AuthMiddlewareSubscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AuthMiddlewareSubscriber{ptr: ptr, engine: engine, logger: logger}
+	return &AuthMiddlewareSubscriber{
+		ptr: ptr, engine: engine, logger: logger,
+		runtimeRepo: runtimeRepo, clientSecretEnv: clientSecretEnv,
+	}
 }
 
 func (s *AuthMiddlewareSubscriber) Run(ctx context.Context, bus *runtime.Bus, ready func()) {
@@ -36,6 +48,7 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 		mode = runtime.AuthModeForms
 	}
 	parsed := s.parseLocalNetworks(ctx, snap.Auth.LocalNetworks)
+	resolvedSecret := s.resolveClientSecret(ctx)
 	want := middleware.AuthRuntime{
 		SessionTTL:     snap.Auth.SessionTTL,
 		TrustedProxies: append([]string(nil), snap.Auth.TrustedProxies...),
@@ -47,10 +60,12 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 		OIDC: middleware.OIDCRuntime{
 			Issuer:        snap.Auth.OIDC.Issuer,
 			ClientID:      snap.Auth.OIDC.ClientID,
+			ClientSecret:  resolvedSecret,
 			RedirectURL:   snap.Auth.OIDC.RedirectURL,
 			Scopes:        append([]string(nil), snap.Auth.OIDC.Scopes...),
 			UsernameClaim: snap.Auth.OIDC.UsernameClaim,
 			AllowedGroups: append([]string(nil), snap.Auth.OIDC.AllowedGroups...),
+			GroupsClaim:   snap.Auth.OIDC.GroupsClaim,
 		},
 	}
 	prev := s.ptr.Load()
@@ -69,6 +84,23 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 		return fmt.Errorf("set trusted proxies: %w", err)
 	}
 	return nil
+}
+
+// resolveClientSecret returns env > DB-decrypted; "" if neither.
+func (s *AuthMiddlewareSubscriber) resolveClientSecret(ctx context.Context) string {
+	if s.clientSecretEnv != "" {
+		return s.clientSecretEnv
+	}
+	if s.runtimeRepo == nil {
+		return ""
+	}
+	secret, err := s.runtimeRepo.DecryptOIDCSecret(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "authMiddleware.oidc_decrypt_failed",
+			slog.String("error", err.Error()))
+		return ""
+	}
+	return secret
 }
 
 // parseLocalNetworks pre-parses CIDR strings once per reload. Bad
@@ -115,8 +147,10 @@ func authRuntimeEqual(a, b *middleware.AuthRuntime) bool {
 	}
 	if a.OIDC.Issuer != b.OIDC.Issuer ||
 		a.OIDC.ClientID != b.OIDC.ClientID ||
+		a.OIDC.ClientSecret != b.OIDC.ClientSecret ||
 		a.OIDC.RedirectURL != b.OIDC.RedirectURL ||
-		a.OIDC.UsernameClaim != b.OIDC.UsernameClaim {
+		a.OIDC.UsernameClaim != b.OIDC.UsernameClaim ||
+		a.OIDC.GroupsClaim != b.OIDC.GroupsClaim {
 		return false
 	}
 	if !reflect.DeepEqual(a.OIDC.Scopes, b.OIDC.Scopes) {

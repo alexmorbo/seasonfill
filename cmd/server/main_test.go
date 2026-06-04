@@ -35,7 +35,7 @@ func TestRun_BootstrapSmoke(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db)
+	runtimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
 	row, err := runtimeRepo.Get(context.Background())
 	if err == nil {
 		// Runtime config was seeded — verify defaults.

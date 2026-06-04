@@ -45,16 +45,22 @@ type AuthInput struct {
 	OIDC          OIDCInput
 }
 
-// OIDCInput is the wire-validated OIDC config. ClientSecret is NOT here
-// — it ships via OIDC_CLIENT_SECRET env (C6 invariant). Other fields
-// are full-trip on the PUT body and editable from the UI Settings tab.
+// OIDCInput is the wire-validated OIDC config. ClientSecret follows the
+// dirty-bit pattern used for instance api_key:
+//   - nil               → preserve existing ciphertext (no write)
+//   - non-nil ""        → clear the stored ciphertext
+//   - non-nil non-empty → encrypt and store
+//
+// Env OIDC_CLIENT_SECRET, when set, overrides DB at OIDC callback time.
 type OIDCInput struct {
 	Issuer        string
 	ClientID      string
+	ClientSecret  *string
 	RedirectURL   string
 	Scopes        []string
 	UsernameClaim string
 	AllowedGroups []string
+	GroupsClaim   string
 }
 
 // Output is the typed representation returned by Get and Update.
@@ -83,10 +89,13 @@ type AuthOutput struct {
 }
 
 type OIDCOutput struct {
-	Issuer        string
-	ClientID      string
-	RedirectURL   string
-	Scopes        []string
-	UsernameClaim string
-	AllowedGroups []string
+	Issuer                  string
+	ClientID                string
+	RedirectURL             string
+	Scopes                  []string
+	UsernameClaim           string
+	AllowedGroups           []string
+	GroupsClaim             string
+	ClientSecretConfigured  bool
+	ClientSecretEnvOverride bool
 }
