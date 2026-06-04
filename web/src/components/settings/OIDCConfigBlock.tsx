@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, AlertTriangle, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 // OIDCTestResult mirrors the backend auth.OIDCTestResult shape.
 export type OIDCTestResult = {
@@ -127,19 +127,14 @@ export function OIDCConfigBlock(props: {
     : '/api/v1/auth/oidc/callback';
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+    <div className="rounded-lg border border-border bg-surface/40 p-5 flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
         <h4 className="text-[13px] font-semibold tracking-tight">
           {t('settings.security.oidc.section')}
         </h4>
-        {props.onTest && (
-          <Button type="button" variant="outline" size="sm"
-            disabled={!v.issuer.trim() || testing} onClick={onTestClick}>
-            {testing
-              ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />{t('settings.security.oidc.test.running')}</>
-              : t('settings.security.oidc.test.button')}
-          </Button>
-        )}
+        <p className="text-[11.5px] text-muted">
+          {t('settings.security.oidc.envHint')}
+        </p>
       </div>
 
       {v.client_secret_env_override && (
@@ -315,39 +310,49 @@ export function OIDCConfigBlock(props: {
         </p>
       </div>
 
-      <Alert>
-        <Info className="w-4 h-4" />
-        <AlertDescription>{t('settings.security.oidc.envHint')}</AlertDescription>
-      </Alert>
+      {props.onTest && (
+        <div className="border-t border-border pt-4 flex flex-col gap-3">
+          <Button
+            type="button" variant="outline" size="sm"
+            className="self-start"
+            disabled={!v.issuer.trim() || testing}
+            onClick={onTestClick}
+          >
+            {testing
+              ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />{t('settings.security.oidc.test.running')}</>
+              : t('settings.security.oidc.test.button')}
+          </Button>
 
-      {testErr && (
-        <Alert variant="destructive">
-          <AlertTriangle className="w-4 h-4" />
-          <AlertTitle>{t('common.error')}</AlertTitle>
-          <AlertDescription>{testErr}</AlertDescription>
-        </Alert>
-      )}
+          {testErr && (
+            <Alert variant="destructive">
+              <AlertTriangle className="w-4 h-4" />
+              <AlertTitle>{t('common.error')}</AlertTitle>
+              <AlertDescription>{testErr}</AlertDescription>
+            </Alert>
+          )}
 
-      {testResult && (
-        <div className="flex flex-col gap-1.5 text-[12px]" data-testid="oidc-test-results">
-          {(
-            [
-              { ok: testResult.discovery.ok, label: t('settings.security.oidc.test.rows.discovery'), detail: testResult.discovery.error },
-              { ok: testResult.issuer_match.ok, label: t('settings.security.oidc.test.rows.issuerMatch'), detail: !testResult.issuer_match.ok ? t('settings.security.oidc.test.rows.issuerMismatch', { expected: testResult.issuer_match.expected, got: testResult.issuer_match.got }) : undefined },
-              { ok: testResult.jwks.ok, label: t('settings.security.oidc.test.rows.jwks'), detail: testResult.jwks.error ?? (testResult.jwks.ok ? t('settings.security.oidc.test.rows.jwksKeys', { count: testResult.jwks.keys }) : undefined) },
-              { ok: testResult.token_endpoint.ok, label: t('settings.security.oidc.test.rows.tokenEndpoint'), detail: testResult.token_endpoint.error },
-            ] as { ok: boolean; label: string; detail?: string }[]
-          ).map((row, i) => (
-            <div key={i} className="flex items-start gap-2">
-              {row.ok
-                ? <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-status-success flex-shrink-0" />
-                : <XCircle className="w-3.5 h-3.5 mt-0.5 text-status-danger flex-shrink-0" />}
-              <div>
-                <span className={row.ok ? 'text-status-success' : 'text-status-danger'}>{row.label}</span>
-                {row.detail && <span className="text-muted ml-1.5">{row.detail}</span>}
-              </div>
+          {testResult && (
+            <div className="flex flex-col gap-1.5 text-[12px]" data-testid="oidc-test-results">
+              {(
+                [
+                  { ok: testResult.discovery.ok, label: t('settings.security.oidc.test.rows.discovery'), detail: testResult.discovery.error },
+                  { ok: testResult.issuer_match.ok, label: t('settings.security.oidc.test.rows.issuerMatch'), detail: !testResult.issuer_match.ok ? t('settings.security.oidc.test.rows.issuerMismatch', { expected: testResult.issuer_match.expected, got: testResult.issuer_match.got }) : undefined },
+                  { ok: testResult.jwks.ok, label: t('settings.security.oidc.test.rows.jwks'), detail: testResult.jwks.error ?? (testResult.jwks.ok ? t('settings.security.oidc.test.rows.jwksKeys', { count: testResult.jwks.keys }) : undefined) },
+                  { ok: testResult.token_endpoint.ok, label: t('settings.security.oidc.test.rows.tokenEndpoint'), detail: testResult.token_endpoint.error },
+                ] as { ok: boolean; label: string; detail?: string }[]
+              ).map((row, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  {row.ok
+                    ? <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-status-success flex-shrink-0" />
+                    : <XCircle className="w-3.5 h-3.5 mt-0.5 text-status-danger flex-shrink-0" />}
+                  <div>
+                    <span className={row.ok ? 'text-status-success' : 'text-status-danger'}>{row.label}</span>
+                    {row.detail && <span className="text-muted ml-1.5">{row.detail}</span>}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
