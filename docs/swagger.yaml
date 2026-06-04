@@ -1,19 +1,69 @@
 components:
   schemas:
+    auth.CheckDiscovery:
+      properties:
+        discovered_issuer:
+          type: string
+        error:
+          type: string
+        ok:
+          type: boolean
+      type: object
+    auth.CheckIssuerMatch:
+      properties:
+        expected:
+          type: string
+        got:
+          type: string
+        ok:
+          type: boolean
+      type: object
+    auth.CheckJWKS:
+      properties:
+        error:
+          type: string
+        keys:
+          type: integer
+        ok:
+          type: boolean
+      type: object
+    auth.CheckTokenEndpoint:
+      properties:
+        error:
+          type: string
+        ok:
+          type: boolean
+        url:
+          type: string
+      type: object
+    auth.OIDCTestResult:
+      properties:
+        discovery:
+          $ref: '#/components/schemas/auth.CheckDiscovery'
+        issuer_match:
+          $ref: '#/components/schemas/auth.CheckIssuerMatch'
+        jwks:
+          $ref: '#/components/schemas/auth.CheckJWKS'
+        token_endpoint:
+          $ref: '#/components/schemas/auth.CheckTokenEndpoint'
+      type: object
     dto.AuthConfigDTO:
       properties:
         local_bypass:
           example: false
           type: boolean
         login_url:
-          description: |-
-            LoginURL is set when mode=oidc — points at the public /auth/oidc/start
-            endpoint. Empty string for other modes.
           example: /api/v1/auth/oidc/start
           type: string
         mode:
           example: forms
           type: string
+        oidc_ready:
+          description: |-
+            OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
+            LoginURL is also populated — SPA renders SSO button regardless of mode.
+          example: false
+          type: boolean
       type: object
     dto.Decision:
       properties:
@@ -885,6 +935,23 @@ paths:
         "302":
           description: Found
       summary: OIDC start
+      tags:
+      - auth
+  /auth/oidc/test:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/auth.OIDCTestResult'
+          description: OK
+      summary: OIDC reachability test
       tags:
       - auth
   /auth/password:

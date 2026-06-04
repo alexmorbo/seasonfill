@@ -20,9 +20,9 @@ func NewAuthConfigHandler(ptr *middleware.AuthRuntimePointer) *AuthConfigHandler
 	return &AuthConfigHandler{runtime: ptr}
 }
 
-// Get returns {mode, local_bypass, login_url?}. Public — never gated.
-// login_url is set only when mode=oidc (the SPA reads it to render the
-// "Login with SSO" button); other modes get the existing 2-field shape.
+// Get returns {mode, local_bypass, oidc_ready, login_url?}. Public — never gated.
+// login_url is set whenever oidc_ready=true (the SPA reads it to render the
+// "Login with SSO" button); other modes without OIDC get the 3-field shape.
 //
 // @Summary     Public auth-mode bootstrap
 // @Tags        auth
@@ -31,7 +31,7 @@ func NewAuthConfigHandler(ptr *middleware.AuthRuntimePointer) *AuthConfigHandler
 // @Router      /auth/config [get]
 func (h *AuthConfigHandler) Get(c *gin.Context) {
 	mode := runtime.AuthModeForms
-	bypass := false
+	bypass, oidcReady := false, false
 	loginURL := ""
 	if h.runtime != nil {
 		if v := h.runtime.Load(); v != nil {
@@ -39,14 +39,14 @@ func (h *AuthConfigHandler) Get(c *gin.Context) {
 				mode = v.Mode
 			}
 			bypass = v.LocalBypass
-			if mode == runtime.AuthModeOIDC {
+			oidcReady = v.OIDC.IsReady()
+			if oidcReady {
 				loginURL = oidcLoginPath
 			}
 		}
 	}
 	c.JSON(http.StatusOK, dto.AuthConfigDTO{
-		Mode:        mode,
-		LocalBypass: bypass,
-		LoginURL:    loginURL,
+		Mode: mode, LocalBypass: bypass,
+		OIDCReady: oidcReady, LoginURL: loginURL,
 	})
 }

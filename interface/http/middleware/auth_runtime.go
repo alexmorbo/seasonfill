@@ -42,6 +42,11 @@ type OIDCRuntime struct {
 	GroupsClaim   string
 }
 
+// IsReady mirrors runtime.OIDCSnapshot.IsReady on the middleware-side type.
+func (o OIDCRuntime) IsReady() bool {
+	return o.Issuer != "" && o.ClientID != "" && o.ClientSecret != ""
+}
+
 // AuthRuntimePointer is the atomic published by cmd/server to:
 //   - AuthHandler, which reads SessionTTL + SecureCookie on every request.
 //   - AuthMiddlewareSubscriber, which Stores a fresh value per snapshot.

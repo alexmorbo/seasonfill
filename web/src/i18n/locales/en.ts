@@ -131,6 +131,8 @@ export const en = {
       intro: 'You will be redirected to your single sign-on provider.',
       button: 'Login with SSO',
     },
+    or: 'or',
+    enter: 'Enter the application',
   },
   dashboard: {
     title: 'Dashboard',
@@ -584,6 +586,22 @@ export const en = {
       oidc: {
         section: 'OIDC configuration',
         envHint: 'OIDC_CLIENT_SECRET in the deployment environment overrides any value entered here.',
+        parallelBannerTitle: 'OIDC configured',
+        parallelBannerBody: 'Try logging in via SSO before switching the auth mode, to confirm the provider works.',
+        parallelBannerLink: 'Test SSO →',
+        partialConfig: 'Complete the OIDC config (issuer, client ID, client secret) or clear all fields.',
+        test: {
+          button: 'Test reachability',
+          running: 'Testing…',
+          rows: {
+            discovery: 'Discovery (/.well-known/openid-configuration)',
+            issuerMatch: 'Issuer match',
+            issuerMismatch: 'Expected {{expected}}, got {{got}}',
+            jwks: 'JWKS endpoint',
+            jwksKeys: '{{count}} signing key(s)',
+            tokenEndpoint: 'Token endpoint reachable',
+          },
+        },
         clientSecret: {
           label: 'Client Secret',
           placeholder: 'Enter the OIDC client secret',
@@ -595,7 +613,7 @@ export const en = {
         },
         issuer: { label: 'Issuer URL', hint: 'Provider issuer URL (e.g. https://keycloak.example.com/realms/homelab).', required: 'Issuer URL is required for OIDC mode' },
         clientId: { label: 'Client ID', required: 'Client ID is required for OIDC mode' },
-        redirectUrl: { label: 'Redirect URL', hint: 'Must exactly match the redirect URL registered with the OIDC provider.', required: 'Redirect URL is required for OIDC mode' },
+        redirectUrl: { label: 'Redirect URL', hint: 'Must exactly match the redirect URL registered with the OIDC provider.', required: 'Redirect URL is required for OIDC mode', autoHint: 'Empty = use the current host. Set explicitly only for multi-domain deployments.' },
         scopes: { label: 'Scopes', hint: 'Scopes requested during authorization. Must include "openid".', addAria: 'Add scope', removeAria: 'Remove scope {{scope}}', openidRequired: 'Scopes must include "openid"' },
         usernameClaim: { label: 'Username claim', hint: 'ID token claim used as the local admin username on first OIDC login.' },
         groupsClaim: { label: 'Groups claim', hint: 'Dot-notation path to the groups array. Default "groups"; Keycloak realm roles use "realm_access.roles".', invalid: 'Invalid claim path: use dot-separated identifiers' },

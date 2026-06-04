@@ -411,7 +411,8 @@ type RuntimeOIDCDTO struct {
 type AuthConfigDTO struct {
 	Mode        string `json:"mode" example:"forms"`
 	LocalBypass bool   `json:"local_bypass" example:"false"`
-	// LoginURL is set when mode=oidc — points at the public /auth/oidc/start
-	// endpoint. Empty string for other modes.
-	LoginURL string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
+	// OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
+	// LoginURL is also populated — SPA renders SSO button regardless of mode.
+	OIDCReady bool   `json:"oidc_ready" example:"false"`
+	LoginURL  string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
 }

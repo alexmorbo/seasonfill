@@ -142,6 +142,9 @@ func NewServer(
 		guarded.GET("/config/runtime", runtimeConfigHandler.Get)
 		guarded.PUT("/config/runtime", runtimeConfigHandler.Update)
 
+		oidcTestHandler := handlers.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
+		guarded.POST("/auth/oidc/test", oidcTestHandler.Test)
+
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")
 		// Webhook is mode-invariant AND local-bypass-invariant per

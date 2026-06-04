@@ -35,7 +35,7 @@ describe('getAuthConfig()', () => {
       jsonResp({ mode: 'basic', local_bypass: true }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'basic', localBypass: true,
+      mode: 'basic', localBypass: true, oidcReady: false,
     });
   });
 
@@ -44,16 +44,16 @@ describe('getAuthConfig()', () => {
       jsonResp({ mode: 'unknown_mode', local_bypass: false }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'forms', localBypass: false,
+      mode: 'forms', localBypass: false, oidcReady: false,
     });
   });
 
   it('maps mode=oidc and includes loginUrl when present', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'oidc', local_bypass: false, login_url: '/api/v1/auth/oidc/start' }),
+      jsonResp({ mode: 'oidc', local_bypass: false, oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start',
+      mode: 'oidc', localBypass: false, oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
     });
   });
 
@@ -62,8 +62,24 @@ describe('getAuthConfig()', () => {
       jsonResp({ mode: 'none' }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'none', localBypass: false,
+      mode: 'none', localBypass: false, oidcReady: false,
     });
+  });
+
+  it('decodes oidc_ready from wire', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ mode: 'forms', local_bypass: false, oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toMatchObject({
+      oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
+    });
+  });
+
+  it('defaults oidcReady to false when absent', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ mode: 'forms', local_bypass: false }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toMatchObject({ oidcReady: false });
   });
 });
 
@@ -75,7 +91,7 @@ describe('useAuthConfig()', () => {
     const qc = makeQC();
     const { result } = renderHook(() => useAuthConfig(), { wrapper: wrap(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual({ mode: 'forms', localBypass: false });
+    expect(result.current.data).toEqual({ mode: 'forms', localBypass: false, oidcReady: false });
   });
 
   it('exposes error state on 5xx', async () => {

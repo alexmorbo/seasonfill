@@ -15,10 +15,21 @@ import { AlertTriangle, Info, Loader2, Lock, ShieldAlert } from 'lucide-react';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
 } from '@/lib/runtime-config';
+import { useAuthConfig } from '@/lib/auth-config';
+import { api } from '@/lib/api';
 import { TrustedProxiesEditor } from './TrustedProxiesEditor';
 import { LocalNetworksEditor, LOCAL_NETWORK_DEFAULTS } from './LocalNetworksEditor';
 import { isValidCIDR } from '@/lib/cidr';
-import { OIDCConfigBlock, type OIDCFormShape } from './OIDCConfigBlock';
+import { OIDCConfigBlock, type OIDCFormShape, type OIDCTestResult } from './OIDCConfigBlock';
+
+async function postOIDCTest(payload: {
+  issuer?: string; client_id?: string; scopes?: string[];
+}): Promise<OIDCTestResult> {
+  return api<OIDCTestResult>('/auth/oidc/test', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
 
 const AUTH_MODES = ['forms', 'basic', 'none', 'oidc'] as const;
 type AuthModeValue = (typeof AUTH_MODES)[number];
@@ -46,33 +57,41 @@ const schema = z.object({
   oidc_allowed_groups: z.array(z.string()),
   oidc_groups_claim: z.string(),
 }).superRefine((v, ctx) => {
-  if (v.auth_mode !== 'oidc') return;
-  if (v.oidc_issuer.trim() === '') {
+  if (v.auth_mode === 'oidc') {
+    if (v.oidc_issuer.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oidc_issuer'],
+        message: 'settings.security.oidc.issuer.required',
+      });
+    }
+    if (v.oidc_client_id.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oidc_client_id'],
+        message: 'settings.security.oidc.clientId.required',
+      });
+    }
+    if (!v.oidc_scopes.includes('openid')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['oidc_scopes'],
+        message: 'settings.security.oidc.scopes.openidRequired',
+      });
+    }
+    return;
+  }
+  // mode != oidc: partial OIDC is an error; full OIDC is fine.
+  const anyPresent =
+    v.oidc_issuer.trim() !== '' ||
+    v.oidc_client_id.trim() !== '' ||
+    v.oidc_redirect_url.trim() !== '';
+  const allPresent = v.oidc_issuer.trim() !== '' && v.oidc_client_id.trim() !== '';
+  if (anyPresent && !allPresent) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['oidc_issuer'],
-      message: 'settings.security.oidc.issuer.required',
-    });
-  }
-  if (v.oidc_client_id.trim() === '') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['oidc_client_id'],
-      message: 'settings.security.oidc.clientId.required',
-    });
-  }
-  if (v.oidc_redirect_url.trim() === '') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['oidc_redirect_url'],
-      message: 'settings.security.oidc.redirectUrl.required',
-    });
-  }
-  if (!v.oidc_scopes.includes('openid')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['oidc_scopes'],
-      message: 'settings.security.oidc.scopes.openidRequired',
+      message: 'settings.security.oidc.partialConfig',
     });
   }
 });
@@ -175,6 +194,7 @@ export function SecurityTab() {
   const { t } = useTranslation();
   const q = useRuntimeConfig();
   const mut = useUpdateRuntimeConfig();
+  const cfg = useAuthConfig();
   const onPlainHTTP =
     typeof window !== 'undefined' && window.location.protocol === 'http:';
 
@@ -233,6 +253,9 @@ export function SecurityTab() {
   const oidcUsernameClaim = useWatch({ control, name: 'oidc_username_claim', defaultValue: 'preferred_username' });
   const oidcAllowedGroups = useWatch({ control, name: 'oidc_allowed_groups', defaultValue: [] });
   const oidcGroupsClaim = useWatch({ control, name: 'oidc_groups_claim', defaultValue: 'groups' });
+
+  const oidcReady = Boolean(cfg.data?.oidcReady);
+  const showParallelBanner = cfg.data?.mode !== 'oidc' && oidcReady;
 
   const onDiscard = () => {
     reset(configToForm(q.data?.config));
@@ -304,7 +327,20 @@ export function SecurityTab() {
           </Alert>
         )}
 
-        {authMode === 'oidc' && (
+        <>
+          {showParallelBanner && (
+            <Alert>
+              <Info className="w-4 h-4" />
+              <AlertTitle>{t('settings.security.oidc.parallelBannerTitle')}</AlertTitle>
+              <AlertDescription>
+                {t('settings.security.oidc.parallelBannerBody')}{' '}
+                <a href="/api/v1/auth/oidc/start?next=/settings#security"
+                   target="_blank" rel="noopener noreferrer" className="underline">
+                  {t('settings.security.oidc.parallelBannerLink')}
+                </a>
+              </AlertDescription>
+            </Alert>
+          )}
           <OIDCConfigBlock
             value={{
               issuer: oidcIssuer,
@@ -328,6 +364,15 @@ export function SecurityTab() {
               setValue('oidc_groups_claim', next.groups_claim, { shouldDirty: true });
               setOidcClientSecret(next.client_secret);
             }}
+            onTest={() => {
+              const payload: Parameters<typeof postOIDCTest>[0] = {};
+              const trimIssuer = oidcIssuer.trim();
+              const trimClientId = oidcClientId.trim();
+              if (trimIssuer) payload.issuer = trimIssuer;
+              if (trimClientId) payload.client_id = trimClientId;
+              if (oidcScopes.length > 0) payload.scopes = oidcScopes;
+              return postOIDCTest(payload);
+            }}
             errors={{
               ...(errors.oidc_issuer?.message !== undefined && { issuer: errors.oidc_issuer.message }),
               ...(errors.oidc_client_id?.message !== undefined && { client_id: errors.oidc_client_id.message }),
@@ -335,7 +380,7 @@ export function SecurityTab() {
               ...(typeof errors.oidc_scopes?.message === 'string' && { scopes: errors.oidc_scopes.message }),
             }}
           />
-        )}
+        </>
 
         <div className="flex flex-col gap-1.5 max-w-md">
           <Label htmlFor="auth-required">{t('settings.security.auth.requiredLabel')}</Label>

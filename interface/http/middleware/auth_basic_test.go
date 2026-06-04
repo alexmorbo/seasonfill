@@ -200,7 +200,11 @@ func TestBasicAuth_APIKeyStillWorksInBasicMode(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"user":"api-key"`)
 }
 
-func TestBasicAuth_CookieIgnoredInBasicMode(t *testing.T) {
+// TestBasicAuth_CookieAcceptedInBasicMode — 037e: mode=basic now accepts a
+// valid session cookie (e.g. issued after OIDC login) before falling through
+// to the Basic challenge. Ensures the browser popup is suppressed for users
+// with an active cookie.
+func TestBasicAuth_CookieAcceptedInBasicMode(t *testing.T) {
 	t.Parallel()
 	const apiKey = "k"
 	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
@@ -212,12 +216,13 @@ func TestBasicAuth_CookieIgnoredInBasicMode(t *testing.T) {
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: cookie})
-	// no Authorization header — cookie must NOT auth us in Basic mode
+	// no Authorization header — valid cookie must auth us in Basic mode (037e)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Equal(t, `Basic realm="Seasonfill"`, w.Header().Get("WWW-Authenticate"))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Header().Get("WWW-Authenticate"),
+		"must not emit Basic challenge when cookie authenticates")
 }
 
 func TestBasicAuth_RateLimitShared(t *testing.T) {

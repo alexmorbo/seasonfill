@@ -38,12 +38,10 @@ export function Login() {
       defaultValues: { username: '', password: '' },
     });
 
-  // Mode-aware redirect: under mode=basic / mode=none the browser popup
-  // or open-access path handles auth, so landing on /login is a stale
-  // URL and we send the user home. mode=oidc renders the SSO button
-  // below instead (no auto-redirect — the user explicitly clicks).
+  // Mode-aware redirect: under mode=basic the browser popup handles auth,
+  // so landing on /login is a stale URL and we send the user home.
   useEffect(() => {
-    if (cfg.isSuccess && (cfg.data.mode === 'basic' || cfg.data.mode === 'none')) {
+    if (cfg.isSuccess && cfg.data.mode === 'basic') {
       navigate(safeNext(params.get('next')), { replace: true });
     }
   }, [cfg.isSuccess, cfg.data?.mode, navigate, params]);
@@ -86,13 +84,12 @@ export function Login() {
     );
   }
 
-  // mode=oidc → render a single "Login with SSO" anchor that drives
-  // a full-page navigation to /api/v1/auth/oidc/start. The backend
-  // handler sets the PKCE/nonce/state cookies and 302s to the provider.
+  const next = safeNext(params.get('next'));
+  const oidcReady = cfg.data?.oidcReady ?? false;
+
+  // mode=oidc → SSO-only screen.
   if (cfg.isSuccess && cfg.data.mode === 'oidc') {
-    const next = safeNext(params.get('next'));
-    const loginHref = cfg.data.loginUrl ?? '/api/v1/auth/oidc/start';
-    const href = next === '/' ? loginHref : `${loginHref}?next=${encodeURIComponent(next)}`;
+    const href = ssoHref(cfg.data.loginUrl, next);
     return (
       <div className="min-h-screen grid place-items-center bg-bg px-4">
         <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
@@ -113,6 +110,36 @@ export function Login() {
     );
   }
 
+  // mode=none → entry button (+ optional SSO button).
+  if (cfg.isSuccess && cfg.data.mode === 'none') {
+    return (
+      <div className="min-h-screen grid place-items-center bg-bg px-4">
+        <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
+            <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
+          </div>
+          <Button asChild className="h-10 font-semibold">
+            <a href={safeNext(params.get('next'))}>
+              {t('login.enter')}
+            </a>
+          </Button>
+          {oidcReady && (
+            <>
+              <p className="text-center text-[12px] text-muted">{t('login.or')}</p>
+              <Button asChild variant="outline" className="h-10 font-semibold">
+                <a href={ssoHref(cfg.data.loginUrl, next)} data-testid="oidc-login-link">
+                  {t('login.sso.button')}
+                </a>
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Default: mode=forms → password form (+ optional SSO button below).
   return (
     <div className="min-h-screen grid place-items-center bg-bg px-4">
       <form
@@ -171,7 +198,23 @@ export function Login() {
         <Button type="submit" disabled={isSubmitting} className="h-10 font-semibold">
           {isSubmitting ? t('login.submitting') : t('login.submit')}
         </Button>
+
+        {oidcReady && (
+          <>
+            <p className="text-center text-[12px] text-muted">{t('login.or')}</p>
+            <Button asChild variant="outline" className="h-10 font-semibold">
+              <a href={ssoHref(cfg.data?.loginUrl, next)} data-testid="oidc-login-link">
+                {t('login.sso.button')}
+              </a>
+            </Button>
+          </>
+        )}
       </form>
     </div>
   );
+}
+
+function ssoHref(loginUrl: string | undefined, next: string): string {
+  const base = loginUrl ?? '/api/v1/auth/oidc/start';
+  return next === '/' ? base : `${base}?next=${encodeURIComponent(next)}`;
 }

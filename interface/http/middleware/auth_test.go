@@ -138,7 +138,7 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 		{"forms+wrong_apikey", runtime.AuthModeForms, "nope", "", want{http.StatusUnauthorized, ""}},
 		{"basic+no_header_falls_through", runtime.AuthModeBasic, "", "", want{http.StatusUnauthorized, ""}},
 		{"basic+apikey_works", runtime.AuthModeBasic, apiKey, "", want{http.StatusOK, "api-key"}},
-		{"basic+cookie_ignored_no_repo", runtime.AuthModeBasic, "", validCookie, want{http.StatusUnauthorized, ""}},
+		{"basic+valid_cookie_accepted", runtime.AuthModeBasic, "", validCookie, want{http.StatusOK, "admin"}},
 		{"none+no_auth_passes", runtime.AuthModeNone, "", "", want{http.StatusOK, "anonymous"}},
 		{"none+apikey_identity", runtime.AuthModeNone, apiKey, "", want{http.StatusOK, "api-key"}},
 		{"none+cookie_irrelevant", runtime.AuthModeNone, "", validCookie, want{http.StatusOK, "anonymous"}},
@@ -168,6 +168,82 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRequireAuth_Basic_AcceptsValidCookie — mode=basic + valid cookie → 200,
+// no WWW-Authenticate header, adminRepo NOT consulted.
+func TestRequireAuth_Basic_AcceptsValidCookie(t *testing.T) {
+	t.Parallel()
+	const apiKey = "secret"
+	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
+	require.NoError(t, err)
+	validCookie, err := SignSession(sessionKey, "admin", time.Now().Add(time.Hour), 0)
+	require.NoError(t, err)
+
+	r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{
+		Mode:         runtime.AuthModeBasic,
+		SessionEpoch: 0,
+	})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: validCookie})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Header().Get("WWW-Authenticate"),
+		"must not emit Basic challenge when cookie authenticates")
+	assert.Contains(t, w.Body.String(), `"user":"admin"`)
+}
+
+// TestRequireAuth_Basic_StaleEpochFallsThrough — mode=basic + stale-epoch cookie
+// → 401; cookie did not short-circuit (no adminRepo → no Basic challenge header,
+// but the 401 proves the cookie was not accepted).
+func TestRequireAuth_Basic_StaleEpochFallsThrough(t *testing.T) {
+	t.Parallel()
+	const apiKey = "secret"
+	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
+	require.NoError(t, err)
+	staleCookie, err := SignSession(sessionKey, "admin", time.Now().Add(time.Hour), 1)
+	require.NoError(t, err)
+
+	// setupAuthWithRuntime uses adminRepo=nil; stale cookie falls through,
+	// adminRepo nil → break → generic 401 (no WWW-Authenticate).
+	r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{
+		Mode:         runtime.AuthModeBasic,
+		SessionEpoch: 5,
+	})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: staleCookie})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"stale-epoch cookie must not grant access")
+}
+
+// TestRequireAuthWebhook_Basic_IgnoresCookie — mode=basic + cookie via
+// RequireAuthWebhook → 401 (cookie ignored, X-Api-Key required).
+func TestRequireAuthWebhook_Basic_IgnoresCookie(t *testing.T) {
+	t.Parallel()
+	const apiKey = "secret"
+	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
+	require.NoError(t, err)
+	validCookie, err := SignSession(sessionKey, "admin", time.Now().Add(time.Hour), 0)
+	require.NoError(t, err)
+
+	ptr := &AuthRuntimePointer{}
+	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeBasic, SessionEpoch: 0})
+	r := gin.New()
+	api := r.Group("/api")
+	api.Use(RequireAuthWebhook(apiKey, sessionKey, ptr, nil, nil))
+	api.GET("/ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"user": c.GetString(UsernameContextKey)})
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: validCookie})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"webhook must reject cookie-only requests even when cookie is valid")
 }
 
 // TestRequireAuth_StaleEpochCookie_Rejected confirms a cookie minted

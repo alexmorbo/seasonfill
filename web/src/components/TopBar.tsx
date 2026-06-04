@@ -40,8 +40,9 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   // 'forms' when the config is still loading to avoid hiding controls
   // mid-flight on first paint.
   const mode = cfg.data?.mode ?? 'forms';
-  const showFormsControls = mode === 'forms';
-  const accountLabel = showFormsControls
+  const showAccountControls = mode === 'forms' || mode === 'oidc';
+  const showPasswordChange = mode === 'forms';
+  const accountLabel = showAccountControls
     ? (session?.username ?? t('nav.account'))
     : t('nav.anonymous');
 
@@ -113,12 +114,12 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           <DropdownMenuLabel>
             {accountLabel}
           </DropdownMenuLabel>
-          {showFormsControls && (
+          {showPasswordChange && (
             <DropdownMenuItem onSelect={() => setPwOpen(true)}>
               <KeyRound className="w-3.5 h-3.5 mr-2" /> {t('nav.changePassword')}
             </DropdownMenuItem>
           )}
-          {showFormsControls && (
+          {showAccountControls && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={onLogout}>

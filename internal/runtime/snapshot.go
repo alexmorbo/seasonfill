@@ -58,6 +58,13 @@ type OIDCSnapshot struct {
 	GroupsClaim   string
 }
 
+// IsReady reports whether the OIDC routes can accept traffic. The
+// redirect_url field is intentionally NOT required here — empty
+// triggers auto-derivation from request headers at Start() time.
+func (o OIDCSnapshot) IsReady() bool {
+	return o.Issuer != "" && o.ClientID != "" && o.ClientSecret != ""
+}
+
 func DefaultOIDCSnapshot() OIDCSnapshot {
 	return OIDCSnapshot{
 		Scopes:        []string{"openid", "profile", "email"},

@@ -38,21 +38,37 @@ describe('<Login />', () => {
   });
 
   it('redirects to / when mode=basic', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'basic', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'basic', localBypass: false, oidcReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/', { replace: true }));
   });
 
-  it('redirects to / when mode=none', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'none', localBypass: false } });
+  it('renders entry button when mode=none (no redirect)', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'none', localBypass: false, oidcReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
-    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/', { replace: true }));
+    const btn = await screen.findByText(/enter the application/i);
+    expect(btn).toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders entry + SSO buttons when mode=none + oidcReady=true', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'none', localBypass: false, oidcReady: true, loginUrl: '/api/v1/auth/oidc/start' } });
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(await screen.findByText(/enter the application/i)).toBeInTheDocument();
+    expect(screen.getByTestId('oidc-login-link')).toBeInTheDocument();
   });
 
   it('renders form when mode=forms', () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     expect(screen.getByLabelText(/username/i)).toBeVisible();
+  });
+
+  it('renders form + SSO button when mode=forms + oidcReady=true', async () => {
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: true, loginUrl: '/api/v1/auth/oidc/start' } });
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(screen.getByLabelText(/username/i)).toBeVisible();
+    expect(await screen.findByTestId('oidc-login-link')).toBeInTheDocument();
   });
 
   it('falls back to form when /auth/config errors', () => {
@@ -62,7 +78,7 @@ describe('<Login />', () => {
   });
 
   it('shows validation errors when both fields are empty', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
     const alerts = await screen.findAllByRole('alert');
@@ -71,7 +87,7 @@ describe('<Login />', () => {
   });
 
   it('navigates to / on success when no next param', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     const spy = vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit();
@@ -80,7 +96,7 @@ describe('<Login />', () => {
   });
 
   it('navigates to ?next= path on success', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login?next=%2Fscans%2Fabc' });
     await fillAndSubmit();
@@ -88,7 +104,7 @@ describe('<Login />', () => {
   });
 
   it('falls back to / when next is unsafe (//attacker)', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login?next=%2F%2Fattacker.example' });
     await fillAndSubmit();
@@ -96,7 +112,7 @@ describe('<Login />', () => {
   });
 
   it('renders generic error on 401 (no enumeration)', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(401, 'unauthorized'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit('admin', 'wrong');
@@ -104,7 +120,7 @@ describe('<Login />', () => {
   });
 
   it('renders generic error on 429 (rate limit) — same wording as 401', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(429, 'rate limit'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit('admin', 'wrong');
@@ -112,7 +128,7 @@ describe('<Login />', () => {
   });
 
   it('renders service-unavailable on 5xx', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'forms', localBypass: false, oidcReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(503, 'down'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit();
@@ -120,21 +136,21 @@ describe('<Login />', () => {
   });
 
   it('renders SSO button when mode=oidc', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start' } });
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, oidcReady: true, loginUrl: '/api/v1/auth/oidc/start' } });
     renderWithProviders(<Login />, { route: '/login' });
     const link = await screen.findByTestId('oidc-login-link');
     expect(link).toHaveAttribute('href', '/api/v1/auth/oidc/start');
   });
 
   it('appends ?next= to SSO href when present', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, loginUrl: '/api/v1/auth/oidc/start' } });
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, oidcReady: true, loginUrl: '/api/v1/auth/oidc/start' } });
     renderWithProviders(<Login />, { route: '/login?next=%2Finstances' });
     const link = await screen.findByTestId('oidc-login-link');
     expect(link).toHaveAttribute('href', '/api/v1/auth/oidc/start?next=%2Finstances');
   });
 
   it('does NOT redirect on mode=oidc (keeps user on login)', async () => {
-    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false } });
+    mockCfg({ isSuccess: true, data: { mode: 'oidc', localBypass: false, oidcReady: true } });
     renderWithProviders(<Login />, { route: '/login' });
     // Small wait to ensure useEffect has run
     await waitFor(() => expect(screen.queryByTestId('oidc-login-link')).toBeInTheDocument());

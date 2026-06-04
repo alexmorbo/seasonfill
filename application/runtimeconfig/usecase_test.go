@@ -688,7 +688,8 @@ func TestValidate_OIDC_MissingClientID(t *testing.T) {
 	assert.Equal(t, "INVALID_OIDC_CLIENT_ID", verr.Code)
 }
 
-func TestValidate_OIDC_MissingRedirectURL(t *testing.T) {
+func TestValidate_OIDC_MissingRedirectURL_NowOptional(t *testing.T) {
+	// AC-B5: redirect_url is optional when mode=oidc — Start derives it.
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
@@ -696,9 +697,7 @@ func TestValidate_OIDC_MissingRedirectURL(t *testing.T) {
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.RedirectURL = ""
 	_, _, err := uc.Update(context.Background(), in, nil)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_OIDC_REDIRECT_URL", verr.Code)
+	require.NoError(t, err)
 }
 
 func TestValidate_OIDC_ScopesWithoutOpenID(t *testing.T) {
@@ -753,6 +752,69 @@ func TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK(t *testing.T) {
 			in.Auth.OIDC = OIDCInput{} // all empty
 			_, _, err := uc.Update(context.Background(), in, nil)
 			require.NoError(t, err, "mode=%s with empty OIDC must not fail", mode)
+		})
+	}
+}
+
+// TestValidate_OIDC_ParallelMode tests the tri-state validation for non-oidc modes.
+func TestValidate_OIDC_ParallelMode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		mode      string
+		envSecret string
+		oidc      OIDCInput
+		wantErr   string
+	}{
+		{
+			name: "mode=forms, all empty OIDC → OK",
+			mode: "forms",
+			oidc: OIDCInput{Scopes: []string{"openid"}},
+		},
+		{
+			name: "mode=forms, full OIDC + env secret → OK",
+			mode: "forms", envSecret: "env-s",
+			oidc: OIDCInput{
+				Issuer: "https://kc.example.com", ClientID: "sf",
+				Scopes: []string{"openid"},
+			},
+		},
+		{
+			name: "mode=forms, issuer set but client_id blank → OIDC_PARTIAL_CONFIG",
+			mode: "forms", envSecret: "env-s",
+			oidc: OIDCInput{
+				Issuer: "https://kc.example.com", Scopes: []string{"openid"},
+			},
+			wantErr: "OIDC_PARTIAL_CONFIG",
+		},
+		{
+			name: "mode=oidc, redirect_url blank, env secret → OK (auto-derive)",
+			mode: "oidc", envSecret: "env-s",
+			oidc: OIDCInput{
+				Issuer: "https://kc.example.com", ClientID: "sf",
+				Scopes: []string{"openid"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, _, _ := setup(t)
+			if tc.envSecret != "" {
+				uc.WithClientSecretEnv(tc.envSecret)
+			}
+			in := validInput()
+			in.Auth.Mode = tc.mode
+			in.Auth.OIDC = tc.oidc
+			_, _, err := uc.Update(context.Background(), in, nil)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				var verr *ValidationError
+				require.ErrorAs(t, err, &verr)
+				assert.Equal(t, tc.wantErr, verr.Code)
+			}
 		})
 	}
 }

@@ -26,6 +26,35 @@ var (
 	ErrOIDCMissingUsername = errors.New("oidc: missing username claim")
 )
 
+// RequestInfo carries HTTP request headers used to derive the OIDC redirect URL
+// when the stored configuration leaves redirect_url blank.
+type RequestInfo struct {
+	Host string // r.Host
+	XFH  string // X-Forwarded-Host
+	XFP  string // X-Forwarded-Proto
+}
+
+// DerivedRedirectURL returns the OIDC callback URL Start/Callback must
+// pass to the provider. Explicit cfg.RedirectURL wins. Otherwise:
+// scheme = XFP || "https"; host = XFH || Host; suffix = "/api/v1/auth/oidc/callback".
+func DerivedRedirectURL(cfg OIDCConfig, info RequestInfo) string {
+	if cfg.RedirectURL != "" {
+		return cfg.RedirectURL
+	}
+	scheme := "https"
+	if s := strings.TrimSpace(info.XFP); s != "" {
+		scheme = s
+	}
+	host := info.XFH
+	if host == "" {
+		host = info.Host
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host + "/api/v1/auth/oidc/callback"
+}
+
 type OIDCConfig struct {
 	Issuer        string
 	ClientID      string
@@ -78,9 +107,14 @@ func NewOIDCLoginUseCase(cache *infraoidc.ProviderCache, admins ports.AdminUserR
 // Start generates PKCE verifier (RFC 7636 S256), random state, nonce,
 // and builds the authorization URL. Caller stores state/nonce/verifier
 // in HTTPOnly cookies and 302-redirects to AuthURL.
-func (u *OIDCLoginUseCase) Start(ctx context.Context, cfg OIDCConfig) (StartResult, error) {
+// info is used to derive the redirect_url when cfg.RedirectURL is empty.
+func (u *OIDCLoginUseCase) Start(ctx context.Context, cfg OIDCConfig, info RequestInfo) (StartResult, error) {
 	if cfg.Issuer == "" {
 		return StartResult{}, ErrOIDCNotConfigured
+	}
+	resolvedRedirect := DerivedRedirectURL(cfg, info)
+	if resolvedRedirect == "" {
+		return StartResult{}, errors.New("oidc: cannot derive redirect_url from request headers")
 	}
 	provider, err := u.providers.Get(ctx, cfg.Issuer)
 	if err != nil {
@@ -109,7 +143,7 @@ func (u *OIDCLoginUseCase) Start(ctx context.Context, cfg OIDCConfig) (StartResu
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		Endpoint:     provider.Endpoint(),
-		RedirectURL:  cfg.RedirectURL,
+		RedirectURL:  resolvedRedirect,
 		Scopes:       scopes,
 	}
 	authURL := conf.AuthCodeURL(state,
@@ -128,12 +162,18 @@ func (u *OIDCLoginUseCase) Start(ctx context.Context, cfg OIDCConfig) (StartResu
 // suitable for surfacing to the operator (specifics are intentionally
 // vague at the HTTP layer — the handler logs the err with detail and
 // returns a generic 401).
-func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, in CallbackInput) (CallbackResult, error) {
+// info is used to derive the redirect_url when cfg.RedirectURL is empty;
+// it must match the value used by Start (redirect_uri must match).
+func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, info RequestInfo, in CallbackInput) (CallbackResult, error) {
 	if cfg.Issuer == "" {
 		return CallbackResult{}, ErrOIDCNotConfigured
 	}
 	if in.State == "" || in.State != in.ExpectedState {
 		return CallbackResult{}, ErrOIDCStateMismatch
+	}
+	resolvedRedirect := DerivedRedirectURL(cfg, info)
+	if resolvedRedirect == "" {
+		return CallbackResult{}, errors.New("oidc: cannot derive redirect_url from request headers")
 	}
 	provider, err := u.providers.Get(ctx, cfg.Issuer)
 	if err != nil {
@@ -147,7 +187,7 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, in Call
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		Endpoint:     provider.Endpoint(),
-		RedirectURL:  cfg.RedirectURL,
+		RedirectURL:  resolvedRedirect,
 		Scopes:       scopes,
 	}
 	tok, err := conf.Exchange(ctx, in.Code,

@@ -67,12 +67,25 @@ func (h *OIDCHandler) Start(c *gin.Context) {
 		})
 		return
 	}
-	res, err := h.uc.Start(c.Request.Context(), cfg)
+	info := auth.RequestInfo{
+		Host: c.Request.Host,
+		XFH:  c.GetHeader("X-Forwarded-Host"),
+		XFP:  c.GetHeader("X-Forwarded-Proto"),
+	}
+	res, err := h.uc.Start(c.Request.Context(), cfg, info)
 	if err != nil {
+		code := "OIDC_DISCOVERY_FAILED"
+		if err.Error() == "oidc: cannot derive redirect_url from request headers" {
+			code = "OIDC_REDIRECT_DERIVE_FAILED"
+			c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
+				"error": "cannot derive redirect_url", "code": code,
+			})
+			return
+		}
 		h.logger.WarnContext(c.Request.Context(), "oidc.start_failed",
 			slog.String("error", err.Error()))
 		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
-			"error": "oidc provider unreachable", "code": "OIDC_DISCOVERY_FAILED",
+			"error": "oidc provider unreachable", "code": code,
 		})
 		return
 	}
@@ -113,6 +126,11 @@ func (h *OIDCHandler) Callback(c *gin.Context) {
 		c.SetCookie(oidcReturnToCookie, "", -1, "/", "", h.secureCookie, true)
 	}()
 
+	info := auth.RequestInfo{
+		Host: c.Request.Host,
+		XFH:  c.GetHeader("X-Forwarded-Host"),
+		XFP:  c.GetHeader("X-Forwarded-Proto"),
+	}
 	in := auth.CallbackInput{
 		Code:          c.Query("code"),
 		State:         c.Query("state"),
@@ -120,7 +138,7 @@ func (h *OIDCHandler) Callback(c *gin.Context) {
 		Nonce:         nonce,
 		PKCEVerifier:  verifier,
 	}
-	res, err := h.uc.Callback(c.Request.Context(), cfg, in)
+	res, err := h.uc.Callback(c.Request.Context(), cfg, info, in)
 	if err != nil {
 		h.logger.WarnContext(c.Request.Context(), "oidc.callback_failed",
 			slog.String("error", err.Error()))

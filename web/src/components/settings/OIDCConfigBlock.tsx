@@ -2,8 +2,17 @@ import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, AlertTriangle } from 'lucide-react';
+import { Info, AlertTriangle, Loader2, CheckCircle, XCircle } from 'lucide-react';
+
+// OIDCTestResult mirrors the backend auth.OIDCTestResult shape.
+export type OIDCTestResult = {
+  discovery: { ok: boolean; error?: string; discovered_issuer?: string };
+  issuer_match: { ok: boolean; expected: string; got: string };
+  jwks: { ok: boolean; error?: string; keys: number };
+  token_endpoint: { ok: boolean; error?: string; url: string };
+};
 
 // OIDCField helpers — kept as a list-of-strings chip editor for scopes and
 // allowed_groups, identical UX to TrustedProxiesEditor / LocalNetworksEditor
@@ -73,6 +82,7 @@ export type OIDCFormShape = {
 export function OIDCConfigBlock(props: {
   value: OIDCFormShape;
   onChange: (next: OIDCFormShape) => void;
+  onTest?: () => Promise<OIDCTestResult>;
   errors?: {
     issuer?: string;
     client_id?: string;
@@ -93,12 +103,44 @@ export function OIDCConfigBlock(props: {
     : v.client_secret_configured && !secretFocused
       ? '••••••••'
       : '';
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<OIDCTestResult | null>(null);
+  const [testErr, setTestErr] = useState<string | null>(null);
+
+  const onTestClick = async () => {
+    if (!props.onTest) return;
+    setTestResult(null);
+    setTestErr(null);
+    setTesting(true);
+    try {
+      const r = await props.onTest();
+      setTestResult(r);
+    } catch (err) {
+      setTestErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const redirectPlaceholder = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/v1/auth/oidc/callback`
+    : '/api/v1/auth/oidc/callback';
 
   return (
     <div className="flex flex-col gap-4">
-      <h4 className="text-[13px] font-semibold tracking-tight">
-        {t('settings.security.oidc.section')}
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[13px] font-semibold tracking-tight">
+          {t('settings.security.oidc.section')}
+        </h4>
+        {props.onTest && (
+          <Button type="button" variant="outline" size="sm"
+            disabled={!v.issuer.trim() || testing} onClick={onTestClick}>
+            {testing
+              ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />{t('settings.security.oidc.test.running')}</>
+              : t('settings.security.oidc.test.button')}
+          </Button>
+        )}
+      </div>
 
       {v.client_secret_env_override && (
         <Alert>
@@ -186,13 +228,13 @@ export function OIDCConfigBlock(props: {
         <Input
           id="oidc-redirect"
           type="url"
-          placeholder="https://seasonfill.example.com/api/v1/auth/oidc/callback"
+          placeholder={redirectPlaceholder}
           value={v.redirect_url}
           onChange={(e) => set('redirect_url', e.target.value)}
           aria-invalid={Boolean(props.errors?.redirect_url) || undefined}
         />
         <p className="text-[11.5px] text-muted">
-          {t('settings.security.oidc.redirectUrl.hint')}
+          {t('settings.security.oidc.redirectUrl.autoHint')}
         </p>
         {props.errors?.redirect_url && (
           <p role="alert" className="text-status-danger text-[11.5px]">
@@ -277,6 +319,37 @@ export function OIDCConfigBlock(props: {
         <Info className="w-4 h-4" />
         <AlertDescription>{t('settings.security.oidc.envHint')}</AlertDescription>
       </Alert>
+
+      {testErr && (
+        <Alert variant="destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertTitle>{t('common.error')}</AlertTitle>
+          <AlertDescription>{testErr}</AlertDescription>
+        </Alert>
+      )}
+
+      {testResult && (
+        <div className="flex flex-col gap-1.5 text-[12px]" data-testid="oidc-test-results">
+          {(
+            [
+              { ok: testResult.discovery.ok, label: t('settings.security.oidc.test.rows.discovery'), detail: testResult.discovery.error },
+              { ok: testResult.issuer_match.ok, label: t('settings.security.oidc.test.rows.issuerMatch'), detail: !testResult.issuer_match.ok ? t('settings.security.oidc.test.rows.issuerMismatch', { expected: testResult.issuer_match.expected, got: testResult.issuer_match.got }) : undefined },
+              { ok: testResult.jwks.ok, label: t('settings.security.oidc.test.rows.jwks'), detail: testResult.jwks.error ?? (testResult.jwks.ok ? t('settings.security.oidc.test.rows.jwksKeys', { count: testResult.jwks.keys }) : undefined) },
+              { ok: testResult.token_endpoint.ok, label: t('settings.security.oidc.test.rows.tokenEndpoint'), detail: testResult.token_endpoint.error },
+            ] as { ok: boolean; label: string; detail?: string }[]
+          ).map((row, i) => (
+            <div key={i} className="flex items-start gap-2">
+              {row.ok
+                ? <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-status-success flex-shrink-0" />
+                : <XCircle className="w-3.5 h-3.5 mt-0.5 text-status-danger flex-shrink-0" />}
+              <div>
+                <span className={row.ok ? 'text-status-success' : 'text-status-danger'}>{row.label}</span>
+                {row.detail && <span className="text-muted ml-1.5">{row.detail}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

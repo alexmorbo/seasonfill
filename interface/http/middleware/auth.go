@@ -25,7 +25,7 @@ const UsernameContextKey = "auth.username"
 func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 	ptr := &AuthRuntimePointer{}
 	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeForms})
-	return RequireAuthWithRuntime(apiKey, sessionKey, ptr, nil, nil)
+	return buildAuth(apiKey, sessionKey, ptr, nil, nil, true, true)
 }
 
 // RequireAuthWithRuntime gates protected non-webhook routes. Dispatch order:
@@ -43,15 +43,14 @@ func RequireAuthWithRuntime(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true)
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true, true)
 }
 
 // RequireAuthWebhook is the webhook-route variant. IDENTICAL to
 // RequireAuthWithRuntime except step 2 (local-bypass) is unconditionally
 // skipped. Webhook ALWAYS requires X-Api-Key — invariant D-3 / AC-8.
-// Mode dispatch still runs after the X-Api-Key check, but in production
-// Sonarr always sends X-Api-Key, so the fallthrough is effectively a
-// safety net (401 on any non-keyed webhook call regardless of mode).
+// Cookie precheck is also disabled (cookieAllowed=false): webhook must
+// never be authenticated via a session cookie.
 func RequireAuthWebhook(
 	apiKey string,
 	sessionKey []byte,
@@ -59,12 +58,13 @@ func RequireAuthWebhook(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false)
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false, false)
 }
 
 // buildAuth is the shared pipeline. localBypassAllowed=false pins the
 // bypass branch off (webhook constructor); =true lets the snapshot
-// decide per request.
+// decide per request. cookieAllowed=false disables the basic-mode cookie
+// precheck (webhook path must be X-Api-Key only).
 func buildAuth(
 	apiKey string,
 	sessionKey []byte,
@@ -72,6 +72,7 @@ func buildAuth(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 	localBypassAllowed bool,
+	cookieAllowed bool,
 ) gin.HandlerFunc {
 	rawKeyBytes := []byte(apiKey)
 	return func(c *gin.Context) {
@@ -106,6 +107,22 @@ func buildAuth(
 			c.Next()
 			return
 		case runtime.AuthModeBasic:
+			// 037e: accept a valid session cookie BEFORE issuing the Basic
+			// challenge. Lets an OIDC-issued cookie continue working under
+			// mode=basic without prompting the browser popup.
+			// cookieAllowed is false on the webhook path — webhook must
+			// always require X-Api-Key.
+			if cookieAllowed {
+				if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
+					now := time.Now()
+					if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+						maybeSlideCookie(c, sessionKey, p, now, rt)
+						c.Set(UsernameContextKey, p.Username)
+						c.Next()
+						return
+					}
+				}
+			}
 			if adminRepo == nil {
 				break
 			}

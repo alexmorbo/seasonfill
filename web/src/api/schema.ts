@@ -188,6 +188,46 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/auth/oidc/test": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** OIDC reachability test */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: {
+                readonly content: {
+                    readonly "application/json": Record<string, never>;
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["auth.OIDCTestResult"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/auth/password": {
         readonly parameters: {
             readonly query?: never;
@@ -1599,17 +1639,45 @@ export type paths = {
 export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
+        readonly "auth.CheckDiscovery": {
+            readonly discovered_issuer?: string;
+            readonly error?: string;
+            readonly ok?: boolean;
+        };
+        readonly "auth.CheckIssuerMatch": {
+            readonly expected?: string;
+            readonly got?: string;
+            readonly ok?: boolean;
+        };
+        readonly "auth.CheckJWKS": {
+            readonly error?: string;
+            readonly keys?: number;
+            readonly ok?: boolean;
+        };
+        readonly "auth.CheckTokenEndpoint": {
+            readonly error?: string;
+            readonly ok?: boolean;
+            readonly url?: string;
+        };
+        readonly "auth.OIDCTestResult": {
+            readonly discovery?: components["schemas"]["auth.CheckDiscovery"];
+            readonly issuer_match?: components["schemas"]["auth.CheckIssuerMatch"];
+            readonly jwks?: components["schemas"]["auth.CheckJWKS"];
+            readonly token_endpoint?: components["schemas"]["auth.CheckTokenEndpoint"];
+        };
         readonly "dto.AuthConfigDTO": {
             /** @example false */
             readonly local_bypass?: boolean;
-            /**
-             * @description LoginURL is set when mode=oidc — points at the public /auth/oidc/start
-             *     endpoint. Empty string for other modes.
-             * @example /api/v1/auth/oidc/start
-             */
+            /** @example /api/v1/auth/oidc/start */
             readonly login_url?: string;
             /** @example forms */
             readonly mode?: string;
+            /**
+             * @description OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
+             *     LoginURL is also populated — SPA renders SSO button regardless of mode.
+             * @example false
+             */
+            readonly oidc_ready?: boolean;
         };
         readonly "dto.Decision": {
             readonly candidates_count?: number;

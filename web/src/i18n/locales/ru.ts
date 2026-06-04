@@ -133,6 +133,8 @@ export const ru: Translations = {
       intro: 'Вы будете перенаправлены к провайдеру единого входа.',
       button: 'Войти через SSO',
     },
+    or: 'или',
+    enter: 'Войти в систему',
   },
   dashboard: {
     title: 'Дашборд',
@@ -586,6 +588,22 @@ export const ru: Translations = {
       oidc: {
         section: 'Настройки OIDC',
         envHint: 'Переменная окружения OIDC_CLIENT_SECRET переопределяет значение, введённое здесь.',
+        parallelBannerTitle: 'OIDC настроен',
+        parallelBannerBody: 'Попробуйте войти через SSO в новой вкладке перед переключением режима, чтобы убедиться, что провайдер работает.',
+        parallelBannerLink: 'Тест SSO →',
+        partialConfig: 'Заполните OIDC полностью (issuer, client_id, client secret) или очистите все поля.',
+        test: {
+          button: 'Проверить доступность',
+          running: 'Проверяю…',
+          rows: {
+            discovery: 'Discovery (/.well-known/openid-configuration)',
+            issuerMatch: 'Совпадение issuer',
+            issuerMismatch: 'Ожидалось {{expected}}, получено {{got}}',
+            jwks: 'JWKS endpoint',
+            jwksKeys: '{{count}} ключ(ей) подписи',
+            tokenEndpoint: 'Token endpoint доступен',
+          },
+        },
         clientSecret: {
           label: 'Секрет клиента',
           placeholder: 'Введите OIDC client secret',
@@ -597,7 +615,7 @@ export const ru: Translations = {
         },
         issuer: { label: 'URL издателя', hint: 'URL издателя провайдера (например, https://keycloak.example.com/realms/homelab).', required: 'URL издателя обязателен для режима OIDC' },
         clientId: { label: 'Client ID', required: 'Client ID обязателен для режима OIDC' },
-        redirectUrl: { label: 'Redirect URL', hint: 'Должен точно совпадать с redirect URL, зарегистрированным у провайдера.', required: 'Redirect URL обязателен для режима OIDC' },
+        redirectUrl: { label: 'Redirect URL', hint: 'Должен точно совпадать с redirect URL, зарегистрированным у провайдера.', required: 'Redirect URL обязателен для режима OIDC', autoHint: 'Пусто = текущий хост. Указывайте явно только для деплоев с несколькими доменами.' },
         scopes: { label: 'Scopes', hint: 'Запрашиваемые scopes при авторизации. Должен включать "openid".', addAria: 'Добавить scope', removeAria: 'Удалить scope {{scope}}', openidRequired: 'Scopes должен включать "openid"' },
         usernameClaim: { label: 'Claim для имени пользователя', hint: 'Claim из ID-токена, используемый как локальное имя администратора при первом OIDC-входе.' },
         groupsClaim: { label: 'Claim групп', hint: 'Путь к массиву групп в нотации с точкой. По умолчанию "groups"; для realm-ролей Keycloak — "realm_access.roles".', invalid: 'Некорректный путь: используйте идентификаторы, разделённые точкой' },
