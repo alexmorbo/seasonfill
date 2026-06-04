@@ -36,14 +36,14 @@ type RequestInfo struct {
 
 // DerivedRedirectURL returns the OIDC callback URL Start/Callback must
 // pass to the provider. Explicit cfg.RedirectURL wins. Otherwise:
-// scheme = XFP || "https"; host = XFH || Host; suffix = "/api/v1/auth/oidc/callback".
+// host = XFH || Host; scheme = https unless host is a loopback literal
+// (multi-proxy setups frequently downgrade XFP to http between TLS-
+// terminating front and the ingress controller, so we ignore XFP and
+// only fall back to http for loopback hosts).
+// suffix = "/api/v1/auth/oidc/callback".
 func DerivedRedirectURL(cfg OIDCConfig, info RequestInfo) string {
 	if cfg.RedirectURL != "" {
 		return cfg.RedirectURL
-	}
-	scheme := "https"
-	if s := strings.TrimSpace(info.XFP); s != "" {
-		scheme = s
 	}
 	host := info.XFH
 	if host == "" {
@@ -52,7 +52,19 @@ func DerivedRedirectURL(cfg OIDCConfig, info RequestInfo) string {
 	if host == "" {
 		return ""
 	}
+	scheme := "https"
+	if isLoopbackHost(host) {
+		scheme = "http"
+	}
 	return scheme + "://" + host + "/api/v1/auth/oidc/callback"
+}
+
+func isLoopbackHost(host string) bool {
+	h := strings.ToLower(host)
+	if i := strings.LastIndex(h, ":"); i >= 0 {
+		h = h[:i]
+	}
+	return h == "localhost" || h == "127.0.0.1" || h == "[::1]" || h == "::1"
 }
 
 type OIDCConfig struct {

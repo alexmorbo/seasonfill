@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,12 +128,25 @@ func TestDerivedRedirectURL_XFHWinsOverHost(t *testing.T) {
 	assert.Equal(t, "https://public.example.com/api/v1/auth/oidc/callback", result)
 }
 
-func TestDerivedRedirectURL_XFPOverridesScheme(t *testing.T) {
+func TestDerivedRedirectURL_IgnoresXFPDowngrade(t *testing.T) {
 	t.Parallel()
+	// Multi-proxy setups frequently downgrade XFP to http between the TLS-
+	// terminating front proxy and the ingress controller. We force https
+	// for non-loopback hosts regardless of XFP.
 	cfg := OIDCConfig{}
 	info := RequestInfo{Host: "app.example.com", XFP: "http"}
 	result := DerivedRedirectURL(cfg, info)
-	assert.Equal(t, "http://app.example.com/api/v1/auth/oidc/callback", result)
+	assert.Equal(t, "https://app.example.com/api/v1/auth/oidc/callback", result)
+}
+
+func TestDerivedRedirectURL_LoopbackUsesHTTP(t *testing.T) {
+	t.Parallel()
+	cfg := OIDCConfig{}
+	for _, host := range []string{"localhost", "localhost:5173", "127.0.0.1", "127.0.0.1:8080"} {
+		info := RequestInfo{Host: host}
+		result := DerivedRedirectURL(cfg, info)
+		assert.True(t, strings.HasPrefix(result, "http://"), "host=%s got=%s", host, result)
+	}
 }
 
 func TestDerivedRedirectURL_DefaultsToHTTPS(t *testing.T) {
