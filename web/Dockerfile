@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_VERSION=22
-ARG NGINX_VERSION=1.27
+ARG NGINX_VERSION=1.29
+ARG ALPINE_VERSION=3.23
 ARG VITE_APP_VERSION=dev
 ARG GIT_SHA=unknown
 
@@ -33,7 +34,7 @@ RUN npm run build
 # (nginx), and ships with /tmp + /var/cache/nginx + /var/run owned by
 # that UID — PSS-Restricted compatible without USER/setcap gymnastics.
 # ---------------------------------------------------------------------
-FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine
+FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine${ALPINE_VERSION}
 
 ARG VITE_APP_VERSION
 ARG GIT_SHA
