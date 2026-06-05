@@ -47,6 +47,7 @@ func NewServer(
 	instanceCRUD *handlers.InstanceCRUDHandler,
 	instanceProbe *handlers.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
+	qbitSettings *handlers.QbitSettingsHandler,
 	oidcUC *auth.OIDCLoginUseCase,
 	logger *slog.Logger,
 ) *Server {
@@ -131,6 +132,11 @@ func NewServer(
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
 		)
+		if qbitSettings != nil {
+			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)
+			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)
+			guarded.DELETE("/instances/:name/qbit/settings", qbitSettings.Delete)
+		}
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)

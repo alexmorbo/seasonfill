@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -310,12 +311,22 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 	instanceProbeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
 
+	// Phase 10 Watchdog — settings CRUD only. The reload-bus subscriber,
+	// the regrab use case, and the qBit client factory wire up in 039g.
+	// nullWebhookChecker (the default inside regrab.NewUseCase) is left
+	// in place until 039e/039g land — the gate is effectively open
+	// today, which matches the parent's "ship in vertical slices" plan.
+	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
+	qbitSettingsUC := regrab.NewUseCase(qbitSettingsRepo, instanceRepo, cipher, log)
+	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
 		instanceReg,
 		cooldownRepo, grabUC, rescanUC,
-		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler, oidcUC, log)
+		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
+		qbitSettingsHandler, oidcUC, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
