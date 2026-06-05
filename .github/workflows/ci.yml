@@ -62,7 +62,7 @@ jobs:
           awk "BEGIN { exit !(${PCT} >= 75) }" || (echo "Coverage below 75%"; exit 1)
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-unit
           path: coverage.out
