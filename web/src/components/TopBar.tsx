@@ -63,7 +63,7 @@ export function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
       </button>
 
       <div className="flex items-center gap-2.5 font-semibold tracking-tight">
-        <span className="w-[22px] h-[22px] grid place-items-center bg-accent text-accent-text rounded-[5px] font-mono font-bold text-[13px]">sf</span>
+        <span className="w-[22px] h-[22px] grid place-items-center bg-accent text-white rounded-[5px] font-bold text-[13px] tracking-tight leading-none">sf</span>
         <span>seasonfill</span>
         <span className="mono text-[11px] text-faint ml-1.5">v{VERSION}</span>
       </div>

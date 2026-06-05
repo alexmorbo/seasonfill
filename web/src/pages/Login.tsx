@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
 import { loginWithPassword, sessionQueryKey } from '@/lib/auth';
 import { useAuthConfig } from '@/lib/auth-config';
+import logoUrl from '@/assets/logo.svg';
 
 const schema = z.object({
   username: z.string().min(1, 'login.usernameRequired'),
@@ -74,6 +75,7 @@ export function Login() {
     return (
       <div className="min-h-screen grid place-items-center bg-bg px-4">
         <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
+          <img src={logoUrl} alt="" className="mx-auto w-16 h-16" />
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-9 w-full" />
@@ -94,6 +96,7 @@ export function Login() {
       <div className="min-h-screen grid place-items-center bg-bg px-4">
         <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
           <div>
+            <img src={logoUrl} alt="" className="w-12 h-12 mb-3" />
             <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
             <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
           </div>
@@ -116,6 +119,7 @@ export function Login() {
       <div className="min-h-screen grid place-items-center bg-bg px-4">
         <div className="w-full max-w-sm bg-surface border border-border rounded-lg p-7 flex flex-col gap-5">
           <div>
+            <img src={logoUrl} alt="" className="w-12 h-12 mb-3" />
             <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
             <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
           </div>
@@ -149,6 +153,7 @@ export function Login() {
         noValidate
       >
         <div>
+          <img src={logoUrl} alt="" className="w-12 h-12 mb-3" />
           <h1 className="text-[22px] font-semibold tracking-tight">{t('app.name').toLowerCase()}</h1>
           <p className="text-muted text-[13px] mt-1">{t('app.tagline')}</p>
         </div>
