@@ -229,6 +229,10 @@ func (abortFakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingr
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
+func (abortFakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ string) error {
+	panic("fake UpdateTorrentHash unexpectedly called - this stub is not configured for UpdateTorrentHash calls")
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

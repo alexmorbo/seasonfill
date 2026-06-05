@@ -143,6 +143,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			rec.Status = domaingrab.StatusGrabbed
 			rec.Attempts = attempt
 			rec.DownloadID = downloadID
+			rec.TorrentHash = domaingrab.ParseTorrentHash(downloadID)
 			rec.UpdatedAt = u.now()
 			if persistErr := u.persistSuccess(ctx, rec, in); persistErr != nil {
 				// Sonarr accepted the force-grab but the row never landed.

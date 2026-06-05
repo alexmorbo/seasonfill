@@ -118,6 +118,10 @@ func (r *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
+func (r *fakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ string) error {
+	panic("fake UpdateTorrentHash unexpectedly called - this stub is not configured for UpdateTorrentHash calls")
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown
@@ -295,6 +299,70 @@ func TestDefaultSleeper_RespectsContext(t *testing.T) {
 	cancel()
 	err := DefaultSleeper(ctx, 50*time.Millisecond)
 	require.Error(t, err)
+}
+
+func TestExecute_Success_PopulatesTorrentHash_Valid40HexLower(t *testing.T) {
+	t.Parallel()
+	uc, gr, _, _ := newUC(t)
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	sonarr := &fakeSonarrGrab{downloadIDs: []string{hash}}
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.NoError(t, out.Err)
+	require.NotNil(t, out.Record.TorrentHash)
+	assert.Equal(t, hash, *out.Record.TorrentHash)
+	require.Len(t, gr.recs, 1)
+	require.NotNil(t, gr.recs[0].TorrentHash)
+	assert.Equal(t, hash, *gr.recs[0].TorrentHash,
+		"persisted row must carry the parsed lowercase 40-char hex hash")
+}
+
+func TestExecute_Success_TorrentHashNormalisesUpperToLower(t *testing.T) {
+	t.Parallel()
+	uc, gr, _, _ := newUC(t)
+	const upper = "0123456789ABCDEF0123456789ABCDEF01234567"
+	const lower = "0123456789abcdef0123456789abcdef01234567"
+	sonarr := &fakeSonarrGrab{downloadIDs: []string{upper}}
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.NoError(t, out.Err)
+	require.NotNil(t, out.Record.TorrentHash)
+	assert.Equal(t, lower, *out.Record.TorrentHash,
+		"Sonarr-returned hash must be lowercased before persist")
+	require.Len(t, gr.recs, 1)
+	require.NotNil(t, gr.recs[0].TorrentHash)
+	assert.Equal(t, lower, *gr.recs[0].TorrentHash)
+}
+
+func TestExecute_Success_TorrentHashNilOnMalformed(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		dlID string
+	}{
+		{"empty downloadId (no qBit / Sonarr omitted field)", ""},
+		{"too short (16-char legacy id)", "ABCDEF1234567890"},
+		{"too long (41 chars)", "0123456789abcdef0123456789abcdef012345678"},
+		{"non-hex characters", "GGGG456789abcdef0123456789abcdef01234567"},
+		{"hyphenated guid form", "0123-4567-89ab-cdef-0123-4567-89ab-cdef-01"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			uc, gr, _, _ := newUC(t)
+			sonarr := &fakeSonarrGrab{downloadIDs: []string{tc.dlID}}
+			out := uc.Execute(context.Background(), newInput(sonarr))
+
+			require.NoError(t, out.Err)
+			assert.Equal(t, tc.dlID, out.Record.DownloadID,
+				"DownloadID stays as-is — only TorrentHash gets the strict-hex filter")
+			assert.Nil(t, out.Record.TorrentHash,
+				"malformed downloadId must leave TorrentHash nil (D63 — no half-validated hashes)")
+			require.Len(t, gr.recs, 1)
+			assert.Nil(t, gr.recs[0].TorrentHash)
+		})
+	}
 }
 
 func TestDefaultSleeper_ZeroDuration(t *testing.T) {

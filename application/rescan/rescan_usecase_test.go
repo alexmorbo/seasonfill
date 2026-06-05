@@ -97,6 +97,10 @@ func (f *rescanFakeGrab) UpdateStatus(context.Context, uuid.UUID, grab.Status, s
 	return nil
 }
 
+func (f *rescanFakeGrab) UpdateTorrentHash(context.Context, uuid.UUID, string) error {
+	return nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

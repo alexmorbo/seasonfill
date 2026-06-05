@@ -86,6 +86,10 @@ func (f *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Statu
 	return nil
 }
 
+func (f *fakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

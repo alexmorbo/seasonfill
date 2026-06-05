@@ -111,6 +111,17 @@ type GrabRepository interface {
 	// Returns ErrNotFound on unknown id and grab.ErrInvalidStatusTransition
 	// when the persisted status forbids the move.
 	UpdateStatus(ctx context.Context, id uuid.UUID, newStatus grab.Status, message string) error
+
+	// UpdateTorrentHash writes the qBit info-hash onto an existing
+	// grab_records row when its torrent_hash column is currently NULL.
+	// Idempotent: a row that already has a non-NULL hash returns nil
+	// without overwriting (D63 hash-required gate — never rewrite a
+	// hash captured by an earlier OnGrab delivery or grab-time
+	// parse). Returns ErrNotFound when the row id is unknown.
+	// hash is expected to already be 40-char lowercase hex (the caller
+	// runs grab.ParseTorrentHash); an empty hash argument is a no-op
+	// success (defensive).
+	UpdateTorrentHash(ctx context.Context, id uuid.UUID, hash string) error
 }
 
 type CooldownRepository interface {

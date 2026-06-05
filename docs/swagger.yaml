@@ -525,6 +525,83 @@ components:
           example: NewSecretLongEnough
           type: string
       type: object
+    dto.QbitSettingsDTO:
+      properties:
+        category:
+          example: sonarr
+          type: string
+        created_at:
+          type: string
+        custom_unregistered_msgs:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        enabled:
+          example: true
+          type: boolean
+        id:
+          example: 1
+          type: integer
+        instance_id:
+          example: 7
+          type: integer
+        instance_name:
+          example: alpha
+          type: string
+        max_consecutive_no_better:
+          example: 3
+          type: integer
+        password_set:
+          example: true
+          type: boolean
+        poll_interval_minutes:
+          example: 30
+          type: integer
+        regrab_cooldown_hours:
+          example: 120
+          type: integer
+        updated_at:
+          type: string
+        url:
+          example: http://qbit.local:8080
+          type: string
+        username:
+          example: admin
+          type: string
+      type: object
+    dto.QbitSettingsUpsertRequest:
+      properties:
+        category:
+          example: sonarr
+          type: string
+        custom_unregistered_msgs:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        enabled:
+          example: true
+          type: boolean
+        max_consecutive_no_better:
+          example: 3
+          type: integer
+        password:
+          example: hunter2
+          type: string
+        poll_interval_minutes:
+          example: 30
+          type: integer
+        regrab_cooldown_hours:
+          example: 120
+          type: integer
+        url:
+          example: http://qbit.local:8080
+          type: string
+        username:
+          example: admin
+          type: string
+      type: object
     dto.ReadyStatus:
       properties:
         database:
@@ -1600,6 +1677,121 @@ paths:
       summary: List missing-aired series for an instance
       tags:
       - instances
+  /instances/{name}/qbit/settings:
+    delete:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Delete qBit Watchdog settings
+      tags:
+      - qbit-settings
+    get:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.QbitSettingsDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get qBit Watchdog settings for an instance
+      tags:
+      - qbit-settings
+    put:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.QbitSettingsUpsertRequest'
+        description: Settings
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.QbitSettingsDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Conflict
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Create or replace qBit Watchdog settings (upsert)
+      tags:
+      - qbit-settings
   /instances/{name}/series:
     get:
       description: |-

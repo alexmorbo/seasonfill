@@ -1145,6 +1145,166 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/qbit/settings": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Get qBit Watchdog settings for an instance */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.QbitSettingsDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        /** Create or replace qBit Watchdog settings (upsert) */
+        readonly put: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            /** @description Settings */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.QbitSettingsUpsertRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.QbitSettingsDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly post?: never;
+        /** Delete qBit Watchdog settings */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/series": {
         readonly parameters: {
             readonly query?: never;
@@ -1935,6 +2095,52 @@ export type components = {
             readonly current?: string;
             /** @example NewSecretLongEnough */
             readonly new?: string;
+        };
+        readonly "dto.QbitSettingsDTO": {
+            /** @example sonarr */
+            readonly category?: string;
+            readonly created_at?: string;
+            readonly custom_unregistered_msgs?: readonly string[];
+            /** @example true */
+            readonly enabled?: boolean;
+            /** @example 1 */
+            readonly id?: number;
+            /** @example 7 */
+            readonly instance_id?: number;
+            /** @example alpha */
+            readonly instance_name?: string;
+            /** @example 3 */
+            readonly max_consecutive_no_better?: number;
+            /** @example true */
+            readonly password_set?: boolean;
+            /** @example 30 */
+            readonly poll_interval_minutes?: number;
+            /** @example 120 */
+            readonly regrab_cooldown_hours?: number;
+            readonly updated_at?: string;
+            /** @example http://qbit.local:8080 */
+            readonly url?: string;
+            /** @example admin */
+            readonly username?: string;
+        };
+        readonly "dto.QbitSettingsUpsertRequest": {
+            /** @example sonarr */
+            readonly category?: string;
+            readonly custom_unregistered_msgs?: readonly string[];
+            /** @example true */
+            readonly enabled?: boolean;
+            /** @example 3 */
+            readonly max_consecutive_no_better?: number;
+            /** @example hunter2 */
+            readonly password?: string;
+            /** @example 30 */
+            readonly poll_interval_minutes?: number;
+            /** @example 120 */
+            readonly regrab_cooldown_hours?: number;
+            /** @example http://qbit.local:8080 */
+            readonly url?: string;
+            /** @example admin */
+            readonly username?: string;
         };
         readonly "dto.ReadyStatus": {
             /** @example true */

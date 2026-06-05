@@ -208,3 +208,71 @@ func TestGrabRepository_Create_SameFourTupleTwice(t *testing.T) {
 	assert.Equal(t, second.ID, got[0].ID, "newest first")
 	assert.Equal(t, first.ID, got[1].ID)
 }
+
+func TestGrabRepository_UpdateTorrentHash_Success_FromNull(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(context.Background(), rec))
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	require.NoError(t, repo.UpdateTorrentHash(context.Background(), rec.ID, hash))
+
+	got, err := repo.MatchLatest(context.Background(), ports.MatchKey{
+		DownloadID:   rec.DownloadID,
+		InstanceName: rec.InstanceName,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.TorrentHash)
+	assert.Equal(t, hash, *got.TorrentHash)
+}
+
+func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	const original = "0123456789abcdef0123456789abcdef01234567"
+	rec.TorrentHash = &([]string{original}[0])
+	require.NoError(t, repo.Create(context.Background(), rec))
+
+	const newer = "fedcba9876543210fedcba9876543210fedcba98"
+	require.NoError(t, repo.UpdateTorrentHash(context.Background(), rec.ID, newer))
+
+	got, err := repo.MatchLatest(context.Background(), ports.MatchKey{
+		DownloadID:   rec.DownloadID,
+		InstanceName: rec.InstanceName,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.TorrentHash)
+	assert.Equal(t, original, *got.TorrentHash,
+		"UpdateTorrentHash must NOT overwrite an already-set hash (D63 first-seen-wins)")
+}
+
+func TestGrabRepository_UpdateTorrentHash_UnknownID_ErrNotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	err := repo.UpdateTorrentHash(context.Background(), uuid.New(),
+		"0123456789abcdef0123456789abcdef01234567")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestGrabRepository_UpdateTorrentHash_EmptyHash_NoOp(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(context.Background(), rec))
+
+	require.NoError(t, repo.UpdateTorrentHash(context.Background(), rec.ID, ""))
+
+	got, err := repo.MatchLatest(context.Background(), ports.MatchKey{
+		DownloadID:   rec.DownloadID,
+		InstanceName: rec.InstanceName,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, got.TorrentHash, "empty hash must be a no-op — column stays NULL")
+}

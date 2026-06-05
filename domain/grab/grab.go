@@ -2,6 +2,7 @@ package grab
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,6 +72,32 @@ type Record struct {
 	// grab paths plumb it through (deferred); MatchLatest falls back
 	// to (release_title, series_id, season, instance) for legacy rows.
 	DownloadID string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// TorrentHash — qBit infohash (40-char lowercase hex), populated
+	// from the OnGrab webhook downloadId or the Sonarr force-grab
+	// response when valid. nil = pre-Phase-10 row or malformed hash;
+	// the Phase 10 Watchdog ignores nil-hash rows (D63 hash-required
+	// gate, no backfill).
+	TorrentHash *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// ParseTorrentHash validates and normalises a candidate qBit info-hash
+// from a Sonarr webhook downloadId or force-grab response. Returns a
+// pointer to the lowercased 40-char hex string on success, or nil on
+// any rejection (empty, wrong length, non-hex). Never returns an error
+// — malformed input is a normal, silent NULL-write.
+func ParseTorrentHash(downloadID string) *string {
+	s := strings.TrimSpace(downloadID)
+	if len(s) != 40 {
+		return nil
+	}
+	lower := strings.ToLower(s)
+	for i := 0; i < len(lower); i++ {
+		c := lower[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return nil
+		}
+	}
+	return &lower
 }

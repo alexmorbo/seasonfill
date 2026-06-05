@@ -21,16 +21,20 @@ import (
 )
 
 type fakeGrabRepo struct {
-	mu            sync.Mutex
-	match         grab.Record
-	matchErr      error
-	matchKey      ports.MatchKey
-	matchCalls    int
-	updateErr     error
-	updateID      uuid.UUID
-	updateStatus  grab.Status
-	updateMessage string
-	updateCalls   int
+	mu             sync.Mutex
+	match          grab.Record
+	matchErr       error
+	matchKey       ports.MatchKey
+	matchCalls     int
+	updateErr      error
+	updateID       uuid.UUID
+	updateStatus   grab.Status
+	updateMessage  string
+	updateCalls    int
+	hashUpdateErr  error
+	hashUpdateID   uuid.UUID
+	hashUpdateVal  string
+	hashUpdateCall int
 }
 
 func (r *fakeGrabRepo) Create(context.Context, grab.Record) error {
@@ -57,6 +61,15 @@ func (r *fakeGrabRepo) UpdateStatus(_ context.Context, id uuid.UUID, s grab.Stat
 	r.updateMessage = msg
 	r.updateCalls++
 	return r.updateErr
+}
+
+func (r *fakeGrabRepo) UpdateTorrentHash(_ context.Context, id uuid.UUID, hash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hashUpdateID = id
+	r.hashUpdateVal = hash
+	r.hashUpdateCall++
+	return r.hashUpdateErr
 }
 
 type fakeCooldownRepo struct {
@@ -264,25 +277,38 @@ func TestProcess_DownloadIDPrecedence_KeyPassedThrough(t *testing.T) {
 	assert.Equal(t, 1, g.matchCalls)
 }
 
-func TestProcess_UnsupportedAndGrabbed_NoCalls(t *testing.T) {
+func TestProcess_Unsupported_NoCalls(t *testing.T) {
 	t.Parallel()
-	for _, et := range []domainwebhook.EventType{
-		domainwebhook.EventTypeUnsupported,
-		domainwebhook.EventTypeGrabbed,
-	} {
-		g := &fakeGrabRepo{}
-		c := &fakeCooldownRepo{}
-		tx := &fakeTransactor{}
-		uc := newUseCase(t, g, c, tx)
+	g := &fakeGrabRepo{}
+	c := &fakeCooldownRepo{}
+	tx := &fakeTransactor{}
+	uc := newUseCase(t, g, c, tx)
 
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeUnsupported, InstanceName: "main",
+		RawEventType: "Rename",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, g.matchCalls)
+	assert.Equal(t, 0, g.hashUpdateCall)
+	assert.Empty(t, c.sets)
+	assert.Equal(t, 0, tx.called)
+}
+
+func TestProcess_Grabbed_MalformedHash_NoCalls(t *testing.T) {
+	t.Parallel()
+	g := &fakeGrabRepo{}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	for _, dlID := range []string{"", "DL-too-short", "ABCDEF1234567890"} {
 		err := uc.Process(context.Background(), domainwebhook.Event{
-			Type: et, InstanceName: "main", RawEventType: "Rename",
+			Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+			DownloadID: dlID,
 		})
-		require.NoError(t, err, "event type %q", et)
-		assert.Equal(t, 0, g.matchCalls, "event type %q", et)
-		assert.Empty(t, c.sets, "event type %q", et)
-		assert.Equal(t, 0, tx.called, "event type %q", et)
+		require.NoError(t, err, "downloadId=%q", dlID)
 	}
+	assert.Equal(t, 0, g.matchCalls, "malformed downloadId must never trigger a DB lookup")
+	assert.Equal(t, 0, g.hashUpdateCall)
 }
 
 func TestProcess_MatchError_PropagatesNonNotFound(t *testing.T) {
@@ -477,4 +503,126 @@ func TestProcess_ImportFailed_LookupReadsLiveAfterPointerSwap(t *testing.T) {
 	require.Len(t, c2.sets, 1)
 	assert.Equal(t, occurred.Add(96*time.Hour), c2.sets[0].ExpiresAt,
 		"post-swap call must observe the new duration — lookup must NOT cache")
+}
+
+func TestProcess_Grabbed_ValidHash_FromNull_PopulatesRow(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	g := &fakeGrabRepo{match: rec}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:       domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID: hash,
+		SeriesID:   122,
+		SeasonNumber: 2,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, g.matchCalls)
+	assert.Equal(t, 1, g.hashUpdateCall)
+	assert.Equal(t, rec.ID, g.hashUpdateID)
+	assert.Equal(t, hash, g.hashUpdateVal,
+		"the lowercased 40-char hex hash must be passed to UpdateTorrentHash")
+	// Status side-effects: none.
+	assert.Equal(t, 0, g.updateCalls, "OnGrab webhook never mutates status")
+}
+
+func TestProcess_Grabbed_ValidHash_LowercasesUpper(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	g := &fakeGrabRepo{match: rec}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	const upper = "0123456789ABCDEF0123456789ABCDEF01234567"
+	const lower = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: upper,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, g.hashUpdateCall)
+	assert.Equal(t, lower, g.hashUpdateVal,
+		"uppercase hex must be normalised before persist")
+}
+
+func TestProcess_Grabbed_HashAlreadySet_NoUpdate(t *testing.T) {
+	t.Parallel()
+	existing := "0123456789abcdef0123456789abcdef01234567"
+	rec := sampleRecord()
+	rec.TorrentHash = &existing
+	g := &fakeGrabRepo{match: rec}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	const newer = "fedcba9876543210fedcba9876543210fedcba98"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: newer,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, g.matchCalls)
+	assert.Equal(t, 0, g.hashUpdateCall,
+		"row whose torrent_hash is already populated must skip the update (D63 first-seen-wins)")
+}
+
+func TestProcess_Grabbed_OrphanNoRow_NoUpdate_NoError(t *testing.T) {
+	t.Parallel()
+	g := &fakeGrabRepo{matchErr: ports.ErrNotFound}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: "0123456789abcdef0123456789abcdef01234567",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, g.matchCalls)
+	assert.Equal(t, 0, g.hashUpdateCall)
+}
+
+func TestProcess_Grabbed_MatchErrorIsTransient(t *testing.T) {
+	t.Parallel()
+	g := &fakeGrabRepo{matchErr: errors.New("db down")}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: "0123456789abcdef0123456789abcdef01234567",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrDBUnavailable)
+	assert.Equal(t, 0, g.hashUpdateCall)
+}
+
+func TestProcess_Grabbed_UpdateErrorIsTransient(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	g := &fakeGrabRepo{match: rec, hashUpdateErr: errors.New("update boom")}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: "0123456789abcdef0123456789abcdef01234567",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrDBUnavailable)
+	assert.Equal(t, 1, g.hashUpdateCall)
+}
+
+func TestProcess_Grabbed_RowVanishedBetweenLookupAndUpdate_NoError(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	g := &fakeGrabRepo{match: rec, hashUpdateErr: ports.ErrNotFound}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, &fakeTransactor{})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID: "0123456789abcdef0123456789abcdef01234567",
+	})
+	require.NoError(t, err, "ErrNotFound from UpdateTorrentHash is a benign race, not a failure")
+	assert.Equal(t, 1, g.hashUpdateCall)
 }

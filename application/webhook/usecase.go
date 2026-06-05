@@ -74,13 +74,15 @@ func (u *UseCase) WithClock(f func() time.Time) *UseCase { u.now = f; return u }
 // failures (DB unavailable, transactor error).
 func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	switch evt.Type {
-	case webhook.EventTypeUnsupported, webhook.EventTypeGrabbed:
+	case webhook.EventTypeUnsupported:
 		u.logger.DebugContext(ctx, "webhook_event_no_op",
 			slog.String("event_type", string(evt.Type)),
 			slog.String("instance", evt.InstanceName),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
 		return nil
+	case webhook.EventTypeGrabbed:
+		return u.handleGrabbed(ctx, evt)
 	case webhook.EventTypeImported, webhook.EventTypeImportFailed:
 		// fall through
 	default:
@@ -207,4 +209,80 @@ func mapEventToStatus(t webhook.EventType) grab.Status {
 	default:
 		return ""
 	}
+}
+
+// handleGrabbed captures the qBit info-hash from a Sonarr OnGrab webhook
+// onto the matching grab_records row. The only state-mutation this
+// branch performs is `UpdateTorrentHash` (idempotent — never overwrites
+// an already-set hash). Status transition is NOT applied: the row is
+// already "grabbed" by the time the webhook fires (force-grab path
+// inserted it in that status). Orphan grabbed events (no matching row)
+// log at INFO and return nil — webhook-only flows or pre-Phase-10 rows
+// will not have one.
+func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
+	parsed := grab.ParseTorrentHash(evt.DownloadID)
+	if parsed == nil {
+		// Malformed or empty downloadId is a silent drop — Sonarr
+		// retries on 4xx so we never 4xx on format issues. The legacy
+		// non-qBit clients (which emit non-hex download ids) hit this
+		// branch every grab; logging at DEBUG keeps the noise floor low.
+		u.logger.DebugContext(ctx, "webhook_grab_no_hash",
+			slog.String("instance", evt.InstanceName),
+			slog.String("download_id", evt.DownloadID),
+			slog.String("raw_event_type", evt.RawEventType),
+		)
+		return nil
+	}
+
+	key := ports.MatchKey{
+		DownloadID:   evt.DownloadID,
+		ReleaseTitle: evt.ReleaseTitle,
+		SeriesID:     evt.SeriesID,
+		SeasonNumber: evt.SeasonNumber,
+		InstanceName: evt.InstanceName,
+	}
+	rec, err := u.grabs.MatchLatest(ctx, key)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			u.logger.InfoContext(ctx, "webhook_grab_orphan_no_row",
+				slog.String("instance", evt.InstanceName),
+				slog.String("download_id", evt.DownloadID),
+				slog.String("release_title", evt.ReleaseTitle),
+				slog.Int("series_id", evt.SeriesID),
+				slog.Int("season", evt.SeasonNumber),
+			)
+			return nil
+		}
+		return fmt.Errorf("match grab record (grabbed branch): %w: %w", ports.ErrDBUnavailable, err)
+	}
+
+	if rec.TorrentHash != nil {
+		// Already populated by the grab use case at insert time or by
+		// an earlier OnGrab redelivery. Idempotent skip.
+		u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
+			slog.String("instance", evt.InstanceName),
+			slog.String("grab_id", rec.ID.String()),
+		)
+		return nil
+	}
+
+	if err := u.grabs.UpdateTorrentHash(ctx, rec.ID, *parsed); err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			// Row vanished between MatchLatest and Update. Treat as
+			// orphan — same as the MatchLatest miss above.
+			u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
+				slog.String("instance", evt.InstanceName),
+				slog.String("grab_id", rec.ID.String()),
+			)
+			return nil
+		}
+		return fmt.Errorf("update torrent_hash: %w: %w", ports.ErrDBUnavailable, err)
+	}
+
+	u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
+		slog.String("instance", evt.InstanceName),
+		slog.String("grab_id", rec.ID.String()),
+		slog.String("download_id", evt.DownloadID),
+	)
+	return nil
 }

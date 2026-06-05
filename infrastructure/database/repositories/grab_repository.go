@@ -49,6 +49,7 @@ func toGrabModel(r grab.Record) database.GrabRecordModel {
 		ErrorMessage:      r.ErrorMessage,
 		ScanRunID:         r.ScanRunID.String(),
 		Attempts:          r.Attempts,
+		TorrentHash:       r.TorrentHash,
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
 	}
@@ -128,6 +129,7 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		ErrorMessage:      m.ErrorMessage,
 		ScanRunID:         scanRunID,
 		Attempts:          m.Attempts,
+		TorrentHash:       m.TorrentHash,
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 	}, nil
@@ -222,6 +224,49 @@ func (r *GrabRepository) UpdateStatus(ctx context.Context, id uuid.UUID, newStat
 	if res.RowsAffected == 0 {
 		return ports.ErrNotFound
 	}
+	return nil
+}
+
+// UpdateTorrentHash writes torrent_hash on a grab_records row when
+// the column is currently NULL. Idempotent: a row whose hash is
+// already set returns nil without overwriting (D63). Returns
+// ports.ErrNotFound when the row id does not exist at all.
+//
+// hash is expected to be 40-char lowercase hex (the caller runs
+// grab.ParseTorrentHash). An empty hash is a no-op success.
+func (r *GrabRepository) UpdateTorrentHash(ctx context.Context, id uuid.UUID, hash string) error {
+	if hash == "" {
+		return nil
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	var current database.GrabRecordModel
+	if err := db.Select("id", "torrent_hash").First(&current, "id = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ports.ErrNotFound
+		}
+		return fmt.Errorf("read grab torrent_hash: %w", err)
+	}
+	if current.TorrentHash != nil {
+		// Already set by an earlier OnGrab delivery or by the grab
+		// use case at insert. Never overwrite — D63 hash-required
+		// gate makes the first-seen hash authoritative.
+		return nil
+	}
+
+	now := time.Now().UTC()
+	res := db.Model(&database.GrabRecordModel{}).
+		Where("id = ? AND torrent_hash IS NULL", id.String()).
+		Updates(map[string]any{
+			"torrent_hash": hash,
+			"updated_at":   now,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update grab torrent_hash: %w", res.Error)
+	}
+	// RowsAffected == 0 means the SELECT-then-UPDATE race lost — another
+	// caller set torrent_hash between our SELECT and UPDATE. That's the
+	// intended idempotent outcome; not an error.
 	return nil
 }
 

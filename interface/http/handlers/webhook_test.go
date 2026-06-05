@@ -93,6 +93,14 @@ func unsupportedPayload() []byte {
 	return []byte(`{"eventType":"Rename","instanceName":"ignored","series":{"id":122}}`)
 }
 
+func grabPayloadWithHash() []byte {
+	return []byte(`{"eventType":"Grab","instanceName":"ignored","downloadId":"0123456789abcdef0123456789abcdef01234567","release":{"releaseTitle":"Hijack.S02.PACK","indexer":"RT"},"series":{"id":122,"title":"Hijack"},"episodes":[{"id":1,"seasonNumber":2,"episodeNumber":4}]}`)
+}
+
+func grabPayloadShortHash() []byte {
+	return []byte(`{"eventType":"Grab","instanceName":"ignored","downloadId":"ABC123","series":{"id":122},"episodes":[{"id":1,"seasonNumber":2}]}`)
+}
+
 // --- Happy paths ----------------------------------------------------------
 
 func TestWebhookHandler_Imported_200(t *testing.T) {
@@ -120,6 +128,27 @@ func TestWebhookHandler_UnsupportedEvent_200(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, domainwebhook.EventTypeUnsupported, f.proc.lastEvt.Type)
+}
+
+func TestWebhookHandler_Grabbed_FortyCharHex_200(t *testing.T) {
+	f := newWebhookFixture(t, nil)
+	w := f.post(t, "sonarr-main", grabPayloadWithHash())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, f.proc.calls)
+	assert.Equal(t, domainwebhook.EventTypeGrabbed, f.proc.lastEvt.Type)
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567",
+		f.proc.lastEvt.DownloadID,
+		"40-char hex downloadId must reach the use case verbatim — parsing happens application-side")
+	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
+}
+
+func TestWebhookHandler_Grabbed_ShortDownloadId_StillReaches_200(t *testing.T) {
+	f := newWebhookFixture(t, nil)
+	w := f.post(t, "sonarr-main", grabPayloadShortHash())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, f.proc.calls)
+	assert.Equal(t, "ABC123", f.proc.lastEvt.DownloadID,
+		"the HTTP handler does NOT pre-filter malformed hashes — the application layer's ParseTorrentHash decides")
 }
 
 // --- 400 paths ------------------------------------------------------------
