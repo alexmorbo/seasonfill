@@ -72,8 +72,13 @@ type GrabRecordModel struct {
 	ErrorMessage      string `gorm:"type:text"`
 	ScanRunID         string `gorm:"size:36;index"`
 	Attempts          int
-	CreatedAt         time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
-	UpdatedAt         time.Time
+	// TorrentHash is the qBit infohash (40-char lowercase hex) populated
+	// by the OnGrab webhook handler in 039c. Nullable on purpose: rows
+	// created before Phase 10 have no recorded hash and are intentionally
+	// ignored by the Watchdog (D63 hash-required gate, no backfill).
+	TorrentHash *string   `gorm:"column:torrent_hash;size:64"`
+	CreatedAt   time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
+	UpdatedAt   time.Time
 }
 
 func (GrabRecordModel) TableName() string { return "grab_records" }
@@ -201,3 +206,43 @@ type InstanceSecretModel struct {
 func (InstanceSecretModel) TableName() string { return "instance_secret" }
 
 func NewScanID() string { return uuid.New().String() }
+
+// InstanceQbitSettingsModel is the per-instance Watchdog configuration row.
+// One row per Sonarr instance enforced by the unique index on instance_id.
+// PasswordEncrypted is opaque AES-GCM ciphertext (nonce|ciphertext|tag)
+// produced by the 039d HTTP handler with the `-aes-gcm-v1` HKDF subkey;
+// the repo treats it as bytes.
+type InstanceQbitSettingsModel struct {
+	ID                     uint   `gorm:"primaryKey"`
+	InstanceID             uint   `gorm:"uniqueIndex:idx_instance_qbit_settings_instance_id"`
+	Enabled                bool   `gorm:"not null;default:false"`
+	URL                    string `gorm:"type:text;not null"`
+	Username               *string
+	PasswordEncrypted      []byte         `gorm:"column:password_encrypted"`
+	Category               string         `gorm:"type:text;not null;default:'sonarr'"`
+	PollIntervalMinutes    int            `gorm:"not null;default:30"`
+	RegrabCooldownHours    int            `gorm:"not null;default:120"`
+	MaxConsecutiveNoBetter int            `gorm:"not null;default:3"`
+	CustomUnregisteredMsgs datatypes.JSON `gorm:"not null"`
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (InstanceQbitSettingsModel) TableName() string { return "instance_qbit_settings" }
+
+// WatchdogBlacklistModel parks (instance, series, season) triples that
+// exhausted the consecutive-no-better budget or whose parent qBit is
+// persistently unreachable. ExpiresAt is *time.Time because v1 always
+// writes NULL (manual unblock only per parent 039 §Out of scope).
+type WatchdogBlacklistModel struct {
+	ID           uint   `gorm:"primaryKey"`
+	InstanceID   uint   `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:1;index:idx_watchdog_blacklist_instance_id"`
+	SeriesID     int    `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:2"`
+	SeasonNumber int    `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:3"`
+	Reason       string `gorm:"type:text;not null"`
+	Consecutive  int    `gorm:"not null"`
+	CreatedAt    time.Time
+	ExpiresAt    *time.Time
+}
+
+func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }

@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/regrab"
 )
 
 type ScanRecord struct {
@@ -147,4 +148,65 @@ type Transactor interface {
 type OriginReleaseRepository interface {
 	Get(ctx context.Context, instance string, seriesID, season int) (OriginRelease, bool, error)
 	Upsert(ctx context.Context, rec OriginRelease) error
+}
+
+// QbitSettingsRecord is the transport shape for instance_qbit_settings.
+// PasswordEncrypted carries the AES-GCM payload opaquely — the repo
+// neither encrypts nor decrypts; that responsibility lives in the 039d
+// HTTP handler. CustomUnregisteredMsgs is a free-form string slice that
+// the JSON column on the DB side accepts as a JSON array.
+type QbitSettingsRecord struct {
+	ID                     uint
+	InstanceID             uint
+	Enabled                bool
+	URL                    string
+	Username               *string
+	PasswordEncrypted      []byte
+	Category               string
+	PollIntervalMinutes    int
+	RegrabCooldownHours    int
+	MaxConsecutiveNoBetter int
+	CustomUnregisteredMsgs []string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+// QbitSettingsRepository persists the per-instance Watchdog configuration.
+// Upsert is keyed on InstanceID (one settings row per Sonarr instance,
+// enforced by a unique index). GetByInstance / DeleteByInstance look up
+// by the foreign instance id. ports.ErrNotFound on miss.
+type QbitSettingsRepository interface {
+	Upsert(ctx context.Context, rec QbitSettingsRecord) error
+	GetByInstance(ctx context.Context, instanceID uint) (QbitSettingsRecord, error)
+	DeleteByInstance(ctx context.Context, instanceID uint) error
+	List(ctx context.Context) ([]QbitSettingsRecord, error)
+}
+
+// WatchdogBlacklistFilter narrows ListByInstance reads when needed. For
+// 039a only InstanceID is supported; the regrab use case (039f) extends
+// this shape as it grows new query needs.
+type WatchdogBlacklistFilter struct {
+	InstanceID uint
+}
+
+// WatchdogBlacklistRepository persists the parked (instance, series,
+// season) triples. Upsert is keyed on the triple unique index; a repeat
+// Upsert on the same triple overwrites the prior Consecutive counter
+// and CreatedAt (the latest detection cycle's bookkeeping wins).
+type WatchdogBlacklistRepository interface {
+	// Find returns the row matching (instance, series, season) exactly.
+	// ports.ErrNotFound on miss.
+	Find(ctx context.Context, instanceID uint, seriesID, season int) (regrab.BlacklistEntry, error)
+
+	// Upsert writes the row keyed on (instance, series, season). On
+	// conflict, Consecutive / Reason / CreatedAt / ExpiresAt are
+	// replaced with the supplied values.
+	Upsert(ctx context.Context, entry regrab.BlacklistEntry) error
+
+	// DeleteByTriple removes the parked row. ports.ErrNotFound on miss.
+	DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error
+
+	// ListByInstance returns every parked row for the instance. Used by
+	// the metrics gauge `seasonfill_watchdog_blacklist_size{instance}`.
+	ListByInstance(ctx context.Context, instanceID uint) ([]regrab.BlacklistEntry, error)
 }

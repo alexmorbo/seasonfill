@@ -33,6 +33,13 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	assert.True(t, db.Migrator().HasTable(&RuntimeConfigModel{}))
 	assert.True(t, db.Migrator().HasTable(&SonarrInstanceModel{}))
 	assert.True(t, db.Migrator().HasTable(&InstanceSecretModel{}))
+	// 039a: Phase 10 Watchdog foundation.
+	assert.True(t, db.Migrator().HasTable(&InstanceQbitSettingsModel{}))
+	assert.True(t, db.Migrator().HasTable(&WatchdogBlacklistModel{}))
+	assert.True(t, db.Migrator().HasColumn(&GrabRecordModel{}, "torrent_hash"))
+	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_torrent_hash"))
+	assert.True(t, db.Migrator().HasIndex("instance_qbit_settings", "idx_instance_qbit_settings_instance_id"))
+	assert.True(t, db.Migrator().HasIndex("watchdog_blacklist", "idx_watchdog_blacklist_triple"))
 
 	// Idempotent — running twice must be a no-op.
 	assert.NoError(t, Migrate(db))
@@ -107,7 +114,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	assert.Equal(t, 5, version)
+	// 039a: latest migration is 000006_phase10_watchdog_foundation.
+	assert.Equal(t, 6, version)
 	assert.False(t, dirty)
 }
 
@@ -217,6 +225,7 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	for _, table := range []string{
+		"watchdog_blacklist", "instance_qbit_settings",
 		"instance_secret", "sonarr_instance", "runtime_config",
 		"admin_users", "cooldowns", "origin_releases",
 		"grab_records", "decisions", "scan_runs", "schema_migrations",
@@ -230,11 +239,17 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	assert.Equal(t, 5, version)
+	// 039a: latest migration is 000006_phase10_watchdog_foundation.
+	assert.Equal(t, 6, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
 	assert.True(t, db.Migrator().HasColumn("sonarr_instance", "ranking_origin_bonus"))
 	assert.False(t, db.Migrator().HasIndex("grab_records", "idx_grab_dedupe"))
 	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_dedupe_lookup"))
+	// 039a: Phase 10 Watchdog foundation.
+	assert.True(t, db.Migrator().HasTable("instance_qbit_settings"))
+	assert.True(t, db.Migrator().HasTable("watchdog_blacklist"))
+	assert.True(t, db.Migrator().HasColumn("grab_records", "torrent_hash"))
+	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_torrent_hash"))
 }

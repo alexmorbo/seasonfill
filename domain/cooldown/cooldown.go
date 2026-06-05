@@ -8,8 +8,9 @@ import (
 type Scope string
 
 const (
-	ScopeSeries Scope = "series"
-	ScopeGUID   Scope = "guid"
+	ScopeSeries      Scope = "series"
+	ScopeGUID        Scope = "guid"
+	ScopeRegrabRetry Scope = "regrab_retry"
 )
 
 // Cooldown is a single active blacklist entry. Polymorphic by Scope per D-2.1.
