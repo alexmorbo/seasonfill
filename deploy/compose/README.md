@@ -151,7 +151,7 @@ hash in the DB). Use `--set <password>` to choose a specific one.
 
 ### Pin to a specific image tag
 
-Set `TAG=` in `.env` to a published image tag (e.g. `TAG=0.6.1`).
+Set `TAG=` in `.env` to a published image tag (e.g. `TAG=0.6.2`).
 Default `latest` floats with the newest published image. Production
 deployments should pin.
 

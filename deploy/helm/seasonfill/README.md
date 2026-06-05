@@ -4,8 +4,8 @@
 > React SPA, both rendered by this chart. See the project root
 > [README](../../../README.md) for what the service does and why.
 
-- **Chart version:** `0.6.1` (matches `Chart.yaml`)
-- **App version:** `0.6.1`
+- **Chart version:** `0.6.2` (matches `Chart.yaml`)
+- **App version:** `0.6.2`
 - **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill-helm`
 - **Kubernetes:** `>=1.25.0`
 - **Helm:** `>=3.16` (OCI install support stable, schema validation)
@@ -33,7 +33,7 @@ production with Terragrunt.
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.6.1 \
+  --version 0.6.2 \
   --namespace seasonfill --create-namespace \
   --set "database.driver=sqlite" \
   --set "persistence.enabled=true"
@@ -102,7 +102,7 @@ ingress:
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.6.1 \
+  --version 0.6.2 \
   --namespace seasonfill --create-namespace \
   -f values-prod.yaml
 ```
@@ -112,7 +112,7 @@ in the DB; no chart re-render required.
 
 ## Values reference (most-used)
 
-Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.6.1`.
+Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.6.2`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -186,7 +186,7 @@ resource "kubernetes_secret_v1" "seasonfill" {
 resource "helm_release" "seasonfill" {
   name      = "seasonfill"
   chart     = "oci://ghcr.io/alexmorbo/seasonfill-helm"
-  version   = "0.6.1"
+  version   = "0.6.2"
   namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
 
   values = [
@@ -249,6 +249,13 @@ kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill reset-password -
 
 ## Upgrades
 
+**`0.6.1 → 0.6.2` — in-place.** Security-only release. Bumps three
+indirect Go deps (`jackc/pgx/v5`, `quic-go`, `edwards25519`) and
+moves the web image base from `nginx-unprivileged:1.27-alpine`
+(alpine 3.21) to `1.29-alpine3.23`, closing ~89 alpine CVEs
+including a critical libcrypto3/libssl3 issue and a critical pgx
+CVE on the backend. No values changes. `helm upgrade` is safe.
+
 **`0.6.0 → 0.6.1` — in-place.** Web image now bakes the real release
 version into the SPA's TopBar label instead of the raw 40-char git
 SHA. No values changes. `helm upgrade` is safe.
@@ -272,7 +279,7 @@ migrate:
 2. `helm uninstall` the old release.
 3. Create a new Secret per §"Install — production" (omit
    `sonarr-*-api-key` entries — instances now live in the DB).
-4. `helm install` `0.6.1` fresh.
+4. `helm install` `0.6.2` fresh.
 5. Restore the DB if needed; re-add Sonarr instances in the UI.
 
 ## Sonarr webhook configuration
