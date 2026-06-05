@@ -101,9 +101,6 @@ func (f *rescanFakeGrab) MatchLatest(context.Context, ports.MatchKey) (grab.Reco
 func (f *rescanFakeGrab) UpdateStatus(context.Context, uuid.UUID, grab.Status, string) error {
 	return nil
 }
-func (f *rescanFakeGrab) FindExisting4Tuple(context.Context, string, int, int, string) (grab.Record, error) {
-	return grab.Record{}, ports.ErrNotFound
-}
 
 type rescanFakeScans struct {
 	mu      sync.Mutex

@@ -24,7 +24,6 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -67,17 +66,9 @@ type fakeGrabRepo struct {
 	stored []grab.Record
 }
 
-// Create enforces the 4-tuple unique constraint in-memory to match the DB
-// unique index — exercises the race-recovery path in TestGrabHandler_ByDecision_RaceIdempotent.
 func (f *fakeGrabRepo) Create(_ context.Context, r grab.Record) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, e := range f.stored {
-		if e.InstanceName == r.InstanceName && e.SeriesID == r.SeriesID &&
-			e.SeasonNumber == r.SeasonNumber && e.ReleaseGUID == r.ReleaseGUID {
-			return repositories.ErrGrabDuplicate
-		}
-	}
 	f.stored = append(f.stored, r)
 	return nil
 }
@@ -93,16 +84,6 @@ func (f *fakeGrabRepo) MatchLatest(_ context.Context, _ ports.MatchKey) (grab.Re
 }
 func (f *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Status, _ string) error {
 	return nil
-}
-func (f *fakeGrabRepo) FindExisting4Tuple(_ context.Context, inst string, sid, season int, guid string) (grab.Record, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, r := range f.stored {
-		if r.InstanceName == inst && r.SeriesID == sid && r.SeasonNumber == season && r.ReleaseGUID == guid {
-			return r, nil
-		}
-	}
-	return grab.Record{}, ports.ErrNotFound
 }
 
 type fakeCooldowns struct {
@@ -260,7 +241,10 @@ func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {
 	}
 }
 
-func TestGrabHandler_ByDecision_AlreadyGrabbed(t *testing.T) {
+// TestGrabHandler_ByDecision_AlreadyInFlight: a non-terminal grab on
+// the same release still returns 409 (the fast-path is kept). Story
+// 038 narrowed the rule — only non-terminal rows block.
+func TestGrabHandler_ByDecision_AlreadyInFlight(t *testing.T) {
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 	require.NoError(t, f.grabRepo.Create(context.Background(), grab.Record{
@@ -269,6 +253,27 @@ func TestGrabHandler_ByDecision_AlreadyGrabbed(t *testing.T) {
 		ScanRunID: d.ScanRunID, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}))
 	assertErrBody(t, f.do(t, d.ID.String()), http.StatusConflict, "already grabbed")
+}
+
+// TestGrabHandler_ByDecision_PriorTerminalAllowsRegrab: when a previous
+// attempt on the same release reached a terminal status
+// (grab_failed / import_failed / imported), the user can press the
+// button again and get a fresh row. No 409, two rows in store.
+func TestGrabHandler_ByDecision_PriorTerminalAllowsRegrab(t *testing.T) {
+	f := newGrabFixture(t, nil)
+	d := f.seedEligible(t)
+	require.NoError(t, f.grabRepo.Create(context.Background(), grab.Record{
+		ID: uuid.New(), InstanceName: "alpha", SeriesID: 122, SeasonNumber: 2,
+		ReleaseGUID: "g1", Status: grab.StatusGrabFailed,
+		ScanRunID: d.ScanRunID, CreatedAt: time.Now().Add(-time.Hour), UpdatedAt: time.Now().Add(-time.Hour),
+	}))
+
+	w := f.do(t, d.ID.String())
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	f.grabRepo.mu.Lock()
+	defer f.grabRepo.mu.Unlock()
+	assert.Len(t, f.grabRepo.stored, 2, "fresh row must be appended; prior terminal row is preserved")
 }
 
 func TestGrabHandler_ByDecision_CooldownBlocked(t *testing.T) {
@@ -286,33 +291,25 @@ func TestGrabHandler_ByDecision_SonarrUnauthorized(t *testing.T) {
 	assertErrBody(t, f.do(t, d.ID.String()), http.StatusBadGateway, "sonarr unauthorized")
 }
 
-// Two concurrent POSTs: exactly one grab_records row; responses 200/200 or 200/409.
-func TestGrabHandler_ByDecision_RaceIdempotent(t *testing.T) {
+func TestGrabHandler_ByDecision_DoublePost_TwoRows(t *testing.T) {
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
-	var wg sync.WaitGroup
-	results := make([]*httptest.ResponseRecorder, 2)
-	for i := 0; i < 2; i++ {
-		i := i
-		wg.Add(1)
-		go func() { defer wg.Done(); results[i] = f.do(t, d.ID.String()) }()
-	}
-	wg.Wait()
+
+	w1 := f.do(t, d.ID.String())
+	require.Equal(t, http.StatusOK, w1.Code, w1.Body.String())
+
+	// Flip the first row to a terminal status so the in-flight
+	// fast-path does not return 409 on the second POST.
 	f.grabRepo.mu.Lock()
-	rowCount := len(f.grabRepo.stored)
+	require.Len(t, f.grabRepo.stored, 1)
+	f.grabRepo.stored[0].Status = grab.StatusImportFailed
 	f.grabRepo.mu.Unlock()
-	assert.Equal(t, 1, rowCount, "exactly one grab_records row")
-	ok, conflict := 0, 0
-	for _, w := range results {
-		switch w.Code {
-		case http.StatusOK:
-			ok++
-		case http.StatusConflict:
-			conflict++
-		default:
-			t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
-		}
-	}
-	assert.GreaterOrEqual(t, ok, 1, "at least one 200")
-	assert.Equal(t, 2, ok+conflict, "all 200 or 409")
+
+	w2 := f.do(t, d.ID.String())
+	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+
+	f.grabRepo.mu.Lock()
+	defer f.grabRepo.mu.Unlock()
+	require.Len(t, f.grabRepo.stored, 2, "two POSTs must produce two rows")
+	assert.NotEqual(t, f.grabRepo.stored[0].ID, f.grabRepo.stored[1].ID)
 }

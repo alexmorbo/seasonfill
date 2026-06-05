@@ -111,10 +111,6 @@ func (noopGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ grab.Status, 
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
-func (noopGrabRepo) FindExisting4Tuple(context.Context, string, int, int, string) (grab.Record, error) {
-	return grab.Record{}, ports.ErrNotFound
-}
-
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {

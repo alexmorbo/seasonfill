@@ -229,10 +229,6 @@ func (abortFakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingr
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
-func (abortFakeGrabRepo) FindExisting4Tuple(_ context.Context, _ string, _, _ int, _ string) (domaingrab.Record, error) {
-	return domaingrab.Record{}, ports.ErrNotFound
-}
-
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

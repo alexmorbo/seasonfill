@@ -107,11 +107,7 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// After running full migrations and re-stamping, the version must be
-	// the latest (4 after 037d) because the DB already has v4 columns
-	// (oidc_groups_claim etc.); stampBaselineIfNeeded detects this and stamps at
-	// latestVersion rather than baselineVersion.
-	assert.Equal(t, 4, version)
+	assert.Equal(t, 5, version)
 	assert.False(t, dirty)
 }
 
@@ -234,10 +230,11 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	assert.Equal(t, 1, version)
+	assert.Equal(t, 5, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
 	assert.True(t, db.Migrator().HasColumn("sonarr_instance", "ranking_origin_bonus"))
-	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_dedupe"))
+	assert.False(t, db.Migrator().HasIndex("grab_records", "idx_grab_dedupe"))
+	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_dedupe_lookup"))
 }

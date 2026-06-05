@@ -15,7 +15,6 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	domaindecision "github.com/alexmorbo/seasonfill/domain/decision"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
@@ -139,27 +138,6 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 		},
 	})
 	if out.Err != nil {
-		// Race-recovery: the unique (instance,series,season,release_guid)
-		// index admits exactly one INSERT when two concurrent POSTs both
-		// pass the fast-path check. The loser's Create fails with
-		// ErrGrabDuplicate; we resolve the survivor and return it 200 so
-		// the caller sees idempotent success rather than spurious 500.
-		// Sonarr ForceGrab on the loser may have already fired but
-		// Sonarr dedupes on releaseId server-side.
-		if errors.Is(out.Err, repositories.ErrGrabDuplicate) {
-			rec, ferr := h.grabs.FindExisting4Tuple(ctx, d.InstanceName,
-				d.SeriesID, d.SeasonNumber, d.Selected.Release.GUID)
-			if ferr != nil {
-				writeInternalError(c, h.logger, "grab_duplicate_resolve_failed", ferr,
-					slog.String("decision_id", id.String()))
-				return
-			}
-			h.logger.InfoContext(ctx, "grab_by_decision_race_idempotent",
-				slog.String("decision_id", id.String()),
-				slog.String("grab_id", rec.ID.String()))
-			c.JSON(http.StatusOK, toGrabDTO(rec))
-			return
-		}
 		status, msg, lvl := http.StatusInternalServerError, "grab failed", "grab_execute_failed"
 		switch {
 		case errors.Is(out.Err, domain.ErrInstanceUnauthorized):
@@ -185,9 +163,11 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	c.JSON(http.StatusOK, toGrabDTO(out.Record))
 }
 
-// findExistingGrab walks the (instance,series,season) partition and
-// returns the first row matching the GUID. 200-row cap covers any
-// realistic season; M-011a-1 swaps in an indexed query.
+// findExistingGrab returns the first non-terminal row for this
+// (instance, series, season, GUID). Terminal rows (grab_failed,
+// import_failed, imported) do not block — multiple grab attempts on
+// the same release are allowed, the user can retry without manual
+// cleanup. 200-row cap covers any realistic season.
 func (h *GrabHandler) findExistingGrab(ctx context.Context, d domaindecision.Decision) (uuid.UUID, bool, error) {
 	inst := d.InstanceName
 	sid := d.SeriesID
@@ -200,9 +180,14 @@ func (h *GrabHandler) findExistingGrab(ctx context.Context, d domaindecision.Dec
 	}
 	guid := d.Selected.Release.GUID
 	for _, r := range recs {
-		if r.ReleaseGUID == guid {
-			return r.ID, true, nil
+		if r.ReleaseGUID != guid {
+			continue
 		}
+		switch string(r.Status) {
+		case "grab_failed", "import_failed", "imported":
+			continue
+		}
+		return r.ID, true, nil
 	}
 	return uuid.Nil, false, nil
 }

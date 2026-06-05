@@ -118,10 +118,6 @@ func (r *fakeGrabRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ domaingrab
 	panic("fake UpdateStatus unexpectedly called - this stub is not configured for UpdateStatus calls")
 }
 
-func (r *fakeGrabRepo) FindExisting4Tuple(_ context.Context, _ string, _, _ int, _ string) (domaingrab.Record, error) {
-	return domaingrab.Record{}, ports.ErrNotFound
-}
-
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown
@@ -386,4 +382,26 @@ func TestExecute_WithClock_CooldownExpiresAtIsDeterministic(t *testing.T) {
 		assert.Equal(t, fixedNow, gr.recs[0].CreatedAt)
 		assert.Equal(t, fixedNow, gr.recs[0].UpdatedAt)
 	})
+}
+
+func TestExecute_Success_PersistFails_BubblesError(t *testing.T) {
+	t.Parallel()
+	uc, gr, _, _ := newUC(t)
+	gr.err = errors.New("disk full")
+	sonarr := &fakeSonarrGrab{}
+
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.Error(t, out.Err, "persist failure must surface as Output.Err")
+	assert.Contains(t, out.Err.Error(), "persist grab success")
+	assert.Contains(t, out.Err.Error(), "disk full")
+	// Sonarr was successful, so this is NOT the ErrGrabFailed sentinel.
+	assert.False(t, IsGrabFailed(out.Err),
+		"persist failure is distinct from Sonarr-side grab failure")
+	// Record still describes the grab attempt; status was set to grabbed
+	// before persistSuccess ran.
+	assert.Equal(t, domaingrab.StatusGrabbed, out.Record.Status)
+	assert.Equal(t, 1, out.Attempts)
+	// The fakeGrabRepo's Create returned err before appending — no row.
+	assert.Empty(t, gr.recs, "no row was persisted")
 }

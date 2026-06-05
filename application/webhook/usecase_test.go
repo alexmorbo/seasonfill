@@ -58,9 +58,6 @@ func (r *fakeGrabRepo) UpdateStatus(_ context.Context, id uuid.UUID, s grab.Stat
 	r.updateCalls++
 	return r.updateErr
 }
-func (r *fakeGrabRepo) FindExisting4Tuple(context.Context, string, int, int, string) (grab.Record, error) {
-	return grab.Record{}, ports.ErrNotFound
-}
 
 type fakeCooldownRepo struct {
 	mu     sync.Mutex

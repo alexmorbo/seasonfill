@@ -144,7 +144,25 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			rec.Attempts = attempt
 			rec.DownloadID = downloadID
 			rec.UpdatedAt = u.now()
-			u.persistSuccess(ctx, rec, in)
+			if persistErr := u.persistSuccess(ctx, rec, in); persistErr != nil {
+				// Sonarr accepted the force-grab but the row never landed.
+				// Surface as a failure so the scan loop's counters and the
+				// /grabs list agree with reality.
+				u.logger.ErrorContext(ctx, "grab_persist_failed",
+					slog.String("instance", in.InstanceName),
+					slog.String("guid", in.Selected.Release.GUID),
+					slog.String("download_id", downloadID),
+					slog.Int("attempt", attempt),
+					slog.String("error", persistErr.Error()),
+				)
+				observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "failed")
+				observability.GrabAttempt(in.InstanceName, "failed")
+				return Output{
+					Record:   rec,
+					Attempts: attempt,
+					Err:      fmt.Errorf("persist grab success: %w", persistErr),
+				}
+			}
 			observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "success")
 			observability.GrabAttempt(in.InstanceName, "grabbed")
 			u.logger.InfoContext(ctx, "grab_succeeded",
@@ -218,9 +236,9 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 }
 
 // persistSuccess wraps the three success-side writes in a single transaction
-// when a Transactor is wired. Without one, the calls happen in sequence
-// (003 behaviour preserved).
-func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in Input) {
+// when a Transactor is wired. Without one, the calls happen in sequence.
+// Returns the work-function error so Execute can surface it as Output.Err.
+func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in Input) error {
 	work := func(txCtx context.Context) error {
 		if err := u.grabs.Create(txCtx, rec); err != nil {
 			return fmt.Errorf("persist grab_record: %w", err)
@@ -259,19 +277,10 @@ func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in 
 		return nil
 	}
 
-	var err error
 	if u.tx != nil {
-		err = u.tx.Transaction(ctx, work)
-	} else {
-		err = work(ctx)
+		return u.tx.Transaction(ctx, work)
 	}
-	if err != nil {
-		u.logger.ErrorContext(ctx, "persist grab success-set failed",
-			slog.String("instance", in.InstanceName),
-			slog.String("guid", rec.ReleaseGUID),
-			slog.String("error", err.Error()),
-		)
-	}
+	return work(ctx)
 }
 
 func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason string) {
