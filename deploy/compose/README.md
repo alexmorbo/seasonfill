@@ -96,6 +96,7 @@ Auth mode is a runtime setting — change it in the web UI at
 | **Forms** (default) | Username/password via the web login page; session cookie issued on success. | Recommended for direct browser access or any public-facing deploy. |
 | **Basic** | HTTP Basic Auth — the browser shows a native credentials popup; no login page rendered. | Useful for CLI/scripted clients or simple setups behind an IP allowlist. |
 | **None** | No authentication enforced by seasonfill. | **WARNING:** use ONLY behind a reverse proxy that authenticates (Pangolin, oauth2-proxy, Authelia, etc.). Enabling None without a protecting proxy exposes the entire UI to anyone. |
+| **OIDC** | SSO via an external OpenID Connect provider (Keycloak, Authelia, Authentik). | Recommended for shared / public deploys with an existing IdP. See §"OIDC mode" for setup. |
 
 ### Authentication Required toggle
 
@@ -150,9 +151,9 @@ hash in the DB). Use `--set <password>` to choose a specific one.
 
 ### Pin to a specific image tag
 
-Set `TAG=` in `.env` to a published chart version (e.g.
-`TAG=0.3.0`). Default `latest` floats with the newest published
-image. Production deployments should pin.
+Set `TAG=` in `.env` to a published image tag (e.g. `TAG=0.6.0`).
+Default `latest` floats with the newest published image. Production
+deployments should pin.
 
 ### Stop & remove
 

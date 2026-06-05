@@ -4,8 +4,8 @@
 > React SPA, both rendered by this chart. See the project root
 > [README](../../../README.md) for what the service does and why.
 
-- **Chart version:** `0.4.3` (matches `Chart.yaml`)
-- **App version:** `0.4.3`
+- **Chart version:** `0.6.0` (matches `Chart.yaml`)
+- **App version:** `0.6.0`
 - **OCI source:** `oci://ghcr.io/alexmorbo/seasonfill-helm`
 - **Kubernetes:** `>=1.25.0`
 - **Helm:** `>=3.16` (OCI install support stable, schema validation)
@@ -33,7 +33,7 @@ production with Terragrunt.
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.4.3 \
+  --version 0.6.0 \
   --namespace seasonfill --create-namespace \
   --set "database.driver=sqlite" \
   --set "persistence.enabled=true"
@@ -102,7 +102,7 @@ ingress:
 
 ```sh
 helm install seasonfill oci://ghcr.io/alexmorbo/seasonfill-helm \
-  --version 0.4.3 \
+  --version 0.6.0 \
   --namespace seasonfill --create-namespace \
   -f values-prod.yaml
 ```
@@ -112,7 +112,7 @@ in the DB; no chart re-render required.
 
 ## Values reference (most-used)
 
-Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.4.3`.
+Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --version 0.6.0`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -144,15 +144,26 @@ upgrade required. For a CLI fallback (e.g. lockout recovery):
 kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill auth-mode --set forms
 ```
 
-## Terragrunt example
+## Terraform example
 
 Pattern: pre-create the namespace + Secret + (optional) TLS Secret,
-then drive the chart via `helm_release`. SOPS-encrypted values live
-outside Terraform state.
+then drive the chart via `helm_release`. Secret values come in as
+sensitive variables so they stay out of `.tf` files.
 
 ```hcl
-locals {
-  secrets = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/secrets.sops.yaml"))
+variable "api_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "web_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "postgres_dsn" {
+  type      = string
+  sensitive = true
 }
 
 resource "kubernetes_namespace_v1" "seasonfill" {
@@ -165,9 +176,9 @@ resource "kubernetes_secret_v1" "seasonfill" {
     namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
   }
   data = {
-    "api-key"      = local.secrets.api_key
-    "web-password" = local.secrets.web_password
-    "postgres-dsn" = local.secrets.postgres_dsn
+    "api-key"      = var.api_key
+    "web-password" = var.web_password
+    "postgres-dsn" = var.postgres_dsn
   }
   type = "Opaque"
 }
@@ -175,7 +186,7 @@ resource "kubernetes_secret_v1" "seasonfill" {
 resource "helm_release" "seasonfill" {
   name      = "seasonfill"
   chart     = "oci://ghcr.io/alexmorbo/seasonfill-helm"
-  version   = "0.4.3"
+  version   = "0.6.0"
   namespace = kubernetes_namespace_v1.seasonfill.metadata[0].name
 
   values = [
@@ -238,22 +249,27 @@ kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill reset-password -
 
 ## Upgrades
 
-`0.4.3` drops the `config.*` and `instances[]` values trees entirely.
-Cron, scan tuning, dry_run, instances and runtime auth fields all
-moved to the DB and are edited via the Settings UI at `/settings`.
-There is no in-place upgrade path from `0.3.x` — values shape is
-incompatible. For an existing `0.3.x` install:
+**`0.5.x → 0.6.0` — in-place.** Polish + fix release: grab counter
+desync fixed, branding refresh, Russian README, dependency bumps.
+No values changes. `helm upgrade` with current values is safe.
+
+**`0.4.x → 0.5.0` — in-place.** Adds the optional `oidc.*` values
+tree and (optional) `oidc-client-secret` Secret key. Nothing existing
+is renamed or removed; running `helm upgrade` with your current
+values is safe. To enable OIDC after upgrading, see §"OIDC mode".
+
+**`0.3.x → 0.4.x` — destroy-and-recreate.** Values shape is
+incompatible (`config.*`, `instances[]`, and `sonarr-<name>-api-key`
+Secret keys are all gone — runtime config lives in the DB now). To
+migrate:
 
 1. Capture the DB out-of-band (Postgres dump or copy
    `/data/seasonfill.db` from the SQLite PVC).
 2. `helm uninstall` the old release.
 3. Create a new Secret per §"Install — production" (omit
    `sonarr-*-api-key` entries — instances now live in the DB).
-4. `helm install` 0.4.3 fresh.
+4. `helm install` `0.6.0` fresh.
 5. Restore the DB if needed; re-add Sonarr instances in the UI.
-
-Future `0.4.x → 0.4.(x+1)` upgrades are in-place: `helm upgrade` with
-new values.
 
 ## Sonarr webhook configuration
 

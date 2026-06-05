@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
+    <img src="docs/logo-light.png" alt="seasonfill" width="360">
+  </picture>
+</p>
+
 # Seasonfill
 
 A companion service for [Sonarr](https://sonarr.tv) that automates
@@ -6,10 +13,11 @@ refuses to. Multi-instance, scheduled, with a webhook receiver that
 closes the import-success/failure loop and a small React UI for
 operator override.
 
-> **Project status: alpha.** Works on the author's homelab. Breaking
+> **Русская версия:** [README.ru.md](README.ru.md).
+
+> **Project status: alpha.** Breaking
 > changes (config schema, chart values shape, DB columns) are likely
-> until `v1.0`. Pin image tags in production. Not accepting external
-> contributions yet — see [Contributing](#contributing).
+> until `v1.0`. Pin image tags in production.
 
 ## Quickstart
 
@@ -61,9 +69,12 @@ re-grabbing broken releases.
 | Decision audit log with operator "Grab now" override | shipped |
 | Operator "Rescan" with supersession chain | shipped |
 | React SPA: Dashboard, Instances, Scans, Decisions, Grabs | shipped |
-| Username + password admin login + persistent API key | shipped |
+| Auth modes: Forms / Basic / None / OIDC (runtime-switchable) | shipped |
+| OIDC SSO with PKCE + group ACL (Keycloak / Authelia / Authentik) | shipped |
+| Persistent API key for Sonarr webhook (`X-Api-Key`) | shipped |
 | Auto-generated first-run password (qBittorrent-style) | shipped |
-| `reset-password` CLI | shipped |
+| `reset-password` + `auth-mode` rescue CLI | shipped |
+| Disabled-for-local-addresses bypass (RFC1918/loopback) | shipped |
 | Helm chart (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
 | Docker Compose stack | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
@@ -188,10 +199,10 @@ OIDC config, so you can fix the issue and switch back.
 
 ## Contributing
 
-Single-maintainer project — **not accepting external pull requests
-yet**. The codebase is open under GPL-3.0 so you can fork, run, and
-modify it freely. Bug reports and feature discussion: open a
-[GitHub Issue](https://github.com/alexmorbo/seasonfill/issues).
+Contributions welcome. The codebase is GPL-3.0 — fork, run, modify.
+For bug reports and feature discussion, open a
+[GitHub Issue](https://github.com/alexmorbo/seasonfill/issues); for
+code changes, open a pull request against `main`.
 
 ## License
 

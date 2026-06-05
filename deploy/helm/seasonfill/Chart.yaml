@@ -6,8 +6,8 @@ description: |
   on a schedule. Singleton service; database stores state. Frontend
   (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.5.0
-appVersion: "0.5.0"
+version: 0.6.0
+appVersion: "0.6.0"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -15,6 +15,7 @@ maintainers:
 sources:
   - https://github.com/alexmorbo/seasonfill
 home: https://github.com/alexmorbo/seasonfill
+icon: https://raw.githubusercontent.com/alexmorbo/seasonfill/main/web/src/assets/logo.svg
 keywords:
   - sonarr
   - media
@@ -25,14 +26,12 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.5.0
+      image: ghcr.io/alexmorbo/seasonfill:0.6.0
     - name: seasonfill-web
-      image: ghcr.io/alexmorbo/seasonfill-web:0.5.0
+      image: ghcr.io/alexmorbo/seasonfill-web:0.6.0
   artifacthub.io/changes: |
-    - {kind: removed, description: "BREAKING — drop ConfigMap template; chart no longer renders a config.yaml"}
-    - {kind: removed, description: "BREAKING — drop `config.*` values tree (cron, scan, dryRun, http.auth runtime fields)"}
-    - {kind: removed, description: "BREAKING — drop `instances[]` and `sonarr-<name>-api-key` Secret keys; instances live in the DB now, edited via Settings UI"}
-    - {kind: added, description: "all runtime config moves to the DB and is edited via the Settings UI at /settings"}
-    - {kind: added, description: "encrypted at-rest Sonarr instance secrets (AES-GCM, key derived from SEASONFILL_API_KEY via HKDF)"}
-    - {kind: changed, description: "SEASONFILL_API_KEY now optional — empty → backend auto-generates on first start and prints once in FIRST-RUN log banner"}
-    - {kind: added, description: "security.allow_private_targets toggle on Settings → Security: probe Test connection can reach RFC1918/loopback for homelab deployments (off by default; SSRF-safe)"}
+    - {kind: fixed, description: "grab counter desync: scans no longer report 'grabs_performed' for rows that silently failed to persist on UNIQUE collisions; duplicate index removed and persist failures now surface in scan output"}
+    - {kind: added, description: "branding refresh: app logo, full favicon set, README banner (light/dark adaptive), Russian translation of the project README"}
+    - {kind: added, description: "ArtifactHub repository ownership claim (artifacthub-repo.yml)"}
+    - {kind: changed, description: "contributions now open — Issues for bugs/discussion, PRs against main; the alpha 'no external PRs' notice is gone"}
+    - {kind: changed, description: "Helm install snippet in chart README renamed Terragrunt example → Terraform example; secret values now come in as sensitive Terraform variables"}

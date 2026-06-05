@@ -99,7 +99,7 @@ secrets:
     postgresDSN: "postgres-dsn"
     oidcClientSecret: "oidc-client-secret"
 
-# OIDC mode (Story 037). Defaults to disabled; flip `enabled: true` AND
+# OIDC mode. Defaults to disabled; flip `enabled: true` AND
 # either provide `secrets.oidcClientSecret` inline OR point at an
 # `existingSecret` that contains the `oidc-client-secret` key. The rest
 # of the OIDC config (issuer, client_id, redirect_url, scopes,
