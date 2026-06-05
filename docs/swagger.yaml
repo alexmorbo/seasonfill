@@ -525,6 +525,17 @@ components:
           example: NewSecretLongEnough
           type: string
       type: object
+    dto.QbitDiscoverDTO:
+      properties:
+        category:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+      type: object
     dto.QbitSettingsDTO:
       properties:
         category:
@@ -904,6 +915,18 @@ components:
         username:
           example: admin
           type: string
+      type: object
+    dto.WebhookInstallDTO:
+      properties:
+        created:
+          example: true
+          type: boolean
+        installed:
+          example: true
+          type: boolean
+        notification_id:
+          example: 42
+          type: integer
       type: object
   securitySchemes:
     ApiKeyAuth:
@@ -1634,6 +1657,52 @@ paths:
       summary: Update a Sonarr instance
       tags:
       - instances
+  /instances/{name}/discover/qbit:
+    get:
+      description: |-
+        Calls Sonarr's /api/v3/downloadclient and returns the
+        first QBittorrent download client's host/port/username/
+        category. Password is never returned — Sonarr redacts
+        it server-side; the operator types it themselves into
+        the qBit settings form.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.QbitDiscoverDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: unknown instance OR no qBit configured in Sonarr
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Discover qBit settings from a Sonarr instance
+      tags:
+      - instances
   /instances/{name}/missing:
     get:
       description: |-
@@ -1861,6 +1930,65 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Search series in a Sonarr instance
+      tags:
+      - instances
+  /instances/{name}/webhook/install:
+    post:
+      description: |-
+        Looks for an existing notification whose URL matches
+        <public_url>/api/v1/webhook/sonarr/<instance_name>; if
+        present, returns 200 + {created:false}. Otherwise
+        POSTs a new Webhook notification with OnGrab+OnImport+
+        OnImportFailure triggers and the X-Api-Key header, then
+        returns 201 + {created:true}.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WebhookInstallDTO'
+          description: OK
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WebhookInstallDTO'
+          description: Created
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: public_url undetermined
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Auto-install the seasonfill webhook into Sonarr
       tags:
       - instances
   /instances/test:

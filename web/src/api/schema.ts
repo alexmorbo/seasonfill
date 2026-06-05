@@ -1075,6 +1075,79 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/discover/qbit": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Discover qBit settings from a Sonarr instance
+         * @description Calls Sonarr's /api/v3/downloadclient and returns the
+         *     first QBittorrent download client's host/port/username/
+         *     category. Password is never returned — Sonarr redacts
+         *     it server-side; the operator types it themselves into
+         *     the qBit settings form.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.QbitDiscoverDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description unknown instance OR no qBit configured in Sonarr */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/missing": {
         readonly parameters: {
             readonly query?: never;
@@ -1388,6 +1461,98 @@ export type paths = {
         };
         readonly put?: never;
         readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}/webhook/install": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Auto-install the seasonfill webhook into Sonarr
+         * @description Looks for an existing notification whose URL matches
+         *     <public_url>/api/v1/webhook/sonarr/<instance_name>; if
+         *     present, returns 200 + {created:false}. Otherwise
+         *     POSTs a new Webhook notification with OnGrab+OnImport+
+         *     OnImportFailure triggers and the X-Api-Key header, then
+         *     returns 201 + {created:true}.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WebhookInstallDTO"];
+                    };
+                };
+                /** @description Created */
+                readonly 201: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WebhookInstallDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description public_url undetermined */
+                readonly 412: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -2096,6 +2261,12 @@ export type components = {
             /** @example NewSecretLongEnough */
             readonly new?: string;
         };
+        readonly "dto.QbitDiscoverDTO": {
+            readonly category?: string;
+            readonly name?: string;
+            readonly url?: string;
+            readonly username?: string;
+        };
         readonly "dto.QbitSettingsDTO": {
             /** @example sonarr */
             readonly category?: string;
@@ -2336,6 +2507,14 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        readonly "dto.WebhookInstallDTO": {
+            /** @example true */
+            readonly created?: boolean;
+            /** @example true */
+            readonly installed?: boolean;
+            /** @example 42 */
+            readonly notification_id?: number;
         };
     };
     responses: never;

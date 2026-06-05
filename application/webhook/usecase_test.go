@@ -514,10 +514,10 @@ func TestProcess_Grabbed_ValidHash_FromNull_PopulatesRow(t *testing.T) {
 
 	const hash = "0123456789abcdef0123456789abcdef01234567"
 	err := uc.Process(context.Background(), domainwebhook.Event{
-		Type:       domainwebhook.EventTypeGrabbed,
+		Type:         domainwebhook.EventTypeGrabbed,
 		InstanceName: "main",
-		DownloadID: hash,
-		SeriesID:   122,
+		DownloadID:   hash,
+		SeriesID:     122,
 		SeasonNumber: 2,
 	})
 	require.NoError(t, err)

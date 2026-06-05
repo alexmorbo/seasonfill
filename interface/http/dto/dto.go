@@ -416,3 +416,23 @@ type AuthConfigDTO struct {
 	OIDCReady bool   `json:"oidc_ready" example:"false"`
 	LoginURL  string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
 }
+
+// QbitDiscoverDTO is the response shape for
+// GET /api/v1/instances/{name}/discover/qbit. Password is never
+// returned — Sonarr redacts it server-side.
+type QbitDiscoverDTO struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Username string `json:"username,omitempty"`
+	Category string `json:"category"`
+}
+
+// WebhookInstallDTO is the response shape for
+// POST /api/v1/instances/{name}/webhook/install. Created=false means
+// a matching webhook already existed (no-op); Created=true means a
+// new one was POSTed to Sonarr.
+type WebhookInstallDTO struct {
+	Installed      bool `json:"installed" example:"true"`
+	Created        bool `json:"created"   example:"true"`
+	NotificationID int  `json:"notification_id" example:"42"`
+}
