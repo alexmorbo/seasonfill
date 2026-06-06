@@ -222,6 +222,28 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, out any) e
 	return c.do(ctx, req, endpoint, out)
 }
 
+func (c *Client) put(ctx context.Context, endpoint string, body any, out any) error {
+	full := c.baseURL + endpoint
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode body %s: %w", endpoint, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, full, bytes.NewReader(buf))
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", endpoint, err)
+	}
+	return c.do(ctx, req, endpoint, out)
+}
+
+func (c *Client) delete(ctx context.Context, endpoint string) error {
+	full := c.baseURL + endpoint
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, full, nil)
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", endpoint, err)
+	}
+	return c.do(ctx, req, endpoint, nil)
+}
+
 func (c *Client) SystemStatus(ctx context.Context) (ports.SystemStatus, error) {
 	var dto systemStatusDTO
 	if err := c.get(ctx, "/api/v3/system/status", nil, &dto); err != nil {

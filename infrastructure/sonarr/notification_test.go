@@ -247,3 +247,94 @@ func TestClient_CreateNotification_400WithoutSeriesTrigger_NoRetry(t *testing.T)
 	require.True(t, errors.As(err, &se))
 	assert.Equal(t, http.StatusBadRequest, se.Status)
 }
+
+func TestClient_UpdateNotification_PUTsExpectedPath(t *testing.T) {
+	var gotBody string
+	var gotMethod string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/42", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		buf, _ := io.ReadAll(r.Body)
+		gotBody = string(buf)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":42,"name":"seasonfill","implementation":"Webhook",
+			"onGrab":true,"onDownload":true,"onDownloadFailure":true,
+			"fields":[{"name":"url","value":"https://new.example/api/v1/webhook/sonarr/alpha"}]}`))
+	})
+	c := newNotifTestClient(t, mux)
+	existing := Notification{
+		ID: 42, Name: "seasonfill", Implementation: "Webhook",
+		OnGrab: true, OnDownload: true, OnDownloadFailure: true,
+		Fields: []NotificationField{{Name: "url", Value: "https://old.example/api/v1/webhook/sonarr/alpha"}},
+	}
+	n, err := c.UpdateNotification(context.Background(), existing, NotificationPayload{
+		Name: "seasonfill", URL: "https://new.example/api/v1/webhook/sonarr/alpha", APIKeyHeader: "newkey",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPut, gotMethod)
+	assert.Equal(t, 42, n.ID)
+	assert.Contains(t, gotBody, `"id":42`)
+	assert.Contains(t, gotBody, `"https://new.example/api/v1/webhook/sonarr/alpha`)
+	assert.Contains(t, gotBody, `"newkey"`)
+}
+
+func TestClient_UpdateNotification_RejectsZeroID(t *testing.T) {
+	mux := http.NewServeMux()
+	c := newNotifTestClient(t, mux)
+	_, err := c.UpdateNotification(context.Background(), Notification{ID: 0}, NotificationPayload{
+		Name: "test", URL: "https://x", APIKeyHeader: "k",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing id")
+}
+
+func TestClient_DeleteNotification_DELETEsExpectedPath(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/13", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.DeleteNotification(context.Background(), 13)
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodDelete, gotMethod)
+	assert.Equal(t, "/api/v3/notification/13", gotPath)
+}
+
+func TestClient_DeleteNotification_RejectsZeroID(t *testing.T) {
+	mux := http.NewServeMux()
+	c := newNotifTestClient(t, mux)
+	err := c.DeleteNotification(context.Background(), 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing id")
+}
+
+func TestWebhookFieldURL_Present(t *testing.T) {
+	fields := []NotificationField{
+		{Name: "url", Value: "https://example.com/api/v1/webhook/sonarr/alpha"},
+		{Name: "method", Value: 1},
+	}
+	got := WebhookFieldURL(fields)
+	assert.Equal(t, "https://example.com/api/v1/webhook/sonarr/alpha", got)
+}
+
+func TestWebhookFieldURL_NonString(t *testing.T) {
+	fields := []NotificationField{
+		{Name: "url", Value: 42},
+		{Name: "method", Value: 1},
+	}
+	got := WebhookFieldURL(fields)
+	assert.Equal(t, "", got)
+}
+
+func TestWebhookFieldURL_Absent(t *testing.T) {
+	fields := []NotificationField{
+		{Name: "method", Value: 1},
+		{Name: "headers", Value: "X-Api-Key=test"},
+	}
+	got := WebhookFieldURL(fields)
+	assert.Equal(t, "", got)
+}

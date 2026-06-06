@@ -3,6 +3,7 @@ package sonarr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -196,6 +197,68 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 		OnDownloadFailure: resp.OnDownloadFailure || resp.OnImportFailure,
 		Fields:            resp.Fields,
 	}, nil
+}
+
+// UpdateNotification PUTs an existing Webhook notification by ID,
+// rewriting `url` + `headers` while preserving any other field the
+// caller carried in `existing.Fields` (version-variance defence —
+// same rationale as CreateNotification mirroring an existing entry).
+// `existing.ID` is reused verbatim so Sonarr matches the row.
+func (c *Client) UpdateNotification(ctx context.Context, existing Notification, p NotificationPayload) (Notification, error) {
+	if existing.ID == 0 {
+		return Notification{}, fmt.Errorf("update notification: missing id")
+	}
+	merged := NotificationPayload{
+		Name: p.Name, URL: p.URL, APIKeyHeader: p.APIKeyHeader,
+		TemplateFields: existing.Fields,
+	}
+	body := notificationDTO{
+		ID:                existing.ID,
+		Name:              p.Name,
+		Implementation:    "Webhook",
+		ConfigContract:    "WebhookSettings",
+		OnGrab:            true,
+		OnDownload:        true,
+		OnDownloadFailure: true,
+		Fields:            buildNotificationFields(merged),
+	}
+	var resp notificationDTO
+	endpoint := "/api/v3/notification/" + strconv.Itoa(existing.ID)
+	if err := c.put(ctx, endpoint, body, &resp); err != nil {
+		return Notification{}, err
+	}
+	return Notification{
+		ID: resp.ID, Name: resp.Name, Implementation: resp.Implementation,
+		OnGrab: resp.OnGrab, OnDownload: resp.OnDownload,
+		OnDownloadFailure: resp.OnDownloadFailure || resp.OnImportFailure,
+		Fields:            resp.Fields,
+	}, nil
+}
+
+// DeleteNotification removes the Sonarr webhook entry by ID. Used on
+// instance delete to keep Sonarr's notification list clean. Caller
+// treats errors as best-effort (log + continue).
+func (c *Client) DeleteNotification(ctx context.Context, id int) error {
+	if id == 0 {
+		return fmt.Errorf("delete notification: missing id")
+	}
+	return c.delete(ctx, "/api/v3/notification/"+strconv.Itoa(id))
+}
+
+// WebhookFieldURL extracts the raw URL string from a notification's
+// fields array. Returns "" when absent or not a string. Shared by
+// the reconciler + status handler.
+func WebhookFieldURL(fields []NotificationField) string {
+	for _, f := range fields {
+		if f.Name != "url" {
+			continue
+		}
+		if s, ok := f.Value.(string); ok {
+			return s
+		}
+		return ""
+	}
+	return ""
 }
 
 // isUnsupportedTriggerErr returns true when Sonarr rejected the create
