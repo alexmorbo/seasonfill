@@ -300,10 +300,8 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
       )}
 
       {/* ----------- Section B: settings form ---------------- */}
-      <form
-        onSubmit={onSubmit}
+      <div
         className="flex flex-col gap-4"
-        noValidate
         data-testid="watchdog-form"
       >
         {/* Action row (Auto-fill + Save) -------------------- */}
@@ -324,9 +322,10 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
             {t('settings.instances.form.watchdog.actions.autoFill')}
           </Button>
           <Button
-            type="submit"
+            type="button"
             size="sm"
             disabled={!isDirty || isSubmitting || upsert.isPending}
+            onClick={() => { void onSubmit(); }}
           >
             {(isSubmitting || upsert.isPending) && (
               <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
@@ -581,7 +580,7 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
             </p>
           </div>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
