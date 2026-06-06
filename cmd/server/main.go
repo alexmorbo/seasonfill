@@ -29,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -39,6 +40,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -311,14 +313,73 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 	instanceProbeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
 
-	// Phase 10 Watchdog — settings CRUD only. The reload-bus subscriber,
-	// the regrab use case, and the qBit client factory wire up in 039g.
-	// nullWebhookChecker (the default inside regrab.NewUseCase) is left
-	// in place until 039e/039g land — the gate is effectively open
-	// today, which matches the parent's "ship in vertical slices" plan.
+	// Phase 10 Watchdog. The settings CRUD is wired here; the regrab
+	// orchestrator + per-instance polling loop + reload-bus fanout are
+	// constructed below and threaded through startSubscribers.
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
-	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log)
+	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log).
+		WithWebhookChecker(newWebhookChecker(instanceReg))
 	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
+
+	// regrab orchestrator — depends on the settings use case (Lookup),
+	// the instance registry (Get), the qBit + detector factories, the
+	// grab / cooldown / blacklist / counter repos, and the evaluator +
+	// grab use case. Metrics adapter is the production VictoriaMetrics
+	// implementation.
+	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
+	noBetterCounterRepo := repositories.NewNoBetterCounterRepository(db)
+	regrabUC := regrab.NewUseCase(
+		qbitSettingsUC, // implements SettingsLookup
+		regrabInstanceRegistry{reg: instanceReg},
+		infraregrab.QbitClientFactoryFunc{},
+		infraregrab.DetectorFactoryFunc{},
+		grabRepo, cooldownRepo, blacklistRepo, noBetterCounterRepo,
+		evaluator, grabUC,
+		log,
+	).WithMetrics(observability.WatchdogMetricsAdapter{})
+
+	// regrab loop owns the per-instance polling goroutines; SwapSettings
+	// is called from the OnApplied fanout below.
+	regrabLoopVal := newRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
+	regrabLoopVal.Start(rootCtx)
+
+	// qBit settings loader for the fanout — calls List + builds the
+	// Settings map fresh on every publish. The Lookup closure delegates
+	// to the settings use case so password decryption is centralised.
+	qbitLoader := qbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
+		recs, err := qbitSettingsRepo.List(ctx)
+		if err != nil {
+			log.WarnContext(ctx, "qbit_settings_list_failed",
+				slog.String("error", err.Error()))
+			return map[string]regrab.Settings{}
+		}
+		out := make(map[string]regrab.Settings, len(recs))
+		instances, err := instanceRepo.List(ctx, cipher)
+		if err != nil {
+			log.WarnContext(ctx, "qbit_settings_list_instances_failed",
+				slog.String("error", err.Error()))
+			return map[string]regrab.Settings{}
+		}
+		byID := make(map[uint]string, len(instances))
+		for _, inst := range instances {
+			byID[inst.ID] = inst.Name
+		}
+		for _, rec := range recs {
+			name := byID[rec.InstanceID]
+			if name == "" {
+				continue
+			}
+			s, err := regrab.NewSettingsFromRecord(rec, name, cipher)
+			if err != nil {
+				log.WarnContext(ctx, "qbit_settings_decrypt_failed",
+					slog.String("instance", name),
+					slog.String("error", err.Error()))
+				continue
+			}
+			out[name] = s
+		}
+		return out
+	})
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
@@ -372,6 +433,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName,
 		clientFactory, checker, wd, holder, sweeper,
+		regrabLoopVal, qbitLoader,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
 		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
 	if err != nil {
@@ -446,4 +508,28 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 // sweepLoop directly so the cadence can be updated by the reload bus.
 func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every time.Duration, log *slog.Logger) {
 	newSweepLoop(repo, every, log).Run(ctx)
+}
+
+// regrabInstanceRegistry adapts handlers.InstanceRegistry to the
+// application/regrab.InstanceRegistry interface. The Get(name) →
+// (scan.Instance, bool) semantics are a thin nil-safe wrapper.
+type regrabInstanceRegistry struct {
+	reg handlers.InstanceRegistry
+}
+
+func (r regrabInstanceRegistry) Get(name string) (scan.Instance, bool) {
+	if r.reg.Load == nil {
+		return scan.Instance{}, false
+	}
+	inst, ok := r.reg.Load()[name]
+	return inst, ok
+}
+
+// qbitSettingsLoaderFunc is a function-typed shim that satisfies
+// qbitSettingsLoader. Defined here so the fanout closure can be
+// declared inline above without a named struct.
+type qbitSettingsLoaderFunc func(ctx context.Context) map[string]regrab.Settings
+
+func (f qbitSettingsLoaderFunc) Load(ctx context.Context) map[string]regrab.Settings {
+	return f(ctx)
 }

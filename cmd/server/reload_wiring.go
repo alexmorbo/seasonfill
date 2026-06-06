@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
@@ -84,6 +85,21 @@ type sweepIntervalSetter interface {
 	SetInterval(d time.Duration)
 }
 
+// regrabSwapper is the narrow contract buildOnAppliedFanout needs from
+// the regrab loop. Decoupled into an interface so the fanout test can
+// stub it without spinning up a real per-instance goroutine.
+type regrabSwapper interface {
+	SwapSettings(map[string]regrab.Settings)
+}
+
+// qbitSettingsLoader is the narrow contract buildOnAppliedFanout needs
+// to project the qbit-settings repo into a map keyed by instance name.
+// In production it's a closure over QbitSettingsRepository.List +
+// instance lookup; in tests it's a fake that returns a fixed map.
+type qbitSettingsLoader interface {
+	Load(ctx context.Context) map[string]regrab.Settings
+}
+
 // buildOnAppliedFanout wires the OnApplied hook that updates everything
 // that depends on the freshly-rebuilt sonarr-client set: the scan UC
 // instance list, the holder map HTTP handlers iterate, the health
@@ -93,7 +109,7 @@ type sweepIntervalSetter interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, log *slog.Logger) reload.OnAppliedFunc {
+func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -125,6 +141,17 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 			sweeper.SetInterval(snap.Scan.CooldownSweep)
 		}
 		scanUC.SwapDryRun(snap.DryRun)
+
+		// Phase 10 — Watchdog regrab loop fanout. Loaded fresh from the
+		// repo on every publish so the loop sees the latest qBit settings
+		// without a separate subscriber. The lookup runs under the
+		// SonarrClientsSubscriber lock (we're inside its fanout closure)
+		// so concurrent SwapSettings calls cannot interleave.
+		if regrabLoop != nil && qbitLoader != nil {
+			qbitMap := qbitLoader.Load(rootCtx)
+			regrabLoop.SwapSettings(qbitMap)
+		}
+
 		go checker.Preflight(rootCtx)
 	}
 }
@@ -153,6 +180,8 @@ func startSubscribers(
 	wd *watchdog.Watchdog,
 	holder *instanceMapHolder,
 	sweeper sweepIntervalSetter,
+	regrabLoop regrabSwapper,
+	qbitLoader qbitSettingsLoader,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
 	bootGlobalRateLimit runtime.RateLimitSnapshot,
 	authRuntimePtr *middleware.AuthRuntimePointer,
@@ -164,7 +193,7 @@ func startSubscribers(
 		reload.SchedulerFactory(scheduler.New), log)
 	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
 		WithWaitGroup(bgWG).
-		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, log))
+		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, regrabLoop, qbitLoader, log))
 
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
