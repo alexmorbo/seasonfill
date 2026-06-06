@@ -128,6 +128,8 @@ func NewServer(
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
 		webhookInstallHandler := handlers.NewWebhookInstallHandler(instanceReg, cfg.Auth.APIKey, logger)
 		guarded.POST("/instances/:name/webhook/install", webhookInstallHandler.Install)
+		webhookStatusHandler := handlers.NewWebhookStatusHandler(instanceReg, logger)
+		guarded.GET("/instances/:name/webhook/status", webhookStatusHandler.Status)
 		guarded.GET("/instances/:name", instanceCRUD.Get)
 		guarded.POST("/instances", instanceCRUD.Create)
 		guarded.PUT("/instances/:name", instanceCRUD.Update)

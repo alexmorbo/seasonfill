@@ -928,6 +928,18 @@ components:
           example: 42
           type: integer
       type: object
+    dto.WebhookStatusDTO:
+      properties:
+        installed:
+          example: true
+          type: boolean
+        notification_id:
+          example: 42
+          type: integer
+        url:
+          example: https://sf.example.com/api/v1/webhook/sonarr/homelab
+          type: string
+      type: object
   securitySchemes:
     ApiKeyAuth:
       in: cookie
@@ -1989,6 +2001,52 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Auto-install the seasonfill webhook into Sonarr
+      tags:
+      - instances
+  /instances/{name}/webhook/status:
+    get:
+      description: |-
+        Queries Sonarr GET /api/v3/notification and matches against
+        the canonical /api/v1/webhook/sonarr/<instance> path segment.
+        Returns installed:true with the matched notification ID and
+        URL when found; installed:false otherwise. Does NOT create or
+        modify any Sonarr resource.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WebhookStatusDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Check whether the seasonfill webhook is installed in Sonarr
       tags:
       - instances
   /instances/test:

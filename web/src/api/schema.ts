@@ -1559,6 +1559,79 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/webhook/status": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Check whether the seasonfill webhook is installed in Sonarr
+         * @description Queries Sonarr GET /api/v3/notification and matches against
+         *     the canonical /api/v1/webhook/sonarr/<instance> path segment.
+         *     Returns installed:true with the matched notification ID and
+         *     URL when found; installed:false otherwise. Does NOT create or
+         *     modify any Sonarr resource.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WebhookStatusDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/test": {
         readonly parameters: {
             readonly query?: never;
@@ -2515,6 +2588,14 @@ export type components = {
             readonly installed?: boolean;
             /** @example 42 */
             readonly notification_id?: number;
+        };
+        readonly "dto.WebhookStatusDTO": {
+            /** @example true */
+            readonly installed?: boolean;
+            /** @example 42 */
+            readonly notification_id?: number;
+            /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
+            readonly url?: string;
         };
     };
     responses: never;

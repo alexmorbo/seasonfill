@@ -436,3 +436,14 @@ type WebhookInstallDTO struct {
 	Created        bool `json:"created"   example:"true"`
 	NotificationID int  `json:"notification_id" example:"42"`
 }
+
+// WebhookStatusDTO is the response shape for
+// GET /api/v1/instances/{name}/webhook/status. Queries Sonarr's
+// /api/v3/notification list and reports whether our canonical webhook
+// URL is already present. NotificationID and URL are only populated
+// when Installed is true.
+type WebhookStatusDTO struct {
+	Installed      bool    `json:"installed"                  example:"true"`
+	NotificationID *int    `json:"notification_id,omitempty"  example:"42"`
+	URL            *string `json:"url,omitempty"              example:"https://sf.example.com/api/v1/webhook/sonarr/homelab"`
+}

@@ -45,10 +45,19 @@ function mockFetch(routes: RouteMap) {
   }) as typeof fetch;
 }
 
+// webhookNotInstalled / webhookInstalled are shared route maps for the
+// new GET /webhook/status endpoint. Tests compose these with their own
+// per-endpoint overrides rather than repeating the status mock inline.
+const webhookNotInstalledStatus = () =>
+  jsonResp({ installed: false }, 200);
+const webhookInstalledStatus = () =>
+  jsonResp({ installed: true, notification_id: 7, url: 'https://sf/api/v1/webhook/sonarr/alpha' }, 200);
+
 describe('<WatchdogTab />', () => {
-  it('renders the install-webhook banner when settings are absent (404)', async () => {
+  it('renders the install-webhook banner when status returns installed:false', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookNotInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
     expect(await screen.findByTestId('watchdog-webhook-gate')).toBeVisible();
@@ -57,10 +66,29 @@ describe('<WatchdogTab />', () => {
     ).toBeEnabled();
   });
 
-  it('clicking Install fires POST /webhook/install and flips the banner', async () => {
-    let installCalled = false;
+  it('renders green banner immediately when status returns installed:true (settings absent)', async () => {
+    // This is the real bug fix: webhook IS in Sonarr but no qbit settings
+    // row exists yet. The old heuristic showed the red banner; the new
+    // status query shows green.
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookInstalledStatus,
+    });
+    renderWithProviders(<WatchdogTab instanceName="alpha" />);
+    expect(await screen.findByTestId('watchdog-webhook-installed')).toBeVisible();
+  });
+
+  it('clicking Install fires POST /webhook/install and flips the banner', async () => {
+    let installCalled = false;
+    let statusCallCount = 0;
+    mockFetch({
+      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': () => {
+        statusCallCount += 1;
+        // After the first call (loading), return installed:true to simulate
+        // the invalidation after a successful POST.
+        return jsonResp({ installed: statusCallCount > 1 }, 200);
+      },
       '/webhook/install': () => {
         installCalled = true;
         return jsonResp({ installed: true, created: true, notification_id: 7 }, 201);
@@ -79,6 +107,7 @@ describe('<WatchdogTab />', () => {
   it('shows the public-url link inline when install returns 412', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookNotInstalledStatus,
       '/webhook/install': () =>
         jsonResp({ error: 'no url', code: 'PUBLIC_URL_UNCONFIGURED' }, 412),
     });
@@ -108,6 +137,7 @@ describe('<WatchdogTab />', () => {
           },
           200,
         ),
+      '/webhook/status': webhookInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
     const pwInput = await screen.findByLabelText(/password/i);
@@ -119,6 +149,7 @@ describe('<WatchdogTab />', () => {
   it('Auto-fill populates url/username/category and leaves password empty', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookNotInstalledStatus,
       '/discover/qbit': () =>
         jsonResp(
           { url: 'http://discovered:8080', username: 'admin', category: 'sonarr', name: 'qbit' },
@@ -140,6 +171,7 @@ describe('<WatchdogTab />', () => {
   it('Save sends the canonical PUT body with empty password (preserve)', async () => {
     let putBody: string | undefined;
     mockFetch({
+      '/webhook/status': webhookInstalledStatus,
       '/qbit/settings': (init) => {
         if (init?.method === 'PUT') {
           putBody = typeof init.body === 'string' ? init.body : undefined;
@@ -177,15 +209,32 @@ describe('<WatchdogTab />', () => {
   it('Enabled Switch is disabled when webhook is not installed', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookNotInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
     const sw = await screen.findByLabelText(/^enabled$/i);
     expect(sw).toBeDisabled();
   });
 
-  it('Enabled Switch becomes interactive after webhook install', async () => {
+  it('Enabled Switch is interactive when webhook is installed', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookInstalledStatus,
+    });
+    renderWithProviders(<WatchdogTab instanceName="alpha" />);
+    await screen.findByTestId('watchdog-webhook-installed');
+    const sw = screen.getByLabelText(/^enabled$/i);
+    await waitFor(() => expect(sw).not.toBeDisabled());
+  });
+
+  it('Enabled Switch becomes interactive after webhook install', async () => {
+    let statusCallCount = 0;
+    mockFetch({
+      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': () => {
+        statusCallCount += 1;
+        return jsonResp({ installed: statusCallCount > 1 }, 200);
+      },
       '/webhook/install': () =>
         jsonResp({ installed: true, created: true, notification_id: 9 }, 201),
     });
@@ -201,6 +250,7 @@ describe('<WatchdogTab />', () => {
   it('contains NO Radix Select element (guards against the empty-value bug)', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
+      '/webhook/status': webhookNotInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
     const form = await screen.findByTestId('watchdog-form');

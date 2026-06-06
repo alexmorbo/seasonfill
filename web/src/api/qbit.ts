@@ -16,6 +16,7 @@ export type QbitSettingsUpsertRequest =
   components['schemas']['dto.QbitSettingsUpsertRequest'];
 export type QbitDiscoverDTO = components['schemas']['dto.QbitDiscoverDTO'];
 export type WebhookInstallDTO = components['schemas']['dto.WebhookInstallDTO'];
+export type WebhookStatusDTO = components['schemas']['dto.WebhookStatusDTO'];
 
 // Query keys — exported so tests can prime/inspect the cache without
 // guessing string literals.
@@ -23,6 +24,8 @@ export const qbitSettingsKey = (name: string) =>
   ['qbit', 'settings', name] as const;
 export const qbitDiscoverKey = (name: string) =>
   ['qbit', 'discover', name] as const;
+export const webhookStatusKey = (name: string) =>
+  ['qbit', 'webhook-status', name] as const;
 
 // Helper to surface the backend's `code` field out of an ApiError body.
 // Mirrors the pattern used by instances-mutations.ts errorCode().
@@ -166,6 +169,27 @@ export function useDiscoverQbit(
   });
 }
 
+// useWebhookStatus — GET /webhook/status. Queries Sonarr in real-time
+// rather than inferring state from the qbit settings row. Re-checks on
+// focus so the banner refreshes when the operator installs the webhook
+// in Sonarr directly without going through the UI.
+export function useWebhookStatus(
+  name: string | null,
+): UseQueryResult<WebhookStatusDTO, ApiError> {
+  return useQuery<WebhookStatusDTO, ApiError>({
+    queryKey: name ? webhookStatusKey(name) : ['qbit', 'webhook-status', '__disabled__'],
+    queryFn: () => {
+      if (!name) throw new ApiError(400, 'name required');
+      return api<WebhookStatusDTO>(
+        `/instances/${encodeURIComponent(name)}/webhook/status`,
+      );
+    },
+    enabled: Boolean(name),
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 // useInstallWebhook — POST /webhook/install with friendly error
 // mapping. 412 PUBLIC_URL_UNCONFIGURED is the most-likely first-time
 // failure and the caller surfaces an inline action linking to
@@ -187,6 +211,9 @@ export function useInstallWebhook(
       // local installed state, but downstream callers may key off
       // settings cache freshness too.
       qc.invalidateQueries({ queryKey: qbitSettingsKey(name) });
+      // Status query must refresh so the banner flips to green
+      // without needing a window focus event.
+      qc.invalidateQueries({ queryKey: webhookStatusKey(name) });
       if (dto.created) {
         toast.success(
           i18n.t('settings.instances.form.watchdog.webhookGate.installSuccess'),

@@ -20,6 +20,7 @@ import {
   useInstallWebhook,
   useQbitSettings,
   useUpsertQbitSettings,
+  useWebhookStatus,
   type QbitSettingsDTO,
   type QbitSettingsUpsertRequest,
 } from '@/api/qbit';
@@ -126,26 +127,18 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
   const settingsQuery = useQbitSettings(instanceName);
   const upsert = useUpsertQbitSettings(instanceName);
   const installWebhook = useInstallWebhook(instanceName);
+  const webhookStatusQuery = useWebhookStatus(instanceName);
 
   const [discoverEnabled, setDiscoverEnabled] = useState(false);
   const discoverQuery = useDiscoverQbit(instanceName, { enabled: discoverEnabled });
 
-  // The banner-side "installed" signal: starts off the settings query
-  // (a row exists OR `enabled` is true ⇒ webhook must have been
-  // installed at some point) and flips true on a successful install
-  // mutation. Note that a fresh instance with no settings cannot
-  // distinguish "webhook installed but no settings yet" from "neither"
-  // — the operator clicks Install once and the banner sticks.
-  const initialInstalled =
-    Boolean(settingsQuery.data?.enabled) ||
-    Boolean(settingsQuery.data && settingsQuery.data.url);
-  const [webhookInstalled, setWebhookInstalled] = useState(initialInstalled);
-  useEffect(() => {
-    if (initialInstalled) setWebhookInstalled(true);
-  }, [initialInstalled]);
-  useEffect(() => {
-    if (installWebhook.isSuccess) setWebhookInstalled(true);
-  }, [installWebhook.isSuccess]);
+  // The banner-side "installed" signal: driven by the dedicated
+  // GET /webhook/status endpoint which queries Sonarr directly. This
+  // replaces the old heuristic (`enabled || url`) that returned false
+  // whenever qbit settings hadn't been saved yet — even when the webhook
+  // was already present in Sonarr. While the status query is loading we
+  // keep the previous value (defaults to false on first mount).
+  const webhookInstalled = Boolean(webhookStatusQuery.data?.installed);
 
   const passwordSet = Boolean(settingsQuery.data?.password_set);
 
