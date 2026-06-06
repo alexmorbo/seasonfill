@@ -194,8 +194,16 @@ type SonarrInstanceModel struct {
 	RetryMaxBackoffSec            int
 	HealthCheckRecheckAuthSec     int
 	HealthCheckRecheckNetSec      int
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
+	// PublicURL is the browser-facing URL (D64). NULL = fall back to URL.
+	PublicURL *string `gorm:"column:public_url;type:text"`
+	// WebhookInstallEnabled toggles the auto-install reconciler (D65).
+	// Defaults to TRUE so the existing homelab row backfills correctly.
+	WebhookInstallEnabled bool `gorm:"column:webhook_install_enabled;not null;default:true"`
+	// WebhookURLOverride is the optional base URL for the webhook (D65).
+	// NULL = use the derived public URL from runtime config.
+	WebhookURLOverride *string `gorm:"column:webhook_url_override;type:text"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 func (SonarrInstanceModel) TableName() string { return "sonarr_instance" }
@@ -252,3 +260,33 @@ type WatchdogBlacklistModel struct {
 }
 
 func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }
+
+// SeriesCacheModel — per-instance Sonarr series metadata (D66).
+// Primary key is (instance_name, sonarr_series_id). Soft-deleted via
+// DeletedAt so grab_records that reference removed series stay readable.
+// Genres is a JSON-encoded string slice; the repo serialises on write
+// and parses on read. No DB-level FK on instance_name (consistent with
+// the rest of the schema) — cascade happens application-side.
+type SeriesCacheModel struct {
+	InstanceName   string     `gorm:"primaryKey;size:128;column:instance_name"`
+	SonarrSeriesID int        `gorm:"primaryKey;column:sonarr_series_id"`
+	Title          string     `gorm:"type:text;not null"`
+	TitleSlug      string     `gorm:"type:text;not null;column:title_slug"`
+	Year           *int       `gorm:"column:year"`
+	TVDBID         *int       `gorm:"column:tvdb_id"`
+	IMDBID         *string    `gorm:"column:imdb_id;type:text"`
+	TMDBID         *int       `gorm:"column:tmdb_id"`
+	Status         *string    `gorm:"column:status;type:text"`
+	Network        *string    `gorm:"column:network;type:text"`
+	Genres         *string    `gorm:"column:genres;type:text"`
+	RuntimeMinutes *int       `gorm:"column:runtime_minutes"`
+	Monitored      bool       `gorm:"column:monitored;not null;default:false"`
+	Overview       *string    `gorm:"column:overview;type:text"`
+	PosterPath     *string    `gorm:"column:poster_path;type:text"`
+	FanartPath     *string    `gorm:"column:fanart_path;type:text"`
+	BannerPath     *string    `gorm:"column:banner_path;type:text"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at"`
+}
+
+func (SeriesCacheModel) TableName() string { return "series_cache" }

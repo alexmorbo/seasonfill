@@ -127,6 +127,37 @@ type InstanceSnapshot struct {
 	Cooldown      CooldownSnapshot
 	Retry         RetrySnapshot
 	HealthCheck   HealthCheckSnapshot
+	// PublicURL is the browser-facing URL (D64). nil = fall back to URL.
+	// Set only by the instance load/save path; downstream callers go
+	// through UIURL() instead of reading the pointer directly.
+	PublicURL *string
+	// WebhookInstallEnabled toggles the auto-install reconciler (D65).
+	// True on every existing row (migration default).
+	WebhookInstallEnabled bool
+	// WebhookURLOverride is an optional base URL for the webhook (D65).
+	// nil = use derivedPublic supplied by the caller.
+	WebhookURLOverride *string
+}
+
+// UIURL returns the URL the browser should link to (D64). If PublicURL
+// is set and non-empty, it wins; otherwise we fall back to URL (the
+// internal Sonarr endpoint that the backend uses for API calls).
+func (i InstanceSnapshot) UIURL() string {
+	if i.PublicURL != nil && *i.PublicURL != "" {
+		return *i.PublicURL
+	}
+	return i.URL
+}
+
+// WebhookBaseURL returns the base URL the webhook reconciler should
+// install in Sonarr (D65). If WebhookURLOverride is set and non-empty,
+// it wins; otherwise the supplied derivedPublic (typically the
+// app-level public URL from runtime_config) is used.
+func (i InstanceSnapshot) WebhookBaseURL(derivedPublic string) string {
+	if i.WebhookURLOverride != nil && *i.WebhookURLOverride != "" {
+		return *i.WebhookURLOverride
+	}
+	return derivedPublic
 }
 
 type TagsSnapshot struct {

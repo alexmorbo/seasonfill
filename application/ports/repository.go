@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
+	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
 type ScanRecord struct {
@@ -276,4 +277,36 @@ type NoBetterCounterRepository interface {
 	// DeleteByTriple removes the row entirely (used when an instance's
 	// settings are deleted via 039d Delete). ports.ErrNotFound on miss.
 	DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error
+}
+
+// SeriesCacheRepository persists the per-instance Sonarr series cache
+// (D66). Get returns soft-deleted rows too (the webhook SeriesAdd
+// handler in 041f reuses the row to preserve the historical poster_path
+// when a series is re-added). ListActiveByInstance is the read path
+// for the queue/scan handlers and skips soft-deleted rows. SoftDelete
+// sets deleted_at to now; the row is never physically removed in
+// normal operation (cascade happens application-side in
+// SonarrInstanceRepository.Delete, extended in 041e).
+//
+// The implementation lives in 041e — this story declares the contract
+// only so the planning of 041a/041b stays decoupled from cache work.
+type SeriesCacheRepository interface {
+	// Get returns the cache row matching (instance_name, sonarr_series_id)
+	// regardless of soft-delete state. ports.ErrNotFound on miss.
+	Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error)
+
+	// Upsert writes or replaces the row keyed on the composite PK. If
+	// the entry's DeletedAt is non-nil the row is stored as soft-deleted;
+	// callers that mean "resurrect" should set DeletedAt = nil and
+	// refresh UpdatedAt to now.
+	Upsert(ctx context.Context, entry series.CacheEntry) error
+
+	// SoftDelete sets deleted_at to now on the matching row.
+	// ports.ErrNotFound on miss.
+	SoftDelete(ctx context.Context, instanceName string, sonarrSeriesID int) error
+
+	// ListActiveByInstance returns every non-soft-deleted row for the
+	// instance. Used by the queue handler (041g) to join cache metadata
+	// onto live queue items.
+	ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
 }
