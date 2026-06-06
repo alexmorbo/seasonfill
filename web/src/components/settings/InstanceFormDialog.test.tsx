@@ -801,4 +801,172 @@ describe('<InstanceFormDialog />', () => {
       await i18n.changeLanguage(saved);
     }
   });
+
+  it('041h-1: create submit sends webhook_install_enabled=true by default and OMITS empty url fields', async () => {
+    const captured: { url?: string; body?: string | undefined; method?: string | undefined } = {};
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = typeof u === 'string' ? u : u.toString();
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'beta', url: 'http://sonarr:8989' }, 200);
+    }) as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/name/i), 'beta');
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(captured.method).toBe('POST'));
+    const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(sent).toHaveProperty('webhook_install_enabled', true);
+    // Critical: empty optional URLs must NEVER hit the wire as ''.
+    expect(sent).not.toHaveProperty('public_url');
+    expect(sent).not.toHaveProperty('webhook_url_override');
+  });
+
+  it('041h-1: create submit with filled URL fields sends them trimmed', async () => {
+    const captured: { body?: string | undefined; method?: string | undefined } = {};
+    globalThis.fetch = vi.fn(async (_u, init?: RequestInit) => {
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'beta' }, 200);
+    }) as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/name/i), 'beta');
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    await userEvent.type(
+      await screen.findByLabelText(/public url|Публичный URL/i),
+      '  https://sonarr.example.com  ',
+    );
+    await userEvent.type(
+      await screen.findByLabelText(/webhook base url|Базовый URL/i),
+      'https://sf.example.com',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(captured.method).toBe('POST'));
+    const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(sent.public_url).toBe('https://sonarr.example.com');
+    expect(sent.webhook_url_override).toBe('https://sf.example.com');
+    expect(sent.webhook_install_enabled).toBe(true);
+  });
+
+  it('041h-1: unchecking webhook install hides the override input and sends false', async () => {
+    const captured: { body?: string | undefined; method?: string | undefined } = {};
+    globalThis.fetch = vi.fn(async (_u, init?: RequestInit) => {
+      captured.method = init?.method;
+      if (typeof init?.body === 'string') captured.body = init.body;
+      return jsonResp({ name: 'beta' }, 200);
+    }) as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/name/i), 'beta');
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    const installSwitch = await screen.findByLabelText(
+      /install webhook|Установить вебхук/i,
+    );
+    await userEvent.click(installSwitch);
+    // After unchecking, the override input must disappear.
+    expect(
+      screen.queryByLabelText(/webhook base url|Базовый URL/i),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await waitFor(() => expect(captured.method).toBe('POST'));
+    const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(sent.webhook_install_enabled).toBe(false);
+  });
+
+  it('041h-1: invalid public_url shows inline error and blocks submit', async () => {
+    const fetchSpy = vi.fn(async () => jsonResp({}, 500));
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await userEvent.type(await screen.findByLabelText(/name/i), 'beta');
+    await userEvent.type(await screen.findByLabelText(/api key/i), 'sekrit');
+    await userEvent.type(
+      await screen.findByLabelText(/public url|Публичный URL/i),
+      'not-a-url',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/must start with http|должен начинаться с http/i),
+      ).toBeVisible();
+    });
+    const posts = (fetchSpy.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit | undefined]>)
+      .filter(([u, init]) => {
+        const s = typeof u === 'string' ? u : u.toString();
+        return s.includes('/instances') && !s.includes('/test')
+          && init?.method === 'POST';
+      });
+    expect(posts).toHaveLength(0);
+  });
+
+  it('041h-1: edit hydrates new fields, shows ui_url hint, invalidates webhook-status on save', async () => {
+    const detail: InstanceDetail = {
+      name: 'alpha',
+      url: 'http://sonarr:8989',
+      mode: DtoInstanceDetailMode.auto,
+      public_url: 'https://sonarr.example.com',
+      ui_url: 'https://sonarr.example.com',
+      webhook_install_enabled: false,
+      webhook_url_override: 'https://sf.example.com',
+    } as InstanceDetail;
+
+    let putCount = 0;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/instances/alpha') && (!init?.method || init.method === 'GET')) {
+        return jsonResp(detail, 200);
+      }
+      if (init?.method === 'PUT') { putCount += 1; return jsonResp(detail, 200); }
+      return jsonResp({ instances: [] }, 200);
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open onOpenChange={() => {}} mode="edit"
+        initial={{ name: 'alpha', url: 'http://sonarr:8989', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', detail);
+    // Stale entry — we assert it becomes invalidated after Save.
+    qc.setQueryData(['qbit', 'webhook-status', 'alpha'], { installed: false });
+
+    // Hydration: public_url comes through.
+    const publicInput = await screen.findByLabelText(/public url|Публичный URL/i);
+    await waitFor(() => {
+      expect((publicInput as HTMLInputElement).value)
+        .toBe('https://sonarr.example.com');
+    });
+    // ui_url hint rendered, install=false hides override.
+    expect(await screen.findByTestId('inst-ui-url-hint'))
+      .toHaveTextContent('https://sonarr.example.com');
+    expect(
+      screen.queryByLabelText(/webhook base url|Базовый URL/i),
+    ).not.toBeInTheDocument();
+
+    // Dirty + save → invalidates webhook-status.
+    await userEvent.clear(publicInput);
+    await userEvent.type(publicInput, 'https://other.example.com');
+    await userEvent.tab();
+    const saveBtn = await screen.findByRole('button', { name: /^save instance$/i });
+    await userEvent.click(saveBtn);
+    await waitFor(() => expect(putCount).toBe(1));
+    await waitFor(() => {
+      const state = qc.getQueryState(['qbit', 'webhook-status', 'alpha']);
+      expect(state?.isInvalidated || state?.fetchStatus === 'fetching').toBe(true);
+    });
+  });
 });

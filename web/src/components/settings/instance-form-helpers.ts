@@ -16,6 +16,16 @@ export const FORM_DEFAULTS = {
   name: '',
   url: 'http://sonarr:8989',
   api_key: '',
+  // 041h-1: Optional browser-facing URL. Empty string in the form ↔ omitted
+  // on wire. Backend rejects '' with INVALID_INSTANCE_PUBLIC_URL — the form
+  // must NEVER send '' for either of these two optional URL fields.
+  public_url: '',
+  // Backend default is true (041c-2 migration). A fresh-form operator who
+  // never touches this switch creates instances with the reconciler ON,
+  // matching the migration behaviour for existing rows.
+  webhook_install_enabled: true,
+  // Sibling of public_url, identical empty-string-vs-omit rule.
+  webhook_url_override: '',
   mode: 'auto' as const,
   dry_run: 'auto' as DryRunChoice,
   timeout_sec: 10,

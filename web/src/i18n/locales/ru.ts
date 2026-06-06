@@ -648,6 +648,20 @@ export const ru: Translations = {
         nameHint: 'Отображаемое имя этого Sonarr.',
         urlLabel: 'URL',
         urlHint: 'Базовый URL инстанса Sonarr (без слеша в конце).',
+        publicUrlLabel: 'Публичный URL',
+        publicUrlPlaceholder: 'То же, что API URL',
+        publicUrlHelp:
+          'URL для ссылок в браузере. Оставьте пустым — будем использовать API URL.',
+        uiUrlHint: 'Ссылки в браузере: {{url}}',
+        webhookInstallLabel: 'Установить вебхук в Sonarr',
+        webhookInstallHint:
+          'Seasonfill автоматически создаст или обновит запись в '
+          + 'Sonarr → Settings → Connect → Webhook.',
+        webhookUrlOverrideLabel: 'Базовый URL для вебхука',
+        webhookUrlOverridePlaceholder: 'Использовать публичный URL',
+        webhookUrlOverrideHelp:
+          'Оставьте пустым — будем использовать публичный URL. '
+          + 'Путь /api/v1/webhook/sonarr/<имя> добавится автоматически.',
         apiKeyLabel: 'API key',
         apiKeyHint: 'Sonarr → Settings → General → Security.',
         apiKeyKeep: 'Оставить текущий ключ',
@@ -707,6 +721,7 @@ export const ru: Translations = {
           urlRequired: 'URL обязателен',
           urlInvalid: 'Некорректный URL',
           urlScheme: 'URL должен начинаться с http:// или https://',
+          urlTrailingSlash: 'URL не должен заканчиваться слешем',
           apiKeyRequiredCreate: 'Для новых инстансов нужен API key',
           numberMustBeInteger: 'Значение «{{label}}» должно быть целым числом',
           numberMin: 'Значение «{{label}}» должно быть ≥ {{value}}',

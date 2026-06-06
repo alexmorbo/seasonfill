@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Controller, useForm, type FieldErrors } from 'react-hook-form';
+import { useQueryClient } from '@tanstack/react-query';
+import { Controller, useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -34,6 +36,7 @@ import {
   type InstanceDetail,
 } from '@/lib/instances-mutations';
 import { DtoInstanceCooldownMode, DtoInstanceTagsMode } from '@/api/schema';
+import { webhookStatusKey } from '@/api/qbit';
 import {
   NumberField, SwitchField, TagListEditor,
 } from './instance-form-fields';
@@ -54,6 +57,19 @@ const urlRule = z
   .url('settings.instances.form.errors.urlInvalid')
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'),
     'settings.instances.form.errors.urlScheme');
+
+// Optional URL — empty allowed (omitted from wire). Backend rejects ''
+// (INVALID_INSTANCE_PUBLIC_URL), so we MUST never send '' downstream.
+const urlOrEmptyRule = z
+  .string()
+  .refine((v) => v === '' || /^https?:\/\//.test(v),
+    'settings.instances.form.errors.urlScheme')
+  .refine((v) => {
+    if (v === '') return true;
+    try { new URL(v); return true; } catch { return false; }
+  }, 'settings.instances.form.errors.urlInvalid')
+  .refine((v) => !v.endsWith('/'),
+    'settings.instances.form.errors.urlTrailingSlash');
 
 const modeRule = z.enum(['auto', 'manual']);
 const dryRunRule = z.enum(['auto', 'on', 'off']);
@@ -123,6 +139,9 @@ function tValidationError(msg: string | undefined, t: TFunction): string {
 const baseShape = {
   name: nameRule,
   url: urlRule,
+  public_url: urlOrEmptyRule,                  // 041h-1
+  webhook_install_enabled: z.boolean(),        // 041h-1
+  webhook_url_override: urlOrEmptyRule,        // 041h-1
   mode: modeRule,
   dry_run: dryRunRule,
   timeout_sec: int(1, 300, 'timeout_sec'),
@@ -184,6 +203,9 @@ function formFromDetail(d: InstanceDetail): FormValues {
     ...FORM_DEFAULTS,
     name: d.name ?? '',
     url: d.url ?? FORM_DEFAULTS.url,
+    public_url: d.public_url ?? '',                            // 041h-1
+    webhook_install_enabled: d.webhook_install_enabled ?? true, // 041h-1
+    webhook_url_override: d.webhook_url_override ?? '',        // 041h-1
     api_key: '',
     mode: coerceEnum(d.mode, ['auto', 'manual'] as const, FORM_DEFAULTS.mode),
     dry_run: dryRunFromWire(d.dry_run),
@@ -226,6 +248,11 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
     mode: v.mode,
     timeout_sec: v.timeout_sec,
     search_timeout_sec: v.search_timeout_sec,
+    // 041h-1: always send the toggle (operator's explicit choice). String
+    // overrides are stripped when empty so backend sees "not present" — it
+    // refuses an explicit '' to prevent silent override removal via PUT
+    // (cf. INVALID_INSTANCE_PUBLIC_URL in 041a).
+    webhook_install_enabled: v.webhook_install_enabled,
     tags: {
       mode: v.tags_mode as DtoInstanceTagsMode,
       include: [...v.tags_include],
@@ -263,9 +290,14 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
       recheck_network_sec: v.health_recheck_network_sec,
     },
   };
-  // 'auto' -> omit the field; explicit on/off -> include the boolean.
-  if (dr === undefined) return base;
-  return { ...base, dry_run: dr };
+  // 'auto' -> omit; explicit on/off -> include the boolean.
+  let out: Omit<InstanceCreateRequest, 'api_key'> = base;
+  if (dr !== undefined) out = { ...out, dry_run: dr };
+  const pu = v.public_url.trim();
+  if (pu !== '') out = { ...out, public_url: pu };
+  const wo = v.webhook_url_override.trim();
+  if (wo !== '') out = { ...out, webhook_url_override: wo };
+  return out;
 }
 
 export function InstanceFormDialog({
@@ -279,6 +311,8 @@ export function InstanceFormDialog({
   const [probeResult, setProbeResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('connection');
 
+  const qc = useQueryClient();
+
   // Same reasoning as before 033a — useInstanceDetail backs the edit
   // hydration. Disabled in create mode (name=null).
   const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
@@ -291,6 +325,14 @@ export function InstanceFormDialog({
     resolver: zodResolver(pickSchema(mode)),
     defaultValues: { ...FORM_DEFAULTS, ...initial, api_key: '' },
     mode: 'onBlur',
+  });
+
+  // Drives the conditional render of the override input. RHF's useWatch
+  // re-renders the dialog on change — adequate here (small field count).
+  const webhookInstallEnabled = useWatch({
+    control,
+    name: 'webhook_install_enabled',
+    defaultValue: true,
   });
 
   // On open OR on edit-target switch, rebuild defaults — but ONLY while
@@ -330,7 +372,11 @@ export function InstanceFormDialog({
     // inline message without hunting. Order matches the visual tab row.
     const has = (...names: (keyof FormValues)[]) => names.some((n) => errs[n]);
     let tab: string;
-    if (has('name', 'url', 'api_key', 'mode', 'dry_run', 'timeout_sec', 'search_timeout_sec')) {
+    if (has(
+      'name', 'url', 'api_key', 'mode', 'dry_run',
+      'timeout_sec', 'search_timeout_sec',
+      'public_url', 'webhook_url_override', 'webhook_install_enabled',
+    )) {
       tab = 'connection';
     } else if (has(
       'tags_mode', 'tags_include', 'tags_exclude',
@@ -373,12 +419,19 @@ export function InstanceFormDialog({
       await update.mutateAsync({ name: initial.name, body }, {
         onSuccess: ({ detail: saved }) => reset(formFromDetail(saved)),
       });
+      // 041c-2 reconciler runs synchronously inside the PUT handler, so
+      // the live Sonarr state may have changed by the time we resolve.
+      qc.invalidateQueries({ queryKey: webhookStatusKey(initial.name) });
     } else {
       const body: InstanceCreateRequest = {
         ...wire,
         api_key: values.api_key.trim(),
       };
-      await create.mutateAsync({ body });
+      const created = await create.mutateAsync({ body });
+      const newName = created.detail?.name;
+      if (typeof newName === 'string' && newName.length > 0) {
+        qc.invalidateQueries({ queryKey: webhookStatusKey(newName) });
+      }
     }
     onOpenChange(false);
   }, onInvalid);
@@ -469,6 +522,34 @@ export function InstanceFormDialog({
               </div>
 
               <div className="flex flex-col gap-1.5">
+                <Label htmlFor="inst-public-url">
+                  {t('settings.instances.form.publicUrlLabel')}
+                </Label>
+                <Input
+                  id="inst-public-url"
+                  type="url"
+                  placeholder={t('settings.instances.form.publicUrlPlaceholder')}
+                  aria-invalid={Boolean(errors.public_url) || undefined}
+                  {...register('public_url')}
+                />
+                <p className="text-[11.5px] text-muted">
+                  {t('settings.instances.form.publicUrlHelp')}
+                </p>
+                {isEdit && detail?.ui_url && (
+                  <p className="text-[11.5px] text-muted" data-testid="inst-ui-url-hint">
+                    {t('settings.instances.form.uiUrlHint', { url: detail.ui_url })}
+                  </p>
+                )}
+                {errors.public_url && (
+                  <p role="alert" className="text-status-danger text-[11.5px]">
+                    {t(errors.public_url.message ?? '', {
+                      defaultValue: errors.public_url.message ?? '',
+                    })}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="inst-key">{t('settings.instances.form.apiKeyLabel')}</Label>
                   <TooltipProvider>
@@ -504,6 +585,56 @@ export function InstanceFormDialog({
                   </p>
                 )}
               </div>
+
+              {/* Webhook install in Sonarr (041c-2 reconciler) --------- */}
+              <div className="flex items-start gap-3">
+                <Controller
+                  control={control}
+                  name="webhook_install_enabled"
+                  render={({ field }) => (
+                    <Switch
+                      id="inst-webhook-install"
+                      checked={Boolean(field.value)}
+                      onCheckedChange={(v) => field.onChange(v)}
+                    />
+                  )}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="inst-webhook-install" className="font-normal">
+                    {t('settings.instances.form.webhookInstallLabel')}
+                  </Label>
+                  <p className="text-[11.5px] text-muted">
+                    {t('settings.instances.form.webhookInstallHint')}
+                  </p>
+                </div>
+              </div>
+
+              {webhookInstallEnabled && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="inst-webhook-url-override">
+                    {t('settings.instances.form.webhookUrlOverrideLabel')}
+                  </Label>
+                  <Input
+                    id="inst-webhook-url-override"
+                    type="url"
+                    placeholder={t(
+                      'settings.instances.form.webhookUrlOverridePlaceholder',
+                    )}
+                    aria-invalid={Boolean(errors.webhook_url_override) || undefined}
+                    {...register('webhook_url_override')}
+                  />
+                  <p className="text-[11.5px] text-muted">
+                    {t('settings.instances.form.webhookUrlOverrideHelp')}
+                  </p>
+                  {errors.webhook_url_override && (
+                    <p role="alert" className="text-status-danger text-[11.5px]">
+                      {t(errors.webhook_url_override.message ?? '', {
+                        defaultValue: errors.webhook_url_override.message ?? '',
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
