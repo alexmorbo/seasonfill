@@ -40,6 +40,7 @@ import {
 import {
   FORM_DEFAULTS, dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
+import { WatchdogTab } from './WatchdogTab';
 
 const nameRule = z
   .string()
@@ -424,6 +425,9 @@ export function InstanceFormDialog({
               <TabsTrigger value="behavior">{t('settings.instances.form.tabs.behavior')}</TabsTrigger>
               <TabsTrigger value="performance">{t('settings.instances.form.tabs.performance')}</TabsTrigger>
               <TabsTrigger value="advanced">{t('settings.instances.form.tabs.advanced')}</TabsTrigger>
+              {isEdit && initial?.name && (
+                <TabsTrigger value="watchdog">{t('settings.instances.form.tabs.watchdog')}</TabsTrigger>
+              )}
             </TabsList>
 
             {/* CONNECTION -------------------------------------------- */}
@@ -751,6 +755,13 @@ export function InstanceFormDialog({
                   error={tValidationError(errors.health_recheck_network_sec?.message, t)} />
               </div>
             </TabsContent>
+
+            {/* WATCHDOG (edit mode only) ---------------------------- */}
+            {isEdit && initial?.name && (
+              <TabsContent value="watchdog" className="mt-4">
+                <WatchdogTab instanceName={initial.name} />
+              </TabsContent>
+            )}
           </Tabs>
 
           {isEdit && detailQuery.isPending && (
