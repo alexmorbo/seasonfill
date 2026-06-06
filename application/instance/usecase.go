@@ -392,6 +392,15 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 		s.Ranking.OriginBonus, instanceOriginBonusMin, instanceOriginBonusMax); err != nil {
 		return err
 	}
+	if err := validateOptionalPublicURL(
+		"public_url", "INVALID_INSTANCE_PUBLIC_URL", s.PublicURL); err != nil {
+		return err
+	}
+	if err := validateOptionalPublicURL(
+		"webhook_url_override", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE",
+		s.WebhookURLOverride); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -454,6 +463,55 @@ func boundFloat(field, code string, v, min, max float64) error {
 	if v < min || v > max {
 		return newValidationErr(field, code,
 			fmt.Sprintf("must be between %g and %g", min, max))
+	}
+	return nil
+}
+
+// validateOptionalPublicURL is the validator for the Phase 11
+// `public_url` and `webhook_url_override` columns. A nil pointer means
+// "no override" and is always accepted. A non-nil pointer must be:
+//   - non-empty after TrimSpace,
+//   - <= instanceURLMaxLen,
+//   - parseable as a URL with scheme http/https,
+//   - non-empty Host,
+//   - no userinfo,
+//   - no trailing slash on the path (the reconciler in 041c appends its
+//     own path segment and a double `/` would break Sonarr's webhook
+//     URL matching).
+//
+// The empty-string case rejects with the same code so a client cannot
+// downgrade `{"public_url":""}` into a silent no-op. To clear the
+// override the client must omit the JSON key (nil → no change at the
+// snapshot level; the HTTP layer translates accordingly).
+func validateOptionalPublicURL(field, code string, p *string) error {
+	if p == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*p)
+	if trimmed == "" {
+		return newValidationErr(field, code,
+			"must be a non-empty http(s) URL or omitted")
+	}
+	if len(trimmed) > instanceURLMaxLen {
+		return newValidationErr(field, code,
+			fmt.Sprintf("must be <= %d chars", instanceURLMaxLen))
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return newValidationErr(field, code, "malformed url")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return newValidationErr(field, code, "scheme must be http or https")
+	}
+	if u.Host == "" {
+		return newValidationErr(field, code, "host is required")
+	}
+	if u.User != nil {
+		return newValidationErr(field, code, "userinfo not allowed in url")
+	}
+	if strings.HasSuffix(trimmed, "/") {
+		return newValidationErr(field, code,
+			"must not end with a trailing slash")
 	}
 	return nil
 }

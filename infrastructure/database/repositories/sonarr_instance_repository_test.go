@@ -578,3 +578,104 @@ func TestList_HandlesMissingSecret(t *testing.T) {
 	assert.Equal(t, "", got["no-key"],
 		"instance with no secret row must surface empty APIKey, not error")
 }
+
+// --- 041a: Phase 11 instance fields round-trip ---
+
+func TestSonarrInstanceRepository_PublicURL_RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	public := "https://sonarr.example.com"
+	inst := runtime.InstanceSnapshot{
+		Name: "pub", URL: "http://sonarr.local", APIKey: "k", Mode: "auto",
+		Timeout:   10 * time.Second,
+		PublicURL: &public,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+	assert.Greater(t, id, uint(0))
+
+	got, err := repo.GetByName(ctx, "pub", cipher)
+	require.NoError(t, err)
+	require.NotNil(t, got.PublicURL, "PublicURL must round-trip non-nil")
+	assert.Equal(t, public, *got.PublicURL)
+}
+
+func TestSonarrInstanceRepository_PublicURL_NilByDefault(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "nopub", URL: "http://sonarr.local", APIKey: "k", Mode: "auto",
+		Timeout: 10 * time.Second,
+	}
+	_, err = repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	got, err := repo.GetByName(ctx, "nopub", cipher)
+	require.NoError(t, err)
+	assert.Nil(t, got.PublicURL, "absent override must remain nil")
+}
+
+func TestSonarrInstanceRepository_WebhookInstallEnabled_RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name: "wh", URL: "http://sonarr.local", APIKey: "k", Mode: "auto",
+		Timeout:               10 * time.Second,
+		WebhookInstallEnabled: true,
+	}
+	id, err := repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	got, err := repo.GetByName(ctx, "wh", cipher)
+	require.NoError(t, err)
+	assert.True(t, got.WebhookInstallEnabled)
+
+	// Flip to false via an Update and re-read.
+	inst.ID = id
+	inst.APIKey = ""
+	inst.WebhookInstallEnabled = false
+	require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, true, nil))
+
+	got, err = repo.GetByName(ctx, "wh", cipher)
+	require.NoError(t, err)
+	assert.False(t, got.WebhookInstallEnabled,
+		"webhook_install_enabled must persist as false (zero-value-bug guard)")
+}
+
+func TestSonarrInstanceRepository_WebhookURLOverride_RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	override := "https://seasonfill.example.com"
+	inst := runtime.InstanceSnapshot{
+		Name: "ovr", URL: "http://sonarr.local", APIKey: "k", Mode: "auto",
+		Timeout:            10 * time.Second,
+		WebhookURLOverride: &override,
+	}
+	_, err = repo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	got, err := repo.GetByName(ctx, "ovr", cipher)
+	require.NoError(t, err)
+	require.NotNil(t, got.WebhookURLOverride)
+	assert.Equal(t, override, *got.WebhookURLOverride)
+}

@@ -435,3 +435,117 @@ func TestCRUD_Put_MaskedKey_Preserves(t *testing.T) {
 	assert.Equal(t, "***", got["api_key"], "wire response stays masked")
 	assert.Equal(t, "manual", got["mode"], "non-secret field still applied")
 }
+
+// --- 041a: Phase 11 instance field handler coverage ---
+
+// TestCRUD_Create_NewFields_Defaults verifies a Create payload that
+// omits all three new fields is accepted, persisted with the migration
+// default (`webhook_install_enabled=true`), and rendered with the
+// expected null/derived shape on the response.
+func TestCRUD_Create_NewFields_Defaults(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances",
+		createBody("alpha"), nil)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Nil(t, body["public_url"],
+		"omitted public_url must round-trip as JSON null")
+	assert.Equal(t, true, body["webhook_install_enabled"],
+		"omitted webhook_install_enabled must default to true")
+	assert.Nil(t, body["webhook_url_override"])
+	// ui_url falls back to URL when public_url is absent.
+	assert.Equal(t, "http://sonarr:8989", body["ui_url"])
+}
+
+// TestCRUD_Create_NewFields_PersistAndDerive seeds a Create payload
+// with non-default values for all three fields and asserts each one
+// round-trips through POST→GET and that ui_url derives from public_url
+// when set.
+func TestCRUD_Create_NewFields_PersistAndDerive(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+
+	body := createBody("alpha")
+	body["public_url"] = "https://sonarr.example.com"
+	body["webhook_install_enabled"] = false
+	body["webhook_url_override"] = "https://seasonfill.example.com"
+
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "https://sonarr.example.com", got["public_url"])
+	assert.Equal(t, false, got["webhook_install_enabled"])
+	assert.Equal(t, "https://seasonfill.example.com", got["webhook_url_override"])
+	assert.Equal(t, "https://sonarr.example.com", got["ui_url"],
+		"ui_url must derive from public_url when set")
+
+	// GET should reproduce the same shape.
+	w = doJSON(t, r, http.MethodGet, "/api/v1/instances/alpha", nil, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var get map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &get))
+	assert.Equal(t, "https://sonarr.example.com", get["public_url"])
+	assert.Equal(t, false, get["webhook_install_enabled"])
+	assert.Equal(t, "https://seasonfill.example.com", get["webhook_url_override"])
+	assert.Equal(t, "https://sonarr.example.com", get["ui_url"])
+}
+
+// TestCRUD_Update_WebhookInstallEnabled_PointerFalseHonoured guards the
+// pointer-vs-zero-value semantics: an Update body with the field
+// explicitly set to false must persist as false, not be silently
+// rewritten by the default-applier.
+func TestCRUD_Update_WebhookInstallEnabled_PointerFalseHonoured(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+
+	body := createBody("alpha")
+	body["webhook_install_enabled"] = false
+	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", body, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	w = doJSON(t, r, http.MethodGet, "/api/v1/instances/alpha", nil, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, false, got["webhook_install_enabled"])
+}
+
+// TestCRUD_Create_NewFields_ValidationCases is the table-driven sweep
+// of every 400 path on the three new fields. Each case is asserted to
+// surface the matching INVALID_INSTANCE_* code so the SPA can render
+// per-field feedback without parsing free-form messages.
+func TestCRUD_Create_NewFields_ValidationCases(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		key  string
+		val  string
+		code string
+	}{
+		{"public_url trailing slash", "public_url", "https://sonarr.example.com/", "INVALID_INSTANCE_PUBLIC_URL"},
+		{"public_url bad scheme", "public_url", "ftp://sonarr.example.com", "INVALID_INSTANCE_PUBLIC_URL"},
+		{"public_url empty string", "public_url", "", "INVALID_INSTANCE_PUBLIC_URL"},
+		{"public_url userinfo", "public_url", "https://u:p@sonarr.example.com", "INVALID_INSTANCE_PUBLIC_URL"},
+		{"webhook_url_override trailing slash", "webhook_url_override", "https://seasonfill.example.com/", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE"},
+		{"webhook_url_override bad scheme", "webhook_url_override", "ftp://seasonfill.example.com", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE"},
+		{"webhook_url_override empty string", "webhook_url_override", "", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r, _ := setupCRUD(t)
+			body := createBody("alpha")
+			body[tc.key] = tc.val
+			w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+			require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+			assert.Contains(t, w.Body.String(), tc.code)
+		})
+	}
+}

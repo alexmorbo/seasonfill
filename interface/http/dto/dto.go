@@ -260,7 +260,20 @@ type InstanceDetail struct {
 	Cooldown         InstanceCooldown    `json:"cooldown"`
 	Retry            InstanceRetry       `json:"retry"`
 	HealthCheck      InstanceHealthCheck `json:"health_check"`
-	UpdatedAt        time.Time           `json:"updated_at"`
+	// PublicURL is the optional browser-facing URL (D64). Always
+	// emitted; the JSON value is `null` when no override is stored.
+	PublicURL *string `json:"public_url" example:"https://sonarr.example.com"`
+	// WebhookInstallEnabled toggles the 041c reconciler (D65). Always
+	// emitted as a concrete bool; defaults to true on fresh rows.
+	WebhookInstallEnabled bool `json:"webhook_install_enabled" example:"true"`
+	// WebhookURLOverride is the optional base URL for the auto-installed
+	// Sonarr webhook (D65). Always emitted; `null` when unset.
+	WebhookURLOverride *string `json:"webhook_url_override" example:"https://seasonfill.example.com"`
+	// UIURL is the derived browser-facing URL the SPA links to. Equals
+	// PublicURL when set, otherwise URL. Always emitted as a non-empty
+	// string so the SPA never has to compute the fallback itself.
+	UIURL     string    `json:"ui_url" example:"https://sonarr.example.com"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type InstanceTags struct {
@@ -324,6 +337,20 @@ type InstanceCreateRequest struct {
 	Cooldown         InstanceCooldown    `json:"cooldown"`
 	Retry            InstanceRetry       `json:"retry"`
 	HealthCheck      InstanceHealthCheck `json:"health_check"`
+	// PublicURL — optional browser-facing URL. Omitted/null = no
+	// override. Empty string is rejected at the application layer with
+	// INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
+	// downgrade the override into a silent no-op.
+	PublicURL *string `json:"public_url,omitempty" example:"https://sonarr.example.com"`
+	// WebhookInstallEnabled — pointer so omitted is distinguishable
+	// from explicit `false`. Omitted/null defaults to true (matches the
+	// migration default). Concrete false explicitly disables the 041c
+	// reconciler.
+	WebhookInstallEnabled *bool `json:"webhook_install_enabled,omitempty" example:"true"`
+	// WebhookURLOverride — optional base URL for the auto-installed
+	// Sonarr webhook. Omitted/null = use derived public URL from
+	// runtime config. Empty-string rejected as for PublicURL.
+	WebhookURLOverride *string `json:"webhook_url_override,omitempty" example:"https://seasonfill.example.com"`
 }
 
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.

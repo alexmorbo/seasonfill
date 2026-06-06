@@ -687,3 +687,64 @@ func TestIsPlaceholderAPIKey(t *testing.T) {
 		})
 	}
 }
+
+// --- 041a: Phase 11 instance field validation ---
+
+// validBaseSnapshot returns a snapshot that satisfies every existing
+// validation rule. Each helper test then mutates the one field under
+// test so a failure points unambiguously at the new validator.
+func validBaseSnapshot(name string) runtime.InstanceSnapshot {
+	s := runtime.InstanceSnapshot{
+		Name: name, URL: "http://sonarr.local", APIKey: "0123456789abcdef0123456789abcdef",
+		Mode: "auto",
+	}
+	runtime.ApplyInstanceDefaults(&s)
+	return s
+}
+
+func TestValidate_PublicURL_NilAndHTTPSAccepted(t *testing.T) {
+	t.Parallel()
+	s := validBaseSnapshot("x")
+	require.NoError(t, validate(s, true), "nil PublicURL must pass")
+
+	v := "https://sonarr.example.com"
+	s.PublicURL = &v
+	require.NoError(t, validate(s, true), "http(s) PublicURL must pass")
+
+	o := "https://seasonfill.example.com"
+	s.WebhookURLOverride = &o
+	require.NoError(t, validate(s, true), "http(s) WebhookURLOverride must pass")
+}
+
+func TestValidate_PhaseElevenURLs_Rejections(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		apply func(s *runtime.InstanceSnapshot, v string)
+		val   string
+		code  string
+		msg   string // optional substring on the error message
+	}{
+		{"public_url empty", func(s *runtime.InstanceSnapshot, v string) { s.PublicURL = &v }, "", "INVALID_INSTANCE_PUBLIC_URL", ""},
+		{"public_url bad scheme", func(s *runtime.InstanceSnapshot, v string) { s.PublicURL = &v }, "ftp://x.example.com", "INVALID_INSTANCE_PUBLIC_URL", ""},
+		{"public_url trailing slash", func(s *runtime.InstanceSnapshot, v string) { s.PublicURL = &v }, "https://x.example.com/", "INVALID_INSTANCE_PUBLIC_URL", "trailing slash"},
+		{"public_url userinfo", func(s *runtime.InstanceSnapshot, v string) { s.PublicURL = &v }, "https://u:p@x.example.com", "INVALID_INSTANCE_PUBLIC_URL", ""},
+		{"webhook_url_override empty", func(s *runtime.InstanceSnapshot, v string) { s.WebhookURLOverride = &v }, "", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE", ""},
+		{"webhook_url_override trailing slash", func(s *runtime.InstanceSnapshot, v string) { s.WebhookURLOverride = &v }, "https://y.example.com/", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE", ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := validBaseSnapshot("x")
+			tc.apply(&s, tc.val)
+			err := validate(s, true)
+			var verr *ValidationError
+			require.ErrorAs(t, err, &verr)
+			assert.Equal(t, tc.code, verr.Code)
+			if tc.msg != "" {
+				assert.Contains(t, verr.Message, tc.msg)
+			}
+		})
+	}
+}

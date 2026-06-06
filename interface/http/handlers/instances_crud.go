@@ -293,7 +293,22 @@ func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {
 			RecheckAuth:    time.Duration(r.HealthCheck.RecheckAuthSec) * time.Second,
 			RecheckNetwork: time.Duration(r.HealthCheck.RecheckNetworkSec) * time.Second,
 		},
+		PublicURL:             r.PublicURL,
+		WebhookInstallEnabled: webhookInstallEnabledOrDefault(r.WebhookInstallEnabled),
+		WebhookURLOverride:    r.WebhookURLOverride,
 	}
+}
+
+// webhookInstallEnabledOrDefault collapses the request pointer to a
+// concrete snapshot bool. Nil (JSON key omitted) defaults to true to
+// match the 041 migration default and the "every existing row already
+// has the webhook installed" invariant. A non-nil pointer wins
+// verbatim — including explicit false.
+func webhookInstallEnabledOrDefault(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
 }
 
 func snapshotToDetailDTO(s runtime.InstanceSnapshot, ts time.Time) dto.InstanceDetail {
@@ -335,6 +350,10 @@ func snapshotToDetailDTO(s runtime.InstanceSnapshot, ts time.Time) dto.InstanceD
 			RecheckAuthSec:    int(s.HealthCheck.RecheckAuth / time.Second),
 			RecheckNetworkSec: int(s.HealthCheck.RecheckNetwork / time.Second),
 		},
-		UpdatedAt: ts.UTC(),
+		PublicURL:             s.PublicURL,
+		WebhookInstallEnabled: s.WebhookInstallEnabled,
+		WebhookURLOverride:    s.WebhookURLOverride,
+		UIURL:                 s.UIURL(),
+		UpdatedAt:             ts.UTC(),
 	}
 }

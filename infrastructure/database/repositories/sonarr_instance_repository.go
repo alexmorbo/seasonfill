@@ -329,6 +329,9 @@ func modelToSnapshot(m database.SonarrInstanceModel, secretBlob []byte, c *crypt
 			RecheckAuth:    time.Duration(m.HealthCheckRecheckAuthSec) * time.Second,
 			RecheckNetwork: time.Duration(m.HealthCheckRecheckNetSec) * time.Second,
 		},
+		PublicURL:             m.PublicURL,
+		WebhookInstallEnabled: m.WebhookInstallEnabled,
+		WebhookURLOverride:    m.WebhookURLOverride,
 	}, nil
 }
 
@@ -366,6 +369,9 @@ func snapshotToModel(s runtime.InstanceSnapshot) database.SonarrInstanceModel {
 		RetryMaxBackoffSec:            int(s.Retry.MaxBackoff / time.Second),
 		HealthCheckRecheckAuthSec:     int(s.HealthCheck.RecheckAuth / time.Second),
 		HealthCheckRecheckNetSec:      int(s.HealthCheck.RecheckNetwork / time.Second),
+		PublicURL:                     s.PublicURL,
+		WebhookInstallEnabled:         s.WebhookInstallEnabled,
+		WebhookURLOverride:            s.WebhookURLOverride,
 	}
 }
 
