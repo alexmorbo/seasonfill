@@ -40,6 +40,11 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_torrent_hash"))
 	assert.True(t, db.Migrator().HasIndex("instance_qbit_settings", "idx_instance_qbit_settings_instance_id"))
 	assert.True(t, db.Migrator().HasIndex("watchdog_blacklist", "idx_watchdog_blacklist_triple"))
+	// 039f-1: regrab counter table + grab_records.replay_of_id.
+	assert.True(t, db.Migrator().HasColumn(&GrabRecordModel{}, "replay_of_id"))
+	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_replay_of_id"))
+	assert.True(t, db.Migrator().HasTable("regrab_no_better_counter"))
+	assert.True(t, db.Migrator().HasIndex("regrab_no_better_counter", "idx_regrab_no_better_counter_triple"))
 
 	// Idempotent — running twice must be a no-op.
 	assert.NoError(t, Migrate(db))
@@ -114,8 +119,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 039a: latest migration is 000006_phase10_watchdog_foundation.
-	assert.Equal(t, 6, version)
+	// 039f-1: latest migration is 000008_regrab_no_better_counter.
+	assert.Equal(t, 8, version)
 	assert.False(t, dirty)
 }
 
@@ -225,6 +230,7 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	for _, table := range []string{
+		"regrab_no_better_counter",
 		"watchdog_blacklist", "instance_qbit_settings",
 		"instance_secret", "sonarr_instance", "runtime_config",
 		"admin_users", "cooldowns", "origin_releases",
@@ -239,8 +245,8 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 039a: latest migration is 000006_phase10_watchdog_foundation.
-	assert.Equal(t, 6, version)
+	// 039f-1: latest migration is 000008_regrab_no_better_counter.
+	assert.Equal(t, 8, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
@@ -252,4 +258,9 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	assert.True(t, db.Migrator().HasTable("watchdog_blacklist"))
 	assert.True(t, db.Migrator().HasColumn("grab_records", "torrent_hash"))
 	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_torrent_hash"))
+	// 039f-1: regrab counter + grab_records.replay_of_id.
+	assert.True(t, db.Migrator().HasColumn("grab_records", "replay_of_id"))
+	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_replay_of_id"))
+	assert.True(t, db.Migrator().HasTable("regrab_no_better_counter"))
+	assert.True(t, db.Migrator().HasIndex("regrab_no_better_counter", "idx_regrab_no_better_counter_triple"))
 }

@@ -50,6 +50,7 @@ func toGrabModel(r grab.Record) database.GrabRecordModel {
 		ScanRunID:         r.ScanRunID.String(),
 		Attempts:          r.Attempts,
 		TorrentHash:       r.TorrentHash,
+		ReplayOfID:        replayOfIDToString(r.ReplayOfID),
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
 	}
@@ -130,9 +131,24 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		ScanRunID:         scanRunID,
 		Attempts:          m.Attempts,
 		TorrentHash:       m.TorrentHash,
+		ReplayOfID:        parseReplayOfID(m.ReplayOfID),
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 	}, nil
+}
+
+// parseReplayOfID is the *string → *uuid.UUID lift used by toGrabRecord.
+// Nil ciphertext / unparseable text both return nil — the column is
+// best-effort audit; we never block a row load on a malformed pointer.
+func parseReplayOfID(s *string) *uuid.UUID {
+	if s == nil || *s == "" {
+		return nil
+	}
+	u, err := uuid.Parse(*s)
+	if err != nil {
+		return nil
+	}
+	return &u
 }
 
 // MatchLatest implements the (downloadId-first, fallback-tuple) lookup
@@ -268,6 +284,58 @@ func (r *GrabRepository) UpdateTorrentHash(ctx context.Context, id uuid.UUID, ha
 	// caller set torrent_hash between our SELECT and UPDATE. That's the
 	// intended idempotent outcome; not an error.
 	return nil
+}
+
+// FindLatestSuccessByHash returns the newest non-failed grab_records row
+// whose torrent_hash equals the supplied 40-char lowercase hex value.
+// "Non-failed" excludes Status == grab_failed because those rows never
+// represent an on-disk torrent — they're audit traces of failed
+// force-grab attempts. imported / import_failed / grabbed rows are all
+// candidates: even import_failed rows correspond to a real torrent the
+// user still has in qBit (Sonarr's import failed but the file is on
+// disk, just not where Sonarr expected). hash MUST be already
+// normalised by the caller; empty hash returns ErrNotFound directly.
+func (r *GrabRepository) FindLatestSuccessByHash(ctx context.Context, hash string) (grab.Record, error) {
+	if hash == "" {
+		return grab.Record{}, ports.ErrNotFound
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	var m database.GrabRecordModel
+	err := db.Model(&database.GrabRecordModel{}).
+		Where("torrent_hash = ? AND status <> ?", hash, string(grab.StatusGrabFailed)).
+		Order("created_at DESC, id DESC").
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return grab.Record{}, ports.ErrNotFound
+		}
+		return grab.Record{}, fmt.Errorf("find grab by torrent_hash: %w", err)
+	}
+	rec, convErr := toGrabRecord(m)
+	if convErr != nil {
+		return grab.Record{}, fmt.Errorf("find grab by torrent_hash: %w", convErr)
+	}
+	return rec, nil
+}
+
+// CreateReplay writes the row with ReplayOfID populated. Same INSERT
+// path as Create — only difference is the explicit audit pointer. The
+// rec.ReplayOfID field is overwritten with the supplied value so the
+// caller can't accidentally pass a stale pointer.
+func (r *GrabRepository) CreateReplay(ctx context.Context, rec grab.Record, replayOfID uuid.UUID) error {
+	rec.ReplayOfID = &replayOfID
+	return r.Create(ctx, rec)
+}
+
+// replayOfIDToString is the *uuid.UUID → *string lift used by toGrabModel.
+// Nil in → nil out so the DB write hits a clean NULL.
+func replayOfIDToString(u *uuid.UUID) *string {
+	if u == nil {
+		return nil
+	}
+	s := u.String()
+	return &s
 }
 
 // Ensure interface compliance at compile time.

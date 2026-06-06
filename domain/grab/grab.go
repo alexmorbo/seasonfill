@@ -78,8 +78,14 @@ type Record struct {
 	// the Phase 10 Watchdog ignores nil-hash rows (D63 hash-required
 	// gate, no backfill).
 	TorrentHash *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// ReplayOfID is the audit pointer set by the Watchdog regrab use
+	// case (039f-2) when a row was written as a re-grab of an earlier
+	// row. nil for ordinary scan / rescan / manual paths. Lets the UI
+	// (future Phase 11) render a "replay of <original-id>" badge and
+	// gives operators a join key for troubleshooting.
+	ReplayOfID *uuid.UUID
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // ParseTorrentHash validates and normalises a candidate qBit info-hash

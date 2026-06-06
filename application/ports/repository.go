@@ -122,6 +122,24 @@ type GrabRepository interface {
 	// runs grab.ParseTorrentHash); an empty hash argument is a no-op
 	// success (defensive).
 	UpdateTorrentHash(ctx context.Context, id uuid.UUID, hash string) error
+
+	// FindLatestSuccessByHash returns the newest grab_records row whose
+	// torrent_hash matches the supplied 40-char lowercase hex value AND
+	// whose status is NOT grab_failed. Used by the Phase 10 Watchdog
+	// regrab use case to map qBit infohash → (instance, series, season).
+	// hash is normalised lowercase by the caller. Returns ErrNotFound
+	// when no matching row exists. Empty hash returns ErrNotFound
+	// directly (defensive — never SELECT WHERE torrent_hash = '').
+	FindLatestSuccessByHash(ctx context.Context, hash string) (grab.Record, error)
+
+	// CreateReplay writes a new grab_records row with ReplayOfID set
+	// to the supplied uuid. Otherwise identical to Create — same
+	// uniqueness contract (uuid PK), same UpdatedAt path. The
+	// repository implementation funnels through the same INSERT used
+	// by Create; this method exists so callers don't have to mutate
+	// rec.ReplayOfID before calling Create (clearer intent at the
+	// call site).
+	CreateReplay(ctx context.Context, rec grab.Record, replayOfID uuid.UUID) error
 }
 
 type CooldownRepository interface {
@@ -220,4 +238,34 @@ type WatchdogBlacklistRepository interface {
 	// ListByInstance returns every parked row for the instance. Used by
 	// the metrics gauge `seasonfill_watchdog_blacklist_size{instance}`.
 	ListByInstance(ctx context.Context, instanceID uint) ([]regrab.BlacklistEntry, error)
+}
+
+// NoBetterCounterRepository persists the live consecutive-no-better
+// counters per (instance, series, season). The regrab use case uses
+// Get → (if not found) Insert → Increment cycle per detection, and
+// Reset when the counter is escalated to the blacklist.
+//
+// Increment is atomic against concurrent regrab loops: the repository
+// implementation MUST use an UPSERT (INSERT … ON CONFLICT DO UPDATE)
+// so two parallel polls on the same triple cannot both stamp
+// consecutive=1 — the second wins and observes consecutive=2.
+type NoBetterCounterRepository interface {
+	// Get returns the counter for the triple. ports.ErrNotFound on miss
+	// — the use case treats that as "fresh triple, insert" via
+	// Increment(now=current).
+	Get(ctx context.Context, instanceID uint, seriesID, season int) (regrab.NoBetterCounter, error)
+
+	// Increment atomically bumps consecutive by 1 (or inserts a row
+	// with consecutive=1 on first contact). Returns the post-increment
+	// counter so the use case can decide whether to escalate.
+	Increment(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) (regrab.NoBetterCounter, error)
+
+	// Reset zeros consecutive on the row. ports.ErrNotFound when no
+	// row exists — the use case treats that as a non-error path
+	// because "nothing to reset" is fine after a fresh insert.
+	Reset(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) error
+
+	// DeleteByTriple removes the row entirely (used when an instance's
+	// settings are deleted via 039d Delete). ports.ErrNotFound on miss.
+	DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error
 }

@@ -106,6 +106,17 @@ func (f *rescanFakeGrab) UpdateTorrentHash(context.Context, uuid.UUID, string) e
 	return nil
 }
 
+func (f *rescanFakeGrab) FindLatestSuccessByHash(_ context.Context, _ string) (grab.Record, error) {
+	panic("fake FindLatestSuccessByHash unexpectedly called - this stub is not configured")
+}
+
+func (f *rescanFakeGrab) CreateReplay(_ context.Context, rec grab.Record, _ uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stored = append(f.stored, rec)
+	return nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

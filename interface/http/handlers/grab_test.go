@@ -90,6 +90,14 @@ func (f *fakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ strin
 	return nil
 }
 
+func (f *fakeGrabRepo) FindLatestSuccessByHash(_ context.Context, _ string) (grab.Record, error) {
+	panic("fake FindLatestSuccessByHash unexpectedly called - this stub is not configured")
+}
+
+func (f *fakeGrabRepo) CreateReplay(_ context.Context, rec grab.Record, _ uuid.UUID) error {
+	panic("fake CreateReplay unexpectedly called - this stub is not configured")
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

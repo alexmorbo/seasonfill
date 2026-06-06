@@ -122,6 +122,20 @@ func (r *fakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ strin
 	panic("fake UpdateTorrentHash unexpectedly called - this stub is not configured for UpdateTorrentHash calls")
 }
 
+func (r *fakeGrabRepo) FindLatestSuccessByHash(_ context.Context, _ string) (domaingrab.Record, error) {
+	panic("fake FindLatestSuccessByHash unexpectedly called - this stub is not configured")
+}
+
+func (r *fakeGrabRepo) CreateReplay(_ context.Context, rec domaingrab.Record, _ uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return r.err
+	}
+	r.recs = append(r.recs, rec)
+	return nil
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

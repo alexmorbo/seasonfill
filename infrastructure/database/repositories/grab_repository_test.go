@@ -276,3 +276,130 @@ func TestGrabRepository_UpdateTorrentHash_EmptyHash_NoOp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got.TorrentHash, "empty hash must be a no-op — column stays NULL")
 }
+
+func TestGrabRepository_FindLatestSuccessByHash_Match(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+
+	hash := "abcdef0123456789abcdef0123456789abcdef01"
+	older := buildSuccessRec(t, "alpha", 122, 2, "guid-1", hash)
+	older.CreatedAt = time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	newer := buildSuccessRec(t, "alpha", 122, 2, "guid-2", hash)
+	newer.CreatedAt = time.Date(2026, 6, 6, 11, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.Create(ctx, older))
+	require.NoError(t, repo.Create(ctx, newer))
+
+	got, err := repo.FindLatestSuccessByHash(ctx, hash)
+	require.NoError(t, err)
+	assert.Equal(t, newer.ID, got.ID, "newest row wins")
+}
+
+func TestGrabRepository_FindLatestSuccessByHash_ExcludesGrabFailed(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+
+	hash := "abcdef0123456789abcdef0123456789abcdef01"
+	failed := buildSuccessRec(t, "alpha", 122, 2, "guid-failed", hash)
+	failed.Status = grab.StatusGrabFailed
+	require.NoError(t, repo.Create(ctx, failed))
+
+	_, err := repo.FindLatestSuccessByHash(ctx, hash)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound),
+		"grab_failed rows are not matchable — they don't represent an on-disk torrent")
+}
+
+func TestGrabRepository_FindLatestSuccessByHash_EmptyHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	_, err := repo.FindLatestSuccessByHash(context.Background(), "")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+func TestGrabRepository_FindLatestSuccessByHash_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	_, err := repo.FindLatestSuccessByHash(context.Background(),
+		"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+
+	original := buildSuccessRec(t, "alpha", 122, 2, "guid-orig", "")
+	require.NoError(t, repo.Create(ctx, original))
+
+	replay := buildSuccessRec(t, "alpha", 122, 2, "guid-replay", "")
+	require.NoError(t, repo.CreateReplay(ctx, replay, original.ID))
+
+	// Round-trip via List — confirms ReplayOfID lands in the DB and
+	// comes back unmarshalled.
+	rows, _, err := repo.List(ctx, ports.GrabFilter{
+		Instance:     ptrString("alpha"),
+		SeriesID:     ptrInt(122),
+		SeasonNumber: ptrInt(2),
+	}, ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	// rows[0] is the newest by created_at DESC.
+	var seenReplay bool
+	for _, r := range rows {
+		if r.ID == replay.ID {
+			require.NotNil(t, r.ReplayOfID)
+			assert.Equal(t, original.ID, *r.ReplayOfID)
+			seenReplay = true
+		}
+		if r.ID == original.ID {
+			assert.Nil(t, r.ReplayOfID, "original carries no ReplayOfID")
+		}
+	}
+	assert.True(t, seenReplay, "replay row was found")
+}
+
+// buildSuccessRec is a local helper that builds a grab.Record fixture
+// with a fresh uuid + status=grabbed + the supplied (instance, series,
+// season, guid, hash). All other fields are populated with sensible
+// defaults the DB INSERT accepts.
+func buildSuccessRec(t *testing.T, instance string, seriesID, season int, guid, hash string) grab.Record {
+	t.Helper()
+	rec := grab.Record{
+		ID:                uuid.New(),
+		InstanceName:      instance,
+		SeriesID:          seriesID,
+		SeriesTitle:       "Test Series",
+		SeasonNumber:      season,
+		ReleaseGUID:       guid,
+		ReleaseTitle:      guid + " title",
+		IndexerID:         1,
+		IndexerName:       "indexer-x",
+		CustomFormatScore: 100,
+		Quality:           "WEB-DL 1080p",
+		CoverageCount:     10,
+		Status:            grab.StatusGrabbed,
+		ScanRunID:         uuid.New(),
+		Attempts:          1,
+		CreatedAt:         time.Now().UTC(),
+		UpdatedAt:         time.Now().UTC(),
+	}
+	if hash != "" {
+		h := hash
+		rec.TorrentHash = &h
+	}
+	return rec
+}
+
+func ptrString(s string) *string { return &s }
+func ptrInt(i int) *int          { return &i }

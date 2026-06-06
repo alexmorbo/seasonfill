@@ -233,6 +233,14 @@ func (abortFakeGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ str
 	panic("fake UpdateTorrentHash unexpectedly called - this stub is not configured for UpdateTorrentHash calls")
 }
 
+func (abortFakeGrabRepo) FindLatestSuccessByHash(_ context.Context, _ string) (domaingrab.Record, error) {
+	panic("fake FindLatestSuccessByHash unexpectedly called - this stub is not configured")
+}
+
+func (abortFakeGrabRepo) CreateReplay(_ context.Context, _ domaingrab.Record, _ uuid.UUID) error {
+	return nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

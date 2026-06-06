@@ -115,6 +115,14 @@ func (noopGrabRepo) UpdateTorrentHash(_ context.Context, _ uuid.UUID, _ string) 
 	panic("fake UpdateTorrentHash unexpectedly called - this stub is not configured for UpdateTorrentHash calls")
 }
 
+func (noopGrabRepo) FindLatestSuccessByHash(_ context.Context, _ string) (grab.Record, error) {
+	panic("fake FindLatestSuccessByHash unexpectedly called - this stub is not configured")
+}
+
+func (noopGrabRepo) CreateReplay(_ context.Context, _ grab.Record, _ uuid.UUID) error {
+	panic("fake CreateReplay unexpectedly called - this stub is not configured")
+}
+
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {

@@ -20,7 +20,16 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.Migrate(db))
+	err = database.Migrate(db)
+	require.NoError(t, err, "database.Migrate failed")
+
+	// Set connection pool to single connection to ensure all queries use
+	// the same in-memory SQLite database instance
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
 	return db
 }
 

@@ -76,9 +76,15 @@ type GrabRecordModel struct {
 	// by the OnGrab webhook handler in 039c. Nullable on purpose: rows
 	// created before Phase 10 have no recorded hash and are intentionally
 	// ignored by the Watchdog (D63 hash-required gate, no backfill).
-	TorrentHash *string   `gorm:"column:torrent_hash;size:64"`
-	CreatedAt   time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
-	UpdatedAt   time.Time
+	TorrentHash *string `gorm:"column:torrent_hash;size:64"`
+	// ReplayOfID is the uuid of the original grab_records row this row
+	// re-grabs. Populated by the Phase 10 Watchdog when a re-grab is
+	// triggered (039f-2). nil for scan / rescan / manual paths. Indexed
+	// in the migration (partial index) so the future UI can fetch
+	// "replays of original_id" cheaply.
+	ReplayOfID *string   `gorm:"column:replay_of_id;size:36"`
+	CreatedAt  time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
+	UpdatedAt  time.Time
 }
 
 func (GrabRecordModel) TableName() string { return "grab_records" }
