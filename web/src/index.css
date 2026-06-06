@@ -4,40 +4,69 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-bg: oklch(var(--bg-base));
-  --color-surface: oklch(var(--bg-surface));
-  --color-surface-2: oklch(var(--bg-surface-2));
-  --color-hover: oklch(var(--bg-hover));
-  --color-input: oklch(var(--bg-input));
-  --color-border: oklch(var(--border-subtle));
-  --color-border-strong: oklch(var(--border-strong));
-  --color-border-faint: oklch(var(--border-faint));
-  --color-foreground: oklch(var(--text-primary));
-  --color-foreground-2: oklch(var(--text-secondary));
-  --color-muted: oklch(var(--text-muted));
-  --color-faint: oklch(var(--text-faint));
-  --color-accent: oklch(var(--accent));
-  --color-accent-strong: oklch(var(--accent-strong));
-  --color-accent-text: oklch(var(--accent-text));
-  --color-status-success: oklch(var(--status-success));
-  --color-status-warning: oklch(var(--status-warning));
-  --color-status-danger: oklch(var(--status-danger));
-  --color-status-info: oklch(var(--status-info));
-  --color-status-neutral: oklch(var(--status-neutral));
-  --color-background: oklch(var(--bg-base));
-  --color-card: oklch(var(--bg-surface));
-  --color-card-foreground: oklch(var(--text-primary));
-  --color-popover: oklch(var(--bg-surface));
-  --color-popover-foreground: oklch(var(--text-primary));
-  --color-primary: oklch(var(--accent));
-  --color-primary-foreground: oklch(var(--accent-text));
-  --color-secondary: oklch(var(--bg-surface-2));
-  --color-secondary-foreground: oklch(var(--text-primary));
-  --color-destructive: oklch(var(--status-danger));
-  --color-destructive-foreground: oklch(var(--text-primary));
-  --color-muted-foreground: oklch(var(--text-muted));
-  --color-accent-foreground: oklch(var(--accent-text));
-  --color-ring: oklch(var(--accent) / 0.5);
+  /* ----- design-pack tokens (OKLCH, hue 270 cool-grey) ----- */
+  --color-bg-base:       oklch(0.16 0.005 270);
+  --color-bg-surface:    oklch(0.198 0.006 270);
+  --color-bg-surface-2:  oklch(0.235 0.007 270);
+  --color-bg-hover:      oklch(0.27 0.008 270);
+  --color-bg-input:      oklch(0.178 0.006 270);
+
+  --color-border-faint:  oklch(0.25 0.007 270);
+  --color-border-subtle: oklch(0.305 0.008 270);
+  --color-border-strong: oklch(0.41 0.010 270);
+
+  --color-tx-primary:    oklch(0.965 0.004 270);
+  --color-tx-secondary:  oklch(0.80 0.008 270);
+  --color-tx-muted:      oklch(0.625 0.010 270);
+  --color-tx-faint:      oklch(0.50 0.010 270);
+
+  --color-accent:        oklch(0.70 0.13 var(--accent-h));
+  --color-accent-strong: oklch(0.62 0.14 var(--accent-h));
+  --color-accent-dim:    oklch(0.70 0.13 var(--accent-h) / 0.14);
+  --color-accent-text:   oklch(0.16 0.01 var(--accent-h));
+
+  --color-ok:         oklch(0.74 0.14 150);
+  --color-ok-dim:     oklch(0.74 0.14 150 / 0.14);
+  --color-warn:       oklch(0.80 0.13 75);
+  --color-warn-dim:   oklch(0.80 0.13 75 / 0.14);
+  --color-danger:     oklch(0.70 0.17 25);
+  --color-danger-dim: oklch(0.70 0.17 25 / 0.14);
+  --color-info:       oklch(0.74 0.13 230);
+  --color-info-dim:   oklch(0.74 0.13 230 / 0.14);
+  --color-neutral:    oklch(0.65 0.005 270);
+
+  /* ----- legacy aliases (kept so existing pages compile) ----- */
+  --color-bg:              oklch(0.16 0.005 270);
+  --color-surface:         oklch(0.198 0.006 270);
+  --color-surface-2:       oklch(0.235 0.007 270);
+  --color-hover:           oklch(0.27 0.008 270);
+  --color-input:           oklch(0.178 0.006 270);
+  --color-border:          oklch(0.305 0.008 270);
+  --color-border-foreground:oklch(0.50 0.010 270);
+  --color-foreground:      oklch(0.965 0.004 270);
+  --color-foreground-2:    oklch(0.80 0.008 270);
+  --color-muted:           oklch(0.625 0.010 270);
+  --color-faint:           oklch(0.50 0.010 270);
+  --color-status-success:  oklch(0.74 0.14 150);
+  --color-status-warning:  oklch(0.80 0.13 75);
+  --color-status-danger:   oklch(0.70 0.17 25);
+  --color-status-info:     oklch(0.74 0.13 230);
+  --color-status-neutral:  oklch(0.65 0.005 270);
+
+  --color-background:      oklch(0.16 0.005 270);
+  --color-card:            oklch(0.198 0.006 270);
+  --color-card-foreground: oklch(0.965 0.004 270);
+  --color-popover:         oklch(0.198 0.006 270);
+  --color-popover-foreground: oklch(0.965 0.004 270);
+  --color-primary:         oklch(0.70 0.13 var(--accent-h));
+  --color-primary-foreground: oklch(0.16 0.01 var(--accent-h));
+  --color-secondary:       oklch(0.235 0.007 270);
+  --color-secondary-foreground: oklch(0.965 0.004 270);
+  --color-destructive:     oklch(0.70 0.17 25);
+  --color-destructive-foreground: oklch(0.965 0.004 270);
+  --color-muted-foreground:oklch(0.625 0.010 270);
+  --color-accent-foreground: oklch(0.16 0.01 var(--accent-h));
+  --color-ring:            oklch(0.70 0.13 var(--accent-h) / 0.5);
 
   --font-sans:
     'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
@@ -46,26 +75,32 @@
     'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo,
     monospace;
 
-  --radius-lg: 10px;
-  --radius-md: 6px;
   --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* Radix accordion animation keyframes (consumed by tailwindcss-animate) */
+  --animate-accordion-down: accordion-down 0.18s ease-out;
+  --animate-accordion-up:   accordion-up 0.18s ease-out;
 }
 
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
+@keyframes accordion-down {
+  from { height: 0; }
+  to   { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to   { height: 0; }
+}
 
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
 @layer base {
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
+    border-color: var(--color-border-subtle, currentcolor);
   }
 }
 
@@ -75,31 +110,34 @@
 
 @layer base {
   :root {
-    --bg-base:      0.16 0.005 270;
-    --bg-surface:   0.20 0.006 270;
-    --bg-surface-2: 0.235 0.007 270;
-    --bg-hover:     0.26 0.008 270;
-    --bg-input:     0.18 0.006 270;
-    --border-subtle: 0.30 0.008 270;
-    --border-strong: 0.40 0.010 270;
-    --border-faint:  0.25 0.007 270;
-    --text-primary:   0.96 0.005 270;
-    --text-secondary: 0.78 0.008 270;
-    --text-muted:     0.60 0.010 270;
-    --text-faint:     0.48 0.010 270;
-    --accent:        0.70 0.13 240;
-    --accent-strong: 0.62 0.14 240;
-    --accent-text:   0.16 0.005 270;
-    --status-success: 0.74 0.14 150;
-    --status-warning: 0.78 0.14 75;
-    --status-danger:  0.70 0.16 25;
-    --status-info:    0.74 0.13 230;
-    --status-neutral: 0.65 0.005 270;
+    --accent-h: 175;
+    --pad: 16px;
+    --gap: 12px;
+    --row: 34px;
+    --sidebar-w: 244px;
+    font-synthesis: none;
   }
   html, body, #root { height: 100%; }
   body {
-    @apply bg-bg text-foreground font-sans antialiased;
-    font-size: 14px; line-height: 1.45; text-rendering: optimizeLegibility;
+    background: var(--color-bg-base);
+    color: var(--color-tx-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  .mono { @apply font-mono; font-feature-settings: "ss01", "zero"; }
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "ss01", "zero";
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  ::selection { background: var(--color-accent-dim); }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-border-subtle);
+    border-radius: 6px;
+    border: 2px solid var(--color-bg-base);
+  }
+  *::-webkit-scrollbar-track { background: transparent; }
 }
