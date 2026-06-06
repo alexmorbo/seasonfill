@@ -33,6 +33,9 @@ func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (f *fakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }
@@ -349,6 +352,9 @@ func (s *slowFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, er
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (s *slowFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *slowFakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (s *slowFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }
@@ -441,6 +447,9 @@ func (s *sleepyFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, 
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (s *sleepyFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *sleepyFakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (s *sleepyFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

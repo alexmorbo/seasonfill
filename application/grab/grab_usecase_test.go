@@ -52,6 +52,9 @@ func (f *fakeSonarrGrab) SystemStatus(_ context.Context) (ports.SystemStatus, er
 	return ports.SystemStatus{}, nil
 }
 func (f *fakeSonarrGrab) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (f *fakeSonarrGrab) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *fakeSonarrGrab) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

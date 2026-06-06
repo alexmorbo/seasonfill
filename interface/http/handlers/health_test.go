@@ -31,6 +31,9 @@ func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (f *fakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

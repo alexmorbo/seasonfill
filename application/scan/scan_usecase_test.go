@@ -30,15 +30,16 @@ import (
 func boolPtr(b bool) *bool { return &b }
 
 type fakeSonarr struct {
-	name     string
-	series   []series.Series
-	episodes func(seriesID, season int) []series.Episode
-	releases []release.Release
-	tags     []ports.Tag
-	tagsErr  error
-	grabErr  error
-	grabCnt  int
-	grabMu   sync.Mutex
+	name           string
+	series         []series.Series
+	episodes       func(seriesID, season int) []series.Episode
+	releases       []release.Release
+	tags           []ports.Tag
+	tagsErr        error
+	grabErr        error
+	grabCnt        int
+	grabMu         sync.Mutex
+	seriesCacheErr error
 }
 
 func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
@@ -100,6 +101,22 @@ func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, erro
 	defer f.grabMu.Unlock()
 	f.grabCnt++
 	return "", f.grabErr
+}
+func (f *fakeSonarr) ListSeriesCache(_ context.Context, instanceName string) ([]series.CacheEntry, error) {
+	if f.seriesCacheErr != nil {
+		return nil, f.seriesCacheErr
+	}
+	out := make([]series.CacheEntry, 0, len(f.series))
+	for _, s := range f.series {
+		out = append(out, series.CacheEntry{
+			InstanceName:   instanceName,
+			SonarrSeriesID: s.ID,
+			Title:          s.Title,
+			TitleSlug:      "slug-" + s.Title,
+			Monitored:      s.Monitored,
+		})
+	}
+	return out, nil
 }
 func (f *fakeSonarr) Name() string { return f.name }
 
@@ -1386,4 +1403,79 @@ func waitForScanRecord(t *testing.T, repo *fakeScanRepo, id uuid.UUID, want stri
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("scan record %s did not reach status=%s within 2s", id, want)
+}
+
+type fakeSeriesCache struct {
+	mu        sync.Mutex
+	upserted  []series.CacheEntry
+	upsertErr error
+}
+
+func (f *fakeSeriesCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+	return series.CacheEntry{}, ports.ErrNotFound
+}
+func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
+	f.upserted = append(f.upserted, e)
+	return nil
+}
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ string, _ int) error { return nil }
+func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
+
+var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
+
+func twoMonitoredSeries() []series.Series {
+	return []series.Series{monSeries(1, "S1"), monSeries(2, "S2")}
+}
+
+func newScanUseCaseForTest(t *testing.T, client ports.SonarrClient) *UseCase {
+	t.Helper()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	return newScanUCFor(t, lg, []Instance{{
+		Config: instCfg("main", "auto"),
+		Client: client,
+	}})
+}
+
+func TestScanUseCase_SeriesCache_UpsertsEverySeries(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: twoMonitoredSeries()}
+	cache := &fakeSeriesCache{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeriesCache(cache)
+
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	require.Len(t, cache.upserted, 2)
+	for _, e := range cache.upserted {
+		assert.Equal(t, "main", e.InstanceName)
+	}
+}
+
+func TestScanUseCase_SeriesCache_UpsertErrorDoesNotFailScan(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: twoMonitoredSeries()}
+	cache := &fakeSeriesCache{upsertErr: errors.New("disk full")}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeriesCache(cache)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+}
+
+func TestScanUseCase_SeriesCache_NilRepo_NoCall(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: twoMonitoredSeries()}
+	uc := newScanUseCaseForTest(t, sonarrFake) // no WithSeriesCache
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
 }

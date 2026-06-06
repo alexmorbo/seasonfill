@@ -119,6 +119,9 @@ func (fakeSonarr) SystemStatus(ctx context.Context) (ports.SystemStatus, error) 
 func (fakeSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
 	return nil, nil
 }
+func (fakeSonarr) ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (fakeSonarr) GetSeries(ctx context.Context, id int) (series.Series, error) {
 	return series.Series{ID: id, Title: "Test Series", QualityProfile: 1}, nil
 }

@@ -32,18 +32,19 @@ import (
 // ForceGrab so every grab attempt fails. Each Sonarr method increments
 // a public atomic counter so tests can assert "nothing was called".
 type abortFakeSonarr struct {
-	name              string
-	systemStatusCalls int64
-	listSeriesCalls   int64
-	getSeriesCalls    int64
-	listEpisodesCalls int64
-	listFilesCalls    int64
-	searchCalls       int64
-	qualityProfCalls  int64
-	listIndexersCalls int64
-	listTagsCalls     int64
-	grabHistoryCalls  int64
-	forceGrabCalls    int64
+	name                 string
+	systemStatusCalls    int64
+	listSeriesCalls      int64
+	listSeriesCacheCalls int64
+	getSeriesCalls       int64
+	listEpisodesCalls    int64
+	listFilesCalls       int64
+	searchCalls          int64
+	qualityProfCalls     int64
+	listIndexersCalls    int64
+	listTagsCalls        int64
+	grabHistoryCalls     int64
+	forceGrabCalls       int64
 }
 
 // totalCalls returns the sum of every Sonarr-method invocation counter.
@@ -51,6 +52,7 @@ type abortFakeSonarr struct {
 func (f *abortFakeSonarr) totalCalls() int64 {
 	return atomic.LoadInt64(&f.systemStatusCalls) +
 		atomic.LoadInt64(&f.listSeriesCalls) +
+		atomic.LoadInt64(&f.listSeriesCacheCalls) +
 		atomic.LoadInt64(&f.getSeriesCalls) +
 		atomic.LoadInt64(&f.listEpisodesCalls) +
 		atomic.LoadInt64(&f.listFilesCalls) +
@@ -82,6 +84,11 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 		})
 	}
 	return out, nil
+}
+
+func (f *abortFakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	atomic.AddInt64(&f.listSeriesCacheCalls, 1)
+	return nil, nil
 }
 
 func (f *abortFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
@@ -425,6 +432,9 @@ func (f *authFailFakeSonarrWrapped) SystemStatus(_ context.Context) (ports.Syste
 }
 func (f *authFailFakeSonarrWrapped) ListSeries(_ context.Context) ([]series.Series, error) {
 	return nil, errors.Join(errors.New("401 from sonarr"), domain.ErrInstanceUnauthorized)
+}
+func (f *authFailFakeSonarrWrapped) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil

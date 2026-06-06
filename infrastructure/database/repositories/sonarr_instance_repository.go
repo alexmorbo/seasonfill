@@ -211,7 +211,7 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(
 
 // Delete hard-deletes the sonarr_instance row plus every related row
 // keyed by instance name: instance_secret (FK on instance_id),
-// series-scope cooldowns, scan_runs, decisions, grab_records. All
+// series-scope cooldowns, scan_runs, decisions, grab_records, series_cache. All
 // deletes happen inside a single transaction so a partial delete
 // can't strand orphan history. GUID-scope cooldowns are tracker-
 // global and intentionally not purged here.
@@ -244,6 +244,10 @@ func (r *SonarrInstanceRepository) Delete(ctx context.Context, name string) erro
 		if err := tx.Where("instance_name = ?", name).
 			Delete(&database.GrabRecordModel{}).Error; err != nil {
 			return fmt.Errorf("delete grab_records: %w", err)
+		}
+		if err := tx.Where("instance_name = ?", name).
+			Delete(&database.SeriesCacheModel{}).Error; err != nil {
+			return fmt.Errorf("delete series_cache: %w", err)
 		}
 		if err := tx.Delete(&m).Error; err != nil {
 			return fmt.Errorf("delete instance: %w", err)

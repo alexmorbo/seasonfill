@@ -105,15 +105,16 @@ type HealthRegistry interface {
 }
 
 type UseCase struct {
-	instances atomic.Pointer[[]Instance]
-	evaluator *evaluate.UseCase
-	scans     ports.ScanRepository
-	grabUC    *grab.UseCase
-	cooldowns ports.CooldownRepository
-	origins   ports.OriginReleaseRepository
-	health    HealthRegistry
-	logger    *slog.Logger
-	dryRun    atomic.Bool
+	instances   atomic.Pointer[[]Instance]
+	evaluator   *evaluate.UseCase
+	scans       ports.ScanRepository
+	grabUC      *grab.UseCase
+	cooldowns   ports.CooldownRepository
+	origins     ports.OriginReleaseRepository
+	seriesCache ports.SeriesCacheRepository
+	health      HealthRegistry
+	logger      *slog.Logger
+	dryRun      atomic.Bool
 
 	mu       sync.Mutex
 	inflight map[string]inflightEntry
@@ -176,8 +177,12 @@ func (u *UseCase) SwapDryRun(b bool) {
 func (u *UseCase) WithGrabUseCase(g *grab.UseCase) *UseCase             { u.grabUC = g; return u }
 func (u *UseCase) WithCooldowns(c ports.CooldownRepository) *UseCase    { u.cooldowns = c; return u }
 func (u *UseCase) WithOrigins(o ports.OriginReleaseRepository) *UseCase { u.origins = o; return u }
-func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase         { u.health = r; return u }
-func (u *UseCase) WithBarrier(b Barrier) *UseCase                       { u.barrier = b; return u }
+func (u *UseCase) WithSeriesCache(c ports.SeriesCacheRepository) *UseCase {
+	u.seriesCache = c
+	return u
+}
+func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase { u.health = r; return u }
+func (u *UseCase) WithBarrier(b Barrier) *UseCase               { u.barrier = b; return u }
 
 // WithWaitGroup wires the process-wide background wait group so
 // async scan goroutines block graceful shutdown's drainBackground.
@@ -483,6 +488,8 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		}
 		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
 	}
+
+	u.fillSeriesCache(ctx, inst)
 
 	if len(seriesIDs) > 0 {
 		// Q-010-3: stale UI cache may reference IDs not in this
@@ -1101,6 +1108,33 @@ func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pen
 			slog.String("error", err.Error()))
 	}
 	return 0
+}
+
+// fillSeriesCache lazily refreshes series_cache for the instance.
+// Runs after every successful ListSeries. Errors are warn-logged and
+// NEVER propagate — this is a best-effort sidecar (D-2.5 pattern).
+// No-op when the repo dependency wasn't injected.
+func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance) {
+	if u.seriesCache == nil {
+		return
+	}
+	entries, err := inst.Client.ListSeriesCache(ctx, inst.Config.Name)
+	if err != nil {
+		u.logger.WarnContext(ctx, "series_cache_list_failed",
+			slog.String("instance", inst.Config.Name),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	for _, e := range entries {
+		if uerr := u.seriesCache.Upsert(ctx, e); uerr != nil {
+			u.logger.WarnContext(ctx, "series_cache_upsert_failed",
+				slog.String("instance", inst.Config.Name),
+				slog.Int("series_id", e.SonarrSeriesID),
+				slog.String("error", uerr.Error()),
+			)
+		}
+	}
 }
 
 // buildTagFilter resolves the configured `tags.include` / `tags.exclude`

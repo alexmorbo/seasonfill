@@ -40,6 +40,9 @@ func (n *noopSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (n *noopSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (n *noopSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (n *noopSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

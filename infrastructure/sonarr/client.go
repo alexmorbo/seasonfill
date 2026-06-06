@@ -250,6 +250,88 @@ func (c *Client) GetSeries(ctx context.Context, id int) (series.Series, error) {
 	return toSeries(dto), nil
 }
 
+func (c *Client) ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+	var dtos []seriesDTO
+	if err := c.get(ctx, "/api/v3/series", nil, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]series.CacheEntry, 0, len(dtos))
+	for _, d := range dtos {
+		out = append(out, seriesDTOToCacheEntry(d, instanceName))
+	}
+	return out, nil
+}
+
+func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
+	entry := series.CacheEntry{
+		InstanceName:   instanceName,
+		SonarrSeriesID: d.ID,
+		Title:          d.Title,
+		TitleSlug:      d.TitleSlug,
+		Monitored:      d.Monitored,
+	}
+	// Pointer fields: nil unless Sonarr returned a non-zero value.
+	if d.Year > 0 {
+		v := d.Year
+		entry.Year = &v
+	}
+	if d.TVDBID > 0 {
+		v := d.TVDBID
+		entry.TVDBID = &v
+	}
+	if d.IMDBID != "" {
+		v := d.IMDBID
+		entry.IMDBID = &v
+	}
+	if d.TMDBID > 0 {
+		v := d.TMDBID
+		entry.TMDBID = &v
+	}
+	if d.Status != "" {
+		v := d.Status
+		entry.Status = &v
+	}
+	if d.Network != "" {
+		v := d.Network
+		entry.Network = &v
+	}
+	if d.Runtime > 0 {
+		v := d.Runtime
+		entry.RuntimeMinutes = &v
+	}
+	if d.Overview != "" {
+		v := d.Overview
+		entry.Overview = &v
+	}
+	if len(d.Genres) > 0 {
+		g := make([]string, len(d.Genres))
+		copy(g, d.Genres)
+		entry.Genres = g
+	}
+	// First image per cover type wins.
+	for _, img := range d.Images {
+		if img.URL == "" {
+			continue
+		}
+		url := img.URL
+		switch img.CoverType {
+		case "poster":
+			if entry.PosterPath == nil {
+				entry.PosterPath = &url
+			}
+		case "fanart":
+			if entry.FanartPath == nil {
+				entry.FanartPath = &url
+			}
+		case "banner":
+			if entry.BannerPath == nil {
+				entry.BannerPath = &url
+			}
+		}
+	}
+	return entry
+}
+
 func (c *Client) ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error) {
 	q := url.Values{}
 	q.Set("seriesId", strconv.Itoa(seriesID))

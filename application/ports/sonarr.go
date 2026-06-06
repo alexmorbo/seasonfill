@@ -50,6 +50,11 @@ type Tag struct {
 type SonarrClient interface {
 	SystemStatus(ctx context.Context) (SystemStatus, error)
 	ListSeries(ctx context.Context) ([]series.Series, error)
+	// ListSeriesCache fetches the same /api/v3/series payload as
+	// ListSeries but maps to the richer series.CacheEntry shape used by
+	// the series_cache repository (041e). instanceName is stamped onto
+	// every returned entry — Sonarr does not echo it.
+	ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
 	GetSeries(ctx context.Context, id int) (series.Series, error)
 	ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error)
 	ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error)

@@ -18,6 +18,9 @@ func (f *fakeSonarrClient) SystemStatus(_ context.Context) (ports.SystemStatus, 
 	return ports.SystemStatus{}, nil
 }
 func (f *fakeSonarrClient) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (f *fakeSonarrClient) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *fakeSonarrClient) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

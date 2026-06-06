@@ -10,12 +10,33 @@ type systemStatusDTO struct {
 type seriesDTO struct {
 	ID             int            `json:"id"`
 	Title          string         `json:"title"`
+	TitleSlug      string         `json:"titleSlug"`
+	Year           int            `json:"year"`
 	SeriesType     string         `json:"seriesType"`
 	Monitored      bool           `json:"monitored"`
 	QualityProfile int            `json:"qualityProfileId"`
 	Tags           []int          `json:"tags"`
 	Seasons        []seasonDTO    `json:"seasons"`
 	Statistics     *statisticsDTO `json:"statistics,omitempty"`
+	TVDBID         int            `json:"tvdbId,omitempty"`
+	IMDBID         string         `json:"imdbId,omitempty"`
+	TMDBID         int            `json:"tmdbId,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	Network        string         `json:"network,omitempty"`
+	Genres         []string       `json:"genres,omitempty"`
+	Runtime        int            `json:"runtime,omitempty"`
+	Overview       string         `json:"overview,omitempty"`
+	Images         []imageDTO     `json:"images,omitempty"`
+}
+
+// imageDTO is one entry in Sonarr series.images[]. URL is either a
+// relative `/MediaCover/...` path or a fully-qualified URL depending on
+// the Sonarr install — pass through verbatim; the UI prefixes when
+// stored value starts with `/`.
+type imageDTO struct {
+	CoverType string `json:"coverType"`
+	URL       string `json:"url"`
+	RemoteURL string `json:"remoteUrl,omitempty"`
 }
 
 type seasonDTO struct {

@@ -190,7 +190,10 @@ func (f *rescanFakeSonarr) GetQualityProfile(_ context.Context, id int) (ports.Q
 func (f *rescanFakeSonarr) SystemStatus(context.Context) (ports.SystemStatus, error) {
 	return ports.SystemStatus{}, nil
 }
-func (f *rescanFakeSonarr) ListSeries(context.Context) ([]series.Series, error)   { return nil, nil }
+func (f *rescanFakeSonarr) ListSeries(context.Context) ([]series.Series, error) { return nil, nil }
+func (f *rescanFakeSonarr) ListSeriesCache(context.Context, string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *rescanFakeSonarr) ListIndexers(context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *rescanFakeSonarr) ListTags(context.Context) ([]ports.Tag, error)         { return nil, nil }
 func (f *rescanFakeSonarr) GrabHistory(context.Context, int) ([]ports.HistoryEvent, error) {

@@ -27,6 +27,9 @@ func (s *stubSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{}, nil
 }
 func (s *stubSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (s *stubSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (s *stubSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

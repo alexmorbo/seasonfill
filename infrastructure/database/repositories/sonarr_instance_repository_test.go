@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -678,4 +679,41 @@ func TestSonarrInstanceRepository_WebhookURLOverride_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.WebhookURLOverride)
 	assert.Equal(t, override, *got.WebhookURLOverride)
+}
+
+func TestSonarrInstanceRepository_Delete_PurgesSeriesCache(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	instRepo := NewSonarrInstanceRepository(db)
+	cacheRepo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	cipher, err := crypto.New("test-master-key-12345")
+	require.NoError(t, err)
+
+	inst := runtime.InstanceSnapshot{
+		Name:    "main",
+		URL:     "http://sonarr.local",
+		APIKey:  "secret",
+		Mode:    "auto",
+		Timeout: 10 * time.Second,
+	}
+	_, err = instRepo.Create(ctx, inst, cipher)
+	require.NoError(t, err)
+
+	sampleEntry := series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 12,
+		Title:          "Test Series",
+		TitleSlug:      "test-series",
+	}
+	require.NoError(t, cacheRepo.Upsert(ctx, sampleEntry))
+	sampleEntry.SonarrSeriesID = 13
+	require.NoError(t, cacheRepo.Upsert(ctx, sampleEntry))
+
+	require.NoError(t, instRepo.Delete(ctx, "main"))
+
+	got, err := cacheRepo.ListActiveByInstance(ctx, "main")
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
