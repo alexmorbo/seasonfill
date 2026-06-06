@@ -176,4 +176,72 @@ describe('<InstanceQueue />', () => {
     renderWithProviders(wrap(), { route: '/instances/ghost/queue' });
     expect(await screen.findByText(/unknown instance ghost/i)).toBeInTheDocument();
   });
+
+  it('renders the series title as a Sonarr link when ui_url and title_slug are present', async () => {
+    globalThis.fetch = fetchStub({
+      '/instances/alpha/missing': () =>
+        json({
+          items: [
+            {
+              series_id: 122,
+              title: 'Severance',
+              title_slug: 'severance',
+              year: 2022,
+              monitored: true,
+              total_missing_aired: 8,
+              seasons: [{ season_number: 2, missing_aired_count: 8 }],
+            },
+          ],
+          total: 1,
+        }),
+      '/api/v1/instances/alpha': () =>
+        json({
+          name: 'alpha',
+          url: 'http://sonarr:8989',
+          public_url: 'https://sonarr.example.com',
+          ui_url: 'https://sonarr.example.com',
+        }),
+      '/instances': () =>
+        json({ instances: [{ name: 'alpha', mode: 'manual', health: 'available' }] }),
+    }) as typeof fetch;
+
+    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
+    const link = await screen.findByRole('link', { name: /Severance/i });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://sonarr.example.com/series/severance',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByText('(2022)')).toBeInTheDocument();
+  });
+
+  it('renders plain text when title_slug is absent (cache miss)', async () => {
+    globalThis.fetch = fetchStub({
+      '/instances/alpha/missing': () =>
+        json({
+          items: [
+            {
+              series_id: 9,
+              title: 'Andor',
+              monitored: true,
+              total_missing_aired: 3,
+              seasons: [{ season_number: 1, missing_aired_count: 3 }],
+            },
+          ],
+          total: 1,
+        }),
+      '/api/v1/instances/alpha': () =>
+        json({
+          name: 'alpha',
+          url: 'http://sonarr:8989',
+          ui_url: 'http://sonarr:8989',
+        }),
+      '/instances': () =>
+        json({ instances: [{ name: 'alpha', mode: 'manual', health: 'available' }] }),
+    }) as typeof fetch;
+
+    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
+    expect(await screen.findByText('Andor')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Andor/i })).not.toBeInTheDocument();
+  });
 });

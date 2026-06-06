@@ -13,12 +13,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/EmptyState';
+import { SeriesTitleLink } from '@/components/SeriesTitleLink';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { StatusBadge } from '@/components/StatusBadge';
 import { StatCard } from '@/components/StatCard';
 import { useMissing, type MissingSeries } from '@/lib/missing';
 import { useTriggerScan, firstScanRunId, NoScanStartedError } from '@/lib/scan-mutations';
 import { useInstances } from '@/lib/instances';
+import { useInstanceDetail } from '@/lib/instances-mutations';
 import { ApiError } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -31,6 +33,8 @@ export function InstanceQueue() {
 
   const missing = useMissing(name);
   const instances = useInstances();
+  const instanceDetail = useInstanceDetail(name ?? null);
+  const uiUrl = instanceDetail.data?.detail.ui_url;
   const trigger = useTriggerScan();
 
   const inst = instances.data?.instances?.find((i) => i.name === name);
@@ -218,7 +222,12 @@ export function InstanceQueue() {
                     <TableRow key={seriesId ?? s.title}>
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
-                          <span className="font-medium">{s.title ?? '—'}</span>
+                          <SeriesTitleLink
+                            title={s.title ?? '—'}
+                            titleSlug={s.title_slug}
+                            year={s.year}
+                            instanceUiUrl={uiUrl}
+                          />
                           <span className="font-mono text-[11px] text-faint">
                             id: {seriesId ?? '—'}
                           </span>
