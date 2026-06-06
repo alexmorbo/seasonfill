@@ -317,7 +317,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// in place until 039e/039g land — the gate is effectively open
 	// today, which matches the parent's "ship in vertical slices" plan.
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
-	qbitSettingsUC := regrab.NewUseCase(qbitSettingsRepo, instanceRepo, cipher, log)
+	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log)
 	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,

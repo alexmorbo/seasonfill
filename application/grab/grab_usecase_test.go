@@ -136,6 +136,10 @@ func (r *fakeGrabRepo) CreateReplay(_ context.Context, rec domaingrab.Record, _ 
 	return nil
 }
 
+func (r *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	return nil
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

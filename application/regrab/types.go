@@ -126,6 +126,7 @@ type RunResult struct {
 	SkippedCooldown      int
 	SkippedBlacklist     int
 	BlacklistedThisCycle []TripleKey
+	QbitError            error
 	StartedAt            time.Time
 	FinishedAt           time.Time
 }

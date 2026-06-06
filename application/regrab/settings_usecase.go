@@ -111,7 +111,7 @@ const (
 // dependencies (TestConnection probe, audit logger) can be wired
 // via With...() builders in later stories without breaking the
 // existing constructor signature.
-type UseCase struct {
+type SettingsUseCase struct {
 	settings  ports.QbitSettingsRepository
 	instances ports.SonarrInstanceRepository
 	cipher    *crypto.Cipher
@@ -120,16 +120,16 @@ type UseCase struct {
 	now       func() time.Time
 }
 
-func NewUseCase(
+func NewSettingsUseCase(
 	settings ports.QbitSettingsRepository,
 	instances ports.SonarrInstanceRepository,
 	cipher *crypto.Cipher,
 	logger *slog.Logger,
-) *UseCase {
+) *SettingsUseCase {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &UseCase{
+	return &SettingsUseCase{
 		settings:  settings,
 		instances: instances,
 		cipher:    cipher,
@@ -142,7 +142,7 @@ func NewUseCase(
 // WithWebhookChecker swaps the null gate for the production checker
 // once 039e/039g land. Returning the use case keeps the cmd/server
 // wiring fluent.
-func (u *UseCase) WithWebhookChecker(c WebhookChecker) *UseCase {
+func (u *SettingsUseCase) WithWebhookChecker(c WebhookChecker) *SettingsUseCase {
 	if c == nil {
 		c = nullWebhookChecker{}
 	}
@@ -152,7 +152,7 @@ func (u *UseCase) WithWebhookChecker(c WebhookChecker) *UseCase {
 
 // WithClock is the test-time hook to fix time.Now without monkey-
 // patching. Production callers don't touch this.
-func (u *UseCase) WithClock(now func() time.Time) *UseCase {
+func (u *SettingsUseCase) WithClock(now func() time.Time) *SettingsUseCase {
 	if now != nil {
 		u.now = now
 	}
@@ -164,7 +164,7 @@ func (u *UseCase) WithClock(now func() time.Time) *UseCase {
 // (handler maps to INSTANCE_NOT_FOUND) and "settings not found"
 // (handler maps to QBIT_SETTINGS_NOT_FOUND). The two are
 // distinguished by which call returned the error.
-func (u *UseCase) GetByInstanceName(ctx context.Context, name string) (QbitSettingsView, error) {
+func (u *SettingsUseCase) GetByInstanceName(ctx context.Context, name string) (QbitSettingsView, error) {
 	inst, err := u.instances.GetByName(ctx, name, u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
@@ -185,7 +185,7 @@ func (u *UseCase) GetByInstanceName(ctx context.Context, name string) (QbitSetti
 // preserved verbatim. The returned view is sourced from the
 // freshly-persisted row so the handler can echo it back as the PUT
 // body.
-func (u *UseCase) Upsert(ctx context.Context, name string, in UpsertInput) (QbitSettingsView, error) {
+func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInput) (QbitSettingsView, error) {
 	if err := validate(in); err != nil {
 		return QbitSettingsView{}, err
 	}
@@ -278,7 +278,7 @@ func (u *UseCase) Upsert(ctx context.Context, name string, in UpsertInput) (Qbit
 
 // Delete removes the settings row. ports.ErrNotFound flows through
 // when there is no row.
-func (u *UseCase) Delete(ctx context.Context, name string) error {
+func (u *SettingsUseCase) Delete(ctx context.Context, name string) error {
 	inst, err := u.instances.GetByName(ctx, name, u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
@@ -300,7 +300,7 @@ func (u *UseCase) Delete(ctx context.Context, name string) error {
 //
 // Kept on the use case (rather than a free function) so the cipher
 // reference is encapsulated.
-func (u *UseCase) DecryptPassword(rec ports.QbitSettingsRecord) (string, error) {
+func (u *SettingsUseCase) DecryptPassword(rec ports.QbitSettingsRecord) (string, error) {
 	if len(rec.PasswordEncrypted) == 0 {
 		return "", nil
 	}
@@ -493,6 +493,24 @@ func boundInt(field, code string, v, min, max int) error {
 			fmt.Sprintf("must be between %d and %d", min, max))
 	}
 	return nil
+}
+
+// Lookup implements the SettingsLookup interface for the regrab
+// use case. Reads the row, decrypts the password, and returns a
+// fully-resolved Settings projection.
+func (u *SettingsUseCase) Lookup(ctx context.Context, name string) (Settings, error) {
+	inst, err := u.instances.GetByName(ctx, name, u.cipher)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return Settings{}, fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)
+		}
+		return Settings{}, fmt.Errorf("resolve instance %q: %w", name, err)
+	}
+	rec, err := u.settings.GetByInstance(ctx, inst.ID)
+	if err != nil {
+		return Settings{}, err
+	}
+	return NewSettingsFromRecord(rec, name, u.cipher)
 }
 
 // Ensure the runtime + crypto imports stay referenced even if a

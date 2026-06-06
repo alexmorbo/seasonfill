@@ -16,11 +16,11 @@ import (
 // surface. Mounted under the existing guarded group in server.go
 // (same auth middleware as `/api/v1/instances/:name`).
 type QbitSettingsHandler struct {
-	uc     *regrab.UseCase
+	uc     *regrab.SettingsUseCase
 	logger *slog.Logger
 }
 
-func NewQbitSettingsHandler(uc *regrab.UseCase, logger *slog.Logger) *QbitSettingsHandler {
+func NewQbitSettingsHandler(uc *regrab.SettingsUseCase, logger *slog.Logger) *QbitSettingsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}

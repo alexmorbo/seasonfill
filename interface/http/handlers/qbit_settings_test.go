@@ -111,7 +111,7 @@ type testFixture struct {
 	settings  *qbitFakeSettings
 	instances *qbitFakeInstances
 	checker   *webhookStub
-	uc        *regrab.UseCase
+	uc        *regrab.SettingsUseCase
 	handler   *QbitSettingsHandler
 	engine    *gin.Engine
 }
@@ -123,7 +123,7 @@ func newTestFixture(t *testing.T) *testFixture {
 	instances.Seed("alpha", 7)
 	checker := &webhookStub{}
 	checker.installed.Store(true) // happy-path default
-	uc := regrab.NewUseCase(settings, instances, newHandlerTestCipher(t), nil).
+	uc := regrab.NewSettingsUseCase(settings, instances, newHandlerTestCipher(t), nil).
 		WithWebhookChecker(checker)
 	h := NewQbitSettingsHandler(uc, nil)
 	r := gin.New()

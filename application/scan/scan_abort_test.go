@@ -241,6 +241,10 @@ func (abortFakeGrabRepo) CreateReplay(_ context.Context, _ domaingrab.Record, _ 
 	return nil
 }
 
+func (abortFakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	return nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

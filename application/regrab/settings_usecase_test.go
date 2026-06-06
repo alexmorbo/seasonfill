@@ -137,9 +137,9 @@ func validInput() UpsertInput {
 	}
 }
 
-func newUC(t *testing.T, repo *fakeSettingsRepo, instances *fakeInstanceRepo) *UseCase {
+func newUC(t *testing.T, repo *fakeSettingsRepo, instances *fakeInstanceRepo) *SettingsUseCase {
 	t.Helper()
-	return NewUseCase(repo, instances, newTestCipher(t), nil)
+	return NewSettingsUseCase(repo, instances, newTestCipher(t), nil)
 }
 
 func TestUseCase_Upsert_CreatesAnonRowWhenPasswordEmpty(t *testing.T) {

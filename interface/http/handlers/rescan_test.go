@@ -117,6 +117,10 @@ func (f *rescanFakeGrab) CreateReplay(_ context.Context, rec grab.Record, _ uuid
 	return nil
 }
 
+func (f *rescanFakeGrab) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	return nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

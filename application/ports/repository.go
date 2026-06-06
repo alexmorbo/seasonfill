@@ -140,6 +140,14 @@ type GrabRepository interface {
 	// rec.ReplayOfID before calling Create (clearer intent at the
 	// call site).
 	CreateReplay(ctx context.Context, rec grab.Record, replayOfID uuid.UUID) error
+
+	// SetReplayOfID stamps the replay_of_id column on an existing row.
+	// Idempotent: re-stamping the same id is a no-op success. Returns
+	// ErrNotFound on unknown row id. Used by the Watchdog regrab use
+	// case (039f-2) to attach the audit pointer AFTER the grab use
+	// case has persisted the row (grab.UseCase doesn't know about
+	// the regrab audit pointer; this is the cleanest separation).
+	SetReplayOfID(ctx context.Context, id uuid.UUID, replayOfID uuid.UUID) error
 }
 
 type CooldownRepository interface {

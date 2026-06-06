@@ -98,6 +98,10 @@ func (f *fakeGrabRepo) CreateReplay(_ context.Context, rec grab.Record, _ uuid.U
 	panic("fake CreateReplay unexpectedly called - this stub is not configured")
 }
 
+func (f *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	panic("fake SetReplayOfID unexpectedly called - this stub is not configured")
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

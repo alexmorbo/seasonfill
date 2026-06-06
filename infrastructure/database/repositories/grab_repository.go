@@ -328,6 +328,39 @@ func (r *GrabRepository) CreateReplay(ctx context.Context, rec grab.Record, repl
 	return r.Create(ctx, rec)
 }
 
+// SetReplayOfID writes replay_of_id on an existing grab_records row.
+// Idempotent: a row that already has a non-NULL value is left alone
+// (defensive — concurrent regrab loops shouldn't be possible on the
+// same triple due to the per-instance ticker, but the no-overwrite
+// rule prevents accidental audit-pointer corruption).
+func (r *GrabRepository) SetReplayOfID(ctx context.Context, id uuid.UUID, replayOfID uuid.UUID) error {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	now := time.Now().UTC()
+	res := db.Model(&database.GrabRecordModel{}).
+		Where("id = ? AND replay_of_id IS NULL", id.String()).
+		Updates(map[string]any{
+			"replay_of_id": replayOfID.String(),
+			"updated_at":   now,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("set replay_of_id: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		// Could be: row missing OR row already had a value. Probe to
+		// distinguish — gives ErrNotFound only on the true-missing path.
+		var probe database.GrabRecordModel
+		if err := db.Select("id").First(&probe, "id = ?", id.String()).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ports.ErrNotFound
+			}
+			return fmt.Errorf("probe after set replay_of_id: %w", err)
+		}
+		// Row exists but replay_of_id was already non-NULL — the
+		// idempotent no-op success path.
+	}
+	return nil
+}
+
 // replayOfIDToString is the *uuid.UUID → *string lift used by toGrabModel.
 // Nil in → nil out so the DB write hits a clean NULL.
 func replayOfIDToString(u *uuid.UUID) *string {

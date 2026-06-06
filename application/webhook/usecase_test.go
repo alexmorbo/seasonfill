@@ -80,6 +80,10 @@ func (r *fakeGrabRepo) CreateReplay(_ context.Context, rec grab.Record, _ uuid.U
 	panic("fake CreateReplay unexpectedly called - this stub is not configured")
 }
 
+func (r *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	panic("fake SetReplayOfID unexpectedly called - this stub is not configured")
+}
+
 type fakeCooldownRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown
