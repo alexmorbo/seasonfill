@@ -188,7 +188,9 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 // versions, and mirroring an existing webhook is the most defensive
 // shape we can produce.
 func buildNotificationFields(p NotificationPayload) []NotificationField {
-	headersValue := "X-Api-Key=" + p.APIKeyHeader
+	// Sonarr v3 expects headers as an array of {key, value} objects
+	// (IEnumerable<KeyValuePair<string,string>>), not a plain string.
+	headersValue := []map[string]string{{"key": "X-Api-Key", "value": p.APIKeyHeader}}
 	if len(p.TemplateFields) > 0 {
 		out := make([]NotificationField, 0, len(p.TemplateFields))
 		urlSet, headersSet := false, false

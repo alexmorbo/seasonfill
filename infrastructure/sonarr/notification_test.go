@@ -132,7 +132,8 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 	assert.Contains(t, gotBody, `"implementation":"Webhook"`)
 	assert.Contains(t, gotBody, `"configContract":"WebhookSettings"`)
 	assert.Contains(t, gotBody, `"onGrab":true`)
-	assert.Contains(t, gotBody, `X-Api-Key=k`)
+	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
+	assert.Contains(t, gotBody, `"value":"k"`)
 }
 
 func TestClient_CreateNotification_409Conflict(t *testing.T) {
@@ -173,7 +174,8 @@ func TestClient_CreateNotification_TemplateMirroring(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, gotBody, `"value":"https://y"`)
-	assert.Contains(t, gotBody, `"value":"X-Api-Key=kk"`)
+	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
+	assert.Contains(t, gotBody, `"value":"kk"`)
 	assert.Contains(t, gotBody, `"name":"ignoreSsl"`)
 }
 

@@ -95,7 +95,8 @@ func TestWebhookInstall_201CreateNew(t *testing.T) {
 	assert.Contains(t, createBody, `"implementation":"Webhook"`)
 	assert.Contains(t, createBody, `"onGrab":true`)
 	assert.Contains(t, createBody, `https://seasonfill.example/api/v1/webhook/sonarr/alpha`)
-	assert.Contains(t, createBody, `X-Api-Key=api-key-XYZ`)
+	assert.Contains(t, createBody, `"key":"X-Api-Key"`)
+	assert.Contains(t, createBody, `"value":"api-key-XYZ"`)
 }
 
 func TestWebhookInstall_412PublicURLUndetermined(t *testing.T) {
