@@ -75,6 +75,7 @@ re-grabbing broken releases.
 | Auto-generated first-run password (qBittorrent-style) | shipped |
 | `reset-password` + `auth-mode` rescue CLI | shipped |
 | Disabled-for-local-addresses bypass (RFC1918/loopback) | shipped |
+| Watchdog: post-import re-grab on unregistered torrents (per-instance opt-in) | shipped |
 | Helm chart (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
 | Docker Compose stack | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
@@ -196,6 +197,119 @@ seasonfill auth-mode --set forms
 
 from the container shell. This restores forms-auth without clearing the
 OIDC config, so you can fix the issue and switch back.
+
+## Watchdog (post-import re-grab automation)
+
+Sonarr's Failed Download Handling closes the case once an episode imports.
+Anything that happens to that torrent afterwards — tracker pulls the
+release because a new Proper is out, the season pack is reissued with
+extra audio tracks, the announce flips to "torrent not registered" — is
+invisible to Sonarr. The file on disk no longer reflects the best
+release available, but nothing in the stack notices.
+
+Watchdog closes that loop. On a configurable cadence (default 30
+minutes) it polls qBittorrent per-instance for torrents whose trackers
+have gone unregistered, looks up the matching grab record, re-runs the
+same evaluator pipeline you use for normal scans against that
+`(series, season)`, and force-grabs a better release if one exists.
+
+### Opt-in flow
+
+Watchdog is per-instance opt-in. Default is off; nothing changes until
+you configure it for an instance. Three steps:
+
+1. **Install the OnGrab webhook in Sonarr.** Watchdog needs the
+   torrent infohash, and Sonarr delivers it on the `OnGrab` event.
+   Either install it manually in Sonarr → Settings → Connect → Webhook,
+   or let seasonfill do it for you:
+
+   ```
+   POST /api/v1/instances/{name}/webhook/install
+   ```
+
+   The endpoint creates a Webhook notification covering `OnGrab`,
+   `OnImport`, and `OnImportFailure` with the right URL and the
+   `X-Api-Key` header. Repeat calls are no-ops — it matches existing
+   notifications by URL prefix.
+
+2. **Configure qBittorrent credentials for the instance.** First call:
+
+   ```
+   GET /api/v1/instances/{name}/discover/qbit
+   ```
+
+   It reads Sonarr's `GET /api/v3/downloadclient`, finds the
+   qBittorrent client, and returns host, port, username, and category.
+   Sonarr never returns the password (the response is `privacy:password`
+   by spec), so you supply that yourself. Then save:
+
+   ```
+   PUT /api/v1/instances/{name}/qbit/settings
+   {
+     "url":      "http://qbit:8080",
+     "username": "admin",
+     "password": "...",
+     "category": "sonarr",
+     "enabled":  false
+   }
+   ```
+
+   The password is AES-GCM encrypted at rest before insert; read
+   responses redact it.
+
+3. **Toggle `enabled: true` with another `PUT`.** Before saving the
+   backend verifies the OnGrab webhook is actually installed in Sonarr.
+   If not, the call returns `409` with code `WEBHOOK_NOT_INSTALLED` and
+   you go back to step 1. Once enabled, the watchdog loop picks up the
+   new settings on its next wake cycle (≤2 seconds, no restart).
+
+### Hash-required gate
+
+Watchdog only acts on grabs that have a torrent infohash on record —
+i.e. grabs made *after* you installed the OnGrab webhook for that
+instance. Grabs predating the webhook stay invisible to Watchdog
+forever; they remain managed by your normal scan schedule and Sonarr
+itself. This is intentional: there is no backfill from Sonarr's
+history (false-match risk is too high), so Watchdog coverage
+accumulates naturally as new grabs flow through.
+
+### Throttling
+
+Three layers, all reload-bus aware (change via the API, takes effect
+within ≤2 seconds, no pod restart):
+
+| Layer | Default | Override field |
+|-------|---------|----------------|
+| qBit poll interval | 30 min | `poll_interval_minutes` (min 5) |
+| Per-`(series, season)` re-evaluate cooldown | 120 h (5 days) | `regrab_cooldown_hours` |
+| Consecutive "nothing better" auto-blacklist | 3 attempts | `max_consecutive_no_better` |
+
+After the blacklist threshold trips, the `(instance, series, season)`
+triple lands in `watchdog_blacklist` and Watchdog skips it until you
+unblock manually. Persistent qBit unreachability (10 consecutive poll
+failures) auto-disables the instance — credentials are wrong or the
+service is down, and silently retrying forever burns evaluator
+cycles.
+
+### Security
+
+- qBit passwords are encrypted at rest with AES-GCM, using an HKDF
+  subkey domain-separated from session HMAC, OIDC client secret, and
+  Sonarr API key storage. The master key respects the same env
+  override path as the rest of seasonfill's at-rest secrets.
+- Read responses always redact the password. There is no API to read
+  it back; rotate via `PUT` instead.
+- The webhook endpoint always requires `X-Api-Key` regardless of auth
+  mode, including when Watchdog is doing the auto-install (see
+  [§Security model](#webhook-invariant)).
+
+### Out of scope (v1)
+
+- No UI yet — all configuration via the REST API above.
+- Only qBittorrent — Transmission/Deluge/rTorrent are not supported.
+- Watchdog never writes to qBit (no tagging, no deletes). Read-only.
+- Auto-unblock from the blacklist is manual; the schema reserves an
+  `expires_at` column but the loop never sets it.
 
 ## Contributing
 

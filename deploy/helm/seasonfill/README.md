@@ -302,6 +302,58 @@ the backend logs for `webhook_event_received` followed by
 `webhook_event_imported` (success) or `webhook_event_import_failed`
 (failure → 48h GUID cooldown).
 
+## Configuring watchdog
+
+The Watchdog feature (post-import torrent re-grab) has **no chart
+values**. All configuration lives in the running app's database and
+is set per-instance via the REST API after first start. The chart
+neither exposes Watchdog toggles nor mounts qBit credentials —
+nothing to set in `values.yaml`.
+
+The K8s deploy specifics: typically Sonarr lives in the same cluster
+and reaches seasonfill via the in-cluster Service DNS name; the
+webhook URL the auto-installer writes to Sonarr is built from your
+configured public URL (the same one used for the `Ingress`):
+
+```
+<seasonfill.public_url>/api/v1/webhook/sonarr/<instance-name>
+```
+
+Setup, after the pod is running and you have a Sonarr instance
+configured in the Settings UI:
+
+1. **Install the OnGrab webhook in Sonarr.** Run from any host with
+   network access to seasonfill — e.g. `kubectl port-forward
+   svc/seasonfill 8080:8080` plus:
+
+   ```sh
+   curl -X POST -H "X-Api-Key: $API_KEY" \
+     http://localhost:8080/api/v1/instances/<name>/webhook/install
+   ```
+
+2. **Autofill qBit credentials from Sonarr.**
+
+   ```sh
+   curl -H "X-Api-Key: $API_KEY" \
+     http://localhost:8080/api/v1/instances/<name>/discover/qbit
+   ```
+
+3. **Save qBit settings, then enable.** Use `PUT
+   /api/v1/instances/<name>/qbit/settings` with the discovered fields
+   plus the password. First save with `enabled: false`, then a second
+   `PUT` flips it to `true`. The toggle is rejected with `409
+   WEBHOOK_NOT_INSTALLED` if step 1 was skipped.
+
+Reload-bus aware: changing `poll_interval_minutes`,
+`regrab_cooldown_hours`, or `enabled` via the API takes effect within
+≤2 seconds with no pod restart. Watchdog metrics
+(`seasonfill_watchdog_*`) are exported on `/metrics` and scraped by
+`ServiceMonitor` automatically when `serviceMonitor.enabled: true`.
+
+The full Watchdog model (opt-in flow, hash-required gate, throttling
+layers, security) is documented in the project root
+[README.md](../../../README.md#watchdog-post-import-re-grab-automation).
+
 ## Troubleshooting
 
 - **Login page rejects credentials.** Re-grep the logs for the

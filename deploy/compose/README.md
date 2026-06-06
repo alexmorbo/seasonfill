@@ -195,6 +195,57 @@ docker exec seasonfill-backend seasonfill auth-mode --set forms
 This flips the backend back to forms-auth without touching the OIDC config —
 the values are still there when you flip back.
 
+## Watchdog (post-import re-grab)
+
+The Watchdog feature (post-import torrent re-grab) is opt-in
+per-instance. There are **no compose env vars** to set — all
+configuration lives in the running app's database and is set via the
+REST API after the stack is up.
+
+Typical compose setup: Sonarr and qBittorrent run as their own
+services (in the same `docker-compose.yaml` or alongside on the host)
+and seasonfill talks to them by container name or host IP. The
+webhook URL the auto-installer writes into Sonarr is the seasonfill
+URL Sonarr can reach — inside the compose network that's:
+
+```
+http://seasonfill:8080/api/v1/webhook/sonarr/<instance-name>
+```
+
+…or `http://<your-host>:8080/...` if Sonarr lives outside the compose
+network.
+
+Setup, after `docker compose up -d` and adding a Sonarr instance in
+the Settings UI:
+
+1. **Install the OnGrab webhook in Sonarr.**
+
+   ```sh
+   curl -X POST -H "X-Api-Key: $SEASONFILL_API_KEY" \
+     http://localhost:8080/api/v1/instances/<name>/webhook/install
+   ```
+
+2. **Autofill qBit credentials from Sonarr.**
+
+   ```sh
+   curl -H "X-Api-Key: $SEASONFILL_API_KEY" \
+     http://localhost:8080/api/v1/instances/<name>/discover/qbit
+   ```
+
+3. **Save qBit settings, then enable.** Use `PUT
+   /api/v1/instances/<name>/qbit/settings` with the discovered fields
+   plus the password. First save with `enabled: false`, then a second
+   `PUT` flips it to `true`. The toggle is rejected with `409
+   WEBHOOK_NOT_INSTALLED` if step 1 was skipped.
+
+When qBit runs in the same compose project, use its compose service
+name in the `url` field (e.g. `http://qbittorrent:8080`); when it's
+on the host or another network, use the routable IP/hostname.
+
+The full Watchdog model (opt-in flow, hash-required gate, throttling
+layers, security) is documented in the project root
+[README.md](../../README.md#watchdog-post-import-re-grab-automation).
+
 ## Troubleshooting
 
 - **Login page loads but credentials are rejected.** Tail
