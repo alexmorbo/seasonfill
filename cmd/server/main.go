@@ -389,7 +389,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		instanceReg,
 		cooldownRepo, grabUC, rescanUC,
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
-		qbitSettingsHandler, oidcUC, log)
+		qbitSettingsHandler, oidcUC, seriesCacheRepo, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

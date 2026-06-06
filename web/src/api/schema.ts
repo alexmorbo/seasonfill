@@ -2195,6 +2195,14 @@ export type components = {
             readonly mode?: string;
             /** @example alpha */
             readonly name?: string;
+            /**
+             * @description PublicURL — optional browser-facing URL. Omitted/null = no
+             *     override. Empty string is rejected at the application layer with
+             *     INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
+             *     downgrade the override into a silent no-op.
+             * @example https://sonarr.example.com
+             */
+            readonly public_url?: string;
             readonly ranking?: components["schemas"]["dto.InstanceRanking"];
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
@@ -2205,6 +2213,21 @@ export type components = {
             readonly timeout_sec?: number;
             /** @example http://sonarr:8989 */
             readonly url?: string;
+            /**
+             * @description WebhookInstallEnabled — pointer so omitted is distinguishable
+             *     from explicit `false`. Omitted/null defaults to true (matches the
+             *     migration default). Concrete false explicitly disables the 041c
+             *     reconciler.
+             * @example true
+             */
+            readonly webhook_install_enabled?: boolean;
+            /**
+             * @description WebhookURLOverride — optional base URL for the auto-installed
+             *     Sonarr webhook. Omitted/null = use derived public URL from
+             *     runtime config. Empty-string rejected as for PublicURL.
+             * @example https://seasonfill.example.com
+             */
+            readonly webhook_url_override?: string;
         };
         readonly "dto.InstanceDetail": {
             /** @example *** */
@@ -2220,6 +2243,12 @@ export type components = {
             readonly mode?: DtoInstanceDetailMode;
             /** @example alpha */
             readonly name?: string;
+            /**
+             * @description PublicURL is the optional browser-facing URL (D64). Always
+             *     emitted; the JSON value is `null` when no override is stored.
+             * @example https://sonarr.example.com
+             */
+            readonly public_url?: string;
             readonly ranking?: components["schemas"]["dto.InstanceRanking"];
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
@@ -2228,9 +2257,28 @@ export type components = {
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
+            /**
+             * @description UIURL is the derived browser-facing URL the SPA links to. Equals
+             *     PublicURL when set, otherwise URL. Always emitted as a non-empty
+             *     string so the SPA never has to compute the fallback itself.
+             * @example https://sonarr.example.com
+             */
+            readonly ui_url?: string;
             readonly updated_at?: string;
             /** @example http://sonarr:8989 */
             readonly url?: string;
+            /**
+             * @description WebhookInstallEnabled toggles the 041c reconciler (D65). Always
+             *     emitted as a concrete bool; defaults to true on fresh rows.
+             * @example true
+             */
+            readonly webhook_install_enabled?: boolean;
+            /**
+             * @description WebhookURLOverride is the optional base URL for the auto-installed
+             *     Sonarr webhook (D65). Always emitted; `null` when unset.
+             * @example https://seasonfill.example.com
+             */
+            readonly webhook_url_override?: string;
         };
         readonly "dto.InstanceHealthCheck": {
             readonly recheck_auth_sec?: number;
@@ -2289,6 +2337,14 @@ export type components = {
             readonly mode?: string;
             /** @example alpha */
             readonly name?: string;
+            /**
+             * @description PublicURL — optional browser-facing URL. Omitted/null = no
+             *     override. Empty string is rejected at the application layer with
+             *     INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
+             *     downgrade the override into a silent no-op.
+             * @example https://sonarr.example.com
+             */
+            readonly public_url?: string;
             readonly ranking?: components["schemas"]["dto.InstanceRanking"];
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
@@ -2299,6 +2355,21 @@ export type components = {
             readonly timeout_sec?: number;
             /** @example http://sonarr:8989 */
             readonly url?: string;
+            /**
+             * @description WebhookInstallEnabled — pointer so omitted is distinguishable
+             *     from explicit `false`. Omitted/null defaults to true (matches the
+             *     migration default). Concrete false explicitly disables the 041c
+             *     reconciler.
+             * @example true
+             */
+            readonly webhook_install_enabled?: boolean;
+            /**
+             * @description WebhookURLOverride — optional base URL for the auto-installed
+             *     Sonarr webhook. Omitted/null = use derived public URL from
+             *     runtime config. Empty-string rejected as for PublicURL.
+             * @example https://seasonfill.example.com
+             */
+            readonly webhook_url_override?: string;
         };
         readonly "dto.LoginRequest": {
             /** @example hunter2 */
@@ -2313,12 +2384,18 @@ export type components = {
         readonly "dto.MissingSeries": {
             /** @example true */
             readonly monitored?: boolean;
+            /** @example /MediaCover/122/poster.jpg */
+            readonly poster_path?: string;
             readonly seasons?: readonly components["schemas"]["dto.MissingSeasonStat"][];
             /** @example 122 */
             readonly series_id?: number;
             /** @example Severance */
             readonly title?: string;
+            /** @example severance */
+            readonly title_slug?: string;
             readonly total_missing_aired?: number;
+            /** @example 2022 */
+            readonly year?: number;
         };
         readonly "dto.MissingSeriesList": {
             readonly items?: readonly components["schemas"]["dto.MissingSeries"][];

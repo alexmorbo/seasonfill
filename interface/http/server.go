@@ -49,6 +49,7 @@ func NewServer(
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
 	oidcUC *auth.OIDCLoginUseCase,
+	seriesCacheRepo ports.SeriesCacheRepository,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -69,7 +70,8 @@ func NewServer(
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
-	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger)
+	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger).
+		WithSeriesCache(seriesCacheRepo)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)

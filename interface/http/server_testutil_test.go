@@ -23,5 +23,5 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		admin, nil, nil,
 		handlers.InstanceRegistry{},
 		nil, nil, nil,
-		nil, nil, nil, nil, nil, logger)
+		nil, nil, nil, nil, nil, nil, logger)
 }

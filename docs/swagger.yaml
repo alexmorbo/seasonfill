@@ -275,6 +275,14 @@ components:
         name:
           example: alpha
           type: string
+        public_url:
+          description: |-
+            PublicURL — optional browser-facing URL. Omitted/null = no
+            override. Empty string is rejected at the application layer with
+            INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
+            downgrade the override into a silent no-op.
+          example: https://sonarr.example.com
+          type: string
         ranking:
           $ref: '#/components/schemas/dto.InstanceRanking'
         rate_limit_burst:
@@ -293,6 +301,21 @@ components:
           type: integer
         url:
           example: http://sonarr:8989
+          type: string
+        webhook_install_enabled:
+          description: |-
+            WebhookInstallEnabled — pointer so omitted is distinguishable
+            from explicit `false`. Omitted/null defaults to true (matches the
+            migration default). Concrete false explicitly disables the 041c
+            reconciler.
+          example: true
+          type: boolean
+        webhook_url_override:
+          description: |-
+            WebhookURLOverride — optional base URL for the auto-installed
+            Sonarr webhook. Omitted/null = use derived public URL from
+            runtime config. Empty-string rejected as for PublicURL.
+          example: https://seasonfill.example.com
           type: string
       type: object
     dto.InstanceDetail:
@@ -317,6 +340,12 @@ components:
         name:
           example: alpha
           type: string
+        public_url:
+          description: |-
+            PublicURL is the optional browser-facing URL (D64). Always
+            emitted; the JSON value is `null` when no override is stored.
+          example: https://sonarr.example.com
+          type: string
         ranking:
           $ref: '#/components/schemas/dto.InstanceRanking'
         rate_limit_burst:
@@ -333,10 +362,29 @@ components:
           $ref: '#/components/schemas/dto.InstanceTags'
         timeout_sec:
           type: integer
+        ui_url:
+          description: |-
+            UIURL is the derived browser-facing URL the SPA links to. Equals
+            PublicURL when set, otherwise URL. Always emitted as a non-empty
+            string so the SPA never has to compute the fallback itself.
+          example: https://sonarr.example.com
+          type: string
         updated_at:
           type: string
         url:
           example: http://sonarr:8989
+          type: string
+        webhook_install_enabled:
+          description: |-
+            WebhookInstallEnabled toggles the 041c reconciler (D65). Always
+            emitted as a concrete bool; defaults to true on fresh rows.
+          example: true
+          type: boolean
+        webhook_url_override:
+          description: |-
+            WebhookURLOverride is the optional base URL for the auto-installed
+            Sonarr webhook (D65). Always emitted; `null` when unset.
+          example: https://seasonfill.example.com
           type: string
       type: object
     dto.InstanceHealthCheck:
@@ -445,6 +493,14 @@ components:
         name:
           example: alpha
           type: string
+        public_url:
+          description: |-
+            PublicURL — optional browser-facing URL. Omitted/null = no
+            override. Empty string is rejected at the application layer with
+            INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
+            downgrade the override into a silent no-op.
+          example: https://sonarr.example.com
+          type: string
         ranking:
           $ref: '#/components/schemas/dto.InstanceRanking'
         rate_limit_burst:
@@ -463,6 +519,21 @@ components:
           type: integer
         url:
           example: http://sonarr:8989
+          type: string
+        webhook_install_enabled:
+          description: |-
+            WebhookInstallEnabled — pointer so omitted is distinguishable
+            from explicit `false`. Omitted/null defaults to true (matches the
+            migration default). Concrete false explicitly disables the 041c
+            reconciler.
+          example: true
+          type: boolean
+        webhook_url_override:
+          description: |-
+            WebhookURLOverride — optional base URL for the auto-installed
+            Sonarr webhook. Omitted/null = use derived public URL from
+            runtime config. Empty-string rejected as for PublicURL.
+          example: https://seasonfill.example.com
           type: string
       type: object
     dto.LoginRequest:
@@ -486,6 +557,9 @@ components:
         monitored:
           example: true
           type: boolean
+        poster_path:
+          example: /MediaCover/122/poster.jpg
+          type: string
         seasons:
           items:
             $ref: '#/components/schemas/dto.MissingSeasonStat'
@@ -497,7 +571,13 @@ components:
         title:
           example: Severance
           type: string
+        title_slug:
+          example: severance
+          type: string
         total_missing_aired:
+          type: integer
+        year:
+          example: 2022
           type: integer
       type: object
     dto.MissingSeriesList:

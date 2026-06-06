@@ -124,9 +124,21 @@ func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, erro
 // doMissing wires a one-route gin engine and returns the recorder.
 func doMissing(t *testing.T, name string, clients map[string]ports.SonarrClient, modes map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
+	return doMissingWithCache(t, name, clients, modes, nil)
+}
+
+// doMissingWithCache mirrors doMissing but wires a SeriesCacheRepository
+// stub so 041g enrichment tests can drive the join path. Cache=nil
+// reproduces the pre-041g behaviour (no enrichment, every row's
+// TitleSlug/Year/PosterPath stays at zero value).
+func doMissingWithCache(t *testing.T, name string, clients map[string]ports.SonarrClient, modes map[string]string, cache ports.SeriesCacheRepository) *httptest.ResponseRecorder {
+	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
 	h := NewInstancesHandler(c, buildRegistry(clients, modes, nil), nil)
+	if cache != nil {
+		h = h.WithSeriesCache(cache)
+	}
 	r.GET("/api/v1/instances/:name/missing", h.Missing)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances/"+name+"/missing", nil)
@@ -495,4 +507,145 @@ func buildRegistry(clients map[string]ports.SonarrClient, modes, urls map[string
 		}
 		return out
 	}}
+}
+
+// stubSeriesCache satisfies ports.SeriesCacheRepository for the 041g
+// enrichment tests. Only ListActiveByInstance is exercised by Missing.
+type stubSeriesCache struct {
+	entries  []series.CacheEntry
+	listErr  error
+	listCall int
+}
+
+func (s *stubSeriesCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+	return series.CacheEntry{}, ports.ErrNotFound
+}
+func (s *stubSeriesCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
+func (s *stubSeriesCache) SoftDelete(_ context.Context, _ string, _ int) error { return nil }
+func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+	s.listCall++
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.entries, nil
+}
+
+var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
+
+func intPtr(v int) *int       { return &v }
+func strPtr(v string) *string { return &v }
+
+// missingFixtureTwo returns two monitored series with aired-missing > 0
+// so both flow through the Missing pipeline.
+func missingFixtureTwo() []series.Series {
+	return []series.Series{
+		{ID: 1, Title: "Severance", Monitored: true,
+			Statistics: series.Statistics{EpisodeCount: 18, EpisodeFileCount: 10},
+			Seasons: []series.Season{{Number: 2, Monitored: true,
+				Statistics: series.Statistics{EpisodeCount: 9, EpisodeFileCount: 1}}}},
+		{ID: 2, Title: "Andor", Monitored: true,
+			Statistics: series.Statistics{EpisodeCount: 12, EpisodeFileCount: 6},
+			Seasons: []series.Season{{Number: 1, Monitored: true,
+				Statistics: series.Statistics{EpisodeCount: 12, EpisodeFileCount: 6}}}},
+	}
+}
+
+// enrichedItem captures the 041g fields plus series_id for ordering.
+type enrichedItem struct {
+	SeriesID   int     `json:"series_id"`
+	TitleSlug  string  `json:"title_slug"`
+	Year       *int    `json:"year,omitempty"`
+	PosterPath *string `json:"poster_path,omitempty"`
+}
+
+func decodeEnrichedItems(t *testing.T, raw []byte) []enrichedItem {
+	t.Helper()
+	var body struct {
+		Items []enrichedItem `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &body))
+	return body.Items
+}
+
+// TestInstancesHandler_Missing_CacheJoin covers the four 041g paths in
+// one table: full-hit (AC-1, AC-3), miss (AC-2), partial (AC-2), and
+// repo-error (AC-4). All run against the same missingFixtureTwo so the
+// shape assertions stay uniform.
+func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
+	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
+		TitleSlug: "severance", Year: intPtr(2022),
+		PosterPath: strPtr("/MediaCover/1/poster.jpg")}
+	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
+		TitleSlug: "andor", Year: intPtr(2022),
+		PosterPath: strPtr("/MediaCover/2/poster.jpg")}
+
+	tests := []struct {
+		name    string
+		entries []series.CacheEntry
+		listErr error
+		assert  func(t *testing.T, items []enrichedItem, cache *stubSeriesCache)
+	}{
+		{
+			name:    "full_cache_hit",
+			entries: []series.CacheEntry{entryOne, entryTwo},
+			assert: func(t *testing.T, items []enrichedItem, cache *stubSeriesCache) {
+				require.Len(t, items, 2)
+				assert.Equal(t, "severance", items[0].TitleSlug)
+				require.NotNil(t, items[0].Year)
+				assert.Equal(t, 2022, *items[0].Year)
+				require.NotNil(t, items[0].PosterPath)
+				assert.Equal(t, "/MediaCover/1/poster.jpg", *items[0].PosterPath)
+				assert.Equal(t, "andor", items[1].TitleSlug)
+				// AC-3: single batch lookup, not N+1.
+				assert.Equal(t, 1, cache.listCall)
+			},
+		},
+		{
+			name:    "all_cache_miss",
+			entries: nil,
+			assert: func(t *testing.T, items []enrichedItem, _ *stubSeriesCache) {
+				require.Len(t, items, 2)
+				for _, it := range items {
+					assert.Equal(t, "", it.TitleSlug)
+					assert.Nil(t, it.Year)
+					assert.Nil(t, it.PosterPath)
+				}
+			},
+		},
+		{
+			name:    "partial_cache_coverage",
+			entries: []series.CacheEntry{entryTwo}, // only id=2 cached.
+			assert: func(t *testing.T, items []enrichedItem, _ *stubSeriesCache) {
+				require.Len(t, items, 2)
+				assert.Equal(t, 1, items[0].SeriesID)
+				assert.Equal(t, "", items[0].TitleSlug)
+				assert.Nil(t, items[0].Year)
+				assert.Equal(t, 2, items[1].SeriesID)
+				assert.Equal(t, "andor", items[1].TitleSlug)
+				require.NotNil(t, items[1].Year)
+			},
+		},
+		{
+			name:    "repo_error_does_not_fail",
+			listErr: errors.New("db down"),
+			assert: func(t *testing.T, items []enrichedItem, _ *stubSeriesCache) {
+				require.Len(t, items, 2)
+				for _, it := range items {
+					assert.Equal(t, "", it.TitleSlug)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mf := &missingFakeSonarr{fakeSonarr: &fakeSonarr{name: "alpha"}, all: missingFixtureTwo()}
+			cache := &stubSeriesCache{entries: tc.entries, listErr: tc.listErr}
+			w := doMissingWithCache(t, "alpha",
+				map[string]ports.SonarrClient{"alpha": mf},
+				map[string]string{"alpha": "manual"}, cache)
+			require.Equal(t, http.StatusOK, w.Code, "cache failures must not bubble into the HTTP response")
+			tc.assert(t, decodeEnrichedItems(t, w.Body.Bytes()), cache)
+		})
+	}
 }

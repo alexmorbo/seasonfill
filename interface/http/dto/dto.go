@@ -202,12 +202,20 @@ type MissingSeasonStat struct {
 
 // MissingSeries — one row of GET /instances/:name/missing.
 // TotalMissingAired is precomputed sum of Seasons[].MissingAiredCount.
+// TitleSlug / Year / PosterPath are joined from series_cache (041g).
+// TitleSlug is a plain string with empty fallback (NOT pointer) so the
+// frontend renders the link the moment it is non-empty without nil
+// checks. Year / PosterPath are *T with omitempty so cache misses don't
+// bloat the wire payload.
 type MissingSeries struct {
-	SeriesID          int                 `json:"series_id"   example:"122"`
-	Title             string              `json:"title"       example:"Severance"`
-	Monitored         bool                `json:"monitored"   example:"true"`
+	SeriesID          int                 `json:"series_id"             example:"122"`
+	Title             string              `json:"title"                 example:"Severance"`
+	Monitored         bool                `json:"monitored"             example:"true"`
 	TotalMissingAired int                 `json:"total_missing_aired"`
 	Seasons           []MissingSeasonStat `json:"seasons"`
+	TitleSlug         string              `json:"title_slug"            example:"severance"`
+	Year              *int                `json:"year,omitempty"        example:"2022"`
+	PosterPath        *string             `json:"poster_path,omitempty" example:"/MediaCover/122/poster.jpg"`
 }
 
 // MissingSeriesList — body of GET /instances/:name/missing.

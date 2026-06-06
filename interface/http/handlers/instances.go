@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
@@ -31,13 +33,17 @@ const (
 )
 
 type InstancesHandler struct {
-	checker *healthcheck.Checker
-	reg     InstanceRegistry
-	logger  *slog.Logger
+	checker     *healthcheck.Checker
+	reg         InstanceRegistry
+	seriesCache ports.SeriesCacheRepository
+	logger      *slog.Logger
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
 // url/mode-defaulting-to-auto, Missing/SearchSeries 404 every name).
+// seriesCache defaults to nil; production wires it via WithSeriesCache.
+// Nil cache → Missing returns the same shape with empty TitleSlug /
+// nil Year / nil PosterPath on every row (same as a cold cache).
 func NewInstancesHandler(
 	checker *healthcheck.Checker,
 	reg InstanceRegistry,
@@ -47,6 +53,14 @@ func NewInstancesHandler(
 		logger = slog.Default()
 	}
 	return &InstancesHandler{checker: checker, reg: reg, logger: logger}
+}
+
+// WithSeriesCache wires the read-side of series_cache so Missing can
+// enrich queue items (041g). Builder pattern keeps the constructor
+// signature stable across the 10+ existing test call sites.
+func (h *InstancesHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *InstancesHandler {
+	h.seriesCache = repo
+	return h
 }
 
 // List returns the current health snapshot for every configured instance.
@@ -135,7 +149,38 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].SeriesID < items[j].SeriesID })
+	h.enrichMissingFromCache(ctx, name, items)
 	c.JSON(http.StatusOK, dto.MissingSeriesList{Items: items, Total: len(items)})
+}
+
+// enrichMissingFromCache joins TitleSlug / Year / PosterPath from
+// series_cache onto every item. ONE query per request — the in-memory
+// map lookup is O(1) per item, no N+1. Repository errors WARN-log and
+// the response continues unenriched (the queue page must NOT 5xx when
+// the cache hiccups). nil h.seriesCache short-circuits to no-op.
+func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name string, items []dto.MissingSeries) {
+	if h.seriesCache == nil || len(items) == 0 {
+		return
+	}
+	entries, err := h.seriesCache.ListActiveByInstance(ctx, name)
+	if err != nil {
+		h.logger.WarnContext(ctx, "missing_cache_lookup_failed",
+			slog.String("instance", name), slog.String("error", err.Error()))
+		return
+	}
+	byID := make(map[int]series.CacheEntry, len(entries))
+	for _, e := range entries {
+		byID[e.SonarrSeriesID] = e
+	}
+	for i := range items {
+		e, ok := byID[items[i].SeriesID]
+		if !ok {
+			continue
+		}
+		items[i].TitleSlug = e.TitleSlug
+		items[i].Year = e.Year
+		items[i].PosterPath = e.PosterPath
+	}
 }
 
 // snapshotToDTO reads URL and Mode from the live registry snapshot.
