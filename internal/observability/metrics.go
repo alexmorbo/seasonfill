@@ -7,23 +7,34 @@ import (
 )
 
 const (
-	MetricScansTotal                 = `seasonfill_scans_total`
-	MetricSeriesEvaluatedTotal       = `seasonfill_series_evaluated_total`
-	MetricGrabsTotal                 = `seasonfill_grabs_total`
-	MetricGrabAttemptsTotal          = `seasonfill_grab_attempts_total`
-	MetricSonarrAPIRequestsTotal     = `seasonfill_sonarr_api_requests_total`
-	MetricScanDurationSeconds        = `seasonfill_scan_duration_seconds`
-	MetricSonarrAPIDuration          = `seasonfill_sonarr_api_duration_seconds`
-	MetricCandidatesFound            = `seasonfill_candidates_found`
-	MetricCoverageCount              = `seasonfill_coverage_count`
-	MetricInstancesAvailable         = `seasonfill_instances_available`
-	MetricActiveScans                = `seasonfill_active_scans`
-	MetricCooldownActive             = `seasonfill_cooldown_active`
-	MetricInstanceHealth             = `seasonfill_instance_health`
-	MetricInstanceHealthTransitions  = `seasonfill_instance_health_transitions_total`
-	MetricInstanceLastCheckTimestamp = `seasonfill_instance_last_check_timestamp`
-	MetricRateLimitThrottled         = `seasonfill_rate_limit_throttled_total`
-	MetricWebhookProcessingFailures  = `seasonfill_webhook_processing_failures_total`
+	MetricScansTotal                      = `seasonfill_scans_total`
+	MetricSeriesEvaluatedTotal            = `seasonfill_series_evaluated_total`
+	MetricGrabsTotal                      = `seasonfill_grabs_total`
+	MetricGrabAttemptsTotal               = `seasonfill_grab_attempts_total`
+	MetricSonarrAPIRequestsTotal          = `seasonfill_sonarr_api_requests_total`
+	MetricScanDurationSeconds             = `seasonfill_scan_duration_seconds`
+	MetricSonarrAPIDuration               = `seasonfill_sonarr_api_duration_seconds`
+	MetricCandidatesFound                 = `seasonfill_candidates_found`
+	MetricCoverageCount                   = `seasonfill_coverage_count`
+	MetricInstancesAvailable              = `seasonfill_instances_available`
+	MetricActiveScans                     = `seasonfill_active_scans`
+	MetricCooldownActive                  = `seasonfill_cooldown_active`
+	MetricInstanceHealth                  = `seasonfill_instance_health`
+	MetricInstanceHealthTransitions       = `seasonfill_instance_health_transitions_total`
+	MetricInstanceLastCheckTimestamp      = `seasonfill_instance_last_check_timestamp`
+	MetricRateLimitThrottled              = `seasonfill_rate_limit_throttled_total`
+	MetricWebhookProcessingFailures       = `seasonfill_webhook_processing_failures_total`
+	MetricWebhookReconcileTotal           = `seasonfill_webhook_reconcile_total`
+	MetricWebhookReconcileDurationSeconds = `seasonfill_webhook_reconcile_duration_seconds`
+)
+
+// Webhook reconcile result values — emitted as the `result` label on
+// MetricWebhookReconcileTotal. Single Go const block so the loop and
+// tests share the spelling.
+const (
+	WebhookReconcileResultOK      = "ok"
+	WebhookReconcileResultError   = "error"
+	WebhookReconcileResultSkipped = "skipped"
 )
 
 func ScanCompleted(instance, status string) {
@@ -119,6 +130,20 @@ func IncRateLimitThrottled(instance, scope string) {
 // `application/webhook.ErrorKind` (low-cardinality).
 func IncWebhookProcessingFailures(instance, errorKind string) {
 	metrics.GetOrCreateCounter(`seasonfill_webhook_processing_failures_total{instance="` + instance + `",error_kind="` + errorKind + `"}`).Inc()
+}
+
+// IncWebhookReconcileResult bumps the per-instance reconcile counter.
+// result must be one of the WebhookReconcileResult* constants above.
+func IncWebhookReconcileResult(instance, result string) {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_reconcile_total{instance="` + instance + `",result="` + result + `"}`).Inc()
+}
+
+// ObserveWebhookReconcileDuration records the wall-clock duration of a
+// single Reconcile attempt (including the 3 s per-instance timeout
+// cap). Skips do NOT call this — only attempts that actually called
+// Reconcile.
+func ObserveWebhookReconcileDuration(instance string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_webhook_reconcile_duration_seconds{instance="` + instance + `"}`).Update(seconds)
 }
 
 func WritePrometheus(w io.Writer) {

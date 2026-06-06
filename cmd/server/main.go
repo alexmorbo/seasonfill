@@ -422,6 +422,22 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		sweeper.Run(rootCtx)
 	}()
 
+	// Phase 11 — background webhook reconcile safety net (041d).
+	// The closure over holder.load is reload-aware: every publish
+	// swaps the underlying map, so newly-added Sonarr instances
+	// appear in the next tick without their own subscriber.
+	webhookReconcileLoopVal := newWebhookReconcileLoop(
+		webhookReconciler,
+		webhookStatusCache,
+		holder.load,
+		log,
+	)
+	bgWG.Add(1)
+	go func() {
+		defer bgWG.Done()
+		webhookReconcileLoopVal.Run(rootCtx)
+	}()
+
 	// Build the boot scheduler (if cron is enabled) so the
 	// subscriber starts in the same state as the snapshot.
 	var bootScheduler *scheduler.Scheduler
