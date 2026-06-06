@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,145 +14,113 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
-	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// newInstallTestRig wires a gin engine with the Install handler and
-// a httptest Sonarr server. Returns the engine, the sonarr stub URL
-// holder, and a setter so individual tests can rebind the stub.
-func newInstallTestRig(t *testing.T, sonarrHandler http.HandlerFunc) *gin.Engine {
+// stubNotifier satisfies webhookinstall.SonarrNotifier with the
+// minimal surface this file needs. Update + Delete short-circuit to
+// zero values — only Install tests exercise them, and not in this
+// file.
+type stubNotifier struct {
+	list       []sonarr.Notification
+	createResp sonarr.Notification
+	createErr  error
+}
+
+func (s *stubNotifier) ListNotifications(context.Context) ([]sonarr.Notification, error) {
+	return s.list, nil
+}
+func (s *stubNotifier) CreateNotification(_ context.Context, _ sonarr.NotificationPayload) (sonarr.Notification, error) {
+	return s.createResp, s.createErr
+}
+func (s *stubNotifier) UpdateNotification(_ context.Context, _ sonarr.Notification, _ sonarr.NotificationPayload) (sonarr.Notification, error) {
+	return sonarr.Notification{}, nil
+}
+func (s *stubNotifier) DeleteNotification(_ context.Context, _ int) error { return nil }
+
+func newInstallTestRig(t *testing.T, snap runtime.InstanceSnapshot, n webhookinstall.SonarrNotifier, publicURL string) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	srv := httptest.NewServer(sonarrHandler)
-	t.Cleanup(srv.Close)
-	client := sonarr.New("alpha", srv.URL, "k", 2*time.Second,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
-		return map[string]scan.Instance{
-			"alpha": {Config: config.SonarrInstance{Name: "alpha"}, Client: client},
-		}
-	}}
-	h := NewWebhookInstallHandler(reg, "api-key-XYZ",
-		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	cache := webhookinstall.NewStatusCache()
+	rec := webhookinstall.New(webhookinstall.Deps{
+		Lookup: func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
+			return snap, n, true
+		},
+		PublicURL: func(context.Context) string { return publicURL },
+		Cache:     cache, APIKey: "key",
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	h := NewWebhookInstallHandler(rec, cache, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	r := gin.New()
 	r.POST("/api/v1/instances/:name/webhook/install", h.Install)
 	return r
 }
 
-func TestWebhookInstall_200NoopOnExisting(t *testing.T) {
-	r := newInstallTestRig(t, func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path == "/api/v3/notification" && req.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`[
-				{"id": 7, "implementation": "Webhook",
-				 "fields": [{"name":"url","value":"https://seasonfill.example/api/v1/webhook/sonarr/alpha"}]}
-			]`))
-			return
-		}
-		t.Errorf("unexpected sonarr request: %s %s", req.Method, req.URL.Path)
-	})
-
+func postInstall(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
+	t.Helper()
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/alpha/webhook/install", nil)
-	req.Host = "seasonfill.example"
-	req.Header.Set("X-Forwarded-Proto", "https")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/instances/alpha/webhook/install", nil)
 	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-	var got map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.Equal(t, true, got["installed"])
-	assert.Equal(t, false, got["created"])
-	assert.Equal(t, float64(7), got["notification_id"])
+	return w
 }
 
 func TestWebhookInstall_201CreateNew(t *testing.T) {
-	var createBody string
-	r := newInstallTestRig(t, func(w http.ResponseWriter, req *http.Request) {
-		switch {
-		case req.URL.Path == "/api/v3/notification" && req.Method == http.MethodGet:
-			_, _ = w.Write([]byte(`[]`))
-		case req.URL.Path == "/api/v3/notification" && req.Method == http.MethodPost:
-			buf, _ := io.ReadAll(req.Body)
-			createBody = string(buf)
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":99,"implementation":"Webhook"}`))
-		default:
-			t.Errorf("unexpected sonarr request: %s %s", req.Method, req.URL.Path)
-		}
-	})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/alpha/webhook/install", nil)
-	req.Host = "seasonfill.example"
-	req.Header.Set("X-Forwarded-Proto", "https")
-	r.ServeHTTP(w, req)
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	r := newInstallTestRig(t, snap, &stubNotifier{createResp: sonarr.Notification{ID: 99}}, "https://sf.example")
+	w := postInstall(t, r)
 	require.Equal(t, http.StatusCreated, w.Code)
-	var got map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.Equal(t, true, got["installed"])
-	assert.Equal(t, true, got["created"])
-	assert.Equal(t, float64(99), got["notification_id"])
-	assert.Contains(t, createBody, `"implementation":"Webhook"`)
-	assert.Contains(t, createBody, `"onGrab":true`)
-	assert.Contains(t, createBody, `https://seasonfill.example/api/v1/webhook/sonarr/alpha`)
-	assert.Contains(t, createBody, `"key":"X-Api-Key"`)
-	assert.Contains(t, createBody, `"value":"api-key-XYZ"`)
+	assert.Contains(t, w.Body.String(), `"created":true`)
+	assert.Contains(t, w.Body.String(), `"notification_id":99`)
 }
 
-func TestWebhookInstall_412PublicURLUndetermined(t *testing.T) {
-	r := newInstallTestRig(t, func(_ http.ResponseWriter, _ *http.Request) {
-		t.Error("sonarr should not be called when public URL is undetermined")
-	})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/alpha/webhook/install", nil)
-	req.Host = "" // explicitly empty — triggers 412
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusPreconditionFailed, w.Code)
-	assert.Contains(t, w.Body.String(), "PUBLIC_URL_UNDETERMINED")
-}
-
-func TestWebhookInstall_404UnknownInstance(t *testing.T) {
-	r := newInstallTestRig(t, func(_ http.ResponseWriter, _ *http.Request) {
-		t.Error("sonarr should not be called when instance is unknown")
-	})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/ghost/webhook/install", nil)
-	req.Host = "seasonfill.example"
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "unknown instance: ghost")
-}
-
-func TestWebhookInstall_502SonarrUnauthorized(t *testing.T) {
-	r := newInstallTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	})
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/alpha/webhook/install", nil)
-	req.Host = "seasonfill.example"
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusBadGateway, w.Code)
-	assert.Contains(t, w.Body.String(), "sonarr unauthorized")
-}
-
-func TestWebhookInstall_502SonarrNetworkError(t *testing.T) {
+func TestWebhookInstall_200NoopOnExisting(t *testing.T) {
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	n := &stubNotifier{
+		list: []sonarr.Notification{{
+			ID: 42, Implementation: "Webhook",
+			Fields: []sonarr.NotificationField{
+				{Name: "url", Value: "https://sf.example/api/v1/webhook/sonarr/alpha"},
+			},
+		}},
+	}
+	// Create rig manually so we can pre-populate cache
 	gin.SetMode(gin.TestMode)
-	client := sonarr.New("alpha", "http://127.0.0.1:1", "k", 200*time.Millisecond,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
-		return map[string]scan.Instance{
-			"alpha": {Config: config.SonarrInstance{Name: "alpha"}, Client: client},
-		}
-	}}
-	h := NewWebhookInstallHandler(reg, "api-key-XYZ",
-		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	cache := webhookinstall.NewStatusCache()
+	rec := webhookinstall.New(webhookinstall.Deps{
+		Lookup: func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
+			return snap, n, true
+		},
+		PublicURL: func(context.Context) string { return "https://sf.example" },
+		Cache:     cache, APIKey: "key",
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	// Pre-populate cache so prior.NotificationID != nil
+	id := 42
+	url := "https://sf.example/api/v1/webhook/sonarr/alpha"
+	cache.Set("alpha", webhookinstall.Status{
+		Installed: true, NotificationID: &id, InstalledURL: &url,
+		LastCheckedAt: time.Now(),
+	})
+	h := NewWebhookInstallHandler(rec, cache, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	r := gin.New()
 	r.POST("/api/v1/instances/:name/webhook/install", h.Install)
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/instances/alpha/webhook/install", nil)
-	req.Host = "seasonfill.example"
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusBadGateway, w.Code)
-	assert.Contains(t, w.Body.String(), "sonarr unavailable")
+	w := postInstall(t, r)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"created":false`)
+}
+
+func TestWebhookInstall_502OnSonarrError(t *testing.T) {
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	r := newInstallTestRig(t, snap, &stubNotifier{createErr: errors.New("boom")}, "https://sf.example")
+	require.Equal(t, http.StatusBadGateway, postInstall(t, r).Code)
+}
+
+func TestWebhookInstall_412OnUnresolvedPublicURL(t *testing.T) {
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	r := newInstallTestRig(t, snap, &stubNotifier{}, "")
+	require.Equal(t, http.StatusPreconditionFailed, postInstall(t, r).Code)
 }

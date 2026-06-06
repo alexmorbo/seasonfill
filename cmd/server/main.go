@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
+	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
@@ -301,7 +302,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// removed via Settings UI without a pod restart.
 	instanceReg := handlers.InstanceRegistry{Load: holder.load}
 
-	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log)
+	webhookStatusCache := webhookinstall.NewStatusCache()
+	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
+		Lookup:    webhookReconcileLookup(instanceReg),
+		PublicURL: webhookinstall.PublicURLFromContext,
+		Cache:     webhookStatusCache,
+		APIKey:    cfg.HTTP.Auth.APIKey,
+		Logger:    log,
+	})
+
+	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log).
+		WithWebhookReconciler(reconcilerAdapter{inner: webhookReconciler}).
+		WithWebhookStatusCache(webhookStatusCache)
 	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
 	probeClient := &http.Client{
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -390,7 +402,9 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		instanceReg,
 		cooldownRepo, grabUC, rescanUC,
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
-		qbitSettingsHandler, oidcUC, seriesCacheRepo, log)
+		qbitSettingsHandler, oidcUC,
+		webhookReconciler, webhookStatusCache,
+		seriesCacheRepo, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

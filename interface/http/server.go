@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	apprescan "github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -49,6 +51,8 @@ func NewServer(
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
 	oidcUC *auth.OIDCLoginUseCase,
+	webhookReconciler *webhookinstall.Reconciler,
+	webhookStatusCache *webhookinstall.StatusCache,
 	seriesCacheRepo ports.SeriesCacheRepository,
 	logger *slog.Logger,
 ) *Server {
@@ -128,14 +132,14 @@ func NewServer(
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
-		webhookInstallHandler := handlers.NewWebhookInstallHandler(instanceReg, cfg.Auth.APIKey, logger)
-		guarded.POST("/instances/:name/webhook/install", webhookInstallHandler.Install)
-		webhookStatusHandler := handlers.NewWebhookStatusHandler(instanceReg, logger)
-		guarded.GET("/instances/:name/webhook/status", webhookStatusHandler.Status)
+		webhookInstallHandler := handlers.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)
+		guarded.POST("/instances/:name/webhook/install", reconcileContextMiddleware(), webhookInstallHandler.Install)
+		webhookStatusHandler := handlers.NewWebhookStatusHandler(webhookReconciler, logger)
+		guarded.GET("/instances/:name/webhook/status", reconcileContextMiddleware(), webhookStatusHandler.Status)
 		guarded.GET("/instances/:name", instanceCRUD.Get)
-		guarded.POST("/instances", instanceCRUD.Create)
-		guarded.PUT("/instances/:name", instanceCRUD.Update)
-		guarded.DELETE("/instances/:name", instanceCRUD.Delete)
+		guarded.POST("/instances", reconcileContextMiddleware(), instanceCRUD.Create)
+		guarded.PUT("/instances/:name", reconcileContextMiddleware(), instanceCRUD.Update)
+		guarded.DELETE("/instances/:name", reconcileContextMiddleware(), instanceCRUD.Delete)
 		guarded.POST("/instances/test",
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
@@ -257,4 +261,39 @@ func (s *Server) Engine() *gin.Engine {
 // AuthRuntime pointer for in-process TTL swaps.
 func (s *Server) AuthHandler() *handlers.AuthHandler {
 	return s.authHandler
+}
+
+// reconcileContextMiddleware extracts the seasonfill public URL from
+// X-Forwarded-Proto + X-Forwarded-Host (falling back to Request.Host
+// + TLS state) and stashes it on the request context under the key
+// webhookinstall.PublicURLFromContext reads. This is the bridge that
+// lets the reconciler — which lives in the application layer — get
+// the per-request public URL without depending on gin.Context.
+//
+// The CRUD path (POST/PUT /instances) needs the same hook so the sync
+// reconcile inside instance.UseCase has a public URL to derive from.
+// Apply via guarded.Use(...) instead of per-route for the CRUD group
+// — see the wiring change below.
+func reconcileContextMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
+		if host == "" {
+			host = strings.TrimSpace(c.Request.Host)
+		}
+		scheme := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+		if scheme == "" {
+			if c.Request.TLS != nil {
+				scheme = "https"
+			} else {
+				scheme = "http"
+			}
+		}
+		if host != "" {
+			ctx := context.WithValue(c.Request.Context(),
+				webhookinstall.RequestPublicURLKey{},
+				scheme+"://"+host)
+			c.Request = c.Request.WithContext(ctx)
+		}
+		c.Next()
+	}
 }

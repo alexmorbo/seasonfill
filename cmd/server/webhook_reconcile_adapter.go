@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -30,4 +32,19 @@ func webhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.Instan
 		}
 		return inst.Config, concrete, true
 	}
+}
+
+// reconcilerAdapter widens webhookinstall.Reconciler's (Status, error)
+// return to (any, error) so it satisfies application/instance's
+// WebhookReconciler interface without that package importing
+// application/webhookinstall (which would create a cycle through
+// infrastructure/sonarr).
+type reconcilerAdapter struct{ inner *webhookinstall.Reconciler }
+
+func (a reconcilerAdapter) Reconcile(ctx context.Context, name string) (any, error) {
+	return a.inner.Reconcile(ctx, name)
+}
+
+func (a reconcilerAdapter) HandleInstanceDeleted(ctx context.Context, name string) {
+	a.inner.HandleInstanceDeleted(ctx, name)
 }

@@ -105,6 +105,42 @@ type UseCase struct {
 	bus       *runtime.Bus
 	logger    *slog.Logger
 	now       func() time.Time
+
+	// webhookReconciler + webhookCache are nilable so tests not
+	// concerned with webhook side effects can construct the use case
+	// without wiring infra. Production main.go installs both.
+	webhookReconciler WebhookReconciler
+	webhookCache      WebhookCacheCleanup
+}
+
+// WebhookReconciler is the narrow subset of
+// application/webhookinstall.Reconciler the use case needs. Defined
+// as an interface here (returning `any` instead of Status) so the
+// use case has zero direct import of webhookinstall — keeps the
+// package graph hub-and-spoke (webhookinstall depends on sonarr;
+// instance must NOT).
+type WebhookReconciler interface {
+	Reconcile(ctx context.Context, instanceName string) (any, error)
+	HandleInstanceDeleted(ctx context.Context, instanceName string)
+}
+
+// WebhookCacheCleanup is the narrow subset of StatusCache used on
+// instance delete. Currently unused (HandleInstanceDeleted already
+// purges) — kept for forward compat with 041d / 041h.
+type WebhookCacheCleanup interface {
+	Delete(name string)
+}
+
+// WithWebhookReconciler — production wiring setter.
+func (u *UseCase) WithWebhookReconciler(r WebhookReconciler) *UseCase {
+	u.webhookReconciler = r
+	return u
+}
+
+// WithWebhookStatusCache — production wiring setter.
+func (u *UseCase) WithWebhookStatusCache(c WebhookCacheCleanup) *UseCase {
+	u.webhookCache = c
+	return u
 }
 
 func New(
@@ -160,7 +196,11 @@ func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) err
 	if _, err := u.instances.Create(ctx, snap, u.cipher); err != nil {
 		return fmt.Errorf("create instance: %w", err)
 	}
-	return u.publish(ctx)
+	if err := u.publish(ctx); err != nil {
+		return err
+	}
+	u.tryReconcileWebhook(ctx, snap.Name)
+	return nil
 }
 
 // Update applies changes to an existing row, optionally preserving
@@ -211,7 +251,11 @@ func (u *UseCase) Update(
 		}
 		return fmt.Errorf("update instance: %w", err)
 	}
-	return u.publish(ctx)
+	if err := u.publish(ctx); err != nil {
+		return err
+	}
+	u.tryReconcileWebhook(ctx, name)
+	return nil
 }
 
 // isPlaceholderAPIKey returns true for values that cannot be a real
@@ -249,7 +293,15 @@ func (u *UseCase) Delete(ctx context.Context, name string) error {
 	if err := u.instances.Delete(ctx, name); err != nil {
 		return fmt.Errorf("delete instance: %w", err)
 	}
-	return u.publish(ctx)
+	if err := u.publish(ctx); err != nil {
+		return err
+	}
+	if u.webhookReconciler != nil {
+		u.webhookReconciler.HandleInstanceDeleted(ctx, name)
+	} else if u.webhookCache != nil {
+		u.webhookCache.Delete(name)
+	}
+	return nil
 }
 
 func (u *UseCase) publish(ctx context.Context) error {
@@ -514,4 +566,22 @@ func validateOptionalPublicURL(field, code string, p *string) error {
 			"must not end with a trailing slash")
 	}
 	return nil
+}
+
+// tryReconcileWebhook runs the sync reconciler with a tight timeout so
+// a slow Sonarr does not stall the HTTP request. Failures are logged
+// at WARN and never propagated — the instance row is already saved
+// and the cache carries the LastError so the next GET /webhook/status
+// renders an "install failed" badge. publish() must have succeeded
+// before calling this so the registry lookup sees the new row.
+func (u *UseCase) tryReconcileWebhook(ctx context.Context, name string) {
+	if u.webhookReconciler == nil {
+		return
+	}
+	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := u.webhookReconciler.Reconcile(rctx, name); err != nil {
+		u.logger.WarnContext(ctx, "instance.crud.webhook_reconcile_failed",
+			slog.String("instance", name), slog.String("error", err.Error()))
+	}
 }

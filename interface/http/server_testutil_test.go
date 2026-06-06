@@ -22,6 +22,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
 		handlers.InstanceRegistry{},
-		nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, logger)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
+		nil, // seriesCacheRepo
+		logger)
 }

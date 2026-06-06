@@ -481,4 +481,8 @@ type WebhookStatusDTO struct {
 	Installed      bool    `json:"installed"                  example:"true"`
 	NotificationID *int    `json:"notification_id,omitempty"  example:"42"`
 	URL            *string `json:"url,omitempty"              example:"https://sf.example.com/api/v1/webhook/sonarr/homelab"`
+	// Error carries the last reconcile failure message (041c). nil on
+	// success. Served on 200 so the UI can render an "install failed"
+	// badge without a separate fetch.
+	Error *string `json:"error,omitempty" example:"sonarr unauthorized"`
 }
