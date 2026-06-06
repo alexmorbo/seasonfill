@@ -170,8 +170,7 @@ describe('<WatchdogTab />', () => {
       '/webhook/status': webhookInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    await screen.findByTestId('watchdog-webhook-installed');
-    const sw = screen.getByLabelText(/^enabled$/i);
+    const sw = await screen.findByLabelText(/^enabled$/i);
     await waitFor(() => expect(sw).not.toBeDisabled());
   });
 

@@ -225,7 +225,7 @@ describe('<NewScanModal />', () => {
     renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
     await screen.findByText('alpha');
     // The "default" radio must be checked at mount.
-    const def = await screen.findByLabelText(/use instance default/i);
+    const def = await screen.findByRole('radio', { name: /use instance default/i });
     expect(def).toBeChecked();
 
     await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
@@ -247,7 +247,7 @@ describe('<NewScanModal />', () => {
 
     renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
     await screen.findByText('alpha');
-    await userEvent.click(screen.getByLabelText(/force dry run/i));
+    await userEvent.click(screen.getByRole('radio', { name: /force dry run/i }));
 
     await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
     await waitFor(() => expect(captured.body).toBeDefined());
@@ -266,7 +266,7 @@ describe('<NewScanModal />', () => {
 
     renderWithProviders(<NewScanModal open={true} onOpenChange={vi.fn()} />);
     await screen.findByText('alpha');
-    await userEvent.click(screen.getByLabelText(/force real grab/i));
+    await userEvent.click(screen.getByRole('radio', { name: /force real grab/i }));
 
     await userEvent.click(screen.getByRole('button', { name: /start scan/i }));
     await waitFor(() => expect(captured.body).toBeDefined());

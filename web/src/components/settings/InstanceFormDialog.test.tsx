@@ -197,7 +197,7 @@ describe('<InstanceFormDialog />', () => {
 
     // Edit a form field (URL) so we can prove ONLY form fields are
     // overlaid; everything else round-trips verbatim.
-    const urlInput = await screen.findByLabelText(/url/i);
+    const urlInput = await screen.findByLabelText(/^URL$/i);
     await userEvent.clear(urlInput);
     await userEvent.type(urlInput, 'http://sonarr.changed:8989');
     await userEvent.tab(); // commit to RHF
@@ -390,7 +390,7 @@ describe('<InstanceFormDialog />', () => {
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // User edits the URL — form becomes dirty.
-    const urlInput = (await screen.findByLabelText(/url/i)) as HTMLInputElement;
+    const urlInput = (await screen.findByLabelText(/^URL$/i)) as HTMLInputElement;
     await userEvent.clear(urlInput);
     await userEvent.type(urlInput, 'http://user-edit');
     expect(urlInput.value).toBe('http://user-edit');
@@ -571,10 +571,10 @@ describe('<InstanceFormDialog />', () => {
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
     // Initial state should be "on" (radio "on" checked).
-    expect((screen.getByLabelText('on') as HTMLInputElement).getAttribute('aria-checked') ?? 'true').toBeTruthy();
+    expect((screen.getByRole('radio', { name: 'on' }) as HTMLInputElement).getAttribute('aria-checked') ?? 'true').toBeTruthy();
 
     // Flip to "off".
-    await userEvent.click(screen.getByLabelText('off'));
+    await userEvent.click(screen.getByRole('radio', { name: 'off' }));
     await userEvent.click(saveBtn);
     await waitFor(() => expect(captured.body).toBeDefined());
     const sent = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
@@ -943,6 +943,7 @@ describe('<InstanceFormDialog />', () => {
     seedDetail(qc, 'alpha', detail);
     // Stale entry — we assert it becomes invalidated after Save.
     qc.setQueryData(['qbit', 'webhook-status', 'alpha'], { installed: false });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
     // Hydration: public_url comes through.
     const publicInput = await screen.findByLabelText(/public url|Публичный URL/i);
@@ -965,8 +966,9 @@ describe('<InstanceFormDialog />', () => {
     await userEvent.click(saveBtn);
     await waitFor(() => expect(putCount).toBe(1));
     await waitFor(() => {
-      const state = qc.getQueryState(['qbit', 'webhook-status', 'alpha']);
-      expect(state?.isInvalidated || state?.fetchStatus === 'fetching').toBe(true);
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['qbit', 'webhook-status', 'alpha'] }),
+      );
     });
   });
 
