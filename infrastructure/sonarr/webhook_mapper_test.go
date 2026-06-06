@@ -147,8 +147,8 @@ func TestMapWebhookEvent_AliasMapCaseInsensitive(t *testing.T) {
 		"Health":                    webhook.EventTypeUnsupported,
 		"HealthRestored":            webhook.EventTypeUnsupported,
 		"ApplicationUpdate":         webhook.EventTypeUnsupported,
-		"SeriesAdd":                 webhook.EventTypeUnsupported,
-		"SeriesDelete":              webhook.EventTypeUnsupported,
+		"SeriesAdd":                 webhook.EventTypeSeriesAdd,
+		"SeriesDelete":              webhook.EventTypeSeriesDeleted,
 		"EpisodeFileDelete":         webhook.EventTypeUnsupported,
 	}
 	for raw, want := range cases {
@@ -228,4 +228,43 @@ func TestJoinStatusMessages(t *testing.T) {
 		})
 		assert.Equal(t, "Import failed: file rejected by quality profile\nSample: too small", got)
 	})
+}
+
+func TestMapWebhookEvent_SeriesAdd_ClassifiesAndCopiesMetadata(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{
+		"eventType":"SeriesAdd",
+		"series":{"id":42,"title":"Black-ish","titleSlug":"black-ish","tvdbId":269578,"imdbId":"tt3487356"}
+	}`)
+	ev, err := MapWebhookEvent(payload, "main")
+	require.NoError(t, err)
+	assert.Equal(t, webhook.EventTypeSeriesAdd, ev.Type)
+	assert.Equal(t, "main", ev.InstanceName)
+	assert.Equal(t, 42, ev.SeriesID)
+	assert.Equal(t, "Black-ish", ev.SeriesTitle)
+	assert.Equal(t, "black-ish", ev.SeriesTitleSlug)
+	assert.Equal(t, 269578, ev.SeriesTVDBID)
+	assert.Equal(t, "tt3487356", ev.SeriesIMDBID)
+	assert.Equal(t, "SeriesAdd", ev.RawEventType)
+}
+
+func TestMapWebhookEvent_SeriesDelete_ClassifiesMinimalPayload(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{
+		"eventType":"SeriesDelete",
+		"series":{"id":42,"title":"Black-ish"},
+		"deletedFiles":false
+	}`)
+	ev, err := MapWebhookEvent(payload, "main")
+	require.NoError(t, err)
+	assert.Equal(t, webhook.EventTypeSeriesDeleted, ev.Type)
+	assert.Equal(t, 42, ev.SeriesID)
+	assert.Equal(t, "Black-ish", ev.SeriesTitle)
+	assert.Empty(t, ev.SeriesTitleSlug, "SeriesDelete payload omits titleSlug")
+}
+
+func TestMapWebhookEvent_AliasCoverage_SeriesEventsReachable(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, webhook.EventTypeSeriesAdd, webhookEventAlias["seriesadd"])
+	assert.Equal(t, webhook.EventTypeSeriesDeleted, webhookEventAlias["seriesdelete"])
 }

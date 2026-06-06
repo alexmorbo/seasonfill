@@ -39,9 +39,12 @@ func NewWebhookInstallHandler(reg InstanceRegistry, apiKey string, logger *slog.
 // @Description Looks for an existing notification whose URL matches
 // @Description <public_url>/api/v1/webhook/sonarr/<instance_name>; if
 // @Description present, returns 200 + {created:false}. Otherwise
-// @Description POSTs a new Webhook notification with OnGrab+OnImport+
-// @Description OnImportFailure triggers and the X-Api-Key header, then
-// @Description returns 201 + {created:true}.
+// @Description POSTs a new Webhook notification with OnGrab+OnDownload+
+// @Description OnDownloadFailure+OnSeriesAdd+OnSeriesDelete triggers
+// @Description and the X-Api-Key header, then returns 201 + {created:true}.
+// @Description When Sonarr rejects the SeriesAdd/SeriesDelete triggers
+// @Description (older versions) the call retries once without them and
+// @Description still returns 201 — the regrab pipeline always succeeds.
 // @Tags        instances
 // @Produce     json
 // @Param       name  path      string  true  "Instance name"

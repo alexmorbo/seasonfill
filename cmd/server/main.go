@@ -279,9 +279,10 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// snapshot is current at call time. Unknown instances → 0 (same
 	// behaviour as pre-032e: log + skip the cooldown write).
 	webhookUC := webhookuc.New(webhookuc.Deps{
-		Grabs:     grabRepo,
-		Cooldowns: cooldownRepo,
-		Tx:        txr,
+		Grabs:       grabRepo,
+		Cooldowns:   cooldownRepo,
+		SeriesCache: seriesCacheRepo,
+		Tx:          txr,
 		GUIDCooldownLookup: func(name string) time.Duration {
 			inst, ok := holder.load()[name]
 			if !ok {

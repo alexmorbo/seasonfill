@@ -33,8 +33,8 @@ var webhookEventAlias = map[string]webhook.EventType{
 	"health":                    webhook.EventTypeUnsupported,
 	"healthrestored":            webhook.EventTypeUnsupported,
 	"applicationupdate":         webhook.EventTypeUnsupported,
-	"seriesadd":                 webhook.EventTypeUnsupported,
-	"seriesdelete":              webhook.EventTypeUnsupported,
+	"seriesadd":                 webhook.EventTypeSeriesAdd,
+	"seriesdelete":              webhook.EventTypeSeriesDeleted,
 	"episodefiledelete":         webhook.EventTypeUnsupported,
 }
 
@@ -71,6 +71,10 @@ func MapWebhookEvent(payload []byte, instanceName string) (webhook.Event, error)
 	}
 	if dto.Series != nil {
 		ev.SeriesID = dto.Series.ID
+		ev.SeriesTitle = dto.Series.Title
+		ev.SeriesTitleSlug = dto.Series.TitleSlug
+		ev.SeriesTVDBID = dto.Series.TvdbID
+		ev.SeriesIMDBID = dto.Series.ImdbID
 	}
 	if len(dto.Episodes) > 0 {
 		ev.SeasonNumber = dto.Episodes[0].SeasonNumber

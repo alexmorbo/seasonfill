@@ -132,6 +132,8 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 	assert.Contains(t, gotBody, `"implementation":"Webhook"`)
 	assert.Contains(t, gotBody, `"configContract":"WebhookSettings"`)
 	assert.Contains(t, gotBody, `"onGrab":true`)
+	assert.Contains(t, gotBody, `"onSeriesAdd":true`)
+	assert.Contains(t, gotBody, `"onSeriesDelete":true`)
 	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
 	assert.Contains(t, gotBody, `"value":"k"`)
 }
@@ -196,4 +198,52 @@ func TestClient_Notification_NetworkError(t *testing.T) {
 	_, err := c.ListDownloadClients(context.Background())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, domain.ErrInstanceNetwork))
+}
+
+func TestClient_CreateNotification_FallbackOnUnknownSeriesTrigger(t *testing.T) {
+	var bodies []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(buf))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":[{"propertyName":"OnSeriesAdd","errorMessage":"is not a recognized trigger"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":7,"implementation":"Webhook"}`))
+	})
+	c := newNotifTestClient(t, mux)
+	n, err := c.CreateNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.NoError(t, err, "first 400 with OnSeriesAdd in body must be retried without the new flags")
+	assert.Equal(t, 7, n.ID)
+	require.Len(t, bodies, 2, "exactly two POSTs: original + fallback")
+	assert.Contains(t, bodies[0], `"onSeriesAdd":true`, "first attempt includes v4 flags")
+	assert.NotContains(t, bodies[1], `"onSeriesAdd":true`, "fallback omits onSeriesAdd (omitempty)")
+	assert.NotContains(t, bodies[1], `"onSeriesDelete":true`, "fallback omits onSeriesDelete (omitempty)")
+	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps Phase 10 triggers")
+	assert.Contains(t, bodies[1], `"onDownload":true`)
+	assert.Contains(t, bodies[1], `"onDownloadFailure":true`)
+}
+
+func TestClient_CreateNotification_400WithoutSeriesTrigger_NoRetry(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"duplicate URL"}`))
+	})
+	c := newNotifTestClient(t, mux)
+	_, err := c.CreateNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.Error(t, err, "400 without OnSeriesAdd/Delete substring must propagate")
+	assert.Equal(t, 1, calls, "no retry — only the targeted trigger case falls back")
+	var se *StatusError
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, http.StatusBadRequest, se.Status)
 }

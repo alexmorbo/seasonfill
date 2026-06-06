@@ -101,6 +101,21 @@ func grabPayloadShortHash() []byte {
 	return []byte(`{"eventType":"Grab","instanceName":"ignored","downloadId":"ABC123","series":{"id":122},"episodes":[{"id":1,"seasonNumber":2}]}`)
 }
 
+func seriesAddPayload() []byte {
+	return []byte(`{
+		"eventType":"SeriesAdd",
+		"series":{"id":42,"title":"Black-ish","titleSlug":"black-ish","tvdbId":269578,"imdbId":"tt3487356"}
+	}`)
+}
+
+func seriesDeletePayload() []byte {
+	return []byte(`{
+		"eventType":"SeriesDelete",
+		"series":{"id":42,"title":"Black-ish"},
+		"deletedFiles":false
+	}`)
+}
+
 // --- Happy paths ----------------------------------------------------------
 
 func TestWebhookHandler_Imported_200(t *testing.T) {
@@ -149,6 +164,30 @@ func TestWebhookHandler_Grabbed_ShortDownloadId_StillReaches_200(t *testing.T) {
 	require.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, "ABC123", f.proc.lastEvt.DownloadID,
 		"the HTTP handler does NOT pre-filter malformed hashes — the application layer's ParseTorrentHash decides")
+}
+
+func TestWebhookHandler_SeriesAdd_ReachesProcessor_200(t *testing.T) {
+	f := newWebhookFixture(t, nil)
+	w := f.post(t, "sonarr-main", seriesAddPayload())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, f.proc.calls)
+	assert.Equal(t, domainwebhook.EventTypeSeriesAdd, f.proc.lastEvt.Type)
+	assert.Equal(t, 42, f.proc.lastEvt.SeriesID)
+	assert.Equal(t, "Black-ish", f.proc.lastEvt.SeriesTitle)
+	assert.Equal(t, "black-ish", f.proc.lastEvt.SeriesTitleSlug)
+	assert.Equal(t, 269578, f.proc.lastEvt.SeriesTVDBID)
+	assert.Equal(t, "tt3487356", f.proc.lastEvt.SeriesIMDBID)
+	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
+}
+
+func TestWebhookHandler_SeriesDelete_ReachesProcessor_200(t *testing.T) {
+	f := newWebhookFixture(t, nil)
+	w := f.post(t, "sonarr-main", seriesDeletePayload())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, f.proc.calls)
+	assert.Equal(t, domainwebhook.EventTypeSeriesDeleted, f.proc.lastEvt.Type)
+	assert.Equal(t, 42, f.proc.lastEvt.SeriesID)
+	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
 }
 
 // --- 400 paths ------------------------------------------------------------

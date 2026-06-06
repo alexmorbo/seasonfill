@@ -2,7 +2,10 @@ package sonarr
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strconv"
+	"strings"
 )
 
 // downloadClientDTO mirrors the subset of Sonarr's
@@ -53,6 +56,8 @@ type notificationDTO struct {
 	OnDownload        bool                `json:"onDownload"`
 	OnDownloadFailure bool                `json:"onDownloadFailure"`
 	OnImportFailure   bool                `json:"onImportFailure,omitempty"`
+	OnSeriesAdd       bool                `json:"onSeriesAdd,omitempty"`
+	OnSeriesDelete    bool                `json:"onSeriesDelete,omitempty"`
 	Fields            []NotificationField `json:"fields"`
 }
 
@@ -166,11 +171,24 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 		OnGrab:            true,
 		OnDownload:        true,
 		OnDownloadFailure: true,
+		OnSeriesAdd:       true,
+		OnSeriesDelete:    true,
 		Fields:            fields,
 	}
 	var resp notificationDTO
 	if err := c.post(ctx, "/api/v3/notification", body, &resp); err != nil {
-		return Notification{}, err
+		if !isUnsupportedTriggerErr(err) {
+			return Notification{}, err
+		}
+		c.logger.WarnContext(ctx, "sonarr_notification_unsupported_series_triggers_fallback",
+			slog.String("instance", c.name),
+			slog.String("error", err.Error()),
+		)
+		body.OnSeriesAdd = false
+		body.OnSeriesDelete = false
+		if err2 := c.post(ctx, "/api/v3/notification", body, &resp); err2 != nil {
+			return Notification{}, err2
+		}
 	}
 	return Notification{
 		ID: resp.ID, Name: resp.Name, Implementation: resp.Implementation,
@@ -178,6 +196,23 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 		OnDownloadFailure: resp.OnDownloadFailure || resp.OnImportFailure,
 		Fields:            resp.Fields,
 	}, nil
+}
+
+// isUnsupportedTriggerErr returns true when Sonarr rejected the create
+// body specifically because the v4 SeriesAdd / SeriesDelete triggers
+// are unknown to it (older Sonarr). Rule: HTTP 400 with body containing
+// the trigger name (case-insensitive). All other failure modes —
+// network, auth, 5xx, other 4xx — return false so they propagate.
+func isUnsupportedTriggerErr(err error) bool {
+	var se *StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	if se.Status != 400 {
+		return false
+	}
+	body := strings.ToLower(se.Body)
+	return strings.Contains(body, "onseriesadd") || strings.Contains(body, "onseriesdelete")
 }
 
 // buildNotificationFields constructs the Sonarr notification.fields

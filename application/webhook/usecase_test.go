@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 )
 
@@ -161,6 +162,59 @@ func newUseCase(t *testing.T, g *fakeGrabRepo, c *fakeCooldownRepo, tx *fakeTran
 	return New(Deps{
 		Grabs:              g,
 		Cooldowns:          c,
+		Tx:                 tx,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+}
+
+type fakeSeriesCache struct {
+	mu            sync.Mutex
+	upsertCalls   int
+	upsertedEntry series.CacheEntry
+	upsertErr     error
+	deleteCalls   int
+	deletedID     int
+	deletedInst   string
+	deleteErr     error
+}
+
+func (f *fakeSeriesCache) Get(context.Context, string, int) (series.CacheEntry, error) {
+	return series.CacheEntry{}, ports.ErrNotFound
+}
+func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.upsertCalls++
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
+	f.upsertedEntry = e
+	return nil
+}
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance string, id int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteCalls++
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deletedInst = instance
+	f.deletedID = id
+	return nil
+}
+func (f *fakeSeriesCache) ListActiveByInstance(context.Context, string) ([]series.CacheEntry, error) {
+	return nil, nil
+}
+
+var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
+
+func newUseCaseWithCache(t *testing.T, g *fakeGrabRepo, c *fakeCooldownRepo, tx *fakeTransactor, cache *fakeSeriesCache) *UseCase {
+	t.Helper()
+	return New(Deps{
+		Grabs:              g,
+		Cooldowns:          c,
+		SeriesCache:        cache,
 		Tx:                 tx,
 		GUIDCooldownLookup: fixedLookup(),
 		Logger:             quietLogger(),
@@ -637,4 +691,112 @@ func TestProcess_Grabbed_RowVanishedBetweenLookupAndUpdate_NoError(t *testing.T)
 	})
 	require.NoError(t, err, "ErrNotFound from UpdateTorrentHash is a benign race, not a failure")
 	assert.Equal(t, 1, g.hashUpdateCall)
+}
+
+func TestProcess_SeriesAdd_UpsertsCache(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesAdd, InstanceName: "main",
+		SeriesID: 42, SeriesTitle: "Black-ish", SeriesTitleSlug: "black-ish",
+		SeriesTVDBID: 269578, SeriesIMDBID: "tt3487356",
+		RawEventType: "SeriesAdd",
+	})
+	require.NoError(t, err)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	require.Equal(t, 1, cache.upsertCalls)
+	assert.Equal(t, "main", cache.upsertedEntry.InstanceName)
+	assert.Equal(t, 42, cache.upsertedEntry.SonarrSeriesID)
+	assert.Equal(t, "Black-ish", cache.upsertedEntry.Title)
+	assert.Equal(t, "black-ish", cache.upsertedEntry.TitleSlug)
+	require.NotNil(t, cache.upsertedEntry.TVDBID)
+	assert.Equal(t, 269578, *cache.upsertedEntry.TVDBID)
+	require.NotNil(t, cache.upsertedEntry.IMDBID)
+	assert.Equal(t, "tt3487356", *cache.upsertedEntry.IMDBID)
+	assert.True(t, cache.upsertedEntry.Monitored)
+}
+
+func TestProcess_SeriesAdd_UpsertErrorIsSwallowed(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{upsertErr: errors.New("db down")}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesAdd, InstanceName: "main",
+		SeriesID: 42, SeriesTitle: "X",
+	})
+	require.NoError(t, err, "cache failure must NOT surface — Sonarr would retry-storm")
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	assert.Equal(t, 1, cache.upsertCalls)
+}
+
+func TestProcess_SeriesAdd_NilCache_NoOp(t *testing.T) {
+	t.Parallel()
+	uc := newUseCase(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesAdd, InstanceName: "main", SeriesID: 42,
+	})
+	require.NoError(t, err)
+}
+
+func TestProcess_SeriesAdd_MissingID_NoOp(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesAdd, InstanceName: "main", SeriesID: 0,
+	})
+	require.NoError(t, err)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	assert.Equal(t, 0, cache.upsertCalls, "no PK → no upsert attempt")
+}
+
+func TestProcess_SeriesDelete_SoftDeletesCache(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesDeleted, InstanceName: "main", SeriesID: 42,
+	})
+	require.NoError(t, err)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	require.Equal(t, 1, cache.deleteCalls)
+	assert.Equal(t, "main", cache.deletedInst)
+	assert.Equal(t, 42, cache.deletedID)
+}
+
+func TestProcess_SeriesDelete_ErrorIsSwallowed(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{deleteErr: errors.New("disk full")}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesDeleted, InstanceName: "main", SeriesID: 42,
+	})
+	require.NoError(t, err)
+}
+
+func TestProcess_SeriesDelete_NilCache_NoOp(t *testing.T) {
+	t.Parallel()
+	uc := newUseCase(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesDeleted, InstanceName: "main", SeriesID: 42,
+	})
+	require.NoError(t, err)
+}
+
+func TestProcess_SeriesDelete_MissingID_NoOp(t *testing.T) {
+	t.Parallel()
+	cache := &fakeSeriesCache{}
+	uc := newUseCaseWithCache(t, &fakeGrabRepo{}, &fakeCooldownRepo{}, &fakeTransactor{}, cache)
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeSeriesDeleted, InstanceName: "main", SeriesID: 0,
+	})
+	require.NoError(t, err)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	assert.Equal(t, 0, cache.deleteCalls)
 }

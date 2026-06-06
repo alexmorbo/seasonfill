@@ -21,8 +21,19 @@ const (
 	// grabbed -> import_failed AND a 48h guid-scope cooldown.
 	EventTypeImportFailed EventType = "import_failed"
 
-	// EventTypeUnsupported — catch-all for Test/Rename/Health/SeriesAdd/
-	// SeriesDelete/EpisodeFileDelete/ApplicationUpdate/HealthRestored
+	// EventTypeSeriesAdd — Sonarr's "SeriesAdd" (v4+). Operator added
+	// a series via UI/API; we upsert series_cache so the queue UI sees
+	// metadata without waiting for the next scan (Phase 11 / D66).
+	EventTypeSeriesAdd EventType = "series_add"
+
+	// EventTypeSeriesDeleted — Sonarr's "SeriesDelete" (v4+). Operator
+	// removed a series; soft-delete the cache row so the queue UI stops
+	// showing it. Hard-delete is left to the SonarrInstance cascade so
+	// grab_records FK references stay valid.
+	EventTypeSeriesDeleted EventType = "series_deleted"
+
+	// EventTypeUnsupported — catch-all for Test/Rename/Health/
+	// EpisodeFileDelete/ApplicationUpdate/HealthRestored
 	// and any future enum value. Handler returns 200 OK + INFO log.
 	EventTypeUnsupported EventType = "unsupported"
 )
@@ -31,7 +42,8 @@ const (
 // in the 007b use case. Test, Rename, Health, etc. return false.
 func (t EventType) IsConsumed() bool {
 	switch t {
-	case EventTypeGrabbed, EventTypeImported, EventTypeImportFailed:
+	case EventTypeGrabbed, EventTypeImported, EventTypeImportFailed,
+		EventTypeSeriesAdd, EventTypeSeriesDeleted:
 		return true
 	default:
 		return false
@@ -75,6 +87,15 @@ type Event struct {
 	// Episodes[0].SeasonNumber; cross-season packs handled in 007b.
 	SeriesID     int
 	SeasonNumber int
+
+	// Series metadata — populated by the mapper when dto.Series is
+	// present. SeriesAdd carries the rich set; SeriesDelete only
+	// SeriesID + SeriesTitle. Other event types may carry SeriesID
+	// only. All optional; zero-value = "Sonarr omitted".
+	SeriesTitle     string
+	SeriesTitleSlug string
+	SeriesTVDBID    int
+	SeriesIMDBID    string
 
 	// Message — failure reason from DownloadStatusMessages
 	// (ManualInteractionRequired only). Empty on success.

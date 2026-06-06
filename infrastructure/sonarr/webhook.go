@@ -24,6 +24,11 @@ type webhookPayloadDTO struct {
 	// DownloadStatus + DownloadStatusMessages — ManualInteractionRequired.
 	DownloadStatus         string                    `json:"downloadStatus,omitempty"`
 	DownloadStatusMessages []webhookStatusMessageDTO `json:"downloadStatusMessages,omitempty"`
+
+	// DeletedFiles — SeriesDelete only. Operator's "also delete files"
+	// checkbox state. Captured for parity with Sonarr's payload but
+	// not consumed (we always soft-delete the cache row regardless).
+	DeletedFiles bool `json:"deletedFiles,omitempty"`
 }
 
 // webhookReleaseDTO mirrors Sonarr's WebhookRelease.
@@ -38,7 +43,9 @@ type webhookReleaseDTO struct {
 	CustomFormats     []string `json:"customFormats,omitempty"`
 }
 
-// webhookSeriesDTO mirrors Sonarr's WebhookSeries (subset).
+// webhookSeriesDTO mirrors Sonarr's WebhookSeries (subset). titleSlug,
+// tvdbId, imdbId are populated on SeriesAdd payloads; other event types
+// omit them but the zero-value decode is harmless.
 type webhookSeriesDTO struct {
 	ID        int    `json:"id"`
 	Title     string `json:"title,omitempty"`

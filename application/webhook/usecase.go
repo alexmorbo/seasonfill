@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/webhook"
 )
 
@@ -28,6 +29,7 @@ type GuidCooldownLookup func(instance string) time.Duration
 type UseCase struct {
 	grabs              ports.GrabRepository
 	cooldowns          ports.CooldownRepository
+	seriesCache        ports.SeriesCacheRepository
 	tx                 ports.Transactor
 	guidCooldownLookup GuidCooldownLookup
 	logger             *slog.Logger
@@ -38,6 +40,7 @@ type UseCase struct {
 type Deps struct {
 	Grabs              ports.GrabRepository
 	Cooldowns          ports.CooldownRepository
+	SeriesCache        ports.SeriesCacheRepository
 	Tx                 ports.Transactor
 	GUIDCooldownLookup GuidCooldownLookup
 	Logger             *slog.Logger
@@ -58,6 +61,7 @@ func New(d Deps) *UseCase {
 	return &UseCase{
 		grabs:              d.Grabs,
 		cooldowns:          d.Cooldowns,
+		seriesCache:        d.SeriesCache,
 		tx:                 d.Tx,
 		guidCooldownLookup: lookup,
 		logger:             lg,
@@ -83,6 +87,10 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 		return nil
 	case webhook.EventTypeGrabbed:
 		return u.handleGrabbed(ctx, evt)
+	case webhook.EventTypeSeriesAdd:
+		return u.handleSeriesAdd(ctx, evt)
+	case webhook.EventTypeSeriesDeleted:
+		return u.handleSeriesDelete(ctx, evt)
 	case webhook.EventTypeImported, webhook.EventTypeImportFailed:
 		// fall through
 	default:
@@ -285,4 +293,90 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 		slog.String("download_id", evt.DownloadID),
 	)
 	return nil
+}
+
+// handleSeriesAdd upserts series_cache from a Sonarr SeriesAdd webhook.
+// Errors are WARN-logged and swallowed — Sonarr retries on non-2xx and
+// the cache is a best-effort sidecar (D-2.5). Nil seriesCache returns
+// immediately (feature off). Missing series.id is a silent skip.
+func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error {
+	if u.seriesCache == nil {
+		return nil
+	}
+	if evt.SeriesID == 0 {
+		u.logger.DebugContext(ctx, "webhook_series_add_missing_id",
+			slog.String("instance", evt.InstanceName),
+			slog.String("raw_event_type", evt.RawEventType),
+		)
+		return nil
+	}
+	entry := webhookSeriesToCacheEntry(evt)
+	if err := u.seriesCache.Upsert(ctx, entry); err != nil {
+		u.logger.WarnContext(ctx, "webhook_series_add_upsert_failed",
+			slog.String("instance", evt.InstanceName),
+			slog.Int("series_id", evt.SeriesID),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+	u.logger.InfoContext(ctx, "webhook_series_add_cached",
+		slog.String("instance", evt.InstanceName),
+		slog.Int("series_id", evt.SeriesID),
+		slog.String("title", evt.SeriesTitle),
+	)
+	return nil
+}
+
+// handleSeriesDelete soft-deletes the series_cache row matching the
+// SeriesDelete webhook. Errors WARN-logged and swallowed (same
+// rationale). Missing series.id is a silent skip. Soft-delete is
+// idempotent at the repo layer — re-deliveries are harmless.
+func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) error {
+	if u.seriesCache == nil {
+		return nil
+	}
+	if evt.SeriesID == 0 {
+		u.logger.DebugContext(ctx, "webhook_series_delete_missing_id",
+			slog.String("instance", evt.InstanceName),
+			slog.String("raw_event_type", evt.RawEventType),
+		)
+		return nil
+	}
+	if err := u.seriesCache.SoftDelete(ctx, evt.InstanceName, evt.SeriesID); err != nil {
+		u.logger.WarnContext(ctx, "webhook_series_delete_soft_delete_failed",
+			slog.String("instance", evt.InstanceName),
+			slog.Int("series_id", evt.SeriesID),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+	u.logger.InfoContext(ctx, "webhook_series_deleted_cache_purged",
+		slog.String("instance", evt.InstanceName),
+		slog.Int("series_id", evt.SeriesID),
+	)
+	return nil
+}
+
+// webhookSeriesToCacheEntry adapts the trimmed series fields from the
+// webhook payload onto a series.CacheEntry. Webhook schema is narrower
+// than /api/v3/series (no genres, no images, no overview); missing
+// fields stay nil/zero. The next scan-tick fillSeriesCache (041e)
+// replaces the row with the rich version — eventual consistency.
+func webhookSeriesToCacheEntry(evt webhook.Event) series.CacheEntry {
+	entry := series.CacheEntry{
+		InstanceName:   evt.InstanceName,
+		SonarrSeriesID: evt.SeriesID,
+		Title:          evt.SeriesTitle,
+		TitleSlug:      evt.SeriesTitleSlug,
+		Monitored:      true, // SeriesAdd fires on additions; assume monitored
+	}
+	if evt.SeriesTVDBID > 0 {
+		v := evt.SeriesTVDBID
+		entry.TVDBID = &v
+	}
+	if evt.SeriesIMDBID != "" {
+		v := evt.SeriesIMDBID
+		entry.IMDBID = &v
+	}
+	return entry
 }

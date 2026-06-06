@@ -11,17 +11,21 @@ func TestEventType_Constants(t *testing.T) {
 	assert.Equal(t, EventType("grabbed"), EventTypeGrabbed)
 	assert.Equal(t, EventType("imported"), EventTypeImported)
 	assert.Equal(t, EventType("import_failed"), EventTypeImportFailed)
+	assert.Equal(t, EventType("series_add"), EventTypeSeriesAdd)
+	assert.Equal(t, EventType("series_deleted"), EventTypeSeriesDeleted)
 	assert.Equal(t, EventType("unsupported"), EventTypeUnsupported)
 }
 
 func TestEventType_IsConsumed(t *testing.T) {
 	t.Parallel()
 	cases := map[EventType]bool{
-		EventTypeGrabbed:      true,
-		EventTypeImported:     true,
-		EventTypeImportFailed: true,
-		EventTypeUnsupported:  false,
-		EventType("future"):   false,
+		EventTypeGrabbed:       true,
+		EventTypeImported:      true,
+		EventTypeImportFailed:  true,
+		EventTypeSeriesAdd:     true,
+		EventTypeSeriesDeleted: true,
+		EventTypeUnsupported:   false,
+		EventType("future"):    false,
 	}
 	for et, want := range cases {
 		et, want := et, want
@@ -35,10 +39,12 @@ func TestEventType_IsConsumed(t *testing.T) {
 func TestEventType_IsTerminal(t *testing.T) {
 	t.Parallel()
 	cases := map[EventType]bool{
-		EventTypeGrabbed:      false,
-		EventTypeImported:     true,
-		EventTypeImportFailed: true,
-		EventTypeUnsupported:  false,
+		EventTypeGrabbed:       false,
+		EventTypeImported:      true,
+		EventTypeImportFailed:  true,
+		EventTypeSeriesAdd:     false,
+		EventTypeSeriesDeleted: false,
+		EventTypeUnsupported:   false,
 	}
 	for et, want := range cases {
 		et, want := et, want
