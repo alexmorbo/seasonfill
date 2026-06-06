@@ -24,9 +24,9 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
-	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -37,15 +37,15 @@ import (
 // orchestration body stays readable. Construction lives in
 // newRegrabHarness; teardown is t.Cleanup chained.
 type regrabHarness struct {
-	uc           *regrab.UseCase
-	cooldowns    ports.CooldownRepository
-	grabRepo     ports.GrabRepository
-	originalID   uuid.UUID
-	instanceID   uint
-	seriesID     int
-	season       int
-	hash         string
-	sonarrPOSTs  *atomic.Int32
+	uc          *regrab.UseCase
+	cooldowns   ports.CooldownRepository
+	grabRepo    ports.GrabRepository
+	originalID  uuid.UUID
+	instanceID  uint
+	seriesID    int
+	season      int
+	hash        string
+	sonarrPOSTs *atomic.Int32
 }
 
 const (
@@ -227,15 +227,15 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	// --- Seed qbit settings ---
 	now := time.Now().UTC()
 	require.NoError(t, qbitSettingsRepo.Upsert(context.Background(), ports.QbitSettingsRecord{
-		InstanceID:              instanceID,
-		Enabled:                 true,
-		URL:                     qbitSrv.URL,
-		Category:                testCategory,
-		PollIntervalMinutes:     30,
-		RegrabCooldownHours:     1,
-		MaxConsecutiveNoBetter:  3,
-		CreatedAt:               now,
-		UpdatedAt:               now,
+		InstanceID:             instanceID,
+		Enabled:                true,
+		URL:                    qbitSrv.URL,
+		Category:               testCategory,
+		PollIntervalMinutes:    30,
+		RegrabCooldownHours:    1,
+		MaxConsecutiveNoBetter: 3,
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}))
 
 	// --- Seed original grab_records row (the one Watchdog will find by hash) ---
