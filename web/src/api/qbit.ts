@@ -15,7 +15,6 @@ export type QbitSettingsDTO = components['schemas']['dto.QbitSettingsDTO'];
 export type QbitSettingsUpsertRequest =
   components['schemas']['dto.QbitSettingsUpsertRequest'];
 export type QbitDiscoverDTO = components['schemas']['dto.QbitDiscoverDTO'];
-export type WebhookInstallDTO = components['schemas']['dto.WebhookInstallDTO'];
 export type WebhookStatusDTO = components['schemas']['dto.WebhookStatusDTO'];
 
 // Query keys — exported so tests can prime/inspect the cache without
@@ -190,51 +189,3 @@ export function useWebhookStatus(
   });
 }
 
-// useInstallWebhook — POST /webhook/install with friendly error
-// mapping. 412 PUBLIC_URL_UNCONFIGURED is the most-likely first-time
-// failure and the caller surfaces an inline action linking to
-// /settings#webhooks; we still toast a generic message for visibility
-// if the dialog has scrolled past the banner.
-export function useInstallWebhook(
-  name: string,
-): UseMutationResult<WebhookInstallDTO, ApiError, void> {
-  const qc = useQueryClient();
-  return useMutation<WebhookInstallDTO, ApiError, void>({
-    mutationFn: () =>
-      api<WebhookInstallDTO>(
-        `/instances/${encodeURIComponent(name)}/webhook/install`,
-        { method: 'POST' },
-      ),
-    onSuccess: (dto) => {
-      // Settings query reflects the (potentially newly-unblocked)
-      // webhook state — the enabled Switch reads from the banner's
-      // local installed state, but downstream callers may key off
-      // settings cache freshness too.
-      qc.invalidateQueries({ queryKey: qbitSettingsKey(name) });
-      // Status query must refresh so the banner flips to green
-      // without needing a window focus event.
-      qc.invalidateQueries({ queryKey: webhookStatusKey(name) });
-      if (dto.created) {
-        toast.success(
-          i18n.t('settings.instances.form.watchdog.webhookGate.installSuccess'),
-        );
-      } else {
-        // Idempotent path — 200 with created:false. Still positive,
-        // banner flips to "installed" either way.
-        toast.success(
-          i18n.t('settings.instances.form.watchdog.webhookGate.installed'),
-        );
-      }
-    },
-    onError: (err) => {
-      const code = errorCode(err);
-      if (err.status === 412 && code === 'PUBLIC_URL_UNCONFIGURED') {
-        toast.error(
-          i18n.t('settings.instances.form.watchdog.webhookGate.publicUrlMissing'),
-        );
-        return;
-      }
-      toast.error(i18n.t('toasts.instanceSaveFailed', { error: err.message }));
-    },
-  });
-}

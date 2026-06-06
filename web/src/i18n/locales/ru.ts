@@ -745,14 +745,12 @@ export const ru: Translations = {
           health_recheck_auth: 'Период проверки авторизации',
           health_recheck_network: 'Период проверки сети',
         },
+        webhookBadge: {
+          installed: 'Вебхук установлен',
+          notInstalled: 'Вебхук не установлен',
+          error: 'Ошибка установки: {{message}}',
+        },
         watchdog: {
-          webhookGate: {
-            notInstalled: 'Watchdog требует, чтобы в Sonarr был настроен OnGrab вебхук.',
-            installBtn: 'Установить вебхук',
-            installed: 'Вебхук установлен',
-            installSuccess: 'Вебхук установлен в Sonarr.',
-            publicUrlMissing: 'Сначала задайте публичный URL в Настройки → Вебхуки.',
-          },
           form: {
             url: {
               label: 'URL qBittorrent',

@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   useQbitSettings,
   useUpsertQbitSettings,
-  useInstallWebhook,
   useDiscoverQbit,
   qbitSettingsKey,
 } from '../qbit';
@@ -124,32 +123,6 @@ describe('useUpsertQbitSettings', () => {
     result.current.mutate({ body: { url: 'http://q' } as never });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(spy).toHaveBeenCalledWith({ queryKey: qbitSettingsKey('alpha') });
-  });
-});
-
-describe('useInstallWebhook', () => {
-  it('toasts installSuccess on created:true', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      jsonResp({ installed: true, created: true, notification_id: 42 }, 201),
-    ) as typeof fetch;
-    const qc = makeQC();
-    const { result } = renderHook(() => useInstallWebhook('alpha'), { wrapper: wrap(qc) });
-    result.current.mutate();
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(toastSuccess).toHaveBeenCalledWith('Webhook installed in Sonarr.');
-  });
-
-  it('toasts publicUrlMissing on 412 PUBLIC_URL_UNCONFIGURED', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      jsonResp({ error: 'no url', code: 'PUBLIC_URL_UNCONFIGURED' }, 412),
-    ) as typeof fetch;
-    const qc = makeQC();
-    const { result } = renderHook(() => useInstallWebhook('alpha'), { wrapper: wrap(qc) });
-    result.current.mutate();
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith(
-      'Set the public URL in Settings → Webhooks first.',
-    );
   });
 });
 

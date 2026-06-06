@@ -969,4 +969,44 @@ describe('<InstanceFormDialog />', () => {
       expect(state?.isInvalidated || state?.fetchStatus === 'fetching').toBe(true);
     });
   });
+
+  it('041h-2: edit mode renders the webhook status badge slot', async () => {
+    const detail: InstanceDetail = {
+      name: 'alpha',
+      url: 'http://sonarr:8989',
+      mode: DtoInstanceDetailMode.auto,
+      webhook_install_enabled: true,
+    } as InstanceDetail;
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.includes('/webhook/status')) {
+        return jsonResp({ installed: true, notification_id: 7 });
+      }
+      if (url.includes('/instances/alpha')) return jsonResp(detail);
+      return jsonResp({ instances: [] });
+    }) as typeof fetch;
+
+    const { qc } = renderWithProviders(
+      <InstanceFormDialog
+        open onOpenChange={() => {}} mode="edit"
+        initial={{ name: 'alpha', url: 'http://sonarr:8989', mode: 'auto' }}
+      />,
+    );
+    seedDetail(qc, 'alpha', detail);
+    expect(
+      await screen.findByTestId('inst-webhook-badge-slot'),
+    ).toBeVisible();
+    const badge = await screen.findByTestId('webhook-status-badge');
+    expect(badge).toHaveAttribute('data-state', 'installed');
+  });
+
+  it('041h-2: create mode does NOT render the webhook status badge', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResp({})) as typeof fetch;
+    renderWithProviders(
+      <InstanceFormDialog open onOpenChange={() => {}} mode="create" />,
+    );
+    await screen.findByLabelText(/name/i);
+    expect(screen.queryByTestId('inst-webhook-badge-slot')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('webhook-status-badge')).not.toBeInTheDocument();
+  });
 });

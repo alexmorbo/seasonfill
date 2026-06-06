@@ -740,14 +740,12 @@ export const en = {
           health_recheck_auth: 'Auth recheck interval',
           health_recheck_network: 'Network recheck interval',
         },
+        webhookBadge: {
+          installed: 'Webhook installed',
+          notInstalled: 'Webhook not installed',
+          error: 'Install failed: {{message}}',
+        },
         watchdog: {
-          webhookGate: {
-            notInstalled: 'Watchdog requires the OnGrab webhook to be configured in Sonarr.',
-            installBtn: 'Install webhook',
-            installed: 'Webhook installed',
-            installSuccess: 'Webhook installed in Sonarr.',
-            publicUrlMissing: 'Set the public URL in Settings → Webhooks first.',
-          },
           form: {
             url: {
               label: 'qBittorrent URL',

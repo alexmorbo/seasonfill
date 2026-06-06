@@ -44,6 +44,7 @@ import {
   FORM_DEFAULTS, dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
 import { WatchdogTab } from './WatchdogTab';
+import { WebhookStatusBadge } from './WebhookStatusBadge';
 
 const nameRule = z
   .string()
@@ -606,6 +607,11 @@ export function InstanceFormDialog({
                   <p className="text-[11.5px] text-muted">
                     {t('settings.instances.form.webhookInstallHint')}
                   </p>
+                  {isEdit && initial?.name && (
+                    <div className="mt-1" data-testid="inst-webhook-badge-slot">
+                      <WebhookStatusBadge name={initial.name} />
+                    </div>
+                  )}
                 </div>
               </div>
 

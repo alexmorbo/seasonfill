@@ -54,70 +54,18 @@ const webhookInstalledStatus = () =>
   jsonResp({ installed: true, notification_id: 7, url: 'https://sf/api/v1/webhook/sonarr/alpha' }, 200);
 
 describe('<WatchdogTab />', () => {
-  it('renders the install-webhook banner when status returns installed:false', async () => {
+  it('041h-2: webhook gate banner and install button no longer rendered', async () => {
     mockFetch({
       '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
       '/webhook/status': webhookNotInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    expect(await screen.findByTestId('watchdog-webhook-gate')).toBeVisible();
+    await screen.findByTestId('watchdog-form');
+    expect(screen.queryByTestId('watchdog-webhook-gate')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('watchdog-webhook-installed')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /install webhook/i }),
-    ).toBeEnabled();
-  });
-
-  it('renders green banner immediately when status returns installed:true (settings absent)', async () => {
-    // This is the real bug fix: webhook IS in Sonarr but no qbit settings
-    // row exists yet. The old heuristic showed the red banner; the new
-    // status query shows green.
-    mockFetch({
-      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
-      '/webhook/status': webhookInstalledStatus,
-    });
-    renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    expect(await screen.findByTestId('watchdog-webhook-installed')).toBeVisible();
-  });
-
-  it('clicking Install fires POST /webhook/install and flips the banner', async () => {
-    let installCalled = false;
-    let statusCallCount = 0;
-    mockFetch({
-      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
-      '/webhook/status': () => {
-        statusCallCount += 1;
-        // After the first call (loading), return installed:true to simulate
-        // the invalidation after a successful POST.
-        return jsonResp({ installed: statusCallCount > 1 }, 200);
-      },
-      '/webhook/install': () => {
-        installCalled = true;
-        return jsonResp({ installed: true, created: true, notification_id: 7 }, 201);
-      },
-    });
-    renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    await userEvent.click(
-      await screen.findByRole('button', { name: /install webhook/i }),
-    );
-    await waitFor(() => expect(installCalled).toBe(true));
-    expect(
-      await screen.findByTestId('watchdog-webhook-installed'),
-    ).toBeVisible();
-  });
-
-  it('shows the public-url link inline when install returns 412', async () => {
-    mockFetch({
-      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
-      '/webhook/status': webhookNotInstalledStatus,
-      '/webhook/install': () =>
-        jsonResp({ error: 'no url', code: 'PUBLIC_URL_UNCONFIGURED' }, 412),
-    });
-    renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    await userEvent.click(
-      await screen.findByRole('button', { name: /install webhook/i }),
-    );
-    expect(await screen.findByTestId('watchdog-public-url-link')).toBeVisible();
-    // Banner stayed in the destructive state.
-    expect(screen.getByTestId('watchdog-webhook-gate')).toBeVisible();
+      screen.queryByRole('button', { name: /install webhook/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('password placeholder shows "set" indicator when password_set:true', async () => {
@@ -222,26 +170,6 @@ describe('<WatchdogTab />', () => {
       '/webhook/status': webhookInstalledStatus,
     });
     renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    await screen.findByTestId('watchdog-webhook-installed');
-    const sw = screen.getByLabelText(/^enabled$/i);
-    await waitFor(() => expect(sw).not.toBeDisabled());
-  });
-
-  it('Enabled Switch becomes interactive after webhook install', async () => {
-    let statusCallCount = 0;
-    mockFetch({
-      '/qbit/settings': () => jsonResp({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404),
-      '/webhook/status': () => {
-        statusCallCount += 1;
-        return jsonResp({ installed: statusCallCount > 1 }, 200);
-      },
-      '/webhook/install': () =>
-        jsonResp({ installed: true, created: true, notification_id: 9 }, 201),
-    });
-    renderWithProviders(<WatchdogTab instanceName="alpha" />);
-    await userEvent.click(
-      await screen.findByRole('button', { name: /install webhook/i }),
-    );
     await screen.findByTestId('watchdog-webhook-installed');
     const sw = screen.getByLabelText(/^enabled$/i);
     await waitFor(() => expect(sw).not.toBeDisabled());

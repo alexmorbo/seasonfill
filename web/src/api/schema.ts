@@ -1478,12 +1478,10 @@ export type paths = {
         readonly put?: never;
         /**
          * Auto-install the seasonfill webhook into Sonarr
-         * @description Looks for an existing notification whose URL matches
-         *     <public_url>/api/v1/webhook/sonarr/<instance_name>; if
-         *     present, returns 200 + {created:false}. Otherwise
-         *     POSTs a new Webhook notification with OnGrab+OnImport+
-         *     OnImportFailure triggers and the X-Api-Key header, then
-         *     returns 201 + {created:true}.
+         * @description Forces a synchronous Reconcile pass. Returns 200 +
+         *     {created:false} when the webhook was already present
+         *     OR an existing entry's URL was updated in place. Returns
+         *     201 + {created:true} when a new entry was POSTed.
          */
         readonly post: {
             readonly parameters: {
@@ -1568,11 +1566,10 @@ export type paths = {
         };
         /**
          * Check whether the seasonfill webhook is installed in Sonarr
-         * @description Queries Sonarr GET /api/v3/notification and matches against
-         *     the canonical /api/v1/webhook/sonarr/<instance> path segment.
-         *     Returns installed:true with the matched notification ID and
-         *     URL when found; installed:false otherwise. Does NOT create or
-         *     modify any Sonarr resource.
+         * @description Reads the in-memory StatusCache populated by the
+         *     reconciler. Stale entries trigger a lazy refresh
+         *     (one Sonarr round-trip) before serving. Optional
+         *     `error` field carries the last reconcile failure.
          */
         readonly get: {
             readonly parameters: {
@@ -1595,26 +1592,8 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.WebhookStatusDTO"];
                     };
                 };
-                /** @description Unauthorized */
-                readonly 401: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
                 /** @description Not Found */
                 readonly 404: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Bad Gateway */
-                readonly 502: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
@@ -2667,6 +2646,13 @@ export type components = {
             readonly notification_id?: number;
         };
         readonly "dto.WebhookStatusDTO": {
+            /**
+             * @description Error carries the last reconcile failure message (041c). nil on
+             *     success. Served on 200 so the UI can render an "install failed"
+             *     badge without a separate fetch.
+             * @example sonarr unauthorized
+             */
+            readonly error?: string;
             /** @example true */
             readonly installed?: boolean;
             /** @example 42 */

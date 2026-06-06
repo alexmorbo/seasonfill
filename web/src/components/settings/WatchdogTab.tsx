@@ -3,9 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { CheckCircle2, Loader2, AlertTriangle, Wand2 } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react';
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,7 +16,6 @@ import {
 import { TagListEditor } from './instance-form-fields';
 import {
   useDiscoverQbit,
-  useInstallWebhook,
   useQbitSettings,
   useUpsertQbitSettings,
   useWebhookStatus,
@@ -126,7 +124,6 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
 
   const settingsQuery = useQbitSettings(instanceName);
   const upsert = useUpsertQbitSettings(instanceName);
-  const installWebhook = useInstallWebhook(instanceName);
   const webhookStatusQuery = useWebhookStatus(instanceName);
 
   const [discoverEnabled, setDiscoverEnabled] = useState(false);
@@ -250,48 +247,6 @@ export function WatchdogTab({ instanceName }: WatchdogTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ----------- Section A: webhook gate banner ---------- */}
-      {webhookInstalled ? (
-        <Alert
-          data-testid="watchdog-webhook-installed"
-          className="border-status-ok/50"
-        >
-          <CheckCircle2 className="h-4 w-4 text-status-ok" />
-          <AlertTitle>
-            {t('settings.instances.form.watchdog.webhookGate.installed')}
-          </AlertTitle>
-        </Alert>
-      ) : (
-        <Alert data-testid="watchdog-webhook-gate" variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>
-            {t('settings.instances.form.watchdog.webhookGate.notInstalled')}
-          </AlertTitle>
-          <AlertDescription className="mt-2 flex items-center gap-3">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => installWebhook.mutate()}
-              disabled={installWebhook.isPending}
-            >
-              {installWebhook.isPending && (
-                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-              )}
-              {t('settings.instances.form.watchdog.webhookGate.installBtn')}
-            </Button>
-            {installWebhook.isError && installWebhook.error.status === 412 && (
-              <a
-                href="/settings#webhooks"
-                className="text-[12px] underline underline-offset-2"
-                data-testid="watchdog-public-url-link"
-              >
-                {t('settings.instances.form.watchdog.webhookGate.publicUrlMissing')}
-              </a>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
       {/* ----------- Section B: settings form ---------------- */}
       <div
         className="flex flex-col gap-4"
