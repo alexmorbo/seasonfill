@@ -268,6 +268,14 @@ func (abortFakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (domaingrab.Rec
 	return domaingrab.Record{}, ports.ErrNotFound
 }
 
+func (abortFakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

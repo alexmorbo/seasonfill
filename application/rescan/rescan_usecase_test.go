@@ -128,6 +128,14 @@ func (f *rescanFakeGrab) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, e
 	return grab.Record{}, ports.ErrNotFound
 }
 
+func (f *rescanFakeGrab) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

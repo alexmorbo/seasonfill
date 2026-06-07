@@ -114,6 +114,14 @@ func (f *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, err
 	return grab.Record{}, ports.ErrNotFound
 }
 
+func (f *fakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (f *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

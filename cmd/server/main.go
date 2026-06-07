@@ -359,6 +359,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	regrabLoopVal := newRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
 	regrabLoopVal.Start(rootCtx)
 
+	// 047a — watchdog rollup handler wiring.
+	watchdogInstanceAdapter := watchdogInstanceLister{repo: instanceRepo, cipher: cipher}
+	watchdogRollupHandler := handlers.NewWatchdogRollupHandler(
+		qbitSettingsUC,          // SettingsLookup
+		regrabUC,                // RollupSnapshotProvider
+		grabRepo,                // rollupGrabCounter
+		blacklistRepo,           // rollupBlacklistCounter
+		watchdogInstanceAdapter, // InstanceLister
+		watchdogInstanceAdapter, // InstanceIDLookup
+		log,
+	)
+
 	// qBit settings loader for the fanout — calls List + builds the
 	// Settings map fresh on every publish. The Lookup closure delegates
 	// to the settings use case so password decryption is centralised.
@@ -405,7 +417,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
 		qbitSettingsHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
-		seriesCacheRepo, counterRepo, log)
+		seriesCacheRepo, counterRepo, watchdogRollupHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

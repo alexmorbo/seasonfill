@@ -145,6 +145,14 @@ func (noopGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error)
 	panic("fake GetByID unexpectedly called - this stub is not configured")
 }
 
+func (noopGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (noopGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {
@@ -228,6 +236,7 @@ func buildServer(t *testing.T) *Server {
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
+		nil, // watchdogRollupHandler
 		lg)
 }
 
@@ -280,6 +289,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
+		nil, // watchdogRollupHandler
 		lg)
 }
 
@@ -446,6 +456,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
+		nil, // watchdogRollupHandler
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

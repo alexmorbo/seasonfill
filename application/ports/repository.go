@@ -172,6 +172,13 @@ type GrabRepository interface {
 	// endpoint lookup (handler reads instance_name + status from the
 	// returned row before calling Sonarr).
 	GetByID(ctx context.Context, id uuid.UUID) (grab.Record, error)
+
+	// CountReplaysSince — count of grab_records rows for instanceName
+	// whose replay_of_id IS NOT NULL AND created_at >= since.
+	CountReplaysSince(ctx context.Context, instanceName string, since time.Time) (int, error)
+
+	// CountReplaysAll — lifetime count of replays for instanceName.
+	CountReplaysAll(ctx context.Context, instanceName string) (int, error)
 }
 
 type CooldownRepository interface {
@@ -270,6 +277,9 @@ type WatchdogBlacklistRepository interface {
 	// ListByInstance returns every parked row for the instance. Used by
 	// the metrics gauge `seasonfill_watchdog_blacklist_size{instance}`.
 	ListByInstance(ctx context.Context, instanceID uint) ([]regrab.BlacklistEntry, error)
+
+	// CountByInstance — current row count for instanceID. Zero on no rows.
+	CountByInstance(ctx context.Context, instanceID uint) (int, error)
 }
 
 // NoBetterCounterRepository persists the live consecutive-no-better

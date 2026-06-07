@@ -55,6 +55,7 @@ func NewServer(
 	webhookStatusCache *webhookinstall.StatusCache,
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
+	watchdogRollupHandler *handlers.WatchdogRollupHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -153,6 +154,8 @@ func NewServer(
 			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)
 			guarded.DELETE("/instances/:name/qbit/settings", qbitSettings.Delete)
 		}
+		guarded.GET("/instances/:name/watchdog/rollups", watchdogRollupHandler.One)
+		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)

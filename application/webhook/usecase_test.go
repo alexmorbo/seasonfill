@@ -104,6 +104,14 @@ func (r *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, err
 	return grab.Record{}, ports.ErrNotFound
 }
 
+func (r *fakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 type fakeCooldownRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

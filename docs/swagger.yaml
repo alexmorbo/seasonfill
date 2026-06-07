@@ -1173,6 +1173,60 @@ components:
           example: admin
           type: string
       type: object
+    dto.WatchdogRollup:
+      properties:
+        active:
+          example: true
+          type: boolean
+        blacklist_size:
+          example: 3
+          type: integer
+        cooldown_hours:
+          example: 120
+          type: integer
+        enabled:
+          example: true
+          type: boolean
+        instance_name:
+          example: homelab
+          type: string
+        last_poll_at:
+          type: string
+        last_poll_result:
+          example: ok
+          type: string
+        next_poll_at:
+          type: string
+        no_better_max:
+          example: 3
+          type: integer
+        poll_interval_seconds:
+          example: 1800
+          type: integer
+        qbit_reachable:
+          example: true
+          type: boolean
+        regrabs_7d:
+          example: 5
+          type: integer
+        regrabs_24h:
+          example: 1
+          type: integer
+        unregistered:
+          example: 24
+          type: integer
+        watched:
+          example: 12
+          type: integer
+      type: object
+    dto.WatchdogRollupList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogRollup'
+          type: array
+          uniqueItems: false
+      type: object
     dto.WebhookInstallDTO:
       properties:
         created:
@@ -2445,6 +2499,40 @@ paths:
       summary: List cached series for an instance
       tags:
       - instances
+  /instances/{name}/watchdog/rollups:
+    get:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WatchdogRollup'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Watchdog rollups for one instance
+      tags:
+      - watchdog
   /instances/{name}/webhook/install:
     post:
       description: |-
@@ -2793,6 +2881,27 @@ paths:
       summary: Cancel a running scan
       tags:
       - scans
+  /watchdog/rollups:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WatchdogRollupList'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Watchdog rollups for every configured instance
+      tags:
+      - watchdog
 servers:
 - description: Primary API base path
   url: /api/v1

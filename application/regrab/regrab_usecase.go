@@ -96,6 +96,7 @@ type UseCase struct {
 	evaluate    EvaluateExecutor
 	grabExec    GrabExecutor
 	metrics     Metrics
+	state       *RuntimeStateStore
 	logger      *slog.Logger
 	now         func() time.Time
 }
@@ -132,6 +133,7 @@ func NewUseCase(
 		evaluate:    evaluator,
 		grabExec:    grabExec,
 		metrics:     nullMetrics{},
+		state:       NewRuntimeStateStore(),
 		logger:      logger,
 		now:         func() time.Time { return time.Now().UTC() },
 	}
@@ -172,12 +174,14 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			// No settings row → treat as disabled (subscriber should
 			// not have called us, but be defensive).
 			res.FinishedAt = u.now()
+			u.state.StampPartial(instanceName, res.FinishedAt, PollResultSkipped, false, -1)
 			return res, nil
 		}
 		return res, fmt.Errorf("lookup settings: %w", err)
 	}
 	if !sett.Enabled {
 		res.FinishedAt = u.now()
+		u.state.StampPartial(instanceName, res.FinishedAt, PollResultSkipped, false, -1)
 		return res, nil
 	}
 
@@ -190,6 +194,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
+		u.state.StampPartial(instanceName, res.FinishedAt, PollResultQbitError, false, -1)
 		return res, nil
 	}
 	defer func() { _ = client.Close() }()
@@ -200,6 +205,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
+		u.state.StampPartial(instanceName, res.FinishedAt, PollResultQbitError, false, -1)
 		return res, nil
 	}
 	det := u.detectorFac.NewDetector(client, sett.CustomUnregisteredMsgs)
@@ -213,15 +219,26 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
+		u.state.StampPartial(instanceName, res.FinishedAt, PollResultQbitError, false, -1)
 		return res, nil
 	}
 	res.TorrentsSeen = len(torrents)
 
-	// Resolve the Sonarr instance once — the loop body reuses it for
-	// each evaluate invocation. Lookup miss → typed error; the
-	// subscriber treats this as a hard failure (no point retrying).
+	// Watched = post-category-filter torrent count. Computed before the
+	// outer loop so the value is stable across the iteration and ready
+	// for the success-path Stamp call below.
+	watched := 0
+	for _, t := range torrents {
+		if t.Category != "" && sett.Category != "" && t.Category != sett.Category {
+			continue
+		}
+		watched++
+	}
+
 	inst, ok := u.instances.Get(instanceName)
 	if !ok {
+		res.FinishedAt = u.now()
+		u.state.StampPartial(instanceName, res.FinishedAt, PollResultQbitError, true, watched)
 		return res, fmt.Errorf("%w: %q", ErrUnknownInstance, instanceName)
 	}
 
@@ -386,6 +403,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 
 	u.metrics.IncPollResult(instanceName, "ok")
 	res.FinishedAt = u.now()
+	u.state.StampPartial(instanceName, res.FinishedAt, PollResultOK, true, watched)
 	return res, nil
 }
 
@@ -587,3 +605,21 @@ func lowerHost(raw string) string {
 // Compile-time guard the new release symbol stays referenced even if
 // classifyOutcome's switch shape changes.
 var _ = release.Scored{}
+
+// Snapshot returns the latest per-instance state recorded by RunInstance.
+// (zero, false) when the instance has never run.
+func (u *UseCase) Snapshot(instance string) (RuntimeState, bool) {
+	return u.state.Snapshot(instance)
+}
+
+// SnapshotAll returns every instance's state. Used by the aggregate
+// rollup handler.
+func (u *UseCase) SnapshotAll() map[string]RuntimeState {
+	return u.state.SnapshotAll()
+}
+
+// ForgetState drops the per-instance bookkeeping. Called by the
+// instance CRUD delete subscriber.
+func (u *UseCase) ForgetState(instance string) {
+	u.state.Forget(instance)
+}

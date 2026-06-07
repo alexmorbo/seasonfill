@@ -557,3 +557,30 @@ type SeriesCacheList struct {
 	HasMore    bool              `json:"has_more"   example:"true"`
 	NextCursor string            `json:"next_cursor,omitempty"`
 }
+
+// --- Watchdog rollups (047a) -------------------------------------------------
+
+// WatchdogRollup is the per-instance F4 dashboard projection. Pointer
+// fields are nil when the instance has never been polled.
+type WatchdogRollup struct {
+	InstanceName    string     `json:"instance_name"    example:"homelab"`
+	Enabled         bool       `json:"enabled"          example:"true"`
+	Active          bool       `json:"active"           example:"true"`
+	Watched         int        `json:"watched"          example:"12"`
+	Unregistered    int        `json:"unregistered"     example:"24"`
+	Regrabs24h      int        `json:"regrabs_24h"      example:"1"`
+	Regrabs7d       int        `json:"regrabs_7d"       example:"5"`
+	BlacklistSize   int        `json:"blacklist_size"   example:"3"`
+	LastPollAt      *time.Time `json:"last_poll_at,omitempty"`
+	LastPollResult  *string    `json:"last_poll_result,omitempty" example:"ok"`
+	NextPollAt      *time.Time `json:"next_poll_at,omitempty"`
+	QbitReachable   bool       `json:"qbit_reachable"   example:"true"`
+	PollIntervalSec int        `json:"poll_interval_seconds" example:"1800"`
+	CooldownHours   int        `json:"cooldown_hours"        example:"120"`
+	NoBetterMax     int        `json:"no_better_max"         example:"3"`
+}
+
+// WatchdogRollupList — body of GET /api/v1/watchdog/rollups.
+type WatchdogRollupList struct {
+	Items []WatchdogRollup `json:"items"`
+}

@@ -46,6 +46,36 @@ func (m *MockGrabRepository) EXPECT() *MockGrabRepositoryMockRecorder {
 	return m.recorder
 }
 
+// CountReplaysAll mocks base method.
+func (m *MockGrabRepository) CountReplaysAll(ctx context.Context, instanceName string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountReplaysAll", ctx, instanceName)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountReplaysAll indicates an expected call of CountReplaysAll.
+func (mr *MockGrabRepositoryMockRecorder) CountReplaysAll(ctx, instanceName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountReplaysAll", reflect.TypeOf((*MockGrabRepository)(nil).CountReplaysAll), ctx, instanceName)
+}
+
+// CountReplaysSince mocks base method.
+func (m *MockGrabRepository) CountReplaysSince(ctx context.Context, instanceName string, since time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountReplaysSince", ctx, instanceName, since)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountReplaysSince indicates an expected call of CountReplaysSince.
+func (mr *MockGrabRepositoryMockRecorder) CountReplaysSince(ctx, instanceName, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountReplaysSince", reflect.TypeOf((*MockGrabRepository)(nil).CountReplaysSince), ctx, instanceName, since)
+}
+
 // Create mocks base method.
 func (m *MockGrabRepository) Create(ctx context.Context, rec grab.Record) error {
 	m.ctrl.T.Helper()
@@ -312,6 +342,21 @@ func NewMockWatchdogBlacklistRepository(ctrl *gomock.Controller) *MockWatchdogBl
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockWatchdogBlacklistRepository) EXPECT() *MockWatchdogBlacklistRepositoryMockRecorder {
 	return m.recorder
+}
+
+// CountByInstance mocks base method.
+func (m *MockWatchdogBlacklistRepository) CountByInstance(ctx context.Context, instanceID uint) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByInstance", ctx, instanceID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByInstance indicates an expected call of CountByInstance.
+func (mr *MockWatchdogBlacklistRepositoryMockRecorder) CountByInstance(ctx, instanceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByInstance", reflect.TypeOf((*MockWatchdogBlacklistRepository)(nil).CountByInstance), ctx, instanceID)
 }
 
 // DeleteByTriple mocks base method.

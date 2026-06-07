@@ -24,5 +24,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
+		nil, // watchdogRollupHandler
 		logger)
 }

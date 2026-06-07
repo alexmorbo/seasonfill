@@ -1785,6 +1785,63 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/watchdog/rollups": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Watchdog rollups for one instance */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WatchdogRollup"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/webhook/install": {
         readonly parameters: {
             readonly query?: never;
@@ -2324,6 +2381,51 @@ export type paths = {
                 };
             };
         };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/watchdog/rollups": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Watchdog rollups for every configured instance */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WatchdogRollupList"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -3069,6 +3171,39 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        readonly "dto.WatchdogRollup": {
+            /** @example true */
+            readonly active?: boolean;
+            /** @example 3 */
+            readonly blacklist_size?: number;
+            /** @example 120 */
+            readonly cooldown_hours?: number;
+            /** @example true */
+            readonly enabled?: boolean;
+            /** @example homelab */
+            readonly instance_name?: string;
+            readonly last_poll_at?: string;
+            /** @example ok */
+            readonly last_poll_result?: string;
+            readonly next_poll_at?: string;
+            /** @example 3 */
+            readonly no_better_max?: number;
+            /** @example 1800 */
+            readonly poll_interval_seconds?: number;
+            /** @example true */
+            readonly qbit_reachable?: boolean;
+            /** @example 5 */
+            readonly regrabs_7d?: number;
+            /** @example 1 */
+            readonly regrabs_24h?: number;
+            /** @example 24 */
+            readonly unregistered?: number;
+            /** @example 12 */
+            readonly watched?: number;
+        };
+        readonly "dto.WatchdogRollupList": {
+            readonly items?: readonly components["schemas"]["dto.WatchdogRollup"][];
         };
         readonly "dto.WebhookInstallDTO": {
             /** @example true */
