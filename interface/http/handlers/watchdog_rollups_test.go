@@ -122,7 +122,7 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 	}
 	blist[1] = 3
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -145,7 +145,7 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 
 func TestWatchdogRollupHandler_OneUnknownInstance(t *testing.T) {
 	r, _, _, _, _ := setupHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/ghost/watchdog/rollups", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/ghost/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
@@ -155,7 +155,7 @@ func TestWatchdogRollupHandler_OneUnknownInstance(t *testing.T) {
 
 func TestWatchdogRollupHandler_OneNoSettings(t *testing.T) {
 	r, _, _, _, _ := setupHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -172,7 +172,7 @@ func TestWatchdogRollupHandler_AllSorted(t *testing.T) {
 	r, _, _, _, settings := setupHandler(t)
 	settings["homelab"] = regrab.Settings{InstanceID: 1, InstanceName: "homelab", Enabled: true, PollInterval: 30 * time.Minute}
 	settings["4k"] = regrab.Settings{InstanceID: 2, InstanceName: "4k", Enabled: true, PollInterval: 30 * time.Minute}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/watchdog/rollups", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -211,7 +211,7 @@ func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
 	r.GET("/api/v1/watchdog/rollups", h.All)
 
 	start := time.Now()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/watchdog/rollups", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	elapsed := time.Since(start)

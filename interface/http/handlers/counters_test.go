@@ -62,7 +62,7 @@ func TestCountersHandler_ForInstance_OK(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/instances/:name/counters", h.ForInstance)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/alpha/counters?window=24h", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/alpha/counters?window=24h", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -84,7 +84,7 @@ func TestCountersHandler_ForInstance_InvalidWindow(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/instances/:name/counters", h.ForInstance)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/alpha/counters?window=8h", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/alpha/counters?window=8h", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
@@ -100,7 +100,7 @@ func TestCountersHandler_ForInstance_UnknownInstance(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/instances/:name/counters", h.ForInstance)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/ghost/counters", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/ghost/counters", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -114,7 +114,7 @@ func TestCountersHandler_ForInstance_DefaultWindowIs24h(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/instances/:name/counters", h.ForInstance)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/alpha/counters", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/alpha/counters", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -139,7 +139,7 @@ func TestCountersHandler_Aggregate_OK(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/counters", h.Aggregate)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/counters?window=7d", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/counters?window=7d", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -158,7 +158,7 @@ func TestCountersHandler_Aggregate_InvalidWindow(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/counters", h.Aggregate)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/counters?window=8h", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/counters?window=8h", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)

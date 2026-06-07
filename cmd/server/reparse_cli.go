@@ -39,7 +39,7 @@ func runReparseCLI(ctx context.Context, args []string) error {
 		return fmt.Errorf("open database: %w", err)
 	}
 	if sqlDB, err := db.DB(); err == nil {
-		defer sqlDB.Close()
+		defer func() { _ = sqlDB.Close() }()
 	}
 
 	if err := database.Migrate(db); err != nil {
@@ -112,7 +112,7 @@ func runReparseInternal(
 	logger.InfoContext(ctx, "reparse_starting",
 		slog.Int("rows", len(recs)), slog.Duration("since", *since), slog.Bool("dry_run", *dryRun))
 	if *dryRun {
-		fmt.Fprintf(os.Stdout, "reparse: %d rows would be processed (dry-run)\n", len(recs))
+		_, _ = fmt.Fprintf(os.Stdout, "reparse: %d rows would be processed (dry-run)\n", len(recs))
 		return nil
 	}
 	ok, errCount := 0, 0
@@ -154,6 +154,6 @@ func runReparseInternal(
 		observability.IncParseRelease(rec.InstanceName, "ok")
 		ok++
 	}
-	fmt.Fprintf(os.Stdout, "reparse done: ok=%d errors=%d total=%d\n", ok, errCount, len(recs))
+	_, _ = fmt.Fprintf(os.Stdout, "reparse done: ok=%d errors=%d total=%d\n", ok, errCount, len(recs))
 	return nil
 }

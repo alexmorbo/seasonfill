@@ -130,7 +130,7 @@ func TestEpisodeFiles_Imported_ReturnsItems(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -157,7 +157,7 @@ func TestEpisodeFiles_NotImported_EmptyItems(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -177,7 +177,7 @@ func TestEpisodeFiles_UnknownInstance_404(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/unknown/grabs/"+uuid.New().String()+"/episode-files", nil))
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -195,7 +195,7 @@ func TestEpisodeFiles_UnknownID_404(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+uuid.New().String()+"/episode-files", nil))
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -217,7 +217,7 @@ func TestEpisodeFiles_InstanceMismatch_404(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 	require.Equal(t, http.StatusNotFound, w.Code, "path :name must match grab.instance_name")
 }
@@ -238,7 +238,7 @@ func TestEpisodeFiles_SonarrUnavailable_502(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 	require.Equal(t, http.StatusBadGateway, w.Code)
 }
@@ -259,7 +259,7 @@ func TestEpisodeFiles_SonarrUnauthorized_502(t *testing.T) {
 	r := gin.New()
 	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 	require.Equal(t, http.StatusBadGateway, w.Code)
 }

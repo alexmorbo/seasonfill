@@ -63,7 +63,7 @@ func TestWatchdogBlacklistHandler_ListJoinsSeriesTitle(t *testing.T) {
 	h := NewWatchdogBlacklistHandler(pager, titles, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -101,7 +101,7 @@ func TestWatchdogBlacklistHandler_DeleteScopedToInstance(t *testing.T) {
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 7}, nil)
 	r := newBlacklistRouter(h)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/42", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/42", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -118,7 +118,7 @@ func TestWatchdogBlacklistHandler_DeleteUnknownReturns404(t *testing.T) {
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/99", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/99", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -132,7 +132,7 @@ func TestWatchdogBlacklistHandler_DeleteUnknownInstance(t *testing.T) {
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{}, nil)
 	r := newBlacklistRouter(h)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/ghost/watchdog/blacklist/1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/ghost/watchdog/blacklist/1", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -154,7 +154,7 @@ func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist?limit=2", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist?limit=2", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

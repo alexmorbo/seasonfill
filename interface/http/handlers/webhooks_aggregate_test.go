@@ -50,8 +50,7 @@ func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {
 	})
 
 	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
-		switch name {
-		case "homelab":
+		if name == "homelab" {
 			return runtime.InstanceSnapshot{Name: name, WebhookInstallEnabled: true}, healthy, true
 		}
 		return runtime.InstanceSnapshot{}, nil, false
@@ -66,7 +65,7 @@ func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/api/v1/webhooks/status", h.Status)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/webhooks/status", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/webhooks/status", nil)
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
 
