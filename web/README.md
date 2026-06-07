@@ -74,3 +74,17 @@ reads the page title from `PageTitleProvider` (mounted in `ProtectedLayout`);
 individual pages call `useSetPageTitle("…")` once on mount to set it.
 Page-level action buttons (e.g. "Refresh" + "Run scan") mount via
 `usePageActions().setActions(...)`.
+
+## Routes
+
+| Route | Component | Purpose |
+|---|---|---|
+| `/` | `Dashboard` | Homepage: hero greeting + imported-series grid + right-rail placeholders |
+| `/scans` | `Scans` | Scan list & detail pages |
+| `/grabs` | `Grabs` | Grab queue & detail pages |
+| `/decisions` | `Decisions` | Manual decision log |
+| `/instances` | `Instances` | Sonarr instance management |
+| `/settings` | `Settings` | User settings & config |
+
+Dashboard is the entry point for operators; it renders empty / first-run /
+error states gracefully. All routes require authentication via `ProtectedLayout`.
