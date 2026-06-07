@@ -1149,6 +1149,18 @@ export const ru: Translations = {
             serverValidation: 'Некорректное значение — проверьте и попробуйте снова.',
           },
         },
+        // === 057a1 added ===
+        footer: {
+          dirty: 'несохранённые изменения',
+          createWebhookHint: 'webhook установится при сохранении',
+          addInstance: 'Добавить инстанс',
+        },
+        promoted: {
+          mode:    { auto: 'Auto', manual: 'Manual' },
+          dryRun:  { auto: 'По умолч.', off: 'Off', on: 'On' },
+        },
+        // === 057a2 append marker: connection.* + webhook copy goes below ===
+        // === 057a3 append marker: sections.* / tuning.* / header.* / watchdog placeholder goes below ===
       },
     },
     integrations: {

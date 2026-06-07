@@ -1137,6 +1137,18 @@ export const en = {
             serverValidation: 'Invalid value — please check and retry.',
           },
         },
+        // === 057a1 added ===
+        footer: {
+          dirty: 'unsaved changes',
+          createWebhookHint: 'Webhook will be installed on save',
+          addInstance: 'Add instance',
+        },
+        promoted: {
+          mode:    { auto: 'Auto', manual: 'Manual' },
+          dryRun:  { auto: 'Default', off: 'Off', on: 'On' },
+        },
+        // === 057a2 append marker: connection.* + webhook copy goes below ===
+        // === 057a3 append marker: sections.* / tuning.* / header.* / watchdog placeholder goes below ===
       },
     },
     integrations: {
