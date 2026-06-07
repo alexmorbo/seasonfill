@@ -37,6 +37,12 @@ type FilteredCandidate struct {
 // removes the historical confusion where the flag looked like a
 // post-grab outcome but was actually only ever set on the dry-run
 // branch (closes deferred-item #7 in 02-phase2-deltas.md).
+//
+// 046a adds Total/Aired/Existing/GrabbedEpisodes — the partial-pack
+// counter snapshot computed at decision-write time. MissingCount and
+// ExistingCount stay for back-compat (the legacy len(missing)/len(have)
+// view); ExistingEpisodes is the canonical new accessor (renames the
+// concept without breaking the wire).
 type Decision struct {
 	ID              uuid.UUID
 	ScanRunID       uuid.UUID
@@ -59,7 +65,18 @@ type Decision struct {
 	// for size/normalisation; see application/evaluate.truncateErrorDetail.
 	ErrorDetail    string
 	SupersededByID *uuid.UUID // nil = live; set by rescan (017)
-	CreatedAt      time.Time
+	// 046a season-stats snapshot. All four default to zero on pre-046a
+	// rows (the migration backfills 0 NOT NULL) — UI must tolerate 0 as
+	// "unknown". TotalEpisodes/AiredEpisodes/ExistingEpisodes come from
+	// Sonarr's per-season statistics block at scan time; GrabbedEpisodes
+	// is computed once at decision-persist time via a single count
+	// against grab_records (status=imported), locking the value to the
+	// scan that produced the decision.
+	TotalEpisodes    int
+	AiredEpisodes    int
+	ExistingEpisodes int
+	GrabbedEpisodes  int
+	CreatedAt        time.Time
 }
 
 func New(scanRunID uuid.UUID, instance, seriesTitle string, seriesID, season int) Decision {

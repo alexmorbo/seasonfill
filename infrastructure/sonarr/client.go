@@ -622,11 +622,25 @@ func isDecodeOnlyError(err error) bool {
 	return strings.HasPrefix(err.Error(), "decode /api/v3/release:")
 }
 
+// toStatistics maps Sonarr's statisticsDTO into the domain Statistics
+// value object. Nil-safe — Sonarr omits the block for empty series and
+// callers pass through a nil pointer in that case.
+//
+// 046a forwards TotalEpisodeCount / AiredEpisodeCount alongside the
+// pre-existing EpisodeCount / EpisodeFileCount fields. Fixtures that
+// pre-date 046a only set EpisodeCount → Total / Aired default to zero;
+// downstream callers tolerate that path via Statistics.AiredMissing and
+// SeasonStatsFromStatistics fallback paths.
 func toStatistics(p *statisticsDTO) series.Statistics {
 	if p == nil {
 		return series.Statistics{}
 	}
-	return series.Statistics{EpisodeCount: p.EpisodeCount, EpisodeFileCount: p.EpisodeFileCount}
+	return series.Statistics{
+		EpisodeCount:     p.EpisodeCount,
+		EpisodeFileCount: p.EpisodeFileCount,
+		Total:            p.TotalEpisodeCount,
+		Aired:            p.AiredEpisodeCount,
+	}
 }
 
 func toSeries(d seriesDTO) series.Series {

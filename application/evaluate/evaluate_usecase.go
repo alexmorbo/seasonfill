@@ -50,6 +50,7 @@ type Input struct {
 type UseCase struct {
 	sonarr    ports.SonarrClient
 	decisions ports.DecisionRepository
+	grabs     ports.GrabRepository // 046a: optional, for GrabbedEpisodes counter
 	logger    *slog.Logger
 }
 
@@ -61,11 +62,29 @@ func NewPerInstanceUseCase(decisions ports.DecisionRepository, logger *slog.Logg
 	return &UseCase{decisions: decisions, logger: logger}
 }
 
+// WithGrabRepository attaches a GrabRepository so the evaluator can
+// snapshot the GrabbedEpisodes counter onto every Decision. Optional —
+// when nil, GrabbedEpisodes stays at 0 (degrades cleanly on the UI).
+// Existing callers that don't wire this won't see a behaviour change.
+func (u *UseCase) WithGrabRepository(g ports.GrabRepository) *UseCase {
+	u.grabs = g
+	return u
+}
+
 func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, error) {
 	d := decision.New(in.ScanRunID, in.Instance, in.Series.Title, in.Series.ID, in.Season.Number)
 	if in.PreferredDecisionID != nil {
 		d.ID = *in.PreferredDecisionID
 	}
+
+	// 046a season-stats snapshot. Populate BEFORE any early-skip path
+	// so all decision rows — even the skip_specials / skip_unmonitored
+	// branches — carry the counter snapshot. Grabbed count is fetched
+	// lazily at finalize time (one SQL per persisted row).
+	stats := series.SeasonStatsFromStatistics(in.Season.Statistics)
+	d.TotalEpisodes = stats.Total
+	d.AiredEpisodes = stats.Aired
+	d.ExistingEpisodes = stats.Existing
 
 	if in.SkipSpecials && in.Season.Number == 0 {
 		d.Outcome = decision.OutcomeSkip
@@ -195,6 +214,21 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 }
 
 func (u *UseCase) finalize(ctx context.Context, d decision.Decision, in Input) (decision.Decision, error) {
+	// 046a — best-effort fetch of GrabbedEpisodes. Failure logs WARN
+	// and proceeds with GrabbedEpisodes=0 (the UI placeholder); a flaky
+	// DB read here is NOT a reason to fail the entire decision write.
+	if u.grabs != nil {
+		grabbed, gerr := u.grabs.CountImportedEpisodes(ctx, in.Instance, in.Series.ID, in.Season.Number)
+		if gerr != nil {
+			u.logger.WarnContext(ctx, "count_imported_episodes_failed",
+				slog.String("instance", in.Instance),
+				slog.Int("series_id", in.Series.ID),
+				slog.Int("season_number", in.Season.Number),
+				slog.String("error", gerr.Error()))
+		} else {
+			d.GrabbedEpisodes = grabbed
+		}
+	}
 	u.emitLog(ctx, d, in)
 	observability.SeriesEvaluated(in.Instance, string(d.Outcome))
 	if err := u.persist(ctx, d); err != nil {
@@ -224,6 +258,10 @@ func (u *UseCase) emitLog(ctx context.Context, d decision.Decision, in Input) {
 		slog.Int("existing_count", d.ExistingCount),
 		slog.Int("releases_found", d.ReleasesFound),
 		slog.Int("after_filter", d.CandidatesCount),
+		slog.Int("total_episodes", d.TotalEpisodes),
+		slog.Int("aired_episodes", d.AiredEpisodes),
+		slog.Int("existing_episodes", d.ExistingEpisodes),
+		slog.Int("grabbed_episodes", d.GrabbedEpisodes),
 		slog.String("decision", string(d.Outcome)),
 		slog.String("reason", string(d.Reason)),
 		slog.Bool("dry_run", in.DryRun),

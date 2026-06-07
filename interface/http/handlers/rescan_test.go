@@ -141,6 +141,10 @@ func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ string) (int, erro
 	return 0, nil
 }
 
+func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+	return 0, nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

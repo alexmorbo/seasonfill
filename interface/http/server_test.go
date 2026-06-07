@@ -153,6 +153,10 @@ func (noopGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 
+func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+	return 0, nil
+}
+
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {

@@ -47,9 +47,16 @@ type seasonDTO struct {
 
 // statisticsDTO mirrors Sonarr's nested statistics block. Pointer
 // captures absence cleanly — Sonarr omits this for empty series.
+//
+// 046a adds TotalEpisodeCount + AiredEpisodeCount so the evaluator can
+// snapshot the partial-pack counter triplet onto every Decision row.
+// Sonarr v3 has emitted these fields since forever; older fixtures that
+// only set episodeCount still decode cleanly (zero defaults).
 type statisticsDTO struct {
-	EpisodeCount     int `json:"episodeCount"`
-	EpisodeFileCount int `json:"episodeFileCount"`
+	EpisodeCount      int `json:"episodeCount"`
+	EpisodeFileCount  int `json:"episodeFileCount"`
+	TotalEpisodeCount int `json:"totalEpisodeCount"`
+	AiredEpisodeCount int `json:"airedEpisodeCount"`
 }
 
 type episodeDTO struct {

@@ -276,6 +276,10 @@ func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, erro
 	return 0, nil
 }
 
+func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+	return 0, nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

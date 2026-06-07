@@ -122,6 +122,10 @@ func (f *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error)
 	return 0, nil
 }
 
+func (f *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+	return 0, nil
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

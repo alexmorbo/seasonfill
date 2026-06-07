@@ -112,6 +112,10 @@ func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error)
 	return 0, nil
 }
 
+func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+	return 0, nil
+}
+
 type fakeCooldownRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

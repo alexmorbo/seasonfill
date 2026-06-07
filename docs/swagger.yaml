@@ -95,6 +95,9 @@ components:
       type: object
     dto.Decision:
       properties:
+        aired_episodes:
+          example: 8
+          type: integer
         candidates_count:
           type: integer
         category:
@@ -127,6 +130,12 @@ components:
           type: string
         existing_count:
           type: integer
+        existing_episodes:
+          example: 3
+          type: integer
+        grabbed_episodes:
+          example: 5
+          type: integer
         id:
           example: dec_001
           type: string
@@ -154,6 +163,9 @@ components:
         superseded_by_id:
           example: 7b3d4a92-1234-4abc-9def-000000000005
           type: string
+        total_episodes:
+          example: 10
+          type: integer
       type: object
     dto.DecisionList:
       properties:

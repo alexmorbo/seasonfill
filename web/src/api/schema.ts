@@ -2662,6 +2662,8 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.InstanceCountersDTO"][];
         };
         readonly "dto.Decision": {
+            /** @example 8 */
+            readonly aired_episodes?: number;
             readonly candidates_count?: number;
             /**
              * @example action_taken
@@ -2678,6 +2680,10 @@ export type components = {
             /** @example sonarr: 503 service unavailable */
             readonly error_detail?: string;
             readonly existing_count?: number;
+            /** @example 3 */
+            readonly existing_episodes?: number;
+            /** @example 5 */
+            readonly grabbed_episodes?: number;
             /** @example dec_001 */
             readonly id?: string;
             /** @example alpha */
@@ -2694,6 +2700,8 @@ export type components = {
             readonly series_title?: string;
             /** @example 7b3d4a92-1234-4abc-9def-000000000005 */
             readonly superseded_by_id?: string;
+            /** @example 10 */
+            readonly total_episodes?: number;
         };
         readonly "dto.DecisionList": {
             readonly items?: readonly components["schemas"]["dto.Decision"][];

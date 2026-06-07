@@ -116,25 +116,37 @@ type Scan struct {
 }
 
 // Decision — one decisions row.
+// Decision — one decisions row.
+//
+// 046a adds the season-stats snapshot: TotalEpisodes / AiredEpisodes /
+// ExistingEpisodes / GrabbedEpisodes. ExistingCount is kept for
+// back-compat (counts have-files at evaluation time using episode-level
+// data); ExistingEpisodes is the canonical new field driven by Sonarr's
+// per-season statistics block. Pre-046a rows render with all four new
+// fields = 0 — the UI treats 0 as "unknown" (em-dash placeholder).
 type Decision struct {
-	ID              string    `json:"id"               example:"dec_001"`
-	ScanRunID       string    `json:"scan_run_id"`
-	Instance        string    `json:"instance"         example:"alpha"`
-	SeriesID        int       `json:"series_id"`
-	SeriesTitle     string    `json:"series_title"     example:"Severance"`
-	SeasonNumber    int       `json:"season_number"`
-	Decision        string    `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
-	Reason          string    `json:"reason"           example:"upgrade_available"`
-	Category        string    `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
-	MissingCount    int       `json:"missing_count"`
-	ExistingCount   int       `json:"existing_count"`
-	ReleasesFound   int       `json:"releases_found"`
-	CandidatesCount int       `json:"candidates_count"`
-	SelectedGUID    string    `json:"selected_guid,omitempty"`
-	DryRunWouldGrab bool      `json:"dry_run_would_grab"`
-	ErrorDetail     string    `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
-	SupersededByID  string    `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID               string    `json:"id"               example:"dec_001"`
+	ScanRunID        string    `json:"scan_run_id"`
+	Instance         string    `json:"instance"         example:"alpha"`
+	SeriesID         int       `json:"series_id"`
+	SeriesTitle      string    `json:"series_title"     example:"Severance"`
+	SeasonNumber     int       `json:"season_number"`
+	Decision         string    `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
+	Reason           string    `json:"reason"           example:"upgrade_available"`
+	Category         string    `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
+	MissingCount     int       `json:"missing_count"`
+	ExistingCount    int       `json:"existing_count"`
+	ReleasesFound    int       `json:"releases_found"`
+	CandidatesCount  int       `json:"candidates_count"`
+	SelectedGUID     string    `json:"selected_guid,omitempty"`
+	DryRunWouldGrab  bool      `json:"dry_run_would_grab"`
+	ErrorDetail      string    `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
+	SupersededByID   string    `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
+	TotalEpisodes    int       `json:"total_episodes"    example:"10"`
+	AiredEpisodes    int       `json:"aired_episodes"    example:"8"`
+	ExistingEpisodes int       `json:"existing_episodes" example:"3"`
+	GrabbedEpisodes  int       `json:"grabbed_episodes"  example:"5"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // Grab — one grab_records row.

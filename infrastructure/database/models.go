@@ -47,9 +47,22 @@ type DecisionModel struct {
 	// ErrorDetail mirrors domain/decision.Decision.ErrorDetail. size:300
 	// is intentional slack above the 256-rune application-layer cap so a
 	// future truncation tweak does not require a schema migration.
-	ErrorDetail    string    `gorm:"size:300"`
-	SupersededByID *string   `gorm:"size:36"`
-	CreatedAt      time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
+	ErrorDetail    string  `gorm:"size:300"`
+	SupersededByID *string `gorm:"size:36"`
+	// 046a — partial-pack-aware season-stats snapshot. All four default
+	// to 0 NOT NULL via the paired migration so pre-046a rows look like
+	// "unknown" rather than null on read. TotalEpisodes / AiredEpisodes
+	// / ExistingEpisodes come straight from Sonarr's per-season
+	// statistics block at scan time; GrabbedEpisodes is computed once at
+	// decision-persist time (single COUNT against grab_records
+	// status=imported) so the value stays pinned to the scan that
+	// produced the decision and historic decisions don't shift under
+	// future grabs.
+	TotalEpisodes    int       `gorm:"not null;default:0;column:total_episodes"`
+	AiredEpisodes    int       `gorm:"not null;default:0;column:aired_episodes"`
+	ExistingEpisodes int       `gorm:"not null;default:0;column:existing_episodes"`
+	GrabbedEpisodes  int       `gorm:"not null;default:0;column:grabbed_episodes"`
+	CreatedAt        time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
 }
 
 func (DecisionModel) TableName() string { return "decisions" }

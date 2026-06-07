@@ -46,6 +46,21 @@ func (m *MockGrabRepository) EXPECT() *MockGrabRepositoryMockRecorder {
 	return m.recorder
 }
 
+// CountImportedEpisodes mocks base method.
+func (m *MockGrabRepository) CountImportedEpisodes(ctx context.Context, instance string, seriesID, seasonNumber int) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountImportedEpisodes", ctx, instance, seriesID, seasonNumber)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountImportedEpisodes indicates an expected call of CountImportedEpisodes.
+func (mr *MockGrabRepositoryMockRecorder) CountImportedEpisodes(ctx, instance, seriesID, seasonNumber any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountImportedEpisodes", reflect.TypeOf((*MockGrabRepository)(nil).CountImportedEpisodes), ctx, instance, seriesID, seasonNumber)
+}
+
 // CountReplaysAll mocks base method.
 func (m *MockGrabRepository) CountReplaysAll(ctx context.Context, instanceName string) (int, error) {
 	m.ctrl.T.Helper()

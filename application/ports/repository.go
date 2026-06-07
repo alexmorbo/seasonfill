@@ -167,6 +167,16 @@ type GrabRepository interface {
 	// 043b: stamped by the OnGrab webhook use case.
 	UpdateSizeBytes(ctx context.Context, id uuid.UUID, size int64) error
 
+	// CountImportedEpisodes returns the number of distinct grab_records
+	// rows for the (instance, series, season) triple with status =
+	// "imported". 046a uses this to snapshot the GrabbedEpisodes counter
+	// onto every new Decision at write time, so historical decisions
+	// don't shift under future grabs (the count is locked to the moment
+	// the decision was made). A zero return on a missing-triple query
+	// is NOT an error — it is the normal "this scan has never grabbed
+	// here" case. Errors should surface only on real DB failures.
+	CountImportedEpisodes(ctx context.Context, instance string, seriesID, seasonNumber int) (int, error)
+
 	// GetByID returns the grab_records row matching the supplied uuid.
 	// Returns ErrNotFound on miss. 043c: powers the episode-files
 	// endpoint lookup (handler reads instance_name + status from the
