@@ -1466,15 +1466,46 @@ export const en = {
       monitoredOff: 'not monitored',
       missing: '{{count}} missing',
     },
+    filters: {
+      search: {
+        placeholder: 'Search title…',
+        aria: 'Search series',
+      },
+      state: {
+        all: 'All',
+        imported: 'Imported',
+        missing: 'Missing',
+      },
+      networks: {
+        label: 'Network',
+        labelWith: 'Network · {{count}}',
+        empty: 'No networks yet',
+      },
+      monitoredOnly: 'Monitored only',
+      sort: {
+        updatedDesc: 'Last updated',
+        titleAsc: 'Title A–Z',
+      },
+      clear: 'Clear',
+    },
     empty: {
       server: {
+        title: 'No cached series yet',
         body: 'No cached series for this instance yet. Run a scan to populate the cache.',
         cta: 'Run a scan',
+      },
+      filtered: {
+        title: 'No matches',
+        body: 'No series match the current filters. Try clearing them to see more.',
+        cta: 'Clear filters',
       },
     },
     firstRun: {
       title: 'No instances configured',
       body: 'Add a Sonarr instance to start browsing series.',
+      step1: 'Add an instance with its API key.',
+      step2: 'Wait for the first scan to populate the cache.',
+      step3: 'Come back to browse posters and missing episodes.',
       cta: 'Add instance',
     },
   },

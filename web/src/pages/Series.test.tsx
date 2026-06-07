@@ -66,9 +66,9 @@ describe('<Series /> smoke', () => {
     }
   });
 
-  it('renders the filters slot placeholder', () => {
+  it('renders the filters bar', () => {
     renderPage();
-    expect(screen.getByTestId('filters-slot')).toBeInTheDocument();
+    expect(screen.getByTestId('series-filters-bar')).toBeInTheDocument();
   });
 
   it('renders the server-empty CTA when items=0', () => {
