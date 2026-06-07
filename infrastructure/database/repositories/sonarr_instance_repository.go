@@ -336,6 +336,7 @@ func modelToSnapshot(m database.SonarrInstanceModel, secretBlob []byte, c *crypt
 		PublicURL:             m.PublicURL,
 		WebhookInstallEnabled: m.WebhookInstallEnabled,
 		WebhookURLOverride:    m.WebhookURLOverride,
+		ParseOnGrabEnabled:    m.ParseOnGrabEnabled,
 	}, nil
 }
 
@@ -376,6 +377,7 @@ func snapshotToModel(s runtime.InstanceSnapshot) database.SonarrInstanceModel {
 		PublicURL:                     s.PublicURL,
 		WebhookInstallEnabled:         s.WebhookInstallEnabled,
 		WebhookURLOverride:            s.WebhookURLOverride,
+		ParseOnGrabEnabled:            s.ParseOnGrabEnabled,
 	}
 }
 

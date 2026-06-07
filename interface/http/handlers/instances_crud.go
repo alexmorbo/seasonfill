@@ -296,6 +296,7 @@ func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {
 		PublicURL:             r.PublicURL,
 		WebhookInstallEnabled: webhookInstallEnabledOrDefault(r.WebhookInstallEnabled),
 		WebhookURLOverride:    r.WebhookURLOverride,
+		ParseOnGrabEnabled:    parseOnGrabEnabledOrDefault(r.ParseOnGrabEnabled),
 	}
 }
 
@@ -305,6 +306,17 @@ func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {
 // has the webhook installed" invariant. A non-nil pointer wins
 // verbatim — including explicit false.
 func webhookInstallEnabledOrDefault(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
+}
+
+// parseOnGrabEnabledOrDefault collapses the request pointer to a
+// concrete snapshot bool. Nil (JSON key omitted) defaults to true to
+// match the 044a migration default. Concrete false disables 044b's
+// parse-on-OnGrab hook for this instance.
+func parseOnGrabEnabledOrDefault(p *bool) bool {
 	if p == nil {
 		return true
 	}
@@ -353,6 +365,7 @@ func snapshotToDetailDTO(s runtime.InstanceSnapshot, ts time.Time) dto.InstanceD
 		PublicURL:             s.PublicURL,
 		WebhookInstallEnabled: s.WebhookInstallEnabled,
 		WebhookURLOverride:    s.WebhookURLOverride,
+		ParseOnGrabEnabled:    s.ParseOnGrabEnabled,
 		UIURL:                 s.UIURL(),
 		UpdatedAt:             ts.UTC(),
 	}

@@ -137,6 +137,9 @@ type InstanceSnapshot struct {
 	// WebhookURLOverride is an optional base URL for the webhook (D65).
 	// nil = use derivedPublic supplied by the caller.
 	WebhookURLOverride *string
+	// ParseOnGrabEnabled toggles 044b's OnGrab → /api/v3/parse hook.
+	// Defaults to true on every existing row (migration default).
+	ParseOnGrabEnabled bool
 }
 
 // UIURL returns the URL the browser should link to (D64). If PublicURL

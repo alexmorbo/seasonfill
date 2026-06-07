@@ -129,6 +129,8 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID) dto.Grab {
 		UpdatedAt:         r.UpdatedAt,
 		TorrentHash:       r.TorrentHash,
 		SizeBytes:         r.SizeBytes,
+		Parsed:            grabParsedToDTO(r.Parsed),
+		ParsedAt:          r.ParsedAt,
 	}
 	if r.ReplayOfID != nil {
 		s := r.ReplayOfID.String()
@@ -381,4 +383,30 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		out = append(out, toGrabDTO(r, replays[r.ID]))
 	}
 	writeListResponse(c, out, next)
+}
+
+// grabParsedToDTO lifts a *grab.Parsed onto a *dto.GrabParsed. nil in →
+// nil out — the API emits `parsed: null` (or omits the key entirely
+// thanks to omitempty). Non-nil zero-valued Parsed → non-nil
+// GrabParsed{}, all fields omitted by json tags. Matches the absent vs
+// empty distinction documented on domain/grab.Record.Parsed.
+func grabParsedToDTO(p *grab.Parsed) *dto.GrabParsed {
+	if p == nil {
+		return nil
+	}
+	out := &dto.GrabParsed{
+		Codec: p.Codec, Source: p.Source, Quality: p.Quality,
+		Resolution: p.Resolution, Dub: p.Dub,
+		ReleaseGroup: p.ReleaseGroup,
+	}
+	if len(p.HDRFlags) > 0 {
+		out.HDRFlags = append([]string(nil), p.HDRFlags...)
+	}
+	if len(p.Languages) > 0 {
+		out.Languages = append([]string(nil), p.Languages...)
+	}
+	if len(p.Subs) > 0 {
+		out.Subs = append([]string(nil), p.Subs...)
+	}
+	return out
 }

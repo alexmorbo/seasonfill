@@ -100,9 +100,24 @@ type GrabRecordModel struct {
 	// Phase 12). Nullable: pre-Phase-12 rows and Sonarr payloads that
 	// omit the size keep NULL. *int64 round-trips cleanly with the
 	// BIGINT (Postgres) / INTEGER (SQLite) column.
-	SizeBytes *int64    `gorm:"column:size_bytes"`
-	CreatedAt time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
-	UpdatedAt time.Time
+	SizeBytes *int64 `gorm:"column:size_bytes"`
+	// Parsed* fields hold the B2 Sonarr /api/v3/parse projection.
+	// Nullable on purpose — pre-B2 rows stay NULL; the JSON repo
+	// emits `parsed: null` on the API for those rows. Array columns
+	// use gorm:"serializer:json" so SQLite and Postgres carry the same
+	// TEXT shape (see migration 000016 header for the trade-off).
+	ParsedCodec        *string    `gorm:"column:parsed_codec;type:text"`
+	ParsedSource       *string    `gorm:"column:parsed_source;type:text"`
+	ParsedQuality      *string    `gorm:"column:parsed_quality;type:text"`
+	ParsedResolution   *int       `gorm:"column:parsed_resolution"`
+	ParsedHDRFlags     []string   `gorm:"column:parsed_hdr_flags;serializer:json"`
+	ParsedDub          *string    `gorm:"column:parsed_dub;type:text"`
+	ParsedLanguages    []string   `gorm:"column:parsed_languages;serializer:json"`
+	ParsedSubs         []string   `gorm:"column:parsed_subs;serializer:json"`
+	ParsedReleaseGroup *string    `gorm:"column:parsed_release_group;type:text"`
+	ParsedAt           *time.Time `gorm:"column:parsed_at"`
+	CreatedAt          time.Time  `gorm:"index:idx_grab_records_created_at_id,priority:1"`
+	UpdatedAt          time.Time
 }
 
 func (GrabRecordModel) TableName() string { return "grab_records" }
@@ -220,6 +235,11 @@ type SonarrInstanceModel struct {
 	// WebhookURLOverride is the optional base URL for the webhook (D65).
 	// NULL = use the derived public URL from runtime config.
 	WebhookURLOverride *string `gorm:"column:webhook_url_override;type:text"`
+	// ParseOnGrabEnabled toggles the 044b parse-on-OnGrab hook. Defaults
+	// to TRUE on every existing row (migration default) so the homelab's
+	// pre-B2 row keeps the new behaviour. Set FALSE per instance to
+	// disable parse calls on a flaky Sonarr.
+	ParseOnGrabEnabled bool `gorm:"column:parse_on_grab_enabled;not null;default:true"`
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

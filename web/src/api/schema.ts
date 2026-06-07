@@ -2748,6 +2748,13 @@ export type components = {
             readonly indexer_name?: string;
             /** @example alpha */
             readonly instance?: string;
+            readonly parsed?: components["schemas"]["dto.GrabParsed"];
+            /**
+             * @description ParsedAt is the wall-clock at which Sonarr parsed the release
+             *     title. Always emitted alongside a non-null Parsed; omitted when
+             *     Parsed is null.
+             */
+            readonly parsed_at?: string;
             /** @example WEBDL-1080p */
             readonly quality?: string;
             readonly release_guid?: string;
@@ -2796,6 +2803,46 @@ export type components = {
         readonly "dto.GrabList": {
             readonly items?: readonly components["schemas"]["dto.Grab"][];
             readonly next_cursor?: string;
+        };
+        /**
+         * @description Parsed carries the Sonarr /api/v3/parse projection captured by
+         *     the OnGrab webhook in 044b. Nullable — pre-B2 rows and rows whose
+         *     parse call failed both emit `null`. The SPA Grabs page chip set
+         *     degrades to "no parsed" on null.
+         */
+        readonly "dto.GrabParsed": {
+            /** @example HEVC */
+            readonly codec?: string;
+            /** @example Original */
+            readonly dub?: string;
+            /**
+             * @example [
+             *       "HDR10+",
+             *       "DV"
+             *     ]
+             */
+            readonly hdr_flags?: readonly string[];
+            /**
+             * @example [
+             *       "Russian",
+             *       "English"
+             *     ]
+             */
+            readonly languages?: readonly string[];
+            /** @example WEBDL-2160p */
+            readonly quality?: string;
+            /** @example NTb */
+            readonly release_group?: string;
+            /** @example 2160 */
+            readonly resolution?: number;
+            /** @example WEB-DL */
+            readonly source?: string;
+            /**
+             * @example [
+             *       "RUS"
+             *     ]
+             */
+            readonly subs?: readonly string[];
         };
         readonly "dto.HealthStatus": {
             /** @example ok */
@@ -2852,6 +2899,12 @@ export type components = {
             /** @example alpha */
             readonly name?: string;
             /**
+             * @description ParseOnGrabEnabled — pointer so omitted is distinguishable from
+             *     explicit false. Omitted/null defaults to true.
+             * @example true
+             */
+            readonly parse_on_grab_enabled?: boolean;
+            /**
              * @description PublicURL — optional browser-facing URL. Omitted/null = no
              *     override. Empty string is rejected at the application layer with
              *     INVALID_INSTANCE_PUBLIC_URL so a client cannot accidentally
@@ -2899,6 +2952,12 @@ export type components = {
             readonly mode?: DtoInstanceDetailMode;
             /** @example alpha */
             readonly name?: string;
+            /**
+             * @description ParseOnGrabEnabled toggles the 044b parse-on-OnGrab hook. Always
+             *     emitted as a concrete bool; defaults to true on fresh rows.
+             * @example true
+             */
+            readonly parse_on_grab_enabled?: boolean;
             /**
              * @description PublicURL is the optional browser-facing URL (D64). Always
              *     emitted; the JSON value is `null` when no override is stored.
@@ -2993,6 +3052,12 @@ export type components = {
             readonly mode?: string;
             /** @example alpha */
             readonly name?: string;
+            /**
+             * @description ParseOnGrabEnabled — pointer so omitted is distinguishable from
+             *     explicit false. Omitted/null defaults to true.
+             * @example true
+             */
+            readonly parse_on_grab_enabled?: boolean;
             /**
              * @description PublicURL — optional browser-facing URL. Omitted/null = no
              *     override. Empty string is rejected at the application layer with

@@ -187,6 +187,31 @@ type Grab struct {
 	// or manual-grab `releaseDTO.size`). Omitted when nil; SPA
 	// renders "—" for missing values.
 	SizeBytes *int64 `json:"size_bytes,omitempty" example:"13325829734"`
+	// Parsed carries the Sonarr /api/v3/parse projection captured by
+	// the OnGrab webhook in 044b. Nullable — pre-B2 rows and rows whose
+	// parse call failed both emit `null`. The SPA Grabs page chip set
+	// degrades to "no parsed" on null.
+	Parsed *GrabParsed `json:"parsed,omitempty"`
+	// ParsedAt is the wall-clock at which Sonarr parsed the release
+	// title. Always emitted alongside a non-null Parsed; omitted when
+	// Parsed is null.
+	ParsedAt *time.Time `json:"parsed_at,omitempty"`
+}
+
+// GrabParsed is the Sonarr-parsed release metadata block exposed on
+// the Grabs list / lookup. Mirrors domain/grab.Parsed. All fields are
+// optional; absent values omit. See 044a for the data contract and
+// the SPA design pack §F3 for the chip rendering rules.
+type GrabParsed struct {
+	Codec        string   `json:"codec,omitempty"         example:"HEVC"`
+	Source       string   `json:"source,omitempty"        example:"WEB-DL"`
+	Quality      string   `json:"quality,omitempty"       example:"WEBDL-2160p"`
+	Resolution   int      `json:"resolution,omitempty"    example:"2160"`
+	HDRFlags     []string `json:"hdr_flags,omitempty"     example:"HDR10+,DV"`
+	Dub          string   `json:"dub,omitempty"           example:"Original"`
+	Languages    []string `json:"languages,omitempty"     example:"Russian,English"`
+	Subs         []string `json:"subs,omitempty"          example:"RUS"`
+	ReleaseGroup string   `json:"release_group,omitempty" example:"NTb"`
 }
 
 // ScanList — keyset-paginated GET /scans response.
@@ -307,6 +332,9 @@ type InstanceDetail struct {
 	// WebhookURLOverride is the optional base URL for the auto-installed
 	// Sonarr webhook (D65). Always emitted; `null` when unset.
 	WebhookURLOverride *string `json:"webhook_url_override" example:"https://seasonfill.example.com"`
+	// ParseOnGrabEnabled toggles the 044b parse-on-OnGrab hook. Always
+	// emitted as a concrete bool; defaults to true on fresh rows.
+	ParseOnGrabEnabled bool `json:"parse_on_grab_enabled" example:"true"`
 	// UIURL is the derived browser-facing URL the SPA links to. Equals
 	// PublicURL when set, otherwise URL. Always emitted as a non-empty
 	// string so the SPA never has to compute the fallback itself.
@@ -389,6 +417,9 @@ type InstanceCreateRequest struct {
 	// Sonarr webhook. Omitted/null = use derived public URL from
 	// runtime config. Empty-string rejected as for PublicURL.
 	WebhookURLOverride *string `json:"webhook_url_override,omitempty" example:"https://seasonfill.example.com"`
+	// ParseOnGrabEnabled — pointer so omitted is distinguishable from
+	// explicit false. Omitted/null defaults to true.
+	ParseOnGrabEnabled *bool `json:"parse_on_grab_enabled,omitempty" example:"true"`
 }
 
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.

@@ -32,28 +32,38 @@ func (r *GrabRepository) Create(ctx context.Context, rec grab.Record) error {
 
 func toGrabModel(r grab.Record) database.GrabRecordModel {
 	return database.GrabRecordModel{
-		ID:                r.ID.String(),
-		InstanceName:      r.InstanceName,
-		SeriesID:          r.SeriesID,
-		SeriesTitle:       r.SeriesTitle,
-		SeasonNumber:      r.SeasonNumber,
-		ReleaseGUID:       r.ReleaseGUID,
-		ReleaseTitle:      r.ReleaseTitle,
-		DownloadID:        r.DownloadID,
-		IndexerID:         r.IndexerID,
-		IndexerName:       r.IndexerName,
-		CustomFormatScore: r.CustomFormatScore,
-		Quality:           r.Quality,
-		CoverageCount:     r.CoverageCount,
-		Status:            string(r.Status),
-		ErrorMessage:      r.ErrorMessage,
-		ScanRunID:         r.ScanRunID.String(),
-		Attempts:          r.Attempts,
-		TorrentHash:       r.TorrentHash,
-		ReplayOfID:        replayOfIDToString(r.ReplayOfID),
-		SizeBytes:         r.SizeBytes,
-		CreatedAt:         r.CreatedAt,
-		UpdatedAt:         r.UpdatedAt,
+		ID:                 r.ID.String(),
+		InstanceName:       r.InstanceName,
+		SeriesID:           r.SeriesID,
+		SeriesTitle:        r.SeriesTitle,
+		SeasonNumber:       r.SeasonNumber,
+		ReleaseGUID:        r.ReleaseGUID,
+		ReleaseTitle:       r.ReleaseTitle,
+		DownloadID:         r.DownloadID,
+		IndexerID:          r.IndexerID,
+		IndexerName:        r.IndexerName,
+		CustomFormatScore:  r.CustomFormatScore,
+		Quality:            r.Quality,
+		CoverageCount:      r.CoverageCount,
+		Status:             string(r.Status),
+		ErrorMessage:       r.ErrorMessage,
+		ScanRunID:          r.ScanRunID.String(),
+		Attempts:           r.Attempts,
+		TorrentHash:        r.TorrentHash,
+		ReplayOfID:         replayOfIDToString(r.ReplayOfID),
+		SizeBytes:          r.SizeBytes,
+		ParsedCodec:        parsedOptStr(r.Parsed, func(p grab.Parsed) string { return p.Codec }),
+		ParsedSource:       parsedOptStr(r.Parsed, func(p grab.Parsed) string { return p.Source }),
+		ParsedQuality:      parsedOptStr(r.Parsed, func(p grab.Parsed) string { return p.Quality }),
+		ParsedResolution:   parsedOptInt(r.Parsed, func(p grab.Parsed) int { return p.Resolution }),
+		ParsedHDRFlags:     parsedSlice(r.Parsed, func(p grab.Parsed) []string { return p.HDRFlags }),
+		ParsedDub:          parsedOptStr(r.Parsed, func(p grab.Parsed) string { return p.Dub }),
+		ParsedLanguages:    parsedSlice(r.Parsed, func(p grab.Parsed) []string { return p.Languages }),
+		ParsedSubs:         parsedSlice(r.Parsed, func(p grab.Parsed) []string { return p.Subs }),
+		ParsedReleaseGroup: parsedOptStr(r.Parsed, func(p grab.Parsed) string { return p.ReleaseGroup }),
+		ParsedAt:           r.ParsedAt,
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
 	}
 }
 
@@ -134,6 +144,8 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		TorrentHash:       m.TorrentHash,
 		ReplayOfID:        parseReplayOfID(m.ReplayOfID),
 		SizeBytes:         m.SizeBytes,
+		Parsed:            parsedFromModel(m),
+		ParsedAt:          m.ParsedAt,
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 	}, nil
@@ -470,6 +482,80 @@ func (r *GrabRepository) GetByID(ctx context.Context, id uuid.UUID) (grab.Record
 		return grab.Record{}, fmt.Errorf("get grab by id: %w", err)
 	}
 	return toGrabRecord(m)
+}
+
+// parsedFromModel reassembles a *grab.Parsed from the nullable model
+// columns. Returns nil iff all parsed_* columns AND parsed_at are NULL —
+// matches the "absent = pre-B2 row" invariant. A non-nil Parsed{} is
+// possible when ParseRelease succeeded but returned nothing useful
+// (parsed_at set, everything else NULL): 044b uses this to distinguish
+// "parsed but empty" from "never parsed".
+func parsedFromModel(m database.GrabRecordModel) *grab.Parsed {
+	if m.ParsedAt == nil &&
+		m.ParsedCodec == nil && m.ParsedSource == nil && m.ParsedQuality == nil &&
+		m.ParsedResolution == nil && m.ParsedDub == nil && m.ParsedReleaseGroup == nil &&
+		len(m.ParsedHDRFlags) == 0 && len(m.ParsedLanguages) == 0 && len(m.ParsedSubs) == 0 {
+		return nil
+	}
+	p := grab.Parsed{
+		HDRFlags:  append([]string(nil), m.ParsedHDRFlags...),
+		Languages: append([]string(nil), m.ParsedLanguages...),
+		Subs:      append([]string(nil), m.ParsedSubs...),
+	}
+	if m.ParsedCodec != nil {
+		p.Codec = *m.ParsedCodec
+	}
+	if m.ParsedSource != nil {
+		p.Source = *m.ParsedSource
+	}
+	if m.ParsedQuality != nil {
+		p.Quality = *m.ParsedQuality
+	}
+	if m.ParsedResolution != nil {
+		p.Resolution = *m.ParsedResolution
+	}
+	if m.ParsedDub != nil {
+		p.Dub = *m.ParsedDub
+	}
+	if m.ParsedReleaseGroup != nil {
+		p.ReleaseGroup = *m.ParsedReleaseGroup
+	}
+	return &p
+}
+
+func parsedOptStr(p *grab.Parsed, pick func(grab.Parsed) string) *string {
+	if p == nil {
+		return nil
+	}
+	v := pick(*p)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func parsedOptInt(p *grab.Parsed, pick func(grab.Parsed) int) *int {
+	if p == nil {
+		return nil
+	}
+	v := pick(*p)
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
+func parsedSlice(p *grab.Parsed, pick func(grab.Parsed) []string) []string {
+	if p == nil {
+		return nil
+	}
+	v := pick(*p)
+	if len(v) == 0 {
+		return nil
+	}
+	out := make([]string, len(v))
+	copy(out, v)
+	return out
 }
 
 // Ensure interface compliance at compile time.

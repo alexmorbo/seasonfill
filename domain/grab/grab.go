@@ -91,6 +91,16 @@ type Record struct {
 	// emits zero on a real release but the explicit distinction
 	// matches the omitempty wire contract.
 	SizeBytes *int64
+	// Parsed holds the Sonarr /api/v3/parse-derived metadata captured
+	// by the OnGrab webhook in 044b. nil = absent (pre-B2 row, parse
+	// skipped, or parse failed). Non-nil zero-valued Parsed = parse
+	// ran and returned nothing useful — distinct from absent.
+	Parsed *Parsed
+	// ParsedAt is the wall-clock at which ParseRelease finished
+	// successfully (regardless of whether Parsed is zero-valued).
+	// Used by the future re-parse CLI (044b) to find rows that never
+	// completed a parse pass.
+	ParsedAt  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

@@ -243,6 +243,14 @@ components:
         instance:
           example: alpha
           type: string
+        parsed:
+          $ref: '#/components/schemas/dto.GrabParsed'
+        parsed_at:
+          description: |-
+            ParsedAt is the wall-clock at which Sonarr parsed the release
+            title. Always emitted alongside a non-null Parsed; omitted when
+            Parsed is null.
+          type: string
         quality:
           example: WEBDL-1080p
           type: string
@@ -312,6 +320,55 @@ components:
           uniqueItems: false
         next_cursor:
           type: string
+      type: object
+    dto.GrabParsed:
+      description: |-
+        Parsed carries the Sonarr /api/v3/parse projection captured by
+        the OnGrab webhook in 044b. Nullable — pre-B2 rows and rows whose
+        parse call failed both emit `null`. The SPA Grabs page chip set
+        degrades to "no parsed" on null.
+      properties:
+        codec:
+          example: HEVC
+          type: string
+        dub:
+          example: Original
+          type: string
+        hdr_flags:
+          example:
+          - HDR10+
+          - DV
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        languages:
+          example:
+          - Russian
+          - English
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        quality:
+          example: WEBDL-2160p
+          type: string
+        release_group:
+          example: NTb
+          type: string
+        resolution:
+          example: 2160
+          type: integer
+        source:
+          example: WEB-DL
+          type: string
+        subs:
+          example:
+          - RUS
+          items:
+            type: string
+          type: array
+          uniqueItems: false
       type: object
     dto.HealthStatus:
       properties:
@@ -404,6 +461,12 @@ components:
         name:
           example: alpha
           type: string
+        parse_on_grab_enabled:
+          description: |-
+            ParseOnGrabEnabled — pointer so omitted is distinguishable from
+            explicit false. Omitted/null defaults to true.
+          example: true
+          type: boolean
         public_url:
           description: |-
             PublicURL — optional browser-facing URL. Omitted/null = no
@@ -469,6 +532,12 @@ components:
         name:
           example: alpha
           type: string
+        parse_on_grab_enabled:
+          description: |-
+            ParseOnGrabEnabled toggles the 044b parse-on-OnGrab hook. Always
+            emitted as a concrete bool; defaults to true on fresh rows.
+          example: true
+          type: boolean
         public_url:
           description: |-
             PublicURL is the optional browser-facing URL (D64). Always
@@ -622,6 +691,12 @@ components:
         name:
           example: alpha
           type: string
+        parse_on_grab_enabled:
+          description: |-
+            ParseOnGrabEnabled — pointer so omitted is distinguishable from
+            explicit false. Omitted/null defaults to true.
+          example: true
+          type: boolean
         public_url:
           description: |-
             PublicURL — optional browser-facing URL. Omitted/null = no

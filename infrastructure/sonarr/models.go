@@ -155,3 +155,38 @@ type forceGrabRequest struct {
 type releaseCreateResponse struct {
 	DownloadClientID *int `json:"downloadClientId,omitempty"`
 }
+
+// parseResourceDTO mirrors Sonarr v3 ParseResource. We only carry the
+// fields B2 needs — title, parsedEpisodeInfo, quality+source+resolution,
+// languages, releaseGroup. customFormats and rejections are deliberately
+// ignored (the regex pass in parse_extras.go covers them).
+type parseResourceDTO struct {
+	Title             string                `json:"title"`
+	ParsedEpisodeInfo *parsedEpisodeInfoDTO `json:"parsedEpisodeInfo,omitempty"`
+}
+
+type parsedEpisodeInfoDTO struct {
+	ReleaseTitle   string             `json:"releaseTitle"`
+	SeriesTitle    string             `json:"seriesTitle,omitempty"`
+	SeasonNumber   int                `json:"seasonNumber"`
+	EpisodeNumbers []int              `json:"episodeNumbers,omitempty"`
+	ReleaseGroup   string             `json:"releaseGroup,omitempty"`
+	Quality        *parseQualityDTO   `json:"quality,omitempty"`
+	Languages      []parseLanguageDTO `json:"languages,omitempty"`
+}
+
+type parseQualityDTO struct {
+	Quality *parseQualityInner `json:"quality,omitempty"`
+}
+
+type parseQualityInner struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Source     string `json:"source,omitempty"`
+	Resolution int    `json:"resolution,omitempty"`
+}
+
+type parseLanguageDTO struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
