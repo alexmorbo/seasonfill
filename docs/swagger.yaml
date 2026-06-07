@@ -1186,6 +1186,40 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.SeasonEpisodeItem:
+      properties:
+        air_date_utc:
+          type: string
+        aired:
+          example: true
+          type: boolean
+        has_file:
+          example: false
+          type: boolean
+        monitored:
+          example: true
+          type: boolean
+        number:
+          example: 5
+          type: integer
+      type: object
+    dto.SeasonEpisodeList:
+      properties:
+        have:
+          example: 11
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.SeasonEpisodeItem'
+          type: array
+          uniqueItems: false
+        miss:
+          example: 13
+          type: integer
+        total:
+          example: 24
+          type: integer
+      type: object
     dto.SeriesCacheItem:
       properties:
         instance_name:
@@ -2690,6 +2724,69 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: List cached series for an instance
+      tags:
+      - instances
+  /instances/{name}/series/{id}/seasons/{season}/episodes:
+    get:
+      description: |-
+        Per-episode `have`/`miss` state for the queue drill.
+        `have` = files on disk; `miss` = monitored + aired
+        + no file (matches the season-chip count from
+        /instances/:name/missing).
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: Season number (0 = specials)
+        in: path
+        name: season
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeasonEpisodeList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List episodes of one season with on-disk state
       tags:
       - instances
   /instances/{name}/watchdog/blacklist:

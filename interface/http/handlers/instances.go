@@ -295,6 +295,92 @@ func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.SeriesSearchList{Items: items, Total: total})
 }
 
+// SeasonEpisodes returns the per-episode have/miss list for one
+// season of one series. Powers the queue drill (F5 054c). The
+// season-aggregate count from /missing remains the source of truth
+// for the queue list; this endpoint just expands ONE season on
+// demand when the operator opens its drill.
+//
+// @Summary     List episodes of one season with on-disk state
+// @Description Per-episode `have`/`miss` state for the queue drill.
+// @Description `have` = files on disk; `miss` = monitored + aired
+// @Description + no file (matches the season-chip count from
+// @Description /instances/:name/missing).
+// @Tags        instances
+// @Produce     json
+// @Param       name    path   string  true  "Instance name"
+// @Param       id      path   int     true  "Sonarr series ID"
+// @Param       season  path   int     true  "Season number (0 = specials)"
+// @Success     200     {object}  dto.SeasonEpisodeList
+// @Failure     400     {object}  dto.ErrorResponse
+// @Failure     401     {object}  dto.ErrorResponse
+// @Failure     404     {object}  dto.ErrorResponse
+// @Failure     502     {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /instances/{name}/series/{id}/seasons/{season}/episodes [get]
+func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
+	name := c.Param("name")
+	inst, ok := h.reg.snapshot()[name]
+	if !ok || inst.Client == nil {
+		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
+		return
+	}
+	seriesID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || seriesID <= 0 {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "id must be a positive integer"})
+		return
+	}
+	seasonNumber, err := strconv.Atoi(c.Param("season"))
+	if err != nil || seasonNumber < 0 {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "season must be a non-negative integer"})
+		return
+	}
+	ctx := c.Request.Context()
+	eps, err := inst.Client.ListEpisodes(ctx, seriesID, seasonNumber)
+	if err != nil {
+		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+			h.logger.WarnContext(ctx, "season_episodes_upstream_unauthorized",
+				slog.String("instance", name),
+				slog.Int("series_id", seriesID),
+				slog.Int("season", seasonNumber),
+				slog.String("error", err.Error()))
+			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
+			return
+		}
+		h.logger.ErrorContext(ctx, "season_episodes_list_failed",
+			slog.String("instance", name),
+			slog.Int("series_id", seriesID),
+			slog.Int("season", seasonNumber),
+			slog.String("error", err.Error()))
+		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unavailable"})
+		return
+	}
+	now := time.Now()
+	items := make([]dto.SeasonEpisodeItem, 0, len(eps))
+	var have, miss int
+	for _, e := range eps {
+		aired := e.Aired(now)
+		items = append(items, dto.SeasonEpisodeItem{
+			Number:     e.Number,
+			Monitored:  e.Monitored,
+			HasFile:    e.HasFile,
+			Aired:      aired,
+			AirDateUTC: e.AirDateUTC,
+		})
+		if e.HasFile {
+			have++
+		}
+		if e.Monitored && aired && !e.HasFile {
+			miss++
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Number < items[j].Number })
+	c.JSON(http.StatusOK, dto.SeasonEpisodeList{
+		Items: items, Total: len(items), Have: have, Miss: miss,
+	})
+}
+
 // parseSearchLimit clamps to [1, searchMaxLimit]; empty = default.
 // Returns a wire-safe error string (no leaking internal types).
 func parseSearchLimit(raw string) (int, error) {

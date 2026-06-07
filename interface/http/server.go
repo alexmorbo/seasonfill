@@ -133,6 +133,7 @@ func NewServer(
 		guarded.POST("/scan", scanHandler.Trigger)
 		guarded.GET("/instances", instancesHandler.List)
 		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
+		guarded.GET("/instances/:name/series/:id/seasons/:season/episodes", instancesHandler.SeasonEpisodes)
 		countersHandler := handlers.NewCountersHandler(instanceReg, counterRepo, logger)
 		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)

@@ -689,3 +689,32 @@ type WebhookStatusAggregate struct {
 	HealthyCount   int                          `json:"healthy_count"   example:"1"`
 	UnhealthyCount int                          `json:"unhealthy_count" example:"1"`
 }
+
+// SeasonEpisodeItem — one episode row of
+// GET /instances/:name/series/:id/seasons/:season/episodes.
+// `aired` mirrors the domain notion of "release-time has passed"
+// (`domain/series/episode.go:18 Aired`). `monitored` and `has_file`
+// are pass-through from Sonarr. The DTO is intentionally trimmed —
+// the queue drill renders chips, not episode metadata.
+type SeasonEpisodeItem struct {
+	Number     int       `json:"number"        example:"5"`
+	Monitored  bool      `json:"monitored"     example:"true"`
+	HasFile    bool      `json:"has_file"      example:"false"`
+	Aired      bool      `json:"aired"         example:"true"`
+	AirDateUTC time.Time `json:"air_date_utc"`
+}
+
+// SeasonEpisodeList — body of
+// GET /instances/:name/series/:id/seasons/:season/episodes.
+// `have` counts items with `has_file == true`. `miss` counts items
+// with `monitored && aired && !has_file` — matches the "aired
+// missing" semantics used by the rest of the queue surface so the
+// drill's `miss` count agrees with the season-chip count from
+// /missing (modulo polling drift). Items are sorted ascending by
+// `number`.
+type SeasonEpisodeList struct {
+	Items []SeasonEpisodeItem `json:"items"`
+	Total int                 `json:"total" example:"24"`
+	Have  int                 `json:"have"  example:"11"`
+	Miss  int                 `json:"miss"  example:"13"`
+}

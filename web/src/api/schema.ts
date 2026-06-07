@@ -1785,6 +1785,91 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}/seasons/{season}/episodes": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List episodes of one season with on-disk state
+         * @description Per-episode `have`/`miss` state for the queue drill.
+         *     `have` = files on disk; `miss` = monitored + aired
+         *     + no file (matches the season-chip count from
+         *     /instances/:name/missing).
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series ID */
+                    readonly id: number;
+                    /** @description Season number (0 = specials) */
+                    readonly season: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeasonEpisodeList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/watchdog/blacklist": {
         readonly parameters: {
             readonly query?: never;
@@ -3380,6 +3465,26 @@ export type components = {
             /** @example alpha */
             readonly instance?: string;
             readonly series_ids?: readonly number[];
+        };
+        readonly "dto.SeasonEpisodeItem": {
+            readonly air_date_utc?: string;
+            /** @example true */
+            readonly aired?: boolean;
+            /** @example false */
+            readonly has_file?: boolean;
+            /** @example true */
+            readonly monitored?: boolean;
+            /** @example 5 */
+            readonly number?: number;
+        };
+        readonly "dto.SeasonEpisodeList": {
+            /** @example 11 */
+            readonly have?: number;
+            readonly items?: readonly components["schemas"]["dto.SeasonEpisodeItem"][];
+            /** @example 13 */
+            readonly miss?: number;
+            /** @example 24 */
+            readonly total?: number;
         };
         readonly "dto.SeriesCacheItem": {
             /** @example homelab */
