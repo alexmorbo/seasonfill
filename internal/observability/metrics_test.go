@@ -161,6 +161,41 @@ func TestIncWebhookProcessingFailures_RegistersAndIncrements(t *testing.T) {
 	assert.Contains(t, body, `error_kind="not_found"`)
 }
 
+func TestIncParseRelease_RegistersAndIncrements(t *testing.T) {
+	IncParseRelease("obs_test_parse_a", "ok")
+	IncParseRelease("obs_test_parse_a", "ok")
+	IncParseRelease("obs_test_parse_a", "error")
+	IncParseRelease("obs_test_parse_b", "disabled")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_parse_release_total")
+	assert.Contains(t, body, `instance="obs_test_parse_a"`)
+	assert.Contains(t, body, `result="ok"`)
+	assert.Contains(t, body, `result="error"`)
+	assert.Contains(t, body, `result="disabled"`)
+	assert.Contains(t, body, `instance="obs_test_parse_b"`)
+}
+
+func TestObserveParseReleaseDuration_RegistersHistogram(t *testing.T) {
+	ObserveParseReleaseDuration("obs_test_parse_dur", 0.123)
+	ObserveParseReleaseDuration("obs_test_parse_dur", 0.456)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_parse_release_duration_seconds")
+	assert.Contains(t, body, `instance="obs_test_parse_dur"`)
+}
+
+func TestIncScanSkipped_RegistersAndIncrements(t *testing.T) {
+	IncScanSkipped("obs_test_skip_a", "all_complete")
+	IncScanSkipped("obs_test_skip_a", "all_complete")
+	IncScanSkipped("obs_test_skip_a", "sonarr_handles")
+	IncScanSkipped("obs_test_skip_b", "all_complete")
+	body := writeAndRead(t)
+	assert.Contains(t, body, "seasonfill_scan_skipped_seasons_total")
+	assert.Contains(t, body, `instance="obs_test_skip_a"`)
+	assert.Contains(t, body, `reason="all_complete"`)
+	assert.Contains(t, body, `reason="sonarr_handles"`)
+	assert.Contains(t, body, `instance="obs_test_skip_b"`)
+}
+
 func TestMetricConstants_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 	consts := []string{

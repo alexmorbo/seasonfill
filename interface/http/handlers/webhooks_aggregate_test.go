@@ -86,3 +86,69 @@ func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {
 		t.Errorf("counts: %d/%d", got.HealthyCount, got.UnhealthyCount)
 	}
 }
+
+func TestWebhooksAggregateHandler_UnknownInstanceFallsToUnhealthy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
+		return runtime.InstanceSnapshot{}, nil, false
+	}
+	r := webhookinstall.New(webhookinstall.Deps{
+		Lookup:    lookup,
+		PublicURL: func(context.Context) string { return "https://sf.example" },
+		Cache:     webhookinstall.NewStatusCache(),
+	}).WithClock(func() time.Time { return time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC) })
+
+	h := NewWebhooksAggregateHandler(r, stubLister{"missing-instance"}, nil)
+	engine := gin.New()
+	engine.GET("/api/v1/webhooks/status", h.Status)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/webhooks/status", nil)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200, body=%s", w.Code, w.Body.String())
+	}
+	var got dto.WebhookStatusAggregate
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Items) != 1 {
+		t.Fatalf("len: %d", len(got.Items))
+	}
+	if got.Items[0].Installed || got.Items[0].Healthy {
+		t.Errorf("missing instance: want installed=false healthy=false, got %+v", got.Items[0])
+	}
+	if got.HealthyCount != 0 || got.UnhealthyCount != 1 {
+		t.Errorf("counts: %d/%d", got.HealthyCount, got.UnhealthyCount)
+	}
+}
+
+func TestWebhooksAggregateHandler_EmptyInstanceList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
+		return runtime.InstanceSnapshot{}, nil, false
+	}
+	r := webhookinstall.New(webhookinstall.Deps{
+		Lookup:    lookup,
+		PublicURL: func(context.Context) string { return "" },
+		Cache:     webhookinstall.NewStatusCache(),
+	}).WithClock(func() time.Time { return time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC) })
+
+	h := NewWebhooksAggregateHandler(r, stubLister{}, nil)
+	engine := gin.New()
+	engine.GET("/api/v1/webhooks/status", h.Status)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/webhooks/status", nil)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d", w.Code)
+	}
+	var got dto.WebhookStatusAggregate
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Items) != 0 {
+		t.Errorf("len: want 0, got %d", len(got.Items))
+	}
+}

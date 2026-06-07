@@ -178,6 +178,53 @@ func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
 	}
 }
 
+func TestWatchdogBlacklistHandler_ListInvalidLimit(t *testing.T) {
+	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
+	r := newBlacklistRouter(h)
+	for _, q := range []string{"?limit=0", "?limit=-1", "?limit=abc", "?limit=10000"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist"+q, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("limit=%s: want 400, got %d", q, w.Code)
+		}
+	}
+}
+
+func TestWatchdogBlacklistHandler_ListInvalidCursor(t *testing.T) {
+	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
+	r := newBlacklistRouter(h)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist?cursor=not-base64!", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid cursor: want 400, got %d", w.Code)
+	}
+}
+
+func TestWatchdogBlacklistHandler_DeleteRepoError(t *testing.T) {
+	pager := &stubPager{deleteFn: func(uint, uint) error { return errors.New("db down") }}
+	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 1}, nil)
+	r := newBlacklistRouter(h)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/42", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("repo error: want 500, got %d", w.Code)
+	}
+}
+
+func TestWatchdogBlacklistHandler_DeleteInvalidID(t *testing.T) {
+	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
+	r := newBlacklistRouter(h)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/not-a-number", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid id: want 400, got %d", w.Code)
+	}
+}
+
 func TestDeriveSource_Reasons(t *testing.T) {
 	if deriveSource(regrab.ReasonConsecutiveNoBetter) != "auto" {
 		t.Error("ReasonConsecutiveNoBetter should map to auto")

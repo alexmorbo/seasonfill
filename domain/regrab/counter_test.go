@@ -131,8 +131,9 @@ func TestNoBetterCounter_HasReachedThreshold(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c.Consecutive = tc.consec
-			assert.Equal(t, tc.want, c.HasReachedThreshold(tc.threshold))
+			local := c
+			local.Consecutive = tc.consec
+			assert.Equal(t, tc.want, local.HasReachedThreshold(tc.threshold))
 		})
 	}
 }

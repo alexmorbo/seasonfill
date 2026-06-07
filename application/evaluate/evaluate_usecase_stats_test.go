@@ -211,3 +211,58 @@ type errInjectedT struct{}
 func (errInjectedT) Error() string { return "injected db failure" }
 
 var _ release.Release // silence unused import on test-only files
+
+// TestRecordSkip_PersistsSyntheticSkipDecision asserts the 046b RecordSkip
+// pre-filter helper persists a Skip decision with the given reason and
+// snapshots SeasonStats into the four counter fields.
+func TestRecordSkip_PersistsSyntheticSkipDecision(t *testing.T) {
+	decisions := &recordingDecisionRepo{}
+	grabs := &stubGrabRepo{count: 3}
+	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard()).WithGrabRepository(grabs)
+
+	in := Input{
+		ScanRunID: uuid.New(),
+		Instance:  "homelab",
+		Series:    series.Series{ID: 42, Title: "Foo", Monitored: true},
+		Season:    series.Season{Number: 5, Monitored: true},
+		Now:       time.Now().UTC(),
+	}
+	stats := series.SeasonStats{Total: 10, Aired: 10, Existing: 0}
+
+	d, err := uc.RecordSkip(context.Background(), in, decision.ReasonSonarrHandles, stats)
+	require.NoError(t, err)
+	require.Len(t, decisions.saved, 1)
+	got := decisions.saved[0]
+	assert.Equal(t, "homelab", d.InstanceName)
+	assert.Equal(t, decision.OutcomeSkip, got.Outcome)
+	assert.Equal(t, decision.ReasonSonarrHandles, got.Reason)
+	assert.Equal(t, 10, got.TotalEpisodes)
+	assert.Equal(t, 10, got.AiredEpisodes)
+	assert.Equal(t, 0, got.ExistingEpisodes)
+	assert.Equal(t, 3, got.GrabbedEpisodes)
+	assert.Equal(t, 10, got.MissingCount, "missing mirrors stats.Missing()")
+}
+
+// TestRecordSkip_HonoursPreferredDecisionID exercises the supersede-ready
+// branch that overrides the auto-generated decision ID.
+func TestRecordSkip_HonoursPreferredDecisionID(t *testing.T) {
+	decisions := &recordingDecisionRepo{}
+	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard())
+
+	preferred := uuid.New()
+	in := Input{
+		ScanRunID:           uuid.New(),
+		Instance:            "homelab",
+		Series:              series.Series{ID: 1, Title: "X"},
+		Season:              series.Season{Number: 1},
+		PreferredDecisionID: &preferred,
+		Now:                 time.Now().UTC(),
+	}
+	stats := series.SeasonStats{Total: 8, Aired: 8, Existing: 8}
+
+	_, err := uc.RecordSkip(context.Background(), in, decision.ReasonAllComplete, stats)
+	require.NoError(t, err)
+	require.Len(t, decisions.saved, 1)
+	assert.Equal(t, preferred, decisions.saved[0].ID)
+	assert.Equal(t, decision.ReasonAllComplete, decisions.saved[0].Reason)
+}
