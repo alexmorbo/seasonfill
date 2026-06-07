@@ -8,7 +8,7 @@ export interface EpisodeFile {
   readonly id: number;
   readonly relative_path: string;
   readonly season_number: number;
-  readonly episode_numbers: readonly number[];
+  readonly episode_numbers: readonly number[] | null;
   readonly size_bytes: number;
   readonly quality: string;
 }

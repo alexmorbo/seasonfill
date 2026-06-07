@@ -574,3 +574,42 @@ func TestClient_ListEpisodeFilesBySeason_MultiEpFile(t *testing.T) {
 	require.Len(t, out, 1)
 	assert.Equal(t, []int{3, 4}, out[0].EpisodeNumbers, "multi-ep file groups numbers")
 }
+
+// TestClient_ListEpisodeFilesBySeason_UnmappedFileHasEmptyEpisodes ensures that
+// an episodeFile row with no corresponding episode entries surfaces as a
+// non-nil empty slice, and that the eventual JSON encoding emits "[]" instead
+// of "null". Sonarr can legitimately return such rows (orphaned imports,
+// stale rescans); the frontend GrabDrawer crashed reading `.length` on
+// `null` before this guard. 043c regression for the EpisodeFilesList crash.
+func TestClient_ListEpisodeFilesBySeason_UnmappedFileHasEmptyEpisodes(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"id": 7099, "seasonNumber": 2,
+			"relativePath": "Season 02/Severance.S02E99.orphan.mkv",
+			"size": 1000000,
+			"quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}}]`))
+	})
+	mux.HandleFunc("/api/v3/episode", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	out, err := c.ListEpisodeFilesBySeason(context.Background(), 122, 2)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].EpisodeNumbers, "unmapped file must surface non-nil EpisodeNumbers")
+	assert.Empty(t, out[0].EpisodeNumbers, "unmapped file must surface empty EpisodeNumbers")
+
+	// JSON-marshal directly — the field has no struct tag at the ports
+	// layer, but the wire format is `[]` because the slice is non-nil.
+	// This guards against a future refactor reintroducing the nil leak.
+	raw, err := json.Marshal(out[0])
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"EpisodeNumbers":[]`,
+		"non-nil empty slice must marshal as [], never null")
+	assert.NotContains(t, string(raw), `"EpisodeNumbers":null`,
+		"nil leak would regress GrabDrawer crash on /grabs?open=<id>")
+}

@@ -15,9 +15,12 @@ function fileBasename(p: string): string {
   return ix >= 0 ? p.slice(ix + 1) : p;
 }
 
-function formatEpisodeLabel(seasonNumber: number, episodeNumbers: readonly number[]): string {
+function formatEpisodeLabel(
+  seasonNumber: number,
+  episodeNumbers: readonly number[] | null,
+): string {
   const s = `S${String(seasonNumber).padStart(2, '0')}`;
-  if (episodeNumbers.length === 0) return s;
+  if (!episodeNumbers || episodeNumbers.length === 0) return s;
   const sorted = [...episodeNumbers].sort((a, b) => a - b);
   const labels = sorted.map((n) => `E${String(n).padStart(2, '0')}`);
   return `${s}${labels.join('').replace(/^E/, 'E')}`;

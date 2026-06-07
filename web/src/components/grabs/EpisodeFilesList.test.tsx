@@ -86,6 +86,40 @@ describe('<EpisodeFilesList />', () => {
     });
   });
 
+  it('renders S02 (season only) when episode_numbers=null without crashing', async () => {
+    // Backend used to leak Go's nil []int as JSON null when an episodeFile
+    // row had no mapped episodes (orphaned import). formatEpisodeLabel
+    // crashed on `.length` of null and the whole drawer blew up.
+    // Backend now emits []; frontend keeps the null guard as defence.
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 7099,
+              relative_path: 'Season 02/Severance.S02E99.orphan.mkv',
+              season_number: 2,
+              episode_numbers: null,
+              size_bytes: 1_000_000,
+              quality: 'WEBDL-2160p',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as typeof fetch;
+    render(wrap(
+      <EpisodeFilesList instance="alpha" grabId="g1" grabStatus="imported" open={true} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('episode-file-7099')).toBeInTheDocument();
+    });
+    // Season-only label — no episode suffix.
+    const label = screen.getByText('S02');
+    expect(label).toBeInTheDocument();
+    expect(label.textContent).toBe('S02');
+  });
+
   it('collapses past 5 files and expands on click', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(

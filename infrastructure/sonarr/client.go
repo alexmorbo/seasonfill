@@ -443,11 +443,15 @@ func (c *Client) ListEpisodeFilesBySeason(
 		if len(out) >= cap {
 			break
 		}
+		en := byFile[f.ID]
+		if en == nil {
+			en = []int{}
+		}
 		out = append(out, ports.EpisodeFileDetail{
 			ID:             f.ID,
 			RelativePath:   f.RelativePath,
 			SeasonNumber:   f.SeasonNumber,
-			EpisodeNumbers: byFile[f.ID],
+			EpisodeNumbers: en,
 			SizeBytes:      f.Size,
 			Quality:        f.Quality.Quality.Name,
 		})
