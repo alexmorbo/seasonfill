@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,6 +12,7 @@ import { QueueToolbar } from '@/components/queue/QueueToolbar';
 import { QueueRow } from '@/components/queue/QueueRow';
 import { QueueEmptyState } from '@/components/queue/QueueEmptyState';
 import { QueueSweepCTA } from '@/components/queue/QueueSweepCTA';
+import { QueueSeasonDrill } from '@/components/queue/QueueSeasonDrill';
 import {
   useMissing, selectQueueRows, type MissingSeries, type QueueSort,
 } from '@/lib/missing';
@@ -184,13 +185,14 @@ export function InstanceQueue() {
                   onSeasonToggle={(season) => onSeasonToggle(sid, season)}
                   onScan={() => onScan(row)}
                   drillSlot={
-                    // 054b: placeholder skeleton. 054c replaces with
-                    // <QueueSeasonDrill seriesId={sid} seasonNumber={openSeason!} />.
-                    openSeason !== null ? (
-                      <div className="flex items-center gap-2 text-[12px] text-muted">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                        {t('instanceQueue.drill.loading')}
-                      </div>
+                    openSeason !== null && row.series_id !== undefined ? (
+                      <QueueSeasonDrill
+                        instanceName={name}
+                        seriesId={row.series_id}
+                        seasonNumber={openSeason}
+                        isScanInFlight={isInFlight}
+                        onScanSeason={() => onScan(row)}
+                      />
                     ) : null
                   }
                 />
