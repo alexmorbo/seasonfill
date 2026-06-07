@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
   LayoutDashboard,
+  Library,
   Radar,
   GitBranch,
   Download,
@@ -27,6 +28,7 @@ type Item = {
 
 const OVERVIEW: Item[] = [
   { to: "/", end: true, icon: LayoutDashboard, key: "dashboard" },
+  { to: "/series", icon: Library, key: "series" },
 ]
 const ACTIVITY: Item[] = [
   { to: "/scans", icon: Radar, key: "scans" },

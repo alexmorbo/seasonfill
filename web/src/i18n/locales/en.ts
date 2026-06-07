@@ -130,6 +130,7 @@ export const en = {
     section: 'Navigation',
     navigation: 'Navigation',
     dashboard: 'Dashboard',
+    series: 'Series',
     instances: 'Instances',
     scans: 'Scans',
     decisions: 'Decisions',
@@ -1449,6 +1450,32 @@ export const en = {
         openInstanceForm: 'Open instance form',
         openInstances: 'To instances list',
       },
+    },
+  },
+  series: {
+    title: 'Series',
+    refresh: 'Refresh',
+    refreshAria: 'Refresh series list',
+    loadFailed: 'Failed to load series',
+    header: {
+      count: '{{shown}} of {{total}}',
+    },
+    tile: {
+      posterAria: '{{title}} ({{year}})',
+      monitoredOn: 'monitored',
+      monitoredOff: 'not monitored',
+      missing: '{{count}} missing',
+    },
+    empty: {
+      server: {
+        body: 'No cached series for this instance yet. Run a scan to populate the cache.',
+        cta: 'Run a scan',
+      },
+    },
+    firstRun: {
+      title: 'No instances configured',
+      body: 'Add a Sonarr instance to start browsing series.',
+      cta: 'Add instance',
     },
   },
 };

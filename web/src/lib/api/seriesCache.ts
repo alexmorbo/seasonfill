@@ -60,3 +60,66 @@ export function useSeriesCache(
     placeholderData: keepPreviousData,
   });
 }
+
+// === 059a additions for /series infinite list ===
+
+import { useInfiniteQuery, type UseInfiniteQueryResult } from '@tanstack/react-query';
+
+// Extend SeriesCacheQuery to accept a cursor for keyset pagination.
+// useSeriesCache (above) ignores `cursor` — only useSeriesCacheInfinite
+// reads it via `pageParam`.
+export interface SeriesCacheInfiniteQuery {
+  readonly state?: SeriesCacheStatus;
+  readonly sort?: SeriesCacheSort;
+  readonly limit?: number;
+}
+
+function buildInfinitePath(
+  instance: string,
+  q: SeriesCacheInfiniteQuery,
+  cursor: string,
+): string {
+  const p = new URLSearchParams();
+  if (q.state) p.set('state', q.state);
+  if (q.sort) p.set('sort', q.sort);
+  if (q.limit !== undefined) p.set('limit', String(q.limit));
+  if (cursor) p.set('cursor', cursor);
+  const qs = p.toString();
+  return `/instances/${encodeURIComponent(instance)}/series-cache${qs ? `?${qs}` : ''}`;
+}
+
+export const seriesCacheInfiniteKey = (
+  instance: string | null | undefined,
+  q: SeriesCacheInfiniteQuery,
+) => ['series-cache', 'infinite', instance ?? '', q] as const;
+
+export function useSeriesCacheInfinite(
+  instance: string | null | undefined,
+  q: SeriesCacheInfiniteQuery,
+  opts: { enabled?: boolean } = {},
+): UseInfiniteQueryResult<{ pages: SeriesCacheList[]; pageParams: string[] }, ApiError> {
+  const enabled = (opts.enabled ?? true) && !!instance;
+  return useInfiniteQuery<
+    SeriesCacheList,
+    ApiError,
+    { pages: SeriesCacheList[]; pageParams: string[] },
+    ReturnType<typeof seriesCacheInfiniteKey>,
+    string
+  >({
+    queryKey: seriesCacheInfiniteKey(instance, q),
+    queryFn: ({ pageParam }) =>
+      api<SeriesCacheList>(buildInfinitePath(instance ?? '', q, pageParam)),
+    initialPageParam: '',
+    getNextPageParam: (last) => (last.has_more ? last.next_cursor ?? undefined : undefined),
+    enabled,
+    staleTime: 30_000,
+    refetchInterval: enabled ? 60_000 : false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function flattenSeriesCachePages(
+  pages: readonly SeriesCacheList[] | undefined,
+): readonly SeriesCacheItem[] {
+  return pages ? pages.flatMap((p) => p.items ?? []) : [];
+}

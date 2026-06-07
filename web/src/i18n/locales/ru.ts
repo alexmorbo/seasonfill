@@ -132,6 +132,7 @@ export const ru: Translations = {
     section: 'Навигация',
     navigation: 'Навигация',
     dashboard: 'Дашборд',
+    series: 'Сериалы',
     instances: 'Инстансы',
     scans: 'Сканы',
     decisions: 'Решения',
@@ -1451,6 +1452,32 @@ export const ru: Translations = {
         openInstanceForm: 'Открыть форму инстанса',
         openInstances: 'К списку инстансов',
       },
+    },
+  },
+  series: {
+    title: 'Сериалы',
+    refresh: 'Обновить',
+    refreshAria: 'Обновить список сериалов',
+    loadFailed: 'Не удалось загрузить сериалы',
+    header: {
+      count: '{{shown}} из {{total}}',
+    },
+    tile: {
+      posterAria: '{{title}} ({{year}})',
+      monitoredOn: 'отслеживается',
+      monitoredOff: 'не отслеживается',
+      missing: 'нет {{count}} серий',
+    },
+    empty: {
+      server: {
+        body: 'Кеш сериалов для этого инстанса пуст. Запустите скан, чтобы заполнить его.',
+        cta: 'Запустить скан',
+      },
+    },
+    firstRun: {
+      title: 'Инстансы не настроены',
+      body: 'Добавьте Sonarr-инстанс, чтобы начать просмотр сериалов.',
+      cta: 'Добавить инстанс',
     },
   },
 };
