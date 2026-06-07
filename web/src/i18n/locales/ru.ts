@@ -581,6 +581,28 @@ export const ru: Translations = {
       age: 'Возраст',
       grabbedAt: 'Захвачено',
       dryRun: 'Был бы захвачен (dry run)',
+      history: 'история решений',
+      loadFailedTitle: 'Не удалось загрузить историю',
+      summary: {
+        decisions: '{{count}} решений · {{window}}',
+        grabs:     '{{count}} захватов',
+        cooldown:  '{{count}} cooldown',
+      },
+    },
+    row: {
+      chip: { grab: 'Захват', skip: 'Пропуск' },
+      decisionCount: '{{count}} решений',
+    },
+    series: {
+      count: '{{seasons}} сезонов',
+      countStuck: '{{seasons}} сезонов · {{cycles}} циклов застоя',
+    },
+    season: {
+      openAria: 'Открыть историю по {{season}}',
+    },
+    timeline: {
+      empty: 'Решений в этом окне нет.',
+      chip: { grab: 'Захват', skip: 'Пропуск', block: 'Блок' },
     },
     stuck: {
       title: 'Застряли',

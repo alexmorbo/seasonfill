@@ -12,6 +12,7 @@ import {
   useStuckSeasons,
   flattenDecisionList,
   applyDecisionsFilters,
+  type Decision,
   type DecisionsWindow,
   type DecisionsSort,
   type StuckSeason,
@@ -25,6 +26,8 @@ import {
 import { StuckHero } from '@/components/decisions/StuckHero';
 import { DecisionsEmptyState } from '@/components/decisions/DecisionsEmptyState';
 import { DecisionsFirstRunState } from '@/components/decisions/DecisionsFirstRunState';
+import { DecisionsSeriesAccordion } from '@/components/decisions/DecisionsSeriesAccordion';
+import { DecisionsDrawer } from '@/components/decisions/DecisionsDrawer';
 import { SkeletonRows } from '@/components/SkeletonRows';
 
 const VALID_CATEGORIES: ReadonlySet<CategoryFilter> = new Set([
@@ -84,12 +87,32 @@ export function Decisions() {
   const stuckQ = useStuckSeasons({ window });
 
   const onOpenSeason = useCallback((s: StuckSeason) => {
-    // 053b's drawer reads `?series=` / `?season=` from the URL. Until
-    // the drawer mounts, the URL params are inert — they only become
-    // meaningful when 053b's slot-swap lands.
     const next = new URLSearchParams(params);
     next.set('series', String(s.seriesId));
     next.set('season', String(s.seasonNumber));
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  // Drawer state — derived from URL params written by season-row /
+  // StuckHero clicks. Drawer mounts whenever both series + season are
+  // present and parseable.
+  const seriesIdRaw   = params.get('series');
+  const seasonRaw     = params.get('season');
+  const seriesId      = seriesIdRaw ? Number(seriesIdRaw) : null;
+  const seasonNumber  = seasonRaw   ? Number(seasonRaw)   : null;
+  const drawerOpen    = seriesId !== null && seasonNumber !== null
+                        && Number.isFinite(seriesId) && Number.isFinite(seasonNumber);
+
+  const closeDrawer = useCallback(() => {
+    const next = new URLSearchParams(params);
+    next.delete('series'); next.delete('season');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  const openSeasonFromAccordion = useCallback((d: Decision) => {
+    const next = new URLSearchParams(params);
+    next.set('series', String(d.series_id ?? ''));
+    next.set('season', String(d.season_number ?? ''));
     setParams(next, { replace: true });
   }, [params, setParams]);
 
@@ -126,6 +149,15 @@ export function Decisions() {
     for (const d of filtered) s.add(d.series_id ?? -1);
     return s.size;
   }, [filtered]);
+
+  // Look up the title for the drawer header from the loaded rows.
+  // Falls back to `null` when the season has rotated out of the list
+  // pagination window — the drawer shows an em-dash instead.
+  const drawerSeriesTitle = useMemo(() => {
+    if (!drawerOpen) return null;
+    const hit = rows.find((d) => d.series_id === seriesId && d.season_number === seasonNumber);
+    return hit?.series_title ?? null;
+  }, [rows, drawerOpen, seriesId, seasonNumber]);
 
   // State branch resolution
   const isInitialLoading = listQ.isPending && rows.length === 0;
@@ -191,13 +223,12 @@ export function Decisions() {
           {filteredEmpty ? (
             <DecisionsEmptyState onReset={onReset} />
           ) : (
-            // Placeholder slot for 053b — keeps the test surface stable
-            // and the DOM non-empty while the rest of the page renders.
             <Card>
-              <CardContent className="p-4">
-                <section data-testid="decisions-accordion-slot">
-                  <SkeletonRows rows={3} cols={['sm', 'md', 'lg']} />
-                </section>
+              <CardContent className="px-4 py-3">
+                <DecisionsSeriesAccordion
+                  rows={filtered}
+                  onOpenSeason={openSeasonFromAccordion}
+                />
               </CardContent>
             </Card>
           )}
@@ -211,6 +242,16 @@ export function Decisions() {
           </CardContent>
         </Card>
       )}
+
+      <DecisionsDrawer
+        open={drawerOpen}
+        seriesId={seriesId}
+        seriesTitle={drawerSeriesTitle}
+        seasonNumber={seasonNumber}
+        instance={instance}
+        window={window}
+        onOpenChange={(o) => { if (!o) closeDrawer(); }}
+      />
     </div>
   );
 }

@@ -1,3 +1,6 @@
+// TODO(F6): consumed by ScanDetail.tsx only. F6's redesign will either
+// replace this with the F7 DecisionsDrawer or repurpose this file. Do
+// not delete until ScanDetail has been migrated.
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

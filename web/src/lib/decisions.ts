@@ -1,3 +1,7 @@
+// TODO(F6): consumed by ScanDetail.tsx (useDecisions/flattenDecisions
+// with scan_run_id + decision filters and fastPoll). F6's redesign will
+// migrate that page to the F7 `lib/api/decisions` module. Do not delete
+// until ScanDetail has been migrated.
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { ApiError, api } from './api';
 import { useInstanceFilter } from './instance-filter-context-internal';

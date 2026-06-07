@@ -572,6 +572,28 @@ export const en = {
       age: 'Age',
       grabbedAt: 'Grabbed at',
       dryRun: 'Would have grabbed (dry run)',
+      history: 'decision history',
+      loadFailedTitle: 'Failed to load history',
+      summary: {
+        decisions: '{{count}} decisions · {{window}}',
+        grabs:     '{{count}} grabs',
+        cooldown:  '{{count}} cooldown',
+      },
+    },
+    row: {
+      chip: { grab: 'Grab', skip: 'Skip' },
+      decisionCount: '{{count}} decisions',
+    },
+    series: {
+      count: '{{seasons}} seasons',
+      countStuck: '{{seasons}} seasons · {{cycles}} stuck cycles',
+    },
+    season: {
+      openAria: 'Open cross-scan history for {{season}}',
+    },
+    timeline: {
+      empty: 'No decisions in this window.',
+      chip: { grab: 'Grab', skip: 'Skip', block: 'Block' },
     },
     stuck: {
       title: 'Stuck',
