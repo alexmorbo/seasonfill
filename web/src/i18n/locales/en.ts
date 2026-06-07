@@ -1073,72 +1073,44 @@ export const en = {
           notInstalled: 'Webhook not installed',
           error: 'Install failed: {{message}}',
         },
+        // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {
+          actions: {
+            autoFill: 'Pull from Sonarr',
+            autoFillSuccess: 'Filled qBittorrent fields from Sonarr',
+            autoFillNoQbit: 'No qBittorrent download client configured in this Sonarr',
+            autoFillFailed: 'Auto-fill failed',
+            partialSuccessToast: 'Instance saved, but qBittorrent settings failed: {{error}}. Try Save again.',
+          },
           form: {
-            url: {
-              label: 'qBittorrent URL',
-              placeholder: 'http://qbittorrent:8080',
-              help: 'Reachable URL of the qBittorrent Web UI.',
-            },
-            username: {
-              label: 'Username',
-              help: 'Optional — leave empty for local qBittorrent without auth.',
-            },
+            url: { label: 'qBittorrent URL', placeholder: 'http://qbittorrent:8080', help: 'qBittorrent Web UI address.' },
+            username: { label: 'Username', help: 'Optional — leave empty for local qBittorrent without auth.' },
             password: {
               label: 'Password',
-              help: 'Leave empty to keep the current password.',
               placeholderSet: '•••• (set)',
               placeholderUnset: 'Set password',
+              help: 'Leave empty to keep the current password.',
             },
-            category: {
-              label: 'Category',
-              help: 'qBittorrent label used by Sonarr (default: sonarr).',
-            },
-            pollInterval: {
-              label: 'Poll interval (minutes)',
-              help: 'How often we check qBittorrent for unregistered torrents.',
-            },
-            regrabCooldown: {
-              label: 'Re-grab cooldown (hours)',
-              help: 'Minimum gap between re-grab attempts per (series, season). Default 5 days.',
-            },
-            maxConsecutive: {
-              label: 'Strike limit',
-              help: "How many 'nothing better' attempts before auto-blacklisting.",
-            },
+            category: { label: 'Category', help: 'qBit category used by Sonarr.' },
+            pollInterval: { label: 'Poll interval (min)', help: 'How often to poll qBittorrent.' },
+            regrabCooldown: { label: 'Re-grab cooldown (h)', help: 'Min hours between two re-grabs of the same series.' },
+            maxConsecutive: { label: 'Max no-better', help: 'After N failed re-grabs, blacklist the source.' },
             customMsgs: {
               label: 'Custom unregistered messages',
-              help: "Additional tracker.msg substrings to treat as 'unregistered' (e.g. for non-English trackers).",
-              addPlaceholder: 'Add pattern…',
+              addPlaceholder: 'add message…',
+              help: 'Extra tracker messages treated as unregistered.',
             },
             enabled: {
-              label: 'Enabled',
-              helpDisabled: 'Install the webhook first to enable.',
-              helpEnabled: 'Watchdog is actively polling qBittorrent.',
+              label: 'Watchdog enabled',
+              helpEnabled: 'Watchdog will poll qBittorrent every interval.',
+              helpDisabled: 'Install the Sonarr webhook first.',
+              helpCreate: 'Save the instance first, then enable watchdog.',
+            },
+            errors: {
+              urlRequired: 'qBittorrent URL is required',
+              urlInvalid: 'qBittorrent URL must be valid',
             },
           },
-          actions: {
-            autoFill: 'Auto-fill from Sonarr',
-            autoFillSuccess: 'Filled URL/username/category from Sonarr. Password still required.',
-            autoFillNoQbit: 'No qBittorrent download client found in this Sonarr.',
-            save: 'Save',
-            saveSuccess: 'Watchdog settings saved.',
-            webhookRequired: 'Install the webhook before enabling Watchdog.',
-          },
-          errors: {
-            urlRequired: 'URL is required',
-            urlInvalid: 'Must be a valid http(s) URL.',
-            categoryRequired: 'Category is required',
-            pollIntervalRange: 'Must be between 5 and 1440 minutes.',
-            cooldownRange: 'Must be between 1 and 720 hours.',
-            consecutiveRange: 'Must be between 1 and 100.',
-            tooManyMsgs: 'Maximum 100 patterns.',
-            msgLength: 'Each pattern must be 3–200 characters.',
-            serverValidation: 'Invalid value — please check and retry.',
-          },
-          // 057a4 placeholder (057b expands with full watchdog form):
-          createPlaceholder:
-            'Save the instance first — qBittorrent credentials become editable once Seasonfill can reach the new instance.',
         },
         // === 057a1 added ===
         footer: {
@@ -1185,7 +1157,6 @@ export const en = {
         },
         saveFailedSectionFmt: 'Save failed — please fix errors in the {{section}} section',
         saveFailedConnectionSection: 'Save failed — check errors in the Connection section',
-        // === 057b append marker: watchdog.actions.* + watchdog.form.* tree replaces this section ===
       },
     },
     integrations: {

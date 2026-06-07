@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { useQueryClient } from '@tanstack/react-query';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,23 +11,24 @@ import {
 } from '@/components/ui/dialog';
 import { Accordion } from '@/components/ui/accordion';
 import {
-  useCreateInstance,
   useInstanceDetail,
+  useSaveInstanceWithQbit,
   useTestInstance,
-  useUpdateInstance,
   type InstanceCreateRequest,
   type InstanceUpdateRequest,
   type InstanceDetail,
 } from '@/lib/instances-mutations';
 import { DtoInstanceCooldownMode, DtoInstanceTagsMode } from '@/api/schema';
-import { webhookStatusKey } from '@/api/qbit';
 import {
-  FORM_DEFAULTS, dryRunFromWire, dryRunToWire, type DryRunChoice,
+  useQbitSettings,
+  type QbitSettingsDTO,
+  type QbitSettingsUpsertRequest,
+} from '@/api/qbit';
+import {
+  FORM_DEFAULTS, WATCHDOG_DEFAULTS,
+  dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
-// TEMPORARY (057a4): legacy watchdog UI mounted inside new accordion.
-// Replaced by `<WatchdogSection>` in 057b. Do NOT delete this import
-// in 057a4 — the form must remain functional at every commit.
-import { WatchdogTab } from './WatchdogTab';
+import { WatchdogSection } from '@/components/instances/form/WatchdogSection';
 import { PromotedControls } from '@/components/instances/form/PromotedControls';
 import { ConnectionSection } from '@/components/instances/form/ConnectionSection';
 import { TuningSection } from '@/components/instances/form/TuningSection';
@@ -144,10 +144,42 @@ const baseShape = {
   health_recheck_network_sec: int(10, 86400, 'health_recheck_network'),
 };
 
-const createSchema = z.object({ ...baseShape, api_key: z.string().min(1, 'settings.instances.form.errors.apiKeyRequiredCreate') });
-const editSchema   = z.object({ ...baseShape, api_key: z.string() });
+const qbitShape = {
+  qbit_url: z.string().refine(
+    (v) => v === '' || /^https?:\/\//.test(v),
+    'settings.instances.form.watchdog.errors.urlInvalid',
+  ),
+  qbit_username: z.string().max(256),
+  qbit_password: z.string().max(512),
+  qbit_category: z.string().max(64),
+  qbit_poll_interval_minutes: z.number().int().min(5).max(1440),
+  qbit_regrab_cooldown_hours: z.number().int().min(1).max(720),
+  qbit_max_consecutive_no_better: z.number().int().min(1).max(100),
+  qbit_custom_unregistered_msgs: z.array(z.string().min(3).max(200)).max(100),
+  qbit_enabled: z.boolean(),
+};
+const createSchema = z.object({
+  ...baseShape, ...qbitShape,
+  api_key: z.string().min(1, 'settings.instances.form.errors.apiKeyRequiredCreate'),
+});
+const editSchema = z.object({ ...baseShape, ...qbitShape, api_key: z.string() });
 type FormValues = z.infer<typeof createSchema>;
 const pickSchema = (m: 'create' | 'edit') => (m === 'create' ? createSchema : editSchema);
+
+function qbitFromDTO(dto: QbitSettingsDTO | null | undefined): Partial<FormValues> {
+  if (!dto) return { ...WATCHDOG_DEFAULTS };
+  return {
+    qbit_url: dto.url ?? WATCHDOG_DEFAULTS.qbit_url,
+    qbit_username: dto.username ?? '',
+    qbit_password: '', // dirty-bit invariant
+    qbit_category: dto.category ?? WATCHDOG_DEFAULTS.qbit_category,
+    qbit_poll_interval_minutes: dto.poll_interval_minutes ?? WATCHDOG_DEFAULTS.qbit_poll_interval_minutes,
+    qbit_regrab_cooldown_hours: dto.regrab_cooldown_hours ?? WATCHDOG_DEFAULTS.qbit_regrab_cooldown_hours,
+    qbit_max_consecutive_no_better: dto.max_consecutive_no_better ?? WATCHDOG_DEFAULTS.qbit_max_consecutive_no_better,
+    qbit_custom_unregistered_msgs: [...(dto.custom_unregistered_msgs ?? [])],
+    qbit_enabled: Boolean(dto.enabled),
+  };
+}
 
 export interface InstanceFormDialogProps {
   readonly open: boolean;
@@ -164,7 +196,7 @@ function coerceEnum<T extends string>(
   return (allowed as readonly string[]).includes(value ?? '') ? (value as T) : fallback;
 }
 
-function formFromDetail(d: InstanceDetail): FormValues {
+function formFromDetail(d: InstanceDetail): Omit<FormValues, keyof typeof WATCHDOG_DEFAULTS> {
   return {
     ...FORM_DEFAULTS,
     name: d.name ?? '',
@@ -262,25 +294,25 @@ export function InstanceFormDialog({
 }: InstanceFormDialogProps) {
   const { t } = useTranslation();
   const isEdit = mode === 'edit';
-  const create = useCreateInstance();
-  const update = useUpdateInstance();
   const probe = useTestInstance();
+  const save = useSaveInstanceWithQbit();
   const [probeResult, setProbeResult] = useState<string | null>(null);
   // Accordion open keys — local state so background refetches cannot
   // collapse the user's section. Default = connection open only.
   const [openSections, setOpenSections] = useState<string[]>(['connection']);
 
-  const qc = useQueryClient();
-
   const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
   const detail = detailQuery.data?.detail;
 
+  const qbitQuery = useQbitSettings(isEdit ? (initial?.name ?? null) : null);
+  const qbitDTO = qbitQuery.data ?? null;
+
   const {
-    register, handleSubmit, reset, getValues, setFocus, control,
+    register, handleSubmit, reset, getValues, setFocus, setValue, watch, control,
     formState: { errors, isSubmitting, isDirty, dirtyFields },
   } = useForm<FormValues>({
     resolver: zodResolver(pickSchema(mode)),
-    defaultValues: { ...FORM_DEFAULTS, ...initial, api_key: '' },
+    defaultValues: { ...FORM_DEFAULTS, ...WATCHDOG_DEFAULTS, ...initial, api_key: '' },
     mode: 'onBlur',
   });
 
@@ -294,17 +326,17 @@ export function InstanceFormDialog({
     if (!open || isDirty) return;
     if (isEdit) {
       if (detail) {
-        reset(formFromDetail(detail));
+        reset({ ...formFromDetail(detail), ...qbitFromDTO(qbitDTO) });
         setProbeResult(null);
         setOpenSections(['connection']);
       }
     } else {
-      reset({ ...FORM_DEFAULTS, ...initial, api_key: '' });
+      reset({ ...FORM_DEFAULTS, ...WATCHDOG_DEFAULTS, ...initial, api_key: '' });
       setProbeResult(null);
       setOpenSections(['connection']);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isEdit, initial?.name, detail, isDirty, reset]);
+  }, [open, isEdit, initial?.name, detail, qbitDTO, isDirty, reset]);
 
   const onInvalid = (errs: FieldErrors<FormValues>) => {
     if (!isEdit && errs.api_key) {
@@ -330,28 +362,64 @@ export function InstanceFormDialog({
 
   const onSubmit = handleSubmit(async (values) => {
     const wire = valuesToPayload(values);
+
+    // qBit dirty-bit detection: any qbit_ field dirty → send qbit body.
+    const qbitDirty = Object.keys(dirtyFields).some(
+      (k) => k.startsWith('qbit_'),
+    );
+    const qbitBody: QbitSettingsUpsertRequest | undefined = qbitDirty
+      ? {
+          url: (values.qbit_url ?? '').trim(),
+          username: (values.qbit_username ?? '').trim(),
+          // Empty password = keep ciphertext (039d AC-4 invariant).
+          password: values.qbit_password ?? '',
+          category: (values.qbit_category ?? '').trim(),
+          poll_interval_minutes: values.qbit_poll_interval_minutes,
+          regrab_cooldown_hours: values.qbit_regrab_cooldown_hours,
+          max_consecutive_no_better: values.qbit_max_consecutive_no_better,
+          custom_unregistered_msgs: [...(values.qbit_custom_unregistered_msgs ?? [])],
+          enabled: Boolean(values.qbit_enabled),
+        }
+      : undefined;
+
+    let instanceBody: InstanceCreateRequest | InstanceUpdateRequest;
     if (isEdit && initial?.name) {
       if (!detail) return;
       const userTypedKey = Boolean(dirtyFields.api_key) && values.api_key.trim().length > 0;
-      const body: InstanceUpdateRequest = {
+      instanceBody = {
         ...wire,
         ...(userTypedKey ? { api_key: values.api_key.trim() } : {}),
-      };
-      await update.mutateAsync({ name: initial.name, body }, {
-        onSuccess: ({ detail: saved }) => reset(formFromDetail(saved)),
-      });
-      qc.invalidateQueries({ queryKey: webhookStatusKey(initial.name) });
+      } as InstanceUpdateRequest;
     } else {
-      const body: InstanceCreateRequest = {
-        ...wire,
-        api_key: values.api_key.trim(),
-      };
-      const created = await create.mutateAsync({ body });
-      const newName = created.detail?.name;
-      if (typeof newName === 'string' && newName.length > 0) {
-        qc.invalidateQueries({ queryKey: webhookStatusKey(newName) });
-      }
+      instanceBody = { ...wire, api_key: values.api_key.trim() } as InstanceCreateRequest;
     }
+
+    const result = await save.mutateAsync({
+      mode,
+      name: initial?.name,
+      instanceBody,
+      qbitBody,
+    });
+
+    // Re-seed the form to the persisted values so isDirty clears.
+    reset({
+      ...formFromDetail(result.detail),
+      ...qbitFromDTO(qbitDTO),
+      // Critical: clear the password input post-save (dirty-bit).
+      qbit_password: '',
+    });
+
+    if (result.qbitError) {
+      // Partial success: instance saved, qBit not. Leave dialog open
+      // so the operator can retry without losing the qBit fields.
+      toast.error(
+        t('settings.instances.form.watchdog.actions.partialSuccessToast', {
+          error: result.qbitError.message,
+        }),
+      );
+      return;
+    }
+
     onOpenChange(false);
   }, onInvalid);
 
@@ -461,19 +529,21 @@ export function InstanceFormDialog({
               title={t('settings.instances.form.sections.watchdog')}
               alwaysPill={t('settings.instances.form.sections.alwaysPill')}
             >
-              {isEdit && initial?.name ? (
-                // TEMPORARY (057a4): legacy WatchdogTab kept verbatim.
-                // 057b replaces this with `<WatchdogSection>` whose
-                // form merges into the parent dialog's RHF instance.
-                <WatchdogTab instanceName={initial.name} />
-              ) : (
-                <div
-                  data-testid="watchdog-create-placeholder"
-                  className="p-4 text-[12.5px] text-tx-muted text-center"
-                >
-                  {t('settings.instances.form.watchdog.createPlaceholder')}
-                </div>
-              )}
+              <WatchdogSection
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                control={control as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                register={register as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                errors={errors as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                setValue={setValue as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                watch={watch as unknown as any}
+                mode={mode}
+                instanceName={initial?.name ?? undefined}
+                tValidationError={tValErr}
+              />
             </AccordionSection>
           </Accordion>
         </form>

@@ -1085,71 +1085,44 @@ export const ru: Translations = {
           notInstalled: 'Вебхук не установлен',
           error: 'Ошибка установки: {{message}}',
         },
+        // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {
+          actions: {
+            autoFill: 'Подтянуть qBit из Sonarr',
+            autoFillSuccess: 'qBittorrent-поля подгружены из Sonarr',
+            autoFillNoQbit: 'В этом Sonarr не настроен qBittorrent-клиент',
+            autoFillFailed: 'Не удалось подтянуть',
+            partialSuccessToast: 'Инстанс сохранён, но qBittorrent не записался: {{error}}. Нажмите Сохранить ещё раз.',
+          },
           form: {
-            url: {
-              label: 'URL qBittorrent',
-              placeholder: 'http://qbittorrent:8080',
-              help: 'Доступный URL веб-интерфейса qBittorrent.',
-            },
-            username: {
-              label: 'Пользователь',
-              help: 'Необязательно — оставьте пустым для локального qBittorrent без авторизации.',
-            },
+            url: { label: 'qBittorrent URL', placeholder: 'http://qbittorrent:10095', help: 'Адрес qBittorrent Web UI.' },
+            username: { label: 'Username', help: 'Необязательно — для qBittorrent без авторизации оставьте пустым.' },
             password: {
-              label: 'Пароль',
-              help: 'Оставьте пустым, чтобы сохранить текущий пароль.',
-              placeholderSet: '•••• (задан)',
+              label: 'Password',
+              placeholderSet: '•••• (установлен)',
               placeholderUnset: 'Задайте пароль',
+              help: 'Оставьте пустым, чтобы сохранить текущий.',
             },
-            category: {
-              label: 'Категория',
-              help: 'Метка qBittorrent, которую использует Sonarr (по умолчанию: sonarr).',
-            },
-            pollInterval: {
-              label: 'Интервал опроса (минуты)',
-              help: 'Как часто проверять qBittorrent на наличие unregistered раздач.',
-            },
-            regrabCooldown: {
-              label: 'Cooldown повтора (часы)',
-              help: 'Минимальный интервал между попытками повторного захвата для пары (сериал, сезон). По умолчанию 5 дней.',
-            },
-            maxConsecutive: {
-              label: 'Лимит попыток',
-              help: 'Сколько попыток "ничего лучше" допустить до автоматической блокировки.',
-            },
+            category: { label: 'Категория', help: 'Категория qBit, которой пользуется Sonarr.' },
+            pollInterval: { label: 'Poll-интервал (мин)', help: 'Как часто опрашивать qBittorrent.' },
+            regrabCooldown: { label: 'Regrab cooldown (ч)', help: 'Минимум часов между двумя re-grab\'ами одного сериала.' },
+            maxConsecutive: { label: 'Max «no better»', help: 'После N безуспешных re-grab\'ов — занести в blacklist.' },
             customMsgs: {
-              label: 'Кастомные сообщения unregistered',
-              help: "Дополнительные подстроки tracker.msg, которые считать как 'unregistered' (например, для русских трекеров).",
-              addPlaceholder: 'Добавить шаблон…',
+              label: 'Custom unregistered msgs',
+              addPlaceholder: 'добавить сообщение…',
+              help: 'Дополнительные сообщения трекера, считающиеся unregistered.',
             },
             enabled: {
-              label: 'Включён',
-              helpDisabled: 'Сначала установите вебхук, чтобы включить.',
-              helpEnabled: 'Watchdog активно опрашивает qBittorrent.',
+              label: 'Watchdog включён',
+              helpEnabled: 'Watchdog будет опрашивать qBittorrent с заданным интервалом.',
+              helpDisabled: 'Сначала установите webhook в Sonarr.',
+              helpCreate: 'Сначала сохраните инстанс, потом включайте watchdog.',
+            },
+            errors: {
+              urlRequired: 'qBittorrent URL обязателен',
+              urlInvalid: 'qBittorrent URL должен быть валидным',
             },
           },
-          actions: {
-            autoFill: 'Автозаполнить из Sonarr',
-            autoFillSuccess: 'URL/пользователь/категория заполнены из Sonarr. Пароль введите вручную.',
-            autoFillNoQbit: 'В этом Sonarr не найден клиент qBittorrent.',
-            save: 'Сохранить',
-            saveSuccess: 'Настройки Watchdog сохранены.',
-            webhookRequired: 'Установите вебхук перед включением Watchdog.',
-          },
-          errors: {
-            urlRequired: 'URL обязателен',
-            urlInvalid: 'Должен быть корректный http(s) URL.',
-            categoryRequired: 'Категория обязательна',
-            pollIntervalRange: 'Значение должно быть от 5 до 1440 минут.',
-            cooldownRange: 'Значение должно быть от 1 до 720 часов.',
-            consecutiveRange: 'Значение должно быть от 1 до 100.',
-            tooManyMsgs: 'Максимум 100 шаблонов.',
-            msgLength: 'Каждый шаблон должен быть 3–200 символов.',
-            serverValidation: 'Некорректное значение — проверьте и попробуйте снова.',
-          },
-          createPlaceholder:
-            'Сначала сохраните инстанс — qBittorrent-параметры станут редактируемыми, как только seasonfill дотянется до нового сервера.',
         },
         // === 057a1 added ===
         footer: {
@@ -1196,7 +1169,6 @@ export const ru: Translations = {
         },
         saveFailedSectionFmt: 'Не удалось сохранить — исправьте ошибки в секции «{{section}}»',
         saveFailedConnectionSection: 'Не удалось сохранить — есть ошибки в секции «Подключение»',
-        // === 057b append marker: watchdog.actions.* + watchdog.form.* tree replaces this section ===
       },
     },
     integrations: {
