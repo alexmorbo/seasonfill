@@ -116,6 +116,30 @@ export const ru: Translations = {
     allSystemsNominal: 'Все системы в норме',
     signedOut: 'Вы вышли',
     logoutFailed: 'Не удалось выйти',
+    groups: {
+      overview: 'Обзор',
+      activity: 'Активность',
+      setup: 'Настройка',
+    },
+    watchdog: 'Watchdog',
+  },
+  shell: {
+    brand: {
+      sub: 'контроллер Sonarr',
+    },
+    webhook: {
+      placeholder: 'Вебхуки: —',
+    },
+    cmdk: {
+      placeholder: 'Поиск, переход, действия',
+      hint: '⌘K',
+    },
+    instanceSwitch: {
+      metaAuto: 'Available · auto',
+      metaManual: 'Available · manual',
+      none: 'Нет инстансов',
+      clear: 'Сбросить фильтр',
+    },
   },
   login: {
     title: 'Вход в Seasonfill',

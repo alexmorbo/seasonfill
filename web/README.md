@@ -39,3 +39,38 @@ npm run lint
 ```
 
 Runs ESLint over the source tree. CI requires zero warnings.
+
+## Design tokens
+
+The design system source of truth lives in `src/index.css` inside the Tailwind
+v4 `@theme` block. All colors are OKLCH; status hues come in `<token>` /
+`<token>-dim` pairs (e.g. `--color-ok` + `--color-ok-dim`). Cool-grey surfaces
+use hue 270. The accent (default teal hue `175`) is exposed as
+`--accent-h` in `:root` — flipping it in-runtime re-tints the entire UI:
+
+```js
+document.documentElement.style.setProperty('--accent-h', 255) // → blue
+document.documentElement.style.setProperty('--accent-h',  75) // → amber
+```
+
+### Extending a Badge variant
+
+In `src/components/ui/badge.tsx`, add the new variant inside
+`badgeVariants.variants.variant`, pairing the status text-color with its dim
+background and a translucent border:
+
+```ts
+foo: "text-foo border-foo/35 bg-foo-dim",
+```
+
+The `foo` slug must correspond to a `--color-foo` + `--color-foo-dim` pair in
+`@theme`. Then use `<Badge variant="foo">…</Badge>` anywhere.
+
+### App shell
+
+The two-pane app shell lives in `src/components/shell/`. `AppShell` composes
+`AppSidebar` (244px) + `AppTopBar` + a scrollable content region. The topbar
+reads the page title from `PageTitleProvider` (mounted in `ProtectedLayout`);
+individual pages call `useSetPageTitle("…")` once on mount to set it.
+Page-level action buttons (e.g. "Refresh" + "Run scan") mount via
+`usePageActions().setActions(...)`.

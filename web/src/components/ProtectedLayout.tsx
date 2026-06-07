@@ -1,57 +1,47 @@
-import { useEffect, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { TopBar } from './TopBar';
-import { DesktopSidebar, MobileSidebar } from './Sidebar';
-import { NetBanner } from './NetBanner';
-import { NewScanModal } from './NewScanModal';
-import { AutoGenPasswordBanner } from './AutoGenPasswordBanner';
-import { useCmdK } from '@/lib/use-cmdk';
-import { InstanceFilterProvider } from '@/lib/instance-filter-context';
+import { useEffect, useState } from "react"
+import { Outlet, useLocation, useNavigate } from "react-router-dom"
+import { useTranslation } from "react-i18next"
+
+import { AppShell } from "./shell/AppShell"
+import { PageTitleProvider } from "./shell/page-title-context"
+import { NetBanner } from "./NetBanner"
+import { NewScanModal } from "./NewScanModal"
+import { AutoGenPasswordBanner } from "./AutoGenPasswordBanner"
+import { useCmdK } from "@/lib/use-cmdk"
+import { InstanceFilterProvider } from "@/lib/instance-filter-context"
 
 export function ProtectedLayout() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [scanModalOpen, setScanModalOpen] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const { t } = useTranslation()
+  const [scanModalOpen, setScanModalOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  useCmdK(() => setScanModalOpen(true));
+  useCmdK(() => setScanModalOpen(true))
 
-  // ?new=1 acts as a one-shot deep-link into the modal. After we've
-  // read it, strip the param so it doesn't re-fire on history nav.
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('new') === '1') {
-      setScanModalOpen(true);
-      params.delete('new');
-      const next = params.toString();
+    const params = new URLSearchParams(location.search)
+    if (params.get("new") === "1") {
+      setScanModalOpen(true)
+      params.delete("new")
+      const next = params.toString()
       navigate(
-        { pathname: location.pathname, search: next ? `?${next}` : '' },
+        { pathname: location.pathname, search: next ? `?${next}` : "" },
         { replace: true },
-      );
+      )
     }
-    // intentionally only on mount + on path change — search is consumed inside
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  }, [location.pathname])
 
   return (
     <InstanceFilterProvider>
-      <div className="h-screen flex flex-col bg-bg">
-        <TopBar onMenuClick={() => setMobileOpen(true)} />
+      <PageTitleProvider defaultTitle={t("nav.dashboard")}>
         <AutoGenPasswordBanner />
-        <div className="flex-1 flex min-h-0">
-          <DesktopSidebar onNewScan={() => setScanModalOpen(true)} />
-          <MobileSidebar
-            open={mobileOpen}
-            onOpenChange={setMobileOpen}
-            onNewScan={() => setScanModalOpen(true)}
-          />
-          <main className="flex-1 overflow-y-auto bg-bg relative">
-            <Outlet />
-          </main>
-        </div>
+        <AppShell>
+          <Outlet />
+        </AppShell>
         <NetBanner />
         <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
-      </div>
+      </PageTitleProvider>
     </InstanceFilterProvider>
-  );
+  )
 }

@@ -114,6 +114,30 @@ export const en = {
     allSystemsNominal: 'All systems nominal',
     signedOut: 'Signed out',
     logoutFailed: 'Logout failed',
+    groups: {
+      overview: 'Overview',
+      activity: 'Activity',
+      setup: 'Setup',
+    },
+    watchdog: 'Watchdog',
+  },
+  shell: {
+    brand: {
+      sub: 'Sonarr controller',
+    },
+    webhook: {
+      placeholder: 'Webhooks: —',
+    },
+    cmdk: {
+      placeholder: 'Search, navigate, actions',
+      hint: '⌘K',
+    },
+    instanceSwitch: {
+      metaAuto: 'Available · auto',
+      metaManual: 'Available · manual',
+      none: 'No instances configured',
+      clear: 'Clear filter',
+    },
   },
   login: {
     title: 'Sign in to Seasonfill',
