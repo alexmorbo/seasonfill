@@ -332,4 +332,82 @@ type SeriesCacheRepository interface {
 	// instance. Used by the queue handler (041g) to join cache metadata
 	// onto live queue items.
 	ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
+
+	// ListByFilter returns active (non-soft-deleted) cache rows for an
+	// instance, narrowed by SeriesCacheFilter, sorted per
+	// SeriesCacheSort, and keyset-paginated by Pagination. Third return
+	// is the pre-limit total. Fourth return is hasMore: true when an
+	// additional page exists. Limit is clamped to MaxListLimit at the
+	// repo edge; the HTTP edge (045b) clamps tighter.
+	ListByFilter(
+		ctx context.Context,
+		instanceName string,
+		filter SeriesCacheFilter,
+		sort SeriesCacheSort,
+		page Pagination,
+	) (items []series.CacheEntry, total int, hasMore bool, next *Cursor, err error)
+
+	// FetchLastGrabInfo aggregates the latest imported grab_records row per
+	// series id in ONE query (defence against N+1). Returns a map keyed on
+	// series id; missing ids map to zero-value LastGrabInfo (empty time +
+	// empty string).
+	FetchLastGrabInfo(
+		ctx context.Context, instanceName string, seriesIDs []int,
+	) (map[int]LastGrabInfo, error)
+}
+
+// SeriesCacheState narrows the series_cache list by derived membership.
+// Imported = the series received an "imported" grab_records row in the
+// last 7 days. Missing = the series has a non-zero cached missing_count.
+// All = no narrowing.
+type SeriesCacheState string
+
+const (
+	SeriesCacheStateAll      SeriesCacheState = "all"
+	SeriesCacheStateImported SeriesCacheState = "imported"
+	SeriesCacheStateMissing  SeriesCacheState = "missing"
+)
+
+// IsValid reports whether the state is one of the three known values.
+func (s SeriesCacheState) IsValid() bool {
+	switch s {
+	case SeriesCacheStateAll, SeriesCacheStateImported, SeriesCacheStateMissing:
+		return true
+	}
+	return false
+}
+
+// SeriesCacheSort selects the ORDER BY clause for ListByFilter. The
+// keyset cursor encoding switches on sort: UpdatedDesc encodes
+// (updated_at, sonarr_series_id); TitleAsc encodes
+// ("lower(title)|sonarr_series_id" packed into the cursor ID slot).
+type SeriesCacheSort string
+
+const (
+	SeriesCacheSortUpdatedDesc SeriesCacheSort = "updated_desc"
+	SeriesCacheSortTitleAsc    SeriesCacheSort = "title_asc"
+)
+
+// IsValid reports whether the sort key is one of the supported values.
+func (s SeriesCacheSort) IsValid() bool {
+	switch s {
+	case SeriesCacheSortUpdatedDesc, SeriesCacheSortTitleAsc:
+		return true
+	}
+	return false
+}
+
+// SeriesCacheFilter aggregates the optional narrowing predicates for
+// ListByFilter. Only State drives the WHERE today; the struct is the
+// extension point for later (q-prefix, monitored, year-range).
+type SeriesCacheFilter struct {
+	State SeriesCacheState
+}
+
+// LastGrabInfo holds the aggregated grab data for the list endpoint.
+// Keyed on (instance_name, sonarr_series_id) at the call site. Empty
+// value (zero time + empty string) means "no grab yet".
+type LastGrabInfo struct {
+	LastGrabAt          time.Time
+	LastImportedEpisode string
 }

@@ -9,6 +9,11 @@ import "time"
 // (repository handles JSON serialisation in both directions). DeletedAt
 // is *time.Time because rows are soft-deleted to preserve grab_records
 // references.
+//
+// MissingCount (045a / B3) is the cached aired-missing episode count
+// for the whole series, persisted at upsert from
+// series.Statistics.AiredMissing(). Pre-migration rows default to 0;
+// the list endpoint's state=missing filter treats 0 as "not missing".
 type CacheEntry struct {
 	InstanceName   string
 	SonarrSeriesID int
@@ -27,6 +32,7 @@ type CacheEntry struct {
 	PosterPath     *string
 	FanartPath     *string
 	BannerPath     *string
+	MissingCount   int
 	UpdatedAt      time.Time
 	DeletedAt      *time.Time
 }

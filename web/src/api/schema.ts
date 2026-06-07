@@ -1148,6 +1148,79 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/grabs/{id}/episode-files": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List on-disk files for a grab
+         * @description Lazy fetch of Sonarr's episodeFile + episode rows for
+         *     the grab's (series_id, season_number). Returns 200 with
+         *     empty items when status != imported.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Grab UUID */
+                    readonly id: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.EpisodeFileList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/missing": {
         readonly parameters: {
             readonly query?: never;
@@ -2094,6 +2167,28 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.Decision"][];
             readonly next_cursor?: string;
         };
+        readonly "dto.EpisodeFileDetail": {
+            /**
+             * @example [
+             *       1,
+             *       2
+             *     ]
+             */
+            readonly episode_numbers?: readonly number[];
+            /** @example 7001 */
+            readonly id?: number;
+            /** @example WEBDL-2160p */
+            readonly quality?: string;
+            /** @example Season 02/Severance.S02E01.mkv */
+            readonly relative_path?: string;
+            /** @example 2 */
+            readonly season_number?: number;
+            /** @example 13325829734 */
+            readonly size_bytes?: number;
+        };
+        readonly "dto.EpisodeFileList": {
+            readonly items?: readonly components["schemas"]["dto.EpisodeFileDetail"][];
+        };
         readonly "dto.ErrorResponse": {
             /** @example UNAUTHORIZED */
             readonly code?: string;
@@ -2117,16 +2212,45 @@ export type components = {
             readonly quality?: string;
             readonly release_guid?: string;
             readonly release_title?: string;
+            /**
+             * @description ReplayOfID — uuid of the original row this row re-grabs.
+             *     Populated by the Watchdog regrab path (039f-2); nil for scan /
+             *     rescan / manual paths. Omitted when nil.
+             * @example 7b3d4a92-1234-4abc-9def-000000000003
+             */
+            readonly replay_of_id?: string;
+            /**
+             * @description ReplayedBy — uuids of newer grab_records rows that re-grab THIS
+             *     row (reverse of replay_of_id). Derived at read time by the
+             *     audit handler — a single batched SELECT covers the page. Capped
+             *     at ports.MaxReplaysPerParent (50); SPA renders "+N more" past
+             *     that. Empty slice omitted from wire.
+             */
+            readonly replayed_by?: readonly string[];
             readonly scan_run_id?: string;
             readonly season_number?: number;
             readonly series_id?: number;
             /** @example Severance */
             readonly series_title?: string;
             /**
+             * @description SizeBytes — release size in bytes (Sonarr OnGrab `release.size`
+             *     or manual-grab `releaseDTO.size`). Omitted when nil; SPA
+             *     renders "—" for missing values.
+             * @example 13325829734
+             */
+            readonly size_bytes?: number;
+            /**
              * @example imported
              * @enum {string}
              */
             readonly status?: DtoGrabStatus;
+            /**
+             * @description TorrentHash — qBit info-hash (40-char lowercase hex) captured
+             *     by the OnGrab webhook (Phase 10) or stamped at force-grab time.
+             *     Omitted from wire when nil so pre-Phase-10 rows stay clean.
+             * @example 0123456789abcdef0123456789abcdef01234567
+             */
+            readonly torrent_hash?: string;
             readonly updated_at?: string;
         };
         readonly "dto.GrabList": {

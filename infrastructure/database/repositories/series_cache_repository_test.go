@@ -3,14 +3,19 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
 
 func sampleEntry(instance string, id int) series.CacheEntry {
@@ -219,4 +224,219 @@ func TestSeriesCacheRepository_Upsert_StampsUpdatedAt(t *testing.T) {
 	second, err := repo.Get(ctx, "main", 12)
 	require.NoError(t, err)
 	assert.True(t, second.UpdatedAt.After(first.UpdatedAt))
+}
+
+func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	for i := 1; i <= 5; i++ {
+		entry := sampleEntry("main", i)
+		entry.Title = fmt.Sprintf("Series %d", i)
+		require.NoError(t, repo.Upsert(ctx, entry))
+		require.NoError(t, db.Model(&database.SeriesCacheModel{}).
+			Where("instance_name = ? AND sonarr_series_id = ?", "main", i).
+			Update("updated_at", now.Add(time.Duration(i)*time.Minute)).Error)
+	}
+
+	items, total, hasMore, next, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 5, total)
+	assert.False(t, hasMore)
+	assert.Nil(t, next)
+	require.Len(t, items, 5)
+	assert.Equal(t, 5, items[0].SonarrSeriesID)
+	assert.Equal(t, 1, items[4].SonarrSeriesID)
+}
+
+func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	for i := 1; i <= 5; i++ {
+		entry := sampleEntry("main", i)
+		if i%2 == 0 {
+			entry.MissingCount = i
+		}
+		require.NoError(t, repo.Upsert(ctx, entry))
+	}
+
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateMissing},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+	require.Len(t, items, 2)
+	for _, it := range items {
+		assert.Greater(t, it.MissingCount, 0)
+	}
+}
+
+func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	grabs := NewGrabRepository(db)
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", i)))
+	}
+
+	now := time.Now().UTC()
+	require.NoError(t, grabs.Create(ctx, grab.Record{
+		ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 1,
+		ScanRunID: uuid.New(), Status: grab.StatusImported,
+		CreatedAt: now.Add(-48 * time.Hour), UpdatedAt: now.Add(-48 * time.Hour),
+	}))
+	require.NoError(t, grabs.Create(ctx, grab.Record{
+		ID: uuid.New(), InstanceName: "main", SeriesID: 2, SeasonNumber: 1,
+		ScanRunID: uuid.New(), Status: grab.StatusImported,
+		CreatedAt: now.Add(-10 * 24 * time.Hour), UpdatedAt: now.Add(-10 * 24 * time.Hour),
+	}))
+	require.NoError(t, grabs.Create(ctx, grab.Record{
+		ID: uuid.New(), InstanceName: "main", SeriesID: 3, SeasonNumber: 1,
+		ScanRunID: uuid.New(), Status: grab.StatusGrabbed,
+		CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour),
+	}))
+
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateImported},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+}
+
+func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	for i := 1; i <= 30; i++ {
+		entry := sampleEntry("main", i)
+		entry.Title = fmt.Sprintf("Series %02d", i)
+		require.NoError(t, repo.Upsert(ctx, entry))
+		require.NoError(t, db.Model(&database.SeriesCacheModel{}).
+			Where("instance_name = ? AND sonarr_series_id = ?", "main", i).
+			Update("updated_at", now.Add(time.Duration(i)*time.Minute)).Error)
+	}
+
+	seen := map[int]bool{}
+	page := ports.Pagination{Limit: 12}
+	for iter := 0; iter < 4; iter++ {
+		items, total, hasMore, next, err := repo.ListByFilter(ctx, "main",
+			ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+			ports.SeriesCacheSortUpdatedDesc,
+			page)
+		require.NoError(t, err)
+		assert.Equal(t, 30, total)
+		for _, it := range items {
+			assert.False(t, seen[it.SonarrSeriesID], "no duplicates across pages")
+			seen[it.SonarrSeriesID] = true
+		}
+		if !hasMore {
+			break
+		}
+		page.Cursor = next
+	}
+	assert.Len(t, seen, 30)
+}
+
+func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	titles := []string{"Zulu", "Alpha", "Mike", "bravo", "charlie"}
+	for i, title := range titles {
+		entry := sampleEntry("main", i+1)
+		entry.Title = title
+		require.NoError(t, repo.Upsert(ctx, entry))
+	}
+
+	items, _, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+		ports.SeriesCacheSortTitleAsc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, items, 5)
+	got := make([]string, 0, 5)
+	for _, it := range items {
+		got = append(got, strings.ToLower(it.Title))
+	}
+	assert.Equal(t, []string{"alpha", "bravo", "charlie", "mike", "zulu"}, got)
+}
+
+func TestSeriesCacheRepository_ListByFilter_InvalidState(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	_, _, _, _, err := repo.ListByFilter(context.Background(), "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheState("bogus")},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.Error(t, err)
+}
+
+func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 1)))
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 2)))
+	require.NoError(t, repo.SoftDelete(ctx, "main", 2))
+
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+}
+
+func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	grabs := NewGrabRepository(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	require.NoError(t, grabs.Create(ctx, grab.Record{
+		ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 3,
+		ScanRunID: uuid.New(), Status: grab.StatusImported,
+		CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour),
+	}))
+	require.NoError(t, grabs.Create(ctx, grab.Record{
+		ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 5,
+		ScanRunID: uuid.New(), Status: grab.StatusImported,
+		CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour),
+	}))
+
+	out, err := repo.FetchLastGrabInfo(ctx, "main", []int{1, 2})
+	require.NoError(t, err)
+	require.Contains(t, out, 1)
+	assert.Equal(t, "S05", out[1].LastImportedEpisode)
+	assert.WithinDuration(t, now.Add(-1*time.Hour), out[1].LastGrabAt, time.Second)
+	assert.NotContains(t, out, 2)
+	_ = errors.New // keep errors import used in existing file
 }

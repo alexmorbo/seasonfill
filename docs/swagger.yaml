@@ -137,6 +137,40 @@ components:
         next_cursor:
           type: string
       type: object
+    dto.EpisodeFileDetail:
+      properties:
+        episode_numbers:
+          example:
+          - 1
+          - 2
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        id:
+          example: 7001
+          type: integer
+        quality:
+          example: WEBDL-2160p
+          type: string
+        relative_path:
+          example: Season 02/Severance.S02E01.mkv
+          type: string
+        season_number:
+          example: 2
+          type: integer
+        size_bytes:
+          example: 13325829734
+          type: integer
+      type: object
+    dto.EpisodeFileList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.EpisodeFileDetail'
+          type: array
+          uniqueItems: false
+      type: object
     dto.ErrorResponse:
       properties:
         code:
@@ -176,6 +210,24 @@ components:
           type: string
         release_title:
           type: string
+        replay_of_id:
+          description: |-
+            ReplayOfID — uuid of the original row this row re-grabs.
+            Populated by the Watchdog regrab path (039f-2); nil for scan /
+            rescan / manual paths. Omitted when nil.
+          example: 7b3d4a92-1234-4abc-9def-000000000003
+          type: string
+        replayed_by:
+          description: |-
+            ReplayedBy — uuids of newer grab_records rows that re-grab THIS
+            row (reverse of replay_of_id). Derived at read time by the
+            audit handler — a single batched SELECT covers the page. Capped
+            at ports.MaxReplaysPerParent (50); SPA renders "+N more" past
+            that. Empty slice omitted from wire.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         scan_run_id:
           type: string
         season_number:
@@ -185,6 +237,13 @@ components:
         series_title:
           example: Severance
           type: string
+        size_bytes:
+          description: |-
+            SizeBytes — release size in bytes (Sonarr OnGrab `release.size`
+            or manual-grab `releaseDTO.size`). Omitted when nil; SPA
+            renders "—" for missing values.
+          example: 13325829734
+          type: integer
         status:
           enum:
           - grabbed
@@ -193,6 +252,13 @@ components:
           - grab_failed
           - expired
           example: imported
+          type: string
+        torrent_hash:
+          description: |-
+            TorrentHash — qBit info-hash (40-char lowercase hex) captured
+            by the OnGrab webhook (Phase 10) or stamped at force-grab time.
+            Omitted from wire when nil so pre-Phase-10 rows stay clean.
+          example: 0123456789abcdef0123456789abcdef01234567
           type: string
         updated_at:
           type: string
@@ -1802,6 +1868,56 @@ paths:
       summary: Discover qBit settings from a Sonarr instance
       tags:
       - instances
+  /instances/{name}/grabs/{id}/episode-files:
+    get:
+      description: |-
+        Lazy fetch of Sonarr's episodeFile + episode rows for
+        the grab's (series_id, season_number). Returns 200 with
+        empty items when status != imported.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Grab UUID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.EpisodeFileList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List on-disk files for a grab
+      tags:
+      - grabs
   /instances/{name}/missing:
     get:
       description: |-

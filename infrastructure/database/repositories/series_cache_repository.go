@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -76,6 +78,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 			"status", "network", "genres",
 			"runtime_minutes", "monitored", "overview",
 			"poster_path", "fanart_path", "banner_path",
+			"missing_count",
 			"updated_at", "deleted_at",
 		}),
 	}).Create(&m)
@@ -123,8 +126,207 @@ func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instan
 	return out, nil
 }
 
-// toCacheEntry maps DB model → domain. Genres JSON-decoded; *string
-// "" treated as nil. Every other field copied 1:1.
+// ListByFilter implements the B3 list endpoint backing query. The
+// `imported` state filter is an EXISTS subquery against grab_records.
+// The `missing` state filter is missing_count > 0. The `all` state is
+// the unnarrowed active set. Keyset pagination over the chosen sort key.
+func (r *SeriesCacheRepository) ListByFilter(
+	ctx context.Context,
+	instanceName string,
+	filter ports.SeriesCacheFilter,
+	sort ports.SeriesCacheSort,
+	page ports.Pagination,
+) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+	if instanceName == "" {
+		return nil, 0, false, nil, fmt.Errorf("list series_cache: instance_name must be non-empty")
+	}
+	if page.Limit <= 0 || page.Limit > ports.MaxListLimit {
+		return nil, 0, false, nil, fmt.Errorf("list series_cache: %w", ports.ErrInvalidLimit)
+	}
+	if !sort.IsValid() {
+		sort = ports.SeriesCacheSortUpdatedDesc
+	}
+	if filter.State == "" {
+		filter.State = ports.SeriesCacheStateAll
+	}
+	if !filter.State.IsValid() {
+		return nil, 0, false, nil, fmt.Errorf("list series_cache: invalid state %q", filter.State)
+	}
+
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	base := db.Model(&database.SeriesCacheModel{}).
+		Where("instance_name = ? AND deleted_at IS NULL", instanceName)
+	base = applyStateFilter(base, filter.State)
+
+	var total int64
+	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, false, nil, fmt.Errorf("count series_cache: %w", err)
+	}
+
+	q := base.Session(&gorm.Session{})
+	q = applyCursor(q, sort, page.Cursor)
+	q = applyOrder(q, sort)
+
+	var models []database.SeriesCacheModel
+	if err := q.Limit(page.Limit + 1).Find(&models).Error; err != nil {
+		return nil, 0, false, nil, fmt.Errorf("list series_cache: %w", err)
+	}
+
+	hasMore := false
+	var next *ports.Cursor
+	if len(models) > page.Limit {
+		hasMore = true
+		last := models[page.Limit-1]
+		next = cursorFromModel(last, sort)
+		models = models[:page.Limit]
+	}
+
+	out := make([]series.CacheEntry, 0, len(models))
+	for _, m := range models {
+		entry, cErr := toCacheEntry(m)
+		if cErr != nil {
+			return nil, 0, false, nil, fmt.Errorf("decode series_cache: %w", cErr)
+		}
+		out = append(out, entry)
+	}
+	return out, int(total), hasMore, next, nil
+}
+
+// applyStateFilter narrows the query for the imported / missing /
+// all enum. imported uses an EXISTS subquery against grab_records
+// keyed on (instance_name, series_id) — Phase 4 indexes cover this.
+// 7d cutoff is computed Go-side so SQLite (tests) and Postgres (prod)
+// run the same plan.
+func applyStateFilter(q *gorm.DB, state ports.SeriesCacheState) *gorm.DB {
+	switch state {
+	case ports.SeriesCacheStateImported:
+		cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+		return q.Where(
+			"EXISTS (SELECT 1 FROM grab_records gr "+
+				"WHERE gr.instance_name = series_cache.instance_name "+
+				"AND gr.series_id = series_cache.sonarr_series_id "+
+				"AND gr.status = ? "+
+				"AND gr.created_at >= ?)",
+			"imported", cutoff,
+		)
+	case ports.SeriesCacheStateMissing:
+		return q.Where("missing_count > 0")
+	default:
+		return q
+	}
+}
+
+// applyCursor adds the keyset predicate for the chosen sort key.
+// updated_desc: WHERE (updated_at, sonarr_series_id) < (ts, id)
+// title_asc:    WHERE (LOWER(title), sonarr_series_id) > (title, id)
+// nil cursor = first page (no predicate).
+func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gorm.DB {
+	if cur == nil {
+		return q
+	}
+	switch sort {
+	case ports.SeriesCacheSortTitleAsc:
+		title, sid := splitTitleCursorID(cur.ID)
+		return q.Where("(LOWER(title), sonarr_series_id) > (?, ?)", title, sid)
+	default:
+		sid, _ := strconv.Atoi(cur.ID)
+		return q.Where("(updated_at, sonarr_series_id) < (?, ?)", cur.Timestamp, sid)
+	}
+}
+
+// applyOrder is the ORDER BY half of the sort.
+func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort) *gorm.DB {
+	switch sort {
+	case ports.SeriesCacheSortTitleAsc:
+		return q.Order("LOWER(title) ASC, sonarr_series_id ASC")
+	default:
+		return q.Order("updated_at DESC, sonarr_series_id DESC")
+	}
+}
+
+// cursorFromModel produces the next-page cursor. For updated_desc:
+// Timestamp=UpdatedAt + ID=decimal(series_id). For title_asc:
+// Timestamp=zero + ID="lower(title)|series_id" packed string.
+func cursorFromModel(m database.SeriesCacheModel, sort ports.SeriesCacheSort) *ports.Cursor {
+	switch sort {
+	case ports.SeriesCacheSortTitleAsc:
+		return &ports.Cursor{
+			Timestamp: time.Time{},
+			ID:        strings.ToLower(m.Title) + "|" + strconv.Itoa(m.SonarrSeriesID),
+		}
+	default:
+		return &ports.Cursor{
+			Timestamp: m.UpdatedAt.UTC(),
+			ID:        strconv.Itoa(m.SonarrSeriesID),
+		}
+	}
+}
+
+// splitTitleCursorID parses "title|id" cursor IDs. Malformed input
+// degrades safely to ("", 0).
+func splitTitleCursorID(raw string) (string, int) {
+	i := strings.LastIndex(raw, "|")
+	if i < 0 {
+		return raw, 0
+	}
+	sid, _ := strconv.Atoi(raw[i+1:])
+	return raw[:i], sid
+}
+
+// FetchLastGrabInfo aggregates the latest imported grab_records per
+// series id in ONE query (defence against N+1). LastImportedEpisode is
+// derived as "S{NN}" from the latest imported grab's season_number —
+// grab_records does not store the episode list. F11 can later upgrade
+// this by joining a future episodes table.
+func (r *SeriesCacheRepository) FetchLastGrabInfo(
+	ctx context.Context, instanceName string, seriesIDs []int,
+) (map[int]ports.LastGrabInfo, error) {
+	out := make(map[int]ports.LastGrabInfo, len(seriesIDs))
+	if len(seriesIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		SeriesID     int       `gorm:"column:series_id"`
+		MaxCreatedAt time.Time `gorm:"column:max_created_at"`
+		SeasonNumber int       `gorm:"column:season_number"`
+	}
+	var rows []row
+	sub := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("grab_records").
+		Select("series_id, MAX(created_at) AS max_created_at").
+		Where("instance_name = ? AND series_id IN ? AND status = ?",
+			instanceName, seriesIDs, "imported").
+		Group("series_id")
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("grab_records AS g").
+		Select("g.series_id, g.created_at AS max_created_at, g.season_number").
+		Joins("JOIN (?) AS agg ON g.series_id = agg.series_id AND g.created_at = agg.max_created_at",
+			sub).
+		Where("g.instance_name = ? AND g.status = ?", instanceName, "imported").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("fetch last_grab_info: %w", err)
+	}
+	for _, r := range rows {
+		out[r.SeriesID] = ports.LastGrabInfo{
+			LastGrabAt:          r.MaxCreatedAt.UTC(),
+			LastImportedEpisode: formatSeasonTag(r.SeasonNumber),
+		}
+	}
+	return out, nil
+}
+
+func formatSeasonTag(season int) string {
+	if season <= 0 {
+		return ""
+	}
+	if season < 10 {
+		return "S0" + strconv.Itoa(season)
+	}
+	return "S" + strconv.Itoa(season)
+}
+
+// toCacheEntry maps DB model → domain. Genres JSON-decoded.
 func toCacheEntry(m database.SeriesCacheModel) (series.CacheEntry, error) {
 	var genres []string
 	if m.Genres != nil && *m.Genres != "" {
@@ -150,13 +352,13 @@ func toCacheEntry(m database.SeriesCacheModel) (series.CacheEntry, error) {
 		PosterPath:     m.PosterPath,
 		FanartPath:     m.FanartPath,
 		BannerPath:     m.BannerPath,
+		MissingCount:   m.MissingCount,
 		UpdatedAt:      m.UpdatedAt,
 		DeletedAt:      m.DeletedAt,
 	}, nil
 }
 
-// cacheEntryToModel: inverse of toCacheEntry. Genres JSON-encoded;
-// nil / empty slice both serialise to nil *string (DB NULL).
+// cacheEntryToModel: inverse of toCacheEntry. Genres JSON-encoded.
 func cacheEntryToModel(e series.CacheEntry) (database.SeriesCacheModel, error) {
 	var genresPtr *string
 	if len(e.Genres) > 0 {
@@ -185,6 +387,7 @@ func cacheEntryToModel(e series.CacheEntry) (database.SeriesCacheModel, error) {
 		PosterPath:     e.PosterPath,
 		FanartPath:     e.FanartPath,
 		BannerPath:     e.BannerPath,
+		MissingCount:   e.MissingCount,
 		UpdatedAt:      e.UpdatedAt,
 		DeletedAt:      e.DeletedAt,
 	}, nil

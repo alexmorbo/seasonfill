@@ -529,6 +529,12 @@ func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]s
 	}
 	return s.entries, nil
 }
+func (s *stubSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+	return nil, 0, false, nil, nil
+}
+func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+	return make(map[int]ports.LastGrabInfo), nil
+}
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
 

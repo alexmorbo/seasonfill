@@ -1430,6 +1430,12 @@ func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ string, _ int) error {
 func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
 	return nil, nil
 }
+func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+	return nil, 0, false, nil, nil
+}
+func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+	return make(map[int]ports.LastGrabInfo), nil
+}
 
 var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
 

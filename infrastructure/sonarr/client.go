@@ -293,6 +293,13 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		TitleSlug:      d.TitleSlug,
 		Monitored:      d.Monitored,
 	}
+	// MissingCount: aggregate of aired but not-on-disk (045a).
+	if d.Statistics != nil {
+		entry.MissingCount = series.Statistics{
+			EpisodeCount:     d.Statistics.EpisodeCount,
+			EpisodeFileCount: d.Statistics.EpisodeFileCount,
+		}.AiredMissing()
+	}
 	// Pointer fields: nil unless Sonarr returned a non-zero value.
 	if d.Year > 0 {
 		v := d.Year
