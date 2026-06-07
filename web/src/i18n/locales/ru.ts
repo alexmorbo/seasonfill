@@ -950,6 +950,12 @@ export const ru: Translations = {
         groupsClaim: { label: 'Claim групп', hint: 'Путь к массиву групп в нотации с точкой. По умолчанию "groups"; для realm-ролей Keycloak — "realm_access.roles".', invalid: 'Некорректный путь: используйте идентификаторы, разделённые точкой' },
         allowedGroups: { label: 'Разрешённые группы', hint: 'Необязательно. Если список непуст, OIDC-пользователь должен состоять хотя бы в одной из групп.', addAria: 'Добавить разрешённую группу', removeAria: 'Удалить разрешённую группу {{group}}' },
       },
+      oidcFold: {
+        title: 'OIDC',
+        hidden: 'скрыто · режим ≠ oidc',
+        collapseHint: 'скрыть',
+        expandHint: 'показать для пред-заполнения',
+      },
     },
     instances: {
       add: 'Добавить инстанс',

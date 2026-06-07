@@ -941,6 +941,12 @@ export const en = {
         groupsClaim: { label: 'Groups claim', hint: 'Dot-notation path to the groups array. Default "groups"; Keycloak realm roles use "realm_access.roles".', invalid: 'Invalid claim path: use dot-separated identifiers' },
         allowedGroups: { label: 'Allowed groups', hint: 'Optional. When non-empty, the OIDC user must belong to at least one of these groups.', addAria: 'Add allowed group', removeAria: 'Remove allowed group {{group}}' },
       },
+      oidcFold: {
+        title: 'OIDC',
+        hidden: 'hidden · mode ≠ oidc',
+        collapseHint: 'click to hide',
+        expandHint: 'show to pre-fill',
+      },
     },
     instances: {
       add: 'Add instance',
