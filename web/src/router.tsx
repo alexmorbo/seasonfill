@@ -9,6 +9,7 @@ import { Scans } from '@/pages/Scans';
 import { ScanDetail } from '@/pages/ScanDetail';
 import { Decisions } from '@/pages/Decisions';
 import { Grabs } from '@/pages/Grabs';
+import { Watchdog } from '@/pages/Watchdog';
 import { Settings } from '@/pages/Settings';
 
 export const router = createBrowserRouter([
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: '/scans/:id', element: <ScanDetail /> },
       { path: '/decisions', element: <Decisions /> },
       { path: '/grabs',     element: <Grabs /> },
+      { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       { path: '/settings',  element: <Settings /> },

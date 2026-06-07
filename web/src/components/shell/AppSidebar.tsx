@@ -32,7 +32,7 @@ const ACTIVITY: Item[] = [
   { to: "/scans", icon: Radar, key: "scans" },
   { to: "/decisions", icon: GitBranch, key: "decisions" },
   { to: "/grabs", icon: Download, key: "grabs" },
-  { to: "/grabs", icon: Shield, key: "watchdog" },
+  { to: "/watchdog", icon: Shield, key: "watchdog" },
 ]
 const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },

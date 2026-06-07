@@ -1112,6 +1112,69 @@ export const en = {
     all_complete: 'All complete',
     unknown: 'Unknown',
   },
+  watchdog: {
+    title: 'Watchdog',
+    aggregate: {
+      activeInstances: 'instances active',
+      watched: 'watched',
+      unregistered: 'unregistered',
+      regrab7d: 're-grab · 7d',
+      blacklist: 'in blacklist',
+      lastPoll: 'last poll',
+      never: 'never',
+    },
+    activity: {
+      title: 'Activity · {{instance}}',
+      label: 'LATEST EVENTS',
+      empty: 'No events',
+      placeholder: 'Events will appear here once Watchdog runs its first cycle',
+      event: {
+        unregistered: 'unregistered',
+        regrab: 're-grab',
+        better: 'better',
+        noBetter: 'no better',
+        blacklist: 'blacklist',
+      },
+      detail: {
+        regrabFound: 're-grab #{{n}} found a larger pack ({{episodes}} episodes)',
+        regrabStarted: 'torrent went unregistered, re-grab started',
+        noBetter: 'attempt {{x}}/{{max}}, nothing better found',
+        blacklistConsec: '{{x}}/{{max}} "no better" in a row, series sent to blacklist',
+      },
+      action: {
+        chain: 'chain',
+        scan: 'scan',
+      },
+    },
+    config: {
+      title: 'Watchdog · {{instance}}',
+      toggle: {
+        on: 'Enabled',
+        off: 'Disabled',
+        saving: 'Saving…',
+      },
+      qbit: {
+        reachable: 'qBit reachable',
+        unreachable: 'qBit unreachable',
+      },
+      chips: {
+        poll: 'poll {{n}}m',
+        cooldown: 'cooldown {{n}}h',
+        noBetterMax: 'no-better {{n}}',
+        watched: '{{n}} watched',
+      },
+      sparkline: {
+        label: '{{n}} RE-GRAB · 7D',
+      },
+      cta: {
+        configure: 'Configure',
+        enable: 'Enable + configure qBit',
+      },
+      disabled: 'Watchdog disabled · qBittorrent not configured.',
+    },
+    toggleSuccess: 'Watchdog {{state}}',
+    toggleFailed: 'Failed to toggle Watchdog: {{error}}',
+  },
 };
 
 export type Translations = typeof en;

@@ -1114,4 +1114,67 @@ export const ru: Translations = {
     all_complete: 'Всё на месте',
     unknown: 'Неизвестно',
   },
+  watchdog: {
+    title: 'Watchdog',
+    aggregate: {
+      activeInstances: 'инстансы активны',
+      watched: 'под наблюдением',
+      unregistered: 'unregistered',
+      regrab7d: 're-grab · 7д',
+      blacklist: 'в blacklist',
+      lastPoll: 'последний опрос',
+      never: 'никогда',
+    },
+    activity: {
+      title: 'Активность · {{instance}}',
+      label: 'ПОСЛЕДНИЕ СОБЫТИЯ',
+      empty: 'Событий нет',
+      placeholder: 'События будут здесь, как только Watchdog запустит первый цикл',
+      event: {
+        unregistered: 'unregistered',
+        regrab: 're-grab',
+        better: 'better',
+        noBetter: 'no better',
+        blacklist: 'blacklist',
+      },
+      detail: {
+        regrabFound: 're-grab #{{n}} нашёл больший пак ({{episodes}} эпизодов)',
+        regrabStarted: 'торрент ушёл в unregistered, запущен re-grab',
+        noBetter: 'попытка {{x}}/{{max}}, лучше не нашлось',
+        blacklistConsec: '{{x}}/{{max}} «no better» подряд, серия отдана в blacklist',
+      },
+      action: {
+        chain: 'цепочка',
+        scan: 'скан',
+      },
+    },
+    config: {
+      title: 'Watchdog · {{instance}}',
+      toggle: {
+        on: 'Включён',
+        off: 'Выключен',
+        saving: 'Сохраняем…',
+      },
+      qbit: {
+        reachable: 'qBit reachable',
+        unreachable: 'qBit недоступен',
+      },
+      chips: {
+        poll: 'poll {{n}}м',
+        cooldown: 'cooldown {{n}}ч',
+        noBetterMax: 'no-better {{n}}',
+        watched: '{{n}} watched',
+      },
+      sparkline: {
+        label: '{{n}} RE-GRAB · 7Д',
+      },
+      cta: {
+        configure: 'Настроить',
+        enable: 'Включить + настроить qBit',
+      },
+      disabled: 'Watchdog выключен · qBittorrent не настроен.',
+    },
+    toggleSuccess: 'Watchdog {{state}}',
+    toggleFailed: 'Не удалось переключить Watchdog: {{error}}',
+  },
 };
