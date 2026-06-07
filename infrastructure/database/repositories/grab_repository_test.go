@@ -403,3 +403,85 @@ func buildSuccessRec(t *testing.T, instance string, seriesID, season int, guid, 
 
 func ptrString(s string) *string { return &s }
 func ptrInt(i int) *int          { return &i }
+
+func TestGrabRepository_ListReplaysOf_EmptyParents_EmptyResult(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	out, err := repo.ListReplaysOf(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
+
+func TestGrabRepository_ListReplaysOf_NoChildren_AbsentFromMap(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(ctx, rec))
+
+	out, err := repo.ListReplaysOf(ctx, []uuid.UUID{rec.ID})
+	require.NoError(t, err)
+	_, has := out[rec.ID]
+	assert.False(t, has, "leaf with no children must be absent from map")
+}
+
+func TestGrabRepository_ListReplaysOf_ChainOfThree(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+
+	parent := newGrabRecord(t)
+	require.NoError(t, repo.Create(ctx, parent))
+
+	mid := newGrabRecord(t)
+	mid.ID = uuid.New()
+	mid.ReleaseGUID = "g2"
+	mid.ReleaseTitle = "Hijack.S02.PACK.v2"
+	mid.ReplayOfID = &parent.ID
+	mid.CreatedAt = parent.CreatedAt.Add(time.Hour)
+	require.NoError(t, repo.Create(ctx, mid))
+
+	leaf := newGrabRecord(t)
+	leaf.ID = uuid.New()
+	leaf.ReleaseGUID = "g3"
+	leaf.ReleaseTitle = "Hijack.S02.PACK.v3"
+	leaf.ReplayOfID = &mid.ID
+	leaf.CreatedAt = parent.CreatedAt.Add(2 * time.Hour)
+	require.NoError(t, repo.Create(ctx, leaf))
+
+	out, err := repo.ListReplaysOf(ctx, []uuid.UUID{parent.ID, mid.ID, leaf.ID})
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	assert.Equal(t, []uuid.UUID{mid.ID}, out[parent.ID])
+	assert.Equal(t, []uuid.UUID{leaf.ID}, out[mid.ID])
+	_, hasLeaf := out[leaf.ID]
+	assert.False(t, hasLeaf, "leaf with no children must be absent")
+}
+
+func TestGrabRepository_ListReplaysOf_RespectsCap(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	ctx := context.Background()
+
+	parent := newGrabRecord(t)
+	require.NoError(t, repo.Create(ctx, parent))
+
+	total := ports.MaxReplaysPerParent + 10
+	for i := 0; i < total; i++ {
+		c := newGrabRecord(t)
+		c.ID = uuid.New()
+		c.ReleaseGUID = "g_" + uuid.New().String()
+		c.ReplayOfID = &parent.ID
+		c.CreatedAt = parent.CreatedAt.Add(time.Duration(i) * time.Minute)
+		require.NoError(t, repo.Create(ctx, c))
+	}
+
+	out, err := repo.ListReplaysOf(ctx, []uuid.UUID{parent.ID})
+	require.NoError(t, err)
+	assert.Len(t, out[parent.ID], ports.MaxReplaysPerParent,
+		"server-side cap must be enforced")
+}

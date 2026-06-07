@@ -371,5 +371,58 @@ func replayOfIDToString(u *uuid.UUID) *string {
 	return &s
 }
 
+// ListReplaysOf is the reverse-lookup of replay_of_id. One SQL round-
+// trip per page (audit handler calls this once after fetching the
+// page). Empty parentIDs returns the empty map without a SQL call.
+// Each parent's child slice is capped at ports.MaxReplaysPerParent
+// (PRD §9 risk #7). Partial index idx_grab_records_replay_of_id
+// (migration 000007) covers the WHERE clause.
+func (r *GrabRepository) ListReplaysOf(
+	ctx context.Context, parentIDs []uuid.UUID,
+) (map[uuid.UUID][]uuid.UUID, error) {
+	out := make(map[uuid.UUID][]uuid.UUID, len(parentIDs))
+	if len(parentIDs) == 0 {
+		return out, nil
+	}
+	parentStrs := make([]string, 0, len(parentIDs))
+	parentSet := make(map[string]uuid.UUID, len(parentIDs))
+	for _, p := range parentIDs {
+		s := p.String()
+		parentStrs = append(parentStrs, s)
+		parentSet[s] = p
+	}
+	type row struct {
+		ID         string  `gorm:"column:id"`
+		ReplayOfID *string `gorm:"column:replay_of_id"`
+	}
+	var rows []row
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	if err := db.Table("grab_records").
+		Select("id", "replay_of_id").
+		Where("replay_of_id IN ?", parentStrs).
+		Order("created_at DESC, id DESC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list replays of: %w", err)
+	}
+	for _, ro := range rows {
+		if ro.ReplayOfID == nil {
+			continue
+		}
+		parent, ok := parentSet[*ro.ReplayOfID]
+		if !ok {
+			continue
+		}
+		child, err := uuid.Parse(ro.ID)
+		if err != nil {
+			continue
+		}
+		if len(out[parent]) >= ports.MaxReplaysPerParent {
+			continue
+		}
+		out[parent] = append(out[parent], child)
+	}
+	return out, nil
+}
+
 // Ensure interface compliance at compile time.
 var _ ports.GrabRepository = (*GrabRepository)(nil)

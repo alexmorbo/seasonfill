@@ -102,6 +102,10 @@ func (f *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID
 	panic("fake SetReplayOfID unexpectedly called - this stub is not configured")
 }
 
+func (f *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

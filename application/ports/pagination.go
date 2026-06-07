@@ -27,6 +27,13 @@ var (
 // HTTP callers should clamp to a tighter default (50) and max (200).
 const MaxListLimit = 1000
 
+// MaxReplaysPerParent caps GrabRepository.ListReplaysOf per-parent
+// children. PRD §9 risk #7 — a runaway re-grab chain (cooldown bug)
+// could otherwise balloon the `replayed_by` slice on the Grab DTO.
+// 50 covers any realistic season + 10× headroom. UI renders "+N more"
+// past this cap.
+const MaxReplaysPerParent = 50
+
 // Cursor is an opaque keyset position over (created_at, id). Encoded as
 // base64url(JSON({"ts":"<RFC3339Nano>","id":"<uuid>"})). Nil / empty
 // means "first page".

@@ -149,6 +149,16 @@ type GrabRepository interface {
 	// case has persisted the row (grab.UseCase doesn't know about
 	// the regrab audit pointer; this is the cleanest separation).
 	SetReplayOfID(ctx context.Context, id uuid.UUID, replayOfID uuid.UUID) error
+
+	// ListReplaysOf returns the children of each parent id — the
+	// reverse of replay_of_id. Result map key = parent uuid; value =
+	// child grab_records ids that point at that parent. Ordered
+	// newest-first by created_at; capped at MaxReplaysPerParent per
+	// PRD §9 risk #7. Parents with no children are absent from the
+	// map. Empty parentIDs yields an empty map without a SQL call.
+	// 043a: powers the Grab DTO `replayed_by` derived field.
+	// One SQL round-trip regardless of page size.
+	ListReplaysOf(ctx context.Context, parentIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 }
 
 type CooldownRepository interface {

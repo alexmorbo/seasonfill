@@ -143,6 +143,10 @@ func (r *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID
 	return nil
 }
 
+func (r *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown

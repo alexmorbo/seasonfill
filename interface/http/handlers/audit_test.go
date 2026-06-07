@@ -428,3 +428,82 @@ func TestAuditHandler_Auth(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code, "valid key: "+path)
 	}
 }
+
+// --- 043a: Grab DTO extensions -----------------------------------------------
+
+func TestAuditHandler_ListGrabs_ExposesTorrentHashAndChainPointers(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	parent := grab.Record{
+		ID:           uuid.New(),
+		InstanceName: "main",
+		SeriesID:     122,
+		SeriesTitle:  "Severance",
+		SeasonNumber: 2,
+		ReleaseGUID:  "g_parent",
+		ReleaseTitle: "Severance.S02.PACK",
+		IndexerID:    1,
+		IndexerName:  "indexer",
+		Status:       grab.StatusImported,
+		ScanRunID:    uuid.New(),
+		CreatedAt:    base,
+		UpdatedAt:    base,
+	}
+	hash := "0123456789abcdef0123456789abcdef01234567"
+	parent.TorrentHash = &hash
+	require.NoError(t, f.grabs.Create(context.Background(), parent))
+
+	child := grab.Record{
+		ID:           uuid.New(),
+		InstanceName: "main",
+		SeriesID:     122,
+		SeriesTitle:  "Severance",
+		SeasonNumber: 2,
+		ReleaseGUID:  "g_child",
+		ReleaseTitle: "Severance.S02.PACK.v2",
+		IndexerID:    1,
+		IndexerName:  "indexer",
+		Status:       grab.StatusImported,
+		ScanRunID:    uuid.New(),
+		ReplayOfID:   &parent.ID,
+		CreatedAt:    base.Add(time.Hour),
+		UpdatedAt:    base.Add(time.Hour),
+	}
+	require.NoError(t, f.grabs.Create(context.Background(), child))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Items []struct {
+			ID          string   `json:"id"`
+			TorrentHash *string  `json:"torrent_hash"`
+			ReplayOfID  *string  `json:"replay_of_id"`
+			ReplayedBy  []string `json:"replayed_by"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+
+	gotChild, gotParent := resp.Items[0], resp.Items[1] // created_at DESC
+	require.NotNil(t, gotParent.TorrentHash)
+	assert.Equal(t, hash, *gotParent.TorrentHash)
+	require.Len(t, gotParent.ReplayedBy, 1)
+	assert.Equal(t, child.ID.String(), gotParent.ReplayedBy[0])
+	assert.Nil(t, gotParent.ReplayOfID)
+	require.NotNil(t, gotChild.ReplayOfID)
+	assert.Equal(t, parent.ID.String(), *gotChild.ReplayOfID)
+	assert.Empty(t, gotChild.ReplayedBy)
+}
+
+func TestAuditHandler_ListGrabs_EmptyDB_OK(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Items []any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Items)
+}

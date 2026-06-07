@@ -116,6 +116,10 @@ func (f *rescanFakeGrab) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UU
 	return nil
 }
 
+func (f *rescanFakeGrab) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord

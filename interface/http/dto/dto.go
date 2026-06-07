@@ -157,6 +157,20 @@ type Grab struct {
 	Attempts          int       `json:"attempts"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+	// TorrentHash — qBit info-hash (40-char lowercase hex) captured
+	// by the OnGrab webhook (Phase 10) or stamped at force-grab time.
+	// Omitted from wire when nil so pre-Phase-10 rows stay clean.
+	TorrentHash *string `json:"torrent_hash,omitempty" example:"0123456789abcdef0123456789abcdef01234567"`
+	// ReplayOfID — uuid of the original row this row re-grabs.
+	// Populated by the Watchdog regrab path (039f-2); nil for scan /
+	// rescan / manual paths. Omitted when nil.
+	ReplayOfID *string `json:"replay_of_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000003"`
+	// ReplayedBy — uuids of newer grab_records rows that re-grab THIS
+	// row (reverse of replay_of_id). Derived at read time by the
+	// audit handler — a single batched SELECT covers the page. Capped
+	// at ports.MaxReplaysPerParent (50); SPA renders "+N more" past
+	// that. Empty slice omitted from wire.
+	ReplayedBy []string `json:"replayed_by,omitempty"`
 }
 
 // ScanList — keyset-paginated GET /scans response.

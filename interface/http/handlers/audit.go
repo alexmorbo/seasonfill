@@ -103,8 +103,8 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
-func toGrabDTO(r grab.Record) dto.Grab {
-	return dto.Grab{
+func toGrabDTO(r grab.Record, replayedBy []uuid.UUID) dto.Grab {
+	d := dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
 		SeriesID:          r.SeriesID,
@@ -123,7 +123,19 @@ func toGrabDTO(r grab.Record) dto.Grab {
 		Attempts:          r.Attempts,
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
+		TorrentHash:       r.TorrentHash,
 	}
+	if r.ReplayOfID != nil {
+		s := r.ReplayOfID.String()
+		d.ReplayOfID = &s
+	}
+	if len(replayedBy) > 0 {
+		d.ReplayedBy = make([]string, 0, len(replayedBy))
+		for _, c := range replayedBy {
+			d.ReplayedBy = append(d.ReplayedBy, c.String())
+		}
+	}
+	return d
 }
 
 // --- handlers -------------------------------------------------------------
@@ -336,16 +348,32 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		Instance:     stringPtrFromQuery(c, "instance"),
 		Status:       stringPtrFromQuery(c, "status"),
 	}
-	recs, next, err := h.grabs.List(c.Request.Context(), filter, ports.Pagination{Limit: limit, Cursor: cursor})
+	ctx := c.Request.Context()
+	recs, next, err := h.grabs.List(ctx, filter, ports.Pagination{Limit: limit, Cursor: cursor})
 	if err != nil {
 		writeInternalError(c, h.logger, "audit_list_grabs_failed", err,
-			slog.String("endpoint", "/api/v1/grabs"),
-		)
+			slog.String("endpoint", "/api/v1/grabs"))
 		return
 	}
+
+	// 043a: batched reverse-lookup for replay_of_id pointers. One SQL
+	// hit per page; failure here downgrades to no-replays metadata
+	// (page still renders).
+	parentIDs := make([]uuid.UUID, 0, len(recs))
+	for _, r := range recs {
+		parentIDs = append(parentIDs, r.ID)
+	}
+	replays, repErr := h.grabs.ListReplaysOf(ctx, parentIDs)
+	if repErr != nil {
+		h.logger.WarnContext(ctx, "audit_list_grabs_replays_fanout_failed",
+			slog.String("endpoint", "/api/v1/grabs"),
+			slog.String("error", repErr.Error()))
+		replays = map[uuid.UUID][]uuid.UUID{}
+	}
+
 	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, toGrabDTO(r))
+		out = append(out, toGrabDTO(r, replays[r.ID]))
 	}
 	writeListResponse(c, out, next)
 }

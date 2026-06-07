@@ -130,6 +130,10 @@ func (noopGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID) e
 	panic("fake SetReplayOfID unexpectedly called - this stub is not configured")
 }
 
+func (noopGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {

@@ -252,6 +252,10 @@ func (abortFakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UU
 	return nil
 }
 
+func (abortFakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 
