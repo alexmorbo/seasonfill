@@ -796,6 +796,17 @@ export const ru: Translations = {
     tabs: {
       general: 'Общие',
       security: 'Безопасность',
+      integrations: 'Интеграции',
+    },
+    modeConfirm: {
+      title: 'Сменить режим на «{{target}}»?',
+      body: 'Изменение применится сразу ко всем активным сессиям. При неверной настройке вы можете потерять доступ к веб-интерфейсу — но остаётся CLI-rescue.',
+      ack: 'Я понимаю риск и знаю про CLI-rescue',
+      cancel: 'Отмена',
+      confirm: 'Сменить режим',
+    },
+    saveBar: {
+      dirty: 'несохранённые изменения',
     },
     loadFailed: 'Не удалось загрузить runtime-конфиг',
     general: {
@@ -831,6 +842,13 @@ export const ru: Translations = {
       },
     },
     security: {
+      authCard: { title: 'Режим аутентификации' },
+      modePill: {
+        current: 'текущий: {{mode}}',
+        dangerNoteHead: 'Смена режима может заблокировать вход.',
+        dangerNoteBody: 'Изменение применяется сразу для всех сессий. Если что-то пойдёт не так — есть CLI-rescue',
+        dangerNoteTail: '.',
+      },
       auth: {
         section: 'Аутентификация',
         modeLabel: 'Способ аутентификации',

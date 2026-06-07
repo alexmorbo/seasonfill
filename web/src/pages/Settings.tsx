@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import {
-  Tabs, TabsContent, TabsList, TabsTrigger,
-} from '@/components/ui/tabs';
 import { GeneralTab } from '@/components/settings/GeneralTab';
 import { SecurityTab } from '@/components/settings/SecurityTab';
+import { IntegrationsTab } from '@/components/settings/IntegrationsTab';
+import { SettingsTabs, type SettingsTabKey } from '@/components/settings/SettingsTabs';
 
-type TabKey = 'general' | 'security';
+type RouteHash = SettingsTabKey | 'instances';
 
-function parseHash(h: string): TabKey | 'instances' {
+function parseHash(h: string): RouteHash {
   const v = h.replace(/^#/, '');
   if (v === 'security') return 'security';
+  if (v === 'integrations') return 'integrations';
   if (v === 'instances') return 'instances';
   return 'general';
 }
@@ -20,21 +20,20 @@ export function Settings() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const initial = useMemo<TabKey | 'instances'>(() => {
+  const initial = useMemo<RouteHash>(() => {
     if (typeof window === 'undefined') return 'general';
     return parseHash(window.location.hash);
   }, []);
 
-  // Legacy deep link: /settings#instances → /instances.
-  // Fire from a layout effect so the redirect happens before paint and
-  // the General tab doesn't flash for one frame.
+  // Legacy /settings#instances → /instances. Fired before paint so the
+  // General tab doesn't flash for one frame.
   useEffect(() => {
     if (initial === 'instances') {
       navigate('/instances', { replace: true });
     }
   }, [initial, navigate]);
 
-  const [tab, setTab] = useState<TabKey>(
+  const [tab, setTab] = useState<SettingsTabKey>(
     initial === 'instances' ? 'general' : initial,
   );
 
@@ -62,25 +61,21 @@ export function Settings() {
   return (
     <div className="max-w-[1024px] mx-auto p-6 flex flex-col gap-5">
       <header>
-        <h1 className="text-[22px] font-semibold tracking-tight">{t('settings.title')}</h1>
-        <p className="text-[13px] text-muted mt-1">
-          {t('settings.subtitle')}
-        </p>
+        <h1 className="text-[22px] font-semibold tracking-tight">
+          {t('settings.title')}
+        </h1>
+        <p className="text-[13px] text-muted mt-1">{t('settings.subtitle')}</p>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-        <TabsList>
-          <TabsTrigger value="general">{t('settings.tabs.general')}</TabsTrigger>
-          <TabsTrigger value="security">{t('settings.tabs.security')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="general" className="mt-4">
-          <GeneralTab />
-        </TabsContent>
-        <TabsContent value="security" className="mt-4">
-          <SecurityTab />
-        </TabsContent>
-      </Tabs>
+      <div className="max-w-[760px]">
+        <SettingsTabs
+          value={tab}
+          onValueChange={setTab}
+          general={<GeneralTab />}
+          security={<SecurityTab />}
+          integrations={<IntegrationsTab />}
+        />
+      </div>
     </div>
   );
 }

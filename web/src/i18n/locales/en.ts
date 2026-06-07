@@ -787,6 +787,17 @@ export const en = {
     tabs: {
       general: 'General',
       security: 'Security',
+      integrations: 'Integrations',
+    },
+    modeConfirm: {
+      title: 'Switch authentication mode to "{{target}}"?',
+      body: 'The change applies immediately to every active session. If the new mode is misconfigured you can lose UI access — a CLI rescue path remains available.',
+      ack: 'I understand the risk and know the CLI rescue command',
+      cancel: 'Cancel',
+      confirm: 'Switch mode',
+    },
+    saveBar: {
+      dirty: 'unsaved changes',
     },
     loadFailed: 'Failed to load runtime config',
     general: {
@@ -822,6 +833,13 @@ export const en = {
       },
     },
     security: {
+      authCard: { title: 'Authentication mode' },
+      modePill: {
+        current: 'current: {{mode}}',
+        dangerNoteHead: 'Switching mode may lock you out.',
+        dangerNoteBody: 'The change applies to every active session immediately. If anything goes wrong, the CLI rescue path is',
+        dangerNoteTail: '.',
+      },
       auth: {
         section: 'Authentication',
         modeLabel: 'Authentication',
