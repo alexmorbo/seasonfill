@@ -1173,6 +1173,50 @@ components:
           example: admin
           type: string
       type: object
+    dto.WatchdogBlacklistItem:
+      properties:
+        consecutive:
+          example: 3
+          type: integer
+        created_at:
+          type: string
+        expires_at:
+          type: string
+        id:
+          example: 42
+          type: integer
+        instance_name:
+          example: homelab
+          type: string
+        reason:
+          example: consecutive_no_better
+          type: string
+        season_number:
+          example: 3
+          type: integer
+        series_id:
+          example: 122
+          type: integer
+        series_title:
+          example: Severance
+          type: string
+        source:
+          enum:
+          - auto
+          - manual
+          example: auto
+          type: string
+      type: object
+    dto.WatchdogBlacklistList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogBlacklistItem'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+      type: object
     dto.WatchdogRollup:
       properties:
         active:
@@ -1238,6 +1282,41 @@ components:
         notification_id:
           example: 42
           type: integer
+      type: object
+    dto.WebhookStatusAggregate:
+      properties:
+        healthy_count:
+          example: 1
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.WebhookStatusAggregateItem'
+          type: array
+          uniqueItems: false
+        unhealthy_count:
+          example: 1
+          type: integer
+      type: object
+    dto.WebhookStatusAggregateItem:
+      properties:
+        error:
+          example: sonarr 503
+          type: string
+        healthy:
+          example: true
+          type: boolean
+        installed:
+          example: true
+          type: boolean
+        instance_name:
+          example: homelab
+          type: string
+        notification_id:
+          example: 42
+          type: integer
+        url:
+          example: https://sf.example/api/v1/webhook/sonarr/homelab
+          type: string
       type: object
     dto.WebhookStatusDTO:
       properties:
@@ -2499,6 +2578,87 @@ paths:
       summary: List cached series for an instance
       tags:
       - instances
+  /instances/{name}/watchdog/blacklist:
+    get:
+      description: Keyset-paginated by (created_at DESC, id DESC).
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Page size (default 50, max 200)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WatchdogBlacklistList'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List Watchdog blacklist entries for an instance
+      tags:
+      - watchdog
+  /instances/{name}/watchdog/blacklist/{id}:
+    delete:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Blacklist row id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Un-blacklist a Watchdog row
+      tags:
+      - watchdog
   /instances/{name}/watchdog/rollups:
     get:
       parameters:
@@ -2902,6 +3062,30 @@ paths:
       summary: Watchdog rollups for every configured instance
       tags:
       - watchdog
+  /webhooks/status:
+    get:
+      description: |-
+        Fan-out over every configured instance using the
+        in-process StatusCache (lazy refresh via Reconciler).
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WebhookStatusAggregate'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Aggregate webhook status per instance
+      tags:
+      - webhooks
 servers:
 - description: Primary API base path
   url: /api/v1

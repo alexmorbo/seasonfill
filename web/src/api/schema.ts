@@ -1785,6 +1785,128 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/watchdog/blacklist": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List Watchdog blacklist entries for an instance
+         * @description Keyset-paginated by (created_at DESC, id DESC).
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Page size (default 50, max 200) */
+                    readonly limit?: number;
+                    /** @description Opaque next_cursor */
+                    readonly cursor?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WatchdogBlacklistList"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}/watchdog/blacklist/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /** Un-blacklist a Watchdog row */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Blacklist row id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/watchdog/rollups": {
         readonly parameters: {
             readonly query?: never;
@@ -2411,6 +2533,55 @@ export type paths = {
                     };
                     content: {
                         readonly "application/json": components["schemas"]["dto.WatchdogRollupList"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/webhooks/status": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Aggregate webhook status per instance
+         * @description Fan-out over every configured instance using the
+         *     in-process StatusCache (lazy refresh via Reconciler).
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WebhookStatusAggregate"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -3172,6 +3343,33 @@ export type components = {
             /** @example admin */
             readonly username?: string;
         };
+        readonly "dto.WatchdogBlacklistItem": {
+            /** @example 3 */
+            readonly consecutive?: number;
+            readonly created_at?: string;
+            readonly expires_at?: string;
+            /** @example 42 */
+            readonly id?: number;
+            /** @example homelab */
+            readonly instance_name?: string;
+            /** @example consecutive_no_better */
+            readonly reason?: string;
+            /** @example 3 */
+            readonly season_number?: number;
+            /** @example 122 */
+            readonly series_id?: number;
+            /** @example Severance */
+            readonly series_title?: string;
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly source?: DtoWatchdogBlacklistItemSource;
+        };
+        readonly "dto.WatchdogBlacklistList": {
+            readonly items?: readonly components["schemas"]["dto.WatchdogBlacklistItem"][];
+            readonly next_cursor?: string;
+        };
         readonly "dto.WatchdogRollup": {
             /** @example true */
             readonly active?: boolean;
@@ -3212,6 +3410,27 @@ export type components = {
             readonly installed?: boolean;
             /** @example 42 */
             readonly notification_id?: number;
+        };
+        readonly "dto.WebhookStatusAggregate": {
+            /** @example 1 */
+            readonly healthy_count?: number;
+            readonly items?: readonly components["schemas"]["dto.WebhookStatusAggregateItem"][];
+            /** @example 1 */
+            readonly unhealthy_count?: number;
+        };
+        readonly "dto.WebhookStatusAggregateItem": {
+            /** @example sonarr 503 */
+            readonly error?: string;
+            /** @example true */
+            readonly healthy?: boolean;
+            /** @example true */
+            readonly installed?: boolean;
+            /** @example homelab */
+            readonly instance_name?: string;
+            /** @example 42 */
+            readonly notification_id?: number;
+            /** @example https://sf.example/api/v1/webhook/sonarr/homelab */
+            readonly url?: string;
         };
         readonly "dto.WebhookStatusDTO": {
             /**
@@ -3360,5 +3579,9 @@ export enum DtoSeriesCacheItemStatus {
     continuing = "continuing",
     ended = "ended",
     upcoming = "upcoming"
+}
+export enum DtoWatchdogBlacklistItemSource {
+    auto = "auto",
+    manual = "manual"
 }
 export type operations = Record<string, never>;

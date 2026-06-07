@@ -371,6 +371,21 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		log,
 	)
 
+	// 047b — blacklist handler + webhooks aggregate handler. blacklistRepo
+	// and seriesCacheRepo are already constructed above (Phase 11 + 047a);
+	// reuse them directly.
+	watchdogBlacklistHandler := handlers.NewWatchdogBlacklistHandler(
+		blacklistRepo,           // BlacklistPager (production repo satisfies the narrow interface)
+		seriesCacheRepo,         // SeriesTitleResolver (production repo has Get(name, sonarrSeriesID))
+		watchdogInstanceAdapter, // InstanceIDLookup — same adapter as 047a
+		log,
+	)
+	webhooksAggregateHandler := handlers.NewWebhooksAggregateHandler(
+		webhookReconciler,
+		watchdogInstanceAdapter, // InstanceLister
+		log,
+	)
+
 	// qBit settings loader for the fanout — calls List + builds the
 	// Settings map fresh on every publish. The Lookup closure delegates
 	// to the settings use case so password decryption is centralised.
@@ -417,7 +432,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
 		qbitSettingsHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
-		seriesCacheRepo, counterRepo, watchdogRollupHandler, log)
+		seriesCacheRepo, counterRepo, watchdogRollupHandler,
+		watchdogBlacklistHandler, webhooksAggregateHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

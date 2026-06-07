@@ -359,6 +359,20 @@ func (mr *MockWatchdogBlacklistRepositoryMockRecorder) CountByInstance(ctx, inst
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByInstance", reflect.TypeOf((*MockWatchdogBlacklistRepository)(nil).CountByInstance), ctx, instanceID)
 }
 
+// DeleteByID mocks base method.
+func (m *MockWatchdogBlacklistRepository) DeleteByID(ctx context.Context, instanceID, id uint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteByID", ctx, instanceID, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteByID indicates an expected call of DeleteByID.
+func (mr *MockWatchdogBlacklistRepositoryMockRecorder) DeleteByID(ctx, instanceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByID", reflect.TypeOf((*MockWatchdogBlacklistRepository)(nil).DeleteByID), ctx, instanceID, id)
+}
+
 // DeleteByTriple mocks base method.
 func (m *MockWatchdogBlacklistRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error {
 	m.ctrl.T.Helper()
@@ -401,6 +415,21 @@ func (m *MockWatchdogBlacklistRepository) ListByInstance(ctx context.Context, in
 func (mr *MockWatchdogBlacklistRepositoryMockRecorder) ListByInstance(ctx, instanceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByInstance", reflect.TypeOf((*MockWatchdogBlacklistRepository)(nil).ListByInstance), ctx, instanceID)
+}
+
+// ListByInstanceWithLimit mocks base method.
+func (m *MockWatchdogBlacklistRepository) ListByInstanceWithLimit(ctx context.Context, instanceID uint, limit int, afterCreatedAt time.Time, afterID uint) ([]regrab.BlacklistEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByInstanceWithLimit", ctx, instanceID, limit, afterCreatedAt, afterID)
+	ret0, _ := ret[0].([]regrab.BlacklistEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByInstanceWithLimit indicates an expected call of ListByInstanceWithLimit.
+func (mr *MockWatchdogBlacklistRepositoryMockRecorder) ListByInstanceWithLimit(ctx, instanceID, limit, afterCreatedAt, afterID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByInstanceWithLimit", reflect.TypeOf((*MockWatchdogBlacklistRepository)(nil).ListByInstanceWithLimit), ctx, instanceID, limit, afterCreatedAt, afterID)
 }
 
 // Upsert mocks base method.

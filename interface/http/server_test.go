@@ -236,7 +236,7 @@ func buildServer(t *testing.T) *Server {
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
-		nil, // watchdogRollupHandler
+		nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, webhooksAggregateHandler
 		lg)
 }
 
@@ -289,7 +289,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
-		nil, // watchdogRollupHandler
+		nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, webhooksAggregateHandler
 		lg)
 }
 
@@ -456,7 +456,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
-		nil, // watchdogRollupHandler
+		nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, webhooksAggregateHandler
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

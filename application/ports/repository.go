@@ -280,6 +280,21 @@ type WatchdogBlacklistRepository interface {
 
 	// CountByInstance — current row count for instanceID. Zero on no rows.
 	CountByInstance(ctx context.Context, instanceID uint) (int, error)
+
+	// DeleteByID removes the row matching the (instanceID, id) pair.
+	// instanceID is part of the predicate so a caller cannot delete a
+	// blacklist row that belongs to a different instance even when they
+	// know its primary key — defence-in-depth for the HTTP DELETE handler.
+	// Returns ports.ErrNotFound when no row matches.
+	DeleteByID(ctx context.Context, instanceID uint, id uint) error
+
+	// ListByInstanceWithLimit returns rows for instanceID ordered by
+	// (created_at DESC, id DESC), capped at limit. Used by the HTTP
+	// blacklist list handler. afterCreatedAt + afterID together form the
+	// keyset cursor — both zero values mean "first page". When the
+	// returned slice has len == limit, the caller may issue a follow-up
+	// call with the last row's CreatedAt/ID to fetch the next page.
+	ListByInstanceWithLimit(ctx context.Context, instanceID uint, limit int, afterCreatedAt time.Time, afterID uint) ([]regrab.BlacklistEntry, error)
 }
 
 // NoBetterCounterRepository persists the live consecutive-no-better

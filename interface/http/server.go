@@ -56,6 +56,8 @@ func NewServer(
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
 	watchdogRollupHandler *handlers.WatchdogRollupHandler,
+	watchdogBlacklistHandler *handlers.WatchdogBlacklistHandler,
+	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -156,6 +158,9 @@ func NewServer(
 		}
 		guarded.GET("/instances/:name/watchdog/rollups", watchdogRollupHandler.One)
 		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)
+		guarded.GET("/instances/:name/watchdog/blacklist", watchdogBlacklistHandler.List)
+		guarded.DELETE("/instances/:name/watchdog/blacklist/:id", watchdogBlacklistHandler.Delete)
+		guarded.GET("/webhooks/status", webhooksAggregateHandler.Status)
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)

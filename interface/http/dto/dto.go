@@ -584,3 +584,53 @@ type WatchdogRollup struct {
 type WatchdogRollupList struct {
 	Items []WatchdogRollup `json:"items"`
 }
+
+// --- Watchdog blacklist (047b) -----------------------------------------------
+
+// WatchdogBlacklistItem is one row of GET
+// /api/v1/instances/:name/watchdog/blacklist. SeriesTitle is joined from
+// series_cache at handler-time; "" when the cache row is missing.
+//
+// Source is "auto" for rows produced by the consecutive-no-better
+// escalation (the only write path in v1) and reserved as "manual" for a
+// future operator-driven blacklist UI. The column is derived at read
+// time so the wire shape can stabilise before the migration ships.
+type WatchdogBlacklistItem struct {
+	ID           uint       `json:"id"            example:"42"`
+	InstanceName string     `json:"instance_name" example:"homelab"`
+	SeriesID     int        `json:"series_id"     example:"122"`
+	SeriesTitle  string     `json:"series_title"  example:"Severance"`
+	SeasonNumber int        `json:"season_number" example:"3"`
+	Reason       string     `json:"reason"        example:"consecutive_no_better"`
+	Source       string     `json:"source"        example:"auto" enums:"auto,manual"`
+	Consecutive  int        `json:"consecutive"   example:"3"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+}
+
+// WatchdogBlacklistList — body of GET /api/v1/instances/:name/watchdog/blacklist.
+type WatchdogBlacklistList struct {
+	Items      []WatchdogBlacklistItem `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+// --- Webhooks status aggregate (047b) ----------------------------------------
+
+// WebhookStatusAggregateItem is one row of GET /api/v1/webhooks/status.
+// Mirrors dto.WebhookStatusDTO plus the instance name and the explicit
+// Healthy convenience boolean (avoids the SPA reimplementing the rule).
+type WebhookStatusAggregateItem struct {
+	InstanceName   string  `json:"instance_name"             example:"homelab"`
+	Installed      bool    `json:"installed"                 example:"true"`
+	Healthy        bool    `json:"healthy"                   example:"true"`
+	NotificationID *int    `json:"notification_id,omitempty" example:"42"`
+	URL            *string `json:"url,omitempty"             example:"https://sf.example/api/v1/webhook/sonarr/homelab"`
+	Error          *string `json:"error,omitempty"           example:"sonarr 503"`
+}
+
+// WebhookStatusAggregate — body of GET /api/v1/webhooks/status.
+type WebhookStatusAggregate struct {
+	Items          []WebhookStatusAggregateItem `json:"items"`
+	HealthyCount   int                          `json:"healthy_count"   example:"1"`
+	UnhealthyCount int                          `json:"unhealthy_count" example:"1"`
+}
