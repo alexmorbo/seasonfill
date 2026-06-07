@@ -1159,7 +1159,19 @@ export const ru: Translations = {
           mode:    { auto: 'Auto', manual: 'Manual' },
           dryRun:  { auto: 'По умолч.', off: 'Off', on: 'On' },
         },
-        // === 057a2 append marker: connection.* + webhook copy goes below ===
+        // === 057a2 added ===
+        connection: {
+          namePlaceholder: 'напр. homelab-4k',
+          urlPlaceholder: 'http://sonarr-4k:80',
+          apiKeyPlaceholder: 'вставьте API-ключ Sonarr',
+          webhookTitle: 'Webhook → Sonarr',
+          webhookCreatePill: 'установится автоматически',
+          webhookAutoInstallTitle: 'Авто-установка в Sonarr Connect',
+          webhookAutoInstallHint: 'seasonfill сам пропишет себя при сохранении',
+          webhookOverrideLabel: 'Override base URL',
+          webhookOverridePlaceholder: 'http://seasonfill:8080',
+          webhookOverrideHelp: 'для in-cluster роутинга. Оставьте пустым — будет использоваться Public URL.',
+        },
         // === 057a3 append marker: sections.* / tuning.* / header.* / watchdog placeholder goes below ===
       },
     },

@@ -1147,7 +1147,19 @@ export const en = {
           mode:    { auto: 'Auto', manual: 'Manual' },
           dryRun:  { auto: 'Default', off: 'Off', on: 'On' },
         },
-        // === 057a2 append marker: connection.* + webhook copy goes below ===
+        // === 057a2 added ===
+        connection: {
+          namePlaceholder: 'e.g. homelab-4k',
+          urlPlaceholder: 'http://sonarr-4k:80',
+          apiKeyPlaceholder: 'paste Sonarr API key',
+          webhookTitle: 'Webhook → Sonarr',
+          webhookCreatePill: 'will be installed automatically',
+          webhookAutoInstallTitle: 'Auto-install in Sonarr Connect',
+          webhookAutoInstallHint: 'Seasonfill will register itself on save.',
+          webhookOverrideLabel: 'Override base URL',
+          webhookOverridePlaceholder: 'http://seasonfill:8080',
+          webhookOverrideHelp: 'For in-cluster routing. Leave empty to use the public URL.',
+        },
         // === 057a3 append marker: sections.* / tuning.* / header.* / watchdog placeholder goes below ===
       },
     },
