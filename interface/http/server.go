@@ -54,6 +54,7 @@ func NewServer(
 	webhookReconciler *webhookinstall.Reconciler,
 	webhookStatusCache *webhookinstall.StatusCache,
 	seriesCacheRepo ports.SeriesCacheRepository,
+	counterRepo ports.CounterRepository,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -129,6 +130,8 @@ func NewServer(
 		guarded.POST("/scan", scanHandler.Trigger)
 		guarded.GET("/instances", instancesHandler.List)
 		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
+		countersHandler := handlers.NewCountersHandler(instanceReg, counterRepo, logger)
+		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
@@ -154,6 +157,7 @@ func NewServer(
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
+		guarded.GET("/counters", countersHandler.Aggregate)
 		grabEpisodeFilesHandler := handlers.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
 		guarded.GET("/instances/:name/grabs/:id/episode-files", grabEpisodeFilesHandler.List)
 		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)

@@ -119,8 +119,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 045a: latest migration is 000013_series_cache_missing_count.
-	assert.Equal(t, 13, version)
+	// 048: latest migration is 000014_counter_indexes.
+	assert.Equal(t, 14, version)
 	assert.False(t, dirty)
 }
 

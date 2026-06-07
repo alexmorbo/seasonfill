@@ -65,6 +65,34 @@ components:
           example: false
           type: boolean
       type: object
+    dto.CounterBucketDTO:
+      properties:
+        date:
+          type: string
+        fails:
+          type: integer
+        grabs:
+          type: integer
+        imports:
+          type: integer
+      type: object
+    dto.CounterTotals:
+      properties:
+        fails:
+          type: integer
+        grabs:
+          type: integer
+        imports:
+          type: integer
+      type: object
+    dto.CountersAggregateDTO:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.InstanceCountersDTO'
+          type: array
+          uniqueItems: false
+      type: object
     dto.Decision:
       properties:
         candidates_count:
@@ -321,6 +349,29 @@ components:
           type: string
         series_after_grab_sec:
           type: integer
+      type: object
+    dto.InstanceCountersDTO:
+      properties:
+        avg_grabs_7d:
+          example: 9.5
+          type: number
+        instance_name:
+          example: homelab
+          type: string
+        sparkline:
+          items:
+            $ref: '#/components/schemas/dto.CounterBucketDTO'
+          type: array
+          uniqueItems: false
+        totals:
+          $ref: '#/components/schemas/dto.CounterTotals'
+        window:
+          enum:
+          - 24h
+          - 7d
+          - 30d
+          example: 24h
+          type: string
       type: object
     dto.InstanceCreateRequest:
       properties:
@@ -1428,6 +1479,50 @@ paths:
       summary: Update runtime configuration
       tags:
       - config
+  /counters:
+    get:
+      description: Returns InstanceCountersDTO per configured Sonarr.
+      parameters:
+      - description: 24h|7d|30d (default 24h)
+        in: query
+        name: window
+        schema:
+          enum:
+          - 24h
+          - 7d
+          - 30d
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.CountersAggregateDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Aggregate counters across every instance
+      tags:
+      - counters
   /decisions:
     get:
       parameters:
@@ -1880,6 +1975,65 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Update a Sonarr instance
+      tags:
+      - instances
+  /instances/{name}/counters:
+    get:
+      description: |-
+        Grabs/imports/fails totals and bucketed sparkline for
+        the requested window (24h hourly, 7d/30d daily). Plus
+        the 7-day daily-grabs average for above/below copy.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: 24h|7d|30d (default 24h)
+        in: query
+        name: window
+        schema:
+          enum:
+          - 24h
+          - 7d
+          - 30d
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceCountersDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Per-instance counters and sparkline
       tags:
       - instances
   /instances/{name}/discover/qbit:

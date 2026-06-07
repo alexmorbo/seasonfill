@@ -227,7 +227,7 @@ func buildServer(t *testing.T) *Server {
 		&stubAdminRepo{}, nil, nil,
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
-		nil, // seriesCacheRepo
+		nil, nil, // seriesCacheRepo, counterRepo
 		lg)
 }
 
@@ -279,7 +279,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
-		nil, // seriesCacheRepo
+		nil, nil, // seriesCacheRepo, counterRepo
 		lg)
 }
 
@@ -445,7 +445,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		&stubAdminRepo{}, nil, nil,
 		handlers.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
-		nil, // seriesCacheRepo
+		nil, nil, // seriesCacheRepo, counterRepo
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

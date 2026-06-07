@@ -263,6 +263,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db)
+	counterRepo := repositories.NewCounterRepository(db)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
@@ -404,7 +405,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
 		qbitSettingsHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
-		seriesCacheRepo, log)
+		seriesCacheRepo, counterRepo, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

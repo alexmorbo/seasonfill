@@ -476,6 +476,75 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/counters": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Aggregate counters across every instance
+         * @description Returns InstanceCountersDTO per configured Sonarr.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description 24h|7d|30d (default 24h) */
+                    readonly window?: PathsCountersGetParametersQueryWindow;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.CountersAggregateDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/decisions": {
         readonly parameters: {
             readonly query?: never;
@@ -1070,6 +1139,89 @@ export type paths = {
                 };
             };
         };
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}/counters": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Per-instance counters and sparkline
+         * @description Grabs/imports/fails totals and bucketed sparkline for
+         *     the requested window (24h hourly, 7d/30d daily). Plus
+         *     the 7-day daily-grabs average for above/below copy.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description 24h|7d|30d (default 24h) */
+                    readonly window?: PathsInstancesNameCountersGetParametersQueryWindow;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceCountersDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
@@ -2222,6 +2374,20 @@ export type components = {
              */
             readonly oidc_ready?: boolean;
         };
+        readonly "dto.CounterBucketDTO": {
+            readonly date?: string;
+            readonly fails?: number;
+            readonly grabs?: number;
+            readonly imports?: number;
+        };
+        readonly "dto.CounterTotals": {
+            readonly fails?: number;
+            readonly grabs?: number;
+            readonly imports?: number;
+        };
+        readonly "dto.CountersAggregateDTO": {
+            readonly items?: readonly components["schemas"]["dto.InstanceCountersDTO"][];
+        };
         readonly "dto.Decision": {
             readonly candidates_count?: number;
             /**
@@ -2379,6 +2545,19 @@ export type components = {
             /** @enum {string} */
             readonly mode?: DtoInstanceCooldownMode;
             readonly series_after_grab_sec?: number;
+        };
+        readonly "dto.InstanceCountersDTO": {
+            /** @example 9.5 */
+            readonly avg_grabs_7d?: number;
+            /** @example homelab */
+            readonly instance_name?: string;
+            readonly sparkline?: readonly components["schemas"]["dto.CounterBucketDTO"][];
+            readonly totals?: components["schemas"]["dto.CounterTotals"];
+            /**
+             * @example 24h
+             * @enum {string}
+             */
+            readonly window?: DtoInstanceCountersDTOWindow;
         };
         readonly "dto.InstanceCreateRequest": {
             /** @example abcd... */
@@ -2922,6 +3101,11 @@ export type components = {
     pathItems: never;
 };
 export type $defs = Record<string, never>;
+export enum PathsCountersGetParametersQueryWindow {
+    Value24h = "24h",
+    Value7d = "7d",
+    Value30d = "30d"
+}
 export enum PathsDecisionsGetParametersQueryDecision {
     grab = "grab",
     skip = "skip",
@@ -2936,6 +3120,11 @@ export enum PathsGrabsGetParametersQueryStatus {
     import_failed = "import_failed",
     grab_failed = "grab_failed",
     expired = "expired"
+}
+export enum PathsInstancesNameCountersGetParametersQueryWindow {
+    Value24h = "24h",
+    Value7d = "7d",
+    Value30d = "30d"
 }
 export enum PathsInstancesNameSeriesGetParametersQueryMonitored {
     true = "true",
@@ -2994,6 +3183,11 @@ export enum DtoInstanceMode {
 export enum DtoInstanceCooldownMode {
     smart = "smart",
     strict = "strict"
+}
+export enum DtoInstanceCountersDTOWindow {
+    Value24h = "24h",
+    Value7d = "7d",
+    Value30d = "30d"
 }
 export enum DtoInstanceDetailMode {
     auto = "auto",

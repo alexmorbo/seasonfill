@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 13
+	latestVersion   = 14
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
