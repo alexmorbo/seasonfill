@@ -110,6 +110,10 @@ func (f *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) 
 	return nil
 }
 
+func (f *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {
+	return grab.Record{}, ports.ErrNotFound
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

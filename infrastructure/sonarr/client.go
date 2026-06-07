@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -388,6 +389,61 @@ func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]in
 	out := make(map[int]int, len(dtos))
 	for _, d := range dtos {
 		out[d.ID] = d.Quality.Quality.ID
+	}
+	return out, nil
+}
+
+// ListEpisodeFilesBySeason returns the rich per-file metadata for one
+// season. Two Sonarr round-trips:
+//
+//  1. GET /api/v3/episodeFile?seriesId=&seasonNumber=  → file rows
+//  2. GET /api/v3/episode?seriesId=&seasonNumber=      → episode rows
+//     (we read episode.episodeFileId → episodeNumber map)
+//
+// Grouping happens in Go so the API stays stable across Sonarr
+// versions. Capped at 200 entries server-side; Sonarr's natural
+// response is ≤ 1000 per season. 043c.
+func (c *Client) ListEpisodeFilesBySeason(
+	ctx context.Context, seriesID, seasonNumber int,
+) ([]ports.EpisodeFileDetail, error) {
+	q := url.Values{}
+	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seasonNumber", strconv.Itoa(seasonNumber))
+	var fileDTOs []episodeFileDTO
+	if err := c.get(ctx, "/api/v3/episodeFile", q, &fileDTOs); err != nil {
+		return nil, fmt.Errorf("sonarr episodeFile: %w", err)
+	}
+	var epDTOs []episodeDTO
+	if err := c.get(ctx, "/api/v3/episode", q, &epDTOs); err != nil {
+		return nil, fmt.Errorf("sonarr episode: %w", err)
+	}
+
+	// episodeFileID -> sorted []episodeNumber
+	byFile := make(map[int][]int, len(fileDTOs))
+	for _, e := range epDTOs {
+		if e.EpisodeFileID == 0 {
+			continue
+		}
+		byFile[e.EpisodeFileID] = append(byFile[e.EpisodeFileID], e.EpisodeNumber)
+	}
+	for k := range byFile {
+		sort.Ints(byFile[k])
+	}
+
+	const cap = 200
+	out := make([]ports.EpisodeFileDetail, 0, len(fileDTOs))
+	for _, f := range fileDTOs {
+		if len(out) >= cap {
+			break
+		}
+		out = append(out, ports.EpisodeFileDetail{
+			ID:             f.ID,
+			RelativePath:   f.RelativePath,
+			SeasonNumber:   f.SeasonNumber,
+			EpisodeNumbers: byFile[f.ID],
+			SizeBytes:      f.Size,
+			Quality:        f.Quality.Quality.Name,
+		})
 	}
 	return out, nil
 }

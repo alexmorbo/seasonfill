@@ -538,3 +538,25 @@ func TestGrabRepository_UpdateSizeBytes_ZeroSize_NoOp(t *testing.T) {
 	require.NoError(t, db.First(&got, "id = ?", rec.ID.String()).Error)
 	assert.Nil(t, got.SizeBytes, "zero/negative size must be a no-op")
 }
+
+func TestGrabRepository_GetByID_Found(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(context.Background(), rec))
+
+	got, err := repo.GetByID(context.Background(), rec.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rec.ID, got.ID)
+	assert.Equal(t, rec.InstanceName, got.InstanceName)
+}
+
+func TestGrabRepository_GetByID_UnknownID_ErrNotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}

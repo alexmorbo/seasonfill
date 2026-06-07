@@ -124,6 +124,10 @@ func (f *rescanFakeGrab) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64
 	return nil
 }
 
+func (f *rescanFakeGrab) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {
+	return grab.Record{}, ports.ErrNotFound
+}
+
 type rescanFakeScans struct {
 	mu      sync.Mutex
 	created map[uuid.UUID]ports.ScanRecord
@@ -192,6 +196,9 @@ func (f *rescanFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.E
 }
 func (f *rescanFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return map[int]int{}, nil
+}
+func (f *rescanFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
 }
 func (f *rescanFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	if f.failOn == "search" {

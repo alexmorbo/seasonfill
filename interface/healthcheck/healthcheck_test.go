@@ -45,6 +45,9 @@ func (f *fakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode
 func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return nil, nil
 }
@@ -364,6 +367,9 @@ func (s *slowFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Epi
 func (s *slowFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (s *slowFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (s *slowFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return nil, nil
 }
@@ -457,6 +463,9 @@ func (s *sleepyFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.E
 	return nil, nil
 }
 func (s *sleepyFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
 func (s *sleepyFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {

@@ -504,3 +504,21 @@ type WebhookStatusDTO struct {
 	// badge without a separate fetch.
 	Error *string `json:"error,omitempty" example:"sonarr unauthorized"`
 }
+
+// EpisodeFileDetail — one on-disk file row from the 043c
+// episode-files endpoint. Mirrors Sonarr's episodeFile resource +
+// derived episode_numbers grouping. NOT persisted — fetched lazily
+// per drawer open (PRD decision #6).
+type EpisodeFileDetail struct {
+	ID             int    `json:"id"             example:"7001"`
+	RelativePath   string `json:"relative_path"  example:"Season 02/Severance.S02E01.mkv"`
+	SeasonNumber   int    `json:"season_number"  example:"2"`
+	EpisodeNumbers []int  `json:"episode_numbers" example:"1,2"`
+	SizeBytes      int64  `json:"size_bytes"     example:"13325829734"`
+	Quality        string `json:"quality"        example:"WEBDL-2160p"`
+}
+
+// EpisodeFileList — body of GET /api/v1/instances/:name/grabs/:id/episode-files.
+type EpisodeFileList struct {
+	Items []EpisodeFileDetail `json:"items"`
+}

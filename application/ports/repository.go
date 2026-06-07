@@ -166,6 +166,12 @@ type GrabRepository interface {
 	// omits release.size sometimes; we never persist 0 B).
 	// 043b: stamped by the OnGrab webhook use case.
 	UpdateSizeBytes(ctx context.Context, id uuid.UUID, size int64) error
+
+	// GetByID returns the grab_records row matching the supplied uuid.
+	// Returns ErrNotFound on miss. 043c: powers the episode-files
+	// endpoint lookup (handler reads instance_name + status from the
+	// returned row before calling Sonarr).
+	GetByID(ctx context.Context, id uuid.UUID) (grab.Record, error)
 }
 
 type CooldownRepository interface {

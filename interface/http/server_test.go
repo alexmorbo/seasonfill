@@ -52,6 +52,9 @@ func (n *noopSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode
 func (n *noopSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (n *noopSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (n *noopSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return nil, nil
 }
@@ -136,6 +139,10 @@ func (noopGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UU
 
 func (noopGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
 	panic("fake UpdateSizeBytes unexpectedly called - this stub is not configured")
+}
+
+func (noopGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {
+	panic("fake GetByID unexpectedly called - this stub is not configured")
 }
 
 type noopWebhookUC struct{}

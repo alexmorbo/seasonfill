@@ -39,6 +39,9 @@ func (s *stubSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode
 func (s *stubSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (s *stubSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (s *stubSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return s.releases, nil
 }

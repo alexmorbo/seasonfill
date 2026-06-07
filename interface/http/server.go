@@ -153,6 +153,8 @@ func NewServer(
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
+		grabEpisodeFilesHandler := handlers.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
+		guarded.GET("/instances/:name/grabs/:id/episode-files", grabEpisodeFilesHandler.List)
 		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
 		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
 		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)

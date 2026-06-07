@@ -64,8 +64,12 @@ type episodeDTO struct {
 }
 
 type episodeFileDTO struct {
-	ID      int        `json:"id"`
-	Quality qualityRef `json:"quality"`
+	ID           int        `json:"id"`
+	SeriesID     int        `json:"seriesId"`
+	SeasonNumber int        `json:"seasonNumber"`
+	RelativePath string     `json:"relativePath"`
+	Size         int64      `json:"size"`
+	Quality      qualityRef `json:"quality"`
 }
 
 type qualityRef struct {

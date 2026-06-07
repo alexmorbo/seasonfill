@@ -89,6 +89,21 @@ func (mr *MockGrabRepositoryMockRecorder) FindLatestSuccessByHash(ctx, hash any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatestSuccessByHash", reflect.TypeOf((*MockGrabRepository)(nil).FindLatestSuccessByHash), ctx, hash)
 }
 
+// GetByID mocks base method.
+func (m *MockGrabRepository) GetByID(ctx context.Context, id uuid.UUID) (grab.Record, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByID", ctx, id)
+	ret0, _ := ret[0].(grab.Record)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByID indicates an expected call of GetByID.
+func (mr *MockGrabRepositoryMockRecorder) GetByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockGrabRepository)(nil).GetByID), ctx, id)
+}
+
 // List mocks base method.
 func (m *MockGrabRepository) List(ctx context.Context, f ports.GrabFilter, p ports.Pagination) ([]grab.Record, *ports.Cursor, error) {
 	m.ctrl.T.Helper()

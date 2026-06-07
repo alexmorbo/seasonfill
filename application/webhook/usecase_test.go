@@ -100,6 +100,10 @@ func (r *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, size int6
 	return nil
 }
 
+func (r *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {
+	return grab.Record{}, ports.ErrNotFound
+}
+
 type fakeCooldownRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

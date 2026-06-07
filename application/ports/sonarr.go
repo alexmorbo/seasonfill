@@ -45,6 +45,19 @@ type Tag struct {
 	Label string
 }
 
+// EpisodeFileDetail mirrors Sonarr's WebhookEpisodeFile + the on-disk
+// metadata available from GET /api/v3/episodeFile. 043c: powers the
+// Phase 12 drawer "Импортированные файлы" section. seasonfill does NOT
+// persist this — it is fetched lazily per drawer open.
+type EpisodeFileDetail struct {
+	ID             int    // Sonarr's episodeFile.id
+	RelativePath   string // path under the series root, e.g. "Season 02/Severance.S02E01.mkv"
+	SeasonNumber   int
+	EpisodeNumbers []int // mappedEpisodeNumbers; usually 1 entry, sometimes 2 for multi-ep files
+	SizeBytes      int64
+	Quality        string // Sonarr's quality.quality.name (e.g. "WEBDL-2160p")
+}
+
 //go:generate moq -out sonarr_mock.go . SonarrClient
 
 type SonarrClient interface {
@@ -58,6 +71,12 @@ type SonarrClient interface {
 	GetSeries(ctx context.Context, id int) (series.Series, error)
 	ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error)
 	ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error)
+	// ListEpisodeFilesBySeason returns the rich per-file metadata from
+	// /api/v3/episodeFile?seriesId=&seasonNumber=, filtered to the
+	// requested season. Used by the 043c grab episode-files endpoint
+	// (drawer "Импортированные файлы"). Capped at 200 entries
+	// server-side; Sonarr's natural response is ≤ 1000 per season.
+	ListEpisodeFilesBySeason(ctx context.Context, seriesID, seasonNumber int) ([]EpisodeFileDetail, error)
 	SearchReleases(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error)
 	GetQualityProfile(ctx context.Context, id int) (QualityProfile, error)
 	ListIndexers(ctx context.Context) ([]Indexer, error)

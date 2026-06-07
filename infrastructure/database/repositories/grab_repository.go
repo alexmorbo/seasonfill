@@ -457,5 +457,20 @@ func (r *GrabRepository) UpdateSizeBytes(ctx context.Context, id uuid.UUID, size
 	return nil
 }
 
+// GetByID returns the grab_records row matching the supplied uuid.
+// 043c: powers the episode-files endpoint lookup. Returns
+// ports.ErrNotFound on miss. Other repo errors wrap with %w.
+func (r *GrabRepository) GetByID(ctx context.Context, id uuid.UUID) (grab.Record, error) {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	var m database.GrabRecordModel
+	if err := db.First(&m, "id = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return grab.Record{}, ports.ErrNotFound
+		}
+		return grab.Record{}, fmt.Errorf("get grab by id: %w", err)
+	}
+	return toGrabRecord(m)
+}
+
 // Ensure interface compliance at compile time.
 var _ ports.GrabRepository = (*GrabRepository)(nil)

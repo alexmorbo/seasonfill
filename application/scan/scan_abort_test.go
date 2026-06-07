@@ -113,6 +113,10 @@ func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]in
 	return map[int]int{}, nil
 }
 
+func (f *abortFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
+
 func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID, sn int) ([]release.Release, error) {
 	atomic.AddInt64(&f.searchCalls, 1)
 	return []release.Release{{
@@ -258,6 +262,10 @@ func (abortFakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uu
 
 func (abortFakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
 	return nil
+}
+
+func (abortFakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (domaingrab.Record, error) {
+	return domaingrab.Record{}, ports.ErrNotFound
 }
 
 // abortFakeCooldownRepo lets every guid/series pass.
@@ -451,6 +459,9 @@ func (f *authFailFakeSonarrWrapped) ListEpisodes(_ context.Context, _, _ int) ([
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	return nil, nil
+}
+func (f *authFailFakeSonarrWrapped) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {

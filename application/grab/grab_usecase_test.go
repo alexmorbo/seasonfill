@@ -64,6 +64,9 @@ func (f *fakeSonarrGrab) ListEpisodes(_ context.Context, _, _ int) ([]series.Epi
 func (f *fakeSonarrGrab) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (f *fakeSonarrGrab) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (f *fakeSonarrGrab) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return nil, nil
 }
@@ -149,6 +152,10 @@ func (r *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid
 
 func (r *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
 	return nil
+}
+
+func (r *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (domaingrab.Record, error) {
+	return domaingrab.Record{}, ports.ErrNotFound
 }
 
 type fakeCooldownRepo struct {

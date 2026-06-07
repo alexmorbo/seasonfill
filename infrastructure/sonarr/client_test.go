@@ -511,3 +511,66 @@ func TestSonarrClient_WithGlobalLimiterPointer_LiveReload(t *testing.T) {
 	ptr.Store(lim)
 	assert.Same(t, lim, c.globalLimiter())
 }
+
+func TestClient_ListEpisodeFilesBySeason_HappyPath(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "122", r.URL.Query().Get("seriesId"))
+		require.Equal(t, "2", r.URL.Query().Get("seasonNumber"))
+		_, _ = w.Write([]byte(`[
+			{"id": 7001, "seriesId": 122, "seasonNumber": 2,
+			 "relativePath": "Season 02/Severance.S02E01.mkv",
+			 "size": 13325829734,
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}},
+			{"id": 7002, "seriesId": 122, "seasonNumber": 2,
+			 "relativePath": "Season 02/Severance.S02E02.mkv",
+			 "size": 12100000000,
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}}
+		]`))
+	})
+	mux.HandleFunc("/api/v3/episode", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id": 1, "episodeNumber": 1, "seasonNumber": 2, "episodeFileId": 7001},
+			{"id": 2, "episodeNumber": 2, "seasonNumber": 2, "episodeFileId": 7002}
+		]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	out, err := c.ListEpisodeFilesBySeason(context.Background(), 122, 2)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	assert.Equal(t, 7001, out[0].ID)
+	assert.Equal(t, "Season 02/Severance.S02E01.mkv", out[0].RelativePath)
+	assert.Equal(t, int64(13325829734), out[0].SizeBytes)
+	assert.Equal(t, "WEBDL-2160p", out[0].Quality)
+	assert.Equal(t, []int{1}, out[0].EpisodeNumbers)
+	assert.Equal(t, []int{2}, out[1].EpisodeNumbers)
+}
+
+func TestClient_ListEpisodeFilesBySeason_MultiEpFile(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"id": 7003, "seasonNumber": 2,
+			"relativePath": "Season 02/Severance.S02E03-E04.mkv",
+			"size": 25000000000,
+			"quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}}]`))
+	})
+	mux.HandleFunc("/api/v3/episode", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id": 3, "episodeNumber": 3, "seasonNumber": 2, "episodeFileId": 7003},
+			{"id": 4, "episodeNumber": 4, "seasonNumber": 2, "episodeFileId": 7003}
+		]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	out, err := c.ListEpisodeFilesBySeason(context.Background(), 122, 2)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, []int{3, 4}, out[0].EpisodeNumbers, "multi-ep file groups numbers")
+}

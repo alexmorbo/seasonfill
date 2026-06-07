@@ -134,6 +134,9 @@ func (fakeSonarr) ListEpisodes(ctx context.Context, id, season int) ([]series.Ep
 func (fakeSonarr) ListEpisodeFiles(ctx context.Context, id int) (map[int]int, error) {
 	return map[int]int{}, nil
 }
+func (fakeSonarr) ListEpisodeFilesBySeason(ctx context.Context, id, season int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (fakeSonarr) GetQualityProfile(ctx context.Context, id int) (ports.QualityProfile, error) {
 	return ports.QualityProfile{ID: id}, nil
 }

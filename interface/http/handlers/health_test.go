@@ -43,6 +43,9 @@ func (f *fakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode
 func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
+func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
 	return nil, nil
 }
