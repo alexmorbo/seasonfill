@@ -16,6 +16,7 @@ import { HeroGreeting } from '@/components/dashboard/HeroGreeting';
 import { PosterGrid } from '@/components/dashboard/PosterGrid';
 import { DashboardEmptyState } from '@/components/dashboard/DashboardEmptyState';
 import { DashboardFirstRunState } from '@/components/dashboard/DashboardFirstRunState';
+import { DashboardRail } from '@/components/dashboard/DashboardRail';
 import { relativeTime } from '@/lib/format';
 
 // Local mirror of 048 CountersAggregateDTO — swap to codegen once 048
@@ -157,8 +158,7 @@ export function Dashboard() {
             <PosterGrid items={importedItems} isLoading={imported.isPending} />
           )}
         </section>
-        {/* 049b replaces this placeholder with <DashboardRail/>. */}
-        <aside data-testid="rail-slot" className="hidden lg:block" />
+        <DashboardRail />
       </div>
     </div>
   );

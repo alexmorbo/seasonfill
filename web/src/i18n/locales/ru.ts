@@ -210,6 +210,38 @@ export const ru: Translations = {
       regrabChip: 're-grab #{{n}}',
       posterAria: '{{title}} ({{year}}) — открыть',
     },
+    rail: {
+      today: {
+        label: 'Сегодня',
+        vsAvg: 'vs 7-дн ср.',
+        split: { grabs: 'грабов', imports: 'imp', fails: 'fail' },
+        trendUp: 'выше среднего — обычно ~{{avg}} грабов',
+        trendDown: 'ниже среднего — обычно ~{{avg}} грабов',
+        trendFlat: 'тишина — обычно ~{{avg}} грабов/день',
+        spark: { aria: 'Sparkline грабов за 7 дней', days: { mon: 'пн', tue: 'вт', wed: 'ср', thu: 'чт', fri: 'пт', sat: 'сб', sun: 'вс' } },
+      },
+      alerts: {
+        title: 'Алерты',
+        allclear: 'Всё спокойно — активных алертов нет',
+        webhookError: { title: 'Webhook {{instance}} — ошибка', body: 'reconcile failed · не доставляет события' },
+        instanceDown: { title: 'Инстанс {{name}} недоступен', bodyFallback: 'связь потеряна' },
+      },
+      quickActions: {
+        title: 'Быстрые действия',
+        scanAll: 'Сканировать все инстансы',
+        lastFail: 'Открыть последний фейл',
+        queue: 'Текущая очередь',
+        scanStarted: 'Скан запущен на {{count}} инстансах',
+        scanFailed: 'Не удалось запустить скан: {{error}}',
+      },
+      watchdog: {
+        title: 'Watchdog',
+        chip: { running: 'running', off: 'off', unreachable: 'qbit недоступен' },
+        row: { watched: 'Под наблюдением', watchedValue: '{{count}} торрентов', regrab7d: 'Re-grab за неделю', blacklist: 'В blacklist' },
+        open: 'Открыть Watchdog',
+      },
+      loadFailed: 'данные недоступны',
+    },
   },
   instances: {
     title: 'Инстансы Sonarr',

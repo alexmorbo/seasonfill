@@ -208,6 +208,38 @@ export const en = {
       regrabChip: 're-grab #{{n}}',
       posterAria: '{{title}} ({{year}}) — open',
     },
+    rail: {
+      today: {
+        label: 'Today',
+        vsAvg: 'vs 7d avg',
+        split: { grabs: 'grabs', imports: 'imp', fails: 'fail' },
+        trendUp: 'above the average — usually ~{{avg}} grabs',
+        trendDown: 'below the average — usually ~{{avg}} grabs',
+        trendFlat: 'silence — usually ~{{avg}} grabs/day',
+        spark: { aria: '7-day grabs sparkline', days: { mon: 'Mo', tue: 'Tu', wed: 'We', thu: 'Th', fri: 'Fr', sat: 'Sa', sun: 'Su' } },
+      },
+      alerts: {
+        title: 'Alerts',
+        allclear: 'All clear — no active alerts',
+        webhookError: { title: 'Webhook {{instance}} — error', body: 'reconcile failed · events not delivered' },
+        instanceDown: { title: 'Instance {{name}} unreachable', bodyFallback: 'connectivity lost' },
+      },
+      quickActions: {
+        title: 'Quick actions',
+        scanAll: 'Scan all instances',
+        lastFail: 'Open last failure',
+        queue: 'Current queue',
+        scanStarted: 'Scan started on {{count}} instance(s)',
+        scanFailed: 'Failed to start scan: {{error}}',
+      },
+      watchdog: {
+        title: 'Watchdog',
+        chip: { running: 'running', off: 'off', unreachable: 'qbit unreachable' },
+        row: { watched: 'Under watch', watchedValue: '{{count}} torrents', regrab7d: 'Re-grab this week', blacklist: 'Blacklist' },
+        open: 'Open Watchdog',
+      },
+      loadFailed: 'data unavailable',
+    },
   },
   instances: {
     title: 'Sonarr instances',
