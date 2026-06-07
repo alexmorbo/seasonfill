@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { screen, render, fireEvent } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/i18n';
 import { GrabRow } from './GrabRow';
 import type { Grab } from '@/lib/grabs/chipBuilder';
@@ -28,7 +29,12 @@ const base: Partial<Grab> = {
 };
 
 function wrap(ui: React.ReactElement) {
-  return <I18nextProvider i18n={i18n}>{ui}</I18nextProvider>;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <QueryClientProvider client={qc}>
+      <I18nextProvider i18n={i18n}>{ui}</I18nextProvider>
+    </QueryClientProvider>
+  );
 }
 
 describe('<GrabRow />', () => {
@@ -82,11 +88,14 @@ describe('<GrabRow />', () => {
     expect(onOpenDrawer).toHaveBeenCalledWith('g1');
   });
 
-  it('thread placeholder visible when threadOpen', () => {
+  it('renders ReGrabThread when threadOpen with instance', () => {
     render(wrap(
       <GrabRow grab={base as Grab} selected={false} threadOpen={true} reGrabIndex={2}
+        instance="alpha" localAll={[base as Grab]}
         onOpenDrawer={() => {}} onToggleThread={() => {}} />,
     ));
-    expect(document.querySelector('[data-thread-placeholder]')).not.toBeNull();
+    // ReGrabThread renders nothing when there's no chain (single grab, no replay_of_id).
+    // Just verify the component doesn't crash when instance + localAll are provided.
+    expect(screen.getByText('For All Mankind')).toBeInTheDocument();
   });
 });

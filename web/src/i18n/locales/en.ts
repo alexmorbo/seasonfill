@@ -578,13 +578,18 @@ export const en = {
       tag: '#{{count}}',
       thread: {
         toggle: 'Show re-grab chain',
-        placeholder: 'Re-grab chain loading…',
+        original: 'original · {{time}} · {{count, plural, one {# ep} other {# eps}}}',
+        node: 're-grab #{{index}} · {{time}} · {{count, plural, one {# ep} other {# eps}}}',
       },
     },
     empty: {
       top:    { title: 'No grabs yet', body: 'Once Seasonfill grabs a release, it shows up here.' },
       fails:  { title: 'No failed grabs', body: 'All recent grabs imported cleanly.' },
       search: { title: 'No match', body: 'Try a different search.' },
+      notImported: {
+        title: 'Not imported yet',
+        body: 'Sonarr is still processing this grab.',
+      },
       cta: {
         scan:        'Run scan',
         queue:       'Queue · {{count}}',
@@ -592,13 +597,30 @@ export const en = {
       },
     },
     drawer: {
-      fallbackTitle: 'Grab',
+      title: 'Grab · details',
+      subtitle: { fullSeason: '{{range}} · whole season' },
       notFoundTitle: 'Grab not found',
-      notFoundBody: 'Rotated past the loaded page.',
-      release: 'Release', quality: 'Quality', indexer: 'Indexer',
-      cfScore: 'CF score', coverage: 'Coverage', attempts: 'Attempts',
-      season: 'Season', releaseGuid: 'Release GUID',
-      scanRun: 'Scan run', errorHeading: 'Error',
+      notFoundBody: 'The grab id in the URL does not match any row in the current cache.',
+      release: {
+        label: 'release_title (parsed)',
+      },
+      torrent: {
+        label: 'torrent',
+        unavailable: 'Hash available after Phase 12 migration.',
+      },
+      files: {
+        label: 'episode-files',
+        more: '+ {{count}} more files',
+        emptyImported: 'Sonarr reported no files for this grab yet.',
+        emptyNotImported: 'Grab not imported yet.',
+        error: { title: 'Failed to load episode-files' },
+      },
+      openInQbit: 'open in qBittorrent',
+      qbitUnavailable: 'qBittorrent URL not configured',
+      sourceDecision: 'source decision',
+      copy: 'copy',
+      copied: 'Hash copied to clipboard',
+      copyFailed: 'Could not copy hash',
     },
   },
   seriesPicker: {

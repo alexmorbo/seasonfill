@@ -587,13 +587,18 @@ export const ru: Translations = {
       tag: '#{{count}}',
       thread: {
         toggle: 'Показать цепочку re-grab',
-        placeholder: 'Загружаем цепочку…',
+        original: 'оригинал · {{time}} · {{count}} эп',
+        node: 're-grab #{{index}} · {{time}} · {{count}} эп',
       },
     },
     empty: {
       top:    { title: 'Грабов ещё не было', body: 'Как только Seasonfill или watchdog заберёт релиз — он появится тут с распарсенными тегами качества и цепочкой re-grab.' },
       fails:  { title: 'Нет неудачных грабов', body: 'Все недавние грабы успешно импортированы.' },
       search: { title: 'Ничего не нашлось', body: 'Попробуйте другой поиск.' },
+      notImported: {
+        title: 'Ещё не импортирован',
+        body: 'Sonarr всё ещё обрабатывает этот граб.',
+      },
       cta: {
         scan:        'Запустить скан',
         queue:       'Очередь · {{count}}',
@@ -601,13 +606,30 @@ export const ru: Translations = {
       },
     },
     drawer: {
-      fallbackTitle: 'Захват',
-      notFoundTitle: 'Захват не найден',
-      notFoundBody: 'Уже за границей подгруженной страницы.',
-      release: 'Релиз', quality: 'Качество', indexer: 'Индексер',
-      cfScore: 'CF score', coverage: 'Покрытие', attempts: 'Попытки',
-      season: 'Сезон', releaseGuid: 'Release GUID',
-      scanRun: 'Скан', errorHeading: 'Ошибка',
+      title: 'Граб · детали',
+      subtitle: { fullSeason: '{{range}} · сезон целиком' },
+      notFoundTitle: 'Граб не найден',
+      notFoundBody: 'ID в URL не совпадает ни с одной строкой в текущем кэше.',
+      release: {
+        label: 'release_title (распарсен)',
+      },
+      torrent: {
+        label: 'торрент',
+        unavailable: 'Hash будет доступен после миграции Phase 12.',
+      },
+      files: {
+        label: 'episode-файлы',
+        more: '+ ещё {{count}} файлов',
+        emptyImported: 'Sonarr пока не сообщил о файлах этого граба.',
+        emptyNotImported: 'Граб ещё не импортирован.',
+        error: { title: 'Не удалось загрузить episode-файлы' },
+      },
+      openInQbit: 'открыть в qBittorrent',
+      qbitUnavailable: 'URL qBittorrent не настроен',
+      sourceDecision: 'решение-источник',
+      copy: 'копировать',
+      copied: 'Hash скопирован в буфер',
+      copyFailed: 'Не удалось скопировать hash',
     },
   },
   seriesPicker: {

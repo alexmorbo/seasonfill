@@ -1,0 +1,175 @@
+import type { ReactElement, ReactNode } from 'react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { I18nextProvider } from 'react-i18next';
+import { MemoryRouter } from 'react-router-dom';
+import i18n from '@/i18n';
+import { GrabDrawer } from './GrabDrawer';
+import type { Grab } from '@/lib/grabs/chipBuilder';
+import { DtoGrabStatus } from '@/api/schema';
+import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+
+const origFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = origFetch; });
+
+const ctxValue = { filter: 'alpha', setFilter: vi.fn() };
+
+function wrap(ui: ReactElement): ReactNode {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <I18nextProvider i18n={i18n}>
+          <InstanceFilterCtx.Provider value={ctxValue}>{ui}</InstanceFilterCtx.Provider>
+        </I18nextProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+}
+
+const baseGrab: Grab = {
+  id: 'g_001',
+  instance: 'alpha',
+  series_title: 'For All Mankind',
+  series_id: 100,
+  season_number: 5,
+  release_title: 'For All Mankind / S5E1-10 of 10 [2026, HEVC, HDR10, HDR10+, Dolby Vision, WEB-DL 2160p] 4 x + Original',
+  status: DtoGrabStatus.imported,
+  scan_run_id: 'scan-uuid-1',
+  custom_format_score: 180,
+  coverage_count: 10,
+  created_at: '2026-06-07T19:32:00Z',
+  updated_at: '2026-06-07T19:32:41Z',
+  torrent_hash: 'C2CB0D9EFFAB1234CDEFA71F',
+  size_bytes: 13_325_829_734,
+  parsed: {
+    codec: 'HEVC',
+    source: 'webdl',
+    quality: 'WEBDL-2160p',
+    resolution: 2160,
+    hdr_flags: ['HDR10+', 'DV'],
+    dub: 'MVO',
+  },
+};
+
+beforeEach(() => {
+  // Default: episode-files endpoint returns 1 file; qbit-settings returns
+  // a URL. Tests can override per-case.
+  globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+    const u = url.toString();
+    if (u.includes('/episode-files')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        items: [
+          {
+            id: 7001, relative_path: 'Season 05/FAM.S05E01.mkv',
+            season_number: 5, episode_numbers: [1],
+            size_bytes: 1_200_000_000, quality: 'WEBDL-2160p',
+          },
+        ],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (u.includes('/qbit/settings')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        url: 'http://qbit.lan:8080', enabled: true,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (u.includes('/grabs')) {
+      return Promise.resolve(new Response(JSON.stringify({ items: [baseGrab] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  }) as typeof fetch;
+});
+
+describe('<GrabDrawer />', () => {
+  it('renders hero, release section, torrent section, files section', async () => {
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    expect(await screen.findByText('For All Mankind')).toBeInTheDocument();
+    expect(screen.getByTestId('drawer-release-raw')).toHaveTextContent(/HDR10\+/);
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-hash-row')).toHaveTextContent(/c2cb0d9e/i);
+    });
+    expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
+      'href',
+      'http://qbit.lan:8080/#/torrent/c2cb0d9effab1234cdefa71f',
+    );
+    expect(screen.getByTestId('drawer-decision-link')).toHaveAttribute(
+      'href',
+      '/decisions/scan-uuid-1',
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/FAM\.S05E01\.mkv/)).toBeInTheDocument();
+    });
+  });
+
+  it('copy button writes hash to clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await screen.findByTestId('drawer-hash-copy');
+    await userEvent.click(screen.getByTestId('drawer-hash-copy'));
+    expect(writeText).toHaveBeenCalledWith('C2CB0D9EFFAB1234CDEFA71F');
+  });
+
+  it('renders unavailable torrent section when torrent_hash missing', async () => {
+    const noHash: Grab = { ...baseGrab };
+    const mutable = noHash as Record<string, unknown>;
+    delete mutable.torrent_hash;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[noHash]} />,
+    ));
+    expect(await screen.findByText(/unavailable|недоступен|Phase 12/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('drawer-hash-row')).toBeNull();
+  });
+
+  it('disables qBit link when qbit settings URL is missing', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({ url: '' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-qbit-link-disabled')).toBeInTheDocument();
+    });
+  });
+
+  it('does NOT fire episode-files request when open=false', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    globalThis.fetch = fetchSpy as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={false} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await new Promise((r) => setTimeout(r, 10));
+    const efCalls = fetchSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('/episode-files'),
+    );
+    expect(efCalls.length).toBe(0);
+  });
+
+  it('renders not-found state when id has no match in rows', () => {
+    render(wrap(
+      <GrabDrawer id="g_missing" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    expect(screen.getByText(/not found|не найден/i)).toBeInTheDocument();
+  });
+});

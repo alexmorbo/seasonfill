@@ -151,6 +151,8 @@ export function Grabs() {
               selected={openId === g.id}
               threadOpen={threadId === g.id}
               reGrabIndex={reGrabIndex.get(g.id ?? '') ?? null}
+              instance={instance ?? null}
+              localAll={all}
               onOpenDrawer={openDrawer}
               onToggleThread={toggleThread}
             />

@@ -2,15 +2,19 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, AlertTriangle, Download, RotateCw, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { buildChips, CHIP_CLASS, type Chip, type Grab } from '@/lib/grabs/chipBuilder';
+import { buildChips, type Grab } from '@/lib/grabs/chipBuilder';
 import { formatEpisodeRange, formatImportDuration } from '@/lib/grabs/format';
 import { relativeTime } from '@/lib/format';
+import { ChipsRow } from '@/components/grabs/ChipsRow';
+import { ReGrabThread } from '@/components/grabs/ReGrabThread';
 
 export interface GrabRowProps {
   grab: Grab;
   selected: boolean;
   threadOpen: boolean;
   reGrabIndex: number | null;     // 1, 2, 3 … or null (computed by parent from replayed_by chain)
+  instance?: string | null;
+  localAll?: readonly Grab[];     // for ReGrabThread ancestor walk
   onOpenDrawer: (id: string) => void;
   onToggleThread: (id: string) => void;
 }
@@ -30,28 +34,9 @@ const STATUS_CLASS: Record<string, string> = {
   muted:    'text-tx-muted bg-bg-surface-2',
 };
 
-function ChipsRow({ chips }: { chips: readonly Chip[] }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {chips.map((c) => (
-        <span
-          key={c.id}
-          title={c.title}
-          className={cn(
-            'inline-flex items-center gap-1 rounded-[5px] border',
-            'px-1.5 py-px font-mono text-[10.5px] font-semibold whitespace-nowrap',
-            CHIP_CLASS[c.variant],
-          )}
-        >
-          {c.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 export function GrabRow({
-  grab, selected, threadOpen, reGrabIndex, onOpenDrawer, onToggleThread,
+  grab, selected, threadOpen, reGrabIndex, instance, localAll,
+  onOpenDrawer, onToggleThread,
 }: GrabRowProps) {
   const { t } = useTranslation();
   const status = grab.status ?? 'grabbed';
@@ -177,14 +162,13 @@ export function GrabRow({
             </>
           )}
         </div>
-        {/* thread placeholder — 051b replaces with ReGrabThread */}
-        {threadOpen && (
-          <div
-            data-thread-placeholder
-            className="mt-1 pl-4 text-[12px] text-tx-muted font-mono"
-          >
-            {t('grabs.regrab.thread.placeholder')}
-          </div>
+        {threadOpen && instance && (
+          <ReGrabThread
+            instance={instance}
+            grab={grab}
+            all={localAll ?? []}
+            open={threadOpen}
+          />
         )}
       </div>
     </div>
