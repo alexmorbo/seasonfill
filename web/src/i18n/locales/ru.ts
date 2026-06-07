@@ -1148,6 +1148,8 @@ export const ru: Translations = {
             msgLength: 'Каждый шаблон должен быть 3–200 символов.',
             serverValidation: 'Некорректное значение — проверьте и попробуйте снова.',
           },
+          createPlaceholder:
+            'Сначала сохраните инстанс — qBittorrent-параметры станут редактируемыми, как только seasonfill дотянется до нового сервера.',
         },
         // === 057a1 added ===
         footer: {
@@ -1180,7 +1182,21 @@ export const ru: Translations = {
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
         },
-        // === 057a4 append marker: sections.* / header.* / watchdog placeholder + save-failed strings go below ===
+        // === 057a4 added ===
+        sections: {
+          connection: 'Подключение',
+          tuning: 'Тюнинг',
+          tuningSubLabel: 'Behavior · Performance · Advanced',
+          watchdog: 'qBittorrent / Watchdog',
+          alwaysPill: 'всегда',
+        },
+        header: {
+          editSub: '{{name}} · {{url}}',
+          createSub: 'новый Sonarr-сервер',
+        },
+        saveFailedSectionFmt: 'Не удалось сохранить — исправьте ошибки в секции «{{section}}»',
+        saveFailedConnectionSection: 'Не удалось сохранить — есть ошибки в секции «Подключение»',
+        // === 057b append marker: watchdog.actions.* + watchdog.form.* tree replaces this section ===
       },
     },
     integrations: {

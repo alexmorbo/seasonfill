@@ -1,31 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { Controller, useForm, useWatch, type FieldErrors } from 'react-hook-form';
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { KeyRound, Loader2 } from 'lucide-react';
+import { Cable, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter,
-  DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  Tabs, TabsContent, TabsList, TabsTrigger,
-} from '@/components/ui/tabs';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Accordion } from '@/components/ui/accordion';
 import {
   useCreateInstance,
   useInstanceDetail,
@@ -38,13 +23,17 @@ import {
 import { DtoInstanceCooldownMode, DtoInstanceTagsMode } from '@/api/schema';
 import { webhookStatusKey } from '@/api/qbit';
 import {
-  NumberField, SwitchField, TagListEditor,
-} from './instance-form-fields';
-import {
   FORM_DEFAULTS, dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
+// TEMPORARY (057a4): legacy watchdog UI mounted inside new accordion.
+// Replaced by `<WatchdogSection>` in 057b. Do NOT delete this import
+// in 057a4 — the form must remain functional at every commit.
 import { WatchdogTab } from './WatchdogTab';
-import { WebhookStatusBadge } from './WebhookStatusBadge';
+import { PromotedControls } from '@/components/instances/form/PromotedControls';
+import { ConnectionSection } from '@/components/instances/form/ConnectionSection';
+import { TuningSection } from '@/components/instances/form/TuningSection';
+import { AccordionSection } from '@/components/instances/form/AccordionSection';
+import { DirtyFooter } from '@/components/instances/form/DirtyFooter';
 
 const nameRule = z
   .string()
@@ -59,8 +48,6 @@ const urlRule = z
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'),
     'settings.instances.form.errors.urlScheme');
 
-// Optional URL — empty allowed (omitted from wire). Backend rejects ''
-// (INVALID_INSTANCE_PUBLIC_URL), so we MUST never send '' downstream.
 const urlOrEmptyRule = z
   .string()
   .refine((v) => v === '' || /^https?:\/\//.test(v),
@@ -77,15 +64,6 @@ const dryRunRule = z.enum(['auto', 'on', 'off']);
 const tagsModeRule = z.enum(['off', 'include', 'exclude', 'both']);
 const cooldownModeRule = z.enum(['smart', 'strict']);
 
-// Bounds mirror application/instance/usecase.go (60-88). Keeping them
-// inline here is deliberate — the constants don't ship to TS and the
-// values rarely move; a typo would surface as a server 400 the test
-// suite would catch.
-//
-// Validator error messages are encoded as JSON ({i18n,params}) so the
-// schema can stay at module scope (no `t` available at build time) while
-// the render layer resolves both the message key and the embedded
-// field-label key. `tValidationError` below is the inverse decoder.
 const fieldLabelKey = (technicalLabel: string) =>
   `settings.instances.form.fieldLabels.${technicalLabel}`;
 
@@ -111,11 +89,6 @@ const float = (min: number, max: number, label: string) =>
     .min(min, numMsg('min', label, min))
     .max(max, numMsg('max', label, max));
 
-// Resolve a validator error message produced by zod into a localised
-// string. Numeric-field messages are JSON envelopes {i18n,params} so
-// both the template AND the field label go through i18n. Static-rule
-// messages (name/url/api_key) remain plain keys and fall through the
-// catch path unchanged.
 function tValidationError(msg: string | undefined, t: TFunction): string {
   if (!msg) return '';
   try {
@@ -132,7 +105,7 @@ function tValidationError(msg: string | undefined, t: TFunction): string {
       return t(parsed.i18n, params);
     }
   } catch {
-    // not JSON — legacy plain-key path
+    // legacy plain-key path
   }
   return t(msg, { defaultValue: msg });
 }
@@ -140,9 +113,9 @@ function tValidationError(msg: string | undefined, t: TFunction): string {
 const baseShape = {
   name: nameRule,
   url: urlRule,
-  public_url: urlOrEmptyRule,                  // 041h-1
-  webhook_install_enabled: z.boolean(),        // 041h-1
-  webhook_url_override: urlOrEmptyRule,        // 041h-1
+  public_url: urlOrEmptyRule,
+  webhook_install_enabled: z.boolean(),
+  webhook_url_override: urlOrEmptyRule,
   mode: modeRule,
   dry_run: dryRunRule,
   timeout_sec: int(1, 300, 'timeout_sec'),
@@ -183,9 +156,6 @@ export interface InstanceFormDialogProps {
   readonly initial?: Partial<FormValues> | undefined;
 }
 
-// Narrow a raw wire string to a known enum member, falling back to a
-// safe default when the value is absent, null, or an unrecognised string
-// (e.g. empty-string emitted by Go for a NULL column).
 function coerceEnum<T extends string>(
   value: string | null | undefined,
   allowed: readonly T[],
@@ -194,19 +164,14 @@ function coerceEnum<T extends string>(
   return (allowed as readonly string[]).includes(value ?? '') ? (value as T) : fallback;
 }
 
-// Hydrate a full FormValues from a server-side InstanceDetail. Falls
-// back to FORM_DEFAULTS for any field the server omitted (e.g. a row
-// written by an older schema). Crucially does NOT touch api_key — the
-// server-side mask "***" must never seed the form input or it will be
-// re-encrypted over the real secret on Save (032b).
 function formFromDetail(d: InstanceDetail): FormValues {
   return {
     ...FORM_DEFAULTS,
     name: d.name ?? '',
     url: d.url ?? FORM_DEFAULTS.url,
-    public_url: d.public_url ?? '',                            // 041h-1
-    webhook_install_enabled: d.webhook_install_enabled ?? true, // 041h-1
-    webhook_url_override: d.webhook_url_override ?? '',        // 041h-1
+    public_url: d.public_url ?? '',
+    webhook_install_enabled: d.webhook_install_enabled ?? true,
+    webhook_url_override: d.webhook_url_override ?? '',
     api_key: '',
     mode: coerceEnum(d.mode, ['auto', 'manual'] as const, FORM_DEFAULTS.mode),
     dry_run: dryRunFromWire(d.dry_run),
@@ -237,10 +202,6 @@ function formFromDetail(d: InstanceDetail): FormValues {
   };
 }
 
-// Build the wire payload from FormValues. Centralises the dry_run
-// omit-on-auto rule and the tag-mode -> tags-shape mapping. Returns
-// an object missing `api_key`; the caller layers it on per the dirty-
-// bit rule (032b).
 function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> {
   const dr = dryRunToWire(v.dry_run as DryRunChoice);
   const base: Omit<InstanceCreateRequest, 'api_key'> = {
@@ -249,10 +210,6 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
     mode: v.mode,
     timeout_sec: v.timeout_sec,
     search_timeout_sec: v.search_timeout_sec,
-    // 041h-1: always send the toggle (operator's explicit choice). String
-    // overrides are stripped when empty so backend sees "not present" — it
-    // refuses an explicit '' to prevent silent override removal via PUT
-    // (cf. INVALID_INSTANCE_PUBLIC_URL in 041a).
     webhook_install_enabled: v.webhook_install_enabled,
     tags: {
       mode: v.tags_mode as DtoInstanceTagsMode,
@@ -291,7 +248,6 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
       recheck_network_sec: v.health_recheck_network_sec,
     },
   };
-  // 'auto' -> omit; explicit on/off -> include the boolean.
   let out: Omit<InstanceCreateRequest, 'api_key'> = base;
   if (dr !== undefined) out = { ...out, dry_run: dr };
   const pu = v.public_url.trim();
@@ -310,12 +266,12 @@ export function InstanceFormDialog({
   const update = useUpdateInstance();
   const probe = useTestInstance();
   const [probeResult, setProbeResult] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('connection');
+  // Accordion open keys — local state so background refetches cannot
+  // collapse the user's section. Default = connection open only.
+  const [openSections, setOpenSections] = useState<string[]>(['connection']);
 
   const qc = useQueryClient();
 
-  // Same reasoning as before 033a — useInstanceDetail backs the edit
-  // hydration. Disabled in create mode (name=null).
   const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
   const detail = detailQuery.data?.detail;
 
@@ -328,100 +284,62 @@ export function InstanceFormDialog({
     mode: 'onBlur',
   });
 
-  // Drives the conditional render of the override input. RHF's useWatch
-  // re-renders the dialog on change — adequate here (small field count).
   const webhookInstallEnabled = useWatch({
     control,
     name: 'webhook_install_enabled',
     defaultValue: true,
   });
 
-  // On open OR on edit-target switch, rebuild defaults — but ONLY while
-  // the form is pristine. A background detail refetch (staleTime:0 + the
-  // post-save invalidate) or the parent's 5s instances poll must NOT
-  // discard the user's unsaved edits in either mode. Once isDirty clears
-  // (via close/reopen or a successful save's reset) the form re-syncs to
-  // the freshest server data. In edit mode we additionally wait for
-  // `detail` to arrive before seeding.
   useEffect(() => {
     if (!open || isDirty) return;
     if (isEdit) {
       if (detail) {
         reset(formFromDetail(detail));
         setProbeResult(null);
-        setActiveTab('connection');
+        setOpenSections(['connection']);
       }
     } else {
       reset({ ...FORM_DEFAULTS, ...initial, api_key: '' });
       setProbeResult(null);
-      setActiveTab('connection');
+      setOpenSections(['connection']);
     }
-    // We DELIBERATELY do not depend on `initial` identity — the parent
-    // refetches the instances list every 5s and a fresh object literal
-    // would otherwise blow away in-flight input. Key by name only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, initial?.name, detail, isDirty, reset]);
 
   const onInvalid = (errs: FieldErrors<FormValues>) => {
     if (!isEdit && errs.api_key) {
-      setActiveTab('connection');
+      setOpenSections((cur) => Array.from(new Set([...cur, 'connection'])));
       setFocus('api_key');
-      toast.error(t('settings.instances.form.saveFailedConnectionTab'));
+      toast.error(t('settings.instances.form.saveFailedConnectionSection'));
       return;
     }
-    // Jump to the first tab containing an error so the user sees the
-    // inline message without hunting. Order matches the visual tab row.
     const has = (...names: (keyof FormValues)[]) => names.some((n) => errs[n]);
-    let tab: string;
+    let section: 'connection' | 'tuning';
     if (has(
       'name', 'url', 'api_key', 'mode', 'dry_run',
-      'timeout_sec', 'search_timeout_sec',
       'public_url', 'webhook_url_override', 'webhook_install_enabled',
     )) {
-      tab = 'connection';
-    } else if (has(
-      'tags_mode', 'tags_include', 'tags_exclude',
-      'search_min_custom_format_score',
-      'search_require_all_aired', 'search_skip_specials', 'search_skip_anime',
-    )) {
-      tab = 'behavior';
-    } else if (has(
-      'rate_limit_rpm', 'rate_limit_burst',
-      'limits_scan_max_series', 'limits_max_grabs_per_scan',
-      'ranking_indexer_priority_enabled', 'ranking_origin_bonus',
-    )) {
-      tab = 'performance';
+      section = 'connection';
     } else {
-      tab = 'advanced';
+      section = 'tuning';
     }
-    setActiveTab(tab);
-    const tabLabel = t(`settings.instances.form.tabs.${tab}`, { defaultValue: tab });
-    toast.error(t('settings.instances.form.saveFailedTabFmt', { tab: tabLabel }));
+    setOpenSections((cur) => Array.from(new Set([...cur, section])));
+    const sectionLabel = t(`settings.instances.form.sections.${section}`);
+    toast.error(t('settings.instances.form.saveFailedSectionFmt', { section: sectionLabel }));
   };
 
   const onSubmit = handleSubmit(async (values) => {
     const wire = valuesToPayload(values);
     if (isEdit && initial?.name) {
       if (!detail) return;
-      // 032b invariant: only attach api_key when RHF says the user
-      // actually touched the field AND there's non-empty content. The
-      // masked "***" from GET must NEVER end up in the PUT body. The
-      // dirty-bit pattern survives because RHF tracks `api_key` on
-      // its own — none of the new fields share that key.
       const userTypedKey = Boolean(dirtyFields.api_key) && values.api_key.trim().length > 0;
       const body: InstanceUpdateRequest = {
         ...wire,
         ...(userTypedKey ? { api_key: values.api_key.trim() } : {}),
       };
-      // Reset to the persisted detail so isDirty clears — the hook's own
-      // onSuccess (cache prime + toast) runs before this per-call
-      // callback. We never seed api_key, so the masked value can't leak
-      // back into the field (032b).
       await update.mutateAsync({ name: initial.name, body }, {
         onSuccess: ({ detail: saved }) => reset(formFromDetail(saved)),
       });
-      // 041c-2 reconciler runs synchronously inside the PUT handler, so
-      // the live Sonarr state may have changed by the time we resolve.
       qc.invalidateQueries({ queryKey: webhookStatusKey(initial.name) });
     } else {
       const body: InstanceCreateRequest = {
@@ -454,474 +372,120 @@ export function InstanceFormDialog({
         setProbeResult(resp.reason || t('settings.instances.form.probeConnectionFailed'));
       }
     } catch {
-      // network failure: leave result as null (already reset at top)
+      // network failure: leave result as null
     }
   };
 
   const editBlocked = isEdit && (detailQuery.isPending || detailQuery.isError || !detail);
+  const uiUrlHint = useMemo(() => (isEdit ? detail?.ui_url : undefined), [isEdit, detail]);
+  const tValErr = (msg: string | undefined) => tValidationError(msg, t);
+
+  const title = isEdit
+    ? t('settings.instances.form.editTitle')
+    : t('settings.instances.form.createTitle');
+  const subtitle = isEdit && initial?.name && detail
+    ? t('settings.instances.form.header.editSub', { name: initial.name, url: detail.url ?? '' })
+    : t('settings.instances.form.header.createSub');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? t('settings.instances.form.editTitle') : t('settings.instances.form.createTitle')}</DialogTitle>
+      <DialogContent
+        className="max-w-[640px] p-0 grid grid-rows-[auto_1fr_auto] max-h-[calc(100vh-80px)]"
+      >
+        <DialogHeader className="px-5 py-4 border-b border-border-faint">
+          <DialogTitle className="text-[16px] font-[650] tracking-[-0.01em]">
+            {title}
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[12px] text-tx-faint">
+            {subtitle}
+          </DialogDescription>
         </DialogHeader>
-        <DialogDescription className="sr-only">
-          {mode === 'create'
-            ? t('settings.instances.form.srCreateDescription')
-            : t('settings.instances.form.srEditDescription', { name: initial?.name ?? '' })}
-        </DialogDescription>
 
-        <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="connection">{t('settings.instances.form.tabs.connection')}</TabsTrigger>
-              <TabsTrigger value="behavior">{t('settings.instances.form.tabs.behavior')}</TabsTrigger>
-              <TabsTrigger value="performance">{t('settings.instances.form.tabs.performance')}</TabsTrigger>
-              <TabsTrigger value="advanced">{t('settings.instances.form.tabs.advanced')}</TabsTrigger>
-              {isEdit && initial?.name && (
-                <TabsTrigger value="watchdog">{t('settings.instances.form.tabs.watchdog')}</TabsTrigger>
-              )}
-            </TabsList>
+        <form
+          onSubmit={onSubmit}
+          className="flex flex-col gap-4 overflow-y-auto overflow-x-hidden px-5 py-4 min-h-0"
+          noValidate
+        >
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <PromotedControls control={control as unknown as any} />
 
-            {/* CONNECTION -------------------------------------------- */}
-            <TabsContent value="connection" className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-name">{t('settings.instances.form.nameLabel')}</Label>
-                <Input
-                  id="inst-name"
-                  autoFocus={!isEdit}
-                  disabled={isEdit}
-                  aria-invalid={Boolean(errors.name) || undefined}
-                  {...register('name')}
-                />
-                {isEdit && (
-                  <p className="text-[11.5px] text-muted">
-                    {t('settings.instances.form.nameImmutableHint')}
-                  </p>
-                )}
-                {errors.name && (
-                  <p role="alert" className="text-status-danger text-[11.5px]">
-                    {t(errors.name.message ?? '', { defaultValue: errors.name.message ?? '' })}
-                  </p>
-                )}
-              </div>
+          <Accordion
+            type="multiple"
+            value={openSections}
+            onValueChange={(v) => setOpenSections(v as string[])}
+            className="flex flex-col gap-3"
+          >
+            <AccordionSection
+              value="connection"
+              icon={<Cable className="w-[15px] h-[15px]" />}
+              title={t('settings.instances.form.sections.connection')}
+            >
+              <ConnectionSection
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                control={control as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                register={register as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                errors={errors as unknown as any}
+                mode={mode}
+                instanceName={initial?.name ?? undefined}
+                installEnabled={Boolean(webhookInstallEnabled)}
+                uiUrlHint={uiUrlHint}
+                onTest={onTest}
+                testing={probe.isPending}
+                probeResult={probeResult}
+                tValidationError={tValErr}
+              />
+            </AccordionSection>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-url">{t('settings.instances.form.urlLabel')}</Label>
-                <Input
-                  id="inst-url"
-                  type="url"
-                  aria-invalid={Boolean(errors.url) || undefined}
-                  {...register('url')}
-                />
-                {errors.url && (
-                  <p role="alert" className="text-status-danger text-[11.5px]">
-                    {t(errors.url.message ?? '', { defaultValue: errors.url.message ?? '' })}
-                  </p>
-                )}
-              </div>
+            <AccordionSection
+              value="tuning"
+              icon={<SlidersHorizontal className="w-[15px] h-[15px]" />}
+              title={t('settings.instances.form.sections.tuning')}
+              subLabel={t('settings.instances.form.sections.tuningSubLabel')}
+            >
+              <TuningSection
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                control={control as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                register={register as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                errors={errors as unknown as any}
+                tValidationError={tValErr}
+              />
+            </AccordionSection>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-public-url">
-                  {t('settings.instances.form.publicUrlLabel')}
-                </Label>
-                <Input
-                  id="inst-public-url"
-                  type="url"
-                  placeholder={t('settings.instances.form.publicUrlPlaceholder')}
-                  aria-invalid={Boolean(errors.public_url) || undefined}
-                  {...register('public_url')}
-                />
-                <p className="text-[11.5px] text-muted">
-                  {t('settings.instances.form.publicUrlHelp')}
-                </p>
-                {isEdit && detail?.ui_url && (
-                  <p className="text-[11.5px] text-muted" data-testid="inst-ui-url-hint">
-                    {t('settings.instances.form.uiUrlHint', { url: detail.ui_url })}
-                  </p>
-                )}
-                {errors.public_url && (
-                  <p role="alert" className="text-status-danger text-[11.5px]">
-                    {t(errors.public_url.message ?? '', {
-                      defaultValue: errors.public_url.message ?? '',
-                    })}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="inst-key">{t('settings.instances.form.apiKeyLabel')}</Label>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge variant="secondary" className="gap-1 text-[10.5px]">
-                          <KeyRound className="w-3 h-3" />
-                          {t('settings.instances.form.apiKeyEncrypted')}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t('settings.instances.form.apiKeyEncryptedTooltip')}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <Input
-                  id="inst-key"
-                  type="password"
-                  autoComplete="off"
-                  placeholder={isEdit ? t('settings.instances.form.apiKeyKeepPlaceholder') : ''}
-                  aria-invalid={Boolean(errors.api_key) || undefined}
-                  {...register('api_key')}
-                />
-                {isEdit && (
-                  <p className="text-[11.5px] text-muted">
-                    {t('settings.instances.form.apiKeyKeepHint')}
-                  </p>
-                )}
-                {errors.api_key && (
-                  <p role="alert" className="text-status-danger text-[11.5px]">
-                    {t(errors.api_key.message ?? '', { defaultValue: errors.api_key.message ?? '' })}
-                  </p>
-                )}
-              </div>
-
-              {/* Webhook install in Sonarr (041c-2 reconciler) --------- */}
-              <div className="flex items-start gap-3">
-                <Controller
-                  control={control}
-                  name="webhook_install_enabled"
-                  render={({ field }) => (
-                    <Switch
-                      id="inst-webhook-install"
-                      checked={Boolean(field.value)}
-                      onCheckedChange={(v) => field.onChange(v)}
-                    />
-                  )}
-                />
-                <div className="flex flex-col gap-0.5">
-                  <Label htmlFor="inst-webhook-install" className="font-normal">
-                    {t('settings.instances.form.webhookInstallLabel')}
-                  </Label>
-                  <p className="text-[11.5px] text-muted">
-                    {t('settings.instances.form.webhookInstallHint')}
-                  </p>
-                  {isEdit && initial?.name && (
-                    <div className="mt-1" data-testid="inst-webhook-badge-slot">
-                      <WebhookStatusBadge name={initial.name} />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {webhookInstallEnabled && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-webhook-url-override">
-                    {t('settings.instances.form.webhookUrlOverrideLabel')}
-                  </Label>
-                  <Input
-                    id="inst-webhook-url-override"
-                    type="url"
-                    placeholder={t(
-                      'settings.instances.form.webhookUrlOverridePlaceholder',
-                    )}
-                    aria-invalid={Boolean(errors.webhook_url_override) || undefined}
-                    {...register('webhook_url_override')}
-                  />
-                  <p className="text-[11.5px] text-muted">
-                    {t('settings.instances.form.webhookUrlOverrideHelp')}
-                  </p>
-                  {errors.webhook_url_override && (
-                    <p role="alert" className="text-status-danger text-[11.5px]">
-                      {t(errors.webhook_url_override.message ?? '', {
-                        defaultValue: errors.webhook_url_override.message ?? '',
-                      })}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-mode">{t('settings.instances.form.modeLabel')}</Label>
-                  <Controller
-                    name="mode"
-                    control={control}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger id="inst-mode">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">{t('settings.instances.form.modes.auto')}</SelectItem>
-                          <SelectItem value="manual">{t('settings.instances.form.modes.manual')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t('settings.instances.form.dryRunLabel')}</Label>
-                  <Controller
-                    name="dry_run"
-                    control={control}
-                    render={({ field }) => (
-                      <RadioGroup
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        className="grid grid-cols-3 gap-1.5"
-                      >
-                        {(['auto', 'on', 'off'] as const).map((c) => (
-                          <Label
-                            key={c}
-                            htmlFor={`dry-${c}`}
-                            className="flex items-center gap-1.5 border border-border rounded-md px-2 py-1.5 cursor-pointer hover:bg-surface-2 font-normal"
-                          >
-                            <RadioGroupItem id={`dry-${c}`} value={c} />
-                            <span className="text-[12.5px]">{t(`settings.instances.form.dryRunChoice.${c}`)}</span>
-                          </Label>
-                        ))}
-                      </RadioGroup>
-                    )}
-                  />
-                  <p className="text-[11.5px] text-muted">
-                    {t('settings.instances.form.dryRunHelpInline')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <NumberField
-                  control={control}
-                  name="timeout_sec"
-                  id="inst-timeout"
-                  label={t('settings.instances.form.timeoutLabel')}
-                  suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={1} max={300}
-                  error={tValidationError(errors.timeout_sec?.message, t)}
-                />
-                <NumberField
-                  control={control}
-                  name="search_timeout_sec"
-                  id="inst-search-timeout"
-                  label={t('settings.instances.form.searchTimeoutLabel')}
-                  suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={1} max={600}
-                  error={tValidationError(errors.search_timeout_sec?.message, t)}
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onTest}
-                  disabled={probe.isPending}
-                >
-                  {probe.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
-                  {t('settings.instances.form.testConnection')}
-                </Button>
-                {probeResult && (
-                  <span role="status" className="text-[12px] text-foreground-2">
-                    {probeResult}
-                  </span>
-                )}
-              </div>
-            </TabsContent>
-
-            {/* BEHAVIOR ---------------------------------------------- */}
-            <TabsContent value="behavior" className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inst-tags-mode">{t('settings.instances.form.tagModeLabel')}</Label>
-                <Controller
-                  name="tags_mode"
-                  control={control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="inst-tags-mode">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="off">{t('settings.instances.form.tagsModes.off')}</SelectItem>
-                        <SelectItem value="include">{t('settings.instances.form.tagsModes.include')}</SelectItem>
-                        <SelectItem value="exclude">{t('settings.instances.form.tagsModes.exclude')}</SelectItem>
-                        <SelectItem value="both">{t('settings.instances.form.tagsModes.both')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-tags-include">{t('settings.instances.form.includeTagsLabel')}</Label>
-                  <Controller
-                    name="tags_include"
-                    control={control}
-                    render={({ field }) => (
-                      <TagListEditor
-                        id="inst-tags-include"
-                        value={field.value}
-                        onChange={(next) => field.onChange([...next])}
-                      />
-                    )}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="inst-tags-exclude">{t('settings.instances.form.excludeTagsLabel')}</Label>
-                  <Controller
-                    name="tags_exclude"
-                    control={control}
-                    render={({ field }) => (
-                      <TagListEditor
-                        id="inst-tags-exclude"
-                        value={field.value}
-                        onChange={(next) => field.onChange([...next])}
-                      />
-                    )}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4 pt-1">
-                <SwitchField control={control} name="search_require_all_aired"
-                  id="search-require-all-aired" label={t('settings.instances.form.requireAllAiredLabel')}
-                  hint={t('settings.instances.form.requireAllAiredHint')} />
-                <SwitchField control={control} name="search_skip_specials"
-                  id="search-skip-specials" label={t('settings.instances.form.skipSpecialsLabel')}
-                  hint={t('settings.instances.form.skipSpecialsHint')} />
-                <SwitchField control={control} name="search_skip_anime"
-                  id="search-skip-anime" label={t('settings.instances.form.skipAnimeLabel')}
-                  hint={t('settings.instances.form.skipAnimeHint')} />
-                <NumberField control={control} name="search_min_custom_format_score"
-                  id="search-mcfs" label={t('settings.instances.form.minCustomFormatScoreLabel')}
-                  min={-1000} max={1000}
-                  error={tValidationError(errors.search_min_custom_format_score?.message, t)} />
-              </div>
-            </TabsContent>
-
-            {/* PERFORMANCE ------------------------------------------- */}
-            <TabsContent value="performance" className="mt-4 flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-4">
-                <NumberField control={control} name="rate_limit_rpm"
-                  id="rate-limit-rpm" label={t('settings.instances.form.rateLimitRpmLabel')}
-                  suffix={t('settings.instances.form.rateLimitRpmSuffix')}
-                  min={0} max={10000}
-                  error={tValidationError(errors.rate_limit_rpm?.message, t)} />
-                <NumberField control={control} name="rate_limit_burst"
-                  id="rate-limit-burst" label={t('settings.instances.form.rateLimitBurstLabel')}
-                  min={0} max={10000}
-                  error={tValidationError(errors.rate_limit_burst?.message, t)} />
-                <NumberField control={control} name="limits_scan_max_series"
-                  id="limits-scan-max" label={t('settings.instances.form.scanMaxSeriesLabel')}
-                  min={0} max={100000}
-                  hint={t('settings.instances.form.scanMaxSeriesHint')}
-                  error={tValidationError(errors.limits_scan_max_series?.message, t)} />
-                <NumberField control={control} name="limits_max_grabs_per_scan"
-                  id="limits-grabs" label={t('settings.instances.form.maxGrabsPerScanLabel')}
-                  min={0} max={100}
-                  error={tValidationError(errors.limits_max_grabs_per_scan?.message, t)} />
-                <NumberField control={control} name="ranking_origin_bonus"
-                  id="ranking-origin-bonus" label={t('settings.instances.form.originBonusLabel')}
-                  min={-100} max={100} step={0.1}
-                  error={tValidationError(errors.ranking_origin_bonus?.message, t)} />
-                <SwitchField control={control} name="ranking_indexer_priority_enabled"
-                  id="ranking-indexer-priority" label={t('settings.instances.form.indexerPriorityLabel')}
-                  hint={t('settings.instances.form.indexerPriorityHint')} />
-              </div>
-            </TabsContent>
-
-            {/* ADVANCED ---------------------------------------------- */}
-            <TabsContent value="advanced" className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cooldown-mode">{t('settings.instances.form.cooldownModeLabel')}</Label>
-                <Controller
-                  name="cooldown_mode"
-                  control={control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="cooldown-mode">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="smart">{t('settings.instances.form.cooldownModes.smart')}</SelectItem>
-                        <SelectItem value="strict">{t('settings.instances.form.cooldownModes.strict')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <NumberField control={control} name="cooldown_series_after_grab_sec"
-                  id="cd-series" label={t('settings.instances.form.cdSeriesLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={0} max={604800}
-                  error={tValidationError(errors.cooldown_series_after_grab_sec?.message, t)} />
-                <NumberField control={control} name="cooldown_guid_after_failed_grab_sec"
-                  id="cd-guid-grab" label={t('settings.instances.form.cdGuidGrabLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={0} max={604800}
-                  error={tValidationError(errors.cooldown_guid_after_failed_grab_sec?.message, t)} />
-                <NumberField control={control} name="cooldown_guid_after_failed_import_sec"
-                  id="cd-guid-import" label={t('settings.instances.form.cdGuidImportLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={0} max={604800}
-                  error={tValidationError(errors.cooldown_guid_after_failed_import_sec?.message, t)} />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <NumberField control={control} name="retry_max_attempts"
-                  id="retry-attempts" label={t('settings.instances.form.retryMaxAttemptsLabel')}
-                  min={0} max={10}
-                  error={tValidationError(errors.retry_max_attempts?.message, t)} />
-                <NumberField control={control} name="retry_initial_backoff_sec"
-                  id="retry-initial" label={t('settings.instances.form.retryInitialBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={0} max={3600}
-                  error={tValidationError(errors.retry_initial_backoff_sec?.message, t)} />
-                <NumberField control={control} name="retry_max_backoff_sec"
-                  id="retry-max" label={t('settings.instances.form.retryMaxBackoffLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={0} max={3600}
-                  error={tValidationError(errors.retry_max_backoff_sec?.message, t)} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <NumberField control={control} name="health_recheck_auth_sec"
-                  id="hc-auth" label={t('settings.instances.form.healthRecheckAuthLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={10} max={86400}
-                  error={tValidationError(errors.health_recheck_auth_sec?.message, t)} />
-                <NumberField control={control} name="health_recheck_network_sec"
-                  id="hc-net" label={t('settings.instances.form.healthRecheckNetworkLabel')} suffix={t('settings.instances.form.timeoutSuffix')}
-                  min={10} max={86400}
-                  error={tValidationError(errors.health_recheck_network_sec?.message, t)} />
-              </div>
-            </TabsContent>
-
-            {/* WATCHDOG (edit mode only) ---------------------------- */}
-            {isEdit && initial?.name && (
-              <TabsContent value="watchdog" className="mt-4">
+            <AccordionSection
+              value="watchdog"
+              icon={<ShieldCheck className="w-[15px] h-[15px]" />}
+              title={t('settings.instances.form.sections.watchdog')}
+              alwaysPill={t('settings.instances.form.sections.alwaysPill')}
+            >
+              {isEdit && initial?.name ? (
+                // TEMPORARY (057a4): legacy WatchdogTab kept verbatim.
+                // 057b replaces this with `<WatchdogSection>` whose
+                // form merges into the parent dialog's RHF instance.
                 <WatchdogTab instanceName={initial.name} />
-              </TabsContent>
-            )}
-          </Tabs>
-
-          {isEdit && detailQuery.isPending && (
-            <p className="text-[11.5px] text-muted flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              {t('settings.instances.form.loadingDetails')}
-            </p>
-          )}
-          {isEdit && detailQuery.isError && (
-            <p role="alert" className="text-[11.5px] text-status-danger">
-              {t('settings.instances.form.loadDetailsFailed')}
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              {t('settings.instances.form.cancel')}
-            </Button>
-            <Button type="submit" disabled={isSubmitting || editBlocked}>
-              {isSubmitting ? t('settings.instances.form.saving') : isEdit ? t('settings.instances.form.save') : t('settings.instances.form.create')}
-            </Button>
-          </DialogFooter>
+              ) : (
+                <div
+                  data-testid="watchdog-create-placeholder"
+                  className="p-4 text-[12.5px] text-tx-muted text-center"
+                >
+                  {t('settings.instances.form.watchdog.createPlaceholder')}
+                </div>
+              )}
+            </AccordionSection>
+          </Accordion>
         </form>
+
+        <DirtyFooter
+          mode={mode}
+          isDirty={isDirty}
+          isSubmitting={isSubmitting}
+          editBlocked={editBlocked}
+          onCancel={() => onOpenChange(false)}
+          onSubmit={() => { void onSubmit(); }}
+        />
       </DialogContent>
     </Dialog>
   );

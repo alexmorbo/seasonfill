@@ -1136,6 +1136,9 @@ export const en = {
             msgLength: 'Each pattern must be 3–200 characters.',
             serverValidation: 'Invalid value — please check and retry.',
           },
+          // 057a4 placeholder (057b expands with full watchdog form):
+          createPlaceholder:
+            'Save the instance first — qBittorrent credentials become editable once Seasonfill can reach the new instance.',
         },
         // === 057a1 added ===
         footer: {
@@ -1168,7 +1171,21 @@ export const en = {
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
         },
-        // === 057a4 append marker: sections.* / header.* / watchdog placeholder + save-failed strings go below ===
+        // === 057a4 added ===
+        sections: {
+          connection: 'Connection',
+          tuning: 'Tuning',
+          tuningSubLabel: 'Behavior · Performance · Advanced',
+          watchdog: 'qBittorrent / Watchdog',
+          alwaysPill: 'always',
+        },
+        header: {
+          editSub: '{{name}} · {{url}}',
+          createSub: 'New Sonarr server',
+        },
+        saveFailedSectionFmt: 'Save failed — please fix errors in the {{section}} section',
+        saveFailedConnectionSection: 'Save failed — check errors in the Connection section',
+        // === 057b append marker: watchdog.actions.* + watchdog.form.* tree replaces this section ===
       },
     },
     integrations: {
