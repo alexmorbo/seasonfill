@@ -171,6 +171,10 @@ type Grab struct {
 	// at ports.MaxReplaysPerParent (50); SPA renders "+N more" past
 	// that. Empty slice omitted from wire.
 	ReplayedBy []string `json:"replayed_by,omitempty"`
+	// SizeBytes — release size in bytes (Sonarr OnGrab `release.size`
+	// or manual-grab `releaseDTO.size`). Omitted when nil; SPA
+	// renders "—" for missing values.
+	SizeBytes *int64 `json:"size_bytes,omitempty" example:"13325829734"`
 }
 
 // ScanList — keyset-paginated GET /scans response.

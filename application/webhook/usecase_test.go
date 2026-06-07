@@ -22,20 +22,21 @@ import (
 )
 
 type fakeGrabRepo struct {
-	mu             sync.Mutex
-	match          grab.Record
-	matchErr       error
-	matchKey       ports.MatchKey
-	matchCalls     int
-	updateErr      error
-	updateID       uuid.UUID
-	updateStatus   grab.Status
-	updateMessage  string
-	updateCalls    int
-	hashUpdateErr  error
-	hashUpdateID   uuid.UUID
-	hashUpdateVal  string
-	hashUpdateCall int
+	mu              sync.Mutex
+	match           grab.Record
+	matchErr        error
+	matchKey        ports.MatchKey
+	matchCalls      int
+	updateErr       error
+	updateID        uuid.UUID
+	updateStatus    grab.Status
+	updateMessage   string
+	updateCalls     int
+	hashUpdateErr   error
+	hashUpdateID    uuid.UUID
+	hashUpdateVal   string
+	hashUpdateCall  int
+	lastUpdatedSize int64
 }
 
 func (r *fakeGrabRepo) Create(context.Context, grab.Record) error {
@@ -87,6 +88,16 @@ func (r *fakeGrabRepo) SetReplayOfID(_ context.Context, _ uuid.UUID, _ uuid.UUID
 
 func (r *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
 	return map[uuid.UUID][]uuid.UUID{}, nil
+}
+
+func (r *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, size int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.updateErr != nil {
+		return r.updateErr
+	}
+	r.lastUpdatedSize = size
+	return nil
 }
 
 type fakeCooldownRepo struct {
@@ -803,4 +814,57 @@ func TestProcess_SeriesDelete_MissingID_NoOp(t *testing.T) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	assert.Equal(t, 0, cache.deleteCalls)
+}
+
+func TestProcess_Grabbed_SizeBytes_FromNull_Populates(t *testing.T) {
+	t.Parallel()
+	repo := &fakeGrabRepo{
+		match: grab.Record{
+			ID: uuid.New(), InstanceName: "main", Status: grab.StatusGrabbed,
+		},
+	}
+	uc := New(Deps{Grabs: repo})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID:  "0123456789abcdef0123456789abcdef01234567",
+		ReleaseSize: 13_325_829_734,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(13_325_829_734), repo.lastUpdatedSize)
+}
+
+func TestProcess_Grabbed_SizeBytes_AlreadySet_NoUpdate(t *testing.T) {
+	t.Parallel()
+	existing := int64(9_999_999)
+	repo := &fakeGrabRepo{
+		match: grab.Record{
+			ID: uuid.New(), InstanceName: "main", Status: grab.StatusGrabbed,
+			SizeBytes: &existing,
+		},
+	}
+	uc := New(Deps{Grabs: repo})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID:  "0123456789abcdef0123456789abcdef01234567",
+		ReleaseSize: 13_325_829_734,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), repo.lastUpdatedSize, "must not overwrite existing")
+}
+
+func TestProcess_Grabbed_SizeBytes_ZeroPayload_NoUpdate(t *testing.T) {
+	t.Parallel()
+	repo := &fakeGrabRepo{
+		match: grab.Record{
+			ID: uuid.New(), InstanceName: "main", Status: grab.StatusGrabbed,
+		},
+	}
+	uc := New(Deps{Grabs: repo})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeGrabbed, InstanceName: "main",
+		DownloadID:  "0123456789abcdef0123456789abcdef01234567",
+		ReleaseSize: 0,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), repo.lastUpdatedSize)
 }

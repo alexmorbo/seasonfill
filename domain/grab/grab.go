@@ -84,8 +84,15 @@ type Record struct {
 	// (future Phase 11) render a "replay of <original-id>" badge and
 	// gives operators a join key for troubleshooting.
 	ReplayOfID *uuid.UUID
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// SizeBytes is Sonarr's release.size persisted on insert (043b,
+	// Phase 12). nil = unknown — pre-Phase-12 row OR a Sonarr payload
+	// that omitted the field. int64 covers ≥ 9 exabytes. The pointer
+	// makes "0 bytes" distinguishable from "absent"; Sonarr never
+	// emits zero on a real release but the explicit distinction
+	// matches the omitempty wire contract.
+	SizeBytes *int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ParseTorrentHash validates and normalises a candidate qBit info-hash

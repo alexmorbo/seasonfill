@@ -134,6 +134,10 @@ func (noopGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UU
 	return map[uuid.UUID][]uuid.UUID{}, nil
 }
 
+func (noopGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
+	panic("fake UpdateSizeBytes unexpectedly called - this stub is not configured")
+}
+
 type noopWebhookUC struct{}
 
 func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {

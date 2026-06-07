@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -496,6 +497,28 @@ func TestAuditHandler_ListGrabs_ExposesTorrentHashAndChainPointers(t *testing.T)
 	assert.Empty(t, gotChild.ReplayedBy)
 }
 
+// makeGrabRecord is a helper to construct a test grab.Record with all
+// required fields populated.
+func makeGrabRecord(t *testing.T) grab.Record {
+	t.Helper()
+	return grab.Record{
+		ID:           uuid.New(),
+		InstanceName: "main",
+		SeriesID:     122,
+		SeriesTitle:  "Severance",
+		SeasonNumber: 2,
+		ReleaseGUID:  "test-guid",
+		ReleaseTitle: "Severance.S02.WEBDL-1080p",
+		IndexerID:    1,
+		IndexerName:  "tracker.x",
+		Quality:      "WEBDL-1080p",
+		Status:       grab.StatusGrabbed,
+		ScanRunID:    uuid.New(),
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+}
+
 func TestAuditHandler_ListGrabs_EmptyDB_OK(t *testing.T) {
 	t.Parallel()
 	f := newAuditFixture(t, false)
@@ -506,4 +529,36 @@ func TestAuditHandler_ListGrabs_EmptyDB_OK(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Items)
+}
+
+func TestAuditHandler_ListGrabs_ExposesSizeBytes(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	ctx := context.Background()
+	rec := makeGrabRecord(t)
+	sz := int64(13_325_829_734)
+	rec.SizeBytes = &sz
+	require.NoError(t, f.grabs.Create(ctx, rec))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp dto.GrabList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 1)
+	require.NotNil(t, resp.Items[0].SizeBytes)
+	assert.Equal(t, sz, *resp.Items[0].SizeBytes)
+}
+
+func TestAuditHandler_ListGrabs_SizeBytesOmittedWhenNil(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	ctx := context.Background()
+	rec := makeGrabRecord(t) // SizeBytes nil
+	require.NoError(t, f.grabs.Create(ctx, rec))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	// Raw JSON inspection — size_bytes must be absent from the wire.
+	assert.NotContains(t, w.Body.String(), `"size_bytes"`,
+		"nil SizeBytes must omit the field from the wire")
 }

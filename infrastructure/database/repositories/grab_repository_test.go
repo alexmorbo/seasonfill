@@ -485,3 +485,56 @@ func TestGrabRepository_ListReplaysOf_RespectsCap(t *testing.T) {
 	assert.Len(t, out[parent.ID], ports.MaxReplaysPerParent,
 		"server-side cap must be enforced")
 }
+
+func TestGrabRepository_UpdateSizeBytes_Success_FromNull(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(context.Background(), rec))
+	require.NoError(t, repo.UpdateSizeBytes(context.Background(), rec.ID, 13_325_829_734))
+
+	var got database.GrabRecordModel
+	require.NoError(t, db.First(&got, "id = ?", rec.ID.String()).Error)
+	require.NotNil(t, got.SizeBytes)
+	assert.Equal(t, int64(13_325_829_734), *got.SizeBytes)
+}
+
+func TestGrabRepository_UpdateSizeBytes_Idempotent(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	original := int64(1_000_000_000)
+	rec.SizeBytes = &original
+	require.NoError(t, repo.Create(context.Background(), rec))
+	require.NoError(t, repo.UpdateSizeBytes(context.Background(), rec.ID, 9_999_999_999))
+
+	var got database.GrabRecordModel
+	require.NoError(t, db.First(&got, "id = ?", rec.ID.String()).Error)
+	require.NotNil(t, got.SizeBytes)
+	assert.Equal(t, original, *got.SizeBytes, "must NOT overwrite non-null value")
+}
+
+func TestGrabRepository_UpdateSizeBytes_UnknownID_ErrNotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	err := repo.UpdateSizeBytes(context.Background(), uuid.New(), 12345)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+func TestGrabRepository_UpdateSizeBytes_ZeroSize_NoOp(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	rec := newGrabRecord(t)
+	require.NoError(t, repo.Create(context.Background(), rec))
+	require.NoError(t, repo.UpdateSizeBytes(context.Background(), rec.ID, 0))
+	require.NoError(t, repo.UpdateSizeBytes(context.Background(), rec.ID, -5))
+
+	var got database.GrabRecordModel
+	require.NoError(t, db.First(&got, "id = ?", rec.ID.String()).Error)
+	assert.Nil(t, got.SizeBytes, "zero/negative size must be a no-op")
+}

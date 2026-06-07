@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 11
+	latestVersion   = 12
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -134,6 +134,14 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 		return err
 	}
 	if hasV3 {
+		version = 11
+	}
+	// 043b: Detect v12 by checking for size_bytes on grab_records.
+	hasV12, err := columnExists(ctx, sqlDB, dialect, "grab_records", "size_bytes")
+	if err != nil {
+		return err
+	}
+	if hasV12 {
 		version = latestVersion
 	}
 	createStmt, insertStmt := stampStatements(dialect)

@@ -220,21 +220,16 @@ func mapEventToStatus(t webhook.EventType) grab.Status {
 }
 
 // handleGrabbed captures the qBit info-hash from a Sonarr OnGrab webhook
-// onto the matching grab_records row. The only state-mutation this
-// branch performs is `UpdateTorrentHash` (idempotent — never overwrites
-// an already-set hash). Status transition is NOT applied: the row is
-// already "grabbed" by the time the webhook fires (force-grab path
-// inserted it in that status). Orphan grabbed events (no matching row)
-// log at INFO and return nil — webhook-only flows or pre-Phase-10 rows
-// will not have one.
+// onto the matching grab_records row, and also stamps the release size.
+// Both are idempotent — never overwrites an already-set value. Status
+// transition is NOT applied: the row is already "grabbed" by the time
+// the webhook fires. Orphan grabbed events (no matching row) log at INFO
+// and return nil — webhook-only flows or pre-Phase-10/12 rows will not
+// have one.
 func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	parsed := grab.ParseTorrentHash(evt.DownloadID)
-	if parsed == nil {
-		// Malformed or empty downloadId is a silent drop — Sonarr
-		// retries on 4xx so we never 4xx on format issues. The legacy
-		// non-qBit clients (which emit non-hex download ids) hit this
-		// branch every grab; logging at DEBUG keeps the noise floor low.
-		u.logger.DebugContext(ctx, "webhook_grab_no_hash",
+	if parsed == nil && evt.ReleaseSize == 0 {
+		u.logger.DebugContext(ctx, "webhook_grab_no_metadata",
 			slog.String("instance", evt.InstanceName),
 			slog.String("download_id", evt.DownloadID),
 			slog.String("raw_event_type", evt.RawEventType),
@@ -264,34 +259,49 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 		return fmt.Errorf("match grab record (grabbed branch): %w: %w", ports.ErrDBUnavailable, err)
 	}
 
-	if rec.TorrentHash != nil {
-		// Already populated by the grab use case at insert time or by
-		// an earlier OnGrab redelivery. Idempotent skip.
-		u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
-			slog.String("instance", evt.InstanceName),
-			slog.String("grab_id", rec.ID.String()),
-		)
-		return nil
-	}
-
-	if err := u.grabs.UpdateTorrentHash(ctx, rec.ID, *parsed); err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			// Row vanished between MatchLatest and Update. Treat as
-			// orphan — same as the MatchLatest miss above.
-			u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
+	if parsed != nil {
+		if rec.TorrentHash != nil {
+			u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
+				slog.String("instance", evt.InstanceName),
+				slog.String("grab_id", rec.ID.String()))
+		} else if err := u.grabs.UpdateTorrentHash(ctx, rec.ID, *parsed); err != nil {
+			if errors.Is(err, ports.ErrNotFound) {
+				u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
+					slog.String("instance", evt.InstanceName),
+					slog.String("grab_id", rec.ID.String()))
+				return nil
+			}
+			return fmt.Errorf("update torrent_hash: %w: %w", ports.ErrDBUnavailable, err)
+		} else {
+			u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
 				slog.String("instance", evt.InstanceName),
 				slog.String("grab_id", rec.ID.String()),
-			)
-			return nil
+				slog.String("download_id", evt.DownloadID))
 		}
-		return fmt.Errorf("update torrent_hash: %w: %w", ports.ErrDBUnavailable, err)
 	}
 
-	u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
-		slog.String("instance", evt.InstanceName),
-		slog.String("grab_id", rec.ID.String()),
-		slog.String("download_id", evt.DownloadID),
-	)
+	if evt.ReleaseSize > 0 {
+		if rec.SizeBytes != nil {
+			u.logger.DebugContext(ctx, "webhook_grab_size_already_set",
+				slog.String("instance", evt.InstanceName),
+				slog.String("grab_id", rec.ID.String()),
+				slog.Int64("existing_size", *rec.SizeBytes))
+		} else if err := u.grabs.UpdateSizeBytes(ctx, rec.ID, evt.ReleaseSize); err != nil {
+			if errors.Is(err, ports.ErrNotFound) {
+				u.logger.InfoContext(ctx, "webhook_grab_size_row_vanished",
+					slog.String("instance", evt.InstanceName),
+					slog.String("grab_id", rec.ID.String()))
+				return nil
+			}
+			return fmt.Errorf("update size_bytes: %w: %w", ports.ErrDBUnavailable, err)
+		} else {
+			u.logger.InfoContext(ctx, "webhook_grab_size_captured",
+				slog.String("instance", evt.InstanceName),
+				slog.String("grab_id", rec.ID.String()),
+				slog.Int64("size_bytes", evt.ReleaseSize))
+		}
+	}
+
 	return nil
 }
 

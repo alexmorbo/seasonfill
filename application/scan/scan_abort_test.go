@@ -256,6 +256,10 @@ func (abortFakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uu
 	return map[uuid.UUID][]uuid.UUID{}, nil
 }
 
+func (abortFakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
+	return nil
+}
+
 // abortFakeCooldownRepo lets every guid/series pass.
 type abortFakeCooldownRepo struct{}
 

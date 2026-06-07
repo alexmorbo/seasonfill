@@ -83,6 +83,12 @@ type Event struct {
 	// empty on Download (Sonarr drops the release block from imports).
 	Indexer string
 
+	// ReleaseSize — Sonarr's `release.size` from the OnGrab payload.
+	// 0 = absent (Sonarr omitted, or event type isn't Grab). int64
+	// fits any realistic release size. handleGrabbed treats 0 as "no
+	// update" — we never write 0 to the row.
+	ReleaseSize int64
+
 	// SeriesID + SeasonNumber — secondary match key. SeasonNumber is
 	// Episodes[0].SeasonNumber; cross-season packs handled in 007b.
 	SeriesID     int

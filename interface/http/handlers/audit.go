@@ -124,6 +124,7 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID) dto.Grab {
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
 		TorrentHash:       r.TorrentHash,
+		SizeBytes:         r.SizeBytes,
 	}
 	if r.ReplayOfID != nil {
 		s := r.ReplayOfID.String()

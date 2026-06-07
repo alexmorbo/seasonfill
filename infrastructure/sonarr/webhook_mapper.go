@@ -68,6 +68,7 @@ func MapWebhookEvent(payload []byte, instanceName string) (webhook.Event, error)
 	if dto.Release != nil {
 		ev.ReleaseTitle = dto.Release.ReleaseTitle
 		ev.Indexer = dto.Release.Indexer
+		ev.ReleaseSize = dto.Release.Size
 	}
 	if dto.Series != nil {
 		ev.SeriesID = dto.Series.ID

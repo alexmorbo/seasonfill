@@ -51,6 +51,7 @@ func toGrabModel(r grab.Record) database.GrabRecordModel {
 		Attempts:          r.Attempts,
 		TorrentHash:       r.TorrentHash,
 		ReplayOfID:        replayOfIDToString(r.ReplayOfID),
+		SizeBytes:         r.SizeBytes,
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
 	}
@@ -132,6 +133,7 @@ func toGrabRecord(m database.GrabRecordModel) (grab.Record, error) {
 		Attempts:          m.Attempts,
 		TorrentHash:       m.TorrentHash,
 		ReplayOfID:        parseReplayOfID(m.ReplayOfID),
+		SizeBytes:         m.SizeBytes,
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 	}, nil
@@ -422,6 +424,37 @@ func (r *GrabRepository) ListReplaysOf(
 		out[parent] = append(out[parent], child)
 	}
 	return out, nil
+}
+
+// UpdateSizeBytes writes size_bytes when currently NULL. Idempotent:
+// non-null returns nil. size <= 0 is a no-op success (Sonarr omits
+// release.size sometimes; we never persist 0 B). Mirrors the
+// UpdateTorrentHash first-seen-wins contract.
+func (r *GrabRepository) UpdateSizeBytes(ctx context.Context, id uuid.UUID, size int64) error {
+	if size <= 0 {
+		return nil
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	var current database.GrabRecordModel
+	if err := db.Select("id", "size_bytes").First(&current, "id = ?", id.String()).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ports.ErrNotFound
+		}
+		return fmt.Errorf("read grab size_bytes: %w", err)
+	}
+	if current.SizeBytes != nil {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	res := db.Model(&database.GrabRecordModel{}).
+		Where("id = ? AND size_bytes IS NULL", id.String()).
+		Updates(map[string]any{"size_bytes": size, "updated_at": now})
+	if res.Error != nil {
+		return fmt.Errorf("update grab size_bytes: %w", res.Error)
+	}
+	return nil
 }
 
 // Ensure interface compliance at compile time.

@@ -82,9 +82,14 @@ type GrabRecordModel struct {
 	// triggered (039f-2). nil for scan / rescan / manual paths. Indexed
 	// in the migration (partial index) so the future UI can fetch
 	// "replays of original_id" cheaply.
-	ReplayOfID *string   `gorm:"column:replay_of_id;size:36"`
-	CreatedAt  time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
-	UpdatedAt  time.Time
+	ReplayOfID *string `gorm:"column:replay_of_id;size:36"`
+	// SizeBytes is Sonarr's release.size persisted on insert (043b,
+	// Phase 12). Nullable: pre-Phase-12 rows and Sonarr payloads that
+	// omit the size keep NULL. *int64 round-trips cleanly with the
+	// BIGINT (Postgres) / INTEGER (SQLite) column.
+	SizeBytes *int64    `gorm:"column:size_bytes"`
+	CreatedAt time.Time `gorm:"index:idx_grab_records_created_at_id,priority:1"`
+	UpdatedAt time.Time
 }
 
 func (GrabRecordModel) TableName() string { return "grab_records" }

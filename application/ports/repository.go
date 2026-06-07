@@ -159,6 +159,13 @@ type GrabRepository interface {
 	// 043a: powers the Grab DTO `replayed_by` derived field.
 	// One SQL round-trip regardless of page size.
 	ListReplaysOf(ctx context.Context, parentIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
+
+	// UpdateSizeBytes writes size_bytes when currently NULL.
+	// Idempotent: non-null returns nil without overwriting. Returns
+	// ErrNotFound on unknown id. size <= 0 is a no-op success (Sonarr
+	// omits release.size sometimes; we never persist 0 B).
+	// 043b: stamped by the OnGrab webhook use case.
+	UpdateSizeBytes(ctx context.Context, id uuid.UUID, size int64) error
 }
 
 type CooldownRepository interface {

@@ -126,3 +126,18 @@ func TestParseTorrentHash(t *testing.T) {
 		})
 	}
 }
+
+func TestRecord_SizeBytesNilZeroValue(t *testing.T) {
+	r := Record{}
+	if r.SizeBytes != nil {
+		t.Fatalf("zero-value SizeBytes should be nil, got %v", r.SizeBytes)
+	}
+}
+
+func TestRecord_SizeBytesPointerRoundTrip(t *testing.T) {
+	var b int64 = 13_325_829_734
+	r := Record{SizeBytes: &b}
+	if r.SizeBytes == nil || *r.SizeBytes != b {
+		t.Fatalf("SizeBytes round-trip failed: %v != %d", r.SizeBytes, b)
+	}
+}

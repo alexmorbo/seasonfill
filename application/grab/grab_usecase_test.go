@@ -147,6 +147,10 @@ func (r *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid
 	return map[uuid.UUID][]uuid.UUID{}, nil
 }
 
+func (r *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
+	return nil
+}
+
 type fakeCooldownRepo struct {
 	mu sync.Mutex
 	cs []cooldown.Cooldown
@@ -497,4 +501,29 @@ func TestExecute_Success_PersistFails_BubblesError(t *testing.T) {
 	assert.Equal(t, 1, out.Attempts)
 	// The fakeGrabRepo's Create returned err before appending — no row.
 	assert.Empty(t, gr.recs, "no row was persisted")
+}
+
+func TestExecute_Success_PersistsSizeBytes_FromRelease(t *testing.T) {
+	t.Parallel()
+	sonarr := &fakeSonarrGrab{downloadIDs: []string{"abcdef0123456789abcdef0123456789abcdef01"}}
+	uc, gr, _, _ := newUC(t)
+	in := newInput(sonarr)
+	in.Selected.Release.SizeBytes = 13_325_829_734
+	out := uc.Execute(context.Background(), in)
+	require.NoError(t, out.Err)
+	require.Len(t, gr.recs, 1)
+	require.NotNil(t, gr.recs[0].SizeBytes)
+	require.Equal(t, int64(13_325_829_734), *gr.recs[0].SizeBytes)
+}
+
+func TestExecute_Success_SizeBytesNilWhenReleaseSizeZero(t *testing.T) {
+	t.Parallel()
+	sonarr := &fakeSonarrGrab{downloadIDs: []string{"abcdef0123456789abcdef0123456789abcdef01"}}
+	uc, gr, _, _ := newUC(t)
+	in := newInput(sonarr)
+	in.Selected.Release.SizeBytes = 0
+	out := uc.Execute(context.Background(), in)
+	require.NoError(t, out.Err)
+	require.Len(t, gr.recs, 1)
+	require.Nil(t, gr.recs[0].SizeBytes, "0-byte payload must persist as NULL")
 }

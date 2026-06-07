@@ -106,6 +106,10 @@ func (f *fakeGrabRepo) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid
 	return map[uuid.UUID][]uuid.UUID{}, nil
 }
 
+func (f *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error {
+	return nil
+}
+
 type fakeCooldowns struct {
 	active map[cooldown.Scope]map[string]bool
 }

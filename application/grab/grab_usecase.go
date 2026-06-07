@@ -125,6 +125,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 		Quality:           in.Selected.Release.QualityName,
 		CoverageCount:     in.Coverage,
 		ScanRunID:         in.ScanRunID,
+		SizeBytes:         sizeBytesPtr(in.Selected.Release.SizeBytes),
 		CreatedAt:         u.now(),
 		UpdatedAt:         u.now(),
 	}
@@ -311,3 +312,13 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 // IsGrabFailed reports whether the error from Execute is the wrapped
 // domain.ErrGrabFailed sentinel.
 func IsGrabFailed(err error) bool { return errors.Is(err, domain.ErrGrabFailed) }
+
+// sizeBytesPtr lifts a non-zero int64 size into *int64 for the Record
+// SizeBytes field. Sonarr's releaseDTO.Size is 0 when the indexer
+// omits the value — we persist NULL rather than the misleading "0 B".
+func sizeBytesPtr(b int64) *int64 {
+	if b <= 0 {
+		return nil
+	}
+	return &b
+}
