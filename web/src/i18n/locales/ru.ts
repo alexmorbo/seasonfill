@@ -582,6 +582,13 @@ export const ru: Translations = {
       grabbedAt: 'Захвачено',
       dryRun: 'Был бы захвачен (dry run)',
     },
+    stuck: {
+      title: 'Застряли',
+      subtitle: '— сезоны, по которым ничего не нашлось несколько циклов подряд',
+      dismiss: 'Скрыть',
+      consecutive: '{{count}} циклов подряд',
+      rowAria: 'Открыть историю {{series}} {{season}} ({{count}} циклов)',
+    },
   },
   grabs: {
     title: 'Захваты',

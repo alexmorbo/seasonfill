@@ -573,6 +573,13 @@ export const en = {
       grabbedAt: 'Grabbed at',
       dryRun: 'Would have grabbed (dry run)',
     },
+    stuck: {
+      title: 'Stuck',
+      subtitle: '— seasons we could not find anything for several cycles in a row',
+      dismiss: 'Dismiss',
+      consecutive: '{{count}} cycles in a row',
+      rowAria: 'Open history for {{series}} {{season}} ({{count}} cycles)',
+    },
   },
   grabs: {
     title: 'Grabs',

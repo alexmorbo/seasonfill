@@ -9,10 +9,12 @@ import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useInstances } from '@/lib/instances';
 import {
   useDecisionsList,
+  useStuckSeasons,
   flattenDecisionList,
   applyDecisionsFilters,
   type DecisionsWindow,
   type DecisionsSort,
+  type StuckSeason,
 } from '@/lib/api/decisions';
 import { categoryToBucket } from '@/lib/decisions/reasonCategory';
 import { DecisionsHeader } from '@/components/decisions/DecisionsHeader';
@@ -20,6 +22,7 @@ import {
   DecisionsFiltersBar,
   type CategoryFilter,
 } from '@/components/decisions/DecisionsFiltersBar';
+import { StuckHero } from '@/components/decisions/StuckHero';
 import { DecisionsEmptyState } from '@/components/decisions/DecisionsEmptyState';
 import { DecisionsFirstRunState } from '@/components/decisions/DecisionsFirstRunState';
 import { SkeletonRows } from '@/components/SkeletonRows';
@@ -78,6 +81,17 @@ export function Decisions() {
 
   // Queries
   const listQ  = useDecisionsList({ window });
+  const stuckQ = useStuckSeasons({ window });
+
+  const onOpenSeason = useCallback((s: StuckSeason) => {
+    // 053b's drawer reads `?series=` / `?season=` from the URL. Until
+    // the drawer mounts, the URL params are inert — they only become
+    // meaningful when 053b's slot-swap lands.
+    const next = new URLSearchParams(params);
+    next.set('series', String(s.seriesId));
+    next.set('season', String(s.seasonNumber));
+    setParams(next, { replace: true });
+  }, [params, setParams]);
 
   // Available instances for dropdown (excludes "all" placeholder)
   const availableInstances = useMemo(
@@ -151,7 +165,11 @@ export function Decisions() {
             seriesCount={seriesCount}
           />
 
-          <section data-testid="decisions-stuck-slot" />
+          <StuckHero
+            items={stuckQ.data}
+            isLoading={stuckQ.isPending}
+            onOpenSeason={onOpenSeason}
+          />
 
           <DecisionsFiltersBar
             search={search}

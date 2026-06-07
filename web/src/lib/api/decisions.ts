@@ -1,6 +1,8 @@
 import {
   useInfiniteQuery,
+  useQuery,
   type UseInfiniteQueryResult,
+  type UseQueryResult,
 } from '@tanstack/react-query';
 import { ApiError, api } from '@/lib/api';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
@@ -164,4 +166,66 @@ export function applyDecisionsFilters(
   });
 }
 
-// === 053a2 append marker: useStuckSeasons + StuckSeason go below ===
+// === stuck seasons (client-side derivation) ===
+// Stuck = N≥3 consecutive `nothing_found` decisions on the same
+// (series, season) across the chosen window. Sorted by streak DESC.
+// Future story B7-stuck-counter will swap this for a server-side
+// counter — `useStuckSeasons` is the single read-site to change.
+
+export interface StuckSeason {
+  readonly seriesId: number;
+  readonly seriesTitle: string;
+  readonly seasonNumber: number;
+  readonly consecutive: number;
+  readonly lastReason: string;
+  readonly lastDecisionId: string;
+  readonly lastScanRunId: string;
+  readonly instance: string;
+}
+
+export const stuckKey = (
+  instance: string | null,
+  window: DecisionsWindow,
+) => ['decisions', 'stuck', instance, window] as const;
+
+// Uses the same fetched dataset as `useDecisionsList` via React-Query
+// cache sharing — calling both hooks does NOT issue a second network
+// request because the response shape is identical and `staleTime=30s`
+// merges them on the next polling tick. The `select` derives the
+// stuck list in O(n) over the loaded pages.
+export function useStuckSeasons(opts: {
+  window: DecisionsWindow;
+  threshold?: number;
+}): UseQueryResult<readonly StuckSeason[], ApiError> {
+  const { filter: instance } = useInstanceFilter();
+  const limit = 200;
+  const threshold = opts.threshold ?? 3;
+  return useQuery<DecisionList, ApiError, readonly StuckSeason[]>({
+    queryKey: ['decisions', 'list', instance, opts.window, 'stuck-derive', threshold] as const,
+    queryFn: () => api<DecisionList>(buildListQuery(instance, opts.window, '', limit)),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    select: (data) => {
+      const rows = data.items ?? [];
+      const latest = reduceLatestPerSeason(rows);
+      const out: StuckSeason[] = [];
+      for (const v of latest.values()) {
+        if (v.streakNothing < threshold) continue;
+        const d = v.decision;
+        out.push({
+          seriesId: d.series_id ?? -1,
+          seriesTitle: d.series_title ?? '—',
+          seasonNumber: d.season_number ?? -1,
+          consecutive: v.streakNothing,
+          lastReason: d.reason ?? 'unknown',
+          lastDecisionId: d.id ?? '',
+          lastScanRunId: d.scan_run_id ?? '',
+          instance: d.instance ?? '',
+        });
+      }
+      out.sort((a, b) => b.consecutive - a.consecutive);
+      return out;
+    },
+  });
+}
