@@ -4,6 +4,11 @@ import { toast } from 'sonner';
 import i18n from '@/i18n';
 import { ApiError } from './api';
 import type { components } from '@/api/schema';
+import {
+  qbitSettingsKey,
+  webhookStatusKey,
+  type QbitSettingsUpsertRequest,
+} from '@/api/qbit';
 
 export type InstanceDetail = components['schemas']['dto.InstanceDetail'];
 export type InstanceCreateRequest = components['schemas']['dto.InstanceCreateRequest'];
@@ -213,6 +218,94 @@ export function useTestInstance() {
         return;
       }
       toast.error(i18n.t('toasts.probeFailed', { error: err.message }));
+    },
+  });
+}
+
+export interface SaveWithQbitInput {
+  readonly mode: 'create' | 'edit';
+  readonly name: string | undefined;
+  readonly instanceBody: InstanceCreateRequest | InstanceUpdateRequest;
+  readonly qbitBody?: QbitSettingsUpsertRequest | undefined;
+}
+
+export interface SaveWithQbitResult {
+  readonly detail: InstanceDetail;
+  readonly qbitSaved: boolean;
+  readonly qbitError: ApiError | null;
+}
+
+/**
+ * Combined Save orchestrator (057b1).
+ *
+ * Runs the instance mutation FIRST (POST or PUT), then optionally
+ * runs the qBit settings PUT against the saved instance's name.
+ * Returns a result with both branches so callers can render a
+ * partial-success toast when the instance succeeded but qBit
+ * failed.
+ *
+ * Failure semantics:
+ *   - Instance mutation fails → throws (caller handles + toasts).
+ *   - Instance succeeds, qBit not provided → `{ qbitSaved: false, qbitError: null }`.
+ *   - Both succeed → `{ qbitSaved: true, qbitError: null }`.
+ *   - Instance succeeds, qBit fails → resolved promise with
+ *     `{ qbitSaved: false, qbitError }`. Caller renders partial
+ *     toast. Instance data is already persisted so re-opening the
+ *     dialog will show the new instance.
+ *
+ * Cache invalidations (post-success branch only):
+ *   - `['instances']`        — list refetch
+ *   - `instanceDetailKey(n)` — detail refetch
+ *   - `qbitSettingsKey(n)`   — qbit refetch (whether or not qBit fired)
+ *   - `webhookStatusKey(n)`  — badge refetch
+ */
+export function useSaveInstanceWithQbit() {
+  const qc = useQueryClient();
+  const create = useCreateInstance();
+  const update = useUpdateInstance();
+  // We deliberately do NOT compose useUpsertQbitSettings here because
+  // its name binding is via a closure on `name`, and in create-mode we
+  // only learn the name after POST resolves. Instead we call
+  // `api`-equivalent fetch directly so the orchestrator is `name`-
+  // agnostic until the create resolves. This mirrors the pattern in
+  // 037-oidc-test-orchestrator.
+  return useMutation<SaveWithQbitResult, ApiError, SaveWithQbitInput>({
+    mutationFn: async ({ mode, name, instanceBody, qbitBody }) => {
+      let detail: InstanceDetail;
+      let resolvedName: string;
+      if (mode === 'create') {
+        const out = await create.mutateAsync({ body: instanceBody as InstanceCreateRequest });
+        detail = out.detail;
+        resolvedName = out.detail.name ?? '';
+      } else {
+        if (!name) throw new ApiError(400, 'name required');
+        const out = await update.mutateAsync({ name, body: instanceBody as InstanceUpdateRequest });
+        detail = out.detail;
+        resolvedName = name;
+      }
+
+      let qbitSaved = false;
+      let qbitError: ApiError | null = null;
+      if (qbitBody && resolvedName) {
+        try {
+          await jsonFetch<unknown>(
+            `/api/v1/instances/${encodeURIComponent(resolvedName)}/qbit/settings`,
+            { method: 'PUT', body: JSON.stringify(qbitBody) },
+          );
+          qbitSaved = true;
+        } catch (err) {
+          qbitError = err instanceof ApiError ? err : new ApiError(0, String(err));
+        }
+      }
+
+      qc.invalidateQueries({ queryKey: ['instances'] });
+      if (resolvedName) {
+        qc.invalidateQueries({ queryKey: instanceDetailKey(resolvedName) });
+        qc.invalidateQueries({ queryKey: qbitSettingsKey(resolvedName) });
+        qc.invalidateQueries({ queryKey: webhookStatusKey(resolvedName) });
+      }
+
+      return { detail, qbitSaved, qbitError };
     },
   });
 }

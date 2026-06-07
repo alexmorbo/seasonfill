@@ -53,3 +53,19 @@ export const FORM_DEFAULTS = {
   health_recheck_auth_sec: 300,
   health_recheck_network_sec: 60,
 };
+
+// 057b1: qBittorrent / Watchdog defaults lifted from the old
+// WatchdogTab.tsx. Names are `qbit_`-prefixed so they live in the
+// same RHF FormValues as instance config. Defaults mirror 039d
+// validation bounds.
+export const WATCHDOG_DEFAULTS = {
+  qbit_url: 'http://qbittorrent:8080',
+  qbit_username: '',
+  qbit_password: '',
+  qbit_category: 'sonarr',
+  qbit_poll_interval_minutes: 30,
+  qbit_regrab_cooldown_hours: 120,
+  qbit_max_consecutive_no_better: 3,
+  qbit_custom_unregistered_msgs: [] as string[],
+  qbit_enabled: false,
+} as const;
