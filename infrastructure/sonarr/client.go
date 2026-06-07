@@ -618,18 +618,25 @@ func (c *Client) ForceGrab(ctx context.Context, guid string, indexerID int) (str
 // the existing StatusError wrap chain. Uses the default-timeout HTTP
 // client (NOT httpSearch — /api/v3/parse is a fast string parse, not
 // an indexer-search).
-func (c *Client) ParseRelease(ctx context.Context, title string) (ParseResult, error) {
+func (c *Client) ParseRelease(ctx context.Context, title string) (ports.ParseResult, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return ParseResult{Languages: []string{}}, nil
+		return ports.ParseResult{Languages: []string{}}, nil
 	}
 	q := url.Values{}
 	q.Set("title", title)
 	var dto parseResourceDTO
 	if err := c.get(ctx, "/api/v3/parse", q, &dto); err != nil {
-		return ParseResult{}, err
+		return ports.ParseResult{}, err
 	}
-	return parseResultFromDTO(dto), nil
+	internal := parseResultFromDTO(dto)
+	return ports.ParseResult{
+		Quality:      internal.Quality,
+		Source:       internal.Source,
+		Resolution:   internal.Resolution,
+		Languages:    internal.Languages,
+		ReleaseGroup: internal.ReleaseGroup,
+	}, nil
 }
 
 // isDecodeOnlyError reports whether the error is the JSON-decode wrap

@@ -47,5 +47,8 @@ func (f *fakeSonarrClient) GrabHistory(_ context.Context, _ int) ([]ports.Histor
 func (f *fakeSonarrClient) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (f *fakeSonarrClient) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 
 var _ ports.SonarrClient = (*fakeSonarrClient)(nil)

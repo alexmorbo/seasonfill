@@ -67,6 +67,9 @@ func (s stubSonarrEF) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEven
 func (s stubSonarrEF) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (s stubSonarrEF) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (s stubSonarrEF) Name() string { return "stub" }
 
 func makeInstanceRegistry(inst map[string]scan.Instance) handlers.InstanceRegistry {

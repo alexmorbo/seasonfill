@@ -7,6 +7,19 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
+// ParseResult is the application-layer projection of the Sonarr
+// /api/v3/parse response. Mirrors infrastructure/sonarr.ParseResult
+// shape-for-shape; the adapter converts. Keeping the type here lets
+// application code consume the result without an inbound dependency
+// on infrastructure.
+type ParseResult struct {
+	Quality      string
+	Source       string
+	Resolution   int
+	Languages    []string
+	ReleaseGroup string
+}
+
 type QualityItem struct {
 	ID     int
 	Name   string
@@ -83,5 +96,10 @@ type SonarrClient interface {
 	ListTags(ctx context.Context) ([]Tag, error)
 	GrabHistory(ctx context.Context, seriesID int) ([]HistoryEvent, error)
 	ForceGrab(ctx context.Context, guid string, indexerID int) (string, error)
+	// ParseRelease calls Sonarr /api/v3/parse for the given release
+	// title. Tolerant of un-recognised titles — returns a zero-value
+	// ParseResult and nil error. 4xx/5xx surface as the existing
+	// StatusError shape via the client's `do` chain.
+	ParseRelease(ctx context.Context, title string) (ParseResult, error)
 	Name() string
 }

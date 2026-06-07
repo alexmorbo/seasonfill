@@ -81,6 +81,12 @@ func (s *stubGrabRepo) CountReplaysSince(context.Context, string, time.Time) (in
 	return 0, nil
 }
 func (s *stubGrabRepo) CountReplaysAll(context.Context, string) (int, error) { return 0, nil }
+func (s *stubGrabRepo) ListUnparsedSince(context.Context, time.Time, int) ([]grab.Record, error) {
+	return nil, nil
+}
+func (s *stubGrabRepo) UpdateParsed(context.Context, uuid.UUID, *grab.Parsed, time.Time) error {
+	return nil
+}
 
 func newLoggerDiscard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 

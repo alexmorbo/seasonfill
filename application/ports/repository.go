@@ -150,6 +150,18 @@ type GrabRepository interface {
 	// the regrab audit pointer; this is the cleanest separation).
 	SetReplayOfID(ctx context.Context, id uuid.UUID, replayOfID uuid.UUID) error
 
+	// ListUnparsedSince returns every grab_records row whose parsed_at
+	// IS NULL AND created_at >= since. Newest first. Cap defaults to
+	// 1000 rows — callers should page if they expect more.
+	ListUnparsedSince(ctx context.Context, since time.Time, limit int) ([]grab.Record, error)
+
+	// UpdateParsed writes the parsed_* columns + parsed_at on the row.
+	// Idempotent: re-writing the same payload is harmless. Returns
+	// ErrNotFound on unknown id. A nil parsed argument writes NULLs
+	// (and a non-nil parsedAt) — useful for "parse ran but returned
+	// nothing" records.
+	UpdateParsed(ctx context.Context, id uuid.UUID, parsed *grab.Parsed, parsedAt time.Time) error
+
 	// ListReplaysOf returns the children of each parent id — the
 	// reverse of replay_of_id. Result map key = parent uuid; value =
 	// child grab_records ids that point at that parent. Ordered

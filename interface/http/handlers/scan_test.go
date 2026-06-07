@@ -62,6 +62,9 @@ func (s *stubSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent
 func (s *stubSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (s *stubSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (s *stubSonarr) Name() string { return s.name }
 
 type stubScanRepo struct{}

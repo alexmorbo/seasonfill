@@ -78,6 +78,9 @@ func (f *fakeSonarrGrab) ListTags(_ context.Context) ([]ports.Tag, error)       
 func (f *fakeSonarrGrab) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
+func (f *fakeSonarrGrab) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (f *fakeSonarrGrab) ForceGrab(_ context.Context, guid string, indexerID int) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -168,6 +171,12 @@ func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error)
 
 func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
 	return 0, nil
+}
+func (r *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
+	return nil, nil
+}
+func (r *fakeGrabRepo) UpdateParsed(_ context.Context, _ uuid.UUID, _ *domaingrab.Parsed, _ time.Time) error {
+	return nil
 }
 
 type fakeCooldownRepo struct {

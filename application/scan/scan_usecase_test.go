@@ -99,6 +99,9 @@ func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
+func (f *fakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	f.grabMu.Lock()
 	defer f.grabMu.Unlock()

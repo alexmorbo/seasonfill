@@ -61,6 +61,23 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "grabs" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: seasonfill grabs <reparse> [flags]")
+			os.Exit(2)
+		}
+		switch os.Args[2] {
+		case "reparse":
+			if err := runReparseCLI(context.Background(), os.Args[3:]); err != nil {
+				fmt.Fprintf(os.Stderr, "reparse: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown grabs subcommand: %s\n", os.Args[2])
+			os.Exit(2)
+		}
+	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
@@ -293,6 +310,22 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 			return inst.Config.Cooldown.GUIDAfterFailedImport
 		},
 		Logger: log,
+		SonarrClientFor: func(name string) (ports.SonarrClient, bool) {
+			if h := holder.load(); h != nil {
+				if inst, ok := h[name]; ok && inst.Client != nil {
+					return inst.Client, true
+				}
+			}
+			return nil, false
+		},
+		InstanceFor: func(name string) (runtime.InstanceSnapshot, bool) {
+			if h := holder.load(); h != nil {
+				if inst, ok := h[name]; ok {
+					return inst.Config, true
+				}
+			}
+			return runtime.InstanceSnapshot{}, false
+		},
 	})
 
 	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)

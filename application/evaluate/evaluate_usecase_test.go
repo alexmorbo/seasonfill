@@ -53,6 +53,9 @@ func (s *stubSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { 
 func (s *stubSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
+func (f *stubSonarr) ParseRelease(ctx context.Context, title string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (s *stubSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -556,6 +557,88 @@ func parsedSlice(p *grab.Parsed, pick func(grab.Parsed) []string) []string {
 	out := make([]string, len(v))
 	copy(out, v)
 	return out
+}
+
+// ListUnparsedSince — see ports.GrabRepository.
+func (r *GrabRepository) ListUnparsedSince(ctx context.Context, since time.Time, limit int) ([]grab.Record, error) {
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.GrabRecordModel{}).
+		Where("parsed_at IS NULL").
+		Where("created_at >= ?", since).
+		Order("created_at DESC").
+		Limit(limit)
+	var models []database.GrabRecordModel
+	if err := q.Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("list unparsed grabs: %w", err)
+	}
+	out := make([]grab.Record, 0, len(models))
+	for _, m := range models {
+		rec, convErr := toGrabRecord(m)
+		if convErr != nil {
+			return nil, fmt.Errorf("list unparsed grabs: %w", convErr)
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+// UpdateParsed — see ports.GrabRepository.
+func (r *GrabRepository) UpdateParsed(ctx context.Context, id uuid.UUID, parsed *grab.Parsed, parsedAt time.Time) error {
+	updates := map[string]any{
+		"parsed_at":  parsedAt,
+		"updated_at": time.Now().UTC(),
+	}
+	if parsed != nil {
+		hdrJSON, _ := json.Marshal(parsed.HDRFlags)
+		langJSON, _ := json.Marshal(parsed.Languages)
+		subsJSON, _ := json.Marshal(parsed.Subs)
+		updates["parsed_codec"] = nilIfEmpty(parsed.Codec)
+		updates["parsed_source"] = nilIfEmpty(parsed.Source)
+		updates["parsed_quality"] = nilIfEmpty(parsed.Quality)
+		updates["parsed_resolution"] = nilIfZeroInt(parsed.Resolution)
+		updates["parsed_hdr_flags"] = string(hdrJSON)
+		updates["parsed_dub"] = nilIfEmpty(parsed.Dub)
+		updates["parsed_languages"] = string(langJSON)
+		updates["parsed_subs"] = string(subsJSON)
+		updates["parsed_release_group"] = nilIfEmpty(parsed.ReleaseGroup)
+	} else {
+		updates["parsed_codec"] = nil
+		updates["parsed_source"] = nil
+		updates["parsed_quality"] = nil
+		updates["parsed_resolution"] = nil
+		updates["parsed_hdr_flags"] = "null"
+		updates["parsed_dub"] = nil
+		updates["parsed_languages"] = "null"
+		updates["parsed_subs"] = "null"
+		updates["parsed_release_group"] = nil
+	}
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.GrabRecordModel{}).
+		Where("id = ?", id.String()).
+		Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("update parsed: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nilIfZeroInt(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
 
 // Ensure interface compliance at compile time.

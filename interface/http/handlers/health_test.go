@@ -60,6 +60,9 @@ func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent
 func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (f *fakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (f *fakeSonarr) Name() string { return f.name }
 
 func newChecker(t *testing.T, sonarr ports.SonarrClient, closeDB bool) *healthcheck.Checker {

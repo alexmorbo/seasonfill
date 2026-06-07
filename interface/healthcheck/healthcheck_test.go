@@ -62,6 +62,9 @@ func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent
 func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (f *fakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (f *fakeSonarr) Name() string { return f.name }
 
 func openDB(t *testing.T) *gorm.DB {
@@ -386,6 +389,9 @@ func (s *slowFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryE
 func (s *slowFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (s *slowFakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (s *slowFakeSonarr) Name() string { return s.name }
 
 func TestChecker_Preflight_SingleFlight(t *testing.T) {
@@ -483,6 +489,9 @@ func (s *sleepyFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.Histor
 }
 func (s *sleepyFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
+}
+func (s *sleepyFakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
 }
 func (s *sleepyFakeSonarr) Name() string { return s.name }
 

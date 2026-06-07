@@ -5,13 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/webhook"
+	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
 // GuidCooldownLookup returns the per-instance guid-after-failed-import
@@ -34,6 +40,8 @@ type UseCase struct {
 	guidCooldownLookup GuidCooldownLookup
 	logger             *slog.Logger
 	now                func() time.Time
+	sonarrClientFor    func(name string) (ports.SonarrClient, bool)
+	instanceFor        func(name string) (runtime.InstanceSnapshot, bool)
 }
 
 // Deps groups constructor parameters.
@@ -44,6 +52,13 @@ type Deps struct {
 	Tx                 ports.Transactor
 	GUIDCooldownLookup GuidCooldownLookup
 	Logger             *slog.Logger
+	// SonarrClientFor returns the live Sonarr client for an instance.
+	// Nil-OK: a nil lookup (or one returning ok=false) disables the
+	// 044b parse-on-grab hook silently.
+	SonarrClientFor func(name string) (ports.SonarrClient, bool)
+	// InstanceFor returns the live snapshot for an instance — used to
+	// read ParseOnGrabEnabled. Nil-OK with the same semantics.
+	InstanceFor func(name string) (runtime.InstanceSnapshot, bool)
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
@@ -58,6 +73,14 @@ func New(d Deps) *UseCase {
 	if lookup == nil {
 		lookup = func(string) time.Duration { return 0 }
 	}
+	clientFor := d.SonarrClientFor
+	if clientFor == nil {
+		clientFor = func(string) (ports.SonarrClient, bool) { return nil, false }
+	}
+	instFor := d.InstanceFor
+	if instFor == nil {
+		instFor = func(string) (runtime.InstanceSnapshot, bool) { return runtime.InstanceSnapshot{}, false }
+	}
 	return &UseCase{
 		grabs:              d.Grabs,
 		cooldowns:          d.Cooldowns,
@@ -66,6 +89,8 @@ func New(d Deps) *UseCase {
 		guidCooldownLookup: lookup,
 		logger:             lg,
 		now:                func() time.Time { return time.Now().UTC() },
+		sonarrClientFor:    clientFor,
+		instanceFor:        instFor,
 	}
 }
 
@@ -302,6 +327,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 		}
 	}
 
+	u.runParseOnGrab(ctx, rec.ID, evt)
 	return nil
 }
 
@@ -389,4 +415,76 @@ func webhookSeriesToCacheEntry(evt webhook.Event) series.CacheEntry {
 		entry.IMDBID = &v
 	}
 	return entry
+}
+
+// runParseOnGrab fires Sonarr /api/v3/parse + ExtractExtras for an
+// already-persisted grab record, then writes the result onto the row
+// via UpdateParsed. Failure-isolated by design — any error path logs
+// at WARN and returns; the caller's grab-row persistence is unaffected.
+// Per-instance parse_on_grab_enabled = false short-circuits with metric
+// result=disabled. Idempotent: a row whose Parsed is already populated
+// (re-delivery) is skipped silently.
+func (u *UseCase) runParseOnGrab(ctx context.Context, id uuid.UUID, evt webhook.Event) {
+	snap, ok := u.instanceFor(evt.InstanceName)
+	if !ok {
+		observability.IncParseRelease(evt.InstanceName, "skipped")
+		return
+	}
+	if !snap.ParseOnGrabEnabled {
+		observability.IncParseRelease(evt.InstanceName, "disabled")
+		u.logger.DebugContext(ctx, "webhook_parse_disabled",
+			slog.String("instance", evt.InstanceName))
+		return
+	}
+	client, ok := u.sonarrClientFor(evt.InstanceName)
+	if !ok || client == nil {
+		observability.IncParseRelease(evt.InstanceName, "skipped")
+		return
+	}
+	title := strings.TrimSpace(evt.ReleaseTitle)
+	if title == "" {
+		observability.IncParseRelease(evt.InstanceName, "skipped")
+		return
+	}
+
+	start := time.Now()
+	pr, err := client.ParseRelease(ctx, title)
+	dur := time.Since(start).Seconds()
+	observability.ObserveParseReleaseDuration(evt.InstanceName, dur)
+	if err != nil {
+		observability.IncParseRelease(evt.InstanceName, "error")
+		u.logger.WarnContext(ctx, "webhook_parse_failed",
+			slog.String("instance", evt.InstanceName),
+			slog.String("grab_id", id.String()),
+			slog.String("error", err.Error()))
+		return
+	}
+
+	extras := sonarr.ExtractExtras(title)
+	merged := sonarr.MergeParse(sonarr.ParseResult{
+		Quality:      pr.Quality,
+		Source:       pr.Source,
+		Resolution:   pr.Resolution,
+		Languages:    pr.Languages,
+		ReleaseGroup: pr.ReleaseGroup,
+	}, extras)
+
+	parsedAt := u.now()
+	var payload *grab.Parsed
+	if !merged.IsZero() {
+		payload = &merged
+	}
+	if err := u.grabs.UpdateParsed(ctx, id, payload, parsedAt); err != nil {
+		observability.IncParseRelease(evt.InstanceName, "error")
+		u.logger.WarnContext(ctx, "webhook_parse_persist_failed",
+			slog.String("instance", evt.InstanceName),
+			slog.String("grab_id", id.String()),
+			slog.String("error", err.Error()))
+		return
+	}
+	observability.IncParseRelease(evt.InstanceName, "ok")
+	u.logger.InfoContext(ctx, "webhook_parse_applied",
+		slog.String("instance", evt.InstanceName),
+		slog.String("grab_id", id.String()),
+		slog.Bool("merged_is_zero", merged.IsZero()))
 }

@@ -251,6 +251,35 @@ func (mr *MockGrabRepositoryMockRecorder) UpdateTorrentHash(ctx, id, hash any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTorrentHash", reflect.TypeOf((*MockGrabRepository)(nil).UpdateTorrentHash), ctx, id, hash)
 }
 
+// ListUnparsedSince mocks base method.
+func (m *MockGrabRepository) ListUnparsedSince(ctx context.Context, since time.Time, limit int) ([]grab.Record, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnparsedSince", ctx, since, limit)
+	ret0, _ := ret[0].([]grab.Record)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnparsedSince indicates an expected call of ListUnparsedSince.
+func (mr *MockGrabRepositoryMockRecorder) ListUnparsedSince(ctx, since, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnparsedSince", reflect.TypeOf((*MockGrabRepository)(nil).ListUnparsedSince), ctx, since, limit)
+}
+
+// UpdateParsed mocks base method.
+func (m *MockGrabRepository) UpdateParsed(ctx context.Context, id uuid.UUID, parsed *grab.Parsed, parsedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateParsed", ctx, id, parsed, parsedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateParsed indicates an expected call of UpdateParsed.
+func (mr *MockGrabRepositoryMockRecorder) UpdateParsed(ctx, id, parsed, parsedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateParsed", reflect.TypeOf((*MockGrabRepository)(nil).UpdateParsed), ctx, id, parsed, parsedAt)
+}
+
 // MockCooldownRepository is a mock of CooldownRepository interface.
 type MockCooldownRepository struct {
 	ctrl     *gomock.Controller

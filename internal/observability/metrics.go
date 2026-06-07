@@ -146,6 +146,18 @@ func ObserveWebhookReconcileDuration(instance string, seconds float64) {
 	metrics.GetOrCreateHistogram(`seasonfill_webhook_reconcile_duration_seconds{instance="` + instance + `"}`).Update(seconds)
 }
 
+// IncParseRelease bumps the per-instance, per-result parse counter.
+// result ∈ {"ok","error","skipped","disabled"}.
+func IncParseRelease(instance, result string) {
+	metrics.GetOrCreateCounter(`seasonfill_parse_release_total{instance="` + instance + `",result="` + result + `"}`).Inc()
+}
+
+// ObserveParseReleaseDuration records the wall-clock seconds spent in
+// one parse pass (Sonarr round-trip + ExtractExtras).
+func ObserveParseReleaseDuration(instance string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_parse_release_duration_seconds{instance="` + instance + `"}`).Update(seconds)
+}
+
 func WritePrometheus(w io.Writer) {
 	metrics.WritePrometheus(w, true)
 }

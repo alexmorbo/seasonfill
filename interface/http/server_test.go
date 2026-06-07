@@ -69,6 +69,9 @@ func (n *noopSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent
 func (n *noopSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil
 }
+func (n *noopSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 func (n *noopSonarr) Name() string { return n.name }
 
 type noopScanRepo struct{}
@@ -155,6 +158,12 @@ func (noopGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
 
 func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
 	return 0, nil
+}
+func (noopGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
+	return nil, nil
+}
+func (noopGrabRepo) UpdateParsed(_ context.Context, _ uuid.UUID, _ *grab.Parsed, _ time.Time) error {
+	return nil
 }
 
 type noopWebhookUC struct{}

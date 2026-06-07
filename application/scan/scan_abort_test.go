@@ -156,6 +156,10 @@ func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.History
 	return nil, nil
 }
 
+func (f *abortFakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
+
 // ForceGrab fails on every call so the scan loop accumulates consecutive
 // grab failures and trips the 3-in-a-row threshold.
 func (f *abortFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
@@ -278,6 +282,12 @@ func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, erro
 
 func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
 	return 0, nil
+}
+func (abortFakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
+	return nil, nil
+}
+func (abortFakeGrabRepo) UpdateParsed(_ context.Context, _ uuid.UUID, _ *domaingrab.Parsed, _ time.Time) error {
+	return nil
 }
 
 // abortFakeCooldownRepo lets every guid/series pass.
@@ -488,6 +498,9 @@ func (f *authFailFakeSonarrWrapped) ListIndexers(_ context.Context) ([]ports.Ind
 func (f *authFailFakeSonarrWrapped) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
 func (f *authFailFakeSonarrWrapped) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
 	return nil, nil
+}
+func (f *authFailFakeSonarrWrapped) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
 }
 func (f *authFailFakeSonarrWrapped) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
 	return "", nil

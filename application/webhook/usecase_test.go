@@ -116,6 +116,14 @@ func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ i
 	return 0, nil
 }
 
+func (r *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
+	return nil, nil
+}
+
+func (r *fakeGrabRepo) UpdateParsed(_ context.Context, _ uuid.UUID, _ *grab.Parsed, _ time.Time) error {
+	return nil
+}
+
 type fakeCooldownRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

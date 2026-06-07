@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 )
 
@@ -27,7 +28,7 @@ func TestClient_ParseRelease_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	want := sonarr.ParseResult{
+	want := ports.ParseResult{
 		Quality: "WEBDL-2160p", Source: "webdl", Resolution: 2160,
 		Languages: []string{"Russian", "English"}, ReleaseGroup: "NTb",
 	}

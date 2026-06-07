@@ -139,6 +139,12 @@ func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ string) (int, erro
 func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
 	return 0, nil
 }
+func (f *rescanFakeGrab) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
+	return nil, nil
+}
+func (f *rescanFakeGrab) UpdateParsed(_ context.Context, _ uuid.UUID, _ *grab.Parsed, _ time.Time) error {
+	return nil
+}
 
 type rescanFakeScans struct {
 	mu      sync.Mutex
@@ -235,6 +241,9 @@ func (f *rescanFakeSonarr) ListIndexers(context.Context) ([]ports.Indexer, error
 func (f *rescanFakeSonarr) ListTags(context.Context) ([]ports.Tag, error)         { return nil, nil }
 func (f *rescanFakeSonarr) GrabHistory(context.Context, int) ([]ports.HistoryEvent, error) {
 	return nil, nil
+}
+func (f *rescanFakeSonarr) ParseRelease(context.Context, string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
 }
 func (f *rescanFakeSonarr) ForceGrab(context.Context, string, int) (string, error) { return "DL", nil }
 func (f *rescanFakeSonarr) Name() string                                           { return "alpha" }

@@ -155,6 +155,9 @@ func (fakeSonarr) ListTags(ctx context.Context) ([]ports.Tag, error) {
 func (fakeSonarr) GrabHistory(ctx context.Context, id int) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
+func (fakeSonarr) ParseRelease(ctx context.Context, title string) (ports.ParseResult, error) {
+	return ports.ParseResult{}, nil
+}
 
 func makeUC(t *testing.T, ctrl *gomock.Controller) (
 	*regrab.UseCase,

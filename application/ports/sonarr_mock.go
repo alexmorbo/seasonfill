@@ -56,6 +56,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //			NameFunc: func() string {
 //				panic("mock out the Name method")
 //			},
+//			ParseReleaseFunc: func(ctx context.Context, title string) (ParseResult, error) {
+//				panic("mock out the ParseRelease method")
+//			},
 //			SearchReleasesFunc: func(ctx context.Context, seriesID int, seasonNumber int) ([]release.Release, error) {
 //				panic("mock out the SearchReleases method")
 //			},
@@ -104,6 +107,9 @@ type SonarrClientMock struct {
 
 	// NameFunc mocks the Name method.
 	NameFunc func() string
+
+	// ParseReleaseFunc mocks the ParseRelease method.
+	ParseReleaseFunc func(ctx context.Context, title string) (ParseResult, error)
 
 	// SearchReleasesFunc mocks the SearchReleases method.
 	SearchReleasesFunc func(ctx context.Context, seriesID int, seasonNumber int) ([]release.Release, error)
@@ -193,6 +199,13 @@ type SonarrClientMock struct {
 		// Name holds details about calls to the Name method.
 		Name []struct {
 		}
+		// ParseRelease holds details about calls to the ParseRelease method.
+		ParseRelease []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Title is the title argument value.
+			Title string
+		}
 		// SearchReleases holds details about calls to the SearchReleases method.
 		SearchReleases []struct {
 			// Ctx is the ctx argument value.
@@ -220,6 +233,7 @@ type SonarrClientMock struct {
 	lockListSeriesCache          sync.RWMutex
 	lockListTags                 sync.RWMutex
 	lockName                     sync.RWMutex
+	lockParseRelease             sync.RWMutex
 	lockSearchReleases           sync.RWMutex
 	lockSystemStatus             sync.RWMutex
 }
@@ -644,6 +658,42 @@ func (mock *SonarrClientMock) NameCalls() []struct {
 	mock.lockName.RLock()
 	calls = mock.calls.Name
 	mock.lockName.RUnlock()
+	return calls
+}
+
+// ParseRelease calls ParseReleaseFunc.
+func (mock *SonarrClientMock) ParseRelease(ctx context.Context, title string) (ParseResult, error) {
+	if mock.ParseReleaseFunc == nil {
+		panic("SonarrClientMock.ParseReleaseFunc: method is nil but SonarrClient.ParseRelease was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Title string
+	}{
+		Ctx:   ctx,
+		Title: title,
+	}
+	mock.lockParseRelease.Lock()
+	mock.calls.ParseRelease = append(mock.calls.ParseRelease, callInfo)
+	mock.lockParseRelease.Unlock()
+	return mock.ParseReleaseFunc(ctx, title)
+}
+
+// ParseReleaseCalls gets all the calls that were made to ParseRelease.
+// Check the length with:
+//
+//	len(mockedSonarrClient.ParseReleaseCalls())
+func (mock *SonarrClientMock) ParseReleaseCalls() []struct {
+	Ctx   context.Context
+	Title string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Title string
+	}
+	mock.lockParseRelease.RLock()
+	calls = mock.calls.ParseRelease
+	mock.lockParseRelease.RUnlock()
 	return calls
 }
 
