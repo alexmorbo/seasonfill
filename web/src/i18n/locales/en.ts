@@ -39,6 +39,8 @@ export const en = {
     testing: 'Testing…',
     checkingSession: 'checking session…',
     loadMore: 'Show more',
+    on: 'on',
+    off: 'off',
   },
   net: {
     reconnected: 'Reconnected',
@@ -512,6 +514,16 @@ export const en = {
     linkedColUpdated: 'Updated',
     linkedColAttempts: 'Attempts',
     openGrabAria: 'Open grab {{title}}',
+    titleShort: 'Scan',
+    resultFilterLabel: 'Result',
+    chip: {
+      dryRun: 'dry-run: {{state}}',
+      seriesScanned: '{{count}} series scanned',
+      candidates: '{{count}} candidates',
+      grabs: '{{count}} grabs',
+      grabsFailed: '{{count}} failed',
+      errors: '{{count}} errors',
+    },
   },
   seriesGroup: {
     seasonCount_one: '{{count}} season',

@@ -41,6 +41,8 @@ export const ru: Translations = {
     testing: 'Проверяем…',
     checkingSession: 'проверяем сессию…',
     loadMore: 'Показать ещё',
+    on: 'вкл',
+    off: 'выкл',
   },
   net: {
     reconnected: 'Соединение восстановлено',
@@ -521,6 +523,16 @@ export const ru: Translations = {
     linkedColUpdated: 'Обновлён',
     linkedColAttempts: 'Попытки',
     openGrabAria: 'Открыть захват {{title}}',
+    titleShort: 'Скан',
+    resultFilterLabel: 'Результат',
+    chip: {
+      dryRun: 'dry-run: {{state}}',
+      seriesScanned: '{{count}} серий просканировано',
+      candidates: '{{count}} кандидатов',
+      grabs: '{{count}} грабов',
+      grabsFailed: '{{count}} с ошибкой',
+      errors: '{{count}} ошибок',
+    },
   },
   seriesGroup: {
     seasonCount_one: '{{count}} сезон',
