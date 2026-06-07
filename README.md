@@ -15,9 +15,9 @@ operator override.
 
 > **Русская версия:** [README.ru.md](README.ru.md).
 
-> **Project status: alpha.** Breaking
-> changes (config schema, chart values shape, DB columns) are likely
-> until `v1.0`. Pin image tags in production.
+> **Project status: beta.** Public API stable (config, CLI, REST endpoints, DB
+> schema). Image tags pinned in production. Chart version tracks app version
+> for compatibility (currently 0.6.2).
 
 ## Quickstart
 
