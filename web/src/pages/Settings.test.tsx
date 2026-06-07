@@ -69,12 +69,12 @@ describe('<Settings />', () => {
     await waitFor(() => expect(screen.getByText(/session ttl/i)).toBeVisible());
   });
 
-  it('switches to Integrations tab on click (placeholder for now)', async () => {
+  it('switches to Integrations tab on click', async () => {
     setHash('');
     renderWithProviders(<Settings />, { route: '/settings' });
     await userEvent.click(screen.getByRole('tab', { name: /integrations|интеграции/i }));
     await waitFor(() =>
-      expect(screen.getByTestId('integrations-tab-placeholder')).toBeVisible(),
+      expect(screen.getByTestId('integrations-tab')).toBeVisible(),
     );
   });
 
@@ -82,7 +82,7 @@ describe('<Settings />', () => {
     setHash('#integrations');
     renderWithProviders(<Settings />, { route: '/settings#integrations' });
     await waitFor(() =>
-      expect(screen.getByTestId('integrations-tab-placeholder')).toBeVisible(),
+      expect(screen.getByTestId('integrations-tab')).toBeVisible(),
     );
   });
 
@@ -92,5 +92,14 @@ describe('<Settings />', () => {
     await waitFor(() => {
       expect(navigateSpy).toHaveBeenCalledWith('/instances', { replace: true });
     });
+  });
+
+  it('Integrations tab renders the webhook health aggregate panel', async () => {
+    setHash('');
+    renderWithProviders(<Settings />, { route: '/settings' });
+    await userEvent.click(screen.getByRole('tab', { name: /integrations|интеграции/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('integrations-tab')).toBeVisible(),
+    );
   });
 });

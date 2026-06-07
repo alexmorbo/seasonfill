@@ -1139,6 +1139,33 @@ export const en = {
         },
       },
     },
+    integrations: {
+      webhooks: {
+        section: 'Webhook health',
+        subtitle: 'Per-instance Sonarr → Connect → Webhook reconciler status.',
+        installed: 'installed',
+        error: 'error',
+        missing: 'missing',
+        reinstall: 'Reinstall',
+        reinstallOk: 'Reinstalled webhook for {{name}}',
+        reinstallErr: 'Reinstall failed for {{name}}: {{err}}',
+        loadFailed: 'Failed to load webhook aggregate',
+        noInstances: 'No instances configured.',
+        noInstancesLink: 'Add one in Instances',
+      },
+      qbit: {
+        section: 'qBittorrent defaults',
+        subtitle: 'Defaults applied to new watchdog instances.',
+        category: 'Category',
+        pollInterval: 'Poll interval',
+        regrabCooldown: 'Regrab cooldown',
+        maxNoBetter: 'Max consecutive "no better"',
+        perInstanceNote: 'Currently configured per-instance only. Global defaults will land in a follow-up release.',
+        deepLinkPrefix: 'Edit per-instance values under ',
+        deepLinkLabel: 'Instances → Watchdog',
+        deepLinkSuffix: '.',
+      },
+    },
   },
   reasons: {
     // grab outcomes
