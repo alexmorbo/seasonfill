@@ -1176,5 +1176,27 @@ export const ru: Translations = {
     },
     toggleSuccess: 'Watchdog {{state}}',
     toggleFailed: 'Не удалось переключить Watchdog: {{error}}',
+    blacklist: {
+      title: 'Blacklist',
+      subtitle: 'серии, которые вотчдог перестал перебирать',
+      col: {
+        series: 'Сериал',
+        season: 'Сезон',
+        reason: 'Причина',
+        when: 'Когда',
+        action: 'Действие',
+      },
+      reason: {
+        manual: 'manual',
+        auto: 'auto · no better {{n}}/{{max}}',
+      },
+      unblacklistAction: 'Un-blacklist',
+      unblacklistConfirm: 'Убрать «{{series}} · S{{season}}» из blacklist?',
+      unblacklistConfirmBody:
+        'Watchdog снова начнёт пробовать перегружать эту серию.',
+      unblacklistDone: '{{series}} · S{{season}} убран из blacklist',
+      unblacklistFailed: 'Не удалось убрать из blacklist: {{error}}',
+      empty: 'Blacklist пуст',
+    },
   },
 };

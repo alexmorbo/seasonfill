@@ -3,6 +3,7 @@ import { useWatchdogRollups } from '@/lib/api/watchdogRollups';
 import { WatchdogAggregateStrip } from '@/components/watchdog/WatchdogAggregateStrip';
 import { WatchdogActivityFeed } from '@/components/watchdog/WatchdogActivityFeed';
 import { WatchdogInstancePanel } from '@/components/watchdog/WatchdogInstancePanel';
+import { WatchdogBlacklistTable } from '@/components/watchdog/WatchdogBlacklistTable';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export function Watchdog() {
@@ -53,10 +54,17 @@ export function Watchdog() {
         </div>
       </div>
 
-      {/* 052b replaces this slot with <WatchdogBlacklistTable /> */}
-      <section data-testid="watchdog-blacklist-slot">
-        <Skeleton className="h-[180px] w-full" />
-      </section>
+      <div className="flex flex-col gap-3.5" data-testid="watchdog-blacklist-slot">
+        {items
+          .filter((r) => r.enabled)
+          .map((r) => (
+            <WatchdogBlacklistTable
+              key={r.instance}
+              instance={r.instance}
+              maxNoBetter={r.max_no_better}
+            />
+          ))}
+      </div>
     </div>
   );
 }

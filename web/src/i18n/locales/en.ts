@@ -1174,6 +1174,28 @@ export const en = {
     },
     toggleSuccess: 'Watchdog {{state}}',
     toggleFailed: 'Failed to toggle Watchdog: {{error}}',
+    blacklist: {
+      title: 'Blacklist',
+      subtitle: 'series Watchdog stopped retrying',
+      col: {
+        series: 'Series',
+        season: 'Season',
+        reason: 'Reason',
+        when: 'When',
+        action: 'Action',
+      },
+      reason: {
+        manual: 'manual',
+        auto: 'auto · no better {{n}}/{{max}}',
+      },
+      unblacklistAction: 'Un-blacklist',
+      unblacklistConfirm: 'Remove «{{series}} · S{{season}}» from blacklist?',
+      unblacklistConfirmBody:
+        'Watchdog will start trying to re-grab this season again.',
+      unblacklistDone: '{{series}} · S{{season}} removed from blacklist',
+      unblacklistFailed: 'Failed to remove from blacklist: {{error}}',
+      empty: 'Blacklist is empty',
+    },
   },
 };
 
