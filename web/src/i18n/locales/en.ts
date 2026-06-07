@@ -1160,7 +1160,15 @@ export const en = {
           webhookOverridePlaceholder: 'http://seasonfill:8080',
           webhookOverrideHelp: 'For in-cluster routing. Leave empty to use the public URL.',
         },
-        // === 057a3 append marker: sections.* / tuning.* / header.* / watchdog placeholder goes below ===
+        // === 057a3 added ===
+        tuning: {
+          tagsIncludeLabel: 'Tags include',
+          tagsIncludePlaceholder: 'e.g. 4k, anime',
+          tagsExcludeLabel: 'Tags exclude',
+          tagsExcludePlaceholder: '—',
+          advancedHeading: 'Advanced',
+        },
+        // === 057a4 append marker: sections.* / header.* / watchdog placeholder + save-failed strings go below ===
       },
     },
     integrations: {
