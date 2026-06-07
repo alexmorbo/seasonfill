@@ -1198,5 +1198,20 @@ export const ru: Translations = {
       unblacklistFailed: 'Не удалось убрать из blacklist: {{error}}',
       empty: 'Blacklist пуст',
     },
+    notConfigured: {
+      title: 'Watchdog не настроен',
+      body:
+        'Watchdog следит за qBittorrent и перехватывает торренты, снятые трекером с раздачи (unregistered) — запускает re-grab за живой альтернативой. Нужен доступ к qBittorrent и установленный webhook.',
+      step1: 'Установите webhook в Sonarr',
+      step1Desc: 'Watchdog опирается на события OnGrab / OnImport.',
+      step2: 'Подключите qBittorrent',
+      step2Desc: 'URL + логин · можно подтянуть из Sonarr.',
+      step3: 'Задайте пороги',
+      step3Desc: 'Poll-интервал, cooldown, max «no better».',
+      cta: {
+        openInstanceForm: 'Открыть форму инстанса',
+        openInstances: 'К списку инстансов',
+      },
+    },
   },
 };

@@ -4,6 +4,7 @@ import { WatchdogAggregateStrip } from '@/components/watchdog/WatchdogAggregateS
 import { WatchdogActivityFeed } from '@/components/watchdog/WatchdogActivityFeed';
 import { WatchdogInstancePanel } from '@/components/watchdog/WatchdogInstancePanel';
 import { WatchdogBlacklistTable } from '@/components/watchdog/WatchdogBlacklistTable';
+import { WatchdogNotConfiguredEmpty } from '@/components/watchdog/WatchdogNotConfiguredEmpty';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export function Watchdog() {
@@ -18,53 +19,66 @@ export function Watchdog() {
   const primary =
     items.find((r) => r.active) ?? items[0] ?? null;
 
+  const aggregate = rollups.data;
+  const showEmpty =
+    !rollups.isLoading &&
+    Boolean(aggregate) &&
+    (aggregate!.total_count === 0 ||
+      (aggregate!.active_count === 0 && aggregate!.total_count > 0));
+
   return (
     <div className="px-6 pb-10 pt-5" data-testid="watchdog-page">
       <h1 className="mb-4 text-[20px] font-semibold">
         {t('watchdog.title')}
       </h1>
 
-      <WatchdogAggregateStrip
-        rollups={rollups.data}
-        isLoading={rollups.isLoading}
-      />
+      {showEmpty ? (
+        <WatchdogNotConfiguredEmpty />
+      ) : (
+        <>
+          <WatchdogAggregateStrip
+            rollups={rollups.data}
+            isLoading={rollups.isLoading}
+          />
 
-      <div
-        className="mb-5 grid gap-5 items-start [grid-template-columns:1fr_320px] max-[1080px]:[grid-template-columns:1fr]"
-        data-testid="watchdog-grid"
-      >
-        <div>
-          {primary ? (
-            <WatchdogActivityFeed
-              instance={primary.instance}
-              maxNoBetter={primary.max_no_better}
-            />
-          ) : (
-            <Skeleton className="h-[400px] w-full" />
-          )}
-        </div>
-        <div className="flex flex-col gap-3.5">
-          {rollups.isLoading
-            ? Array.from({ length: 2 }).map((_, i) => (
-                <Skeleton key={i} className="h-[220px] w-full" />
-              ))
-            : items.map((r) => (
-                <WatchdogInstancePanel key={r.instance} rollup={r} />
+          <div
+            className="mb-5 grid gap-5 items-start [grid-template-columns:1fr_320px] max-[1080px]:[grid-template-columns:1fr]"
+            data-testid="watchdog-grid"
+          >
+            <div>
+              {primary ? (
+                <WatchdogActivityFeed
+                  instance={primary.instance}
+                  maxNoBetter={primary.max_no_better}
+                />
+              ) : (
+                <Skeleton className="h-[400px] w-full" />
+              )}
+            </div>
+            <div className="flex flex-col gap-3.5">
+              {rollups.isLoading
+                ? Array.from({ length: 2 }).map((_, i) => (
+                    <Skeleton key={i} className="h-[220px] w-full" />
+                  ))
+                : items.map((r) => (
+                    <WatchdogInstancePanel key={r.instance} rollup={r} />
+                  ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3.5" data-testid="watchdog-blacklist-slot">
+            {items
+              .filter((r) => r.enabled)
+              .map((r) => (
+                <WatchdogBlacklistTable
+                  key={r.instance}
+                  instance={r.instance}
+                  maxNoBetter={r.max_no_better}
+                />
               ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3.5" data-testid="watchdog-blacklist-slot">
-        {items
-          .filter((r) => r.enabled)
-          .map((r) => (
-            <WatchdogBlacklistTable
-              key={r.instance}
-              instance={r.instance}
-              maxNoBetter={r.max_no_better}
-            />
-          ))}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

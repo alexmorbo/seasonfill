@@ -1196,6 +1196,21 @@ export const en = {
       unblacklistFailed: 'Failed to remove from blacklist: {{error}}',
       empty: 'Blacklist is empty',
     },
+    notConfigured: {
+      title: 'Watchdog not configured',
+      body:
+        'Watchdog watches qBittorrent and intercepts torrents the tracker pulled (unregistered) — kicks off a re-grab for a live alternative. Needs qBittorrent access and an installed webhook.',
+      step1: 'Install the Sonarr webhook',
+      step1Desc: 'Watchdog reacts to OnGrab / OnImport events.',
+      step2: 'Connect qBittorrent',
+      step2Desc: 'URL + credentials · can be auto-detected from Sonarr.',
+      step3: 'Set thresholds',
+      step3Desc: 'Poll interval, cooldown, max «no better».',
+      cta: {
+        openInstanceForm: 'Open instance form',
+        openInstances: 'To instances list',
+      },
+    },
   },
 };
 
