@@ -654,6 +654,32 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		var liveOriginFetched bool
 
 		for _, season := range seasons {
+			// 046b pre-filter: short-circuit complete + sonarr_handles
+			// seasons BEFORE any Sonarr call (cooldown, ListEpisodes,
+			// SearchReleases). Saves two Sonarr round-trips per skipped
+			// season. Synthetic Decision row keeps the audit trail intact.
+			prefilterStats := series.SeasonStatsFromStatistics(season.Statistics)
+			if reason, skip := u.decidePrefilter(prefilterStats, inst); skip {
+				if _, err := u.evaluator.RecordSkip(ctx, evaluate.Input{
+					ScanRunID: scanID,
+					Instance:  inst.Config.Name,
+					Series:    s,
+					Season:    season,
+					DryRun:    dryRun,
+					Now:       time.Now().UTC(),
+				}, reason, prefilterStats); err != nil {
+					u.logger.WarnContext(ctx, "prefilter_record_skip_failed",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("series_id", s.ID),
+						slog.Int("season_number", season.Number),
+						slog.String("reason", string(reason)),
+						slog.String("error", err.Error()))
+				}
+				observability.IncScanSkipped(inst.Config.Name, prefilterReasonLabel(reason))
+				observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+				continue
+			}
+
 			if u.cooldowns != nil {
 				skey := cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number)
 				if seriesCooldownActive[skey] {
@@ -1088,6 +1114,42 @@ func dominantIndexer(history []ports.HistoryEvent) string {
 		}
 	}
 	return best
+}
+
+// prefilterReasonLabel is the metric-label form of a pre-filter Reason.
+// Grafana dashboards key on `reason="all_complete"` not
+// `reason="skip_all_complete"` — see PRD §3 B4 wording.
+func prefilterReasonLabel(r decision.Reason) string {
+	switch r {
+	case decision.ReasonAllComplete:
+		return "all_complete"
+	case decision.ReasonSonarrHandles:
+		return "sonarr_handles"
+	default:
+		return string(r)
+	}
+}
+
+// decidePrefilter inspects per-season Statistics and returns a skip
+// Reason when the season can be short-circuited without calling Sonarr.
+// Rules — PRD §3 B4 acceptance #3-4:
+//
+//   - stats.IsComplete()                    → (ReasonAllComplete, true)   UNCONDITIONAL
+//   - flag && stats.HasNoLocal()            → (ReasonSonarrHandles, true) flag-gated
+//   - otherwise                             → ("", false)
+//
+// `all_complete` is NOT flag-gated: a season with no missing episodes
+// has nothing for seasonfill, and the legacy evaluator would skip it
+// one Sonarr call later anyway. Honouring `false` here would only burn
+// quota without changing the outcome.
+func (u *UseCase) decidePrefilter(stats series.SeasonStats, inst Instance) (decision.Reason, bool) {
+	if stats.IsComplete() {
+		return decision.ReasonAllComplete, true
+	}
+	if inst.Config.ScanSkipHandledSeasons && stats.HasNoLocal() {
+		return decision.ReasonSonarrHandles, true
+	}
+	return "", false
 }
 
 // flushSeriesScannedIfDue commits pending series_scanned delta when it

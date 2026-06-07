@@ -26,6 +26,13 @@ const (
 	MetricWebhookProcessingFailures       = `seasonfill_webhook_processing_failures_total`
 	MetricWebhookReconcileTotal           = `seasonfill_webhook_reconcile_total`
 	MetricWebhookReconcileDurationSeconds = `seasonfill_webhook_reconcile_duration_seconds`
+	// 046b — scan pre-filter counter. Emitted once per skipped season
+	// inside scan_usecase.processScan when the pre-filter short-circuits
+	// the per-season SearchReleases / ListEpisodes round-trips. Labels:
+	// `instance` (per-instance), `reason` ∈ {all_complete, sonarr_handles}.
+	// reason matches the CATEGORY name (not the typed Reason string) so
+	// Grafana queries align with PRD §3 B4 wording.
+	MetricScanSkippedSeasonsTotal = `seasonfill_scan_skipped_seasons_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -156,6 +163,14 @@ func IncParseRelease(instance, result string) {
 // one parse pass (Sonarr round-trip + ExtractExtras).
 func ObserveParseReleaseDuration(instance string, seconds float64) {
 	metrics.GetOrCreateHistogram(`seasonfill_parse_release_duration_seconds{instance="` + instance + `"}`).Update(seconds)
+}
+
+// IncScanSkipped bumps the 046b pre-filter counter. `reason` must be
+// one of {"all_complete", "sonarr_handles"} — the call site (scan_usecase)
+// is the only producer and uses the same string literals to populate
+// the synthetic Decision row's category.
+func IncScanSkipped(instance, reason string) {
+	metrics.GetOrCreateCounter(`seasonfill_scan_skipped_seasons_total{instance="` + instance + `",reason="` + reason + `"}`).Inc()
 }
 
 func WritePrometheus(w io.Writer) {

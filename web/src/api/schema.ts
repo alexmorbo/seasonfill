@@ -2916,6 +2916,15 @@ export type components = {
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
             readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            /**
+             * @description ScanSkipHandledSeasons — pointer so omitted is distinguishable
+             *     from explicit false. Omitted/null defaults to true (matches the
+             *     046b migration default). Concrete false disables the scan
+             *     pre-filter for this instance, forcing every monitored season through
+             *     the full evaluator.
+             * @example true
+             */
+            readonly scan_skip_handled_seasons?: boolean;
             readonly search?: components["schemas"]["dto.InstanceSearch"];
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
@@ -2968,6 +2977,15 @@ export type components = {
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
             readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            /**
+             * @description ScanSkipHandledSeasons toggles the 046b scan pre-filter. Always
+             *     emitted as a concrete bool; defaults to true on fresh rows. When
+             *     true, scans skip seasons that Sonarr already handles (complete OR
+             *     nothing-on-disk-and-aired). When false, every monitored season
+             *     goes through the full evaluator (regression guard).
+             * @example true
+             */
+            readonly scan_skip_handled_seasons?: boolean;
             readonly search?: components["schemas"]["dto.InstanceSearch"];
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
@@ -3070,6 +3088,15 @@ export type components = {
             readonly rate_limit_burst?: number;
             readonly rate_limit_rpm?: number;
             readonly retry?: components["schemas"]["dto.InstanceRetry"];
+            /**
+             * @description ScanSkipHandledSeasons — pointer so omitted is distinguishable
+             *     from explicit false. Omitted/null defaults to true (matches the
+             *     046b migration default). Concrete false disables the scan
+             *     pre-filter for this instance, forcing every monitored season through
+             *     the full evaluator.
+             * @example true
+             */
+            readonly scan_skip_handled_seasons?: boolean;
             readonly search?: components["schemas"]["dto.InstanceSearch"];
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];

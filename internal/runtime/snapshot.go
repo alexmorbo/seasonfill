@@ -140,6 +140,13 @@ type InstanceSnapshot struct {
 	// ParseOnGrabEnabled toggles 044b's OnGrab → /api/v3/parse hook.
 	// Defaults to true on every existing row (migration default).
 	ParseOnGrabEnabled bool
+	// ScanSkipHandledSeasons toggles 046b's pre-filter that short-circuits
+	// seasons Sonarr already handles (complete OR zero-on-disk). True on
+	// every existing row (migration 000017 default). The `all_complete`
+	// branch runs regardless (no-op safety net); only `sonarr_handles`
+	// is flag-gated — flip false when investigating why seasonfill
+	// isn't picking up a seemingly-orphaned season.
+	ScanSkipHandledSeasons bool
 }
 
 // UIURL returns the URL the browser should link to (D64). If PublicURL
@@ -278,6 +285,17 @@ func ApplyInstanceDefaults(inst *InstanceSnapshot) {
 	}
 	if inst.Mode == "" {
 		inst.Mode = "auto"
+	}
+	// 046b: no nil-pointer story (ScanSkipHandledSeasons is a concrete
+	// bool); the migration DEFAULT TRUE handles every existing row. This
+	// branch covers freshly-constructed snapshots (registry reload, test
+	// fixtures) so a zero-value struct still gets the production default.
+	// Callers building from a request go through requestToSnapshot which
+	// collapses the *bool with scanSkipHandledSeasonsOrDefault BEFORE
+	// reaching ApplyInstanceDefaults — so we never accidentally undo an
+	// explicit `false` from an API client.
+	if !inst.ScanSkipHandledSeasons {
+		inst.ScanSkipHandledSeasons = true
 	}
 }
 

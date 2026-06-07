@@ -711,7 +711,16 @@ func TestScan_SeriesCooldown_Skips(t *testing.T) {
 		name: "main",
 		series: []series.Series{
 			{ID: 122, Title: "Hijack", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
-				Seasons: []series.Season{{Number: 2, Monitored: true}}},
+				Seasons: []series.Season{{
+					Number:    2,
+					Monitored: true,
+					Statistics: series.Statistics{
+						EpisodeCount:     10,
+						EpisodeFileCount: 8,
+						Total:            10,
+						Aired:            10,
+					},
+				}}},
 		},
 	}
 	decRepo := &fakeDecRepo{}

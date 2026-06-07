@@ -311,3 +311,38 @@ func maxAlt(total int) int {
 	}
 	return total - 1
 }
+
+// RecordSkip persists a synthetic skip Decision built from the supplied
+// SeasonStats — used by the 046b scan pre-filter to short-circuit a
+// season without calling SearchReleases / ListEpisodes. The Decision
+// carries the stats snapshot on TotalEpisodes/AiredEpisodes/ExistingEpisodes
+// (and GrabbedEpisodes fetched lazily by finalize, just like Execute).
+//
+// reason MUST be a skip-class Reason (e.g. decision.ReasonAllComplete or
+// decision.ReasonSonarrHandles); callers that violate this still get a
+// Decision row but its Category will resolve to something other than
+// all_complete / sonarr_handles, which is harmless but defeats the F7
+// UI grouping.
+//
+// Input must carry ScanRunID + Instance + Series + Season; everything
+// else is optional. PreferredDecisionID is honoured the same way Execute
+// does (no current 046b caller uses it, but the symmetry keeps the API
+// predictable for future supersede-aware code paths).
+func (u *UseCase) RecordSkip(ctx context.Context, in Input, reason decision.Reason, stats series.SeasonStats) (decision.Decision, error) {
+	d := decision.New(in.ScanRunID, in.Instance, in.Series.Title, in.Series.ID, in.Season.Number)
+	if in.PreferredDecisionID != nil {
+		d.ID = *in.PreferredDecisionID
+	}
+	d.Outcome = decision.OutcomeSkip
+	d.Reason = reason
+	d.TotalEpisodes = stats.Total
+	d.AiredEpisodes = stats.Aired
+	d.ExistingEpisodes = stats.Existing
+	// MissingCount mirrors the partial-pack count so the legacy field
+	// stays consistent with the new ExistingEpisodes field — UI consumers
+	// that still read MissingCount get a non-zero figure for sonarr_handles
+	// rows. ExistingCount stays at 0 because the per-episode `have` slice
+	// isn't computed on the pre-filter path (no ListEpisodes call).
+	d.MissingCount = stats.Missing()
+	return u.finalize(ctx, d, in)
+}

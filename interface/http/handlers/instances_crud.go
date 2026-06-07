@@ -293,10 +293,11 @@ func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {
 			RecheckAuth:    time.Duration(r.HealthCheck.RecheckAuthSec) * time.Second,
 			RecheckNetwork: time.Duration(r.HealthCheck.RecheckNetworkSec) * time.Second,
 		},
-		PublicURL:             r.PublicURL,
-		WebhookInstallEnabled: webhookInstallEnabledOrDefault(r.WebhookInstallEnabled),
-		WebhookURLOverride:    r.WebhookURLOverride,
-		ParseOnGrabEnabled:    parseOnGrabEnabledOrDefault(r.ParseOnGrabEnabled),
+		PublicURL:              r.PublicURL,
+		WebhookInstallEnabled:  webhookInstallEnabledOrDefault(r.WebhookInstallEnabled),
+		WebhookURLOverride:     r.WebhookURLOverride,
+		ParseOnGrabEnabled:     parseOnGrabEnabledOrDefault(r.ParseOnGrabEnabled),
+		ScanSkipHandledSeasons: scanSkipHandledSeasonsOrDefault(r.ScanSkipHandledSeasons),
 	}
 }
 
@@ -317,6 +318,18 @@ func webhookInstallEnabledOrDefault(p *bool) bool {
 // match the 044a migration default. Concrete false disables 044b's
 // parse-on-OnGrab hook for this instance.
 func parseOnGrabEnabledOrDefault(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
+}
+
+// scanSkipHandledSeasonsOrDefault collapses the request pointer to a
+// concrete snapshot bool. Nil (JSON key omitted) defaults to true to
+// match the 046b migration default. Concrete false disables the scan
+// pre-filter for this instance, forcing every monitored season through
+// the full evaluator.
+func scanSkipHandledSeasonsOrDefault(p *bool) bool {
 	if p == nil {
 		return true
 	}
@@ -362,11 +375,12 @@ func snapshotToDetailDTO(s runtime.InstanceSnapshot, ts time.Time) dto.InstanceD
 			RecheckAuthSec:    int(s.HealthCheck.RecheckAuth / time.Second),
 			RecheckNetworkSec: int(s.HealthCheck.RecheckNetwork / time.Second),
 		},
-		PublicURL:             s.PublicURL,
-		WebhookInstallEnabled: s.WebhookInstallEnabled,
-		WebhookURLOverride:    s.WebhookURLOverride,
-		ParseOnGrabEnabled:    s.ParseOnGrabEnabled,
-		UIURL:                 s.UIURL(),
-		UpdatedAt:             ts.UTC(),
+		PublicURL:              s.PublicURL,
+		WebhookInstallEnabled:  s.WebhookInstallEnabled,
+		WebhookURLOverride:     s.WebhookURLOverride,
+		ParseOnGrabEnabled:     s.ParseOnGrabEnabled,
+		ScanSkipHandledSeasons: s.ScanSkipHandledSeasons,
+		UIURL:                  s.UIURL(),
+		UpdatedAt:              ts.UTC(),
 	}
 }

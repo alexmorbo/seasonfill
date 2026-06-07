@@ -45,6 +45,13 @@ var reasonCategory = map[decision.Reason]Category{
 	decision.ReasonErrorFetchEpisodeFiles:    CategoryError,
 	decision.ReasonErrorFetchQualityProfile:  CategoryError,
 	decision.ReasonFilterUnknownSeries:       CategoryError,
+	// 046b — pre-filter routes already mapped above for the legacy
+	// reasons (ReasonSkipNoMissing → CategoryAllComplete; ReasonSkipFullMissing
+	// → CategorySonarrHandles). The new 046b reasons emit explicit category
+	// strings so the F7 Decisions UI can distinguish pre-filter skips from
+	// evaluator-level skips without keying on the reason string.
+	decision.ReasonAllComplete:   CategoryAllComplete,
+	decision.ReasonSonarrHandles: CategorySonarrHandles,
 }
 
 // Classify maps a raw reason to a UI category. Empty input or unmapped

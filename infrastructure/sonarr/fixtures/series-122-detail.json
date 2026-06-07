@@ -28,7 +28,7 @@
   "qualityProfileId": 14,
   "seasons": [
     {"seasonNumber": 0, "monitored": false},
-    {"seasonNumber": 1, "monitored": true},
-    {"seasonNumber": 2, "monitored": true}
+    {"seasonNumber": 1, "monitored": true, "statistics": {"totalEpisodeCount": 7, "airedEpisodeCount": 7, "episodeFileCount": 7, "episodeCount": 7, "sizeOnDisk": 0}},
+    {"seasonNumber": 2, "monitored": true, "statistics": {"totalEpisodeCount": 8, "airedEpisodeCount": 8, "episodeFileCount": 3, "episodeCount": 8, "sizeOnDisk": 0}}
   ]
 }

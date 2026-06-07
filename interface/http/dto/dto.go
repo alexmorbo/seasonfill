@@ -335,6 +335,12 @@ type InstanceDetail struct {
 	// ParseOnGrabEnabled toggles the 044b parse-on-OnGrab hook. Always
 	// emitted as a concrete bool; defaults to true on fresh rows.
 	ParseOnGrabEnabled bool `json:"parse_on_grab_enabled" example:"true"`
+	// ScanSkipHandledSeasons toggles the 046b scan pre-filter. Always
+	// emitted as a concrete bool; defaults to true on fresh rows. When
+	// true, scans skip seasons that Sonarr already handles (complete OR
+	// nothing-on-disk-and-aired). When false, every monitored season
+	// goes through the full evaluator (regression guard).
+	ScanSkipHandledSeasons bool `json:"scan_skip_handled_seasons" example:"true"`
 	// UIURL is the derived browser-facing URL the SPA links to. Equals
 	// PublicURL when set, otherwise URL. Always emitted as a non-empty
 	// string so the SPA never has to compute the fallback itself.
@@ -420,6 +426,12 @@ type InstanceCreateRequest struct {
 	// ParseOnGrabEnabled — pointer so omitted is distinguishable from
 	// explicit false. Omitted/null defaults to true.
 	ParseOnGrabEnabled *bool `json:"parse_on_grab_enabled,omitempty" example:"true"`
+	// ScanSkipHandledSeasons — pointer so omitted is distinguishable
+	// from explicit false. Omitted/null defaults to true (matches the
+	// 046b migration default). Concrete false disables the scan
+	// pre-filter for this instance, forcing every monitored season through
+	// the full evaluator.
+	ScanSkipHandledSeasons *bool `json:"scan_skip_handled_seasons,omitempty" example:"true"`
 }
 
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.

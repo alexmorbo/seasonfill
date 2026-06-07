@@ -26,4 +26,11 @@ const (
 	ReasonFilterCFScoreBelowMin     Reason = "custom_format_score_below_minimum"
 	ReasonFilterAirDateNotReady     Reason = "release_partial_and_require_all_aired"
 	ReasonFilterGUIDCooldown        Reason = "release_in_guid_cooldown"
+	// 046b — pre-filter skip reasons. Emitted by scan_usecase BEFORE the
+	// evaluator runs, so the Decision row carries only the season-stats
+	// snapshot (no candidates, no selected release). Operators inspecting
+	// "why didn't S05 grab?" see these on the F7 Decisions page and the
+	// category classifier groups them under `all_complete` / `sonarr_handles`.
+	ReasonAllComplete   Reason = "skip_all_complete"
+	ReasonSonarrHandles Reason = "skip_sonarr_handles"
 )

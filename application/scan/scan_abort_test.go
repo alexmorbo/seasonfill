@@ -80,7 +80,12 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 			Title:          "S",
 			Monitored:      true,
 			QualityProfile: 14,
-			Seasons:        []series.Season{{Number: 1, Monitored: true}},
+			Seasons: []series.Season{{
+				Number:    1,
+				Monitored: true,
+				// 046b pre-filter: Aired=3, EpisodeFileCount=1 → Missing=2 → not complete
+				Statistics: series.Statistics{Total: 3, Aired: 3, EpisodeFileCount: 1},
+			}},
 		})
 	}
 	return out, nil

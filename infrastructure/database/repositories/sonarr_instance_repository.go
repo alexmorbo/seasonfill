@@ -333,10 +333,11 @@ func modelToSnapshot(m database.SonarrInstanceModel, secretBlob []byte, c *crypt
 			RecheckAuth:    time.Duration(m.HealthCheckRecheckAuthSec) * time.Second,
 			RecheckNetwork: time.Duration(m.HealthCheckRecheckNetSec) * time.Second,
 		},
-		PublicURL:             m.PublicURL,
-		WebhookInstallEnabled: m.WebhookInstallEnabled,
-		WebhookURLOverride:    m.WebhookURLOverride,
-		ParseOnGrabEnabled:    m.ParseOnGrabEnabled,
+		PublicURL:              m.PublicURL,
+		WebhookInstallEnabled:  m.WebhookInstallEnabled,
+		WebhookURLOverride:     m.WebhookURLOverride,
+		ParseOnGrabEnabled:     m.ParseOnGrabEnabled,
+		ScanSkipHandledSeasons: m.ScanSkipHandledSeasons,
 	}, nil
 }
 
@@ -378,6 +379,7 @@ func snapshotToModel(s runtime.InstanceSnapshot) database.SonarrInstanceModel {
 		WebhookInstallEnabled:         s.WebhookInstallEnabled,
 		WebhookURLOverride:            s.WebhookURLOverride,
 		ParseOnGrabEnabled:            s.ParseOnGrabEnabled,
+		ScanSkipHandledSeasons:        s.ScanSkipHandledSeasons,
 	}
 }
 

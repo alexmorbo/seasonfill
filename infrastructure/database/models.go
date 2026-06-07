@@ -240,8 +240,13 @@ type SonarrInstanceModel struct {
 	// pre-B2 row keeps the new behaviour. Set FALSE per instance to
 	// disable parse calls on a flaky Sonarr.
 	ParseOnGrabEnabled bool `gorm:"column:parse_on_grab_enabled;not null;default:true"`
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// ScanSkipHandledSeasons toggles the 046b scan pre-filter. Defaults
+	// to TRUE on every existing row (migration 000017 default). Turn
+	// FALSE when an operator wants the full evaluator path to run for
+	// every monitored season (regression guard / debugging).
+	ScanSkipHandledSeasons bool `gorm:"column:scan_skip_handled_seasons;not null;default:true"`
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 func (SonarrInstanceModel) TableName() string { return "sonarr_instance" }
