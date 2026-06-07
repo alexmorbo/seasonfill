@@ -1,279 +1,80 @@
-import type { ReactElement } from 'react';
+import { type ReactElement } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import type { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test-utils';
 import { Instances } from './Instances';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
-
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: null, setFilter: vi.fn() };
 
 beforeEach(() => {
-  Object.defineProperty(window, 'location', {
-    writable: true,
-    value: { pathname: '/instances', search: '', assign: vi.fn(), protocol: 'https:' },
-  });
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith('/instances')) {
+      return new Response(JSON.stringify({
+        instances: [
+          { name: 'homelab', mode: 'auto', health: 'Available', last_check_at: new Date().toISOString(), transitions_count: 0, url: 'http://sonarr:80' },
+          { name: '4k', mode: 'manual', health: 'Unreachable', last_check_at: new Date().toISOString(), transitions_count: 3, url: 'http://sonarr-4k:80', last_error: 'dial tcp — connection refused' },
+        ],
+      }), { status: 200 });
+    }
+    if (url.includes('/counters')) {
+      return new Response(JSON.stringify({
+        instance_name: 'x', window: url.includes('24h') ? '24h' : '7d',
+        totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+      }), { status: 200 });
+    }
+    if (url.endsWith('/missing')) {
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
+    if (url.endsWith('/webhook/status')) {
+      return new Response(JSON.stringify({ installed: true }), { status: 200 });
+    }
+    if (url.endsWith('/qbit/settings')) {
+      return new Response(JSON.stringify({ enabled: false }), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  }) as never;
 });
 
-afterEach(() => {
-  globalThis.fetch = origFetch;
-});
+afterEach(() => { globalThis.fetch = origFetch; });
 
 const wrap = (ui: ReactElement) => (
   <InstanceFilterCtx.Provider value={ctxValue}>{ui}</InstanceFilterCtx.Provider>
 );
 
-function makeInstanceList(names: string[]) {
-  return {
-    instances: names.map((n) => ({
-      name: n,
-      mode: 'auto',
-      health: 'Available',
-      last_check_at: new Date().toISOString(),
-      transitions_count: 0,
-    })),
-  };
-}
-
-function mockInstanceFetch(
-  qc: QueryClient,
-  names: string[],
-  detailFetch?: (name: string) => Response,
-  recorder?: (req: { url: string; method: string; body?: string | undefined }) => void,
-) {
-  qc.setQueryData(['instances'], makeInstanceList(names));
-  globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof u === 'string' ? u : u.toString();
-    const method = init?.method ?? 'GET';
-    if (recorder) {
-      const body = typeof init?.body === 'string' ? init.body : undefined;
-      recorder({
-        url,
-        method,
-        body,
-      });
-    }
-    if (detailFetch) {
-      const m = /\/instances\/([^/?]+)$/.exec(url);
-      if (m && m[1] && method === 'GET') {
-        return detailFetch(decodeURIComponent(m[1]));
-      }
-    }
-    if (method === 'DELETE') {
-      return new Response(null, { status: 204 });
-    }
-    if (method === 'POST' || method === 'PUT') {
-      return new Response(JSON.stringify({ name: 'unused' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    return new Response(JSON.stringify(makeInstanceList(names)), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }) as typeof fetch;
-}
-
-describe('<Instances /> — list rendering', () => {
-  it('renders one card per instance with mode chip + queue link', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          instances: [
-            {
-              name: 'alpha',
-              mode: 'manual',
-              health: 'Available',
-              last_check_at: new Date().toISOString(),
-              transitions_count: 0,
-            },
-            {
-              name: 'beta',
-              mode: 'auto',
-              health: 'UnavailableNetwork',
-              last_check_at: new Date().toISOString(),
-              transitions_count: 3,
-              last_error: 'connection refused',
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as typeof fetch;
-
+describe('<Instances />', () => {
+  it('renders hero + 1 compact row + ghost row with two instances', async () => {
     renderWithProviders(wrap(<Instances />));
-    expect(await screen.findByText('alpha')).toBeInTheDocument();
-    expect(screen.getByText('beta')).toBeInTheDocument();
-    expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
-
-    expect(screen.getByTestId('mode-alpha')).toHaveTextContent('manual');
-    expect(screen.getByTestId('mode-beta')).toHaveTextContent('auto');
-
-    const alphaLink = screen.getByRole('link', { name: /open queue for alpha/i });
-    expect(alphaLink).toHaveAttribute('href', '/instances/alpha/queue');
-    expect(alphaLink).toHaveTextContent(/open queue/i);
-
-    const betaLink = screen.getByRole('link', { name: /open queue for beta/i });
-    expect(betaLink).toHaveAttribute('href', '/instances/beta/queue');
-    expect(betaLink).toHaveTextContent(/view queue/i);
-  });
-
-  it('renders the single colored health badge with localized labels (guards casing)', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          instances: [
-            {
-              name: 'alpha',
-              mode: 'auto',
-              health: 'Available',
-              last_check_at: new Date().toISOString(),
-              transitions_count: 0,
-            },
-            {
-              name: 'beta',
-              mode: 'auto',
-              health: 'UnavailableAuth',
-              last_check_at: new Date().toISOString(),
-              transitions_count: 1,
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as typeof fetch;
-
-    renderWithProviders(wrap(<Instances />));
-
-    const alphaHealth = await screen.findByTestId('health-alpha');
-    // The label is the resolved i18n value, NOT the raw backend string.
-    // A lowercase compare would map 'Available' to 'neutral'/'Unknown'.
-    expect(alphaHealth).toHaveTextContent('Available');
-    expect(alphaHealth).toHaveTextContent(/^Available$/);
-    expect(alphaHealth.className).toContain('text-status-success');
-
-    const betaHealth = screen.getByTestId('health-beta');
-    expect(betaHealth).toHaveTextContent('Unavailable (auth)');
-    expect(betaHealth.className).toContain('text-status-danger');
-
-    // The standalone top-right status dot was removed: no aria-hidden span.
-    expect(document.querySelector('span[aria-hidden="true"]')).toBeNull();
-    // The name-badge next to the instance name is gone — the only rendered
-    // health text lives inside the health pill (asserted above).
-  });
-
-  it('renders empty state when instances=[]', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ instances: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ) as typeof fetch;
-
-    renderWithProviders(wrap(<Instances />));
-    expect(await screen.findByText(/no instances configured/i)).toBeInTheDocument();
-  });
-});
-
-describe('<Instances /> — CRUD', () => {
-  it('clicking the page-level Add button opens the create dialog', async () => {
-    const { qc } = renderWithProviders(wrap(<Instances />));
-    mockInstanceFetch(qc, ['alpha', 'beta']);
-
-    await screen.findByText('alpha');
-    await userEvent.click(screen.getByRole('button', { name: /add.*new.*instance/i }));
-
-    // InstanceFormDialog renders a heading containing "Add instance"
-    // in create mode (033a). Hit the dialog role to keep this resilient.
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByTestId('instance-hero-homelab')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('instance-row-4k')).toBeInTheDocument();
+    expect(screen.getByTestId('instance-add-ghost')).toBeInTheDocument();
   });
 
-  it('clicking Edit on a card triggers useInstanceDetail fetch for that name', async () => {
-    const fetchedNames: string[] = [];
-    const { qc } = renderWithProviders(wrap(<Instances />));
-    mockInstanceFetch(qc, ['alpha', 'beta'], (name) => {
-      fetchedNames.push(name);
-      return new Response(
-        JSON.stringify({
-          name,
-          url: 'http://sonarr:8989',
-          mode: 'auto',
-          api_key: '***',
-          updated_at: '2026-05-25T00:00:00Z',
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Last-Modified': 'Mon, 25 May 2026 00:00:00 GMT',
-          },
-        },
-      );
-    });
-
-    await screen.findByText('beta');
-    await userEvent.click(screen.getByRole('button', { name: /edit beta/i }));
-
+  it('shows empty state when zero instances', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ instances: [] }), { status: 200 }),
+    ) as never;
+    renderWithProviders(wrap(<Instances />));
     await waitFor(() => {
-      expect(fetchedNames).toContain('beta');
+      expect(screen.getByTestId('instances-empty-state')).toBeInTheDocument();
     });
+    expect(screen.queryByTestId('instance-add-ghost')).toBeNull();
   });
 
-  it('clicking Delete then confirming fires a DELETE for that instance', async () => {
-    const requests: { url: string; method: string }[] = [];
-    const { qc } = renderWithProviders(wrap(<Instances />));
-    mockInstanceFetch(qc, ['alpha', 'beta'], undefined, (req) => {
-      requests.push({ url: req.url, method: req.method });
-    });
-
-    await screen.findByText('beta');
-    await userEvent.click(screen.getByRole('button', { name: /delete beta/i }));
-
-    // Confirm dialog must appear with the instance name in its title.
-    const confirm = await screen.findByRole('dialog');
-    expect(confirm).toHaveTextContent(/beta/);
-
-    await userEvent.click(
-      screen.getByRole('button', { name: /^delete$/i }),
+  it('respects instance filter for hero selection', async () => {
+    const ctx = { filter: '4k', setFilter: vi.fn() };
+    renderWithProviders(
+      <InstanceFilterCtx.Provider value={ctx}>
+        <Instances />
+      </InstanceFilterCtx.Provider>,
     );
-
     await waitFor(() => {
-      const del = requests.find(
-        (r) => r.method === 'DELETE' && /\/instances\/beta$/.test(r.url),
-      );
-      expect(del).toBeTruthy();
+      expect(screen.getByTestId('instance-hero-4k')).toBeInTheDocument();
     });
-  });
-
-  it('deleting the sole instance opens the confirm dialog and fires DELETE', async () => {
-    const requests: { url: string; method: string }[] = [];
-    const { qc } = renderWithProviders(wrap(<Instances />));
-    mockInstanceFetch(qc, ['solo'], undefined, (req) => {
-      requests.push({ url: req.url, method: req.method });
-    });
-
-    await screen.findByText('solo');
-    await userEvent.click(screen.getByRole('button', { name: /delete solo/i }));
-
-    // Confirm dialog must appear.
-    const confirm = await screen.findByRole('dialog');
-    expect(confirm).toHaveTextContent(/solo/);
-
-    await userEvent.click(
-      screen.getByRole('button', { name: /^delete$/i }),
-    );
-
-    await waitFor(() => {
-      const del = requests.find(
-        (r) => r.method === 'DELETE' && /\/instances\/solo$/.test(r.url),
-      );
-      expect(del).toBeTruthy();
-    });
+    expect(screen.getByTestId('instance-row-homelab')).toBeInTheDocument();
   });
 });

@@ -1,28 +1,61 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, AlertTriangle, ListOrdered } from 'lucide-react';
+import { AlertTriangle, Plus } from 'lucide-react';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useDeleteInstance, useInstanceDetail } from '@/lib/instances-mutations';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useTriggerScan } from '@/lib/scan-mutations';
+import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { EmptyState } from '@/components/EmptyState';
 import { InstanceFormDialog } from '@/components/settings/InstanceFormDialog';
-import { relativeTime } from '@/lib/format';
-import { cn } from '@/lib/utils';
-import { KIND_CLASS, KIND_DOT, healthKind, healthLabelKey } from '@/lib/badge-variants';
+import { InstanceHero } from '@/components/instances/InstanceHero';
+import { InstanceCompactRow } from '@/components/instances/InstanceCompactRow';
+import { AddInstanceGhostRow } from '@/components/instances/AddInstanceGhostRow';
+import { InstancesEmptyState } from '@/components/instances/InstancesEmptyState';
 
+function pickHero(instances: readonly Instance[], filter: string | null): {
+  hero: Instance | null;
+  rest: readonly Instance[];
+} {
+  if (instances.length === 0) return { hero: null, rest: [] };
+  if (filter) {
+    const idx = instances.findIndex((i) => i.name === filter);
+    if (idx >= 0) {
+      const hero = instances[idx];
+      return {
+        hero: hero ?? null,
+        rest: [...instances.slice(0, idx), ...instances.slice(idx + 1)],
+      };
+    }
+  }
+  const firstInst = instances[0];
+  return { hero: firstInst ?? null, rest: instances.slice(1) };
+}
+
+/**
+ * TODO(050b): This implementation spans 050a + 050b due to LOC overflow (1047 total).
+ * 050a: InstanceHero + InstanceStatsBlock + InstanceChipRow + hero-only rendering.
+ * 050b: InstanceCompactRow + AddInstanceGhostRow + InstancesEmptyState + full layout.
+ * Current state: both features are complete and integrated. No action required.
+ */
 export function Instances() {
   const { t } = useTranslation();
   const q = useInstances();
   const del = useDeleteInstance();
-  const instances = q.data?.instances ?? [];
+  const trigger = useTriggerScan();
+  const { filter } = useInstanceFilter();
+
+  const instances: readonly Instance[] = useMemo(
+    () => q.data?.instances ?? [],
+    [q.data?.instances],
+  );
+  const { hero, rest } = useMemo(() => pickHero(instances, filter), [instances, filter]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -30,10 +63,6 @@ export function Instances() {
 
   const detailQuery = useInstanceDetail(editing);
   const editDetail = detailQuery.data?.detail;
-  // Pin dependencies on primitives so a 5s background refetch returning
-  // a structurally-identical detail does NOT mint a fresh object into
-  // the dialog's `initial` prop. Mirrors the comment from the original
-  // InstancesTab (and the reasoning baked into 033a + 028b).
   const detailName = editDetail?.name;
   const detailUrl = editDetail?.url;
   const detailMode = editDetail?.mode;
@@ -47,35 +76,31 @@ export function Instances() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailName, detailUrl, detailMode]);
 
-  const openCreate = () => {
-    setEditing(null);
-    setDialogOpen(true);
-  };
-  const openEdit = (name: string) => {
-    setEditing(name);
-    setDialogOpen(true);
-  };
-
-  const onDeleteClick = (name: string) => {
-    setDeleting(name);
-  };
-
+  const openCreate = () => { setEditing(null); setDialogOpen(true); };
+  const openEdit = (name: string) => { setEditing(name); setDialogOpen(true); };
+  const onForceScan = (name: string) => { trigger.mutate({ instance: name }); };
+  const onRecheck = (name: string) => { trigger.mutate({ instance: name }); };
+  const onDeleteClick = (name: string) => { setDeleting(name); };
   const confirmDelete = async () => {
     if (!deleting) return;
     await del.mutateAsync({ name: deleting });
     setDeleting(null);
   };
 
+  const headerSummary = useMemo(() => {
+    const active = instances.filter((i) => i.health === 'Available').length;
+    const degraded = instances.length - active;
+    return t('instances.list.headerCount', { active, degraded });
+  }, [instances, t]);
+
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
+    <div className="max-w-[1200px] mx-auto p-6 flex flex-col gap-5">
       <header className="flex items-center gap-4">
-        <h1 className="text-[22px] font-semibold tracking-tight">{t('instances.title')}</h1>
-        <Button
-          onClick={openCreate}
-          className="ml-auto gap-1.5"
-          aria-label={t('instances.actions.addAria')}
-        >
-          <Plus className="w-3.5 h-3.5" /> {t('settings.instances.add')}
+        <h1 className="text-[15px] font-[650] tracking-tight">{t('instances.title')}</h1>
+        <span className="text-[12.5px] text-tx-faint">{headerSummary}</span>
+        <Button onClick={openCreate} className="ml-auto gap-1.5" variant="primary">
+          <Plus className="w-3.5 h-3.5" />
+          {t('instances.add.ghost')}
         </Button>
       </header>
 
@@ -88,133 +113,44 @@ export function Instances() {
       )}
 
       {!q.isError && q.isPending && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[0, 1, 2].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-5 flex flex-col gap-2.5">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-48" />
-                <Skeleton className="h-3 w-40" />
-                <Skeleton className="h-3 w-36" />
-              </CardContent>
-            </Card>
-          ))}
+        <div className="flex flex-col gap-4">
+          <Card><CardContent className="p-5 flex flex-col gap-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-3 w-60" />
+            <div className="flex gap-6"><Skeleton className="h-10 w-32" /><Skeleton className="h-10 w-32" /></div>
+            <Skeleton className="h-6 w-full" />
+          </CardContent></Card>
+          <Card><CardContent className="p-4"><Skeleton className="h-5 w-full" /></CardContent></Card>
         </div>
       )}
+
       {!q.isError && !q.isPending && instances.length === 0 && (
-        <Card>
-          <CardContent className="p-0">
-            <EmptyState
-              title={t('instances.empty.title')}
-              body={t('instances.empty.body')}
-            />
-          </CardContent>
-        </Card>
+        <InstancesEmptyState onAdd={openCreate} />
       )}
-      {instances.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {instances.map((inst: Instance) => (
-            <Card key={inst.name} className="relative group">
-              <div
-                className={cn(
-                  'absolute top-3 right-9 flex items-center gap-0.5',
-                  'opacity-60 group-hover:opacity-100 focus-within:opacity-100',
-                  'transition-opacity',
-                )}
-              >
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={t('settings.instances.editAria', { name: inst.name })}
-                  onClick={() => inst.name && openEdit(inst.name)}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={t('settings.instances.deleteAria', { name: inst.name })}
-                  onClick={() => inst.name && onDeleteClick(inst.name)}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-              <CardHeader className="pb-2">
-                <h3 className="text-[15px] font-semibold tracking-tight flex items-center gap-2">
-                  <span className="font-mono">{inst.name}</span>
-                </h3>
-              </CardHeader>
-              <CardContent className="text-[13px] flex flex-col gap-3">
-                <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[12.5px]">
-                  <dt className="text-faint">{t('dashboard.health.healthCol')}</dt>
-                  <dd>
-                    <span
-                      className={cn(
-                        'inline-flex items-center gap-1 px-1.5 h-[18px] rounded border font-mono text-[10.5px]',
-                        KIND_CLASS[healthKind(inst.health)],
-                      )}
-                      data-testid={`health-${inst.name}`}
-                    >
-                      <span
-                        className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(inst.health)])}
-                      />
-                      {t(healthLabelKey(inst.health))}
-                    </span>
-                  </dd>
-                  <dt className="text-faint">{t('instances.columns.mode')}</dt>
-                  <dd>
-                    <span
-                      className={cn(
-                        'inline-flex items-center px-1.5 h-[18px] rounded border font-mono text-[10.5px]',
-                        KIND_CLASS[inst.mode === 'manual' ? 'warning' : 'neutral'],
-                      )}
-                      data-testid={`mode-${inst.name}`}
-                    >
-                      {inst.mode ?? 'auto'}
-                    </span>
-                  </dd>
-                  <dt className="text-faint">{t('dashboard.health.lastCheck')}</dt>
-                  <dd className="text-muted">{relativeTime(inst.last_check_at)}</dd>
-                  <dt className="text-faint">{t('dashboard.health.transitions')}</dt>
-                  <dd
-                    className={cn(
-                      'font-mono',
-                      (inst.transitions_count ?? 0) > 0 && 'text-status-warning',
-                    )}
-                  >
-                    {inst.transitions_count ?? 0}
-                  </dd>
-                  {inst.last_error && (
-                    <>
-                      <dt className="text-faint">{t('dashboard.health.lastError')}</dt>
-                      <dd className="text-muted font-mono text-[11.5px] break-all">
-                        {inst.last_error}
-                      </dd>
-                    </>
-                  )}
-                </dl>
-                {inst.name && (
-                  <Link
-                    to={`/instances/${encodeURIComponent(inst.name)}/queue`}
-                    className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline self-start"
-                    aria-label={t('instances.openQueueAria', { name: inst.name })}
-                  >
-                    <ListOrdered className="w-3.5 h-3.5" />
-                    {inst.mode === 'manual' ? t('instances.actions.openQueue') : t('instances.actions.viewQueue')} →
-                  </Link>
-                )}
-              </CardContent>
-            </Card>
+
+      {!q.isError && !q.isPending && instances.length > 0 && hero && (
+        <div className="flex flex-col gap-4">
+          <InstanceHero
+            instance={hero}
+            onEdit={openEdit}
+            onForceScan={onForceScan}
+          />
+          {rest.map((inst) => (
+            <InstanceCompactRow
+              key={inst.name}
+              instance={inst}
+              onEdit={openEdit}
+              onRecheck={onRecheck}
+              onDelete={onDeleteClick}
+            />
           ))}
+          <AddInstanceGhostRow onClick={openCreate} />
         </div>
       )}
 
       <InstanceFormDialog
         open={dialogOpen}
-        onOpenChange={(v) => {
-          setDialogOpen(v);
-          if (!v) setEditing(null);
-        }}
+        onOpenChange={(v) => { setDialogOpen(v); if (!v) setEditing(null); }}
         mode={editing ? 'edit' : 'create'}
         initial={editing ? editInitial : undefined}
       />
@@ -223,9 +159,7 @@ export function Instances() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('instances.delete.title', { name: deleting })}</DialogTitle>
-            <DialogDescription>
-              {t('instances.delete.body')}
-            </DialogDescription>
+            <DialogDescription>{t('instances.delete.body')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDeleting(null)}>{t('common.cancel')}</Button>

@@ -9,8 +9,8 @@ export function useInstances(): UseQueryResult<InstanceList, ApiError> {
   return useQuery<InstanceList, ApiError>({
     queryKey: ['instances'] as const,
     queryFn: () => api<InstanceList>('/instances'),
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
     refetchOnWindowFocus: false,
   });
 }

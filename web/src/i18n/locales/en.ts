@@ -264,11 +264,6 @@ export const en = {
       newInstance: 'New instance',
       addAria: 'Add a new Sonarr instance',
     },
-    empty: {
-      title: 'No instances configured',
-      body: 'Add a Sonarr instance using the Add button above to start scanning.',
-      cta: 'Add instance',
-    },
     deleteConfirm: {
       title: 'Delete instance?',
       body: 'This will remove "{{name}}" from Seasonfill. The Sonarr server itself is not affected.',
@@ -281,6 +276,61 @@ export const en = {
     queueTitle: 'Queue — {{name}}',
     queueEmpty: 'Queue is empty.',
     unknownInstance: 'Unknown instance.',
+    list: {
+      headerCount: '{{active}} active · {{degraded}} unreachable',
+    },
+    hero: {
+      subline: 'dry-run {{dryRun}} · {{url}} · last check {{lastCheck}}',
+      dryRun: { off: 'off', on: 'on' },
+      lastCheck: 'last check {{when}}',
+      stats: {
+        '24h': { label: 'grab / imp / fail · 24h' },
+        '7d': { label: 'grab / imp / fail · 7d' },
+      },
+      sparkline: {
+        label: 'grabs · 7 days',
+        aria: 'Grab sparkline for {{instance}} over 7 days',
+      },
+      actions: { edit: 'Edit', forceScan: 'Force scan', openSonarr: 'Sonarr' },
+      chips: {
+        missing_one: '{{count}} missing episode',
+        missing_few: '{{count}} missing episodes',
+        missing_other: '{{count}} missing episodes',
+        missingAria: 'Open queue of {{count}} missing episodes',
+        watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
+        regrabPerWeek: '{{count}} re-grab / wk',
+        blacklist: '{{count}} blacklist',
+        webhook: { ok: 'webhook ok', error: 'webhook error' },
+      },
+    },
+    compact: {
+      windowSuffix: '7d',
+      actions: { recheck: 'Re-check', more: 'More' },
+      degradation: {
+        flips_one: '{{count}} flip',
+        flips_few: '{{count}} flips',
+        flips_other: '{{count}} flips',
+        lastError: '{{error}}',
+      },
+    },
+    add: { ghost: '+ Add instance' },
+    empty: {
+      title: 'No instances configured yet',
+      body: 'Connect a Sonarr server so Seasonfill can monitor missing episodes and back-fill incomplete season packs. Typical setup is 1–3 instances (homelab + 4k).',
+      step1: {
+        title: 'Connect Sonarr',
+        body: 'URL + API key — we verify the connection immediately.',
+      },
+      step2: {
+        title: 'Install webhook',
+        body: 'Seasonfill registers itself in Sonarr Connect automatically.',
+      },
+      step3: {
+        title: 'Configure qBittorrent / Watchdog',
+        body: 'Optional — to catch removed releases.',
+      },
+      cta: { addInstance: 'Add instance', howItWorks: 'How it works' },
+    },
   },
   scans: {
     title: 'Scans',

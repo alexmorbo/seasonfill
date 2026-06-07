@@ -266,11 +266,6 @@ export const ru: Translations = {
       newInstance: 'Новый инстанс',
       addAria: 'Добавить новый инстанс Sonarr',
     },
-    empty: {
-      title: 'Инстансы не настроены',
-      body: 'Добавьте инстанс Sonarr кнопкой «Добавить» выше, чтобы начать сканировать.',
-      cta: 'Добавить инстанс',
-    },
     deleteConfirm: {
       title: 'Удалить инстанс?',
       body: 'Это уберёт «{{name}}» из Seasonfill. Сам сервер Sonarr не пострадает.',
@@ -283,6 +278,68 @@ export const ru: Translations = {
     queueTitle: 'Очередь — {{name}}',
     queueEmpty: 'Очередь пуста.',
     unknownInstance: 'Неизвестный инстанс.',
+    list: {
+      headerCount: '{{active}} активен · {{degraded}} недоступен',
+    },
+    hero: {
+      subline: 'dry-run {{dryRun}} · {{url}} · последняя проверка {{lastCheck}}',
+      dryRun: { off: 'off', on: 'on' },
+      lastCheck: 'последняя проверка {{when}}',
+      stats: {
+        '24h': { label: 'граб / имп / фейл · 24ч' },
+        '7d': { label: 'граб / имп / фейл · 7д' },
+      },
+      sparkline: {
+        label: 'грабы · 7 дней',
+        aria: 'Ssparkline грабов {{instance}} за 7 дней',
+      },
+      actions: {
+        edit: 'Edit',
+        forceScan: 'Force scan',
+        openSonarr: 'Sonarr',
+      },
+      chips: {
+        missing_one: '{{count}} эпизод missing',
+        missing_few: '{{count}} эпизода missing',
+        missing_other: '{{count}} эпизодов missing',
+        missingAria: 'Открыть очередь {{count}} пропущенных эпизодов',
+        watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
+        regrabPerWeek: '{{count}} re-grab / нед',
+        blacklist: '{{count}} blacklist',
+        webhook: { ok: 'webhook ок', error: 'webhook ошибка' },
+      },
+    },
+    compact: {
+      windowSuffix: '7д',
+      actions: { recheck: 'Проверить', more: 'Ещё' },
+      degradation: {
+        flips_one: '{{count}} flip',
+        flips_few: '{{count}} flips',
+        flips_other: '{{count}} flips',
+        lastError: '{{error}}',
+      },
+    },
+    add: { ghost: '+ Добавить инстанс' },
+    empty: {
+      title: 'Пока нет ни одного инстанса',
+      body: 'Подключите Sonarr-сервер, чтобы Seasonfill начал следить за пропущенными эпизодами и докачивать неполные паки. Обычно это 1–3 инстанса (homelab + 4k).',
+      step1: {
+        title: 'Подключить Sonarr',
+        body: 'URL + API-ключ — проверим связь сразу.',
+      },
+      step2: {
+        title: 'Установить webhook',
+        body: 'Seasonfill пропишет себя в Sonarr Connect автоматически.',
+      },
+      step3: {
+        title: 'Настроить qBittorrent / Watchdog',
+        body: 'опционально — для перехвата снятых раздач.',
+      },
+      cta: {
+        addInstance: 'Добавить инстанс',
+        howItWorks: 'Как это работает',
+      },
+    },
   },
   scans: {
     title: 'Сканы',
