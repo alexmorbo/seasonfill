@@ -54,3 +54,6 @@ web/dist/
 web/coverage/
 web/.vite/
 web/.eslintcache
+
+# Claude Code workspace
+.claude/
