@@ -548,7 +548,6 @@ export const ru: Translations = {
     subtitle: 'Релизы, отправленные в Sonarr.',
     loadFailed: 'Не удалось загрузить захваты',
     loadedCount: 'загружено: {{count}}',
-    filter: 'Фильтр',
     clear: 'Сбросить',
     clearFilters: 'Сбросить фильтры',
     searchPlaceholder: 'Поиск по сериалам или релизам…',
@@ -565,11 +564,41 @@ export const ru: Translations = {
       sent: 'Отправлен', imported: 'Импортирован',
       failed: 'Ошибка', pending: 'Ожидает',
     },
+    filter: {
+      all:     'Все',
+      active:  'Активные',
+      history: 'История',
+      fails:   'Фейлы',
+    },
+    search: { placeholder: 'release / сериал…' },
+    status: {
+      grabbed:       'grabbed',
+      imported:      'imported',
+      import_failed: 'import_failed',
+      grab_failed:   'grab_failed',
+      expired:       'expired',
+    },
+    row: {
+      openAria: 'Открыть граб {{id}}',
+      import:   'import {{duration}}',
+      attempts: '{{count}} попыток',
+    },
+    regrab: {
+      tag: '#{{count}}',
+      thread: {
+        toggle: 'Показать цепочку re-grab',
+        placeholder: 'Загружаем цепочку…',
+      },
+    },
     empty: {
-      title: 'Захватов пока нет',
-      body: 'Как только скан что-то захватит — появится здесь.',
-      matchTitle: 'Захватов под фильтр нет',
-      matchBody: 'Попробуйте сбросить фильтр.',
+      top:    { title: 'Грабов ещё не было', body: 'Как только Seasonfill или watchdog заберёт релиз — он появится тут с распарсенными тегами качества и цепочкой re-grab.' },
+      fails:  { title: 'Нет неудачных грабов', body: 'Все недавние грабы успешно импортированы.' },
+      search: { title: 'Ничего не нашлось', body: 'Попробуйте другой поиск.' },
+      cta: {
+        scan:        'Запустить скан',
+        queue:       'Очередь · {{count}}',
+        clearSearch: 'Очистить поиск',
+      },
     },
     drawer: {
       fallbackTitle: 'Захват',

@@ -539,7 +539,6 @@ export const en = {
     subtitle: 'Releases pushed to Sonarr.',
     loadFailed: 'Failed to load grabs',
     loadedCount: '{{count}} loaded',
-    filter: 'Filter',
     clear: 'Clear',
     clearFilters: 'Clear filters',
     searchPlaceholder: 'Search series or release…',
@@ -556,11 +555,41 @@ export const en = {
       sent: 'Sent', imported: 'Imported',
       failed: 'Failed', pending: 'Pending',
     },
+    filter: {
+      all:     'All',
+      active:  'Active',
+      history: 'History',
+      fails:   'Fails',
+    },
+    search: { placeholder: 'release / series…' },
+    status: {
+      grabbed:       'grabbed',
+      imported:      'imported',
+      import_failed: 'import_failed',
+      grab_failed:   'grab_failed',
+      expired:       'expired',
+    },
+    row: {
+      openAria: 'Open grab {{id}}',
+      import:   'import {{duration}}',
+      attempts: '{{count}} attempts',
+    },
+    regrab: {
+      tag: '#{{count}}',
+      thread: {
+        toggle: 'Show re-grab chain',
+        placeholder: 'Re-grab chain loading…',
+      },
+    },
     empty: {
-      title: 'No grabs yet',
-      body: 'Once a scan grabs a release it shows up here.',
-      matchTitle: 'No grabs match',
-      matchBody: 'Try clearing filters.',
+      top:    { title: 'No grabs yet', body: 'Once Seasonfill grabs a release, it shows up here.' },
+      fails:  { title: 'No failed grabs', body: 'All recent grabs imported cleanly.' },
+      search: { title: 'No match', body: 'Try a different search.' },
+      cta: {
+        scan:        'Run scan',
+        queue:       'Queue · {{count}}',
+        clearSearch: 'Clear search',
+      },
     },
     drawer: {
       fallbackTitle: 'Grab',

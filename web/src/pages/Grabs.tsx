@@ -1,274 +1,180 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { AlertTriangle } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
-import { SkeletonRows } from '@/components/SkeletonRows';
-import { EmptyState } from '@/components/EmptyState';
-import { GrabDrawer } from '@/components/GrabDrawer';
-import { useGrabs, flattenGrabs, type Grab, type GrabFilters } from '@/lib/grabs';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation as _ } from 'react-i18next'; // noqa — placeholder for tree-shake check
+import { useGrabs, flattenGrabs, type Grab } from '@/lib/grabs';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
-import { relativeTime } from '@/lib/format';
-import {
-  applySort,
-  cmpDate,
-  cmpString,
-  useTableSort,
-  type Comparator,
-} from '@/lib/use-sort';
-import { SortableHeader } from '@/components/SortableHeader';
+import { GrabsFiltersBar, type GrabFilter } from '@/components/grabs/GrabsFiltersBar';
+import { GrabRow } from '@/components/grabs/GrabRow';
+import { GrabsEmptyState } from '@/components/grabs/GrabsEmptyState';
+import { GrabDrawer } from '@/components/GrabDrawer'; // existing — 051b replaces
+import { SkeletonRows } from '@/components/SkeletonRows';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle } from 'lucide-react';
 
-const GRAB_COMPARATORS: Readonly<Record<string, Comparator<Grab>>> = {
-  created_at: cmpDate<Grab>((g) => g.updated_at ?? g.created_at),
-  instance: cmpString<Grab>((g) => g.instance),
-  series_title: cmpString<Grab>((g) => g.series_title),
-  status: cmpString<Grab>((g) => g.status),
-};
+const FAIL_STATUSES = new Set(['import_failed', 'grab_failed', 'expired']);
 
-const STATUSES = ['grabbed', 'imported', 'import_failed', 'grab_failed', 'expired'] as const;
+function filterRows(rows: readonly Grab[], filter: GrabFilter, search: string): Grab[] {
+  const needle = search.trim().toLowerCase();
+  return rows.filter((g) => {
+    if (filter === 'active'  && g.status !== 'grabbed') return false;
+    if (filter === 'history' && g.status !== 'imported') return false;
+    if (filter === 'fails'   && !FAIL_STATUSES.has(g.status ?? '')) return false;
+    if (!needle) return true;
+    return (
+      (g.series_title  ?? '').toLowerCase().includes(needle) ||
+      (g.release_title ?? '').toLowerCase().includes(needle)
+    );
+  });
+}
+
+function computeCounts(rows: readonly Grab[]) {
+  let active = 0, history = 0, fails = 0;
+  for (const g of rows) {
+    if (g.status === 'grabbed')   active++;
+    if (g.status === 'imported')  history++;
+    if (FAIL_STATUSES.has(g.status ?? '')) fails++;
+  }
+  return { all: rows.length, active, history, fails };
+}
 
 export function Grabs() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const { filter: instance } = useInstanceFilter();
-  const status = params.get('status') ?? '';
-  const q = params.get('q') ?? '';
-  const drawer = params.get('drawer');
 
-  const queryFilters: GrabFilters = useMemo(() => ({ ...(status && { status }) }), [status]);
-  const query = useGrabs(queryFilters);
-  const allRows = useMemo(() => flattenGrabs(query.data?.pages), [query.data]);
-  const { sortKey, dir, toggle } = useTableSort();
-  const filtered = useMemo(() => {
-    if (!q) return allRows;
-    const needle = q.toLowerCase();
-    return allRows.filter(
-      (g) =>
-        (g.series_title ?? '').toLowerCase().includes(needle) ||
-        (g.release_title ?? '').toLowerCase().includes(needle),
-    );
-  }, [allRows, q]);
-  const rows = useMemo(
-    () => applySort(filtered, GRAB_COMPARATORS, sortKey, dir),
-    [filtered, sortKey, dir],
-  );
+  const filter = (params.get('filter') as GrabFilter | null) ?? 'all';
+  const search = params.get('q') ?? '';
+  const openId = params.get('open');
+  const threadId = params.get('thread');
+
+  // Debounced search — typing into the input updates a local string that
+  // pushes into URL state after 250 ms idle.
+  const [searchLocal, setSearchLocal] = useState(() => search);
+  const debounceRef = useRef<number | undefined>(undefined);
+  const pushSearch = useCallback((v: string) => {
+    window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      const next = new URLSearchParams(params);
+      if (!v) next.delete('q'); else next.set('q', v);
+      setParams(next, { replace: true });
+    }, 250);
+  }, [params, setParams]);
+  const onSearchChange = (v: string) => { setSearchLocal(v); pushSearch(v); };
 
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
-    if (!v) next.delete(k);
-    else next.set(k, v);
+    if (!v) next.delete(k); else next.set(k, v);
     setParams(next, { replace: true });
   };
-  const clear = () => setParams(new URLSearchParams(), { replace: true });
-  const openDrawer = (id: string | undefined) => id && setParam('drawer', id);
-  const closeDrawer = () => setParam('drawer', '');
-  const onKey = (e: React.KeyboardEvent, id: string | undefined) => {
-    if ((e.key === 'Enter' || e.key === ' ') && id) {
-      e.preventDefault();
-      openDrawer(id);
-    }
-  };
+
+  const refetchMs = filter === 'active' ? 30_000 : 60_000;
+  const query = useGrabs({}, { refetchMs });
+
+  const all = useMemo(() => flattenGrabs(query.data?.pages), [query.data]);
+  const counts = useMemo(() => computeCounts(all), [all]);
+  const rows = useMemo(() => filterRows(all, filter, searchLocal), [all, filter, searchLocal]);
+
+  // Build a per-grab "re-grab index" map by walking the replay_of_id chain.
+  // For each row R with R.replay_of_id, climb the chain in `all` and count
+  // the depth. Roots have index null (no `↻ #N` tag); first re-grab is #1.
+  const reGrabIndex = useMemo(() => {
+    const byId = new Map<string, Grab>();
+    for (const g of all) if (g.id) byId.set(g.id, g);
+    const idxOf = new Map<string, number>();
+    const visit = (g: Grab): number => {
+      if (!g.id) return 0;
+      const cached = idxOf.get(g.id);
+      if (cached !== undefined) return cached;
+      const parentId = g.replay_of_id;
+      if (!parentId) { idxOf.set(g.id, 0); return 0; }
+      const parent = byId.get(parentId);
+      const depth = parent ? visit(parent) + 1 : 1;
+      idxOf.set(g.id, depth);
+      return depth;
+    };
+    for (const g of all) visit(g);
+    return idxOf;
+  }, [all]);
+
+  const openDrawer = (id: string) => setParam('open', id);
+  const toggleThread = (id: string) => setParam('thread', threadId === id ? '' : id);
+
+  const showEmpty = !query.isPending && rows.length === 0;
+  const emptyVariant: 'top' | 'fails' | 'search' =
+    searchLocal.trim() ? 'search'
+    : filter === 'fails' ? 'fails'
+    : 'top';
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
+    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4 relative">
       <header className="flex items-center gap-4 flex-wrap">
         <h1 className="text-[22px] font-semibold tracking-tight">{t('grabs.title')}</h1>
-        <span className="font-mono text-[12px] text-faint">
-          {t('grabs.loadedCount', { count: rows.length })}{instance ? ` · ${instance}` : ''}
-        </span>
       </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('grabs.filter')}</span>
-        <Select
-          value={status || 'all'}
-          onValueChange={(v) => setParam('status', v === 'all' ? '' : v)}
-        >
-          <SelectTrigger className="h-8 w-[160px] text-[12.5px]" aria-label={t('grabs.anyStatus')}>
-            <SelectValue placeholder={t('grabs.anyStatus')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('grabs.anyStatus')}</SelectItem>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {t(`statuses.${s}`, { defaultValue: s })}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          placeholder={t('grabs.searchPlaceholder')}
-          value={q}
-          onChange={(e) => setParam('q', e.target.value)}
-          className="h-8 w-[260px] text-[12.5px]"
+      <GrabsFiltersBar
+        filter={filter}
+        onFilterChange={(f) => setParam('filter', f === 'all' ? '' : f)}
+        counts={counts}
+        search={searchLocal}
+        onSearchChange={onSearchChange}
+        instance={instance ?? null}
+      />
+      {query.isError ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>{t('grabs.loadFailed')}</AlertTitle>
+          <AlertDescription>
+            {query.error.message}{' '}
+            <Button variant="link" size="sm" onClick={() => query.refetch()}>
+              {t('common.retry')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : query.isPending ? (
+        <SkeletonRows rows={6} cols={['lg', 'lg', 'lg', 'lg']} />
+      ) : showEmpty ? (
+        <GrabsEmptyState
+          variant={emptyVariant}
+          onScan={() => navigate('/scans?action=new')}
+          onQueue={instance ? () => navigate(`/instances/${instance}/queue`) : undefined}
+          queueCount={counts.all}
+          onClearSearch={() => onSearchChange('')}
         />
-        <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('grabs.timeRangeAria')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="24h">{t('grabs.range.h24')}</SelectItem>
-            <SelectItem value="7d">{t('grabs.range.d7')}</SelectItem>
-            <SelectItem value="30d">{t('grabs.range.d30')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={clear} disabled={!status && !q}>
-          {t('grabs.clear')}
-        </Button>
-      </div>
-
-      <Card>
-        <CardContent className="p-0">
-          {query.isError ? (
-            <Alert variant="destructive" className="m-4">
-              <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>{t('grabs.loadFailed')}</AlertTitle>
-              <AlertDescription>
-                {query.error.message}{' '}
-                <Button variant="link" size="sm" onClick={() => query.refetch()}>
-                  {t('common.retry')}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('grabs.columns.time')}
-                      sortKey="created_at"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('grabs.columns.instance')}
-                      sortKey="instance"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('grabs.columns.series')}
-                      sortKey="series_title"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('grabs.columns.release')}</TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('grabs.columns.status')}
-                      sortKey="status"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('grabs.columns.indexer')}</TableHead>
-                  <TableHead>{t('grabs.columns.attempts')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {query.isPending && (
-                  <SkeletonRows
-                    rows={6}
-                    cols={['sm', 'md', 'lg', '2xl', 'sm', 'md', 'sm']}
-                  />
-                )}
-                {!query.isPending && rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7}>
-                      <EmptyState
-                        title={t('grabs.empty.matchTitle')}
-                        body={t('grabs.empty.matchBody')}
-                        {...(status || q
-                          ? {
-                              action: (
-                                <Button variant="outline" size="sm" onClick={clear}>
-                                  {t('grabs.clearFilters')}
-                                </Button>
-                              ),
-                            }
-                          : {})}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )}
-                {rows.map((g) => (
-                  <TableRow
-                    key={g.id}
-                    onClick={() => openDrawer(g.id)}
-                    onKeyDown={(e) => onKey(e, g.id)}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t('grabs.openGrabAria', { id: g.id ?? '' })}
-                    className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <TableCell className="text-muted">
-                      {relativeTime(g.updated_at ?? g.created_at)}
-                    </TableCell>
-                    <TableCell className="font-mono">{g.instance ?? '—'}</TableCell>
-                    <TableCell className="font-medium">{g.series_title ?? '—'}</TableCell>
-                    <TableCell className="font-mono text-[12px] max-w-md truncate">
-                      {g.release_title ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={g.status} />
-                    </TableCell>
-                    <TableCell className="font-mono text-muted">{g.indexer_name ?? '—'}</TableCell>
-                    <TableCell className="font-mono">{g.attempts ?? 0}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map((g) => (
+            <GrabRow
+              key={g.id}
+              grab={g}
+              selected={openId === g.id}
+              threadOpen={threadId === g.id}
+              reGrabIndex={reGrabIndex.get(g.id ?? '') ?? null}
+              onOpenDrawer={openDrawer}
+              onToggleThread={toggleThread}
+            />
+          ))}
+          {query.hasNextPage && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => query.fetchNextPage()}
+                disabled={query.isFetchingNextPage}
+              >
+                {query.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
-
-      {query.hasNextPage && (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            onClick={() => query.fetchNextPage()}
-            disabled={query.isFetchingNextPage}
-          >
-            {query.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
-          </Button>
         </div>
       )}
-
+      {/* Drawer kept as today; 051b replaces with new GrabDrawer */}
       <GrabDrawer
-        id={drawer ?? null}
-        open={Boolean(drawer)}
-        onOpenChange={(o) => (o ? null : closeDrawer())}
-        rows={allRows}
+        id={openId ?? null}
+        open={Boolean(openId)}
+        onOpenChange={(o) => (o ? null : setParam('open', ''))}
+        rows={all}
       />
     </div>
   );

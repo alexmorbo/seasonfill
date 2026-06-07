@@ -15,6 +15,7 @@ export interface UseGrabsOptions {
   // Switch to 2s polling cadence while a scan is in-flight. Off the
   // queryKey so cache hits survive the running→completed transition.
   readonly fastPoll?: boolean;
+  readonly refetchMs?: number;     // NEW — explicit override
 }
 
 export function useGrabs(filters: GrabFilters = {}, opts: UseGrabsOptions = {}) {
@@ -40,7 +41,7 @@ export function useGrabs(filters: GrabFilters = {}, opts: UseGrabsOptions = {}) 
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     staleTime: 30_000,
-    refetchInterval: opts.fastPoll ? 2_000 : false,
+    refetchInterval: opts.fastPoll ? 2_000 : (opts.refetchMs ?? false),
     refetchOnWindowFocus: false,
   });
 }
