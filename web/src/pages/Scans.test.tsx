@@ -5,6 +5,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test-utils';
 import { Scans } from './Scans';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+import { PageTitleProvider } from '@/components/shell/page-title-context';
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: null, setFilter: vi.fn() };
@@ -15,13 +16,12 @@ beforeEach(() => {
     value: { pathname: '/scans', search: '', assign: vi.fn() },
   });
 });
-
-afterEach(() => {
-  globalThis.fetch = origFetch;
-});
+afterEach(() => { globalThis.fetch = origFetch; });
 
 const wrap = (ui: ReactElement) => (
-  <InstanceFilterCtx.Provider value={ctxValue}>{ui}</InstanceFilterCtx.Provider>
+  <PageTitleProvider defaultTitle="Scans">
+    <InstanceFilterCtx.Provider value={ctxValue}>{ui}</InstanceFilterCtx.Provider>
+  </PageTitleProvider>
 );
 
 function scanFixture(over: Partial<Record<string, unknown>> = {}) {
@@ -33,110 +33,94 @@ function scanFixture(over: Partial<Record<string, unknown>> = {}) {
     started_at: new Date(Date.now() - 60_000).toISOString(),
     finished_at: new Date().toISOString(),
     series_scanned: 12,
+    candidates_found: 4,
     grabs_performed: 2,
     grabs_failed: 0,
     ...over,
   };
 }
 
-describe('<Scans />', () => {
-  it('renders table rows from useScans', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          items: [
-            scanFixture(),
-            scanFixture({ id: 'aaaaaaaa-1234-4abc-9def-000000000002', instance: 'beta' }),
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as typeof fetch;
+describe('<Scans /> redesign', () => {
+  it('renders dense table rows from useScans with st-pill status column', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(
+      new Response(JSON.stringify({ items: [
+        scanFixture(),
+        scanFixture({ id: 'aaaa-0002', instance: 'beta', status: 'failed', trigger: 'manual' }),
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )) as typeof fetch;
     renderWithProviders(wrap(<Scans />), { route: '/scans' });
-    expect(await screen.findByText('alpha')).toBeInTheDocument();
-    expect(screen.getByText('beta')).toBeInTheDocument();
+    expect(await screen.findByTestId('scans-table')).toBeInTheDocument();
+    const rows = screen.getAllByTestId('scans-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.querySelector('[data-status-kind="ok"]')).toBeTruthy();
+    expect(rows[1]!.querySelector('[data-status-kind="fail"]')).toBeTruthy();
   });
 
-  it('renders EmptyState with Clear filters action when filter is set and items=[]', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ) as typeof fetch;
+  it('applies status filter via wire query', async () => {
+    const captured: string[] = [];
+    globalThis.fetch = vi.fn((url) => {
+      captured.push(typeof url === 'string' ? url : url.toString());
+      return Promise.resolve(new Response(JSON.stringify({ items: [] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }) as typeof fetch;
     renderWithProviders(wrap(<Scans />), { route: '/scans?status=failed' });
-    expect(await screen.findByText(/no scans match your filters/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument();
+    await waitFor(() => expect(captured.some((u) => u.includes('status=failed'))).toBe(true));
   });
 
-  it('sortable header cycles asc → desc → unsorted with URL persistence', async () => {
-    const older = new Date(Date.now() - 5 * 60_000).toISOString();
-    const newer = new Date(Date.now() - 60_000).toISOString();
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          items: [
-            scanFixture({
-              id: 'aaaaaaaa-0000-0000-0000-000000000001',
-              instance: 'beta',
-              started_at: newer,
-            }),
-            scanFixture({
-              id: 'aaaaaaaa-0000-0000-0000-000000000002',
-              instance: 'alpha',
-              started_at: older,
-            }),
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as typeof fetch;
-    const { container } = renderWithProviders(wrap(<Scans />), { route: '/scans' });
-    const getInstanceCells = () =>
-      Array.from(container.querySelectorAll('tbody tr')).map(
-        (r) => r.querySelectorAll('td')[2]?.textContent ?? '',
-      );
-
-    await screen.findByText('alpha');
-    // Default unsorted order from API: beta first, alpha second.
-    expect(getInstanceCells()).toEqual(['beta', 'alpha']);
-
-    const header = screen
-      .getAllByRole('button')
-      .find((b) => b.getAttribute('data-sort-key') === 'instance');
-    expect(header).toBeDefined();
-
-    // 1st click → asc
-    await userEvent.click(header!);
-    await waitFor(() => expect(getInstanceCells()).toEqual(['alpha', 'beta']));
-    expect(window.location.hash || '').toBe('');
-    // URL is the router memory entry: assert via the header's data attribute too.
-    expect(header!.getAttribute('data-sort-dir')).toBe('asc');
-
-    // 2nd click → desc
-    await userEvent.click(header!);
-    await waitFor(() => expect(getInstanceCells()).toEqual(['beta', 'alpha']));
-    expect(header!.getAttribute('data-sort-dir')).toBe('desc');
-
-    // 3rd click → unsorted (back to API order)
-    await userEvent.click(header!);
-    await waitFor(() => expect(header!.getAttribute('data-sort-dir')).toBe(''));
-    expect(getInstanceCells()).toEqual(['beta', 'alpha']);
+  it('applies trigger filter client-side (no wire param)', async () => {
+    const captured: string[] = [];
+    globalThis.fetch = vi.fn((url) => {
+      captured.push(typeof url === 'string' ? url : url.toString());
+      return Promise.resolve(new Response(JSON.stringify({ items: [
+        scanFixture({ id: 'a', trigger: 'cron' }),
+        scanFixture({ id: 'b', trigger: 'manual' }),
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }) as typeof fetch;
+    renderWithProviders(wrap(<Scans />), { route: '/scans?trigger=manual' });
+    await screen.findByTestId('scans-table');
+    expect(screen.getAllByTestId('scans-row')).toHaveLength(1);
+    // No `trigger=` on the wire — confirms B9 fallback.
+    expect(captured.every((u) => !u.includes('trigger='))).toBe(true);
   });
 
-  it('toggling the status select writes to the URL', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
+  it('shows ScansFirstRunState when zero scans exist and no filters', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(
       new Response(JSON.stringify({ items: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        status: 200, headers: { 'Content-Type': 'application/json' },
       }),
-    ) as typeof fetch;
+    )) as typeof fetch;
     renderWithProviders(wrap(<Scans />), { route: '/scans' });
-    const statusTrigger = await screen.findByRole('combobox', { name: /any status/i });
-    await userEvent.click(statusTrigger);
-    await userEvent.click(await screen.findByRole('option', { name: /failed/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^clear$/i })).toBeEnabled(),
-    );
+    expect(await screen.findByTestId('scans-first-run')).toBeInTheDocument();
+  });
+
+  it('shows ScansEmptyState with reset CTA when filter is set and items=[]', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(
+      new Response(JSON.stringify({ items: [] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }),
+    )) as typeof fetch;
+    renderWithProviders(wrap(<Scans />), { route: '/scans?status=failed' });
+    expect(await screen.findByTestId('scans-empty-state')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /сбросить|reset/i }).length).toBeGreaterThan(0);
+  });
+
+  it('reset clears all URL params back to defaults', async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() => Promise.resolve(
+      new Response(JSON.stringify({ items: [scanFixture()] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }),
+    )) as typeof fetch;
+    renderWithProviders(wrap(<Scans />), { route: '/scans?status=failed&trigger=manual&window=24h' });
+    await screen.findByTestId('scans-filters-bar');
+    const reset = screen.getByTestId('scans-filters-reset');
+    expect(reset).not.toBeDisabled();
+    await user.click(reset);
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('status=');
+      expect(window.location.search).not.toContain('trigger=');
+      expect(window.location.search).not.toContain('window=');
+    });
   });
 });

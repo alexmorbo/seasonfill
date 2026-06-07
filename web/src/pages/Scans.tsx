@@ -1,131 +1,93 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Check, AlertTriangle } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
 import { SkeletonRows } from '@/components/SkeletonRows';
-import { EmptyState } from '@/components/EmptyState';
-import { useScans, flattenScans, type Scan, type ScanFilters } from '@/lib/scans';
+import { Table, TableBody } from '@/components/ui/table';
+import { NewScanModal } from '@/components/NewScanModal';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
+import { useScans, flattenScans, filterByTrigger, type ScanFilters } from '@/lib/scans';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
-import { relativeTime, durationMs } from '@/lib/format';
-import {
-  applySort,
-  cmpDate,
-  cmpNumber,
-  cmpString,
-  useTableSort,
-  type Comparator,
-} from '@/lib/use-sort';
-import { SortableHeader } from '@/components/SortableHeader';
+import { ScansHeader } from '@/components/scans/ScansHeader';
+import { ScansFiltersBar, SCANS_DEFAULTS, type ScansFiltersValue } from '@/components/scans/ScansFiltersBar';
+import { ScansTable } from '@/components/scans/ScansTable';
+import { ScansEmptyState } from '@/components/scans/ScansEmptyState';
+import { ScansFirstRunState } from '@/components/scans/ScansFirstRunState';
 
-const STATUSES = ['running', 'completed', 'failed', 'aborted'] as const;
+function windowToDates(window: string): { from?: string; to?: string } {
+  if (!window || window === 'all') return {};
+  const now = Date.now();
+  const ms =
+    window === '24h' ? 24 * 3600 * 1000 :
+    window === '7d'  ? 7 * 24 * 3600 * 1000 :
+    window === '30d' ? 30 * 24 * 3600 * 1000 : 0;
+  if (!ms) return {};
+  return { from: new Date(now - ms).toISOString(), to: new Date(now).toISOString() };
+}
 
-const SCAN_COMPARATORS: Readonly<Record<string, Comparator<Scan>>> = {
-  started_at: cmpDate<Scan>((s) => s.started_at),
-  instance: cmpString<Scan>((s) => s.instance),
-  status: cmpString<Scan>((s) => s.status),
-  grabs: cmpNumber<Scan>((s) => s.grabs_performed),
-};
+function readFilters(params: URLSearchParams): ScansFiltersValue {
+  return {
+    status:  params.get('status')  ?? SCANS_DEFAULTS.status,
+    trigger: params.get('trigger') ?? SCANS_DEFAULTS.trigger,
+    window:  params.get('window')  ?? SCANS_DEFAULTS.window,
+  };
+}
 
 export function Scans() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  useSetPageTitle(t('scans.title'));
   const [params, setParams] = useSearchParams();
   const { filter: instance } = useInstanceFilter();
+  const [scanModalOpen, setScanModalOpen] = useState(false);
 
-  const status = params.get('status') ?? '';
-  const queryFilters: ScanFilters = useMemo(
-    () => ({ ...(status && { status }) }),
-    [status],
-  );
+  const filters = useMemo<ScansFiltersValue>(() => readFilters(params), [params]);
+  const isFiltered =
+    filters.status !== SCANS_DEFAULTS.status ||
+    filters.trigger !== SCANS_DEFAULTS.trigger ||
+    filters.window !== SCANS_DEFAULTS.window;
+
+  const queryFilters: ScanFilters = useMemo(() => {
+    const w = windowToDates(filters.window);
+    return {
+      ...(filters.status !== 'all' && { status: filters.status }),
+      ...(w.from && { from: w.from }),
+      ...(w.to && { to: w.to }),
+    };
+  }, [filters]);
 
   const q = useScans(queryFilters);
-  const unsortedRows = useMemo(() => flattenScans(q.data?.pages), [q.data]);
-  const { sortKey, dir, toggle } = useTableSort();
+  const allRows = useMemo(() => flattenScans(q.data?.pages), [q.data]);
   const rows = useMemo(
-    () => applySort(unsortedRows, SCAN_COMPARATORS, sortKey, dir),
-    [unsortedRows, sortKey, dir],
+    () => filterByTrigger(allRows, filters.trigger === 'all' ? undefined : filters.trigger),
+    [allRows, filters.trigger],
   );
 
-  const updateParam = (key: string, value: string) => {
-    const next = new URLSearchParams(params);
-    if (!value) next.delete(key);
-    else next.set(key, value);
-    setParams(next, { replace: true });
+  const setFilters = (next: ScansFiltersValue) => {
+    const sp = new URLSearchParams(params);
+    if (next.status === SCANS_DEFAULTS.status) sp.delete('status'); else sp.set('status', next.status);
+    if (next.trigger === SCANS_DEFAULTS.trigger) sp.delete('trigger'); else sp.set('trigger', next.trigger);
+    if (next.window === SCANS_DEFAULTS.window) sp.delete('window'); else sp.set('window', next.window);
+    setParams(sp, { replace: true });
   };
-  const clear = () => setParams(new URLSearchParams(), { replace: true });
+  const resetFilters = () => setFilters(SCANS_DEFAULTS);
 
-  const handleRowKey = (e: React.KeyboardEvent, id: string | undefined) => {
-    if ((e.key === 'Enter' || e.key === ' ') && id) {
-      e.preventDefault();
-      navigate(`/scans/${id}`);
-    }
-  };
+  const showFirstRun  = !q.isPending && !q.isError && !isFiltered && allRows.length === 0;
+  const showFiltered  = !q.isPending && !q.isError && isFiltered && rows.length === 0;
+  const showTable     = !q.isError && (q.isPending || rows.length > 0 || (allRows.length > 0 && !isFiltered));
 
   return (
     <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
-      <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">{t('scans.title')}</h1>
-        <span className="font-mono text-[12px] text-faint">
-          {t('scans.loadedCount', { count: rows.length })}{instance ? ` · ${t('scans.instanceLabel', { name: instance })}` : ''}
-        </span>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('decisions.filter')}</span>
-        <Select
-          value={status || 'all'}
-          onValueChange={(v) => updateParam('status', v === 'all' ? '' : v)}
-        >
-          <SelectTrigger className="h-8 w-[140px] text-[12.5px]" aria-label={t('scans.anyStatus')}>
-            <SelectValue placeholder={t('scans.anyStatus')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('scans.anyStatus')}</SelectItem>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('decisions.timeRangeAria')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="24h">{t('decisions.range.h24')}</SelectItem>
-            <SelectItem value="7d">{t('decisions.range.d7')}</SelectItem>
-            <SelectItem value="30d">{t('decisions.range.d30')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={clear} disabled={!status}>
-          {t('decisions.clear')}
-        </Button>
+      <ScansHeader count={rows.length} instance={instance} />
+      <div className="flex items-center gap-2">
+        <ScansFiltersBar value={filters} onChange={setFilters} />
       </div>
 
       <Card>
         <CardContent className="p-0">
-          {q.isError ? (
+          {q.isError && (
             <Alert variant="destructive" className="m-4">
               <AlertTriangle className="w-4 h-4" />
               <AlertTitle>{t('scans.loadFailed')}</AlertTitle>
@@ -136,123 +98,21 @@ export function Scans() {
                 </Button>
               </AlertDescription>
             </Alert>
-          ) : (
+          )}
+          {q.isPending && (
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead>{t('scans.columns.id')}</TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('scans.columns.instance')}
-                      sortKey="instance"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('scans.columns.trigger')}</TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('scans.columns.started')}
-                      sortKey="started_at"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('scans.columns.duration')}</TableHead>
-                  <TableHead>{t('scans.columns.series')}</TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('scans.columns.grabs')}
-                      sortKey="grabs"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('scans.columns.status')}
-                      sortKey="status"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
               <TableBody>
-                {q.isPending && (
-                  <SkeletonRows
-                    rows={6}
-                    cols={['xs', 'md', 'md', 'sm', 'md', 'sm', 'sm', 'sm', 'sm']}
-                  />
-                )}
-                {!q.isPending && rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9}>
-                      <EmptyState
-                        title={t('scans.empty.matchTitle')}
-                        body={t('scans.empty.matchBody')}
-                        {...(status
-                          ? {
-                              action: (
-                                <Button variant="outline" size="sm" onClick={clear}>
-                                  {t('decisions.clearFilters')}
-                                </Button>
-                              ),
-                            }
-                          : {})}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )}
-                {rows.map((s) => (
-                  <TableRow
-                    key={s.id}
-                    onClick={() => s.id && navigate(`/scans/${s.id}`)}
-                    onKeyDown={(e) => handleRowKey(e, s.id)}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t('dashboard.recent.openScan', { id: (s.id ?? '').slice(0, 8) })}
-                    className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <TableCell>
-                      {s.status === 'failed' ? (
-                        <AlertTriangle className="w-3.5 h-3.5 text-status-danger" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5 text-status-success" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono text-[12px] text-foreground-2">
-                        {(s.id ?? '').slice(0, 8)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono">{s.instance}</TableCell>
-                    <TableCell>
-                      <StatusBadge value={s.trigger} />
-                    </TableCell>
-                    <TableCell className="text-muted">{relativeTime(s.started_at)}</TableCell>
-                    <TableCell className="font-mono">
-                      {durationMs(s.started_at, s.finished_at)}
-                    </TableCell>
-                    <TableCell className="font-mono">{s.series_scanned ?? 0}</TableCell>
-                    <TableCell className="font-mono">{s.grabs_performed ?? 0}</TableCell>
-                    <TableCell>
-                      <StatusBadge value={s.status} />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <SkeletonRows rows={6} cols={['xs', 'sm', 'sm', 'md', 'sm', 'sm', 'sm', 'sm', 'xs']} />
               </TableBody>
             </Table>
           )}
+          {showFirstRun  && <ScansFirstRunState onTriggerScan={() => setScanModalOpen(true)} />}
+          {showFiltered  && <ScansEmptyState onReset={resetFilters} />}
+          {showTable && !q.isPending && rows.length > 0 && <ScansTable rows={rows} />}
         </CardContent>
       </Card>
 
-      {q.hasNextPage && (
+      {q.hasNextPage && rows.length > 0 && (
         <div className="flex justify-center">
           <Button
             variant="outline"
@@ -263,6 +123,8 @@ export function Scans() {
           </Button>
         </div>
       )}
+
+      <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
     </div>
   );
 }

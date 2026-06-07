@@ -5,12 +5,24 @@ import type { components } from '@/api/schema';
 
 export type Scan = components['schemas']['dto.Scan'];
 export type ScanList = components['schemas']['dto.ScanList'];
-export type ScanFilters = { trigger?: string; status?: string };
+
+// `trigger` is client-side until B9 (see 055 parent story
+// §"Backend follow-ups"). `from`/`to` ride the existing wire params.
+export type ScanFilters = {
+  trigger?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+};
 
 function buildQuery(instance: string | null, filters: ScanFilters, cursor: string): string {
   const sp = new URLSearchParams();
   if (instance) sp.set('instance', instance);
   if (filters.status) sp.set('status', filters.status);
+  if (filters.from) sp.set('from', filters.from);
+  if (filters.to) sp.set('to', filters.to);
+  // NOTE: filters.trigger is intentionally omitted — applied
+  // client-side by the caller after `flattenScans`. See B9.
   if (cursor) sp.set('cursor', cursor);
   const qs = sp.toString();
   return qs ? `/scans?${qs}` : '/scans';
@@ -47,4 +59,11 @@ export function useScan(id: string | undefined): UseQueryResult<Scan, ApiError> 
 
 export function flattenScans(pages: readonly ScanList[] | undefined): readonly Scan[] {
   return pages ? pages.flatMap((p) => p.items ?? []) : [];
+}
+
+// Client-side trigger filter (B9). Pure function, table-tested.
+// If `trigger` is undefined/empty/'all', returns the input as-is.
+export function filterByTrigger(scans: readonly Scan[], trigger: string | undefined): readonly Scan[] {
+  if (!trigger || trigger === 'all') return scans;
+  return scans.filter((s) => s.trigger === trigger);
 }
