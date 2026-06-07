@@ -477,6 +477,43 @@ export const ru: Translations = {
     timeRangeAria: 'Период (декоративно)',
     multiOutcomeNote: 'Бэкенд принимает только один outcome; дополнительные применяются на клиенте.',
     openDecisionAria: 'Открыть решение {{id}}',
+    headerTitle: 'Решения',
+    headerCount: 'за {{window}} · {{decisions}} решений · {{seriesCount}} сериалов',
+    window: {
+      h24: '24 часа',
+      d7:  '7 дней',
+      d30: '30 дней',
+      all: 'всё время',
+    },
+    filters: {
+      searchPlaceholder: 'поиск по сериалу…',
+      searchAria: 'Поиск решений по сериалу',
+      categoryAria: 'Фильтр по результату',
+      instanceAria: 'Фильтр по инстансу',
+      windowAria: 'Фильтр по окну времени',
+      sortAria: 'Порядок сортировки',
+      category: {
+        all: 'все',
+        done: 'Действие выполнено',
+        none: 'Ничего не найдено',
+        blocked: 'Заблокировано',
+        sonarr: 'Sonarr справляется сам',
+        ok: 'Всё на месте',
+      },
+      instance: {
+        all: 'все инстансы',
+      },
+      sort: {
+        freshest: 'свежие сверху',
+        stuckFirst: 'застрявшие сверху',
+      },
+      reset: 'Сбросить фильтры',
+    },
+    firstRun: {
+      title: 'Сезоны ещё не сканировались',
+      body: 'Decisions показывает, почему по каждому сезону что-то (не) до-качалось — после первого скана здесь появится разбор по сериалам.',
+      startScan: 'Запустить скан',
+    },
     range: {
       h24: 'За 24 часа',
       d7: 'За 7 дней',
@@ -499,6 +536,9 @@ export const ru: Translations = {
       failed: 'Ошибка',
     },
     empty: {
+      filterTitle: 'Нет решений по фильтрам',
+      filterBody: 'Ни одно решение не подходит под текущие фильтры. Сбросьте окно времени или результат.',
+      resetFilters: 'Сбросить фильтры',
       title: 'Решений пока нет',
       body: 'Запустите скан, чтобы появились решения.',
       matchTitle: 'Решений под фильтр нет',
@@ -1021,6 +1061,8 @@ export const ru: Translations = {
     failed_grab: 'Сбой при grab-запросе',
     failed_release_fetch: 'Не удалось получить релизы',
     failed_indexer: 'Ошибка индексера',
+    all_complete:     'Всё на месте',
+    sonarr_handles:   'Sonarr справляется сам',
   },
   outcomes: {
     grab: 'Захват',

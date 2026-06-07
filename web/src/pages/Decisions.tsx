@@ -1,309 +1,198 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { AlertTriangle } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
-import { CategoryChip } from '@/components/CategoryChip';
-import { SkeletonRows } from '@/components/SkeletonRows';
-import { EmptyState } from '@/components/EmptyState';
-import { OutcomeChips } from '@/components/OutcomeChips';
-import { OUTCOMES, type Outcome } from '@/lib/outcomes';
-import { DecisionDrawer } from '@/components/DecisionDrawer';
-import {
-  useDecisions,
-  flattenDecisions,
-  type Decision,
-  type DecisionFilters,
-} from '@/lib/decisions';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
-import { relativeTime } from '@/lib/format';
+import { useInstances } from '@/lib/instances';
 import {
-  applySort,
-  cmpDate,
-  cmpNumber,
-  cmpString,
-  useTableSort,
-  type Comparator,
-} from '@/lib/use-sort';
-import { SortableHeader } from '@/components/SortableHeader';
-import { useInfiniteScroll } from '@/lib/use-infinite-scroll';
+  useDecisionsList,
+  flattenDecisionList,
+  applyDecisionsFilters,
+  type DecisionsWindow,
+  type DecisionsSort,
+} from '@/lib/api/decisions';
+import { categoryToBucket } from '@/lib/decisions/reasonCategory';
+import { DecisionsHeader } from '@/components/decisions/DecisionsHeader';
+import {
+  DecisionsFiltersBar,
+  type CategoryFilter,
+} from '@/components/decisions/DecisionsFiltersBar';
+import { DecisionsEmptyState } from '@/components/decisions/DecisionsEmptyState';
+import { DecisionsFirstRunState } from '@/components/decisions/DecisionsFirstRunState';
+import { SkeletonRows } from '@/components/SkeletonRows';
 
-const DECISION_COMPARATORS: Readonly<Record<string, Comparator<Decision>>> = {
-  created_at: cmpDate<Decision>((d) => d.created_at),
-  instance: cmpString<Decision>((d) => d.instance),
-  series_title: cmpString<Decision>((d) => d.series_title),
-  season: cmpNumber<Decision>((d) => d.season_number),
-  category: cmpString<Decision>((d) => d.category),
-};
+const VALID_CATEGORIES: ReadonlySet<CategoryFilter> = new Set([
+  'all', 'done', 'none', 'blocked', 'sonarr', 'ok',
+]);
+const VALID_WINDOWS: ReadonlySet<DecisionsWindow> = new Set([
+  '24h', '7d', '30d', 'all',
+]);
+const VALID_SORTS: ReadonlySet<DecisionsSort> = new Set([
+  'freshest', 'stuck-first',
+]);
+
+function parseCategory(raw: string | null): CategoryFilter {
+  return raw && VALID_CATEGORIES.has(raw as CategoryFilter) ? (raw as CategoryFilter) : 'all';
+}
+function parseWindow(raw: string | null): DecisionsWindow {
+  return raw && VALID_WINDOWS.has(raw as DecisionsWindow) ? (raw as DecisionsWindow) : '7d';
+}
+function parseSort(raw: string | null): DecisionsSort {
+  return raw && VALID_SORTS.has(raw as DecisionsSort) ? (raw as DecisionsSort) : 'freshest';
+}
 
 export function Decisions() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const { filter: instance } = useInstanceFilter();
-  const outcomeParam = params.get('outcome') ?? '';
-  const q = params.get('q') ?? '';
-  const drawer = params.get('drawer');
+  const { filter: ctxInstance, setFilter: setCtxInstance } = useInstanceFilter();
+  const instancesQ = useInstances();
 
-  const selected = useMemo<Set<Outcome>>(() => {
-    const set = new Set<Outcome>();
-    for (const t of outcomeParam.split(',').filter(Boolean)) {
-      if ((OUTCOMES as readonly string[]).includes(t)) set.add(t as Outcome);
-    }
-    return set;
-  }, [outcomeParam]);
+  // URL state
+  const search   = params.get('q') ?? '';
+  const category = parseCategory(params.get('category'));
+  const window   = parseWindow(params.get('window'));
+  const sort     = parseSort(params.get('sort'));
+  // Instance comes from the context (already URL-synced by the
+  // AppShell switcher); we keep it readable here so the filter can
+  // show it inside the bar.
+  const instance = ctxInstance;
 
-  const first = selected.size > 0 ? [...selected][0] : undefined;
-  const queryFilters: DecisionFilters = useMemo(
-    () => ({ ...(first !== undefined && { decision: first }) }),
-    [first],
-  );
-  const query = useDecisions(queryFilters);
-  const allRows = useMemo(() => flattenDecisions(query.data?.pages), [query.data]);
-  const { sortKey, dir, toggle } = useTableSort();
-  const filtered = useMemo(
-    () =>
-      allRows.filter((d) => {
-        if (selected.size > 0 && d.decision && !selected.has(d.decision as Outcome)) return false;
-        if (q && !(d.series_title ?? '').toLowerCase().includes(q.toLowerCase())) return false;
-        return true;
-      }),
-    [allRows, selected, q],
-  );
-  const rows = useMemo(
-    () => applySort(filtered, DECISION_COMPARATORS, sortKey, dir),
-    [filtered, sortKey, dir],
-  );
+  const canReset =
+    Boolean(search) ||
+    category !== 'all' ||
+    window !== '7d' ||
+    sort !== 'freshest';
 
-  const { sentinelRef } = useInfiniteScroll({
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: query.fetchNextPage,
-  });
-
-  const setParam = (k: string, v: string) => {
+  const setParam = useCallback((k: string, v: string | null) => {
     const next = new URLSearchParams(params);
-    if (!v) next.delete(k);
-    else next.set(k, v);
+    if (!v) next.delete(k); else next.set(k, v);
     setParams(next, { replace: true });
-  };
-  const toggleOutcome = (o: Outcome) => {
-    const next = new Set(selected);
-    if (next.has(o)) next.delete(o);
-    else next.add(o);
-    setParam('outcome', [...next].join(','));
-  };
-  const clear = () => setParams(new URLSearchParams(), { replace: true });
-  const openDrawer = (id: string | undefined) => id && setParam('drawer', id);
-  const closeDrawer = () => setParam('drawer', '');
-  const onKey = (e: React.KeyboardEvent, id: string | undefined) => {
-    if ((e.key === 'Enter' || e.key === ' ') && id) {
-      e.preventDefault();
-      openDrawer(id);
-    }
-  };
+  }, [params, setParams]);
+
+  const onReset = useCallback(() => {
+    setParams(new URLSearchParams(), { replace: true });
+  }, [setParams]);
+
+  // Queries
+  const listQ  = useDecisionsList({ window });
+
+  // Available instances for dropdown (excludes "all" placeholder)
+  const availableInstances = useMemo(
+    () => (instancesQ.data?.instances ?? []).map((i) => i.name).filter(Boolean) as string[],
+    [instancesQ.data],
+  );
+
+  // Flatten + filter + sort
+  const rows = useMemo(
+    () => flattenDecisionList(listQ.data?.pages),
+    [listQ.data],
+  );
+  const filtered = useMemo(
+    () => applyDecisionsFilters(rows, { search, category, window, sort }),
+    [rows, search, category, window, sort],
+  );
+
+  // Counts for the Результат dropdown — computed against the
+  // unfiltered window so the user sees totals, not the post-filter
+  // count (matches the design's 271/12/23/5/9/231 example).
+  const counts: Record<CategoryFilter, number> = useMemo(() => {
+    const c: Record<CategoryFilter, number> = {
+      all: rows.length, done: 0, none: 0, blocked: 0, sonarr: 0, ok: 0,
+    };
+    for (const d of rows) c[categoryToBucket(d.category)] += 1;
+    return c;
+  }, [rows]);
+
+  // Series count for the header — distinct series in the filtered set.
+  const seriesCount = useMemo(() => {
+    const s = new Set<number>();
+    for (const d of filtered) s.add(d.series_id ?? -1);
+    return s.size;
+  }, [filtered]);
+
+  // State branch resolution
+  const isInitialLoading = listQ.isPending && rows.length === 0;
+  const hasAnyDecisions = rows.length > 0;
+  const filteredEmpty = filtered.length === 0;
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
+    <div className="max-w-[940px] mx-auto p-6 flex flex-col gap-2">
       <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">{t('decisions.title')}</h1>
-        <span className="font-mono text-[12px] text-faint">
-          {t('decisions.loadedCount', { count: rows.length })}{instance ? ` · ${instance}` : ''}
-        </span>
+        <h1 className="text-[22px] font-semibold tracking-tight">
+          {t('decisions.title')}
+        </h1>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-faint mr-1">{t('decisions.filter')}</span>
-        <Input
-          placeholder={t('decisions.searchPlaceholder')}
-          value={q}
-          onChange={(e) => setParam('q', e.target.value)}
-          className="h-8 w-[220px] text-[12.5px]"
-        />
-        <Select defaultValue="24h">
-          <SelectTrigger className="h-8 w-[120px] text-[12.5px]" aria-label={t('decisions.timeRangeAria')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="24h">{t('decisions.range.h24')}</SelectItem>
-            <SelectItem value="7d">{t('decisions.range.d7')}</SelectItem>
-            <SelectItem value="30d">{t('decisions.range.d30')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={clear} disabled={selected.size === 0 && !q}>
-          {t('decisions.clear')}
-        </Button>
-      </div>
-
-      <OutcomeChips selected={selected} onToggle={toggleOutcome} />
-      {selected.size > 1 && (
-        <p className="text-[11px] text-muted -mt-1 font-mono">
-          {t('decisions.multiOutcomeNote')}
-        </p>
+      {listQ.isError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertTitle>{t('decisions.loadFailed')}</AlertTitle>
+          <AlertDescription>
+            {listQ.error.message}{' '}
+            <Button variant="link" size="sm" onClick={() => listQ.refetch()}>
+              {t('common.retry')}
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <Card>
-        <CardContent className="p-0">
-          {query.isError ? (
-            <Alert variant="destructive" className="m-4">
-              <AlertTriangle className="w-4 h-4" />
-              <AlertTitle>{t('decisions.loadFailed')}</AlertTitle>
-              <AlertDescription>
-                {query.error.message}{' '}
-                <Button variant="link" size="sm" onClick={() => query.refetch()}>
-                  {t('common.retry')}
-                </Button>
-              </AlertDescription>
-            </Alert>
+      {!isInitialLoading && !hasAnyDecisions && !listQ.isError && (
+        <DecisionsFirstRunState />
+      )}
+
+      {!isInitialLoading && hasAnyDecisions && (
+        <>
+          <DecisionsHeader
+            window={window}
+            decisionsCount={filtered.length}
+            seriesCount={seriesCount}
+          />
+
+          <section data-testid="decisions-stuck-slot" />
+
+          <DecisionsFiltersBar
+            search={search}
+            category={category}
+            instance={instance}
+            availableInstances={availableInstances}
+            window={window}
+            sort={sort}
+            counts={counts}
+            onSearchChange={(v) => setParam('q', v || null)}
+            onCategoryChange={(v) => setParam('category', v === 'all' ? null : v)}
+            onInstanceChange={(v) => setCtxInstance(v)}
+            onWindowChange={(v) => setParam('window', v === '7d' ? null : v)}
+            onSortChange={(v) => setParam('sort', v === 'freshest' ? null : v)}
+            onReset={onReset}
+            canReset={canReset}
+          />
+
+          {filteredEmpty ? (
+            <DecisionsEmptyState onReset={onReset} />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('decisions.columns.time')}
-                      sortKey="created_at"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('decisions.columns.instance')}
-                      sortKey="instance"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('decisions.columns.series')}
-                      sortKey="series_title"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('decisions.columns.season')}
-                      sortKey="season"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('decisions.columns.outcome')}</TableHead>
-                  <TableHead>
-                    <SortableHeader
-                      label={t('decisions.columns.category')}
-                      sortKey="category"
-                      currentKey={sortKey}
-                      currentDir={dir}
-                      onToggle={toggle}
-                    />
-                  </TableHead>
-                  <TableHead>{t('decisions.columns.reason')}</TableHead>
-                  <TableHead>{t('decisions.columns.candidates')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {query.isPending && rows.length === 0 && (
-                  <SkeletonRows
-                    rows={8}
-                    cols={['sm', 'md', 'lg', 'sm', 'md', 'md', 'xl', 'sm']}
-                  />
-                )}
-                {!query.isPending && rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={8}>
-                      <EmptyState
-                        title={t('decisions.empty.matchTitle')}
-                        body={t('decisions.empty.matchBody')}
-                        {...(selected.size > 0 || q
-                          ? {
-                              action: (
-                                <Button variant="outline" size="sm" onClick={clear}>
-                                  {t('decisions.clearFilters')}
-                                </Button>
-                              ),
-                            }
-                          : {})}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )}
-                {rows.map((d) => (
-                  <TableRow
-                    key={d.id}
-                    onClick={() => openDrawer(d.id)}
-                    onKeyDown={(e) => onKey(e, d.id)}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t('decisions.openDecisionAria', { id: d.id ?? '' })}
-                    className="cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <TableCell className="text-muted">{relativeTime(d.created_at)}</TableCell>
-                    <TableCell className="font-mono">{d.instance ?? '—'}</TableCell>
-                    <TableCell className="font-medium">{d.series_title ?? '—'}</TableCell>
-                    <TableCell className="font-mono">
-                      {d.season_number !== undefined ? `S${String(d.season_number).padStart(2, '0')}` : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={d.decision} mode="outcome" />
-                    </TableCell>
-                    <TableCell>
-                      <CategoryChip value={d.category} variant="compact" />
-                    </TableCell>
-                    <TableCell className="text-muted text-[12px] truncate max-w-md">
-                      {d.reason ? t(`reasons.${d.reason}`, { defaultValue: d.reason }) : '—'}
-                    </TableCell>
-                    <TableCell className="font-mono">{d.candidates_count ?? 0}</TableCell>
-                  </TableRow>
-                ))}
-                {query.isFetchingNextPage && rows.length > 0 && (
-                  <SkeletonRows
-                    rows={3}
-                    cols={['sm', 'md', 'lg', 'sm', 'md', 'md', 'xl', 'sm']}
-                  />
-                )}
-              </TableBody>
-            </Table>
+            // Placeholder slot for 053b — keeps the test surface stable
+            // and the DOM non-empty while the rest of the page renders.
+            <Card>
+              <CardContent className="p-4">
+                <section data-testid="decisions-accordion-slot">
+                  <SkeletonRows rows={3} cols={['sm', 'md', 'lg']} />
+                </section>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
-
-      {query.hasNextPage && (
-        <div ref={sentinelRef} aria-hidden="true" className="h-1" />
+        </>
       )}
 
-      <DecisionDrawer
-        id={drawer ?? null}
-        open={Boolean(drawer)}
-        onOpenChange={(o) => (o ? null : closeDrawer())}
-        rows={allRows}
-      />
+      {isInitialLoading && (
+        <Card>
+          <CardContent className="p-4">
+            <SkeletonRows rows={6} cols={['sm', 'md', 'lg', 'sm']} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -468,6 +468,43 @@ export const en = {
     timeRangeAria: 'Time range (decorative)',
     multiOutcomeNote: 'Backend accepts one outcome at a time; extras filter the loaded page client-side.',
     openDecisionAria: 'Open decision {{id}}',
+    headerTitle: 'Decisions',
+    headerCount: 'in {{window}} · {{decisions}} decisions · {{seriesCount}} series',
+    window: {
+      h24: 'in 24 hours',
+      d7:  'in 7 days',
+      d30: 'in 30 days',
+      all: 'all time',
+    },
+    filters: {
+      searchPlaceholder: 'search by series…',
+      searchAria: 'Search decisions by series',
+      categoryAria: 'Filter by result',
+      instanceAria: 'Filter by instance',
+      windowAria: 'Filter by time window',
+      sortAria: 'Sort order',
+      category: {
+        all: 'all',
+        done: 'Action taken',
+        none: 'Nothing found',
+        blocked: 'Blocked',
+        sonarr: 'Sonarr handles',
+        ok: 'All in place',
+      },
+      instance: {
+        all: 'all instances',
+      },
+      sort: {
+        freshest: 'freshest first',
+        stuckFirst: 'stuck first',
+      },
+      reset: 'Reset filters',
+    },
+    firstRun: {
+      title: 'Seasons not scanned yet',
+      body: 'Decisions explains why each season did or did not finish downloading. Once the first scan completes, the breakdown lands here.',
+      startScan: 'Start scan',
+    },
     range: {
       h24: 'Last 24h',
       d7: 'Last 7d',
@@ -490,6 +527,9 @@ export const en = {
       failed: 'Failed',
     },
     empty: {
+      filterTitle: 'No decisions match filters',
+      filterBody: 'No decision matches the current filters. Reset the time window or result.',
+      resetFilters: 'Reset filters',
       title: 'No decisions yet',
       body: 'Run a scan to populate decisions.',
       matchTitle: 'No decisions match',
@@ -1014,6 +1054,8 @@ export const en = {
     failed_grab: 'Grab call failed',
     failed_release_fetch: 'Could not fetch releases',
     failed_indexer: 'Indexer error',
+    all_complete:     'All complete',
+    sonarr_handles:   'Sonarr handles',
   },
   outcomes: {
     grab: 'Grab',
