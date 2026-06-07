@@ -522,3 +522,38 @@ type EpisodeFileDetail struct {
 type EpisodeFileList struct {
 	Items []EpisodeFileDetail `json:"items"`
 }
+
+// SeriesCacheItem — one row of GET /api/v1/instances/:name/series-cache.
+// Lean shape: omits overview/genres/banner/fanart so a 24-item Dashboard
+// poster response stays under ~20 KB. F11 will introduce a separate
+// detail endpoint if richer fields are needed per series.
+//
+// LastGrabAt / LastImportedEpisode are derived at read time from
+// grab_records (imported status, latest created_at per series). Empty
+// means "no imported grab on file".
+type SeriesCacheItem struct {
+	SonarrSeriesID      int        `json:"sonarr_series_id"        example:"122"`
+	InstanceName        string     `json:"instance_name"           example:"homelab"`
+	Title               string     `json:"title"                   example:"For All Mankind"`
+	TitleSlug           string     `json:"title_slug"              example:"for-all-mankind"`
+	Year                *int       `json:"year,omitempty"          example:"2019"`
+	Network             *string    `json:"network,omitempty"       example:"Apple TV+"`
+	Status              *string    `json:"status,omitempty"        example:"continuing" enums:"continuing,ended,upcoming"`
+	PosterPath          *string    `json:"poster_path,omitempty"   example:"/MediaCover/122/poster.jpg"`
+	Monitored           bool       `json:"monitored"               example:"true"`
+	MissingCount        int        `json:"missing_count"           example:"0"`
+	LastGrabAt          *time.Time `json:"last_grab_at,omitempty"`
+	LastImportedEpisode string     `json:"last_imported_episode,omitempty" example:"S05"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// SeriesCacheList — body of GET /api/v1/instances/:name/series-cache.
+// Total is the pre-limit count (renders "showing N of M" in the UI).
+// HasMore signals an additional page exists; NextCursor encodes the
+// keyset position for the next request.
+type SeriesCacheList struct {
+	Items      []SeriesCacheItem `json:"items"`
+	Total      int               `json:"total"      example:"42"`
+	HasMore    bool              `json:"has_more"   example:"true"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+}

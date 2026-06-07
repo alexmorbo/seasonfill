@@ -129,6 +129,7 @@ func NewServer(
 		guarded.POST("/scan", scanHandler.Trigger)
 		guarded.GET("/instances", instancesHandler.List)
 		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
+		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)

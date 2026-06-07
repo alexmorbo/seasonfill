@@ -1021,6 +1021,66 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.SeriesCacheItem:
+      properties:
+        instance_name:
+          example: homelab
+          type: string
+        last_grab_at:
+          type: string
+        last_imported_episode:
+          example: S05
+          type: string
+        missing_count:
+          example: 0
+          type: integer
+        monitored:
+          example: true
+          type: boolean
+        network:
+          example: Apple TV+
+          type: string
+        poster_path:
+          example: /MediaCover/122/poster.jpg
+          type: string
+        sonarr_series_id:
+          example: 122
+          type: integer
+        status:
+          enum:
+          - continuing
+          - ended
+          - upcoming
+          example: continuing
+          type: string
+        title:
+          example: For All Mankind
+          type: string
+        title_slug:
+          example: for-all-mankind
+          type: string
+        updated_at:
+          type: string
+        year:
+          example: 2019
+          type: integer
+      type: object
+    dto.SeriesCacheList:
+      properties:
+        has_more:
+          example: true
+          type: boolean
+        items:
+          items:
+            $ref: '#/components/schemas/dto.SeriesCacheItem'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+        total:
+          example: 42
+          type: integer
+      type: object
     dto.SeriesSearchItem:
       properties:
         missing_aired_count:
@@ -2145,6 +2205,90 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Search series in a Sonarr instance
+      tags:
+      - instances
+  /instances/{name}/series-cache:
+    get:
+      description: |-
+        Returns the persisted series_cache rows for an instance,
+        filtered by state (all | imported | missing), sorted
+        (updated_desc | title_asc), keyset-paginated. Enriched
+        with last_grab_at + last_imported_episode aggregated
+        from grab_records.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: all | imported | missing (default all)
+        in: query
+        name: state
+        schema:
+          enum:
+          - all
+          - imported
+          - missing
+          type: string
+      - description: deprecated alias for state
+        in: query
+        name: status
+        schema:
+          type: string
+      - description: updated_desc | title_asc (default updated_desc)
+        in: query
+        name: sort
+        schema:
+          enum:
+          - updated_desc
+          - title_asc
+          type: string
+      - description: 1..100 (default 24)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor from prior page
+        in: query
+        name: cursor
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCacheList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List cached series for an instance
       tags:
       - instances
   /instances/{name}/webhook/install:

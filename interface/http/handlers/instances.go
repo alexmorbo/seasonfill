@@ -343,3 +343,212 @@ func toSeriesSearchItem(s series.Series) dto.SeriesSearchItem {
 		SeasonCount: monSeasons, MissingAired: s.Statistics.AiredMissing(),
 	}
 }
+
+const (
+	// seriesCacheDefaultLimit — Dashboard tile grid renders 12 by
+	// default; 24 ships slack so other consumers (Queue, Series page)
+	// can ask for more without changing the query.
+	seriesCacheDefaultLimit = 24
+	// seriesCacheMaxLimit — hard ceiling. F11 paginates beyond this;
+	// 100 keeps a single response well under the 20 KB lean budget.
+	seriesCacheMaxLimit = 100
+)
+
+// ListSeriesCache returns the per-instance cached series list with
+// filter (state), sort, and keyset pagination. Powers F1 dashboard
+// poster tiles, F5 queue, and F11 series page.
+//
+// @Summary     List cached series for an instance
+// @Description Returns the persisted series_cache rows for an instance,
+// @Description filtered by state (all | imported | missing), sorted
+// @Description (updated_desc | title_asc), keyset-paginated. Enriched
+// @Description with last_grab_at + last_imported_episode aggregated
+// @Description from grab_records.
+// @Tags        instances
+// @Produce     json
+// @Param       name    path   string  true   "Instance name"
+// @Param       state   query  string  false  "all | imported | missing (default all)" Enums(all,imported,missing)
+// @Param       status  query  string  false  "deprecated alias for state"
+// @Param       sort    query  string  false  "updated_desc | title_asc (default updated_desc)" Enums(updated_desc,title_asc)
+// @Param       limit   query  int     false  "1..100 (default 24)"
+// @Param       cursor  query  string  false  "Opaque next_cursor from prior page"
+// @Success     200  {object}  dto.SeriesCacheList
+// @Failure     400  {object}  dto.ErrorResponse
+// @Failure     401  {object}  dto.ErrorResponse
+// @Failure     404  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /instances/{name}/series-cache [get]
+func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
+	name := c.Param("name")
+	if _, ok := h.reg.snapshot()[name]; !ok {
+		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
+		return
+	}
+	if h.seriesCache == nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "series cache not wired"})
+		return
+	}
+	lister, ok := h.seriesCache.(seriesCacheLister)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "series cache backend missing list capability"})
+		return
+	}
+
+	state, err := parseSeriesCacheState(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	sortKey, err := parseSeriesCacheSort(c.Query("sort"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	limit, err := parseSeriesCacheLimit(c.Query("limit"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	cursor, err := ports.ParseCursor(c.Query("cursor"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid cursor"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	entries, total, hasMore, next, lErr := lister.ListByFilter(
+		ctx, name,
+		ports.SeriesCacheFilter{State: state},
+		sortKey,
+		ports.Pagination{Limit: limit, Cursor: cursor},
+	)
+	if lErr != nil {
+		h.logger.ErrorContext(ctx, "series_cache_list_failed",
+			slog.String("instance", name),
+			slog.String("state", string(state)),
+			slog.String("error", lErr.Error()))
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "list failed"})
+		return
+	}
+
+	ids := make([]int, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.SonarrSeriesID)
+	}
+	lastGrabs := map[int]ports.LastGrabInfo{}
+	if grabFetcher, ok := h.seriesCache.(seriesCacheLastGrabFetcher); ok && len(ids) > 0 {
+		lg, gErr := grabFetcher.FetchLastGrabInfo(ctx, name, ids)
+		if gErr != nil {
+			// Soft-fail: never 5xx on the aggregate fetch — render
+			// rows without the derived fields. Mirrors
+			// enrichMissingFromCache (instances.go).
+			h.logger.WarnContext(ctx, "series_cache_last_grab_failed",
+				slog.String("instance", name), slog.String("error", gErr.Error()))
+		} else {
+			lastGrabs = lg
+		}
+	}
+
+	items := make([]dto.SeriesCacheItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, toSeriesCacheItem(e, lastGrabs[e.SonarrSeriesID]))
+	}
+	var nextStr string
+	if next != nil {
+		nextStr = next.String()
+	}
+	c.JSON(http.StatusOK, dto.SeriesCacheList{
+		Items:      items,
+		Total:      total,
+		HasMore:    hasMore,
+		NextCursor: nextStr,
+	})
+}
+
+// seriesCacheLister narrows the port to the list method this handler
+// depends on. The production repository satisfies it; tests can use a
+// focused fake.
+type seriesCacheLister interface {
+	ListByFilter(
+		ctx context.Context,
+		instanceName string,
+		filter ports.SeriesCacheFilter,
+		sort ports.SeriesCacheSort,
+		page ports.Pagination,
+	) ([]series.CacheEntry, int, bool, *ports.Cursor, error)
+}
+
+// seriesCacheLastGrabFetcher is a capability check — handler degrades
+// gracefully if the backing repo doesn't satisfy it.
+type seriesCacheLastGrabFetcher interface {
+	FetchLastGrabInfo(ctx context.Context, instanceName string, seriesIDs []int) (map[int]ports.LastGrabInfo, error)
+}
+
+func parseSeriesCacheState(c *gin.Context) (ports.SeriesCacheState, error) {
+	raw := strings.ToLower(strings.TrimSpace(c.Query("state")))
+	if raw == "" {
+		raw = strings.ToLower(strings.TrimSpace(c.Query("status")))
+	}
+	if raw == "" {
+		return ports.SeriesCacheStateAll, nil
+	}
+	state := ports.SeriesCacheState(raw)
+	if !state.IsValid() {
+		return "", errors.New("state must be one of: all, imported, missing")
+	}
+	return state, nil
+}
+
+func parseSeriesCacheSort(raw string) (ports.SeriesCacheSort, error) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ports.SeriesCacheSortUpdatedDesc, nil
+	}
+	sk := ports.SeriesCacheSort(raw)
+	if !sk.IsValid() {
+		return "", errors.New("sort must be one of: updated_desc, title_asc")
+	}
+	return sk, nil
+}
+
+func parseSeriesCacheLimit(raw string) (int, error) {
+	if raw == "" {
+		return seriesCacheDefaultLimit, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, errors.New("limit must be an integer")
+	}
+	if n < 1 || n > seriesCacheMaxLimit {
+		return 0, errors.New("limit must be between 1 and 100")
+	}
+	return n, nil
+}
+
+// toSeriesCacheItem maps the domain CacheEntry + the aggregated grab
+// info to the wire DTO. Empty LastGrabInfo (zero time + empty episode)
+// emits omitempty/empty on the wire.
+func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCacheItem {
+	var lastGrabAt *time.Time
+	if !lg.LastGrabAt.IsZero() {
+		t := lg.LastGrabAt
+		lastGrabAt = &t
+	}
+	return dto.SeriesCacheItem{
+		SonarrSeriesID:      e.SonarrSeriesID,
+		InstanceName:        e.InstanceName,
+		Title:               e.Title,
+		TitleSlug:           e.TitleSlug,
+		Year:                e.Year,
+		Network:             e.Network,
+		Status:              e.Status,
+		PosterPath:          e.PosterPath,
+		Monitored:           e.Monitored,
+		MissingCount:        e.MissingCount,
+		LastGrabAt:          lastGrabAt,
+		LastImportedEpisode: lg.LastImportedEpisode,
+		UpdatedAt:           e.UpdatedAt,
+	}
+}
