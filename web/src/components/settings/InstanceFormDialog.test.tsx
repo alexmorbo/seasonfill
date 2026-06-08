@@ -392,7 +392,7 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
         <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
       ));
       await openWatchdogSection();
-      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      const urlInput = await screen.findByLabelText(/^qbittorrent url$/i) as HTMLInputElement;
       await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
       await user.clear(urlInput);
       // Type a string whose every prefix differs from the default
@@ -447,7 +447,7 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       await openWatchdogSection();
       // Confirm the default qbit_url is the discovered-equal value
       // first; then mutate so the click produces a real delta.
-      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      const urlInput = await screen.findByLabelText(/^qbittorrent url$/i) as HTMLInputElement;
       await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
       await user.clear(urlInput);
       await user.type(urlInput, 'http://stale:1');
@@ -468,7 +468,7 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
         <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
       ));
       await openWatchdogSection();
-      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      const urlInput = await screen.findByLabelText(/^qbittorrent url$/i) as HTMLInputElement;
       await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
       // Defaults already equal what /discover/qbit will return (see
       // setupFetch default body). Click → onApply finds no delta →

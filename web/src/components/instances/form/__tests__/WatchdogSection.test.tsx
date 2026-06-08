@@ -58,10 +58,17 @@ describe('<WatchdogSection />', () => {
   it('renders qBit URL + username + password + category + enabled-switch', () => {
     render(<Harness />);
     expect(screen.getByTestId('watchdog-section')).toBeInTheDocument();
-    expect(screen.getByLabelText(/qbittorrent url|qbittorrent URL|qbit_url/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^qbittorrent url$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /enabled|watchdog|qbit_enabled/i })).toBeInTheDocument();
+  });
+
+  it('renders the public qBittorrent URL input (083, F-P2-1)', () => {
+    render(<Harness />);
+    expect(
+      screen.getByLabelText(/public qbittorrent url|публичный url qbittorrent/i),
+    ).toBeInTheDocument();
   });
 
   it('shows the auto-fill button only in edit mode', () => {

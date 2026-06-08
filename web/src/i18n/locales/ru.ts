@@ -1122,6 +1122,11 @@ export const ru: Translations = {
           },
           form: {
             url: { label: 'qBittorrent URL', placeholder: 'http://qbittorrent:10095', help: 'Адрес qBittorrent Web UI.' },
+            publicUrl: {
+              label: 'Публичный URL qBittorrent',
+              placeholder: 'https://qbit.example.com',
+              help: 'если qbit_url — внутренний адрес кластера, укажите URL, доступный из браузера',
+            },
             username: { label: 'Username', help: 'Необязательно — для qBittorrent без авторизации оставьте пустым.' },
             password: {
               label: 'Password',

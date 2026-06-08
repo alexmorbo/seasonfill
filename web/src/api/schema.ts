@@ -3431,6 +3431,8 @@ export type components = {
             readonly password_set?: boolean;
             /** @example 30 */
             readonly poll_interval_minutes?: number;
+            /** @example https://qbit.example.com */
+            readonly qbit_public_url?: string;
             /** @example 120 */
             readonly regrab_cooldown_hours?: number;
             readonly updated_at?: string;
@@ -3451,6 +3453,8 @@ export type components = {
             readonly password?: string;
             /** @example 30 */
             readonly poll_interval_minutes?: number;
+            /** @example https://qbit.example.com */
+            readonly qbit_public_url?: string;
             /** @example 120 */
             readonly regrab_cooldown_hours?: number;
             /** @example http://qbit.local:8080 */

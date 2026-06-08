@@ -149,6 +149,12 @@ const qbitShape = {
     (v) => v === '' || /^https?:\/\//.test(v),
     'settings.instances.form.watchdog.errors.urlInvalid',
   ),
+  // 083 / F-P2-1: optional browser-reachable URL. Mirrors qbit_url's
+  // empty-OK + http(s)-only rule; backend accepts '' to clear.
+  qbit_public_url: z.string().refine(
+    (v) => v === '' || /^https?:\/\//.test(v),
+    'settings.instances.form.watchdog.errors.urlInvalid',
+  ),
   qbit_username: z.string().max(256),
   qbit_password: z.string().max(512),
   qbit_category: z.string().max(64),
@@ -170,6 +176,7 @@ function qbitFromDTO(dto: QbitSettingsDTO | null | undefined): Partial<FormValue
   if (!dto) return { ...WATCHDOG_DEFAULTS };
   return {
     qbit_url: dto.url ?? WATCHDOG_DEFAULTS.qbit_url,
+    qbit_public_url: dto.qbit_public_url ?? '',
     qbit_username: dto.username ?? '',
     qbit_password: '', // dirty-bit invariant
     qbit_category: dto.category ?? WATCHDOG_DEFAULTS.qbit_category,
@@ -404,6 +411,7 @@ export function InstanceFormDialog({
     const qbitBody: QbitSettingsUpsertRequest | undefined = qbitDirty
       ? {
           url: (values.qbit_url ?? '').trim(),
+          qbit_public_url: (values.qbit_public_url ?? '').trim(),
           username: (values.qbit_username ?? '').trim(),
           // Empty password = keep ciphertext (039d AC-4 invariant).
           password: values.qbit_password ?? '',

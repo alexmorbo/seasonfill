@@ -58,8 +58,12 @@ export const FORM_DEFAULTS = {
 // WatchdogTab.tsx. Names are `qbit_`-prefixed so they live in the
 // same RHF FormValues as instance config. Defaults mirror 039d
 // validation bounds.
+//
+// 083 / F-P2-1: `qbit_public_url` is the optional browser-reachable
+// URL. Empty = "use qbit_url (or hide GrabDrawer link if internal)".
 export const WATCHDOG_DEFAULTS = {
   qbit_url: 'http://qbittorrent:8080',
+  qbit_public_url: '',
   qbit_username: '',
   qbit_password: '',
   qbit_category: 'sonarr',

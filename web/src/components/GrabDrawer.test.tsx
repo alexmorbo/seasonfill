@@ -307,4 +307,81 @@ describe('<GrabDrawer />', () => {
     await screen.findByText('For All Mankind');
     expect(screen.queryByTestId('drawer-error-section')).toBeNull();
   });
+
+  // 083 / F-P2-1 — link prefers qbit_public_url, hides on internal fallback
+  it('link prefers qbit_public_url when set (083)', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          url: 'http://qbittorrent-web:10095',
+          qbit_public_url: 'https://qbit.example.com',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
+        'href',
+        'https://qbit.example.com/#/torrent/c2cb0d9effab1234cdefa71f',
+      );
+    });
+  });
+
+  it('link uses qbit_url when public URL empty and url is public-ish (083)', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          url: 'http://qb.example.com',
+          qbit_public_url: '',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
+        'href',
+        'http://qb.example.com/#/torrent/c2cb0d9effab1234cdefa71f',
+      );
+    });
+  });
+
+  it('link is hidden when public URL empty and qbit_url is kube-internal (083)', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          url: 'http://qbittorrent-web:10095',
+          qbit_public_url: '',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-qbit-link-disabled')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('drawer-qbit-link')).toBeNull();
+  });
 });

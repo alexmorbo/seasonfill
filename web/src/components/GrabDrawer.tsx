@@ -12,7 +12,7 @@ import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { EpisodeFilesList } from '@/components/grabs/EpisodeFilesList';
 import { buildChips, type Grab } from '@/lib/grabs/chipBuilder';
 import { formatEpisodeRange } from '@/lib/grabs/format';
-import { buildQbitDeepLink } from '@/lib/grabs/qbit';
+import { buildQbitDeepLink, isKubeInternalHost } from '@/lib/grabs/qbit';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { useQbitSettings } from '@/api/qbit';
 import { useSourceDecisionID } from '@/lib/grabs/sourceDecisionLookup';
@@ -34,8 +34,19 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
 
   // qBit settings — fetched lazily by useQbitSettings's natural enabled
   // gate (passes a string|null instance). The hook tolerates 404.
+  //
+  // 083 / F-P2-1: prefer the explicit browser-reachable URL. If empty,
+  // fall back to `url` only when it's NOT kube-internal — otherwise
+  // the link would 404 in the operator's browser and we hide it.
   const qbit = useQbitSettings(instance);
-  const qbitUrl = qbit.data?.url ?? null;
+  const publicUrl = (qbit.data?.qbit_public_url ?? '').trim();
+  const fallbackUrl = (qbit.data?.url ?? '').trim();
+  let qbitUrl: string | null = null;
+  if (publicUrl !== '') {
+    qbitUrl = publicUrl;
+  } else if (fallbackUrl !== '' && !isKubeInternalHost(fallbackUrl)) {
+    qbitUrl = fallbackUrl;
+  }
   const deepLink = buildQbitDeepLink(qbitUrl, grab?.torrent_hash ?? null);
 
   return (

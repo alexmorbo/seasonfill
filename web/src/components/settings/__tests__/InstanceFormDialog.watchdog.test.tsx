@@ -105,7 +105,7 @@ describe('<InstanceFormDialog /> watchdog accordion integration', () => {
     const fill = await screen.findByTestId('auto-fill-qbit');
     await user.click(fill);
     await waitFor(() => {
-      const urlInput = screen.getByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      const urlInput = screen.getByLabelText(/^qbittorrent url$/i) as HTMLInputElement;
       expect(urlInput.value).toBe('http://qbit-discovered:8080');
     });
   });

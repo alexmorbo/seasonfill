@@ -1110,6 +1110,11 @@ export const en = {
           },
           form: {
             url: { label: 'qBittorrent URL', placeholder: 'http://qbittorrent:8080', help: 'qBittorrent Web UI address.' },
+            publicUrl: {
+              label: 'Public qBittorrent URL',
+              placeholder: 'https://qbit.example.com',
+              help: 'If qBittorrent URL is an in-cluster address, set a browser-reachable URL here.',
+            },
             username: { label: 'Username', help: 'Optional — leave empty for local qBittorrent without auth.' },
             password: {
               label: 'Password',

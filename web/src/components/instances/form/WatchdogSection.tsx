@@ -109,6 +109,23 @@ export function WatchdogSection({
         </p>
       </div>
 
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="qbit-public-url">
+          {t('settings.instances.form.watchdog.form.publicUrl.label')}
+        </Label>
+        <Input
+          id="qbit-public-url"
+          type="url"
+          className="font-mono"
+          placeholder={t('settings.instances.form.watchdog.form.publicUrl.placeholder')}
+          aria-invalid={Boolean(errors.qbit_public_url) || undefined}
+          {...register('qbit_public_url')}
+        />
+        <p className="text-[11.5px] text-tx-muted">
+          {t('settings.instances.form.watchdog.form.publicUrl.help')}
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 gap-3.5">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="qbit-user">
