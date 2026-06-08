@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, TriangleAlert, RotateCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
+import { formatSeriesTitle, titleHasEmbeddedYear } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 
 export interface PosterTileProps {
@@ -46,6 +47,12 @@ export function PosterTile({ item }: PosterTileProps) {
   const hue = useMemo(() => hueFor(item), [item]);
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const { season, first, last } = parseEpisode(item.last_imported_episode);
+  // Hide standalone year in footer when Sonarr already disambiguated
+  // the title (Story 075 / PRD F-P1-4).
+  const showYearFooter = item.year !== undefined && !titleHasEmbeddedYear(item.title);
+  const ariaLabel = t('dashboard.poster.posterAria', {
+    label: formatSeriesTitle(item.title, item.year),
+  });
 
   const epsLabel = season === undefined
     ? null
@@ -71,7 +78,7 @@ export function PosterTile({ item }: PosterTileProps) {
       tabIndex={0}
       onClick={handleOpen}
       onKeyDown={onKey}
-      aria-label={t('dashboard.poster.posterAria', { title: item.title, year: item.year ?? '' })}
+      aria-label={ariaLabel}
       style={{
         background:
           `radial-gradient(120% 80% at 30% 0%, oklch(0.30 0.07 ${hue} / 0.9), transparent 60%),` +
@@ -111,10 +118,10 @@ export function PosterTile({ item }: PosterTileProps) {
         <div className="font-semibold text-[15.5px] leading-tight tracking-tight text-tx-primary drop-shadow-[0_1px_8px_oklch(0_0_0_/_0.55)]">
           {item.title}
         </div>
-        {(item.year !== undefined || item.network) && (
+        {(showYearFooter || item.network) && (
           <div className="text-[11px] text-[oklch(1_0_0_/_0.62)]">
-            {item.year !== undefined ? item.year : ''}
-            {item.year !== undefined && item.network ? ' · ' : ''}
+            {showYearFooter ? item.year : ''}
+            {showYearFooter && item.network ? ' · ' : ''}
             {item.network ?? ''}
           </div>
         )}

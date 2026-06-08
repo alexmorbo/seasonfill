@@ -261,7 +261,7 @@ export const ru: Translations = {
       newcount: '+{{count}}',
       failChip: 'import_failed',
       regrabChip: 're-grab #{{n}}',
-      posterAria: '{{title}} ({{year}}) — открыть',
+      posterAria: '{{label}} — открыть',
     },
     rail: {
       today: {
@@ -1468,7 +1468,7 @@ export const ru: Translations = {
       count: '{{shown}} из {{total}}',
     },
     tile: {
-      posterAria: '{{title}} ({{year}})',
+      posterAria: '{{label}}',
       monitoredOn: 'отслеживается',
       monitoredOff: 'не отслеживается',
       missing: 'нет {{count}} серий',

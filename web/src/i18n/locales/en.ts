@@ -259,7 +259,7 @@ export const en = {
       newcount: '+{{count}}',
       failChip: 'import_failed',
       regrabChip: 're-grab #{{n}}',
-      posterAria: '{{title}} ({{year}}) — open',
+      posterAria: '{{label}} — open',
     },
     rail: {
       today: {
@@ -1466,7 +1466,7 @@ export const en = {
       count: '{{shown}} of {{total}}',
     },
     tile: {
-      posterAria: '{{title}} ({{year}})',
+      posterAria: '{{label}}',
       monitoredOn: 'monitored',
       monitoredOff: 'not monitored',
       missing: '{{count}} missing',

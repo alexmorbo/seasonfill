@@ -4,6 +4,7 @@ import { Play, MoreHorizontal, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SeriesTitleLink } from '@/components/SeriesTitleLink';
 import { cn } from '@/lib/utils';
+import { titleHasEmbeddedYear } from '@/lib/title';
 import type { MissingSeries } from '@/lib/missing';
 
 export interface QueueRowProps {
@@ -64,7 +65,11 @@ export function QueueRow({
               year={row.year}
               instanceUiUrl={instanceUiUrl}
             />
-            {row.year !== undefined && (
+            {/* Suppress the muted secondary year chip when Sonarr's
+                title already contains "(YYYY)" — SeriesTitleLink will
+                also suppress its inline "(YYYY)" suffix in that case
+                (Story 075). */}
+            {row.year !== undefined && !titleHasEmbeddedYear(row.title) && (
               <span className="text-[11.5px] text-faint">
                 {row.year}
               </span>

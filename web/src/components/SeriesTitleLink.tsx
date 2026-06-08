@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import { titleHasEmbeddedYear } from '@/lib/title';
 
 export interface SeriesTitleLinkProps {
   readonly title: string;
@@ -23,7 +24,10 @@ export function SeriesTitleLink({
   instanceUiUrl,
 }: SeriesTitleLinkProps) {
   const canLink = Boolean(titleSlug) && Boolean(instanceUiUrl);
-  const yearSuffix = year ? (
+  // Skip the muted "(YYYY)" suffix when Sonarr already embedded one in
+  // the title (PRD F-P1-4 / Story 075) — otherwise we'd render
+  // "Time (2021) (2021)".
+  const yearSuffix = year && !titleHasEmbeddedYear(title) ? (
     <span className="text-faint font-normal ml-1">({year})</span>
   ) : null;
 
