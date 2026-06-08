@@ -36,7 +36,7 @@ export function ConnectionSection({
   const isEdit = mode === 'edit';
   return (
     <div className="flex flex-col gap-4" data-testid="connection-section">
-      <div className="grid grid-cols-2 gap-3.5">
+      <div className="grid grid-cols-2 gap-3.5 items-start">
         {/* Name */}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="inst-name">{t('settings.instances.form.nameLabel')}</Label>
@@ -81,9 +81,6 @@ export function ConnectionSection({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="inst-public-url">
             {t('settings.instances.form.publicUrlLabel')}
-            <span className="text-tx-faint font-normal ml-1.5">
-              {t('settings.instances.form.publicUrlHelp')}
-            </span>
           </Label>
           <Input
             id="inst-public-url"
@@ -93,6 +90,9 @@ export function ConnectionSection({
             aria-invalid={Boolean(errors.public_url) || undefined}
             {...register('public_url')}
           />
+          <p className="text-[11.5px] text-tx-muted max-w-prose">
+            {t('settings.instances.form.publicUrlHelp')}
+          </p>
           {uiUrlHint && (
             <p className="text-[11.5px] text-tx-muted" data-testid="inst-ui-url-hint">
               {t('settings.instances.form.uiUrlHint', { url: uiUrlHint })}
