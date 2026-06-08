@@ -160,7 +160,8 @@ export const en = {
       sub: 'Sonarr controller',
     },
     webhook: {
-      placeholder: 'Webhooks: —',
+      ok: 'Webhooks: {{count}}',
+      degraded: 'Webhooks: {{count}} of {{total}} failing',
     },
     cmdk: {
       placeholder: 'Search, navigate, actions',

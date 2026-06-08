@@ -162,7 +162,8 @@ export const ru: Translations = {
       sub: 'контроллер Sonarr',
     },
     webhook: {
-      placeholder: 'Вебхуки: —',
+      ok: 'Вебхуки: {{count}}',
+      degraded: 'Вебхуки: {{count}} из {{total}} с проблемами',
     },
     cmdk: {
       placeholder: 'Поиск, переход, действия',

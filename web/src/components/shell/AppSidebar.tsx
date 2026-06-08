@@ -10,6 +10,7 @@ import {
   Server,
   Settings as SettingsIcon,
   TriangleAlert,
+  Check,
   ChevronDown,
 } from "lucide-react"
 import type { ComponentType } from "react"
@@ -17,6 +18,7 @@ import type { ComponentType } from "react"
 import { useSession } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useWebhookStatusAggregate } from "@/lib/api/webhookStatus"
 import { InstanceSwitcher } from "./InstanceSwitcher"
 
 type Item = {
@@ -71,6 +73,38 @@ function NavGroup({ label, items }: { label: string; items: Item[] }) {
   )
 }
 
+function WebhookCountBadge() {
+  const { t } = useTranslation()
+  const q = useWebhookStatusAggregate()
+  if (q.isPending || q.isError) return null
+  const data = q.data
+  if (!data || data.items.length === 0) return null
+  const total = data.items.length
+  const unhealthy = data.unhealthy_count
+  if (unhealthy === 0) {
+    return (
+      <Badge
+        variant="ok"
+        className="w-full justify-start gap-2 py-1.5 px-2.5 text-[12px]"
+        data-testid="sidebar-webhook-ok"
+      >
+        <Check className="w-3.5 h-3.5" />
+        {t("shell.webhook.ok", { count: total })}
+      </Badge>
+    )
+  }
+  return (
+    <Badge
+      variant="warn"
+      className="w-full justify-start gap-2 py-1.5 px-2.5 text-[12px]"
+      data-testid="sidebar-webhook-warn"
+    >
+      <TriangleAlert className="w-3.5 h-3.5" />
+      {t("shell.webhook.degraded", { count: unhealthy, total })}
+    </Badge>
+  )
+}
+
 export function AppSidebar() {
   const { t } = useTranslation()
   const { data: session } = useSession()
@@ -106,13 +140,7 @@ export function AppSidebar() {
       </nav>
 
       <div className="border-t border-border-faint p-3 flex flex-col gap-2">
-        <Badge
-          variant="warn"
-          className="w-full justify-start gap-2 py-1.5 px-2.5 text-[12px]"
-        >
-          <TriangleAlert className="w-3.5 h-3.5" />
-          {t("shell.webhook.placeholder")}
-        </Badge>
+        <WebhookCountBadge />
         <div className="flex items-center gap-2.5 px-0.5">
           <span className="grid place-items-center w-6 h-6 rounded-full bg-bg-surface-2 border border-border-subtle text-[11px] font-semibold text-tx-secondary">
             {initial}
