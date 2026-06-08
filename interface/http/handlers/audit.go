@@ -107,7 +107,7 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
-func toGrabDTO(r grab.Record, replayedBy []uuid.UUID) dto.Grab {
+func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record) dto.Grab {
 	d := dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
@@ -141,6 +141,9 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID) dto.Grab {
 		for _, c := range replayedBy {
 			d.ReplayedBy = append(d.ReplayedBy, c.String())
 		}
+	}
+	if kind := grab.DeriveReplayKind(r, parent); kind != grab.ReplayKindPrimary {
+		d.ReplayKind = string(kind)
 	}
 	return d
 }
@@ -417,9 +420,49 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		replays = map[uuid.UUID][]uuid.UUID{}
 	}
 
+	// F-P2-3: resolve parent records so toGrabDTO can derive replay_kind.
+	// Build an in-page lookup first — most parents are on the same page
+	// (newest-first paging keeps replays near their parents). Cross-page
+	// parents fall back to GetByID; production page sizes (<=200) make
+	// N tiny. A miss here downgrades to ReplayKindOther; the row still
+	// renders.
+	parents := make(map[uuid.UUID]grab.Record, len(recs))
+	inPage := make(map[uuid.UUID]grab.Record, len(recs))
+	for _, r := range recs {
+		inPage[r.ID] = r
+	}
+	for _, r := range recs {
+		if r.ReplayOfID == nil {
+			continue
+		}
+		pid := *r.ReplayOfID
+		if _, ok := parents[pid]; ok {
+			continue
+		}
+		if p, ok := inPage[pid]; ok {
+			parents[pid] = p
+			continue
+		}
+		p, perr := h.grabs.GetByID(ctx, pid)
+		if perr != nil {
+			h.logger.WarnContext(ctx, "audit_list_grabs_replay_parent_lookup_failed",
+				slog.String("endpoint", "/api/v1/grabs"),
+				slog.String("parent_id", pid.String()),
+				slog.String("error", perr.Error()))
+			continue
+		}
+		parents[pid] = p
+	}
+
 	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, toGrabDTO(r, replays[r.ID]))
+		var parent *grab.Record
+		if r.ReplayOfID != nil {
+			if p, ok := parents[*r.ReplayOfID]; ok {
+				parent = &p
+			}
+		}
+		out = append(out, toGrabDTO(r, replays[r.ID], parent))
 	}
 	writeListResponse(c, out, next)
 }

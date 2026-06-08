@@ -35,6 +35,15 @@ const STATUS_CLASS: Record<string, string> = {
   muted:    'text-tx-muted bg-bg-surface-2',
 };
 
+// F-P2-3: server-derived replay_kind badge. Rendered next to the status
+// pill on replays only — primary rows omit the field on the wire so we
+// short-circuit on undefined.
+const REPLAY_KIND_META: Record<string, { i18nKey: string; cls: string }> = {
+  replay_quality: { i18nKey: 'grabs.replayKind.quality', cls: 'text-info bg-info/14 border-info/30' },
+  replay_dub:     { i18nKey: 'grabs.replayKind.dub',     cls: 'text-warn bg-warn-dim border-warn/30' },
+  replay_other:   { i18nKey: 'grabs.replayKind.other',   cls: 'text-tx-muted bg-bg-surface-2 border-border-faint' },
+};
+
 export function GrabRow({
   grab, selected, threadOpen, reGrabIndex, instance, localAll,
   onOpenDrawer, onToggleThread,
@@ -127,6 +136,24 @@ export function GrabRow({
             <StatusIcon className="size-3" />
             {t(`grabs.status.${status}`, { defaultValue: status })}
           </span>
+          {(() => {
+            const kind = grab.replay_kind;
+            const kindMeta = kind ? REPLAY_KIND_META[kind] : undefined;
+            if (!kindMeta) return null;
+            return (
+              <span
+                data-testid={`grab-replay-kind-${grab.id ?? 'unknown'}`}
+                className={cn(
+                  'text-[10.5px] font-semibold px-2 py-px rounded-full',
+                  'inline-flex items-center gap-1 whitespace-nowrap border',
+                  kindMeta.cls,
+                )}
+              >
+                <RotateCw className="size-3" />
+                {t(kindMeta.i18nKey)}
+              </span>
+            );
+          })()}
         </div>
         <ChipsRow chips={chips} />
         <div className="flex items-center gap-2 text-[11.5px] text-tx-faint font-mono">

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/i18n';
 import { GrabRow } from './GrabRow';
 import type { Grab } from '@/lib/grabs/chipBuilder';
-import { DtoGrabStatus } from '@/api/schema';
+import { DtoGrabStatus, DtoGrabReplay_kind } from '@/api/schema';
 
 const base: Partial<Grab> = {
   id: 'g1',
@@ -153,6 +153,48 @@ describe('<GrabRow />', () => {
     // ReGrabThread renders nothing when there's no chain (single grab, no replay_of_id).
     // Just verify the component doesn't crash when instance + localAll are provided.
     expect(screen.getByText('For All Mankind')).toBeInTheDocument();
+  });
+
+  it('renders replay-quality badge when replay_kind === "replay_quality"', () => {
+    const rep: Partial<Grab> = { ...base, replay_kind: DtoGrabReplay_kind.replay_quality };
+    render(wrap(
+      <GrabRow grab={rep as Grab} selected={false} threadOpen={false} reGrabIndex={1}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const badge = screen.getByTestId('grab-replay-kind-g1');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toMatch(/Watchdog/i);
+    expect(badge.textContent).toMatch(/(quality|качества)/i);
+  });
+
+  it('renders replay-dub badge when replay_kind === "replay_dub"', () => {
+    const rep: Partial<Grab> = { ...base, replay_kind: DtoGrabReplay_kind.replay_dub };
+    render(wrap(
+      <GrabRow grab={rep as Grab} selected={false} threadOpen={false} reGrabIndex={1}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const badge = screen.getByTestId('grab-replay-kind-g1');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toMatch(/(dub|дорожка)/i);
+  });
+
+  it('renders replay-other badge when replay_kind === "replay_other"', () => {
+    const rep: Partial<Grab> = { ...base, replay_kind: DtoGrabReplay_kind.replay_other };
+    render(wrap(
+      <GrabRow grab={rep as Grab} selected={false} threadOpen={false} reGrabIndex={1}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const badge = screen.getByTestId('grab-replay-kind-g1');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toMatch(/(re-grab|перегрэб)/i);
+  });
+
+  it('omits replay-kind badge when replay_kind is absent (primary row)', () => {
+    render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(screen.queryByTestId('grab-replay-kind-g1')).toBeNull();
   });
 
   it('clamps the error span to max-w-[420px] on import_failed rows', () => {

@@ -761,6 +761,11 @@ export const ru: Translations = {
         node: 're-grab #{{index}} · {{time}} · {{count}} эп',
       },
     },
+    replayKind: {
+      quality: 'Watchdog · улучшение качества',
+      dub:     'Watchdog · новая дорожка',
+      other:   'Watchdog · перегрэб',
+    },
     empty: {
       top:    { title: 'Грабов ещё не было', body: 'Как только Seasonfill или watchdog заберёт релиз — он появится тут с распарсенными тегами качества и цепочкой re-grab.' },
       fails:  { title: 'Нет неудачных грабов', body: 'Все недавние грабы успешно импортированы.' },

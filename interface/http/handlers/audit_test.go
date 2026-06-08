@@ -541,6 +541,91 @@ func TestAuditHandler_ListGrabs_ExposesTorrentHashAndChainPointers(t *testing.T)
 	assert.Empty(t, gotChild.ReplayedBy)
 }
 
+// --- F-P2-3: replay_kind derivation -----------------------------------------
+
+func TestAuditHandler_ListGrabs_DerivesReplayKind(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	mk := func(title string, parsed *grab.Parsed, parentID *uuid.UUID, offset time.Duration) grab.Record {
+		return grab.Record{
+			ID:           uuid.New(),
+			InstanceName: "main",
+			SeriesID:     500,
+			SeriesTitle:  "X",
+			SeasonNumber: 1,
+			ReleaseGUID:  uuid.NewString(),
+			ReleaseTitle: title,
+			IndexerID:    1,
+			IndexerName:  "rt",
+			Status:       grab.StatusImported,
+			ScanRunID:    uuid.New(),
+			ReplayOfID:   parentID,
+			Parsed:       parsed,
+			CreatedAt:    base.Add(offset),
+			UpdatedAt:    base.Add(offset),
+		}
+	}
+
+	// Pair 1: quality bump 1080p -> 2160p.
+	p1 := mk("p1", &grab.Parsed{Resolution: 1080}, nil, 0)
+	c1 := mk("c1", &grab.Parsed{Resolution: 2160}, &p1.ID, time.Minute)
+	// Pair 2: dub gained, same resolution.
+	p2 := mk("p2", &grab.Parsed{Resolution: 1080}, nil, 2*time.Minute)
+	c2 := mk("c2", &grab.Parsed{Resolution: 1080, Dub: "MVO"}, &p2.ID, 3*time.Minute)
+	// Pair 3: replay but nothing changed.
+	p3 := mk("p3", &grab.Parsed{Resolution: 1080}, nil, 4*time.Minute)
+	c3 := mk("c3", &grab.Parsed{Resolution: 1080}, &p3.ID, 5*time.Minute)
+	// Pair 4: parent has no Parsed at all — dub axis disqualified.
+	p4 := mk("p4", nil, nil, 6*time.Minute)
+	c4 := mk("c4", &grab.Parsed{Resolution: 1080}, &p4.ID, 7*time.Minute)
+	// Pair 5: HDR-only gain at the same resolution counts as quality.
+	p5 := mk("p5", &grab.Parsed{Resolution: 2160}, nil, 8*time.Minute)
+	c5 := mk("c5", &grab.Parsed{Resolution: 2160, HDRFlags: []string{"HDR10"}}, &p5.ID, 9*time.Minute)
+
+	for _, r := range []grab.Record{p1, c1, p2, c2, p3, c3, p4, c4, p5, c5} {
+		require.NoError(t, f.grabs.Create(ctx, r))
+	}
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs?limit=50")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Items []struct {
+			ID           string `json:"id"`
+			ReleaseTitle string `json:"release_title"`
+			ReplayKind   string `json:"replay_kind"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+	byTitle := map[string]string{}
+	for _, it := range resp.Items {
+		byTitle[it.ReleaseTitle] = it.ReplayKind
+	}
+	assert.Equal(t, "replay_quality", byTitle["c1"], "1080p -> 2160p must be quality")
+	assert.Equal(t, "replay_dub", byTitle["c2"], "dub gained must be dub")
+	assert.Equal(t, "replay_other", byTitle["c3"], "no axis differs must be other")
+	assert.Equal(t, "replay_other", byTitle["c4"], "parent unparsed must be other")
+	assert.Equal(t, "replay_quality", byTitle["c5"], "HDR gain must be quality")
+	assert.Equal(t, "", byTitle["p1"], "root grab must omit replay_kind")
+	assert.Equal(t, "", byTitle["p3"], "root grab must omit replay_kind")
+}
+
+func TestAuditHandler_ListGrabs_ReplayKindOmittedWhenPrimary(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	ctx := context.Background()
+	rec := makeGrabRecord(t)
+	require.NoError(t, f.grabs.Create(ctx, rec))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), `"replay_kind"`,
+		"primary rows must omit replay_kind from the wire")
+}
+
 // makeGrabRecord is a helper to construct a test grab.Record with all
 // required fields populated.
 func makeGrabRecord(t *testing.T) grab.Record {

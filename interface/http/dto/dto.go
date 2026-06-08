@@ -187,6 +187,15 @@ type Grab struct {
 	// at ports.MaxReplaysPerParent (50); SPA renders "+N more" past
 	// that. Empty slice omitted from wire.
 	ReplayedBy []string `json:"replayed_by,omitempty"`
+	// ReplayKind classifies a replay row relative to its parent
+	// (F-P2-3). Derived server-side at read time from Parsed/Quality
+	// on both sides. Empty / "primary" (omitted from wire) means this
+	// row is not a replay or has no comparable axis. "replay_quality"
+	// = better resolution / codec / HDR than parent. "replay_dub" =
+	// gained a dub track the parent did not have. "replay_other" =
+	// replay row but no parsed-axis improvement detected (parent
+	// off-page, parent unparsed, or no axis differs).
+	ReplayKind string `json:"replay_kind,omitempty" example:"replay_quality" enums:"replay_quality,replay_dub,replay_other"`
 	// SizeBytes — release size in bytes (Sonarr OnGrab `release.size`
 	// or manual-grab `releaseDTO.size`). Omitted when nil; SPA
 	// renders "—" for missing values.

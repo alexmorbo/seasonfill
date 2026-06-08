@@ -752,6 +752,11 @@ export const en = {
         node: 're-grab #{{index}} · {{time}} · {{count, plural, one {# ep} other {# eps}}}',
       },
     },
+    replayKind: {
+      quality: 'Watchdog · quality upgrade',
+      dub:     'Watchdog · new dub track',
+      other:   'Watchdog · re-grab',
+    },
     empty: {
       top:    { title: 'No grabs yet', body: 'Once Seasonfill grabs a release, it shows up here.' },
       fails:  { title: 'No failed grabs', body: 'All recent grabs imported cleanly.' },

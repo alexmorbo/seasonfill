@@ -3005,6 +3005,19 @@ export type components = {
             readonly release_guid?: string;
             readonly release_title?: string;
             /**
+             * @description ReplayKind classifies a replay row relative to its parent
+             *     (F-P2-3). Derived server-side at read time from Parsed/Quality
+             *     on both sides. Empty / "primary" (omitted from wire) means this
+             *     row is not a replay or has no comparable axis. "replay_quality"
+             *     = better resolution / codec / HDR than parent. "replay_dub" =
+             *     gained a dub track the parent did not have. "replay_other" =
+             *     replay row but no parsed-axis improvement detected (parent
+             *     off-page, parent unparsed, or no axis differs).
+             * @example replay_quality
+             * @enum {string}
+             */
+            readonly replay_kind?: DtoGrabReplay_kind;
+            /**
              * @description ReplayOfID — uuid of the original row this row re-grabs.
              *     Populated by the Watchdog regrab path (039f-2); nil for scan /
              *     rescan / manual paths. Omitted when nil.
@@ -3894,6 +3907,11 @@ export enum DtoDecisionDecision {
     already_optimal = "already_optimal",
     expired = "expired",
     error = "error"
+}
+export enum DtoGrabReplay_kind {
+    replay_quality = "replay_quality",
+    replay_dub = "replay_dub",
+    replay_other = "replay_other"
 }
 export enum DtoGrabStatus {
     grabbed = "grabbed",

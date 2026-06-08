@@ -258,6 +258,22 @@ components:
           type: string
         release_title:
           type: string
+        replay_kind:
+          description: |-
+            ReplayKind classifies a replay row relative to its parent
+            (F-P2-3). Derived server-side at read time from Parsed/Quality
+            on both sides. Empty / "primary" (omitted from wire) means this
+            row is not a replay or has no comparable axis. "replay_quality"
+            = better resolution / codec / HDR than parent. "replay_dub" =
+            gained a dub track the parent did not have. "replay_other" =
+            replay row but no parsed-axis improvement detected (parent
+            off-page, parent unparsed, or no axis differs).
+          enum:
+          - replay_quality
+          - replay_dub
+          - replay_other
+          example: replay_quality
+          type: string
         replay_of_id:
           description: |-
             ReplayOfID — uuid of the original row this row re-grabs.

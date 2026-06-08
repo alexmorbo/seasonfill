@@ -162,8 +162,10 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 		slog.String("grab_id", out.Record.ID.String()))
 	// 043a: manual-grab path is never a re-grab target on creation —
 	// the row was just inserted with replay_of_id=NULL. Pass nil to
-	// skip the now-required ListReplaysOf fan-out.
-	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil))
+	// skip the now-required ListReplaysOf fan-out. Parent is nil too;
+	// DeriveReplayKind short-circuits to ReplayKindPrimary which the
+	// DTO omits from wire.
+	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil))
 }
 
 // findExistingGrab returns the first non-terminal row for this
