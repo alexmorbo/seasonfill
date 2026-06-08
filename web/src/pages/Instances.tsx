@@ -102,9 +102,8 @@ export function Instances() {
   }, [instances, t]);
 
   return (
-    <div className="mx-auto max-w-[1200px] flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <header className="flex items-center gap-4">
-        <h1 className="text-[15px] font-[650] tracking-tight">{t('instances.title')}</h1>
         <span className="text-[12.5px] text-tx-faint">{headerSummary}</span>
         <Button onClick={openCreate} className="ml-auto gap-1.5" variant="primary">
           <Plus className="w-3.5 h-3.5" />

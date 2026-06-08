@@ -18,9 +18,9 @@ export function SeriesHeader({
   return (
     <div className="flex items-end justify-between gap-3 pb-3 border-b border-border-faint">
       <div className="flex flex-col gap-1 min-w-0">
-        <h1 className="text-[20px] font-semibold tracking-tight text-tx-primary">
+        <h2 className="text-[20px] font-semibold tracking-tight text-tx-primary">
           {t('series.title')}
-        </h1>
+        </h2>
         <div className={cn(
           'text-[12.5px] font-mono tabular-nums flex items-center gap-1.5',
           isError ? 'text-warn' : 'text-tx-faint',

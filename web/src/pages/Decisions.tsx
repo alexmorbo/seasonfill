@@ -167,13 +167,7 @@ export function Decisions() {
   const filteredEmpty = filtered.length === 0;
 
   return (
-    <div className="mx-auto max-w-[940px] flex flex-col gap-2">
-      <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">
-          {t('decisions.title')}
-        </h1>
-      </header>
-
+    <div className="flex flex-col gap-2">
       {listQ.isError && (
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />

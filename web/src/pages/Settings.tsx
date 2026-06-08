@@ -61,12 +61,9 @@ export function Settings() {
   }, [tab]);
 
   return (
-    <div className="mx-auto max-w-[1024px] flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <header>
-        <h1 className="text-[22px] font-semibold tracking-tight">
-          {t('settings.title')}
-        </h1>
-        <p className="text-[13px] text-muted mt-1">{t('settings.subtitle')}</p>
+        <p className="text-[13px] text-muted">{t('settings.subtitle')}</p>
       </header>
 
       <div className="max-w-[760px]">

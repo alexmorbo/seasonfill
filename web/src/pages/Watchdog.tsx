@@ -41,10 +41,6 @@ export function Watchdog() {
 
   return (
     <div data-testid="watchdog-page">
-      <h1 className="mb-4 text-[20px] font-semibold">
-        {t('watchdog.title')}
-      </h1>
-
       {showEmpty ? (
         <WatchdogNotConfiguredEmpty />
       ) : (

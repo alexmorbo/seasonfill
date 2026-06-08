@@ -93,4 +93,11 @@ describe("<AppShell />", () => {
     const body = await screen.findByTestId("page-body")
     expect(main.contains(body)).toBe(true)
   })
+
+  it("hosts no h1 inside <main> (the topbar h1 is the only page-level heading)", async () => {
+    renderWithProviders(ui)
+    const main = await screen.findByRole("main")
+    const innerH1 = main.querySelectorAll("h1")
+    expect(innerH1.length).toBe(0)
+  })
 })

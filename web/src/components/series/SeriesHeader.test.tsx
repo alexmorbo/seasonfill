@@ -37,11 +37,10 @@ function wrap(props: Partial<{
 }
 
 describe('<SeriesHeader />', () => {
-  it('renders the title and count', () => {
+  it('renders the title heading at level 2 and the count', () => {
     wrap({ shownCount: 12, totalCount: 150 });
-    expect(screen.getByRole('heading')).toBeInTheDocument();
-    // i18n fallback emits the raw key; whatever the renderer produces,
-    // both numbers must appear in the document.
+    expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
     expect(screen.getByText(/12/)).toBeInTheDocument();
     expect(screen.getByText(/150/)).toBeInTheDocument();
   });

@@ -119,9 +119,6 @@ export function Grabs() {
 
   return (
     <div className="flex flex-col gap-4 relative">
-      <header className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-[22px] font-semibold tracking-tight">{t('grabs.title')}</h1>
-      </header>
       <GrabsFiltersBar
         filter={filter}
         onFilterChange={(f) => setParam('filter', f === 'all' ? '' : f)}
