@@ -539,6 +539,8 @@ export function InstanceFormDialog({
                 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
                 setValue={setValue as unknown as any}
                 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                getValues={getValues as unknown as any}
+                /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
                 watch={watch as unknown as any}
                 mode={mode}
                 instanceName={initial?.name ?? undefined}

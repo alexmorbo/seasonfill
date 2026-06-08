@@ -117,6 +117,14 @@ function setupFetch({
       }
       return Promise.resolve(new Response('{}', { status: 200 }));
     }
+    if (u.endsWith('/discover/qbit')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        url: 'http://qbittorrent:8080',
+        username: 'admin',
+        category: 'sonarr',
+        name: 'qbit',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
     return Promise.resolve(new Response('{}', { status: 200 }));
   }) as typeof fetch;
 }
@@ -364,6 +372,112 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
         const section = screen.getByTestId('connection-section');
         expect(within(section).getByLabelText(/api key/i)).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('F-P0-1 — qBit field editability + auto-fill button strictly user-initiated', () => {
+    async function openWatchdogSection() {
+      await screen.findByTestId('connection-section');
+      // Give in-flight GETs a tick to settle so reset() does not
+      // fire after the user starts typing.
+      await new Promise((r) => setTimeout(r, 50));
+      await userEvent.setup().click(
+        await screen.findByText(/qbittorrent.*watchdog|qbittorrent\/watchdog/i),
+      );
+    }
+
+    it('typing into qbit_url is reflected in the input (no wipe) and fires no toast', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await openWatchdogSection();
+      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
+      await user.clear(urlInput);
+      // Type a string whose every prefix differs from the default
+      // so the form stays dirty throughout the keystroke sequence.
+      await user.type(urlInput, 'http://other:1234');
+      expect(urlInput.value).toBe('http://other:1234');
+      // No auto-fill toast must have fired.
+      const toasts = document.querySelectorAll('[data-sonner-toast]');
+      expect(toasts.length).toBe(0);
+    });
+
+    it('typing into qbit_category is reflected and fires no toast', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await openWatchdogSection();
+      const cat = await screen.findByLabelText(/^category$/i) as HTMLInputElement;
+      await waitFor(() => expect(cat.value).toBe('sonarr'));
+      await user.clear(cat);
+      await user.type(cat, 'newcat');
+      expect(cat.value).toBe('newcat');
+      const toasts = document.querySelectorAll('[data-sonner-toast]');
+      expect(toasts.length).toBe(0);
+    });
+
+    it('changing TuningSection cooldown mode does NOT fire any auto-fill toast', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      await new Promise((r) => setTimeout(r, 50));
+      // Open Tuning section.
+      await user.click(await screen.findByText(/настройки|тюнинг|tuning|поведение/i));
+      // Switch cooldown mode to "strict" (segmented control radio).
+      const strictRadio = await screen.findByRole('radio', { name: /strict|строгий/i });
+      await user.click(strictRadio);
+      // Wait a tick for any spurious effects to flush.
+      await new Promise((r) => setTimeout(r, 50));
+      const toasts = document.querySelectorAll('[data-sonner-toast]');
+      expect(toasts.length).toBe(0);
+    });
+
+    it('AutoFill button fires exactly one toast per click and one network request', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await openWatchdogSection();
+      // Confirm the default qbit_url is the discovered-equal value
+      // first; then mutate so the click produces a real delta.
+      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
+      await user.clear(urlInput);
+      await user.type(urlInput, 'http://stale:1');
+      await user.click(screen.getByTestId('auto-fill-qbit'));
+      await waitFor(() => {
+        const toasts = document.querySelectorAll('[data-sonner-toast]');
+        expect(toasts.length).toBe(1);
+      });
+      const discoverCalls = capture.calls.filter(
+        (c) => c.method === 'GET' && c.url.endsWith('/discover/qbit'),
+      );
+      expect(discoverCalls.length).toBe(1);
+    });
+
+    it('AutoFill click that returns the already-present values produces no toast', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await openWatchdogSection();
+      const urlInput = await screen.findByLabelText(/qbittorrent url/i) as HTMLInputElement;
+      await waitFor(() => expect(urlInput.value).toBe('http://qbittorrent:8080'));
+      // Defaults already equal what /discover/qbit will return (see
+      // setupFetch default body). Click → onApply finds no delta →
+      // no toast.
+      await user.click(screen.getByTestId('auto-fill-qbit'));
+      // Wait for the request to round-trip.
+      await new Promise((r) => setTimeout(r, 80));
+      const toasts = document.querySelectorAll('[data-sonner-toast]');
+      expect(toasts.length).toBe(0);
     });
   });
 });

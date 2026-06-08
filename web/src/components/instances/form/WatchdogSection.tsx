@@ -1,5 +1,9 @@
-import { useMemo } from 'react';
-import { Controller, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
+import { useCallback, useMemo } from 'react';
+import {
+  Controller,
+  type Control, type FieldErrors, type UseFormGetValues,
+  type UseFormRegister, type UseFormSetValue, type UseFormWatch,
+} from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +14,10 @@ import {
 import {
   NumberField, TagListEditor,
 } from '@/components/settings/instance-form-fields';
-import { AutoFillQbitButton } from './AutoFillQbitButton';
+import {
+  AutoFillQbitButton,
+  type AutoFillApplyResult, type AutoFillFields,
+} from './AutoFillQbitButton';
 import { useQbitSettings, useWebhookStatus } from '@/api/qbit';
 
 export interface WatchdogSectionProps {
@@ -23,6 +30,8 @@ export interface WatchdogSectionProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly setValue: UseFormSetValue<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly getValues: UseFormGetValues<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly watch: UseFormWatch<any>;
   readonly mode: 'create' | 'edit';
   readonly instanceName: string | undefined;
@@ -30,7 +39,7 @@ export interface WatchdogSectionProps {
 }
 
 export function WatchdogSection({
-  control, register, errors, setValue, watch, mode, instanceName,
+  control, register, errors, setValue, getValues, watch, mode, instanceName,
   tValidationError,
 }: WatchdogSectionProps) {
   const { t } = useTranslation();
@@ -50,16 +59,36 @@ export function WatchdogSection({
     return t('settings.instances.form.watchdog.form.password.placeholderUnset');
   }, [passwordSet, passwordValue, t]);
 
+  // Stable callback — getValues + setValue are RHF refs that never
+  // change identity. Compares discovered values against current
+  // form state and only writes fields that actually differ. Returns
+  // { changed: boolean } so the button can suppress the toast when
+  // there is no real change (idempotent click).
+  const onApply = useCallback((fields: AutoFillFields): AutoFillApplyResult => {
+    let changed = false;
+    if (fields.url !== undefined && fields.url !== getValues('qbit_url')) {
+      setValue('qbit_url', fields.url, { shouldDirty: true });
+      changed = true;
+    }
+    if (fields.username !== undefined
+      && fields.username !== getValues('qbit_username')) {
+      setValue('qbit_username', fields.username, { shouldDirty: true });
+      changed = true;
+    }
+    if (fields.category !== undefined
+      && fields.category !== getValues('qbit_category')) {
+      setValue('qbit_category', fields.category, { shouldDirty: true });
+      changed = true;
+    }
+    return { changed };
+  }, [getValues, setValue]);
+
   return (
     <div className="flex flex-col gap-4" data-testid="watchdog-section">
       {!isCreate && instanceName && (
         <AutoFillQbitButton
           instanceName={instanceName}
-          onDiscovered={(fields) => {
-            if (fields.url !== undefined)      setValue('qbit_url', fields.url, { shouldDirty: true });
-            if (fields.username !== undefined) setValue('qbit_username', fields.username, { shouldDirty: true });
-            if (fields.category !== undefined) setValue('qbit_category', fields.category, { shouldDirty: true });
-          }}
+          onApply={onApply}
         />
       )}
 

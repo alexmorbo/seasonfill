@@ -11,7 +11,7 @@ function Harness({
   mode = 'edit' as 'create' | 'edit',
 }: { mode?: 'create' | 'edit' }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const { control, register, formState, setValue, watch } = useForm({
+  const { control, register, formState, setValue, getValues, watch } = useForm({
     defaultValues: WATCHDOG_DEFAULTS as Record<string, unknown>,
   });
   return (
@@ -22,6 +22,7 @@ function Harness({
           register={register}
           errors={formState.errors}
           setValue={setValue}
+          getValues={getValues}
           watch={watch}
           mode={mode}
           instanceName={mode === 'edit' ? 'homelab' : undefined}
