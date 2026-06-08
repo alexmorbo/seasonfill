@@ -1479,6 +1479,7 @@ export const en = {
         all: 'All',
         imported: 'Imported',
         missing: 'Missing',
+        fallbackHint: 'No series with missing episodes — showing all.',
       },
       networks: {
         label: 'Network',
@@ -1487,6 +1488,7 @@ export const en = {
       },
       monitoredOnly: 'Monitored only',
       sort: {
+        aria: 'Sort order',
         updatedDesc: 'Last updated',
         titleAsc: 'Title A–Z',
       },

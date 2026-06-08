@@ -1481,6 +1481,7 @@ export const ru: Translations = {
         all: 'Все',
         imported: 'Импортированы',
         missing: 'С пропусками',
+        fallbackHint: 'Нет сериалов с пропусками — показываем все.',
       },
       networks: {
         label: 'Сеть',
@@ -1489,6 +1490,7 @@ export const ru: Translations = {
       },
       monitoredOnly: 'Только отслеживаемые',
       sort: {
+        aria: 'Порядок сортировки',
         updatedDesc: 'По обновлению',
         titleAsc: 'По названию А–Я',
       },

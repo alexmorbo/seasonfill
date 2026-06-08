@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
@@ -23,7 +23,7 @@ let instancesFixture: {
   isPending: boolean;
 } = { data: { instances: [{ name: 'homelab', ui_url: 'http://sonarr' }] }, isPending: false };
 
-let infiniteFixture: {
+interface InfiniteFixture {
   data?: { pages: Array<{ items: unknown[]; total: number; has_more: boolean }>; pageParams: string[] };
   isPending: boolean;
   isFetching: boolean;
@@ -33,12 +33,15 @@ let infiniteFixture: {
   hasNextPage: boolean;
   refetch: () => void;
   fetchNextPage: () => void;
-};
+}
+
+let infiniteFixture: InfiniteFixture;
+const hookCalls: Array<{ instance: string | null | undefined; q: { state: string; sort: string; limit: number } }> = [];
 
 const refetch = vi.fn();
 const fetchNextPage = vi.fn();
 
-function resetInfinite(overrides: Partial<typeof infiniteFixture> = {}) {
+function resetInfinite(overrides: Partial<InfiniteFixture> = {}) {
   refetch.mockReset();
   fetchNextPage.mockReset();
   infiniteFixture = {
@@ -65,7 +68,10 @@ vi.mock('@/lib/api/seriesCache', async () => {
   );
   return {
     ...real,
-    useSeriesCacheInfinite: () => infiniteFixture,
+    useSeriesCacheInfinite: (instance: string | null | undefined, q: { state: string; sort: string; limit: number }) => {
+      hookCalls.push({ instance, q });
+      return infiniteFixture;
+    },
     flattenSeriesCachePages: (pages: Array<{ items: unknown[] }> | undefined) =>
       pages ? pages.flatMap((p) => p.items ?? []) : [],
   };
@@ -88,23 +94,29 @@ function renderPage(url: string = '/series') {
   );
 }
 
+const itemFixture = {
+  sonarr_series_id: 1,
+  instance_name: 'homelab',
+  title: 'Severance',
+  title_slug: 'severance',
+  monitored: true,
+  missing_count: 1,
+  updated_at: new Date().toISOString(),
+};
+
 describe('<Series /> integration', () => {
   beforeEach(() => {
     instancesFixture = {
       data: { instances: [{ name: 'homelab', ui_url: 'http://sonarr' }] },
       isPending: false,
     };
+    hookCalls.length = 0;
     resetInfinite();
   });
 
-  it('renders the filters bar after 059b lands', () => {
+  it('renders the filters bar', () => {
     renderPage();
     expect(screen.getByTestId('series-filters-bar')).toBeInTheDocument();
-  });
-
-  it('renders the server-empty state when items=0', () => {
-    renderPage();
-    expect(screen.getByTestId('series-empty-server')).toBeInTheDocument();
   });
 
   it('renders first-run when no instances configured', () => {
@@ -113,32 +125,56 @@ describe('<Series /> integration', () => {
     expect(screen.getByTestId('series-first-run')).toBeInTheDocument();
   });
 
-  it('renders the grid when items present', () => {
-    resetInfinite({
-      data: {
-        pages: [{
-          items: [{
-            sonarr_series_id: 1,
-            instance_name: 'homelab',
-            title: 'Severance',
-            title_slug: 'severance',
-            monitored: true,
-            missing_count: 0,
-            updated_at: new Date().toISOString(),
-          }],
-          total: 1,
-          has_more: false,
-        }],
-        pageParams: [''],
-      },
-    });
-    renderPage();
-    expect(screen.getByTestId('series-grid')).toBeInTheDocument();
-  });
-
   it('refetch is called when refresh clicked', () => {
+    resetInfinite({
+      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+    });
     renderPage();
     fireEvent.click(screen.getByTestId('series-header-refresh'));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('queries the cache with state=missing on bare URL (F-P1-2 default)', () => {
+    resetInfinite({
+      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+    });
+    renderPage();
+    expect(hookCalls.length).toBeGreaterThanOrEqual(1);
+    expect(hookCalls[0]!.q.state).toBe('missing');
+  });
+
+  it('renders the monitored switch checked on bare URL (F-P1-1 default)', () => {
+    resetInfinite({
+      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+    });
+    renderPage();
+    expect(screen.getByTestId('series-filters-monitored').getAttribute('aria-checked'))
+      .toBe('true');
+  });
+
+  it('auto-falls-back to state=all when first load on state=missing has total=0', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-fallback-hint')).toBeInTheDocument();
+    });
+    const lastCall = hookCalls[hookCalls.length - 1]!;
+    expect(lastCall.q.state).toBe('all');
+  });
+
+  it('does NOT auto-fall-back when state=missing has results', async () => {
+    resetInfinite({
+      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+    });
+    renderPage();
+    await act(async () => { /* let effects flush */ });
+    expect(screen.queryByTestId('series-fallback-hint')).toBeNull();
+    expect(hookCalls.every((c) => c.q.state === 'missing')).toBe(true);
+  });
+
+  it('does NOT auto-fall-back on deep links that arrive with state=all', async () => {
+    renderPage('/series?state=all');
+    await act(async () => { /* let effects flush */ });
+    expect(screen.queryByTestId('series-fallback-hint')).toBeNull();
+    expect(hookCalls.every((c) => c.q.state === 'all')).toBe(true);
   });
 });

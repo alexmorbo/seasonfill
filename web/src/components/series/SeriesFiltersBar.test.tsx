@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
 import i18n from 'i18next';
 
@@ -16,9 +17,9 @@ if (!i18n.isInitialized) {
 
 const DEFAULTS: SeriesFiltersValue = {
   search: '',
-  state: 'all',
+  state: 'missing',
   sort: 'updated_desc',
-  monitoredOnly: false,
+  monitoredOnly: true,
   networks: new Set<string>(),
 };
 
@@ -54,16 +55,21 @@ describe('<SeriesFiltersBar />', () => {
     expect(screen.getByTestId('series-filters-sort')).toBeInTheDocument();
   });
 
+  it('renders the sort trigger as a button (not a combobox)', () => {
+    renderBar();
+    const sort = screen.getByTestId('series-filters-sort');
+    expect(sort.tagName).toBe('BUTTON');
+    expect(sort.getAttribute('role')).not.toBe('combobox');
+  });
+
   it('clear button is disabled at default state', () => {
     renderBar();
-    const clear = screen.getByTestId('series-filters-clear');
-    expect(clear).toBeDisabled();
+    expect(screen.getByTestId('series-filters-clear')).toBeDisabled();
   });
 
   it('clear button enables when search differs', () => {
     renderBar({ value: { ...DEFAULTS, search: 'foo' } });
-    const clear = screen.getByTestId('series-filters-clear');
-    expect(clear).not.toBeDisabled();
+    expect(screen.getByTestId('series-filters-clear')).not.toBeDisabled();
   });
 
   it('typing in search calls onChange with new search value', () => {
@@ -80,5 +86,23 @@ describe('<SeriesFiltersBar />', () => {
     const { onClear } = renderBar({ value: { ...DEFAULTS, search: 'foo' } });
     fireEvent.click(screen.getByTestId('series-filters-clear'));
     expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the sort menu on trigger click and exposes both options', async () => {
+    const user = userEvent.setup();
+    renderBar();
+    await user.click(screen.getByTestId('series-filters-sort'));
+    expect(await screen.findByTestId('series-filters-sort-updated')).toBeInTheDocument();
+    expect(screen.getByTestId('series-filters-sort-title')).toBeInTheDocument();
+  });
+
+  it('clicking an alternative sort option calls onChange with the new sort', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderBar();
+    await user.click(screen.getByTestId('series-filters-sort'));
+    await user.click(await screen.findByTestId('series-filters-sort-title'));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: 'title_asc' }),
+    );
   });
 });

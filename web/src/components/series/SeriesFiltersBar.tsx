@@ -1,22 +1,17 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, X, ChevronDown } from 'lucide-react';
+import { Search, X, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
-import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
@@ -48,6 +43,8 @@ function isDefault(v: SeriesFiltersValue, d: SeriesFiltersValue): boolean {
   return true;
 }
 
+const SORT_OPTIONS: readonly SeriesCacheSort[] = ['updated_desc', 'title_asc'];
+
 export function SeriesFiltersBar({
   value, availableNetworks, defaults, onChange, onClear,
 }: SeriesFiltersBarProps) {
@@ -57,6 +54,10 @@ export function SeriesFiltersBar({
   const networksLabel = value.networks.size === 0
     ? t('series.filters.networks.label')
     : t('series.filters.networks.labelWith', { count: value.networks.size });
+
+  const sortLabel = value.sort === 'title_asc'
+    ? t('series.filters.sort.titleAsc')
+    : t('series.filters.sort.updatedDesc');
 
   const toggleNetwork = (n: string, checked: boolean) => {
     const next = new Set(value.networks);
@@ -146,21 +147,39 @@ export function SeriesFiltersBar({
         {t('series.filters.monitoredOnly')}
       </label>
 
-      <Select
-        value={value.sort}
-        onValueChange={(v) => onChange({ ...value, sort: v as SeriesCacheSort })}
-      >
-        <SelectTrigger
-          className="h-8 text-[12.5px] min-w-[160px]"
-          data-testid="series-filters-sort"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="updated_desc">{t('series.filters.sort.updatedDesc')}</SelectItem>
-          <SelectItem value="title_asc">{t('series.filters.sort.titleAsc')}</SelectItem>
-        </SelectContent>
-      </Select>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 text-[12.5px]"
+            aria-label={t('series.filters.sort.aria')}
+            data-testid="series-filters-sort"
+          >
+            <ArrowUpDown className="w-3.5 h-3.5 mr-1" />
+            <span className="truncate">{sortLabel}</span>
+            <ChevronDown className="w-3.5 h-3.5 ml-1" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[180px]">
+          <DropdownMenuRadioGroup
+            value={value.sort}
+            onValueChange={(v) => {
+              if (SORT_OPTIONS.includes(v as SeriesCacheSort)) {
+                onChange({ ...value, sort: v as SeriesCacheSort });
+              }
+            }}
+          >
+            <DropdownMenuRadioItem value="updated_desc" data-testid="series-filters-sort-updated">
+              {t('series.filters.sort.updatedDesc')}
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="title_asc" data-testid="series-filters-sort-title">
+              {t('series.filters.sort.titleAsc')}
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Button
         type="button"

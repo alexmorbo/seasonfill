@@ -16,20 +16,18 @@ export function SeriesHeader({
 }: SeriesHeaderProps) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-end justify-between gap-3 pb-3 border-b border-border-faint">
-      <div className="flex flex-col gap-1 min-w-0">
-        <h2 className="text-[20px] font-semibold tracking-tight text-tx-primary">
-          {t('series.title')}
-        </h2>
-        <div className={cn(
-          'text-[12.5px] font-mono tabular-nums flex items-center gap-1.5',
+    <div className="flex items-center justify-between gap-3 pb-3 border-b border-border-faint">
+      <div
+        className={cn(
+          'text-[12.5px] font-mono tabular-nums flex items-center gap-1.5 min-w-0',
           isError ? 'text-warn' : 'text-tx-faint',
-        )}>
-          {isError && <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />}
-          {isError
-            ? t('series.loadFailed')
-            : t('series.header.count', { shown: shownCount, total: totalCount })}
-        </div>
+        )}
+        data-testid="series-header-count"
+      >
+        {isError && <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />}
+        {isError
+          ? t('series.loadFailed')
+          : t('series.header.count', { shown: shownCount, total: totalCount })}
       </div>
       <Button
         type="button"

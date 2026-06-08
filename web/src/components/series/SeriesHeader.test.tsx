@@ -37,18 +37,22 @@ function wrap(props: Partial<{
 }
 
 describe('<SeriesHeader />', () => {
-  it('renders the title heading at level 2 and the count', () => {
+  it('does not render an h1 or h2 heading (topbar owns the title now)', () => {
     wrap({ shownCount: 12, totalCount: 150 });
-    expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
-    expect(screen.getByText(/12/)).toBeInTheDocument();
-    expect(screen.getByText(/150/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
   });
 
-  it('renders the error state when isError=true', () => {
+  it('renders the count line with both shown and total values', () => {
+    wrap({ shownCount: 12, totalCount: 150 });
+    const count = screen.getByTestId('series-header-count');
+    expect(count).toBeInTheDocument();
+    expect(count.textContent ?? '').toMatch(/12/);
+    expect(count.textContent ?? '').toMatch(/150/);
+  });
+
+  it('renders the error state with TriangleAlert icon when isError=true', () => {
     wrap({ isError: true });
-    // The error label is the i18n key when no translation is bound; we
-    // assert via testid presence of the warn icon's lucide class.
     const icons = document.querySelectorAll('svg.lucide-triangle-alert');
     expect(icons.length).toBeGreaterThanOrEqual(1);
   });

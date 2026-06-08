@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
@@ -19,9 +19,9 @@ import { SeriesFirstRunState } from '@/components/series/SeriesFirstRunState';
 
 const DEFAULT_FILTERS: SeriesFiltersValue = {
   search: '',
-  state: 'all',
+  state: 'missing',
   sort: 'updated_desc',
-  monitoredOnly: false,
+  monitoredOnly: true,
   networks: new Set<string>(),
 };
 
@@ -37,11 +37,14 @@ function readFiltersFromParams(p: URLSearchParams): SeriesFiltersValue {
   const stateRaw = p.get('state');
   const sortRaw = p.get('sort');
   const networksRaw = p.get('networks');
+  const monitoredRaw = p.get('monitored');
   return {
     search: p.get('q') ?? '',
-    state: isValidState(stateRaw) ? stateRaw : 'all',
-    sort: isValidSort(sortRaw) ? sortRaw : 'updated_desc',
-    monitoredOnly: p.get('monitored') === '1',
+    state: isValidState(stateRaw) ? stateRaw : DEFAULT_FILTERS.state,
+    sort: isValidSort(sortRaw) ? sortRaw : DEFAULT_FILTERS.sort,
+    monitoredOnly: monitoredRaw === null
+      ? DEFAULT_FILTERS.monitoredOnly
+      : monitoredRaw === '1',
     networks: networksRaw ? new Set(networksRaw.split('|').filter(Boolean)) : new Set<string>(),
   };
 }
@@ -51,7 +54,9 @@ function writeFiltersToParams(v: SeriesFiltersValue): URLSearchParams {
   if (v.search) p.set('q', v.search);
   if (v.state !== DEFAULT_FILTERS.state) p.set('state', v.state);
   if (v.sort !== DEFAULT_FILTERS.sort) p.set('sort', v.sort);
-  if (v.monitoredOnly) p.set('monitored', '1');
+  if (v.monitoredOnly !== DEFAULT_FILTERS.monitoredOnly) {
+    p.set('monitored', v.monitoredOnly ? '1' : '0');
+  }
   if (v.networks.size > 0) p.set('networks', [...v.networks].sort().join('|'));
   return p;
 }
@@ -108,11 +113,38 @@ export function Series() {
   const networks = useMemo(() => uniqueNetworks(rawItems), [rawItems]);
   const total = list.data?.pages?.[0]?.total ?? 0;
 
+  // One-shot auto-fallback: bare-URL initial mount with state=missing
+  // and total=0 silently flips to state=all and surfaces an inline
+  // hint. Subsequent manual toggles back to 'missing' must NOT re-fire.
+  const didAutoFallbackRef = useRef(false);
+  const [fellBackToAll, dispatchFallback] = useReducer(
+    (_state: boolean, action: 'mark' | 'reset') => action === 'mark',
+    false,
+  );
+
+  useEffect(() => {
+    if (didAutoFallbackRef.current) return;
+    if (!list.isSuccess) return;
+    if (filters.state !== 'missing') {
+      didAutoFallbackRef.current = true;
+      return;
+    }
+    if (total > 0) {
+      didAutoFallbackRef.current = true;
+      return;
+    }
+    didAutoFallbackRef.current = true;
+    dispatchFallback('mark');
+    const next = writeFiltersToParams({ ...filters, state: 'all' });
+    setParams(next, { replace: true });
+  }, [list.isSuccess, filters, total, setParams]);
+
   const onChange = useCallback((next: SeriesFiltersValue) => {
     setParams(writeFiltersToParams(next), { replace: true });
   }, [setParams]);
 
   const onClear = useCallback(() => {
+    dispatchFallback('reset');
     setParams(new URLSearchParams(), { replace: true });
   }, [setParams]);
 
@@ -126,7 +158,6 @@ export function Series() {
     void list.refetch();
   }, [list]);
 
-  // First-run branch.
   if (!inst.isPending && instances.length === 0) {
     return (
       <div>
@@ -155,6 +186,15 @@ export function Series() {
         onChange={onChange}
         onClear={onClear}
       />
+
+      {fellBackToAll && (
+        <div
+          className="text-[12.5px] text-tx-faint"
+          data-testid="series-fallback-hint"
+        >
+          {t('series.filters.state.fallbackHint')}
+        </div>
+      )}
 
       {showEmptyServer && <SeriesEmptyState variant="server" />}
       {showEmptyFiltered && <SeriesEmptyState variant="filtered" onClearFilters={onClear} />}
