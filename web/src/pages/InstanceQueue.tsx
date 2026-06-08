@@ -188,6 +188,7 @@ export function InstanceQueue() {
                 <QueueRow
                   key={sid}
                   row={row}
+                  instanceName={name ?? ''}
                   instanceUiUrl={uiUrl}
                   openSeason={openSeason}
                   isInFlight={isInFlight}

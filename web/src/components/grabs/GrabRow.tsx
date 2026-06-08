@@ -7,6 +7,7 @@ import { formatEpisodeRange, formatImportDuration } from '@/lib/grabs/format';
 import { relativeTime } from '@/lib/format';
 import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { ReGrabThread } from '@/components/grabs/ReGrabThread';
+import { SeriesPoster } from '@/components/SeriesPoster';
 
 export interface GrabRowProps {
   grab: Grab;
@@ -50,9 +51,6 @@ export function GrabRow({
   );
   const chips = useMemo(() => buildChips({ grab, episodeRangeLabel: epRange }), [grab, epRange]);
 
-  // Poster gradient hue derived from series_id (stable per series). Range 0–360.
-  const ph = ((grab.series_id ?? 0) * 37) % 360;
-
   const handleRowClick = () => onOpenDrawer(grab.id ?? '');
   const handleRowKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRowClick(); }
@@ -83,12 +81,14 @@ export function GrabRow({
       )}
     >
       {/* poster thumb */}
-      <div
-        aria-hidden="true"
+      <SeriesPoster
+        instance={instance ?? undefined}
+        seriesId={grab.series_id ?? 0}
+        title={grab.series_title ?? ''}
+        hueKey={String(grab.series_id ?? 0)}
+        size="small"
+        aspectRatio="aspect-auto"
         className="w-[38px] h-[57px] rounded-[5px] flex-none border border-border-subtle"
-        style={{
-          background: `radial-gradient(120% 80% at 30% 0%, oklch(0.34 0.07 ${ph}), oklch(0.19 0.04 ${(ph + 30) % 360}))`,
-        }}
       />
       {/* main */}
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">

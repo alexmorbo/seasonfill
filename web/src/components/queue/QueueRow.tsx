@@ -1,14 +1,15 @@
-import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, MoreHorizontal, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SeriesTitleLink } from '@/components/SeriesTitleLink';
+import { SeriesPoster } from '@/components/SeriesPoster';
 import { cn } from '@/lib/utils';
 import { titleHasEmbeddedYear } from '@/lib/title';
 import type { MissingSeries } from '@/lib/missing';
 
 export interface QueueRowProps {
   readonly row: MissingSeries;
+  readonly instanceName: string;
   readonly instanceUiUrl: string | undefined;
   readonly openSeason: number | null;
   readonly isInFlight: boolean;
@@ -17,27 +18,16 @@ export interface QueueRowProps {
   readonly drillSlot?: React.ReactNode;
 }
 
-// Hue derived from title_slug or title — stable per series. Mirrors
-// the gradient used by dashboard PosterTile + grabs GrabRow thumb.
-function hueFor(row: MissingSeries): number {
-  const src = (row.title_slug && row.title_slug.length > 0
-    ? row.title_slug
-    : row.title) ?? '';
-  let h = 0;
-  for (let i = 0; i < src.length; i += 1) {
-    h = (h * 31 + src.charCodeAt(i)) % 360;
-  }
-  return h;
-}
-
 export function QueueRow({
-  row, instanceUiUrl, openSeason, isInFlight,
+  row, instanceName, instanceUiUrl, openSeason, isInFlight,
   onSeasonToggle, onScan, drillSlot,
 }: QueueRowProps) {
   const { t } = useTranslation();
-  const hue = useMemo(() => hueFor(row), [row]);
   const seasons = row.seasons ?? [];
   const isOpen = openSeason !== null;
+  const hueKey = (row.title_slug && row.title_slug.length > 0
+    ? row.title_slug
+    : row.title) ?? '';
 
   return (
     <article
@@ -49,13 +39,14 @@ export function QueueRow({
       data-series-id={row.series_id}
     >
       <div className="flex gap-[13px] items-start">
-        <div
-          aria-hidden="true"
+        <SeriesPoster
+          instance={instanceName}
+          seriesId={row.series_id ?? 0}
+          title={row.title ?? ''}
+          hueKey={hueKey}
+          size="small"
+          aspectRatio="aspect-auto"
           className="w-[46px] h-[69px] flex-none rounded-[6px] border border-border-subtle"
-          style={{
-            background:
-              `radial-gradient(120% 80% at 30% 0%, oklch(0.34 0.07 ${hue}), oklch(0.19 0.04 ${(hue + 30) % 360}))`,
-          }}
         />
         <div className="flex-1 min-w-0 flex flex-col gap-2.5">
           <div className="flex items-center gap-2.5 flex-wrap">

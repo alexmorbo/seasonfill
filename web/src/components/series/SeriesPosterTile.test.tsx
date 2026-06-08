@@ -53,6 +53,15 @@ function renderTile(item: SeriesCacheItem) {
 }
 
 describe('<SeriesPosterTile />', () => {
+  it('renders proxy img with size=full for the instance + series id', () => {
+    renderTile(makeItem());
+    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(
+      '/api/v1/instances/homelab/series/122/poster?size=full',
+    );
+    expect(img.getAttribute('loading')).toBe('lazy');
+  });
+
   it('renders title and metadata footer', () => {
     renderTile(makeItem());
     expect(screen.getByText('For All Mankind')).toBeInTheDocument();

@@ -38,6 +38,26 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('<GrabRow />', () => {
+  it('renders a small poster img pointing at the proxy endpoint when instance is provided', () => {
+    render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        instance="alpha"
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(
+      '/api/v1/instances/alpha/series/1234/poster?size=small',
+    );
+  });
+
+  it('omits the poster img when instance is not provided', () => {
+    render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(screen.queryByTestId('series-poster-img')).toBeNull();
+  });
+
   it('renders title, status chip, and full chip set', () => {
     render(wrap(
       <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}

@@ -18,10 +18,29 @@ const row = {
 };
 
 describe('<QueueRow />', () => {
+  it('renders the small poster img pointing at the proxy endpoint', () => {
+    renderWithProviders(
+      <QueueRow
+        row={row}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    );
+    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(
+      '/api/v1/instances/alpha/series/122/poster?size=small',
+    );
+  });
+
   it('renders the title, year, missing pill, and season chips', () => {
     renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -41,6 +60,7 @@ describe('<QueueRow />', () => {
     renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -56,6 +76,7 @@ describe('<QueueRow />', () => {
     renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={2}
         isInFlight={false}
@@ -73,6 +94,7 @@ describe('<QueueRow />', () => {
     renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={2}
         isInFlight={false}
@@ -90,6 +112,7 @@ describe('<QueueRow />', () => {
     renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -106,6 +129,7 @@ describe('<QueueRow />', () => {
     const { rerender } = renderWithProviders(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -118,6 +142,7 @@ describe('<QueueRow />', () => {
     rerender(
       <QueueRow
         row={row}
+        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight

@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Check, TriangleAlert, RotateCw } from 'lucide-react';
@@ -6,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
 import { formatSeriesTitle, titleHasEmbeddedYear } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
+import { SeriesPoster } from '@/components/SeriesPoster';
 
 export interface PosterTileProps {
   readonly item: SeriesCacheItem;
@@ -17,15 +17,6 @@ function classifyVariant(item: SeriesCacheItem): Variant {
   const s = (item.status ?? '').toLowerCase();
   if (s.startsWith('import_failed') || s === 'failed') return 'failed';
   return 'imported';
-}
-
-function hueFor(item: SeriesCacheItem): number {
-  const src = item.poster_path && item.poster_path.length > 0 ? item.poster_path : item.title;
-  let h = 0;
-  for (let i = 0; i < src.length; i += 1) {
-    h = (h * 31 + src.charCodeAt(i)) % 360;
-  }
-  return h;
 }
 
 function parseEpisode(raw: string | undefined): { season?: number; first?: number; last?: number | undefined } {
@@ -44,7 +35,6 @@ export function PosterTile({ item }: PosterTileProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const variant = classifyVariant(item);
-  const hue = useMemo(() => hueFor(item), [item]);
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const { season, first, last } = parseEpisode(item.last_imported_episode);
   // Hide standalone year in footer when Sonarr already disambiguated
@@ -79,11 +69,6 @@ export function PosterTile({ item }: PosterTileProps) {
       onClick={handleOpen}
       onKeyDown={onKey}
       aria-label={ariaLabel}
-      style={{
-        background:
-          `radial-gradient(120% 80% at 30% 0%, oklch(0.30 0.07 ${hue} / 0.9), transparent 60%),` +
-          `linear-gradient(165deg, oklch(0.34 0.08 ${hue}), oklch(0.19 0.04 ${(hue + 30) % 360}) 75%)`,
-      }}
       className={cn(
         'relative isolate overflow-hidden rounded-lg border border-border-faint aspect-[2/3] cursor-pointer outline-hidden',
         'transition-[transform,box-shadow,border-color] duration-150',
@@ -93,9 +78,19 @@ export function PosterTile({ item }: PosterTileProps) {
       data-testid="poster-tile"
       data-variant={variant}
     >
+      <SeriesPoster
+        instance={item.instance_name}
+        seriesId={item.sonarr_series_id}
+        title={item.title}
+        hueKey={item.poster_path && item.poster_path.length > 0 ? item.poster_path : item.title}
+        size="full"
+        aspectRatio="aspect-auto"
+        className="absolute inset-0 z-0"
+      />
+
       <span
         aria-hidden="true"
-        className="absolute z-0 -right-1.5 -top-2.5 font-mono font-bold text-[120px] leading-[0.8] tracking-tighter text-[oklch(1_0_0_/_0.07)]"
+        className="absolute z-10 -right-1.5 -top-2.5 font-mono font-bold text-[120px] leading-[0.8] tracking-tighter text-[oklch(1_0_0_/_0.07)]"
       >
         {mono}
       </span>
