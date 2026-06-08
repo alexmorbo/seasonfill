@@ -336,25 +336,32 @@ export function InstanceFormDialog({
     if (!open) openedRef.current = false;
   }, [open]);
 
+  // Section-seed: runs ONLY on the open-transition. Decoupled from
+  // `isDirty` and `detail` so a late detail arrival cannot re-collapse
+  // the Tuning section (Story 065 N-3 invariant), AND a deep-link open
+  // with no detail yet still seeds the connection panel exactly once.
+  useEffect(() => {
+    if (!open) return;
+    if (openedRef.current) return;
+    openedRef.current = true;
+    setOpenSections(['connection']);
+  }, [open]);
+
+  // Form-populate: fires whenever the resolved detail/qbit/initial
+  // payload changes. Independent of openedRef so the late arrival of
+  // `detail` after a `?edit=<name>` deep-link still seeds the form
+  // (Story 074). `isDirty` guard preserves the "don't clobber
+  // in-progress edits" invariant from Story 057.
   useEffect(() => {
     if (!open || isDirty) return;
-    const isFirstOpen = !openedRef.current;
     if (isEdit) {
       if (detail) {
         reset({ ...formFromDetail(detail), ...qbitFromDTO(qbitDTO) });
         setProbeResult(null);
-        if (isFirstOpen) {
-          setOpenSections(['connection']);
-          openedRef.current = true;
-        }
       }
     } else {
       reset({ ...FORM_DEFAULTS, ...WATCHDOG_DEFAULTS, ...initial, api_key: '' });
       setProbeResult(null);
-      if (isFirstOpen) {
-        setOpenSections(['connection']);
-        openedRef.current = true;
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, initial?.name, detail, qbitDTO, isDirty, reset]);
@@ -472,9 +479,21 @@ export function InstanceFormDialog({
   const title = isEdit
     ? t('settings.instances.form.editTitle')
     : t('settings.instances.form.createTitle');
-  const subtitle = isEdit && initial?.name && detail
-    ? t('settings.instances.form.header.editSub', { name: initial.name, url: detail.url ?? '' })
-    : t('settings.instances.form.header.createSub');
+  // Subtitle MUST NOT fall back to createSub while in edit mode — even
+  // if `detail` is still loading. See Story 074 root cause: the
+  // operator deep-linking via `?edit=<name>` would otherwise read
+  // "новый Sonarr-сервер" on top of a half-populated form.
+  let subtitle: string;
+  if (isEdit && initial?.name) {
+    subtitle = detail
+      ? t('settings.instances.form.header.editSub', {
+          name: initial.name,
+          url: detail.url ?? '',
+        })
+      : t('settings.instances.form.header.editSubLoading', { name: initial.name });
+  } else {
+    subtitle = t('settings.instances.form.header.createSub');
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

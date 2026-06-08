@@ -1176,6 +1176,7 @@ export const en = {
         },
         header: {
           editSub: '{{name}} · {{url}}',
+          editSubLoading: '{{name}} · loading…',
           createSub: 'New Sonarr server',
         },
         saveFailedSectionFmt: 'Save failed — please fix errors in the {{section}} section',

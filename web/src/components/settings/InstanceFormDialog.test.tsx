@@ -522,4 +522,99 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       expect(screen.queryByTestId('tuning-section')).toBeInTheDocument();
     });
   });
+
+  describe('S074 — ?edit= deep-link populates the form even if detail arrives late', () => {
+    it('shows the loading subtitle while detail is in flight, then hydrates the form', async () => {
+      // Block the GET /instances/homelab response until we release it
+      // so we can observe the loading-state DOM before hydration.
+      let releaseDetail: ((body: Record<string, unknown>) => void) | null = null;
+      const detailGate = new Promise<Record<string, unknown>>((res) => {
+        releaseDetail = (b) => res(b);
+      });
+      globalThis.fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+        const u = typeof url === 'string' ? url : url.toString();
+        const method = (init?.method ?? 'GET').toUpperCase();
+        if (u.endsWith('/instances/homelab') && method === 'GET') {
+          return detailGate.then((body) => new Response(JSON.stringify(body), {
+            status: 200, headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        if (u.endsWith('/qbit/settings') && method === 'GET') {
+          return Promise.resolve(new Response(JSON.stringify({
+            url: 'http://qbittorrent:8080', username: 'admin', password_set: true,
+            category: 'sonarr', poll_interval_minutes: 30,
+            regrab_cooldown_hours: 120, max_consecutive_no_better: 3,
+            custom_unregistered_msgs: [], enabled: true,
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      }) as typeof fetch;
+
+      // Mimic the parent Instances page passing a name-only `initial`
+      // before its detail fetch resolves: RHF gets name only, the
+      // dialog's own useInstanceDetail('homelab') is enabled but
+      // in-flight thanks to the gated fetch above.
+      render(wrap(
+        <InstanceFormDialog
+          open
+          onOpenChange={vi.fn()}
+          mode="edit"
+          initial={{ name: 'homelab' }}
+        />,
+      ));
+
+      // Loading subtitle MUST include the instance name AND not the
+      // create-branch i18n strings.
+      await waitFor(() => {
+        const sub = document.querySelector('[role="dialog"] p')?.textContent ?? '';
+        expect(sub).toMatch(/homelab/);
+        expect(sub.toLowerCase()).not.toMatch(/new sonarr|новый sonarr/);
+      });
+      // Save disabled while detail loads (editBlocked → button.disabled).
+      const save = screen.getByTestId('dirty-footer-save') as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+
+      // Release the GET — form must now populate from the payload.
+      releaseDetail!({
+        name: 'homelab',
+        url: 'http://sonarr:8989',
+        api_key: '***',
+        mode: 'auto',
+        public_url: 'https://s.arr.morbo.dev',
+        webhook_install_enabled: true,
+      });
+
+      const nameInput = await screen.findByLabelText(/^name$/i) as HTMLInputElement;
+      await waitFor(() => expect(nameInput.value).toBe('homelab'));
+      const urlInput = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      expect(urlInput.value).toBe('http://sonarr:8989');
+      await waitFor(() => {
+        const sub = document.querySelector('[role="dialog"] p')?.textContent ?? '';
+        expect(sub).toMatch(/homelab · http:\/\/sonarr:8989/);
+      });
+      await waitFor(() => {
+        const s = screen.getByTestId('dirty-footer-save') as HTMLButtonElement;
+        expect(s.disabled).toBe(false);
+      });
+    });
+
+    it('populates correctly when detail resolves immediately (regression: populate effect not gated by openedRef)', async () => {
+      // Default setupFetch responds synchronously. This locks in the
+      // invariant that the populate effect is decoupled from the
+      // section-seed gate — a future refactor that re-couples them
+      // would break here.
+      setupFetch();
+      render(wrap(
+        <InstanceFormDialog
+          open
+          onOpenChange={vi.fn()}
+          mode="edit"
+          initial={{ name: 'homelab' }}
+        />,
+      ));
+      await screen.findByTestId('connection-section');
+      const nameInput = await screen.findByLabelText(/^name$/i) as HTMLInputElement;
+      await waitFor(() => expect(nameInput.value).toBe('homelab'));
+    });
+  });
 });

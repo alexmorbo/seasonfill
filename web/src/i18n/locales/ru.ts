@@ -1188,6 +1188,7 @@ export const ru: Translations = {
         },
         header: {
           editSub: '{{name}} · {{url}}',
+          editSubLoading: '{{name}} · загрузка…',
           createSub: 'новый Sonarr-сервер',
         },
         saveFailedSectionFmt: 'Не удалось сохранить — исправьте ошибки в секции «{{section}}»',
