@@ -28,15 +28,14 @@ export function Watchdog() {
     [navigate],
   );
 
-  const total = items.length;
-  const active = items.reduce(
-    (n, r) => n + (r.enabled && r.qbit_reachable ? 1 : 0),
-    0,
-  );
-  const showEmpty =
-    !rollups.isLoading &&
-    Boolean(rollups.data) &&
-    (total === 0 || (active === 0 && total > 0));
+  // "Configured" = at least one Sonarr instance is present in the
+  // rollups list. The runtime state (enabled / qbit_reachable /
+  // last_poll_at) is surfaced by the panel + strip; we do NOT gate
+  // the page on it. A configured instance with watchdog off, an
+  // unreachable qBit, or a not-yet-stamped first poll all render
+  // the panel — operators need to see the toggle and the status
+  // chip to fix or flip those states.
+  const showEmpty = !rollups.isLoading && Boolean(rollups.data) && items.length === 0;
 
   return (
     <div className="px-6 pb-10 pt-5" data-testid="watchdog-page">

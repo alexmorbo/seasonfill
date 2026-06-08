@@ -51,8 +51,25 @@ const totalZeroRollups: WatchdogRollupAggregate = {
   items: [],
 };
 
-const inactiveRollups: WatchdogRollupAggregate = {
+const disabledRollups: WatchdogRollupAggregate = {
   items: [{ ...baseRollup, enabled: false, active: false, blacklist_size: 0 }],
+};
+
+// `delta` repro: operator has watchdog ON, qBit configured, but the
+// first poll has not stamped a snapshot yet → backend reports
+// qbit_reachable=false, active=false. The page MUST still render
+// the panel so the operator can see the toggle and the warn chip.
+const unreachableRollups: WatchdogRollupAggregate = {
+  items: [
+    {
+      ...baseRollup,
+      enabled: true,
+      active: false,
+      qbit_reachable: false,
+      last_poll_at: undefined,
+      last_poll_result: undefined,
+    },
+  ],
 };
 
 describe('<Watchdog /> (integration)', () => {
@@ -85,7 +102,7 @@ describe('<Watchdog /> (integration)', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('renders the not-configured empty when total_count == 0', async () => {
+  it('renders the not-configured empty when items.length === 0', async () => {
     routeApi((path) => {
       if (path === '/watchdog/rollups') return totalZeroRollups;
       return {};
@@ -103,17 +120,53 @@ describe('<Watchdog /> (integration)', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('renders the empty when active_count == 0 but total > 0', async () => {
+  it('renders the panel (not onboarding) when the only instance is disabled', async () => {
     routeApi((path) => {
-      if (path === '/watchdog/rollups') return inactiveRollups;
+      if (path === '/watchdog/rollups') return disabledRollups;
+      if (path.includes('/watchdog/blacklist')) return { items: [] };
+      if (path.startsWith('/grabs')) return { items: [] };
       return {};
     });
     renderWithProviders(wrap(<Watchdog />), { route: '/watchdog' });
 
     await waitFor(() =>
-      expect(
-        screen.getByTestId('watchdog-not-configured'),
-      ).toBeInTheDocument(),
+      expect(screen.getByTestId('watchdog-grid')).toBeInTheDocument(),
     );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('watchdog-panel-homelab'),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId('watchdog-panel-toggle-homelab'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('watchdog-not-configured'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders the panel when enabled=true but qbit_reachable=false (no first poll yet)', async () => {
+    routeApi((path) => {
+      if (path === '/watchdog/rollups') return unreachableRollups;
+      if (path.includes('/watchdog/blacklist')) return { items: [] };
+      if (path.startsWith('/grabs')) return { items: [] };
+      return {};
+    });
+    renderWithProviders(wrap(<Watchdog />), { route: '/watchdog' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('watchdog-grid')).toBeInTheDocument(),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('watchdog-panel-homelab'),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId('watchdog-panel-toggle-homelab'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('watchdog-not-configured'),
+    ).not.toBeInTheDocument();
   });
 });
