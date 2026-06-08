@@ -34,7 +34,7 @@ export function OIDCFold({
     setOpen(mode === 'oidc');
   }, [mode]);
 
-  const effectivelyOpen = open || Boolean(forceOpen) || mode === 'oidc';
+  const effectivelyOpen = open || Boolean(forceOpen);
 
   return (
     <section

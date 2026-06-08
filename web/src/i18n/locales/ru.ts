@@ -1212,6 +1212,7 @@ export const ru: Translations = {
         pollInterval: 'Poll-интервал',
         regrabCooldown: 'Regrab cooldown',
         maxNoBetter: 'Max consecutive «no better»',
+        notYetAvailable: 'пока недоступно',
         perInstanceNote: 'Сейчас настраивается на инстансе. Глобальные дефолты появятся в одном из следующих релизов.',
         deepLinkPrefix: 'Редактировать на инстансе можно в ',
         deepLinkLabel: 'Инстансы → Watchdog',

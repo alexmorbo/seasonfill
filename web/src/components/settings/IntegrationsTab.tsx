@@ -5,6 +5,9 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, RefreshCw, Loader2, Server } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -14,11 +17,21 @@ import {
 } from '@/lib/api/webhookStatus';
 import { useRuntimeConfig } from '@/lib/runtime-config';
 
-function Block({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Block({
+  title, subtitle, headerRight, children,
+}: {
+  title: string;
+  subtitle?: string;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-3.5">
       <header className="flex flex-col gap-[3px]">
-        <h2 className="text-[15px] font-[650] tracking-[-0.01em] m-0">{title}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-[15px] font-[650] tracking-[-0.01em] m-0">{title}</h2>
+          {headerRight}
+        </div>
         {subtitle && <p className="text-[12.5px] text-muted m-0">{subtitle}</p>}
       </header>
       {children}
@@ -120,18 +133,27 @@ function WebhookRow({ item }: { item: WebhookStatusItem }) {
   );
 }
 
-function QbitField({ label, value }: { label: string; value: string | undefined }) {
+function QbitDisabledField({
+  id, label, testId,
+}: {
+  id: string;
+  label: string;
+  testId: string;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[12.5px] text-tx-secondary font-medium">{label}</span>
-      <span
-        className={cn(
-          'font-mono text-[13px] rounded-[var(--r-md)] border border-border-subtle bg-bg-input px-2.5 py-2 min-h-[36px] flex items-center',
-          value ? 'text-tx-secondary' : 'text-tx-faint',
-        )}
-      >
-        {value ?? '—'}
-      </span>
+      <Label htmlFor={id} className="text-[12.5px] text-tx-secondary font-medium">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        data-testid={testId}
+        disabled
+        aria-disabled="true"
+        value=""
+        readOnly
+        className="font-mono"
+      />
     </div>
   );
 }
@@ -199,22 +221,37 @@ export function IntegrationsTab() {
       <Block
         title={t('settings.integrations.qbit.section')}
         subtitle={t('settings.integrations.qbit.subtitle')}
+        headerRight={
+          <Badge
+            variant="neutral"
+            data-testid="integrations-qbit-unavailable-badge"
+            className="text-[10.5px] uppercase tracking-wider"
+          >
+            {t('settings.integrations.qbit.notYetAvailable')}
+          </Badge>
+        }
       >
         <div className="grid grid-cols-2 gap-3.5">
-          <QbitField label={t('settings.integrations.qbit.category')}
-            value={qbitDefaults?.category} />
-          <QbitField label={t('settings.integrations.qbit.pollInterval')}
-            value={qbitDefaults?.poll_interval_minutes !== undefined
-              ? `${qbitDefaults.poll_interval_minutes}m`
-              : undefined} />
-          <QbitField label={t('settings.integrations.qbit.regrabCooldown')}
-            value={qbitDefaults?.regrab_cooldown_hours !== undefined
-              ? `${qbitDefaults.regrab_cooldown_hours}h`
-              : undefined} />
-          <QbitField label={t('settings.integrations.qbit.maxNoBetter')}
-            value={qbitDefaults?.max_consecutive_no_better !== undefined
-              ? String(qbitDefaults.max_consecutive_no_better)
-              : undefined} />
+          <QbitDisabledField
+            id="qbit-default-category"
+            testId="qbit-default-category"
+            label={t('settings.integrations.qbit.category')}
+          />
+          <QbitDisabledField
+            id="qbit-default-poll-interval"
+            testId="qbit-default-poll-interval"
+            label={t('settings.integrations.qbit.pollInterval')}
+          />
+          <QbitDisabledField
+            id="qbit-default-regrab-cooldown"
+            testId="qbit-default-regrab-cooldown"
+            label={t('settings.integrations.qbit.regrabCooldown')}
+          />
+          <QbitDisabledField
+            id="qbit-default-max-no-better"
+            testId="qbit-default-max-no-better"
+            label={t('settings.integrations.qbit.maxNoBetter')}
+          />
         </div>
 
         {!qbitDefaults && (

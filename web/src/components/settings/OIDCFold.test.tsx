@@ -58,4 +58,13 @@ describe('<OIDCFold />', () => {
     await userEvent.click(screen.getByTestId('oidc-fold-head'));
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
   });
+
+  it('user can collapse the fold even when mode is oidc', async () => {
+    renderFold({ mode: 'oidc' });
+    expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
+    await userEvent.click(screen.getByTestId('oidc-fold-head'));
+    expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'false');
+    await userEvent.click(screen.getByTestId('oidc-fold-head'));
+    expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
+  });
 });

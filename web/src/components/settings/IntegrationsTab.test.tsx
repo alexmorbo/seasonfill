@@ -95,4 +95,26 @@ describe('<IntegrationsTab />', () => {
       ).toBeVisible();
     });
   });
+
+  it('renders qBit defaults as disabled inputs with a not-yet-available badge', async () => {
+    globalThis.fetch = defaultFetch({ items: [], healthy_count: 0, unhealthy_count: 0 });
+    renderWithProviders(<IntegrationsTab />);
+
+    const badge = await screen.findByTestId('integrations-qbit-unavailable-badge');
+    expect(badge).toBeVisible();
+
+    const category = screen.getByTestId('qbit-default-category');
+    const poll = screen.getByTestId('qbit-default-poll-interval');
+    const regrab = screen.getByTestId('qbit-default-regrab-cooldown');
+    const maxNoBetter = screen.getByTestId('qbit-default-max-no-better');
+
+    for (const el of [category, poll, regrab, maxNoBetter]) {
+      expect(el).toBeDisabled();
+      expect(el).toHaveAttribute('aria-disabled', 'true');
+      expect(el).toHaveValue('');
+    }
+
+    await userEvent.type(category, 'TV-Sonarr');
+    expect(category).toHaveValue('');
+  });
 });

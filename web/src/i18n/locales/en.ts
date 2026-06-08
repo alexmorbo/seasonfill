@@ -1200,6 +1200,7 @@ export const en = {
         pollInterval: 'Poll interval',
         regrabCooldown: 'Regrab cooldown',
         maxNoBetter: 'Max consecutive "no better"',
+        notYetAvailable: 'not yet available',
         perInstanceNote: 'Currently configured per-instance only. Global defaults will land in a follow-up release.',
         deepLinkPrefix: 'Edit per-instance values under ',
         deepLinkLabel: 'Instances → Watchdog',
