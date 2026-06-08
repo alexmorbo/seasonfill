@@ -93,7 +93,7 @@ export function GrabRow({
       {/* main */}
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
         <div className="flex items-center gap-2.5">
-          {reGrabIndex !== null && (
+          {reGrabIndex !== null && reGrabIndex > 0 && (
             <button
               type="button"
               onClick={handleThreadClick}

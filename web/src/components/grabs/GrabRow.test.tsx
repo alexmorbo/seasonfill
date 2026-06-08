@@ -65,6 +65,42 @@ describe('<GrabRow />', () => {
     expect(getByTestId('grab-row-g1').getAttribute('data-failrow')).toBe('true');
   });
 
+  it('hides the re-grab chip on root grabs (reGrabIndex === 0)', () => {
+    render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={0}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(screen.queryByTestId('regrab-tag-g1')).toBeNull();
+  });
+
+  it('hides the re-grab chip when reGrabIndex is null', () => {
+    render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(screen.queryByTestId('regrab-tag-g1')).toBeNull();
+  });
+
+  it('shows the re-grab chip with #1 label for first replay (reGrabIndex === 1)', () => {
+    const { getByTestId } = render(wrap(
+      <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={1}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const tag = getByTestId('regrab-tag-g1');
+    expect(tag).toBeInTheDocument();
+    expect(tag.textContent).toMatch(/#1/);
+  });
+
+  it('clicking the re-grab tag on a replay closes the thread back', () => {
+    const onToggleThread = vi.fn();
+    const { getByTestId } = render(wrap(
+      <GrabRow grab={base as Grab} selected={true} threadOpen={true} reGrabIndex={1}
+        onOpenDrawer={() => {}} onToggleThread={onToggleThread} />,
+    ));
+    fireEvent.click(getByTestId('regrab-tag-g1'));
+    expect(onToggleThread).toHaveBeenCalledWith('g1');
+  });
+
   it('clicking the re-grab tag toggles thread WITHOUT opening drawer', () => {
     const onOpenDrawer = vi.fn();
     const onToggleThread = vi.fn();
