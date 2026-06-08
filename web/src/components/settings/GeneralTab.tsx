@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import cronstrue from 'cronstrue';
@@ -132,7 +132,7 @@ export function GeneralTab() {
   const mut = useUpdateRuntimeConfig();
 
   const {
-    register, handleSubmit, reset, watch, setValue,
+    register, handleSubmit, reset, setValue, control,
     formState: { errors, isDirty, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -144,7 +144,10 @@ export function GeneralTab() {
     if (q.data?.config && !isDirty) reset(configToForm(q.data.config));
   }, [q.data?.config, isDirty, reset]);
 
-  const cronVal = watch('cron_schedule');
+  const cronVal = useWatch({ control, name: 'cron_schedule' });
+  const cronEnabled = useWatch({ control, name: 'cron_enabled' });
+  const cronOnStart = useWatch({ control, name: 'cron_on_start' });
+  const dryRun = useWatch({ control, name: 'dry_run' });
   const cronInvalidLabel = t('settings.general.schedule.invalidExpression');
   const cronPreview = useMemo(
     () => describeCron(cronVal, cronInvalidLabel),
@@ -222,7 +225,7 @@ export function GeneralTab() {
           hint={t('settings.general.schedule.enabledHint')}
           control={
             <Switch
-              id="cron-enabled" checked={watch('cron_enabled')}
+              id="cron-enabled" checked={cronEnabled}
               onCheckedChange={(v) => setValue('cron_enabled', v, { shouldDirty: true })}
             />
           }
@@ -232,7 +235,7 @@ export function GeneralTab() {
           label={t('settings.general.schedule.onStart')}
           control={
             <Switch
-              id="cron-on-start" checked={watch('cron_on_start')}
+              id="cron-on-start" checked={cronOnStart}
               onCheckedChange={(v) => setValue('cron_on_start', v, { shouldDirty: true })}
             />
           }
@@ -301,7 +304,7 @@ export function GeneralTab() {
           hint={t('settings.general.defaults.dryRunHint')}
           control={
             <Switch
-              id="dry-run" checked={watch('dry_run')}
+              id="dry-run" checked={dryRun}
               onCheckedChange={(v) => setValue('dry_run', v, { shouldDirty: true })}
             />
           }

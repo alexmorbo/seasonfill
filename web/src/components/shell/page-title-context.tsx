@@ -31,11 +31,15 @@ function useCtx(): PageTitleCtx {
   return v
 }
 
+// reason: provider component + its consumer hooks are the public API of
+// this module. Co-located is the idiomatic React-context pattern.
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePageTitle(): { title: string; setTitle: (t: string) => void } {
   const { title, setTitle } = useCtx()
   return { title, setTitle }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePageActions(): {
   actions: React.ReactNode | null
   setActions: (a: React.ReactNode | null) => void
@@ -44,6 +48,7 @@ export function usePageActions(): {
   return { actions, setActions }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useSetPageTitle(next: string): void {
   const { setTitle } = useCtx()
   React.useEffect(() => {

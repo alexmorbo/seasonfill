@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
@@ -76,14 +76,20 @@ export function NewScanModal({ open, onOpenChange }: NewScanModalProps) {
     if (next) form.setValue('instance', next, { shouldValidate: true });
   }, [open, instances, form]);
 
-  const selectedName = form.watch('instance');
+  const selectedName = useWatch({ control: form.control, name: 'instance' });
   const selected = instances.find((i) => i.name === selectedName);
   const degraded = selected && selected.health && healthKind(selected.health) !== 'success';
 
-  const watchedInstance = form.watch('instance');
-  useEffect(() => { setSeriesIds([]); }, [watchedInstance]);
+  // Q-013b-5: clear picker selection on instance change via the React
+  // "adjust state during render" pattern instead of an effect — both
+  // produce the same observable empty-on-switch behavior.
+  const [prevSelectedName, setPrevSelectedName] = useState(selectedName);
+  if (prevSelectedName !== selectedName) {
+    setPrevSelectedName(selectedName);
+    if (seriesIds.length > 0) setSeriesIds([]);
+  }
 
-  const dryChoice = form.watch('dry_run');
+  const dryChoice = useWatch({ control: form.control, name: 'dry_run' });
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {

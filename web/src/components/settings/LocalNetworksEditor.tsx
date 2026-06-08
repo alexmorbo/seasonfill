@@ -10,6 +10,8 @@ import { isValidCIDR } from '@/lib/cidr';
 // link-local + ULA). Kept in sync at PR-review time; the source of
 // truth is the Go side. Frontend re-asserting them gives the user a
 // one-click "restore defaults" without a server round-trip.
+// reason: constant consumed by SecurityTab + tests; co-located is fine.
+// eslint-disable-next-line react-refresh/only-export-components
 export const LOCAL_NETWORK_DEFAULTS = Object.freeze([
   '127.0.0.0/8',
   '::1/128',

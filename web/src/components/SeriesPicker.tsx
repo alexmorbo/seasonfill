@@ -62,9 +62,11 @@ export function SeriesPicker({
     }
   }, [search.data]);
 
-  useEffect(() => {
-    if (activeIndex >= visible.length) setActiveIndex(visible.length - 1);
-  }, [visible.length, activeIndex]);
+  // Clamp at read-time so the UI never indexes past the visible list. The
+  // raw state may briefly point past the end after `visible` shrinks; on the
+  // next interaction (arrow / pick / clear) we re-derive.
+  const safeActiveIndex =
+    activeIndex >= visible.length ? visible.length - 1 : activeIndex;
 
   const isLoading = search.isFetching || query !== debouncedQuery;
 
@@ -106,9 +108,9 @@ export function SeriesPicker({
       return;
     }
     if (e.key === 'Enter') {
-      if (activeIndex >= 0 && visible[activeIndex]) {
+      if (safeActiveIndex >= 0 && visible[safeActiveIndex]) {
         e.preventDefault();
-        pick(visible[activeIndex]);
+        pick(visible[safeActiveIndex]);
       }
       return;
     }
@@ -124,14 +126,21 @@ export function SeriesPicker({
   };
 
   const activeId =
-    activeIndex >= 0 && visible[activeIndex]?.series_id !== undefined
-      ? `series-picker-opt-${visible[activeIndex]?.series_id}`
+    safeActiveIndex >= 0 && visible[safeActiveIndex]?.series_id !== undefined
+      ? `series-picker-opt-${visible[safeActiveIndex]?.series_id}`
       : undefined;
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1.5" data-testid="series-picker-chips">
+          {/* reason: titleCache is a Map used purely as a render-time
+              lookup for human-readable chip labels (#id fallback if the
+              entry was evicted). It is populated only inside effects and
+              event handlers; the read here is the documented escape hatch.
+              Migrating to state would force a re-render storm on every
+              search-result tick, defeating the cache's purpose. */}
+          {/* eslint-disable-next-line react-hooks/refs */}
           {value.map((id) => {
             const label = titleCache.current.get(id) ?? `#${id}`;
             return (
@@ -209,7 +218,7 @@ export function SeriesPicker({
             {!hasError && visible.map((s, idx) => {
               const id = s.series_id;
               if (id === undefined) return null;
-              const isActive = idx === activeIndex;
+              const isActive = idx === safeActiveIndex;
               return (
                 <li
                   key={id}

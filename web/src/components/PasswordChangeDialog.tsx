@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -45,13 +45,19 @@ export function PasswordChangeDialog({
       defaultValues: { current: '', newPassword: '', confirmNew: '' },
     });
 
-  // Reset form + error every time the dialog closes.
-  useEffect(() => {
+  // Reset form + error on close-transition via the React "adjust state during
+  // render" pattern (https://react.dev/learn/you-might-not-need-an-effect).
+  // We mirror the `open` prop into local state; whenever it diverges we sync
+  // and, on close-transition, clear the server error in the same pass.
+  // `reset()` is a non-React state update (RHF-internal) and is safe here.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       reset({ current: '', newPassword: '', confirmNew: '' });
-      setServerErr(null);
+      if (serverErr !== null) setServerErr(null);
     }
-  }, [open, reset]);
+  }
 
   const mutation = useMutation({
     mutationFn: (input: { current: string; newPassword: string }) => changePassword(input),

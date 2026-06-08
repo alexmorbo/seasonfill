@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,10 +34,15 @@ export function OIDCFold({
   const { t } = useTranslation();
   const [open, setOpen] = useState(mode === 'oidc');
 
-  // Auto-open/close on mode change. Forced-open (errors) wins.
-  useEffect(() => {
+  // Auto-open/close on mode change via adjust-state-during-render. Tracking
+  // the prev mode means we only force `open` when the parent actually
+  // flips modes — user toggles inside the section (open=true while
+  // mode=oidc, then user collapses) are preserved.
+  const [prevMode, setPrevMode] = useState(mode);
+  if (prevMode !== mode) {
+    setPrevMode(mode);
     setOpen(mode === 'oidc');
-  }, [mode]);
+  }
 
   const effectivelyOpen = open || Boolean(forceOpen);
 

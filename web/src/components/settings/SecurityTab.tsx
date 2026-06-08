@@ -208,6 +208,12 @@ export function SecurityTab() {
   useEffect(() => {
     if (q.data?.config && !isDirty) {
       reset(configToForm(q.data.config));
+      // reason: oidcClientSecret is an out-of-form side-state used by the
+      // OIDCConfigBlock test-connection flow. It must clear whenever the
+      // server reseeds the form (otherwise a freshly typed secret would
+      // outlive a config refetch). Cannot be expressed as a derived value
+      // because it is user-input, not server-derived.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOidcClientSecret(undefined);
     }
   }, [q.data?.config, isDirty, reset]);

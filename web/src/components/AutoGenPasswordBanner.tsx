@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,20 +8,21 @@ import { PasswordChangeDialog } from './PasswordChangeDialog';
 
 const DISMISS_KEY = 'seasonfill.autogen_banner.dismissed';
 
+function readDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === '1';
+  } catch {
+    // sessionStorage may be unavailable (private mode / SSR) — silent fallback
+    return false;
+  }
+}
+
 export function AutoGenPasswordBanner() {
   const { t } = useTranslation();
   const { data, isSuccess } = useSession();
   const cfg = useAuthConfig();
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState<boolean>(readDismissed);
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      setDismissed(sessionStorage.getItem(DISMISS_KEY) === '1');
-    } catch {
-      // sessionStorage may be unavailable (private mode / SSR) — silent fallback
-    }
-  }, []);
 
   // Banner is meaningless outside Forms mode: under Basic / None we don't
   // own the credential dialogue. Until auth-config resolves, treat it

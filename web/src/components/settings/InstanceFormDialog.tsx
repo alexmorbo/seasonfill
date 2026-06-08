@@ -357,6 +357,12 @@ export function InstanceFormDialog({
     if (isEdit) {
       if (detail) {
         reset({ ...formFromDetail(detail), ...qbitFromDTO(qbitDTO) });
+        // reason: this is the form-seed effect coordinating three async
+        // sources (open transition + GET detail + GET qbit DTO). Folding
+        // `setProbeResult(null)` into a derive-state-during-render pattern
+        // would require tracking a 4-way prev-state tuple; not worth the
+        // complexity for a side-state clear. See 057a4 / 060 for context.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setProbeResult(null);
       }
     } else {

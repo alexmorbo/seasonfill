@@ -44,8 +44,15 @@ export function InstanceQueue() {
   const [openSeasons, setOpenSeasons] = useState<ReadonlyMap<number, number>>(
     () => new Map(),
   );
+  // Lazy "now" anchor: only consulted before the first fetch resolves
+  // (after that `missing.dataUpdatedAt` is truthy and wins). Captured
+  // once at mount so the QueueHeader gets a stable updatedAtMs prop.
+  const [mountNow] = useState<number>(() => Date.now());
 
-  const items: readonly MissingSeries[] = missing.data?.items ?? [];
+  const items = useMemo<readonly MissingSeries[]>(
+    () => missing.data?.items ?? [],
+    [missing.data],
+  );
   const rows = useMemo(() => selectQueueRows(items, q, sort), [items, q, sort]);
 
   const totalBacklog = items.length;
@@ -128,7 +135,7 @@ export function InstanceQueue() {
       <QueueHeader
         name={name}
         mode={mode}
-        updatedAtMs={missing.dataUpdatedAt || Date.now()}
+        updatedAtMs={missing.dataUpdatedAt || mountNow}
         isFetching={missing.isFetching}
         onRefresh={onRefresh}
       />

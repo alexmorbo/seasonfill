@@ -8,6 +8,10 @@ export type ScansFiltersValue = {
   window: string;   // 'all' | '24h' | '7d' | '30d'
 };
 
+// reason: SCANS_DEFAULTS is the public API of this module, consumed by
+// the Scans page. Splitting into a separate file is a 074 candidate,
+// not in scope for the baseline cleanup.
+// eslint-disable-next-line react-refresh/only-export-components
 export const SCANS_DEFAULTS: ScansFiltersValue = {
   status: 'all', trigger: 'all', window: '7d',
 };

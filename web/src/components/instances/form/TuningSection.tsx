@@ -281,4 +281,6 @@ export function TuningSection({
 // Suppresses unused-import lint when callers don't render Input here;
 // keeping the import lets future PRs add the search-only `<Input>` fields
 // without a new merge. Safe no-op.
+// reason: see comment above — intentional re-export to pin import
+// eslint-disable-next-line react-refresh/only-export-components
 export const _UNUSED = Input;

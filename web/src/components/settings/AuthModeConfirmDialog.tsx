@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShieldAlert, Check } from 'lucide-react';
 import {
@@ -31,11 +31,15 @@ export function AuthModeConfirmDialog({
   const { t } = useTranslation();
   const [ack, setAck] = useState(false);
 
-  // Reset ack every time the dialog opens/closes — the next attempt
-  // must start unchecked to keep the danger affordance honest.
-  useEffect(() => {
-    if (!open) setAck(false);
-  }, [open]);
+  // Reset ack on close-transition. Using the "derive state from props"
+  // pattern (https://react.dev/learn/you-might-not-need-an-effect) instead
+  // of a useEffect — the next attempt must start unchecked, and forcing
+  // the value during render avoids an extra commit pass.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!open && ack) setAck(false);
+  }
 
   const handleConfirm = () => {
     if (!ack || !targetMode) return;

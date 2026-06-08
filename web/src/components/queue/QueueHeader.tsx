@@ -17,6 +17,11 @@ export function QueueHeader({
   name, mode, updatedAtMs, isFetching, onRefresh,
 }: QueueHeaderProps) {
   const { t } = useTranslation();
+  // reason: relative-time label is intentionally render-time. Staleness
+  // self-corrects on the next react-query refetch tick (parent invalidates
+  // `missing` query, re-renders, label re-computes). Migrating to a
+  // `useNow()` subscription is out of scope for this story.
+  // eslint-disable-next-line react-hooks/purity
   const updatedAge = Date.now() - updatedAtMs;
   const updatedLabel = updatedAge < 30_000
     ? t('instanceQueue.updatedJust')

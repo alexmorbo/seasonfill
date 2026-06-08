@@ -3,6 +3,9 @@ import { Lock, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type AuthMode = 'forms' | 'basic' | 'none' | 'oidc';
+// reason: AUTH_MODES constant is consumed by sibling auth-* dialogs and
+// the SecurityTab. Co-located public API.
+// eslint-disable-next-line react-refresh/only-export-components
 export const AUTH_MODES: readonly AuthMode[] = ['forms', 'basic', 'none', 'oidc'] as const;
 
 interface Props {

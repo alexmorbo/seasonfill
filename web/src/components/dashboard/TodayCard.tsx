@@ -8,6 +8,10 @@ import { cn } from '@/lib/utils';
 
 // Trend per 049 index risk: >=1.2x avg = up; <=0.8x = down; else flat. flat covers silence.
 export type Trend = 'up' | 'down' | 'flat';
+// reason: classifyTrend is the pure function under test; co-located with
+// the component that consumes it. Splitting into a separate file just to
+// satisfy the HMR rule is a worse design.
+// eslint-disable-next-line react-refresh/only-export-components
 export function classifyTrend(today: number, avg: number): Trend {
   if (avg < 1 && today === 0) return 'flat';
   if (avg < 0.5) return today === 0 ? 'flat' : 'up';

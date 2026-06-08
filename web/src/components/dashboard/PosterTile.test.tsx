@@ -98,13 +98,13 @@ describe('<PosterTile />', () => {
   });
 
   it('does not render episode chip when last_imported_episode is absent', () => {
-    const { last_imported_episode, ...fixtureNoEpisode } = fixture;
+    const { last_imported_episode: _last_imported_episode, ...fixtureNoEpisode } = fixture;
     renderTile(fixtureNoEpisode as SeriesCacheItem);
     expect(screen.queryByText(/^S/)).not.toBeInTheDocument();
   });
 
   it('does not render year when year is absent', () => {
-    const { year, ...fixtureNoYear } = fixture;
+    const { year: _year, ...fixtureNoYear } = fixture;
     renderTile(fixtureNoYear as SeriesCacheItem);
     const yearText = Array.from(screen.queryAllByText(/\d{4}/)).filter(
       (el) => el.textContent?.includes('2008'),
@@ -113,7 +113,7 @@ describe('<PosterTile />', () => {
   });
 
   it('does not render network when network is absent', () => {
-    const { network, ...fixtureNoNetwork } = fixture;
+    const { network: _network, ...fixtureNoNetwork } = fixture;
     renderTile(fixtureNoNetwork as SeriesCacheItem);
     const networks = Array.from(screen.queryAllByText(/AMC/));
     expect(networks.length).toBe(0);
