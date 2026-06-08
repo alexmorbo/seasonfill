@@ -1,7 +1,9 @@
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { EmptyState } from '@/components/EmptyState';
 import { SeriesGroup } from '@/components/SeriesGroup';
@@ -24,6 +26,27 @@ export function ScanDecisionsCard({
   onOpenDecision: (id: string) => void;
 }) {
   const { t } = useTranslation();
+  const [showSkipped, setShowSkipped] = useState(false);
+
+  // F-P1-10: hide series whose worstCategory is 'all_complete' by
+  // default. A toggle pill above the list reveals them. Matches the
+  // existing "default-expand when != all_complete" rule in
+  // ScanDetail.tsx — same notion of "nothing to do" applies here as
+  // a default hide.
+  const { visible, hiddenCount } = useMemo(() => {
+    let hidden = 0;
+    const vis: SeriesGroupModel[] = [];
+    for (const g of groups) {
+      if (g.worstCategory === 'all_complete') {
+        hidden += 1;
+        if (showSkipped) vis.push(g);
+      } else {
+        vis.push(g);
+      }
+    }
+    return { visible: vis, hiddenCount: hidden };
+  }, [groups, showSkipped]);
+
   return (
     <Card data-testid="scan-decisions-card">
       <CardHeader className="flex flex-row items-center justify-between py-3">
@@ -73,7 +96,24 @@ export function ScanDecisionsCard({
             body={t('scanDetail.decisionsEmptyBody')}
           />
         )}
-        {groups.map((g) => (
+        {hiddenCount > 0 && (
+          <div className="px-4 py-2 border-b border-border-faint">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px] text-muted hover:text-foreground"
+              onClick={() => setShowSkipped((v) => !v)}
+              data-testid="scan-decisions-skip-toggle"
+              aria-pressed={showSkipped}
+            >
+              {showSkipped
+                ? t('scanDetail.hideSkippedAllComplete', { count: hiddenCount })
+                : t('scanDetail.skippedAllComplete', { count: hiddenCount })}
+            </Button>
+          </div>
+        )}
+        {visible.map((g) => (
           <SeriesGroup
             key={g.seriesId}
             group={g}
@@ -82,7 +122,7 @@ export function ScanDecisionsCard({
             onOpenDecision={onOpenDecision}
           />
         ))}
-        {isFetchingNext && groups.length > 0 && (
+        {isFetchingNext && visible.length > 0 && (
           <Table>
             <TableBody>
               <SkeletonRows rows={3} cols={['lg', 'sm', 'md', 'xl']} />

@@ -70,15 +70,18 @@ describe('<ScanDetail /> redesign', () => {
     expect(screen.getByTestId('poll-indicator')).toBeInTheDocument();
   });
 
-  it('renders decisions grouped by series with worst-category-first sort', async () => {
+  it('renders decisions grouped by series with worst-category-first sort (all_complete hidden by default per F-P1-10)', async () => {
     globalThis.fetch = fetchStub({
       '/scans/abc': () => json(completedScan),
       '/decisions': () => json(mixed),
       '/grabs': () => json({ items: [] }),
     }) as typeof fetch;
     renderWithProviders(wrap(), { route: '/scans/abc' });
+    // Andor is fully `all_complete` → hidden by default. Only Severance
+    // (action_taken) renders; a reveal toggle exposes Andor on demand.
     const titles = await screen.findAllByTestId('series-title');
-    expect(titles.map((n) => n.textContent)).toEqual(['Severance', 'Andor']);
+    expect(titles.map((n) => n.textContent)).toEqual(['Severance']);
+    expect(await screen.findByTestId('scan-decisions-skip-toggle')).toBeInTheDocument();
   });
 
   it('DRAWER CONTRACT: ?drawer=<decision_id> opens DecisionDrawer (F7 deep-link)', async () => {

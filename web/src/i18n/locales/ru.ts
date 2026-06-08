@@ -546,6 +546,8 @@ export const ru: Translations = {
     openGrabAria: 'Открыть захват {{title}}',
     titleShort: 'Скан',
     resultFilterLabel: 'Результат',
+    skippedAllComplete: '+{{count}} пропущенных (всё уже импортировано)',
+    hideSkippedAllComplete: 'скрыть пропущенные',
     chip: {
       dryRun: 'dry-run: {{state}}',
       seriesScanned: '{{count}} серий просканировано',

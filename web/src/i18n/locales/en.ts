@@ -537,6 +537,8 @@ export const en = {
     openGrabAria: 'Open grab {{title}}',
     titleShort: 'Scan',
     resultFilterLabel: 'Result',
+    skippedAllComplete: '+{{count}} skipped (all imported)',
+    hideSkippedAllComplete: 'hide skipped',
     chip: {
       dryRun: 'dry-run: {{state}}',
       seriesScanned: '{{count}} series scanned',
