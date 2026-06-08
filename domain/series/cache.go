@@ -37,9 +37,9 @@ type CacheEntry struct {
 	// the most recently aired episode for this series. Nil when no
 	// episode has aired yet (upcoming series). Powers the F11
 	// `air_date_desc` sort.
-	LastAiredAt    *time.Time
-	UpdatedAt      time.Time
-	DeletedAt      *time.Time
+	LastAiredAt *time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
 // IsActive reports whether the entry is non-soft-deleted. The

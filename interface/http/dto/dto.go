@@ -607,7 +607,7 @@ type SeriesCacheItem struct {
 	// (Sonarr previousAiring). Absent when the series has no aired
 	// episodes (upcoming). Powers the F11 air_date_desc sort.
 	LastAiredAt *time.Time `json:"last_aired_at,omitempty"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // SeriesCacheList — body of GET /api/v1/instances/:name/series-cache.
