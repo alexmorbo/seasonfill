@@ -784,6 +784,9 @@ export const ru: Translations = {
         label: 'торрент',
         unavailable: 'Hash будет доступен после миграции Phase 12.',
       },
+      error: {
+        heading: 'Ошибка',
+      },
       files: {
         label: 'episode-файлы',
         more: '+ ещё {{count}} файлов',

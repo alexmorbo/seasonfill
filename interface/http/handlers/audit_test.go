@@ -59,6 +59,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	api.GET("/scans", h.ListScans)
 	api.GET("/scans/:id", h.GetScan)
 	api.GET("/decisions", h.ListDecisions)
+	api.GET("/decisions/:id", h.GetDecision)
 	api.GET("/grabs", h.ListGrabs)
 
 	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, router: r}
@@ -264,6 +265,49 @@ func TestAuditHandler_GetScan_BadUUID(t *testing.T) {
 }
 
 // --- /decisions -----------------------------------------------------------
+
+// --- GET /decisions/:id (N-4) --------------------------------------------
+
+func TestAuditHandler_GetDecision_Found(t *testing.T) {
+	f := newAuditFixture(t, false)
+	scanRun := uuid.New()
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	d := f.seedDecision(t, scanRun, "main", 100, 3, decision.OutcomeSkip, base)
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions/"+d.ID.String())
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, d.ID.String(), body["id"])
+	assert.Equal(t, scanRun.String(), body["scan_run_id"])
+	assert.Equal(t, "main", body["instance"])
+	assert.Equal(t, float64(100), body["series_id"])
+	assert.Equal(t, float64(3), body["season_number"])
+	assert.Equal(t, "skip", body["decision"])
+}
+
+func TestAuditHandler_GetDecision_NotFound(t *testing.T) {
+	f := newAuditFixture(t, false)
+	w := f.do(t, http.MethodGet, "/api/v1/decisions/"+uuid.NewString())
+	require.Equal(t, http.StatusNotFound, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "decision not found", body["error"])
+}
+
+func TestAuditHandler_GetDecision_BadUUID(t *testing.T) {
+	f := newAuditFixture(t, false)
+	w := f.do(t, http.MethodGet, "/api/v1/decisions/not-a-uuid")
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "invalid id", body["error"])
+}
+
+// `dto.Decision` is the DTO type for `toDecisionDTO`; no need to
+// import — `assert` against the json shape is sufficient (and matches
+// the existing GetScan_Found pattern).
+var _ = dto.Decision{}
 
 func TestAuditHandler_ListDecisions_CursorWalk(t *testing.T) {
 	f := newAuditFixture(t, false)

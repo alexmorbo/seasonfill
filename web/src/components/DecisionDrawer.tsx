@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { useGrabDecision } from '@/lib/grab-mutation';
 import { useRescanDecision } from '@/lib/rescan-mutation';
 import { firstScanRunId, NoScanStartedError } from '@/lib/scan-mutations';
-import { useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
+import { useDecision, useDecisions, flattenDecisions, type Decision } from '@/lib/decisions';
 import { relativeTime } from '@/lib/format';
 
 export function DecisionDrawer({
@@ -29,9 +29,26 @@ export function DecisionDrawer({
   rows?: readonly Decision[] | undefined;
 }) {
   const { t } = useTranslation();
+  // Deep-load: when `?drawer=<id>` opens a decision that sits past the
+  // loaded /decisions list page, useDecision fetches by id directly
+  // (N-4). We only fall back to the rows-cache lookup when the deep
+  // fetch hasn't returned yet OR when no id is set. 404 on the deep
+  // fetch surfaces as `deep.isError && deep.error.status === 404` →
+  // "truly not found" empty state.
+  const deep = useDecision(id ?? null);
+  // We keep useDecisions() for backward compatibility with callers
+  // that don't pass `rows`; consumers (ScanDetail, Decisions) DO pass
+  // rows so this fetch is effectively a no-op cache-hit in production.
   const q = useDecisions();
-  const all = useMemo(() => rows ?? flattenDecisions(q.data?.pages), [rows, q.data]);
-  const d = id ? all.find((x) => x.id === id) : null;
+  const cached = useMemo(() => rows ?? flattenDecisions(q.data?.pages), [rows, q.data]);
+  const d: Decision | null = useMemo(() => {
+    if (!id) return null;
+    if (deep.data && deep.data.id === id) return deep.data;
+    return cached.find((x) => x.id === id) ?? null;
+  }, [id, deep.data, cached]);
+  const notFound = Boolean(id) && deep.isError &&
+    deep.error instanceof Object && (deep.error as { status?: number }).status === 404;
+  const loading = Boolean(id) && deep.isPending && !d;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -62,6 +79,18 @@ export function DecisionDrawer({
               <RescanSection d={d} />
               <GrabNowSection d={d} />
             </>
+          ) : loading ? (
+            <div
+              data-testid="decision-drawer-loading"
+              className="text-[12.5px] text-muted font-mono py-6 text-center"
+            >
+              {t('common.loading', { defaultValue: 'Загружаем…' })}
+            </div>
+          ) : notFound ? (
+            <EmptyState
+              title={t('decisions.detail.notFoundTitle')}
+              body={t('decisions.detail.notFoundBody')}
+            />
           ) : (
             <EmptyState
               title={t('decisions.detail.notFoundTitle')}

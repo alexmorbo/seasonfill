@@ -775,6 +775,9 @@ export const en = {
         label: 'torrent',
         unavailable: 'Hash available after Phase 12 migration.',
       },
+      error: {
+        heading: 'Error',
+      },
       files: {
         label: 'episode-files',
         more: '+ {{count}} more files',

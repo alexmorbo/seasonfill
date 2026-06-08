@@ -92,6 +92,62 @@ describe('<ScanDetail /> redesign', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
+  it('DRAWER DEEP-LOAD: ?drawer=<id> for a decision past the loaded page deep-fetches via /decisions/:id (N-4)', async () => {
+    // The list-cache contains ONLY `d-a-1`; the deep-linked id
+    // `d-deep-99` is NOT in any of the loaded pages — i.e., it's
+    // past the first /decisions page (operator deep-link path).
+    // Without the N-4 fix the drawer would render the "Решение не
+    // найдено" empty state because the list-cache lookup misses.
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const p = typeof url === 'string' ? url : url.toString();
+      if (p.includes('/scans/abc')) return json(completedScan);
+      // GET /api/v1/decisions/<id> — single-resource lookup.
+      if (/\/decisions\/d-deep-99(?:\?|$)/.test(p)) {
+        return json({
+          id: 'd-deep-99',
+          scan_run_id: 'abc',
+          instance: 'alpha',
+          series_id: 999,
+          series_title: 'Late Series',
+          season_number: 4,
+          decision: 'grab',
+          category: 'action_taken',
+          reason: 'grab_selected_dry_run',
+        });
+      }
+      if (p.includes('/decisions')) return json(mixed); // list only has d-a-1, d-b-1, d-b-2
+      if (p.includes('/grabs')) return json({ items: [] });
+      return json({});
+    }) as typeof fetch;
+    renderWithProviders(wrap(), { route: '/scans/abc?drawer=d-deep-99' });
+    // Drawer mounts as a Radix Sheet (role="dialog") even while the
+    // deep fetch resolves; assert the series-title header from the
+    // deep-fetched payload appears.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(await screen.findByText('Late Series')).toBeInTheDocument();
+    // And the "not-found" copy must NOT appear.
+    expect(screen.queryByText(/Решение не найдено|Decision not found/i)).toBeNull();
+  });
+
+  it('DRAWER DEEP-LOAD: 404 from /decisions/:id renders the not-found empty state (N-4)', async () => {
+    // Same setup but the backend returns 404 → drawer shows the
+    // legitimate "not found" copy.
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const p = typeof url === 'string' ? url : url.toString();
+      if (p.includes('/scans/abc')) return json(completedScan);
+      if (/\/decisions\/d-truly-missing(?:\?|$)/.test(p)) {
+        return json({ error: 'decision not found' }, 404);
+      }
+      if (p.includes('/decisions')) return json({ items: [] });
+      if (p.includes('/grabs')) return json({ items: [] });
+      return json({});
+    }) as typeof fetch;
+    renderWithProviders(wrap(), { route: '/scans/abc?drawer=d-truly-missing' });
+    await waitFor(() => {
+      expect(screen.getByText(/Решение не найдено|Decision not found/i)).toBeInTheDocument();
+    });
+  });
+
   it('?outcome=<value> filters the decisions card (param name preserved)', async () => {
     const captured: string[] = [];
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {

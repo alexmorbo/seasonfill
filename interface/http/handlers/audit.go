@@ -234,6 +234,45 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 	c.JSON(http.StatusOK, toScanDTO(rec))
 }
 
+// GetDecision handles GET /api/v1/decisions/:id.
+//
+// Used by DecisionDrawer to deep-load a decision row when the
+// `?drawer=<id>` URL is opened past the first paginated /decisions
+// page (N-4). Pure read; no side effects. Mirrors GetScan.
+//
+// @Summary     Get decision by ID
+// @Tags        decisions
+// @Produce     json
+// @Param       id    path     string  true  "Decision UUID"
+// @Success     200   {object}  dto.Decision
+// @Failure     400   {object}  dto.ErrorResponse
+// @Failure     404   {object}  dto.ErrorResponse
+// @Failure     500   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /decisions/{id} [get]
+func (h *AuditHandler) GetDecision(c *gin.Context) {
+	raw := c.Param("id")
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	rec, err := h.decisions.GetByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			writeError(c, http.StatusNotFound, "decision not found")
+			return
+		}
+		writeInternalError(c, h.logger, "audit_get_decision_failed", err,
+			slog.String("endpoint", "/api/v1/decisions/:id"),
+			slog.String("decision_id", id.String()),
+		)
+		return
+	}
+	c.JSON(http.StatusOK, toDecisionDTO(rec))
+}
+
 // ListDecisions handles GET /api/v1/decisions.
 //
 // @Summary     List decisions

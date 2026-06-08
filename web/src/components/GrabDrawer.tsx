@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Copy, ExternalLink, GitBranch } from 'lucide-react';
+import { AlertCircle, Copy, ExternalLink, GitBranch } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -60,6 +60,7 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
         ) : (
           <div className="px-5 py-4 flex flex-col gap-4">
             <DrawerHero grab={grab} />
+            <DrawerErrorSection grab={grab} />
             <DrawerReleaseSection grab={grab} />
             <DrawerTorrentSection grab={grab} deepLink={deepLink} />
             <DrawerFilesSection grab={grab} instance={instance} open={open} />
@@ -280,6 +281,81 @@ function DrawerFilesSection({
         grabStatus={grab.status ?? null}
         open={open}
       />
+    </section>
+  );
+}
+
+// DrawerErrorSection renders the full upstream error_message for a
+// failed grab. The list row (GrabRow.tsx:138-148) shows a one-line
+// preview clamped at 420px; the drawer renders the full text with
+// preserved whitespace and a copy button. Mirrors DecisionDrawer's
+// ErrorDetailSection for visual consistency.
+//
+// Gated on grab.error_message being non-empty — non-failed grabs
+// (`imported`, `grabbed`) typically have no error text and skip
+// the section entirely.
+function DrawerErrorSection({ grab }: { grab: Grab }) {
+  const { t } = useTranslation();
+  const text = grab.error_message;
+  if (!text) return null;
+
+  const onCopy = async () => {
+    if (!navigator.clipboard?.writeText) {
+      toast.error(t('decisions.detail.clipboardUnavailable'));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t('decisions.detail.copied'));
+    } catch {
+      toast.error(t('decisions.detail.copyFailed'));
+    }
+  };
+
+  return (
+    <section
+      data-testid="drawer-error-section"
+      aria-labelledby="grab-error-heading"
+      className={cn(
+        'border border-danger/30 rounded-md p-4',
+        'bg-danger-dim flex flex-col gap-2.5',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-danger" aria-hidden="true" />
+          <h4
+            id="grab-error-heading"
+            className="text-[12px] font-semibold uppercase tracking-[0.06em] text-danger"
+          >
+            {t('grabs.drawer.error.heading')}
+          </h4>
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          data-testid="drawer-error-copy"
+          aria-label={t('decisions.detail.copy')}
+          className={cn(
+            'inline-flex items-center gap-1 px-1.5 h-6 rounded',
+            'border border-border-faint text-[11px] text-tx-muted',
+            'hover:text-tx-primary hover:bg-bg-surface-2 transition-colors',
+          )}
+        >
+          <Copy className="w-3 h-3" aria-hidden="true" />
+          {t('decisions.detail.copy')}
+        </button>
+      </div>
+      <pre
+        data-testid="drawer-error-text"
+        className={cn(
+          'font-mono text-[12px] bg-bg-base rounded px-2.5 py-2',
+          'whitespace-pre-wrap break-all select-text text-tx-secondary',
+          'm-0',
+        )}
+      >
+        {text}
+      </pre>
     </section>
   );
 }

@@ -232,4 +232,79 @@ describe('<GrabDrawer />', () => {
     const content = await screen.findByTestId('grab-drawer-content');
     expect(content.className).toMatch(/sm:max-w-\[640px\]/);
   });
+
+  it('renders DrawerErrorSection with full error_message for a failed grab (N-5)', async () => {
+    const longErr =
+      'sonarr /api/v3/release returned status=500 body={"message":"Download client failed to add torrent","description":"qBittorrent connection refused: dial tcp 10.0.42.7:10095: i/o timeout","exception":"NzbDroneException"}';
+    const failedGrab: Grab = {
+      ...baseGrab,
+      id: 'g_fail',
+      status: DtoGrabStatus.grab_failed,
+      error_message: longErr,
+      attempts: 3,
+    };
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({ url: '' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_fail" open={true} onOpenChange={() => {}} rows={[failedGrab]} />,
+    ));
+    const section = await screen.findByTestId('drawer-error-section');
+    expect(section).toBeInTheDocument();
+    const text = screen.getByTestId('drawer-error-text');
+    // Full text must be present — no clamping. The row's preview
+    // truncates at 420px CSS, but the drawer renders the whole thing.
+    expect(text).toHaveTextContent(longErr);
+    // Tag must be a <pre> for whitespace preservation.
+    expect(text.tagName.toLowerCase()).toBe('pre');
+  });
+
+  it('DrawerErrorSection copy button writes error_message to clipboard (N-5)', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, writable: true, configurable: true,
+    });
+    const failedGrab: Grab = {
+      ...baseGrab,
+      id: 'g_fail2',
+      status: DtoGrabStatus.grab_failed,
+      error_message: 'short err',
+    };
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({ url: '' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_fail2" open={true} onOpenChange={() => {}} rows={[failedGrab]} />,
+    ));
+    const copyBtn = await screen.findByTestId('drawer-error-copy');
+    await userEvent.click(copyBtn);
+    expect(writeText).toHaveBeenCalledWith('short err');
+  });
+
+  it('DrawerErrorSection is absent when error_message is empty (N-5)', async () => {
+    // baseGrab has no error_message → section omitted entirely.
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await screen.findByText('For All Mankind');
+    expect(screen.queryByTestId('drawer-error-section')).toBeNull();
+  });
 });

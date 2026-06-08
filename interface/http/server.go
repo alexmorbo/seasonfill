@@ -165,6 +165,7 @@ func NewServer(
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)
 		guarded.GET("/decisions", auditHandler.ListDecisions)
+		guarded.GET("/decisions/:id", auditHandler.GetDecision)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
 		guarded.GET("/counters", countersHandler.Aggregate)
 		grabEpisodeFilesHandler := handlers.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
