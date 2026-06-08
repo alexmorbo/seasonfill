@@ -67,4 +67,20 @@ describe('<OIDCFold />', () => {
     await userEvent.click(screen.getByTestId('oidc-fold-head'));
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
   });
+
+  it('open content carries data-state=open and collapsible-down animation class', () => {
+    renderFold({ mode: 'oidc' });
+    const content = screen.getByTestId('oidc-fold-content');
+    expect(content).toHaveAttribute('data-state', 'open');
+    expect(content.className).toMatch(/data-\[state=open\]:animate-collapsible-down/);
+    expect(content.className).toMatch(/data-\[state=closed\]:animate-collapsible-up/);
+    expect(content.className).toMatch(/overflow-hidden/);
+  });
+
+  it("closed content stays in DOM with hidden + data-state='closed' (Radix default)", () => {
+    renderFold({ mode: 'forms' });
+    const content = screen.getByTestId('oidc-fold-content');
+    expect(content).toHaveAttribute('data-state', 'closed');
+    expect(content).toHaveAttribute('hidden');
+  });
 });

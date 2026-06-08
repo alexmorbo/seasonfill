@@ -83,6 +83,9 @@
   /* Radix accordion animation keyframes (consumed by tailwindcss-animate) */
   --animate-accordion-down: accordion-down 0.18s ease-out;
   --animate-accordion-up:   accordion-up 0.18s ease-out;
+  /* Radix collapsible animation keyframes — same timing as accordion */
+  --animate-collapsible-down: collapsible-down 0.18s ease-out;
+  --animate-collapsible-up:   collapsible-up 0.18s ease-out;
 }
 
 @keyframes accordion-down {
@@ -91,6 +94,14 @@
 }
 @keyframes accordion-up {
   from { height: var(--radix-accordion-content-height); }
+  to   { height: 0; }
+}
+@keyframes collapsible-down {
+  from { height: 0; }
+  to   { height: var(--radix-collapsible-content-height); }
+}
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); }
   to   { height: 0; }
 }
 
