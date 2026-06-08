@@ -399,6 +399,9 @@ components:
         name:
           example: alpha
           type: string
+        public_url:
+          example: https://sonarr.example.com
+          type: string
         transitions_count:
           type: integer
         url:

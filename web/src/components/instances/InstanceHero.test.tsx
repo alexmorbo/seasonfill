@@ -101,4 +101,55 @@ describe('<InstanceHero />', () => {
     const errorEl = await screen.findByTestId('hero-error');
     expect(errorEl).toHaveTextContent(/connection refused/);
   });
+
+  it('"Sonarr" link prefers public_url over url', async () => {
+    const withPublic = {
+      ...(inst as object),
+      url: 'http://sonarr:80',
+      public_url: 'https://sonarr.example.com',
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={withPublic}
+        onEdit={() => undefined}
+        onForceScan={() => undefined}
+      />,
+    );
+    const link = await screen.findByTestId('hero-sonarr-link-homelab');
+    expect(link).toHaveAttribute('href', 'https://sonarr.example.com');
+  });
+
+  it('"Sonarr" link falls back to url when public_url is empty', async () => {
+    const noPublic = {
+      ...(inst as object),
+      url: 'http://sonarr:80',
+      public_url: '',
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={noPublic}
+        onEdit={() => undefined}
+        onForceScan={() => undefined}
+      />,
+    );
+    const link = await screen.findByTestId('hero-sonarr-link-homelab');
+    expect(link).toHaveAttribute('href', 'http://sonarr:80');
+  });
+
+  it('"Sonarr" button is hidden when url is schemeless and no public_url', async () => {
+    const bare = {
+      ...(inst as object),
+      url: 'sonarr',
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={bare}
+        onEdit={() => undefined}
+        onForceScan={() => undefined}
+      />,
+    );
+    // Wait for a stable render via an unrelated chip query.
+    await screen.findByTestId('chip-missing');
+    expect(screen.queryByTestId('hero-sonarr-link-homelab')).toBeNull();
+  });
 });

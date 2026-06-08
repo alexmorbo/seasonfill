@@ -12,6 +12,7 @@ import { Sparkline } from '@/components/ui/sparkline';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
+import { pickPublicHref } from '@/lib/url';
 import { KIND_CLASS, KIND_DOT, healthKind, healthLabelKey } from '@/lib/badge-variants';
 import { InstanceStatsBlock } from './InstanceStatsBlock';
 import { InstanceChipRow } from './InstanceChipRow';
@@ -39,6 +40,7 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
 
   const degraded = healthKind(instance.health) !== 'success';
   const sparkData = (c7.data?.sparkline ?? []).map((b) => b.grabs);
+  const sonarrHref = pickPublicHref(instance.public_url, instance.url);
 
   return (
     <Card
@@ -87,9 +89,10 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
               <Play className="w-3.5 h-3.5 mr-1.5" />
               {t('instances.hero.actions.forceScan')}
             </Button>
-            {instance.url && (
+            {sonarrHref && (
               <Button size="sm" variant="outline" asChild>
-                <a href={instance.url} target="_blank" rel="noreferrer">
+                <a href={sonarrHref} target="_blank" rel="noreferrer"
+                   data-testid={`hero-sonarr-link-${name}`}>
                   <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
                   {t('instances.hero.actions.openSonarr')}
                 </a>

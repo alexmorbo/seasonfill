@@ -183,8 +183,11 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 	}
 }
 
-// snapshotToDTO reads URL and Mode from the live registry snapshot.
-// instMap may be nil/empty; mode defaults to "auto" and url to "".
+// snapshotToDTO reads URL, PublicURL and Mode from the live registry
+// snapshot. instMap may be nil/empty; mode defaults to "auto" and
+// url/public_url to "". PublicURL dereference mirrors UIURL()'s
+// "empty string = unset" rule so the SPA never has to special-case
+// an empty override.
 func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.Instance {
 	var lastCheckAt *time.Time
 	if !s.LastCheckAt.IsZero() {
@@ -192,15 +195,19 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 		lastCheckAt = &t
 	}
 	mode := "auto"
-	var url string
+	var url, publicURL string
 	if inst, ok := instMap[s.Name]; ok {
 		if m := inst.Config.Mode; m != "" {
 			mode = m
 		}
 		url = inst.Config.URL // empty string is fine — UI falls back to ''
+		if inst.Config.PublicURL != nil && *inst.Config.PublicURL != "" {
+			publicURL = *inst.Config.PublicURL
+		}
 	}
 	return dto.Instance{
-		Name: s.Name, URL: url, Mode: mode, Health: string(s.Health),
+		Name: s.Name, URL: url, PublicURL: publicURL,
+		Mode: mode, Health: string(s.Health),
 		LastCheckAt: lastCheckAt, LastError: s.LastError,
 		TransitionsCount: s.TransitionsCount,
 	}

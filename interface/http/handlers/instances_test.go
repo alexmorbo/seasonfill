@@ -465,6 +465,76 @@ func TestInstancesList_DoesNotLeakAPIKey(t *testing.T) {
 	assert.NotContains(t, body, "apikey", "GET /instances must not include apikey")
 }
 
+// TestList_IncludesPublicURL asserts the list endpoint surfaces
+// PublicURL when an instance has it set. F-P0-9: SPA hero card
+// uses it to render the "Sonarr" link with the browser-facing URL.
+func TestList_IncludesPublicURL(t *testing.T) {
+	t.Parallel()
+	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	c.Preflight(context.Background())
+
+	pub := "https://sonarr.example.com"
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+		return map[string]scan.Instance{
+			"alpha": {Config: config.SonarrInstance{
+				Name:      "alpha",
+				URL:       "http://sonarr:8989",
+				PublicURL: &pub,
+			}},
+		}
+	}}
+	r := gin.New()
+	r.GET("/api/v1/instances", NewInstancesHandler(c, reg, nil).List)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.InstanceList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Instances, 1)
+	assert.Equal(t, "https://sonarr.example.com", body.Instances[0].PublicURL)
+	assert.Equal(t, "http://sonarr:8989", body.Instances[0].URL)
+}
+
+// TestList_OmitsPublicURLWhenUnset asserts public_url is absent
+// from the JSON envelope when the instance has no override
+// (omitempty on the DTO). Empty *PublicURL (deref == "") is
+// treated as unset to mirror UIURL() semantics.
+func TestList_OmitsPublicURLWhenUnset(t *testing.T) {
+	t.Parallel()
+	c := healthcheck.New(openInstancesDB(t), []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	c.Preflight(context.Background())
+
+	empty := ""
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+		return map[string]scan.Instance{
+			"alpha": {Config: config.SonarrInstance{
+				Name:      "alpha",
+				URL:       "http://sonarr:8989",
+				PublicURL: &empty,
+			}},
+		}
+	}}
+	r := gin.New()
+	r.GET("/api/v1/instances", NewInstancesHandler(c, reg, nil).List)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var raw struct {
+		Instances []map[string]any `json:"instances"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw.Instances, 1)
+	_, hasKey := raw.Instances[0]["public_url"]
+	assert.False(t, hasKey,
+		"public_url must be omitted when unset / empty-string")
+}
+
 // buildRegistry composes a registry suitable for handler tests from the
 // three legacy maps the older tests carried. Any map may be nil. Load
 // returns a fresh copy each call.

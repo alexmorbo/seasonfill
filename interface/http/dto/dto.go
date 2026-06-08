@@ -81,10 +81,14 @@ type ScanTriggerItem struct {
 // (Q-010-1) so the UI doesn't branch on field absence. URL is the
 // configured Sonarr base URL — read-only echo from the runtime
 // snapshot, populated by the handler from the static URLs map (see
-// known limitation note in 028g).
+// known limitation note in 028g). PublicURL is the optional
+// browser-facing URL (D64); omitempty because the list endpoint is
+// high-traffic and the field is empty for most rows. SPA prefers
+// PublicURL over URL when rendering "open in Sonarr".
 type Instance struct {
 	Name             string     `json:"name"   example:"alpha"`
 	URL              string     `json:"url"    example:"http://sonarr:8989"`
+	PublicURL        string     `json:"public_url,omitempty" example:"https://sonarr.example.com"`
 	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`
 	Health           string     `json:"health" example:"Available" enums:"Available,UnavailableAuth,UnavailableNetwork,UnavailableUnknown"`
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`

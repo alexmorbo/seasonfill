@@ -2948,6 +2948,8 @@ export type components = {
             readonly mode?: DtoInstanceMode;
             /** @example alpha */
             readonly name?: string;
+            /** @example https://sonarr.example.com */
+            readonly public_url?: string;
             readonly transitions_count?: number;
             /** @example http://sonarr:8989 */
             readonly url?: string;
