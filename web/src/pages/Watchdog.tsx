@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWatchdogRollups } from '@/lib/api/watchdogRollups';
 import { WatchdogAggregateStrip } from '@/components/watchdog/WatchdogAggregateStrip';
@@ -15,16 +17,26 @@ export function Watchdog() {
   // instance, else first by name. The future F2 instance switcher in
   // the topbar will override this once it ships; for tonight we pick
   // the natural default.
+  const navigate = useNavigate();
   const items = rollups.data?.items ?? [];
-  const primary =
-    items.find((r) => r.active) ?? items[0] ?? null;
+  const primary = items.find((r) => r.active) ?? items[0] ?? null;
 
-  const aggregate = rollups.data;
+  const openInstanceForm = useCallback(
+    (name: string) => {
+      navigate(`/instances?edit=${encodeURIComponent(name)}`);
+    },
+    [navigate],
+  );
+
+  const total = items.length;
+  const active = items.reduce(
+    (n, r) => n + (r.enabled && r.qbit_reachable ? 1 : 0),
+    0,
+  );
   const showEmpty =
     !rollups.isLoading &&
-    Boolean(aggregate) &&
-    (aggregate!.total_count === 0 ||
-      (aggregate!.active_count === 0 && aggregate!.total_count > 0));
+    Boolean(rollups.data) &&
+    (total === 0 || (active === 0 && total > 0));
 
   return (
     <div className="px-6 pb-10 pt-5" data-testid="watchdog-page">
@@ -61,7 +73,11 @@ export function Watchdog() {
                     <Skeleton key={i} className="h-[220px] w-full" />
                   ))
                 : items.map((r) => (
-                    <WatchdogInstancePanel key={r.instance} rollup={r} />
+                    <WatchdogInstancePanel
+                      key={r.instance}
+                      rollup={r}
+                      onOpenInstanceForm={openInstanceForm}
+                    />
                   ))}
             </div>
           </div>

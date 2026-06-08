@@ -10,7 +10,10 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import type { WatchdogRollupAggregate } from '@/lib/api/watchdogRollups';
+import {
+  countActiveInstances,
+  type WatchdogRollupAggregate,
+} from '@/lib/api/watchdogRollups';
 
 interface TileProps {
   icon: LucideIcon;
@@ -87,13 +90,13 @@ export function WatchdogAggregateStrip({
     );
   }
 
-  const items = rollups.items;
-  const watched = items.reduce((s, r) => s + r.watched, 0);
-  const unregistered = items.reduce((s, r) => s + r.unregistered, 0);
-  const regrabs7d = items.reduce((s, r) => s + r.regrabs_7d, 0);
-  const blacklistSize = items.reduce((s, r) => s + r.blacklist_size, 0);
+  const items = rollups.items ?? [];
+  const { active, total } = countActiveInstances(rollups);
+  const watched = items.reduce((s, r) => s + (r.watched ?? 0), 0);
+  const unregistered = items.reduce((s, r) => s + (r.unregistered ?? 0), 0);
+  const regrabs7d = items.reduce((s, r) => s + (r.regrabs_7d ?? 0), 0);
+  const blacklistSize = items.reduce((s, r) => s + (r.blacklist_size ?? 0), 0);
 
-  // Last-poll = most recent across all instances; pick the latest ISO.
   const lastPollIso = items
     .map((r) => r.last_poll_at)
     .filter((v): v is string => Boolean(v))
@@ -107,9 +110,9 @@ export function WatchdogAggregateStrip({
     >
       <Tile
         icon={ShieldCheck}
-        value={`${rollups.active_count} / ${rollups.total_count}`}
+        value={`${active} / ${total}`}
         label={t('watchdog.aggregate.activeInstances')}
-        tone={rollups.active_count > 0 ? 'run' : 'default'}
+        tone={active > 0 ? 'run' : 'default'}
         testid="watchdog-strip-active"
       />
       <Tile

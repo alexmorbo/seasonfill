@@ -25,8 +25,6 @@ export interface WatchdogRollup {
 
 export interface WatchdogRollupAggregate {
   items: WatchdogRollup[];
-  active_count: number;
-  total_count: number;
 }
 
 export const watchdogRollupsKey = () => ['watchdog', 'rollups'] as const;
@@ -68,4 +66,17 @@ export function sumRollupTotals(agg?: WatchdogRollupAggregate): RollupTotals {
     }),
     { watched: 0, regrabs_7d: 0, blacklist_size: 0 },
   );
+}
+
+export function countActiveInstances(agg?: WatchdogRollupAggregate): {
+  active: number;
+  total: number;
+} {
+  if (!agg) return { active: 0, total: 0 };
+  const total = agg.items.length;
+  const active = agg.items.reduce(
+    (n, r) => n + (r.enabled && r.qbit_reachable ? 1 : 0),
+    0,
+  );
+  return { active, total };
 }

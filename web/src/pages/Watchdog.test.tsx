@@ -44,20 +44,14 @@ const baseRollup = {
 };
 
 const activeRollups: WatchdogRollupAggregate = {
-  active_count: 1,
-  total_count: 1,
   items: [baseRollup],
 };
 
 const totalZeroRollups: WatchdogRollupAggregate = {
-  active_count: 0,
-  total_count: 0,
   items: [],
 };
 
 const inactiveRollups: WatchdogRollupAggregate = {
-  active_count: 0,
-  total_count: 1,
   items: [{ ...baseRollup, enabled: false, active: false, blacklist_size: 0 }],
 };
 

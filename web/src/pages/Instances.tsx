@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Plus } from 'lucide-react';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useDeleteInstance, useInstanceDetail } from '@/lib/instances-mutations';
@@ -50,6 +51,7 @@ export function Instances() {
   const del = useDeleteInstance();
   const trigger = useTriggerScan();
   const { filter } = useInstanceFilter();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const instances: readonly Instance[] = useMemo(
     () => q.data?.instances ?? [],
@@ -57,8 +59,12 @@ export function Instances() {
   );
   const { hero, rest } = useMemo(() => pickHero(instances, filter), [instances, filter]);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(
+    () => searchParams.get('edit') !== null,
+  );
+  const [editing, setEditing] = useState<string | null>(
+    () => searchParams.get('edit'),
+  );
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const detailQuery = useInstanceDetail(editing);
@@ -150,7 +156,17 @@ export function Instances() {
 
       <InstanceFormDialog
         open={dialogOpen}
-        onOpenChange={(v) => { setDialogOpen(v); if (!v) setEditing(null); }}
+        onOpenChange={(v) => {
+          setDialogOpen(v);
+          if (!v) {
+            setEditing(null);
+            if (searchParams.has('edit')) {
+              const next = new URLSearchParams(searchParams);
+              next.delete('edit');
+              setSearchParams(next, { replace: true });
+            }
+          }
+        }}
         mode={editing ? 'edit' : 'create'}
         initial={editing ? editInitial : undefined}
       />

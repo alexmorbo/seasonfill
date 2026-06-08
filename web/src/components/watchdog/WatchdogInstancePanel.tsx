@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Sparkline } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';
+import { useQbitSettings } from '@/api/qbit';
 import { useWatchdogToggle } from '@/lib/api/watchdogToggle';
 import type { WatchdogRollup } from '@/lib/api/watchdogRollups';
 
 export interface WatchdogInstancePanelProps {
   rollup: WatchdogRollup;
-  sparkline?: number[]; // 7-day regrab counts; empty -> placeholder
+  sparkline?: number[];
   onOpenInstanceForm?: (instance: string) => void;
 }
 
@@ -22,20 +23,18 @@ export function WatchdogInstancePanel({
 }: WatchdogInstancePanelProps) {
   const { t } = useTranslation();
   const toggle = useWatchdogToggle();
+  const settings = useQbitSettings(rollup.instance);
+  const toggleReady = Boolean(settings.data);
 
   const handleToggle = (next: boolean) => {
+    if (!settings.data) return;
     toggle.mutate({
       instance: rollup.instance,
       enabled: next,
-      previous: {
-        enabled: rollup.enabled,
-        poll_interval_min: rollup.poll_interval_min,
-        regrab_cooldown_h: rollup.regrab_cooldown_h,
-        max_no_better: rollup.max_no_better,
-      },
+      current: settings.data,
     });
   };
-
+  const handleConfigure = () => onOpenInstanceForm?.(rollup.instance);
   const isOff = !rollup.enabled;
 
   return (
@@ -48,7 +47,7 @@ export function WatchdogInstancePanel({
         <Switch
           data-testid={`watchdog-panel-toggle-${rollup.instance}`}
           checked={rollup.enabled}
-          disabled={toggle.isPending}
+          disabled={toggle.isPending || !toggleReady}
           onCheckedChange={handleToggle}
           aria-label={
             rollup.enabled
@@ -64,10 +63,8 @@ export function WatchdogInstancePanel({
             {t('watchdog.config.disabled')}
           </span>
           <Button
-            variant="outline"
-            size="sm"
-            className="justify-center"
-            onClick={() => onOpenInstanceForm?.(rollup.instance)}
+            variant="outline" size="sm" className="justify-center"
+            onClick={handleConfigure}
             data-testid={`watchdog-panel-enable-${rollup.instance}`}
           >
             <Power className="mr-1 h-4 w-4" />
@@ -80,12 +77,8 @@ export function WatchdogInstancePanel({
             variant={rollup.qbit_reachable ? 'ok' : 'warn'}
             className="self-start"
           >
-            <span
-              className={cn(
-                'chip-dot',
-                rollup.qbit_reachable ? 'bg-ok' : 'bg-warn',
-              )}
-            />
+            <span className={cn('chip-dot',
+              rollup.qbit_reachable ? 'bg-ok' : 'bg-warn')} />
             {rollup.qbit_reachable
               ? t('watchdog.config.qbit.reachable')
               : t('watchdog.config.qbit.unreachable')}
@@ -115,10 +108,9 @@ export function WatchdogInstancePanel({
             </span>
           </div>
           <Button
-            variant="outline"
-            size="sm"
-            className="justify-center"
-            onClick={() => onOpenInstanceForm?.(rollup.instance)}
+            variant="outline" size="sm" className="justify-center"
+            onClick={handleConfigure}
+            data-testid={`watchdog-panel-configure-${rollup.instance}`}
           >
             <SettingsIcon className="mr-1 h-4 w-4" />
             {t('watchdog.config.cta.configure')}

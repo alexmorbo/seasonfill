@@ -2,36 +2,41 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import i18n from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import {
+  qbitSettingsKey,
+  type QbitSettingsDTO,
+  type QbitSettingsUpsertRequest,
+} from '@/api/qbit';
 import { watchdogRollupsKey, type WatchdogRollup } from './watchdogRollups';
-
-// Local mirror of the qBit settings shape. The real schema is on
-// `components['schemas']['dto.QbitSettingsDTO']`; we only need the
-// `enabled` toggle + the preserved fields to round-trip a PUT here.
-// The full settings editor remains in InstanceFormDialog (story 040).
-interface QbitSettingsPartial {
-  enabled: boolean;
-  url?: string;
-  username?: string;
-  category?: string;
-  poll_interval_min?: number;
-  regrab_cooldown_h?: number;
-  max_no_better?: number;
-}
 
 export interface WatchdogToggleInput {
   instance: string;
   enabled: boolean;
-  previous: QbitSettingsPartial; // fetched from /qbit/settings or rollup
+  current: QbitSettingsDTO;
 }
 
-// Wraps the existing PUT /instances/:name/qbit/settings call with
-// watchdog-namespaced toasts and broad cache invalidation (rollups +
-// per-instance settings + instances list).
+function buildUpsert(
+  current: QbitSettingsDTO,
+  enabled: boolean,
+): QbitSettingsUpsertRequest {
+  return {
+    enabled,
+    url: current.url ?? '',
+    username: current.username ?? '',
+    password: '',
+    category: current.category ?? '',
+    poll_interval_minutes: current.poll_interval_minutes ?? 0,
+    regrab_cooldown_hours: current.regrab_cooldown_hours ?? 0,
+    max_consecutive_no_better: current.max_consecutive_no_better ?? 0,
+    custom_unregistered_msgs: current.custom_unregistered_msgs ?? [],
+  };
+}
+
 export function useWatchdogToggle() {
   const qc = useQueryClient();
   return useMutation<WatchdogRollup | null, ApiError, WatchdogToggleInput>({
-    mutationFn: async ({ instance, enabled, previous }) => {
-      const body: QbitSettingsPartial = { ...previous, enabled };
+    mutationFn: async ({ instance, enabled, current }) => {
+      const body = buildUpsert(current, enabled);
       await api(`/instances/${encodeURIComponent(instance)}/qbit/settings`, {
         method: 'PUT',
         body,
@@ -40,7 +45,7 @@ export function useWatchdogToggle() {
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: watchdogRollupsKey() });
-      qc.invalidateQueries({ queryKey: ['qbit', 'settings', vars.instance] });
+      qc.invalidateQueries({ queryKey: qbitSettingsKey(vars.instance) });
       qc.invalidateQueries({ queryKey: ['instances'] });
       toast.success(
         i18n.t('watchdog.toggleSuccess', {
