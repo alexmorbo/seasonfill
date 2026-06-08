@@ -15,6 +15,7 @@ import { formatEpisodeRange } from '@/lib/grabs/format';
 import { buildQbitDeepLink } from '@/lib/grabs/qbit';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { useQbitSettings } from '@/api/qbit';
+import { useSourceDecisionID } from '@/lib/grabs/sourceDecisionLookup';
 import { cn } from '@/lib/utils';
 
 export interface GrabDrawerProps {
@@ -41,7 +42,7 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md overflow-y-auto p-0 bg-bg-surface"
+        className="w-full sm:max-w-[640px] overflow-y-auto p-0 bg-bg-surface"
         data-testid="grab-drawer-content"
       >
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border-faint">
@@ -148,6 +149,15 @@ function DrawerTorrentSection({
   grab, deepLink,
 }: { grab: Grab; deepLink: string | null }) {
   const { t } = useTranslation();
+  const decisionID = useSourceDecisionID({
+    instance: grab.instance ?? null,
+    scanRunID: grab.scan_run_id ?? null,
+    seriesID: grab.series_id ?? null,
+    seasonNumber: grab.season_number ?? null,
+  });
+  const sourceHref = grab.scan_run_id
+    ? `/scans/${grab.scan_run_id}${decisionID ? `?drawer=${decisionID}` : ''}`
+    : null;
   const hash = grab.torrent_hash;
   if (!hash) {
     return (
@@ -156,6 +166,11 @@ function DrawerTorrentSection({
         <p className="text-[12px] text-tx-faint italic">
           {t('grabs.drawer.torrent.unavailable')}
         </p>
+        {sourceHref && (
+          <div className="flex flex-wrap gap-2 mt-1">
+            <SourceDecisionPill href={sourceHref} label={t('grabs.drawer.sourceDecision')} />
+          </div>
+        )}
       </section>
     );
   }
@@ -226,23 +241,27 @@ function DrawerTorrentSection({
             {t('grabs.drawer.openInQbit')}
           </span>
         )}
-        {grab.scan_run_id ? (
-          <Link
-            to={`/decisions/${grab.scan_run_id}`}
-            data-testid="drawer-decision-link"
-            className={cn(
-              'inline-flex items-center gap-1 px-2 py-1 rounded-[5px]',
-              'border border-border-subtle bg-bg-surface-2',
-              'text-[10.5px] font-mono font-semibold text-tx-secondary',
-              'hover:bg-bg-surface-3 transition-colors',
-            )}
-          >
-            <GitBranch className="size-3" />
-            {t('grabs.drawer.sourceDecision')}
-          </Link>
-        ) : null}
+        {sourceHref && <SourceDecisionPill href={sourceHref} label={t('grabs.drawer.sourceDecision')} />}
       </div>
     </section>
+  );
+}
+
+function SourceDecisionPill({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      to={href}
+      data-testid="drawer-decision-link"
+      className={cn(
+        'inline-flex items-center gap-1 px-2 py-1 rounded-[5px]',
+        'border border-border-subtle bg-bg-surface-2',
+        'text-[10.5px] font-mono font-semibold text-tx-secondary',
+        'hover:bg-bg-surface-3 transition-colors',
+      )}
+    >
+      <GitBranch className="size-3" />
+      {label}
+    </Link>
   );
 }
 

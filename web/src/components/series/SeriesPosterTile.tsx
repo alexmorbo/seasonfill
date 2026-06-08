@@ -25,7 +25,7 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
 
-  const handleOpen = () => navigate(`/grabs?series=${encodeURIComponent(item.title_slug)}`);
+  const handleOpen = () => navigate(`/grabs?series=${item.sonarr_series_id}`);
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();

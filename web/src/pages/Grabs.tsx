@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useTranslation as _ } from 'react-i18next'; // noqa — placeholder for tree-shake check
 import { useGrabs, flattenGrabs, type Grab } from '@/lib/grabs';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { GrabsFiltersBar, type GrabFilter } from '@/components/grabs/GrabsFiltersBar';
@@ -49,6 +48,11 @@ export function Grabs() {
   const search = params.get('q') ?? '';
   const openId = params.get('open');
   const threadId = params.get('thread');
+  const seriesParam = params.get('series');
+  const seriesIDFilter = seriesParam !== null && seriesParam !== ''
+    ? Number.parseInt(seriesParam, 10)
+    : Number.NaN;
+  const seriesID = Number.isFinite(seriesIDFilter) ? seriesIDFilter : undefined;
 
   // Debounced search — typing into the input updates a local string that
   // pushes into URL state after 250 ms idle.
@@ -71,7 +75,10 @@ export function Grabs() {
   };
 
   const refetchMs = filter === 'active' ? 30_000 : 60_000;
-  const query = useGrabs({}, { refetchMs });
+  const query = useGrabs(
+    seriesID !== undefined ? { series_id: seriesID } : {},
+    { refetchMs },
+  );
 
   const all = useMemo(() => flattenGrabs(query.data?.pages), [query.data]);
   const counts = useMemo(() => computeCounts(all), [all]);

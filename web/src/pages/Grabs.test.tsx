@@ -86,4 +86,31 @@ describe('<Grabs />', () => {
     // imported-only fixture → fails view is empty
     await waitFor(() => expect(screen.queryByText('Severance')).not.toBeInTheDocument());
   });
+
+  it('forwards ?series=<int> to the API as series_id', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(json({ items: [grab()] }));
+    globalThis.fetch = fetchSpy as typeof fetch;
+    renderWithProviders(wrap(<Grabs />), { route: '/grabs?series=122' });
+    await waitFor(() => {
+      const grabCall = fetchSpy.mock.calls.find((c) => {
+        const url = String(c[0]);
+        return url.includes('/grabs?') && url.includes('series_id=122');
+      });
+      expect(grabCall).toBeDefined();
+    });
+  });
+
+  it('ignores non-numeric ?series= values', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(json({ items: [grab()] }));
+    globalThis.fetch = fetchSpy as typeof fetch;
+    renderWithProviders(wrap(<Grabs />), { route: '/grabs?series=for-all-mankind' });
+    await waitFor(() => {
+      const grabCall = fetchSpy.mock.calls.find((c) => {
+        const url = String(c[0]);
+        return url.includes('/grabs');
+      });
+      expect(grabCall).toBeDefined();
+      expect(String(grabCall![0])).not.toContain('series_id=');
+    });
+  });
 });

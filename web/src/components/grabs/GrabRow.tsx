@@ -138,7 +138,10 @@ export function GrabRow({
               {grab.error_message && (
                 <>
                   <DotSep />
-                  <span className="text-danger truncate" title={grab.error_message}>
+                  <span
+                    className="text-danger truncate min-w-0 max-w-[420px]"
+                    title={grab.error_message}
+                  >
                     «{grab.error_message}»
                   </span>
                 </>

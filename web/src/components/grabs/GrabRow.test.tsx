@@ -98,4 +98,19 @@ describe('<GrabRow />', () => {
     // Just verify the component doesn't crash when instance + localAll are provided.
     expect(screen.getByText('For All Mankind')).toBeInTheDocument();
   });
+
+  it('clamps the error span to max-w-[420px] on import_failed rows', () => {
+    const failed: Partial<Grab> = {
+      ...base,
+      status: DtoGrabStatus.import_failed,
+      error_message: 'sonarr /api/v3/release returned status=500 body={ "message": "Download client failed to add torrent" } — release rejected by Sonarr',
+    };
+    render(wrap(
+      <GrabRow grab={failed as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const errorSpan = screen.getByText(/sonarr.*release rejected/);
+    expect(errorSpan.className).toMatch(/max-w-\[420px\]/);
+    expect(errorSpan.className).toMatch(/truncate/);
+  });
 });

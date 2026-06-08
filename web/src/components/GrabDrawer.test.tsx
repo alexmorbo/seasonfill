@@ -55,8 +55,6 @@ const baseGrab: Grab = {
 };
 
 beforeEach(() => {
-  // Default: episode-files endpoint returns 1 file; qbit-settings returns
-  // a URL. Tests can override per-case.
   globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
     const u = url.toString();
     if (u.includes('/episode-files')) {
@@ -73,6 +71,11 @@ beforeEach(() => {
     if (u.includes('/qbit/settings')) {
       return Promise.resolve(new Response(JSON.stringify({
         url: 'http://qbit.lan:8080', enabled: true,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (u.includes('/decisions')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        items: [{ id: 'dec-uuid-1', scan_run_id: 'scan-uuid-1', series_id: 100, season_number: 5 }],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     if (u.includes('/grabs')) {
@@ -97,10 +100,12 @@ describe('<GrabDrawer />', () => {
       'href',
       'http://qbit.lan:8080/#/torrent/c2cb0d9effab1234cdefa71f',
     );
-    expect(screen.getByTestId('drawer-decision-link')).toHaveAttribute(
-      'href',
-      '/decisions/scan-uuid-1',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-decision-link')).toHaveAttribute(
+        'href',
+        '/scans/scan-uuid-1?drawer=dec-uuid-1',
+      );
+    });
     await waitFor(() => {
       expect(screen.getByText(/FAM\.S05E01\.mkv/)).toBeInTheDocument();
     });
@@ -171,5 +176,60 @@ describe('<GrabDrawer />', () => {
       <GrabDrawer id="g_missing" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
     ));
     expect(screen.getByText(/not found|не найден/i)).toBeInTheDocument();
+  });
+
+  it('decision pill degrades to /scans/<id> while lookup pending', async () => {
+    let resolveDecisions: (() => void) | null = null;
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/decisions')) {
+        return new Promise<Response>((resolve) => {
+          resolveDecisions = () => resolve(
+            new Response(JSON.stringify({ items: [] }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }),
+          );
+        });
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({ url: '' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-decision-link')).toHaveAttribute(
+        'href',
+        '/scans/scan-uuid-1',
+      );
+    });
+    (resolveDecisions as (() => void) | null)?.();
+  });
+
+  it('decision pill is absent when grab has no scan_run_id', async () => {
+    const noScan: Grab = { ...baseGrab };
+    const mutable = noScan as Record<string, unknown>;
+    delete mutable.scan_run_id;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[noScan]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('grab-drawer-content')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('drawer-decision-link')).toBeNull();
+  });
+
+  it('drawer container has the bumped width class', async () => {
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    const content = await screen.findByTestId('grab-drawer-content');
+    expect(content.className).toMatch(/sm:max-w-\[640px\]/);
   });
 });
