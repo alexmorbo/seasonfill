@@ -79,7 +79,7 @@ export function Scans() {
   const showTable     = !q.isError && (q.isPending || rows.length > 0 || (allRows.length > 0 && !isFiltered));
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <ScansHeader count={rows.length} instance={instance} />
       <div className="flex items-center gap-2">
         <ScansFiltersBar value={filters} onChange={setFilters} />

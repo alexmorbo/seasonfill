@@ -5,6 +5,7 @@ import i18n from '@/i18n';
 import { renderWithProviders } from '@/test-utils';
 import { Watchdog } from '@/pages/Watchdog';
 import type { WatchdogRollupAggregate } from '@/lib/api/watchdogRollups';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
@@ -168,5 +169,13 @@ describe('<Watchdog /> (integration)', () => {
     expect(
       screen.queryByTestId('watchdog-not-configured'),
     ).not.toBeInTheDocument();
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    routeApi(() => ({ items: [] }));
+    const { getTitle } = renderPageWithTitle(wrap(<Watchdog />), { route: '/watchdog' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('watchdog.title'));
+    });
   });
 });

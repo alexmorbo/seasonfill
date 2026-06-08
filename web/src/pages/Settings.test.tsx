@@ -3,6 +3,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
 import { Settings } from './Settings';
+import i18n from '@/i18n';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 const navigateSpy = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -101,5 +103,13 @@ describe('<Settings />', () => {
     await waitFor(() =>
       expect(screen.getByTestId('integrations-tab')).toBeVisible(),
     );
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    setHash('');
+    const { getTitle } = renderPageWithTitle(<Settings />, { route: '/settings' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('settings.title'));
+    });
   });
 });

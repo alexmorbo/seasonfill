@@ -4,6 +4,8 @@ import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test-utils';
 import { Grabs } from './Grabs';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+import i18n from '@/i18n';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: 'homelab', setFilter: vi.fn() };
@@ -111,6 +113,14 @@ describe('<Grabs />', () => {
       });
       expect(grabCall).toBeDefined();
       expect(String(grabCall![0])).not.toContain('series_id=');
+    });
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(json({ items: [] })) as typeof fetch;
+    const { getTitle } = renderPageWithTitle(<Grabs />, { route: '/grabs' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('grabs.title'));
     });
   });
 });

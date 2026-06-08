@@ -98,11 +98,11 @@ export function ScanDetail() {
 
   const s = scan.data;
   if (scan.isPending) {
-    return <div className="max-w-[1440px] mx-auto p-6 text-muted">{t('scanDetail.loading')}</div>;
+    return <div className="text-muted">{t('scanDetail.loading')}</div>;
   }
   if (scan.isError || !s) {
     return (
-      <div className="max-w-[1440px] mx-auto p-6">
+      <div>
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
           <AlertTitle>{t('scanDetail.notFoundTitle')}</AlertTitle>
@@ -115,7 +115,7 @@ export function ScanDetail() {
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <Button
         variant="ghost" size="sm"
         className="self-start -ml-2 h-8"

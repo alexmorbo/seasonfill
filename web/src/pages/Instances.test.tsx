@@ -4,6 +4,8 @@ import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test-utils';
 import { Instances } from './Instances';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+import i18n from '@/i18n';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: null, setFilter: vi.fn() };
@@ -76,5 +78,12 @@ describe('<Instances />', () => {
       expect(screen.getByTestId('instance-hero-4k')).toBeInTheDocument();
     });
     expect(screen.getByTestId('instance-row-homelab')).toBeInTheDocument();
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    const { getTitle } = renderPageWithTitle(<Instances />, { route: '/instances' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('instances.title'));
+    });
   });
 });

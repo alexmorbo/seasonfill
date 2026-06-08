@@ -5,6 +5,8 @@ import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test-utils';
 import { InstanceQueue } from './InstanceQueue';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+import i18n from '@/i18n';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 const origFetch = globalThis.fetch;
 const ctxValue = { filter: null, setFilter: vi.fn() };
@@ -259,5 +261,12 @@ describe('<InstanceQueue /> (integration)', () => {
     await userEvent.type(search, 'and');
     expect(screen.queryByText('Severance')).not.toBeInTheDocument();
     expect(screen.getByText('Andor')).toBeInTheDocument();
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    const { getTitle } = renderPageWithTitle(<InstanceQueue />, { route: '/instances/homelab/queue' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('instanceQueue.title'));
+    });
   });
 });

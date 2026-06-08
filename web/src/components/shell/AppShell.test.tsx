@@ -74,4 +74,23 @@ describe("<AppShell />", () => {
     renderWithProviders(ui)
     expect(await screen.findByText("alpha")).toBeInTheDocument()
   })
+
+  it("wraps page children in a <main> element with the canonical container classes", async () => {
+    renderWithProviders(ui)
+    const main = await screen.findByRole("main")
+    expect(main).toBeInTheDocument()
+    expect(main.className).toMatch(/mx-auto/)
+    expect(main.className).toMatch(/w-full/)
+    expect(main.className).toMatch(/max-w-\[1440px\]/)
+    expect(main.className).toMatch(/px-6/)
+    expect(main.className).toMatch(/py-5/)
+    expect(main.className).toMatch(/pb-10/)
+  })
+
+  it("renders the page body inside the <main> container", async () => {
+    renderWithProviders(ui)
+    const main = await screen.findByRole("main")
+    const body = await screen.findByTestId("page-body")
+    expect(main.contains(body)).toBe(true)
+  })
 })

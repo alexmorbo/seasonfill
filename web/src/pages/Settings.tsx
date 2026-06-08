@@ -5,6 +5,7 @@ import { GeneralTab } from '@/components/settings/GeneralTab';
 import { SecurityTab } from '@/components/settings/SecurityTab';
 import { IntegrationsTab } from '@/components/settings/IntegrationsTab';
 import { SettingsTabs, type SettingsTabKey } from '@/components/settings/SettingsTabs';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 
 type RouteHash = SettingsTabKey | 'instances';
 
@@ -18,6 +19,7 @@ function parseHash(h: string): RouteHash {
 
 export function Settings() {
   const { t } = useTranslation();
+  useSetPageTitle(t('settings.title'));
   const navigate = useNavigate();
 
   const initial = useMemo<RouteHash>(() => {
@@ -59,7 +61,7 @@ export function Settings() {
   }, [tab]);
 
   return (
-    <div className="max-w-[1024px] mx-auto p-6 flex flex-col gap-5">
+    <div className="mx-auto max-w-[1024px] flex flex-col gap-5">
       <header>
         <h1 className="text-[22px] font-semibold tracking-tight">
           {t('settings.title')}

@@ -129,7 +129,7 @@ export function Series() {
   // First-run branch.
   if (!inst.isPending && instances.length === 0) {
     return (
-      <div className="max-w-[1440px] mx-auto p-1">
+      <div>
         <SeriesFirstRunState />
       </div>
     );
@@ -139,7 +139,7 @@ export function Series() {
   const showEmptyFiltered = !showEmptyServer && list.isSuccess && filtered.length === 0 && rawItems.length > 0;
 
   return (
-    <div className="max-w-[1440px] mx-auto p-1 flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <SeriesHeader
         shownCount={filtered.length}
         totalCount={total}

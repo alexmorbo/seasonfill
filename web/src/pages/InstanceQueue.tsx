@@ -6,6 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { QueueHeader } from '@/components/queue/QueueHeader';
 import { QueueStatsStrip } from '@/components/queue/QueueStatsStrip';
 import { QueueToolbar } from '@/components/queue/QueueToolbar';
@@ -23,6 +24,7 @@ import { ApiError } from '@/lib/api';
 
 export function InstanceQueue() {
   const { t } = useTranslation();
+  useSetPageTitle(t('instanceQueue.title'));
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -108,7 +110,7 @@ export function InstanceQueue() {
 
   if (!name) {
     return (
-      <div className="max-w-[1440px] mx-auto p-6">
+      <div>
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
           <AlertTitle>{t('instanceQueue.errors.missingName')}</AlertTitle>
@@ -122,7 +124,7 @@ export function InstanceQueue() {
     trigger.isPending && trigger.variables?.series_ids?.[0];
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6" data-testid="queue-page">
+    <div data-testid="queue-page">
       <QueueHeader
         name={name}
         mode={mode}

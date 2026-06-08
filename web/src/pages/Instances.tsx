@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Plus } from 'lucide-react';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useDeleteInstance, useInstanceDetail } from '@/lib/instances-mutations';
 import { useTriggerScan } from '@/lib/scan-mutations';
@@ -47,6 +48,7 @@ function pickHero(instances: readonly Instance[], filter: string | null): {
  */
 export function Instances() {
   const { t } = useTranslation();
+  useSetPageTitle(t('instances.title'));
   const q = useInstances();
   const del = useDeleteInstance();
   const trigger = useTriggerScan();
@@ -100,7 +102,7 @@ export function Instances() {
   }, [instances, t]);
 
   return (
-    <div className="max-w-[1200px] mx-auto p-6 flex flex-col gap-5">
+    <div className="mx-auto max-w-[1200px] flex flex-col gap-5">
       <header className="flex items-center gap-4">
         <h1 className="text-[15px] font-[650] tracking-tight">{t('instances.title')}</h1>
         <span className="text-[12.5px] text-tx-faint">{headerSummary}</span>

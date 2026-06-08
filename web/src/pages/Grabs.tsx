@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGrabs, flattenGrabs, type Grab } from '@/lib/grabs';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { GrabsFiltersBar, type GrabFilter } from '@/components/grabs/GrabsFiltersBar';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { GrabRow } from '@/components/grabs/GrabRow';
 import { GrabsEmptyState } from '@/components/grabs/GrabsEmptyState';
 import { GrabDrawer } from '@/components/GrabDrawer'; // existing — 051b replaces
@@ -40,6 +41,7 @@ function computeCounts(rows: readonly Grab[]) {
 
 export function Grabs() {
   const { t } = useTranslation();
+  useSetPageTitle(t('grabs.title'));
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { filter: instance } = useInstanceFilter();
@@ -116,7 +118,7 @@ export function Grabs() {
     : 'top';
 
   return (
-    <div className="max-w-[1440px] mx-auto p-6 flex flex-col gap-4 relative">
+    <div className="flex flex-col gap-4 relative">
       <header className="flex items-center gap-4 flex-wrap">
         <h1 className="text-[22px] font-semibold tracking-tight">{t('grabs.title')}</h1>
       </header>

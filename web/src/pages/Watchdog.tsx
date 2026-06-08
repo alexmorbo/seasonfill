@@ -8,9 +8,11 @@ import { WatchdogInstancePanel } from '@/components/watchdog/WatchdogInstancePan
 import { WatchdogBlacklistTable } from '@/components/watchdog/WatchdogBlacklistTable';
 import { WatchdogNotConfiguredEmpty } from '@/components/watchdog/WatchdogNotConfiguredEmpty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 
 export function Watchdog() {
   const { t } = useTranslation();
+  useSetPageTitle(t('watchdog.title'));
   const rollups = useWatchdogRollups();
 
   // Primary "current" instance for the activity feed = first active
@@ -38,7 +40,7 @@ export function Watchdog() {
   const showEmpty = !rollups.isLoading && Boolean(rollups.data) && items.length === 0;
 
   return (
-    <div className="px-6 pb-10 pt-5" data-testid="watchdog-page">
+    <div data-testid="watchdog-page">
       <h1 className="mb-4 text-[20px] font-semibold">
         {t('watchdog.title')}
       </h1>

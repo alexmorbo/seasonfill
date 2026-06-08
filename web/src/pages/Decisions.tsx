@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
+import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useInstances } from '@/lib/instances';
 import {
   useDecisionsList,
@@ -52,6 +53,7 @@ function parseSort(raw: string | null): DecisionsSort {
 
 export function Decisions() {
   const { t } = useTranslation();
+  useSetPageTitle(t('decisions.title'));
   const [params, setParams] = useSearchParams();
   const { filter: ctxInstance, setFilter: setCtxInstance } = useInstanceFilter();
   const instancesQ = useInstances();
@@ -165,7 +167,7 @@ export function Decisions() {
   const filteredEmpty = filtered.length === 0;
 
   return (
-    <div className="max-w-[940px] mx-auto p-6 flex flex-col gap-2">
+    <div className="mx-auto max-w-[940px] flex flex-col gap-2">
       <header className="flex items-center gap-4 flex-wrap">
         <h1 className="text-[22px] font-semibold tracking-tight">
           {t('decisions.title')}

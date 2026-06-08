@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/i18n';
 import { Decisions } from './Decisions';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
+import { PageTitleProvider } from '@/components/shell/page-title-context';
+import { renderPageWithTitle } from '@/test-utils-title';
 
 const SAMPLE = [
   { id: 'd1', instance: 'homelab', series_id: 1, series_title: 'Foundation',
@@ -33,11 +35,13 @@ function renderPage(initialPath = '/decisions') {
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={i18n}>
         <InstanceFilterCtx.Provider value={{ filter: 'homelab', setFilter: () => {} }}>
-          <MemoryRouter initialEntries={[initialPath]}>
-            <Routes>
-              <Route path="/decisions" element={<Decisions />} />
-            </Routes>
-          </MemoryRouter>
+          <PageTitleProvider defaultTitle="__INITIAL__">
+            <MemoryRouter initialEntries={[initialPath]}>
+              <Routes>
+                <Route path="/decisions" element={<Decisions />} />
+              </Routes>
+            </MemoryRouter>
+          </PageTitleProvider>
         </InstanceFilterCtx.Provider>
       </I18nextProvider>
     </QueryClientProvider>,
@@ -106,5 +110,12 @@ describe('/decisions page (integration)', () => {
     await userEvent.click(resetBtn);
     const input = screen.getByPlaceholderText(/series|сериал/i) as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe(''));
+  });
+
+  it('sets the topbar page title via useSetPageTitle', async () => {
+    const { getTitle } = renderPageWithTitle(<Decisions />, { route: '/decisions' });
+    await waitFor(() => {
+      expect(getTitle()).toBe(i18n.t('decisions.title'));
+    });
   });
 });

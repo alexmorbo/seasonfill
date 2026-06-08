@@ -88,7 +88,7 @@ export function Dashboard() {
   // First-run branch.
   if (!inst.isPending && instances.length === 0) {
     return (
-      <div className="max-w-[1440px] mx-auto p-1 flex flex-col gap-5">
+      <div className="flex flex-col gap-5">
         <DashboardFirstRunState />
       </div>
     );
@@ -109,7 +109,7 @@ export function Dashboard() {
     : null;
 
   return (
-    <div className="max-w-[1440px] mx-auto p-1 flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <HeroGreeting
         grabs={heroGrabs}
         imports={heroImports}
