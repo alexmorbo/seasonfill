@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
@@ -300,6 +300,14 @@ export function InstanceFormDialog({
   // Accordion open keys — local state so background refetches cannot
   // collapse the user's section. Default = connection open only.
   const [openSections, setOpenSections] = useState<string[]>(['connection']);
+  // True between the first open-transition and the next close. Gates
+  // the "seed openSections" branch of the re-seed effect so that an
+  // already-expanded section (e.g. Tuning) never collapses just because
+  // RHF's isDirty briefly flips back to false — this happens whenever
+  // the user toggles a segmented control (e.g. cooldown_mode
+  // smart↔strict) and the form value transiently re-matches the
+  // registered default. See finding N-3 in the Phase 6 audit.
+  const openedRef = useRef<boolean>(false);
 
   const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
   const detail = detailQuery.data?.detail;
@@ -322,18 +330,31 @@ export function InstanceFormDialog({
     defaultValue: true,
   });
 
+  // Reset the open-transition gate whenever the dialog closes. Next
+  // open-transition will be allowed to seed openSections exactly once.
+  useEffect(() => {
+    if (!open) openedRef.current = false;
+  }, [open]);
+
   useEffect(() => {
     if (!open || isDirty) return;
+    const isFirstOpen = !openedRef.current;
     if (isEdit) {
       if (detail) {
         reset({ ...formFromDetail(detail), ...qbitFromDTO(qbitDTO) });
         setProbeResult(null);
-        setOpenSections(['connection']);
+        if (isFirstOpen) {
+          setOpenSections(['connection']);
+          openedRef.current = true;
+        }
       }
     } else {
       reset({ ...FORM_DEFAULTS, ...WATCHDOG_DEFAULTS, ...initial, api_key: '' });
       setProbeResult(null);
-      setOpenSections(['connection']);
+      if (isFirstOpen) {
+        setOpenSections(['connection']);
+        openedRef.current = true;
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, initial?.name, detail, qbitDTO, isDirty, reset]);

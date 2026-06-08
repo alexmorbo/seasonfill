@@ -136,6 +136,32 @@ describe('<InstanceHero />', () => {
     expect(link).toHaveAttribute('href', 'http://sonarr:80');
   });
 
+  it('"Sonarr" link falls back to url when public_url key is OMITTED (omitempty JSON shape)', async () => {
+    // Reproduces the operator-reported state in finding N-2:
+    //   URL field = `http://sonarr:80`, Public URL field blank
+    // → backend serialises `dto.Instance` with `public_url` OMITTED
+    // (json:"public_url,omitempty"), so the SPA sees `public_url ===
+    // undefined`. The hero link must navigate to the internal URL.
+    const omitted = {
+      name: 'homelab',
+      mode: 'auto',
+      health: 'Available',
+      last_check_at: new Date().toISOString(),
+      transitions_count: 0,
+      url: 'http://sonarr:80',
+      // public_url key intentionally absent
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={omitted}
+        onEdit={() => undefined}
+        onForceScan={() => undefined}
+      />,
+    );
+    const link = await screen.findByTestId('hero-sonarr-link-homelab');
+    expect(link).toHaveAttribute('href', 'http://sonarr:80');
+  });
+
   it('"Sonarr" button is hidden when url is schemeless and no public_url', async () => {
     const bare = {
       ...(inst as object),

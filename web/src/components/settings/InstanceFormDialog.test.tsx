@@ -480,4 +480,46 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       expect(toasts.length).toBe(0);
     });
   });
+
+  describe('N-3 — Tuning section persists across cooldown_mode toggles', () => {
+    it('expanding Tuning then toggling cooldown_mode smart↔strict keeps Tuning open', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      // Give the in-flight detail + qBit GETs a tick to settle so the
+      // initial re-seed effect runs to completion BEFORE the user
+      // starts toggling. This matches the operator's real interaction.
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Expand Tuning. The header text matches the same i18n key
+      // tested elsewhere in this file (line 430).
+      await user.click(await screen.findByText(/настройки|тюнинг|tuning|поведение/i));
+      // Tuning section body is now in the DOM.
+      expect(await screen.findByTestId('tuning-section')).toBeInTheDocument();
+
+      // Toggle cooldown_mode strict → smart → strict. The segment uses
+      // role="radio". Going back to "smart" matches the registered
+      // default and would (pre-fix) flip isDirty to false, which would
+      // re-fire the dialog's re-seed effect and collapse Tuning.
+      const strict = await screen.findByRole('radio', { name: /strict|строгий/i });
+      const smart = await screen.findByRole('radio', { name: /smart|умный/i });
+
+      await user.click(strict);
+      await new Promise((r) => setTimeout(r, 20));
+      // Tuning must still be expanded.
+      expect(screen.queryByTestId('tuning-section')).toBeInTheDocument();
+
+      await user.click(smart);
+      await new Promise((r) => setTimeout(r, 20));
+      // This is the failure mode in N-3: pre-fix, Tuning collapses
+      // here. Post-fix, the tuning-section testid is still mounted.
+      expect(screen.queryByTestId('tuning-section')).toBeInTheDocument();
+
+      await user.click(strict);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByTestId('tuning-section')).toBeInTheDocument();
+    });
+  });
 });
