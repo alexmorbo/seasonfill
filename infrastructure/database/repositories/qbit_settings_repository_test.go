@@ -26,6 +26,7 @@ func sampleSettings(instanceID uint) ports.QbitSettingsRecord {
 		RegrabCooldownHours:    120,
 		MaxConsecutiveNoBetter: 3,
 		CustomUnregisteredMsgs: []string{"Раздача погашена", "deleted"},
+		PublicURL:              "https://qbit.example.com",
 	}
 }
 
@@ -51,8 +52,47 @@ func TestQbitSettingsRepository_Upsert_Insert(t *testing.T) {
 	assert.Equal(t, in.RegrabCooldownHours, got.RegrabCooldownHours)
 	assert.Equal(t, in.MaxConsecutiveNoBetter, got.MaxConsecutiveNoBetter)
 	assert.Equal(t, in.CustomUnregisteredMsgs, got.CustomUnregisteredMsgs)
+	assert.Equal(t, in.PublicURL, got.PublicURL)
 	assert.False(t, got.CreatedAt.IsZero())
 	assert.False(t, got.UpdatedAt.IsZero())
+}
+
+// TestQbitSettingsRepository_Upsert_EmptyPublicURL_StoredAsNull verifies
+// the marshalling: an empty PublicURL on the record should result in a
+// NULL column on disk, which round-trips back as the empty string. This
+// is the F-P2-1 backwards-compat invariant.
+func TestQbitSettingsRepository_Upsert_EmptyPublicURL_StoredAsNull(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewQbitSettingsRepository(db)
+	ctx := context.Background()
+
+	in := sampleSettings(7)
+	in.PublicURL = ""
+	require.NoError(t, repo.Upsert(ctx, in))
+
+	got, err := repo.GetByInstance(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "", got.PublicURL)
+}
+
+// TestQbitSettingsRepository_Upsert_ClearPublicURLOnUpdate verifies that
+// flipping a previously-set PublicURL back to empty round-trips as empty
+// on the subsequent read.
+func TestQbitSettingsRepository_Upsert_ClearPublicURLOnUpdate(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewQbitSettingsRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleSettings(7)))
+	upd := sampleSettings(7)
+	upd.PublicURL = ""
+	require.NoError(t, repo.Upsert(ctx, upd))
+
+	got, err := repo.GetByInstance(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "", got.PublicURL)
 }
 
 func TestQbitSettingsRepository_Upsert_UpdatesOnConflict(t *testing.T) {

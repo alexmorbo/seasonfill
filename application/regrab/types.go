@@ -28,7 +28,13 @@ type Settings struct {
 	RegrabCooldown         time.Duration
 	MaxConsecutiveNoBetter int
 	CustomUnregisteredMsgs []string
-	UpdatedAt              time.Time
+	// PublicURL is the optional browser-reachable qBittorrent web UI URL
+	// (082, F-P2-1). Empty string when unset. The regrab loop never
+	// consumes this — it is a passthrough for the SPA GrabDrawer deep
+	// link, and the loop's bootstrap projects it on each instance load
+	// so the runtime cache stays in sync after a settings hot-swap.
+	PublicURL string
+	UpdatedAt time.Time
 }
 
 // NewSettingsFromRecord projects a repository record into the use-case
@@ -52,6 +58,7 @@ func NewSettingsFromRecord(rec ports.QbitSettingsRecord, instanceName string, ci
 		RegrabCooldown:         time.Duration(rec.RegrabCooldownHours) * time.Hour,
 		MaxConsecutiveNoBetter: rec.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: rec.CustomUnregisteredMsgs,
+		PublicURL:              rec.PublicURL,
 		UpdatedAt:              rec.UpdatedAt,
 	}
 	if rec.Username != nil {

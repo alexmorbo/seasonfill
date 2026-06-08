@@ -81,6 +81,7 @@ func (h *QbitSettingsHandler) Upsert(c *gin.Context) {
 		RegrabCooldownHours:    req.RegrabCooldownHours,
 		MaxConsecutiveNoBetter: req.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: req.CustomUnregisteredMsgs,
+		PublicURL:              req.QbitPublicURL,
 	}
 	view, err := h.uc.Upsert(c.Request.Context(), name, in)
 	if err != nil {
@@ -184,6 +185,7 @@ func viewToDTO(v regrab.QbitSettingsView) dto.QbitSettingsDTO {
 		InstanceName:           v.InstanceName,
 		Enabled:                v.Enabled,
 		URL:                    v.URL,
+		QbitPublicURL:          v.PublicURL,
 		Username:               v.Username,
 		PasswordSet:            v.PasswordSet,
 		Category:               v.Category,

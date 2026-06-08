@@ -25,6 +25,7 @@ func TestNewSettingsFromRecord_AnonAuth(t *testing.T) {
 		RegrabCooldownHours:    120,
 		MaxConsecutiveNoBetter: 3,
 		CustomUnregisteredMsgs: []string{"unregistered"},
+		PublicURL:              "https://qbit.example.com",
 		UpdatedAt:              time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC),
 	}
 	got, err := NewSettingsFromRecord(rec, "alpha", nil)
@@ -35,6 +36,7 @@ func TestNewSettingsFromRecord_AnonAuth(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, got.PollInterval)
 	assert.Equal(t, 120*time.Hour, got.RegrabCooldown)
 	assert.Equal(t, 3, got.MaxConsecutiveNoBetter)
+	assert.Equal(t, "https://qbit.example.com", got.PublicURL)
 }
 
 func TestNewSettingsFromRecord_WithPassword(t *testing.T) {

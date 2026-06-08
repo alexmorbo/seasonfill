@@ -153,6 +153,7 @@ func validUpsertBody() dto.QbitSettingsUpsertRequest {
 	return dto.QbitSettingsUpsertRequest{
 		Enabled:                false,
 		URL:                    "http://qbit.local:8080",
+		QbitPublicURL:          "https://qbit.example.com",
 		Username:               "admin",
 		Password:               "hunter2",
 		Category:               "sonarr",
@@ -280,6 +281,7 @@ func TestHandler_PutValidationErrors(t *testing.T) {
 		{"empty category", func(b *dto.QbitSettingsUpsertRequest) { b.Category = "" }, "INVALID_QBIT_CATEGORY"},
 		{"poll too small", func(b *dto.QbitSettingsUpsertRequest) { b.PollIntervalMinutes = 1 }, "INVALID_POLL_INTERVAL"},
 		{"cooldown too big", func(b *dto.QbitSettingsUpsertRequest) { b.RegrabCooldownHours = 9999 }, "INVALID_REGRAB_COOLDOWN"},
+		{"public_url bad scheme", func(b *dto.QbitSettingsUpsertRequest) { b.QbitPublicURL = "ftp://x" }, "INVALID_QBIT_PUBLIC_URL"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -329,7 +331,23 @@ func TestHandler_GetReturnsCreatedRow(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.True(t, resp.PasswordSet)
 	assert.Equal(t, "http://qbit.local:8080", resp.URL)
+	assert.Equal(t, "https://qbit.example.com", resp.QbitPublicURL)
 	assert.Equal(t, []string{"раздача погашена"}, resp.CustomUnregisteredMsgs)
+}
+
+// TestHandler_PutAcceptsEmptyPublicURL guards the F-P2-1 opt-in path:
+// instances that haven't enrolled the new field must round-trip a PUT
+// with an empty qbit_public_url and read back the empty value.
+func TestHandler_PutAcceptsEmptyPublicURL(t *testing.T) {
+	t.Parallel()
+	f := newTestFixture(t)
+	body := validUpsertBody()
+	body.QbitPublicURL = ""
+	w := f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp dto.QbitSettingsDTO
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "", resp.QbitPublicURL)
 }
 
 func TestHandler_PutRejectsWrongContentType(t *testing.T) {

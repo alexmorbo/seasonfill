@@ -281,8 +281,13 @@ type InstanceQbitSettingsModel struct {
 	RegrabCooldownHours    int            `gorm:"not null;default:120"`
 	MaxConsecutiveNoBetter int            `gorm:"not null;default:3"`
 	CustomUnregisteredMsgs datatypes.JSON `gorm:"not null"`
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// PublicURL is the optional browser-reachable qBittorrent web UI URL
+	// (082, F-P2-1). NULL = SPA falls back to URL. Backend never consumes
+	// this field — it is a passthrough for the frontend GrabDrawer deep
+	// link.
+	PublicURL *string `gorm:"column:qbit_public_url;type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (InstanceQbitSettingsModel) TableName() string { return "instance_qbit_settings" }

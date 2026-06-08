@@ -62,8 +62,11 @@ type QbitSettingsView struct {
 	RegrabCooldownHours    int
 	MaxConsecutiveNoBetter int
 	CustomUnregisteredMsgs []string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// PublicURL is the optional browser-reachable qBittorrent web UI URL
+	// (082, F-P2-1). Empty string when unset; the SPA falls back to URL.
+	PublicURL string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // UpsertInput is the unvalidated, plaintext input the handler hands
@@ -80,6 +83,11 @@ type UpsertInput struct {
 	RegrabCooldownHours    int
 	MaxConsecutiveNoBetter int
 	CustomUnregisteredMsgs []string
+	// PublicURL is the optional browser-reachable qBittorrent web UI URL
+	// (082, F-P2-1). Empty string = no override; non-empty = must parse
+	// as http/https URL with non-empty host and no userinfo. Same shape
+	// rules as URL minus the required-field check.
+	PublicURL string
 }
 
 // Field bounds — mirror the parent 039 §Architecture-decisions and
@@ -256,6 +264,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 		RegrabCooldownHours:    in.RegrabCooldownHours,
 		MaxConsecutiveNoBetter: in.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: msgs,
+		PublicURL:              strings.TrimSpace(in.PublicURL),
 		UpdatedAt:              now,
 	}
 	if hasExisting {
@@ -339,6 +348,7 @@ func recordToView(rec ports.QbitSettingsRecord, name string) QbitSettingsView {
 		RegrabCooldownHours:    rec.RegrabCooldownHours,
 		MaxConsecutiveNoBetter: rec.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: msgs,
+		PublicURL:              rec.PublicURL,
 		CreatedAt:              rec.CreatedAt,
 		UpdatedAt:              rec.UpdatedAt,
 	}
@@ -383,6 +393,9 @@ func validate(in UpsertInput) error {
 	if err := validateURL(in.URL); err != nil {
 		return err
 	}
+	if err := validatePublicURL(in.PublicURL); err != nil {
+		return err
+	}
 	if err := validateCategory(in.Category); err != nil {
 		return err
 	}
@@ -412,23 +425,42 @@ func validateURL(raw string) error {
 	if trimmed == "" {
 		return newValidationErr("url", "INVALID_QBIT_URL", "url is required")
 	}
+	return validateQbitURLShape(trimmed, "url", "INVALID_QBIT_URL")
+}
+
+// validatePublicURL is the optional sibling of validateURL. Empty input
+// is accepted (the field is opt-in); a non-empty input must match the
+// same http/https shape rules as the required URL field.
+func validatePublicURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	return validateQbitURLShape(trimmed, "qbit_public_url", "INVALID_QBIT_PUBLIC_URL")
+}
+
+// validateQbitURLShape is the parse + scheme + host + userinfo check
+// shared by required and optional URL fields. The caller is
+// responsible for the required-vs-empty decision; this helper assumes
+// a non-empty trimmed input.
+func validateQbitURLShape(trimmed, field, code string) error {
 	if len(trimmed) > urlMaxLen {
-		return newValidationErr("url", "INVALID_QBIT_URL",
+		return newValidationErr(field, code,
 			fmt.Sprintf("must be <= %d chars", urlMaxLen))
 	}
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		return newValidationErr("url", "INVALID_QBIT_URL", "malformed url")
+		return newValidationErr(field, code, "malformed url")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return newValidationErr("url", "INVALID_QBIT_URL",
+		return newValidationErr(field, code,
 			"scheme must be http or https")
 	}
 	if u.Host == "" {
-		return newValidationErr("url", "INVALID_QBIT_URL", "host is required")
+		return newValidationErr(field, code, "host is required")
 	}
 	if u.User != nil {
-		return newValidationErr("url", "INVALID_QBIT_URL",
+		return newValidationErr(field, code,
 			"userinfo not allowed in url")
 	}
 	return nil

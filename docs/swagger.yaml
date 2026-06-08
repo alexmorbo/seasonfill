@@ -883,6 +883,9 @@ components:
         poll_interval_minutes:
           example: 30
           type: integer
+        qbit_public_url:
+          example: https://qbit.example.com
+          type: string
         regrab_cooldown_hours:
           example: 120
           type: integer
@@ -917,6 +920,9 @@ components:
         poll_interval_minutes:
           example: 30
           type: integer
+        qbit_public_url:
+          example: https://qbit.example.com
+          type: string
         regrab_cooldown_hours:
           example: 120
           type: integer

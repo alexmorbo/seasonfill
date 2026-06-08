@@ -57,6 +57,7 @@ func (r *QbitSettingsRepository) Upsert(ctx context.Context, rec ports.QbitSetti
 		RegrabCooldownHours:    rec.RegrabCooldownHours,
 		MaxConsecutiveNoBetter: rec.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: datatypes.JSON(raw),
+		PublicURL:              publicURLPtr(rec.PublicURL),
 		CreatedAt:              rec.CreatedAt,
 		UpdatedAt:              rec.UpdatedAt,
 	}
@@ -67,6 +68,7 @@ func (r *QbitSettingsRepository) Upsert(ctx context.Context, rec ports.QbitSetti
 			"enabled", "url", "username", "password_encrypted",
 			"category", "poll_interval_minutes", "regrab_cooldown_hours",
 			"max_consecutive_no_better", "custom_unregistered_msgs",
+			"qbit_public_url",
 			"updated_at",
 		}),
 	}).Create(&model)
@@ -134,6 +136,10 @@ func toQbitSettingsRecord(m database.InstanceQbitSettingsModel) (ports.QbitSetti
 	if msgs == nil {
 		msgs = []string{}
 	}
+	publicURL := ""
+	if m.PublicURL != nil {
+		publicURL = *m.PublicURL
+	}
 	return ports.QbitSettingsRecord{
 		ID:                     m.ID,
 		InstanceID:             m.InstanceID,
@@ -146,9 +152,20 @@ func toQbitSettingsRecord(m database.InstanceQbitSettingsModel) (ports.QbitSetti
 		RegrabCooldownHours:    m.RegrabCooldownHours,
 		MaxConsecutiveNoBetter: m.MaxConsecutiveNoBetter,
 		CustomUnregisteredMsgs: msgs,
+		PublicURL:              publicURL,
 		CreatedAt:              m.CreatedAt,
 		UpdatedAt:              m.UpdatedAt,
 	}, nil
+}
+
+// publicURLPtr normalises empty strings to nil so the DB column stores
+// NULL rather than the empty string. Trimming is the caller's job; this
+// is a pure marshalling helper.
+func publicURLPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 var _ ports.QbitSettingsRepository = (*QbitSettingsRepository)(nil)

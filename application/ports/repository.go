@@ -257,8 +257,12 @@ type QbitSettingsRecord struct {
 	RegrabCooldownHours    int
 	MaxConsecutiveNoBetter int
 	CustomUnregisteredMsgs []string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// PublicURL is the optional browser-reachable qBittorrent web UI URL
+	// (082, F-P2-1). Empty string = the SPA must fall back to URL. The
+	// repo translates NULL ↔ "" so callers see a non-pointer string.
+	PublicURL string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // QbitSettingsRepository persists the per-instance Watchdog configuration.

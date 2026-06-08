@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 18
+	latestVersion   = 19
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -151,6 +151,14 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV18 {
 		version = 18
+	}
+	// 082: Detect v19 by checking for qbit_public_url on instance_qbit_settings.
+	hasV19, err := columnExists(ctx, sqlDB, dialect, "instance_qbit_settings", "qbit_public_url")
+	if err != nil {
+		return err
+	}
+	if hasV19 {
+		version = 19
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {

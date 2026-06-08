@@ -45,6 +45,8 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_replay_of_id"))
 	assert.True(t, db.Migrator().HasTable("regrab_no_better_counter"))
 	assert.True(t, db.Migrator().HasIndex("regrab_no_better_counter", "idx_regrab_no_better_counter_triple"))
+	// 082: F-P2-1 backend — qbit_public_url column on instance_qbit_settings.
+	assert.True(t, db.Migrator().HasColumn(&InstanceQbitSettingsModel{}, "qbit_public_url"))
 
 	// Idempotent — running twice must be a no-op.
 	assert.NoError(t, Migrate(db))
@@ -119,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 071: latest migration is 000018_series_cache_last_aired_at.
-	assert.Equal(t, 18, version)
+	// 082: latest migration is 000019_qbit_settings_public_url.
+	assert.Equal(t, 19, version)
 	assert.False(t, dirty)
 }
 

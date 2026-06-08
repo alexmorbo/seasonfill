@@ -127,6 +127,7 @@ func validInput() UpsertInput {
 	return UpsertInput{
 		Enabled:                false,
 		URL:                    "http://qbit.local:8080",
+		PublicURL:              "https://qbit.example.com",
 		Username:               "admin",
 		Password:               "hunter2",
 		Category:               "sonarr",
@@ -385,6 +386,9 @@ func TestValidate_Bounds(t *testing.T) {
 		{"bad scheme", func(in *UpsertInput) { in.URL = "ftp://x" }, "INVALID_QBIT_URL"},
 		{"userinfo url", func(in *UpsertInput) { in.URL = "http://u:p@x" }, "INVALID_QBIT_URL"},
 		{"empty host", func(in *UpsertInput) { in.URL = "http://" }, "INVALID_QBIT_URL"},
+		{"public_url bad scheme", func(in *UpsertInput) { in.PublicURL = "ftp://x" }, "INVALID_QBIT_PUBLIC_URL"},
+		{"public_url userinfo", func(in *UpsertInput) { in.PublicURL = "http://u:p@x" }, "INVALID_QBIT_PUBLIC_URL"},
+		{"public_url empty host", func(in *UpsertInput) { in.PublicURL = "http://" }, "INVALID_QBIT_PUBLIC_URL"},
 		{"empty category", func(in *UpsertInput) { in.Category = "" }, "INVALID_QBIT_CATEGORY"},
 		{"poll too small", func(in *UpsertInput) { in.PollIntervalMinutes = 1 }, "INVALID_POLL_INTERVAL"},
 		{"poll too big", func(in *UpsertInput) { in.PollIntervalMinutes = 99999 }, "INVALID_POLL_INTERVAL"},
@@ -425,6 +429,79 @@ func TestValidate_Bounds(t *testing.T) {
 func TestValidate_HappyPath(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, validate(validInput()))
+}
+
+// TestValidate_PublicURL_OptionalEmptyAllowed asserts the empty-string
+// path on the optional public-URL field. The current validInput()
+// already populates the field, so this is the explicit guard against
+// a regression where the empty branch starts demanding a value.
+func TestValidate_PublicURL_OptionalEmptyAllowed(t *testing.T) {
+	t.Parallel()
+	in := validInput()
+	in.PublicURL = ""
+	require.NoError(t, validate(in))
+}
+
+// TestUseCase_Upsert_PublicURLRoundTrip asserts the field is persisted
+// through Upsert → repo → recordToView intact, and that a subsequent
+// dirty-bit (empty password) update preserves the previously stored
+// public URL.
+func TestUseCase_Upsert_PublicURLRoundTrip(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	instances.Seed("alpha", 7)
+	uc := newUC(t, repo, instances)
+
+	view, err := uc.Upsert(context.Background(), "alpha", validInput())
+	require.NoError(t, err)
+	assert.Equal(t, "https://qbit.example.com", view.PublicURL)
+	assert.Equal(t, "https://qbit.example.com", repo.rows[7].PublicURL)
+
+	in := validInput()
+	in.Password = ""
+	in.PublicURL = "https://qbit2.example.com"
+	view, err = uc.Upsert(context.Background(), "alpha", in)
+	require.NoError(t, err)
+	assert.Equal(t, "https://qbit2.example.com", view.PublicURL)
+}
+
+// TestUseCase_Upsert_PublicURLClear asserts an empty string on update
+// clears the previously-stored public URL (frontend "delete" path).
+func TestUseCase_Upsert_PublicURLClear(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	instances.Seed("alpha", 7)
+	uc := newUC(t, repo, instances)
+
+	_, err := uc.Upsert(context.Background(), "alpha", validInput())
+	require.NoError(t, err)
+	require.Equal(t, "https://qbit.example.com", repo.rows[7].PublicURL)
+
+	in := validInput()
+	in.PublicURL = ""
+	view, err := uc.Upsert(context.Background(), "alpha", in)
+	require.NoError(t, err)
+	assert.Equal(t, "", view.PublicURL)
+	assert.Equal(t, "", repo.rows[7].PublicURL)
+}
+
+// TestUseCase_Upsert_PublicURLTrimsWhitespace ensures stray whitespace
+// from copy-paste in the form is stripped before persisting. Matches
+// the URL field's existing trim behaviour.
+func TestUseCase_Upsert_PublicURLTrimsWhitespace(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	instances.Seed("alpha", 7)
+	uc := newUC(t, repo, instances)
+
+	in := validInput()
+	in.PublicURL = "  https://qbit.example.com  "
+	view, err := uc.Upsert(context.Background(), "alpha", in)
+	require.NoError(t, err)
+	assert.Equal(t, "https://qbit.example.com", view.PublicURL)
 }
 
 func TestNullWebhookChecker_AlwaysInstalled(t *testing.T) {
