@@ -138,6 +138,8 @@ func NewServer(
 		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
+		seriesPosterHandler := handlers.NewSeriesPosterHandler(instanceReg, logger)
+		guarded.GET("/instances/:name/series/:id/poster", seriesPosterHandler.Proxy)
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
 		webhookInstallHandler := handlers.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)

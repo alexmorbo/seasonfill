@@ -2776,6 +2776,74 @@ paths:
       summary: List cached series for an instance
       tags:
       - instances
+  /instances/{name}/series/{id}/poster:
+    get:
+      description: |-
+        Streams the poster image from the upstream Sonarr at
+        /api/v3/MediaCover/{seriesId}/poster[-500].jpg with
+        authentication injected server-side. size=small returns
+        the 500px variant; default is the full-size poster.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: full (default) or small
+        in: query
+        name: size
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: string
+            image/jpeg:
+              schema:
+                format: binary
+                type: string
+          description: poster image bytes
+        "304":
+          description: not modified (when If-None-Match matched upstream)
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: unknown instance or poster missing
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Stream a Sonarr series poster
+      tags:
+      - instances
   /instances/{name}/series/{id}/seasons/{season}/episodes:
     get:
       description: |-
