@@ -318,6 +318,24 @@ For bug reports and feature discussion, open a
 [GitHub Issue](https://github.com/alexmorbo/seasonfill/issues); for
 code changes, open a pull request against `main`.
 
+### Developer setup
+
+Pre-commit hooks catch `gofmt`, `go vet`, and ESLint regressions before
+you commit. Enforcement is **local only** — CI does not run pre-commit;
+install the hook on your checkout to get the benefit.
+
+```sh
+pip install pre-commit        # or: brew install pre-commit
+pre-commit install            # registers .git/hooks/pre-commit
+```
+
+Every `git commit` then runs the configured hooks against staged files.
+To run the full suite manually:
+
+```sh
+pre-commit run --all-files
+```
+
 ## License
 
 [GPL-3.0](LICENSE). Forks and derivative works must remain

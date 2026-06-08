@@ -1,0 +1,66 @@
+# Pre-commit hooks for seasonfill (LOCAL ONLY).
+# Install: brew install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+#
+# Philosophy:
+#   - Local hooks only — no external repo pulls (no rev drift).
+#   - Minimal, fast, deterministic.
+#   - Exclude codegen and generated files.
+#   - Local enforcement only; not wired into CI.
+
+repos:
+  - repo: local
+    hooks:
+      # gofmt -l prints files that need formatting. Combined with -d we
+      # also show the diff so the operator can see what to fix.
+      # -s applies simplification rewrites (same as golangci-lint gofmt).
+      - id: gofmt
+        name: gofmt
+        description: Check Go files are gofmt'd (with -s simplification).
+        entry: gofmt -l -s -d
+        language: system
+        types: [go]
+        exclude: |
+          (?x)^(
+            .*\.pb\.go|
+            .*_gen\.go|
+            application/regrab/mocks/.*\.go
+          )$
+        pass_filenames: true
+        require_serial: false
+        args: []
+
+      - id: gofmt-check
+        name: gofmt (fail on drift)
+        description: Fail if any staged Go file needs gofmt.
+        entry: "bash -c 'out=$(gofmt -l -s \"$@\"); if [ -n \"$out\" ]; then echo \"gofmt drift in\"; echo \"$out\"; echo; echo \"Run: gofmt -w -s <file>\"; exit 1; fi' --"
+        language: system
+        types: [go]
+        exclude: |
+          (?x)^(
+            .*\.pb\.go|
+            .*_gen\.go|
+            application/regrab/mocks/.*\.go
+          )$
+        pass_filenames: true
+
+      - id: go-vet
+        name: go vet
+        description: Run go vet on the whole module.
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        require_serial: true
+
+      - id: eslint-staged
+        name: ESLint (staged TS/TSX)
+        description: Run ESLint on staged TypeScript files only.
+        # Strip leading "web/" from paths so eslint resolves them
+        # relative to the web/ working directory.
+        entry: bash -c 'cd web && exec ./node_modules/.bin/eslint --max-warnings 13 "${@/#web\//}"' --
+        language: system
+        files: '^web/src/.*\.(ts|tsx)$'
+        exclude: '^web/src/(api/schema\.ts|components/ui/.*)$'
+        pass_filenames: true
+        require_serial: true
