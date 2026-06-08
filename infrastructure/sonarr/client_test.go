@@ -613,3 +613,22 @@ func TestClient_ListEpisodeFilesBySeason_UnmappedFileHasEmptyEpisodes(t *testing
 	assert.NotContains(t, string(raw), `"EpisodeNumbers":null`,
 		"nil leak would regress GrabDrawer crash on /grabs?open=<id>")
 }
+
+func TestSeriesDTOToCacheEntry_CapturesPreviousAiring(t *testing.T) {
+	t.Parallel()
+	aired := time.Date(2026, 5, 1, 18, 0, 0, 0, time.UTC)
+	d := seriesDTO{
+		ID: 42, Title: "Sample", TitleSlug: "sample",
+		PreviousAiring: &aired,
+	}
+	entry := seriesDTOToCacheEntry(d, "homelab")
+	require.NotNil(t, entry.LastAiredAt)
+	assert.True(t, entry.LastAiredAt.Equal(aired))
+}
+
+func TestSeriesDTOToCacheEntry_OmitsPreviousAiringWhenAbsent(t *testing.T) {
+	t.Parallel()
+	d := seriesDTO{ID: 42, Title: "Sample", TitleSlug: "sample"}
+	entry := seriesDTOToCacheEntry(d, "homelab")
+	assert.Nil(t, entry.LastAiredAt)
+}

@@ -16,6 +16,7 @@ export interface SeriesCacheItem {
   readonly missing_count: number;
   readonly last_grab_at?: string;
   readonly last_imported_episode?: string;
+  readonly last_aired_at?: string;
   readonly updated_at: string;
 }
 
@@ -27,7 +28,7 @@ export interface SeriesCacheList {
 }
 
 export type SeriesCacheStatus = 'all' | 'imported' | 'missing';
-export type SeriesCacheSort = 'updated_desc' | 'title_asc';
+export type SeriesCacheSort = 'updated_desc' | 'title_asc' | 'air_date_desc';
 
 export interface SeriesCacheQuery {
   readonly status?: SeriesCacheStatus;

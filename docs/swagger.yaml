@@ -1228,6 +1228,12 @@ components:
         instance_name:
           example: homelab
           type: string
+        last_aired_at:
+          description: |-
+            LastAiredAt is the datetime of the most recent aired episode
+            (Sonarr previousAiring). Absent when the series has no aired
+            episodes (upcoming). Powers the F11 air_date_desc sort.
+          type: string
         last_grab_at:
           type: string
         last_imported_episode:
@@ -2714,13 +2720,14 @@ paths:
         name: status
         schema:
           type: string
-      - description: updated_desc | title_asc (default updated_desc)
+      - description: updated_desc | title_asc | air_date_desc (default updated_desc)
         in: query
         name: sort
         schema:
           enum:
           - updated_desc
           - title_asc
+          - air_date_desc
           type: string
       - description: 1..100 (default 24)
         in: query

@@ -338,6 +338,10 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		copy(g, d.Genres)
 		entry.Genres = g
 	}
+	if d.PreviousAiring != nil {
+		v := *d.PreviousAiring
+		entry.LastAiredAt = &v
+	}
 	// First image per cover type wins.
 	for _, img := range d.Images {
 		if img.URL == "" {

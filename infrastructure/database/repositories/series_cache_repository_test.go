@@ -440,3 +440,55 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 	assert.NotContains(t, out, 2)
 	_ = errors.New // keep errors import used in existing file
 }
+
+func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	aired := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	entry := sampleEntry("main", 42)
+	entry.LastAiredAt = &aired
+	require.NoError(t, repo.Upsert(ctx, entry))
+
+	got, err := repo.Get(ctx, "main", 42)
+	require.NoError(t, err)
+	require.NotNil(t, got.LastAiredAt)
+	assert.True(t, got.LastAiredAt.Equal(aired))
+}
+
+func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	entryOld := sampleEntry("main", 1)
+	entryOld.Title = "Old Airer"
+	entryOld.LastAiredAt = &t1
+	require.NoError(t, repo.Upsert(ctx, entryOld))
+
+	entryNew := sampleEntry("main", 2)
+	entryNew.Title = "New Airer"
+	entryNew.LastAiredAt = &t2
+	require.NoError(t, repo.Upsert(ctx, entryNew))
+
+	entryNil := sampleEntry("main", 3)
+	entryNil.Title = "Upcoming"
+	entryNil.LastAiredAt = nil
+	require.NoError(t, repo.Upsert(ctx, entryNil))
+
+	items, _, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+		ports.SeriesCacheSortAirDateDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, items, 3)
+	assert.Equal(t, 2, items[0].SonarrSeriesID, "newest aired first")
+	assert.Equal(t, 1, items[1].SonarrSeriesID, "older aired second")
+	assert.Equal(t, 3, items[2].SonarrSeriesID, "nil aired last (NULLS LAST)")
+}

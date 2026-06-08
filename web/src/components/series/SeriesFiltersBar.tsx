@@ -43,7 +43,21 @@ function isDefault(v: SeriesFiltersValue, d: SeriesFiltersValue): boolean {
   return true;
 }
 
-const SORT_OPTIONS: readonly SeriesCacheSort[] = ['updated_desc', 'title_asc'];
+const SORT_OPTIONS: readonly SeriesCacheSort[] = ['updated_desc', 'title_asc', 'air_date_desc'];
+
+function resolveSortLabel(
+  sort: SeriesCacheSort,
+  t: (k: string) => string,
+): string {
+  switch (sort) {
+    case 'title_asc':
+      return t('series.filters.sort.titleAsc');
+    case 'air_date_desc':
+      return t('series.filters.sort.airDateDesc');
+    default:
+      return t('series.filters.sort.updatedDesc');
+  }
+}
 
 export function SeriesFiltersBar({
   value, availableNetworks, defaults, onChange, onClear,
@@ -55,9 +69,7 @@ export function SeriesFiltersBar({
     ? t('series.filters.networks.label')
     : t('series.filters.networks.labelWith', { count: value.networks.size });
 
-  const sortLabel = value.sort === 'title_asc'
-    ? t('series.filters.sort.titleAsc')
-    : t('series.filters.sort.updatedDesc');
+  const sortLabel = resolveSortLabel(value.sort, t);
 
   const toggleNetwork = (n: string, checked: boolean) => {
     const next = new Set(value.networks);
@@ -176,6 +188,9 @@ export function SeriesFiltersBar({
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="title_asc" data-testid="series-filters-sort-title">
               {t('series.filters.sort.titleAsc')}
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="air_date_desc" data-testid="series-filters-sort-air-date">
+              {t('series.filters.sort.airDateDesc')}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>

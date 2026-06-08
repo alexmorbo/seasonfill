@@ -88,21 +88,32 @@ describe('<SeriesFiltersBar />', () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the sort menu on trigger click and exposes both options', async () => {
+  it('opens the sort menu on trigger click and exposes all three options', async () => {
     const user = userEvent.setup();
     renderBar();
     await user.click(screen.getByTestId('series-filters-sort'));
     expect(await screen.findByTestId('series-filters-sort-updated')).toBeInTheDocument();
     expect(screen.getByTestId('series-filters-sort-title')).toBeInTheDocument();
+    expect(screen.getByTestId('series-filters-sort-air-date')).toBeInTheDocument();
   });
 
-  it('clicking an alternative sort option calls onChange with the new sort', async () => {
+  it('clicking the title sort option calls onChange with title_asc', async () => {
     const user = userEvent.setup();
     const { onChange } = renderBar();
     await user.click(screen.getByTestId('series-filters-sort'));
     await user.click(await screen.findByTestId('series-filters-sort-title'));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ sort: 'title_asc' }),
+    );
+  });
+
+  it('clicking the air-date sort option calls onChange with air_date_desc', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderBar();
+    await user.click(screen.getByTestId('series-filters-sort'));
+    await user.click(await screen.findByTestId('series-filters-sort-air-date'));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: 'air_date_desc' }),
     );
   });
 });

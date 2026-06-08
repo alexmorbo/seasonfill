@@ -27,6 +27,10 @@ type seriesDTO struct {
 	Runtime        int            `json:"runtime,omitempty"`
 	Overview       string         `json:"overview,omitempty"`
 	Images         []imageDTO     `json:"images,omitempty"`
+	// PreviousAiring is the datetime of the most recently aired
+	// episode (Sonarr `previousAiring`). Pointer — Sonarr omits the
+	// field for upcoming series with no aired episodes yet.
+	PreviousAiring *time.Time `json:"previousAiring,omitempty"`
 }
 
 // imageDTO is one entry in Sonarr series.images[]. URL is either a

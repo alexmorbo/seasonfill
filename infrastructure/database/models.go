@@ -329,6 +329,7 @@ type SeriesCacheModel struct {
 	FanartPath     *string    `gorm:"column:fanart_path;type:text"`
 	BannerPath     *string    `gorm:"column:banner_path;type:text"`
 	MissingCount   int        `gorm:"column:missing_count;not null;default:0"`
+	LastAiredAt    *time.Time `gorm:"column:last_aired_at"`
 	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
 	DeletedAt      *time.Time `gorm:"column:deleted_at"`
 }

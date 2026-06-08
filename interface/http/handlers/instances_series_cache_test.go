@@ -77,6 +77,24 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title s
 		Update("updated_at", updatedAt).Error)
 }
 
+func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, title string, lastAired *time.Time, updatedAt time.Time) {
+	t.Helper()
+	year := 2024
+	poster := "/MediaCover/" + title + "/poster.jpg"
+	network := "Apple TV+"
+	entry := series.CacheEntry{
+		InstanceName: instance, SonarrSeriesID: id,
+		Title: title, TitleSlug: title,
+		Year: &year, Network: &network, PosterPath: &poster,
+		Monitored:   true,
+		LastAiredAt: lastAired,
+	}
+	require.NoError(t, f.repo.Upsert(context.Background(), entry))
+	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
+		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
+		Update("updated_at", updatedAt).Error)
+}
+
 func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance string, seriesID, season int, createdAt time.Time) {
 	t.Helper()
 	require.NoError(t, f.grabs.Create(context.Background(), grab.Record{
@@ -235,4 +253,26 @@ func TestInstancesHandler_ListSeriesCache_UnknownInstance(t *testing.T) {
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/ghost/series-cache")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	t1 := now.Add(-30 * 24 * time.Hour)
+	t2 := now.Add(-2 * 24 * time.Hour)
+
+	f.seedAired(t, "homelab", 1, "OldAirer", &t1, now)
+	f.seedAired(t, "homelab", 2, "NewAirer", &t2, now)
+	f.seedAired(t, "homelab", 3, "Upcoming", nil, now)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?sort=air_date_desc")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 3)
+	assert.Equal(t, 2, body.Items[0].SonarrSeriesID, "newest aired first")
+	require.NotNil(t, body.Items[0].LastAiredAt)
+	assert.True(t, body.Items[0].LastAiredAt.Equal(t2))
+	assert.Equal(t, 1, body.Items[1].SonarrSeriesID, "older aired second")
+	assert.Equal(t, 3, body.Items[2].SonarrSeriesID, "nil aired last")
+	assert.Nil(t, body.Items[2].LastAiredAt)
 }

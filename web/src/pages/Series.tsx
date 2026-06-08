@@ -30,7 +30,7 @@ function isValidState(v: string | null): v is SeriesCacheStatus {
 }
 
 function isValidSort(v: string | null): v is SeriesCacheSort {
-  return v === 'updated_desc' || v === 'title_asc';
+  return v === 'updated_desc' || v === 'title_asc' || v === 'air_date_desc';
 }
 
 function readFiltersFromParams(p: URLSearchParams): SeriesFiltersValue {

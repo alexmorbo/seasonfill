@@ -433,12 +433,17 @@ type SeriesCacheSort string
 const (
 	SeriesCacheSortUpdatedDesc SeriesCacheSort = "updated_desc"
 	SeriesCacheSortTitleAsc    SeriesCacheSort = "title_asc"
+	// SeriesCacheSortAirDateDesc orders by last_aired_at DESC (latest
+	// aired episode first), with NULL last_aired_at sorted to the
+	// bottom (upcoming series with no aired episodes yet). Tiebreak
+	// on sonarr_series_id DESC for keyset stability.
+	SeriesCacheSortAirDateDesc SeriesCacheSort = "air_date_desc"
 )
 
 // IsValid reports whether the sort key is one of the supported values.
 func (s SeriesCacheSort) IsValid() bool {
 	switch s {
-	case SeriesCacheSortUpdatedDesc, SeriesCacheSortTitleAsc:
+	case SeriesCacheSortUpdatedDesc, SeriesCacheSortTitleAsc, SeriesCacheSortAirDateDesc:
 		return true
 	}
 	return false

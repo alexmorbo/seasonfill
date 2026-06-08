@@ -1491,6 +1491,7 @@ export const en = {
         aria: 'Sort order',
         updatedDesc: 'Last updated',
         titleAsc: 'Title A–Z',
+        airDateDesc: 'By air date',
       },
       clear: 'Clear',
     },

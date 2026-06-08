@@ -78,7 +78,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 			"status", "network", "genres",
 			"runtime_minutes", "monitored", "overview",
 			"poster_path", "fanart_path", "banner_path",
-			"missing_count",
+			"missing_count", "last_aired_at",
 			"updated_at", "deleted_at",
 		}),
 	}).Create(&m)
@@ -217,8 +217,16 @@ func applyStateFilter(q *gorm.DB, state ports.SeriesCacheState) *gorm.DB {
 }
 
 // applyCursor adds the keyset predicate for the chosen sort key.
-// updated_desc: WHERE (updated_at, sonarr_series_id) < (ts, id)
-// title_asc:    WHERE (LOWER(title), sonarr_series_id) > (title, id)
+// updated_desc:    WHERE (updated_at, sonarr_series_id) < (ts, id)
+// title_asc:       WHERE (LOWER(title), sonarr_series_id) > (title, id)
+// air_date_desc:   nil-aware:
+//
+//	WHEN cursor row had non-NULL last_aired_at:
+//	  WHERE (last_aired_at, sonarr_series_id) < (ts, id)
+//	  OR last_aired_at IS NULL
+//	WHEN cursor row had NULL last_aired_at:
+//	  WHERE last_aired_at IS NULL AND sonarr_series_id < id
+//
 // nil cursor = first page (no predicate).
 func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gorm.DB {
 	if cur == nil {
@@ -228,17 +236,34 @@ func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gor
 	case ports.SeriesCacheSortTitleAsc:
 		title, sid := splitTitleCursorID(cur.ID)
 		return q.Where("(LOWER(title), sonarr_series_id) > (?, ?)", title, sid)
+	case ports.SeriesCacheSortAirDateDesc:
+		sid, _ := strconv.Atoi(cur.ID)
+		if cur.Timestamp.IsZero() {
+			// Previous page ended on a NULL-air row: stay in the NULL
+			// tail and walk down by id only.
+			return q.Where("last_aired_at IS NULL AND sonarr_series_id < ?", sid)
+		}
+		return q.Where(
+			"(last_aired_at IS NOT NULL AND (last_aired_at, sonarr_series_id) < (?, ?)) OR last_aired_at IS NULL",
+			cur.Timestamp, sid,
+		)
 	default:
 		sid, _ := strconv.Atoi(cur.ID)
 		return q.Where("(updated_at, sonarr_series_id) < (?, ?)", cur.Timestamp, sid)
 	}
 }
 
-// applyOrder is the ORDER BY half of the sort.
+// applyOrder is the ORDER BY half of the sort. For air_date_desc we
+// emit `last_aired_at IS NULL ASC` as the first key so non-NULL rows
+// sort BEFORE NULL rows (NULLS LAST semantics) on both Postgres and
+// SQLite — both engines treat `IS NULL` as a 0/1 expression and
+// accept ASC ordering on it.
 func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort) *gorm.DB {
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
 		return q.Order("LOWER(title) ASC, sonarr_series_id ASC")
+	case ports.SeriesCacheSortAirDateDesc:
+		return q.Order("last_aired_at IS NULL ASC, last_aired_at DESC, sonarr_series_id DESC")
 	default:
 		return q.Order("updated_at DESC, sonarr_series_id DESC")
 	}
@@ -246,13 +271,25 @@ func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort) *gorm.DB {
 
 // cursorFromModel produces the next-page cursor. For updated_desc:
 // Timestamp=UpdatedAt + ID=decimal(series_id). For title_asc:
-// Timestamp=zero + ID="lower(title)|series_id" packed string.
+// Timestamp=zero + ID="lower(title)|series_id" packed string. For
+// air_date_desc: Timestamp=LastAiredAt (zero when nil) + ID=decimal
+// series_id; applyCursor reads the zero-Timestamp signal as "we are
+// in the NULL tail".
 func cursorFromModel(m database.SeriesCacheModel, sort ports.SeriesCacheSort) *ports.Cursor {
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
 		return &ports.Cursor{
 			Timestamp: time.Time{},
 			ID:        strings.ToLower(m.Title) + "|" + strconv.Itoa(m.SonarrSeriesID),
+		}
+	case ports.SeriesCacheSortAirDateDesc:
+		var ts time.Time
+		if m.LastAiredAt != nil {
+			ts = m.LastAiredAt.UTC()
+		}
+		return &ports.Cursor{
+			Timestamp: ts,
+			ID:        strconv.Itoa(m.SonarrSeriesID),
 		}
 	default:
 		return &ports.Cursor{
@@ -353,6 +390,7 @@ func toCacheEntry(m database.SeriesCacheModel) (series.CacheEntry, error) {
 		FanartPath:     m.FanartPath,
 		BannerPath:     m.BannerPath,
 		MissingCount:   m.MissingCount,
+		LastAiredAt:    m.LastAiredAt,
 		UpdatedAt:      m.UpdatedAt,
 		DeletedAt:      m.DeletedAt,
 	}, nil
@@ -388,6 +426,7 @@ func cacheEntryToModel(e series.CacheEntry) (database.SeriesCacheModel, error) {
 		FanartPath:     e.FanartPath,
 		BannerPath:     e.BannerPath,
 		MissingCount:   e.MissingCount,
+		LastAiredAt:    e.LastAiredAt,
 		UpdatedAt:      e.UpdatedAt,
 		DeletedAt:      e.DeletedAt,
 	}, nil

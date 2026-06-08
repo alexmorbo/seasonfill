@@ -33,6 +33,11 @@ type CacheEntry struct {
 	FanartPath     *string
 	BannerPath     *string
 	MissingCount   int
+	// LastAiredAt mirrors Sonarr's `previousAiring` — the datetime of
+	// the most recently aired episode for this series. Nil when no
+	// episode has aired yet (upcoming series). Powers the F11
+	// `air_date_desc` sort.
+	LastAiredAt    *time.Time
 	UpdatedAt      time.Time
 	DeletedAt      *time.Time
 }

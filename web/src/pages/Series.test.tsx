@@ -177,4 +177,13 @@ describe('<Series /> integration', () => {
     expect(screen.queryByTestId('series-fallback-hint')).toBeNull();
     expect(hookCalls.every((c) => c.q.state === 'all')).toBe(true);
   });
+
+  it('propagates sort=air_date_desc from URL to the hook query', async () => {
+    hookCalls.length = 0;
+    renderPage('/series?sort=air_date_desc');
+    await waitFor(() => {
+      expect(hookCalls.length).toBeGreaterThan(0);
+    });
+    expect(hookCalls[hookCalls.length - 1]!.q.sort).toBe('air_date_desc');
+  });
 });

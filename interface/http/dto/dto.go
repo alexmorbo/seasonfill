@@ -603,6 +603,10 @@ type SeriesCacheItem struct {
 	MissingCount        int        `json:"missing_count"           example:"0"`
 	LastGrabAt          *time.Time `json:"last_grab_at,omitempty"`
 	LastImportedEpisode string     `json:"last_imported_episode,omitempty" example:"S05"`
+	// LastAiredAt is the datetime of the most recent aired episode
+	// (Sonarr previousAiring). Absent when the series has no aired
+	// episodes (upcoming). Powers the F11 air_date_desc sort.
+	LastAiredAt *time.Time `json:"last_aired_at,omitempty"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 }
 

@@ -462,7 +462,7 @@ const (
 // @Param       name    path   string  true   "Instance name"
 // @Param       state   query  string  false  "all | imported | missing (default all)" Enums(all,imported,missing)
 // @Param       status  query  string  false  "deprecated alias for state"
-// @Param       sort    query  string  false  "updated_desc | title_asc (default updated_desc)" Enums(updated_desc,title_asc)
+// @Param       sort    query  string  false  "updated_desc | title_asc | air_date_desc (default updated_desc)" Enums(updated_desc,title_asc,air_date_desc)
 // @Param       limit   query  int     false  "1..100 (default 24)"
 // @Param       cursor  query  string  false  "Opaque next_cursor from prior page"
 // @Success     200  {object}  dto.SeriesCacheList
@@ -601,7 +601,7 @@ func parseSeriesCacheSort(raw string) (ports.SeriesCacheSort, error) {
 	}
 	sk := ports.SeriesCacheSort(raw)
 	if !sk.IsValid() {
-		return "", errors.New("sort must be one of: updated_desc, title_asc")
+		return "", errors.New("sort must be one of: updated_desc, title_asc, air_date_desc")
 	}
 	return sk, nil
 }
@@ -642,6 +642,7 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		MissingCount:        e.MissingCount,
 		LastGrabAt:          lastGrabAt,
 		LastImportedEpisode: lg.LastImportedEpisode,
+		LastAiredAt:         e.LastAiredAt,
 		UpdatedAt:           e.UpdatedAt,
 	}
 }

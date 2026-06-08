@@ -1493,6 +1493,7 @@ export const ru: Translations = {
         aria: 'Порядок сортировки',
         updatedDesc: 'По обновлению',
         titleAsc: 'По названию А–Я',
+        airDateDesc: 'По дате выхода серий',
       },
       clear: 'Сбросить',
     },

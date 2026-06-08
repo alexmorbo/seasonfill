@@ -1780,7 +1780,7 @@ export type paths = {
                     readonly state?: PathsInstancesNameSeriesCacheGetParametersQueryState;
                     /** @description deprecated alias for state */
                     readonly status?: string;
-                    /** @description updated_desc | title_asc (default updated_desc) */
+                    /** @description updated_desc | title_asc | air_date_desc (default updated_desc) */
                     readonly sort?: PathsInstancesNameSeriesCacheGetParametersQuerySort;
                     /** @description 1..100 (default 24) */
                     readonly limit?: number;
@@ -3557,6 +3557,12 @@ export type components = {
         readonly "dto.SeriesCacheItem": {
             /** @example homelab */
             readonly instance_name?: string;
+            /**
+             * @description LastAiredAt is the datetime of the most recent aired episode
+             *     (Sonarr previousAiring). Absent when the series has no aired
+             *     episodes (upcoming). Powers the F11 air_date_desc sort.
+             */
+            readonly last_aired_at?: string;
             readonly last_grab_at?: string;
             /** @example S05 */
             readonly last_imported_episode?: string;
@@ -3765,7 +3771,8 @@ export enum PathsInstancesNameSeriesCacheGetParametersQueryState {
 }
 export enum PathsInstancesNameSeriesCacheGetParametersQuerySort {
     updated_desc = "updated_desc",
-    title_asc = "title_asc"
+    title_asc = "title_asc",
+    air_date_desc = "air_date_desc"
 }
 export enum PathsScansGetParametersQueryStatus {
     running = "running",
