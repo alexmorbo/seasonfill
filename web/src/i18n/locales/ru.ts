@@ -1501,6 +1501,10 @@ export const ru: Translations = {
         label: 'Сеть',
         labelWith: 'Сеть · {{count}}',
         empty: 'Сети ещё не известны',
+        searchPlaceholder: 'Найти сеть…',
+        searchAria: 'Поиск по сетям',
+        noMatches: 'Совпадений нет',
+        removeChip: 'Убрать {{network}}',
       },
       monitoredOnly: 'Только отслеживаемые',
       sort: {
@@ -1510,6 +1514,7 @@ export const ru: Translations = {
         airDateDesc: 'По дате выхода серий',
       },
       clear: 'Сбросить',
+      clearAll: 'Сбросить фильтры',
     },
     empty: {
       server: {

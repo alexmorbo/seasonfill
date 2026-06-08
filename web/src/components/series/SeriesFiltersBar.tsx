@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, X, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { Search, X, ChevronDown, ArrowUpDown, RotateCcw, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,21 +9,15 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 import type { SeriesCacheStatus, SeriesCacheSort } from '@/lib/api/seriesCache';
+import { isDefaultFilters, type SeriesFiltersValue } from './seriesFilters';
 
-export interface SeriesFiltersValue {
-  readonly search: string;
-  readonly state: SeriesCacheStatus;
-  readonly sort: SeriesCacheSort;
-  readonly monitoredOnly: boolean;
-  readonly networks: ReadonlySet<string>;
-}
+export type { SeriesFiltersValue } from './seriesFilters';
 
 export interface SeriesFiltersBarProps {
   readonly value: SeriesFiltersValue;
@@ -31,16 +25,6 @@ export interface SeriesFiltersBarProps {
   readonly defaults: SeriesFiltersValue;
   readonly onChange: (next: SeriesFiltersValue) => void;
   readonly onClear: () => void;
-}
-
-function isDefault(v: SeriesFiltersValue, d: SeriesFiltersValue): boolean {
-  if (v.search !== d.search) return false;
-  if (v.state !== d.state) return false;
-  if (v.sort !== d.sort) return false;
-  if (v.monitoredOnly !== d.monitoredOnly) return false;
-  if (v.networks.size !== d.networks.size) return false;
-  for (const n of v.networks) if (!d.networks.has(n)) return false;
-  return true;
 }
 
 const SORT_OPTIONS: readonly SeriesCacheSort[] = ['updated_desc', 'title_asc', 'air_date_desc'];
@@ -63,7 +47,7 @@ export function SeriesFiltersBar({
   value, availableNetworks, defaults, onChange, onClear,
 }: SeriesFiltersBarProps) {
   const { t } = useTranslation();
-  const isAtDefault = useMemo(() => isDefault(value, defaults), [value, defaults]);
+  const isAtDefault = useMemo(() => isDefaultFilters(value, defaults), [value, defaults]);
 
   const networksLabel = value.networks.size === 0
     ? t('series.filters.networks.label')
@@ -76,6 +60,17 @@ export function SeriesFiltersBar({
     if (checked) next.add(n); else next.delete(n);
     onChange({ ...value, networks: next });
   };
+
+  const [networkQuery, setNetworkQuery] = useState('');
+  const filteredNetworks = useMemo(() => {
+    const q = networkQuery.trim().toLowerCase();
+    if (!q) return availableNetworks;
+    return availableNetworks.filter((n) => n.toLowerCase().includes(q));
+  }, [networkQuery, availableNetworks]);
+  const selectedNetworks = useMemo(
+    () => [...value.networks].sort((a, b) => a.localeCompare(b)),
+    [value.networks],
+  );
 
   return (
     <div
@@ -124,28 +119,106 @@ export function SeriesFiltersBar({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 text-[12.5px]"
+            className={cn(
+              'h-8 text-[12.5px]',
+              value.networks.size > 0
+                && 'bg-accent-dim text-accent border border-accent/35',
+            )}
             data-testid="series-filters-networks"
           >
             {networksLabel}
             <ChevronDown className="w-3.5 h-3.5 ml-1" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[280px] overflow-y-auto">
+        <DropdownMenuContent
+          align="start"
+          className="max-h-[320px] w-[260px] overflow-hidden p-0"
+          data-testid="series-filters-networks-content"
+        >
           {availableNetworks.length === 0 ? (
             <div className="px-2 py-1.5 text-[12px] text-tx-faint">
               {t('series.filters.networks.empty')}
             </div>
           ) : (
-            availableNetworks.map((n) => (
-              <DropdownMenuCheckboxItem
-                key={n}
-                checked={value.networks.has(n)}
-                onCheckedChange={(checked) => toggleNetwork(n, !!checked)}
+            <div className="flex flex-col">
+              {selectedNetworks.length > 0 && (
+                <div
+                  className="flex flex-wrap gap-1 p-2 border-b border-border-subtle"
+                  data-testid="series-filters-networks-chips"
+                >
+                  {selectedNetworks.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleNetwork(n, false);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-accent/35 bg-accent-dim text-accent px-1.5 py-0.5 text-[11.5px] hover:bg-accent-dim/70"
+                      data-testid={`series-filters-networks-chip-${n}`}
+                      aria-label={t('series.filters.networks.removeChip', { network: n })}
+                    >
+                      <span className="truncate max-w-[140px]">{n}</span>
+                      <X className="w-3 h-3" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="p-2 border-b border-border-subtle">
+                <div className="relative">
+                  <Search
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-tx-faint pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="text"
+                    value={networkQuery}
+                    onChange={(e) => setNetworkQuery(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    placeholder={t('series.filters.networks.searchPlaceholder')}
+                    aria-label={t('series.filters.networks.searchAria')}
+                    className="w-full h-7 pl-7 pr-2 rounded-md border border-border-subtle bg-bg-base text-[12px] outline-hidden focus:border-accent/50"
+                    data-testid="series-filters-networks-search"
+                  />
+                </div>
+              </div>
+              <div
+                className="max-h-[200px] overflow-y-auto py-1"
+                data-testid="series-filters-networks-list"
               >
-                {n}
-              </DropdownMenuCheckboxItem>
-            ))
+                {filteredNetworks.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[12px] text-tx-faint">
+                    {t('series.filters.networks.noMatches')}
+                  </div>
+                ) : (
+                  filteredNetworks.map((n) => {
+                    const checked = value.networks.has(n);
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          toggleNetwork(n, !checked);
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12.5px]',
+                          'hover:bg-bg-surface-2',
+                          checked && 'text-accent',
+                        )}
+                        data-testid={`series-filters-networks-item-${n}`}
+                        aria-pressed={checked}
+                      >
+                        <span className="flex w-3.5 h-3.5 items-center justify-center text-accent">
+                          {checked && <Check className="w-3.5 h-3.5" aria-hidden="true" />}
+                        </span>
+                        <span className="truncate">{n}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -196,21 +269,19 @@ export function SeriesFiltersBar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onClear}
-        disabled={isAtDefault}
-        className={cn(
-          'h-8 text-[12px] ml-auto',
-          isAtDefault && 'opacity-40 pointer-events-none',
-        )}
-        data-testid="series-filters-clear"
-      >
-        <X className="w-3.5 h-3.5 mr-1" />
-        {t('series.filters.clear')}
-      </Button>
+      {!isAtDefault && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onClear}
+          className="h-8 text-[12px] ml-auto bg-accent-dim text-accent border border-accent/35 hover:bg-accent-dim/70"
+          data-testid="series-filters-clear"
+        >
+          <RotateCcw className="w-3.5 h-3.5 mr-1" />
+          {t('series.filters.clearAll')}
+        </Button>
+      )}
     </div>
   );
 }

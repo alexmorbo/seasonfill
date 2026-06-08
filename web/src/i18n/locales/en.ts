@@ -1499,6 +1499,10 @@ export const en = {
         label: 'Network',
         labelWith: 'Network · {{count}}',
         empty: 'No networks yet',
+        searchPlaceholder: 'Filter networks…',
+        searchAria: 'Filter networks',
+        noMatches: 'No networks match',
+        removeChip: 'Remove {{network}}',
       },
       monitoredOnly: 'Monitored only',
       sort: {
@@ -1508,6 +1512,7 @@ export const en = {
         airDateDesc: 'By air date',
       },
       clear: 'Clear',
+      clearAll: 'Clear filters',
     },
     empty: {
       server: {
