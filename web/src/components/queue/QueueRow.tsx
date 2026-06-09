@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { SeriesTitleLink } from '@/components/SeriesTitleLink';
 import { SeriesPoster } from '@/components/SeriesPoster';
 import { cn } from '@/lib/utils';
-import { titleHasEmbeddedYear } from '@/lib/title';
 import type { MissingSeries } from '@/lib/missing';
 
 export interface QueueRowProps {
@@ -56,11 +55,10 @@ export function QueueRow({
               year={row.year}
               instanceUiUrl={instanceUiUrl}
             />
-            {/* Suppress the muted secondary year chip when Sonarr's
-                title already contains "(YYYY)" — SeriesTitleLink will
-                also suppress its inline "(YYYY)" suffix in that case
-                (Story 075). */}
-            {row.year !== undefined && !titleHasEmbeddedYear(row.title) && (
+            {/* Operator R2: render the supplied year unconditionally as
+                a muted subtitle. The title itself is rendered verbatim
+                by SeriesTitleLink; no embedded-year suppression. */}
+            {row.year !== undefined && (
               <span className="text-[11.5px] text-faint">
                 {row.year}
               </span>

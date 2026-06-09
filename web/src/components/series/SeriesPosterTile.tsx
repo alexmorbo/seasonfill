@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
-import { formatSeriesTitle, titleHasEmbeddedYear } from '@/lib/title';
+import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 import { SeriesPoster } from '@/components/SeriesPoster';
 
@@ -15,9 +15,9 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
   const navigate = useNavigate();
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
-  // Hide standalone year in footer when Sonarr already disambiguated
-  // the title (Story 075 / PRD F-P1-4).
-  const showYearFooter = item.year !== undefined && !titleHasEmbeddedYear(item.title);
+  // Operator R2: always render the subtitle when either year or
+  // network is available — no embedded-year suppression.
+  const showYearFooter = item.year !== undefined;
   const ariaLabel = t('series.tile.posterAria', {
     label: formatSeriesTitle(item.title, item.year),
   });

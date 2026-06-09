@@ -5,9 +5,11 @@ import {
   instanceDetailKey,
   useCreateInstance,
   useDeleteInstance,
+  useSaveInstanceWithQbit,
   useTestInstance,
   useUpdateInstance,
 } from './instances-mutations';
+import { qbitSettingsKey } from '@/api/qbit';
 
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
@@ -191,5 +193,82 @@ describe('useTestInstance()', () => {
     expect(toastError).toHaveBeenCalledWith(
       'Timed out — Sonarr did not respond',
     );
+  });
+});
+
+describe('useSaveInstanceWithQbit()', () => {
+  it('returns the fresh qBit DTO from the PUT response (operator #3 latent)', async () => {
+    // Server returns an UPDATED qbit DTO post-PUT — qbit_public_url has
+    // a new value the cached query has never seen. The orchestrator
+    // result MUST carry this fresh DTO so the dialog re-seeds from it
+    // rather than the stale useQbitSettings() cache.
+    const freshDTO = {
+      url: 'http://qbit:8080',
+      qbit_public_url: 'https://NEW.qbit.example.com',
+      username: 'admin',
+      category: 'sonarr',
+      poll_interval_minutes: 5,
+      regrab_cooldown_hours: 24,
+      max_consecutive_no_better: 3,
+      custom_unregistered_msgs: [],
+      enabled: true,
+    };
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.endsWith('/qbit/settings') && init?.method === 'PUT') {
+        return jsonResp(freshDTO, 200);
+      }
+      // PUT /instances/<name> — instance save
+      return jsonResp({ name: 'alpha', api_key: '***' }, 200);
+    }) as typeof fetch;
+    const qc = makeQC();
+    const { result } = renderHook(() => useSaveInstanceWithQbit(), { wrapper: wrap(qc) });
+    result.current.mutate({
+      mode: 'edit',
+      name: 'alpha',
+      instanceBody: { name: 'alpha', url: 'http://x' } as never,
+      qbitBody: {
+        url: 'http://qbit:8080',
+        qbit_public_url: 'https://NEW.qbit.example.com',
+        username: 'admin',
+        password: '',
+        category: 'sonarr',
+        poll_interval_minutes: 5,
+        regrab_cooldown_hours: 24,
+        max_consecutive_no_better: 3,
+        custom_unregistered_msgs: [],
+        enabled: true,
+      } as never,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.qbitSaved).toBe(true);
+    expect(result.current.data?.qbitDTO).not.toBeNull();
+    expect(result.current.data?.qbitDTO?.qbit_public_url).toBe('https://NEW.qbit.example.com');
+    // Sanity: the key shape used to prime the cache matches the
+    // exported helper, so a concurrent useQbitSettings() reader for
+    // 'alpha' looks at the same entry the mutation primes.
+    expect(qbitSettingsKey('alpha')).toEqual(['qbit', 'settings', 'alpha']);
+  });
+
+  it('returns qbitDTO=null when qBit save fails (operator #3 latent)', async () => {
+    globalThis.fetch = vi.fn(async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof u === 'string' ? u : u.toString();
+      if (url.endsWith('/qbit/settings') && init?.method === 'PUT') {
+        return jsonResp({ error: 'boom' }, 500);
+      }
+      return jsonResp({ name: 'alpha', api_key: '***' }, 200);
+    }) as typeof fetch;
+    const qc = makeQC();
+    const { result } = renderHook(() => useSaveInstanceWithQbit(), { wrapper: wrap(qc) });
+    result.current.mutate({
+      mode: 'edit',
+      name: 'alpha',
+      instanceBody: { name: 'alpha', url: 'http://x' } as never,
+      qbitBody: { url: 'http://qbit:8080' } as never,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.qbitSaved).toBe(false);
+    expect(result.current.data?.qbitError).not.toBeNull();
+    expect(result.current.data?.qbitDTO).toBeNull();
   });
 });

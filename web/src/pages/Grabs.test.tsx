@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test-utils';
 import { Grabs } from './Grabs';
@@ -113,6 +114,38 @@ describe('<Grabs />', () => {
       });
       expect(grabCall).toBeDefined();
       expect(String(grabCall![0])).not.toContain('series_id=');
+    });
+  });
+
+  it('renders a series-filter chip when ?series=N and resolves title from cached grabs', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(() => Promise.resolve(
+      json({ items: [grab({ series_id: 42, series_title: 'Severance' })] }),
+    )) as typeof fetch;
+    renderWithProviders(wrap(<Grabs />), { route: '/grabs?series=42' });
+    await screen.findByText('Severance');
+    await waitFor(() => {
+      expect(screen.getByTestId('grabs-series-chip')).toHaveTextContent(/Severance/);
+    });
+  });
+
+  it('falls back to "#<id>" in the chip when no grab matches the series_id', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(() => Promise.resolve(
+      json({ items: [] }),
+    )) as typeof fetch;
+    renderWithProviders(wrap(<Grabs />), { route: '/grabs?series=99' });
+    const chip = await screen.findByTestId('grabs-series-chip');
+    expect(chip).toHaveTextContent(/#99/);
+  });
+
+  it('clicking the chip ✕ removes ?series from the URL', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(() => Promise.resolve(
+      json({ items: [grab({ series_id: 42, series_title: 'Severance' })] }),
+    )) as typeof fetch;
+    renderWithProviders(wrap(<Grabs />), { route: '/grabs?series=42' });
+    const clearBtn = await screen.findByTestId('grabs-series-chip-clear');
+    await userEvent.click(clearBtn);
+    await waitFor(() => {
+      expect(screen.queryByTestId('grabs-series-chip')).toBeNull();
     });
   });
 

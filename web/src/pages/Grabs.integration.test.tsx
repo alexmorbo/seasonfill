@@ -90,7 +90,7 @@ describe('<Grabs /> + drawer integration', () => {
     await waitFor(() => {
       expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
         'href',
-        'http://qbit.lan:8080/#/torrent/c2cb0d9effab1234cdefa71f',
+        'http://qbit.lan:8080',
       );
     });
   });

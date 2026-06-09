@@ -12,7 +12,7 @@ import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { EpisodeFilesList } from '@/components/grabs/EpisodeFilesList';
 import { buildChips, type Grab } from '@/lib/grabs/chipBuilder';
 import { formatEpisodeRange } from '@/lib/grabs/format';
-import { buildQbitDeepLink, isKubeInternalHost } from '@/lib/grabs/qbit';
+import { isKubeInternalHost } from '@/lib/grabs/qbit';
 import { useGrabs, flattenGrabs } from '@/lib/grabs';
 import { useQbitSettings } from '@/api/qbit';
 import { useSourceDecisionID } from '@/lib/grabs/sourceDecisionLookup';
@@ -38,6 +38,10 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
   // 083 / F-P2-1: prefer the explicit browser-reachable URL. If empty,
   // fall back to `url` only when it's NOT kube-internal — otherwise
   // the link would 404 in the operator's browser and we hide it.
+  //
+  // qBT's Web UI has no SPA route for an individual torrent hash; the
+  // best we can do is open the root and let the operator find the row
+  // in their session. We therefore link to the bare base URL.
   const qbit = useQbitSettings(instance);
   const publicUrl = (qbit.data?.qbit_public_url ?? '').trim();
   const fallbackUrl = (qbit.data?.url ?? '').trim();
@@ -47,7 +51,7 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
   } else if (fallbackUrl !== '' && !isKubeInternalHost(fallbackUrl)) {
     qbitUrl = fallbackUrl;
   }
-  const deepLink = buildQbitDeepLink(qbitUrl, grab?.torrent_hash ?? null);
+  const qbitHref = qbitUrl ? qbitUrl.replace(/\/+$/, '') : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -73,7 +77,7 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
             <DrawerHero grab={grab} />
             <DrawerErrorSection grab={grab} />
             <DrawerReleaseSection grab={grab} />
-            <DrawerTorrentSection grab={grab} deepLink={deepLink} />
+            <DrawerTorrentSection grab={grab} qbitHref={qbitHref} />
             <DrawerFilesSection grab={grab} instance={instance} open={open} />
           </div>
         )}
@@ -158,8 +162,8 @@ function truncateHash(hash: string): string {
 }
 
 function DrawerTorrentSection({
-  grab, deepLink,
-}: { grab: Grab; deepLink: string | null }) {
+  grab, qbitHref,
+}: { grab: Grab; qbitHref: string | null }) {
   const { t } = useTranslation();
   const decisionID = useSourceDecisionID({
     instance: grab.instance ?? null,
@@ -222,9 +226,9 @@ function DrawerTorrentSection({
         </button>
       </div>
       <div className="flex flex-wrap gap-2 mt-1">
-        {deepLink ? (
+        {qbitHref ? (
           <a
-            href={deepLink}
+            href={qbitHref}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="drawer-qbit-link"

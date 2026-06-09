@@ -98,7 +98,7 @@ describe('<GrabDrawer />', () => {
     });
     expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
       'href',
-      'http://qbit.lan:8080/#/torrent/c2cb0d9effab1234cdefa71f',
+      'http://qbit.lan:8080',
     );
     await waitFor(() => {
       expect(screen.getByTestId('drawer-decision-link')).toHaveAttribute(
@@ -330,7 +330,7 @@ describe('<GrabDrawer />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
         'href',
-        'https://qbit.example.com/#/torrent/c2cb0d9effab1234cdefa71f',
+        'https://qbit.example.com',
       );
     });
   });
@@ -356,7 +356,33 @@ describe('<GrabDrawer />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
         'href',
-        'http://qb.example.com/#/torrent/c2cb0d9effab1234cdefa71f',
+        'http://qb.example.com',
+      );
+    });
+  });
+
+  it('strips trailing slashes from qBT URL', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          url: 'http://qbit.example.com:8080/',
+          qbit_public_url: '',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-qbit-link')).toHaveAttribute(
+        'href',
+        'http://qbit.example.com:8080',
       );
     });
   });

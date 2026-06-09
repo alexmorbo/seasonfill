@@ -444,9 +444,14 @@ export function InstanceFormDialog({
     });
 
     // Re-seed the form to the persisted values so isDirty clears.
+    // Prefer the fresh PUT response (operator #3 latent: avoid the
+    // stale `qbitDTO` from useQbitSettings's cache when the dialog
+    // stays open after a partial-success); fall back to the cached
+    // DTO if qBit wasn't part of this save.
+    const freshQbit = result.qbitDTO ?? qbitDTO;
     reset({
       ...formFromDetail(result.detail),
-      ...qbitFromDTO(qbitDTO),
+      ...qbitFromDTO(freshQbit),
       // Critical: clear the password input post-save (dirty-bit).
       qbit_password: '',
     });

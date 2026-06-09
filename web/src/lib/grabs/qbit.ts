@@ -1,27 +1,8 @@
-// Builds the qBit Web UI deep link for a torrent hash.
-// Web UI route: `{base}/#/torrent/{hash_lower}`.
-// Returns null when either input is empty.
-//
-// Examples:
-//   buildQbitDeepLink('http://qbit:8080', 'C2CB0D9E…') → 'http://qbit:8080/#/torrent/c2cb0d9e…'
-//   buildQbitDeepLink('http://qbit:8080/', 'AbCdEf')  → 'http://qbit:8080/#/torrent/abcdef'
-//   buildQbitDeepLink(undefined, 'abcd')              → null
-//   buildQbitDeepLink('http://qbit:8080', '')         → null
-export function buildQbitDeepLink(
-  baseUrl: string | null | undefined,
-  hash: string | null | undefined,
-): string | null {
-  if (!baseUrl || !hash) return null;
-  const trimmed = baseUrl.trim().replace(/\/+$/, '');
-  if (!trimmed) return null;
-  return `${trimmed}/#/torrent/${hash.toLowerCase()}`;
-}
-
 // isKubeInternalHost — heuristic for "browser cannot reach this URL".
 // Treats a URL as kube-internal iff its hostname has no dot AND is not
-// `localhost`. Used by GrabDrawer (083, F-P2-1) to hide the qBit link
-// when only the in-cluster `qbit_url` is populated and would 404 in
-// the operator's browser.
+// `localhost`. Used by GrabDrawer to hide the qBit link when only the
+// in-cluster `qbit_url` is populated and would 404 in the operator's
+// browser.
 //
 // Examples:
 //   isKubeInternalHost('http://qbittorrent-web:10095') → true

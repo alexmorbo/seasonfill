@@ -70,26 +70,14 @@ describe('<SeriesTitleLink />', () => {
     expect(screen.getByText('(2022)')).toBeInTheDocument();
   });
 
-  it('does NOT duplicate "(YYYY)" when the title already contains one (Story 075)', () => {
+  it('renders title verbatim and appends the supplied year as a muted suffix (operator R2)', () => {
     render(<SeriesTitleLink title="Time (2021)" year={2021} />);
-    // Title text is rendered verbatim; no second "(2021)" span.
+    // Title text is rendered verbatim — Sonarr's embedded "(2021)"
+    // stays. The numeric year is rendered as its own suffix span, so
+    // both nodes contain "(2021)" — that's the operator-confirmed
+    // behaviour: title verbatim + year subtitle.
     expect(screen.getByText('Time (2021)')).toBeInTheDocument();
     const allParenYear = screen.queryAllByText(/\(2021\)/);
-    expect(allParenYear).toHaveLength(1);
-  });
-
-  it('keeps Sonarr-embedded year even when numeric year mismatches', () => {
-    // PRD example: "The Count of Monte Cristo (2024) (2025)" — must NOT
-    // append the mismatched 2025.
-    render(
-      <SeriesTitleLink
-        title="The Count of Monte Cristo (2024)"
-        year={2025}
-        titleSlug="the-count-of-monte-cristo"
-        instanceUiUrl="https://sonarr.example.com"
-      />,
-    );
-    expect(screen.getByText('The Count of Monte Cristo (2024)')).toBeInTheDocument();
-    expect(screen.queryByText(/\(2025\)/)).not.toBeInTheDocument();
+    expect(allParenYear.length).toBeGreaterThanOrEqual(1);
   });
 });

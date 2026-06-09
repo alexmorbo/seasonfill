@@ -7,6 +7,7 @@ import type { components } from '@/api/schema';
 import {
   qbitSettingsKey,
   webhookStatusKey,
+  type QbitSettingsDTO,
   type QbitSettingsUpsertRequest,
 } from '@/api/qbit';
 
@@ -233,6 +234,12 @@ export interface SaveWithQbitResult {
   readonly detail: InstanceDetail;
   readonly qbitSaved: boolean;
   readonly qbitError: ApiError | null;
+  // Fresh qBit settings DTO returned by the PUT response. Present iff
+  // qbitSaved === true. Callers should prefer this over the cached
+  // `useQbitSettings()` data when re-seeding form state immediately
+  // after save — the cached value is stale until invalidation refetch
+  // completes (see operator #3 latent: stale-cache re-seed race).
+  readonly qbitDTO: QbitSettingsDTO | null;
 }
 
 /**
@@ -286,13 +293,21 @@ export function useSaveInstanceWithQbit() {
 
       let qbitSaved = false;
       let qbitError: ApiError | null = null;
+      let qbitDTO: QbitSettingsDTO | null = null;
       if (qbitBody && resolvedName) {
         try {
-          await jsonFetch<unknown>(
+          const { data } = await jsonFetch<QbitSettingsDTO>(
             `/api/v1/instances/${encodeURIComponent(resolvedName)}/qbit/settings`,
             { method: 'PUT', body: JSON.stringify(qbitBody) },
           );
           qbitSaved = true;
+          qbitDTO = data ?? null;
+          // Prime the cache with the fresh DTO so any concurrent
+          // useQbitSettings() reader sees the new value synchronously
+          // (no refetch flicker).
+          if (qbitDTO) {
+            qc.setQueryData<QbitSettingsDTO>(qbitSettingsKey(resolvedName), qbitDTO);
+          }
         } catch (err) {
           qbitError = err instanceof ApiError ? err : new ApiError(0, String(err));
         }
@@ -305,7 +320,7 @@ export function useSaveInstanceWithQbit() {
         qc.invalidateQueries({ queryKey: webhookStatusKey(resolvedName) });
       }
 
-      return { detail, qbitSaved, qbitError };
+      return { detail, qbitSaved, qbitError, qbitDTO };
     },
   });
 }

@@ -11,7 +11,7 @@ import { GrabDrawer } from '@/components/GrabDrawer'; // existing — 051b repla
 import { SkeletonRows } from '@/components/SkeletonRows';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 
 const FAIL_STATUSES = new Set(['import_failed', 'grab_failed', 'expired']);
 
@@ -86,6 +86,24 @@ export function Grabs() {
   const counts = useMemo(() => computeCounts(all), [all]);
   const rows = useMemo(() => filterRows(all, filter, searchLocal), [all, filter, searchLocal]);
 
+  // Resolve the chip title from the loaded grabs themselves — when the
+  // user navigated in via a poster click the first response page will
+  // already include the series_title for this series_id. Fall back to
+  // "#<id>" until something materializes.
+  const seriesChipTitle = useMemo(() => {
+    if (seriesID === undefined) return null;
+    for (const g of all) {
+      if (g.series_id === seriesID && g.series_title) return g.series_title;
+    }
+    return `#${seriesID}`;
+  }, [all, seriesID]);
+
+  const clearSeriesFilter = useCallback(() => {
+    const next = new URLSearchParams(params);
+    next.delete('series');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
   // Build a per-grab "re-grab index" map by walking the replay_of_id chain.
   // For each row R with R.replay_of_id, climb the chain in `all` and count
   // the depth. Roots have index null (no `↻ #N` tag); first re-grab is #1.
@@ -127,6 +145,25 @@ export function Grabs() {
         onSearchChange={onSearchChange}
         instance={instance ?? null}
       />
+      {seriesID !== undefined && seriesChipTitle && (
+        <div
+          data-testid="grabs-series-chip"
+          className="inline-flex items-center self-start gap-1.5 rounded-full border border-border-subtle bg-bg-surface-2 pl-3 pr-1.5 py-1 text-[11.5px] text-tx-secondary"
+        >
+          <span>
+            {t('grabs.filteredBySeries', { title: seriesChipTitle })}
+          </span>
+          <button
+            type="button"
+            onClick={clearSeriesFilter}
+            data-testid="grabs-series-chip-clear"
+            aria-label={t('grabs.filteredBySeriesClear')}
+            className="inline-flex items-center justify-center rounded-full w-5 h-5 text-tx-muted hover:text-tx-primary hover:bg-bg-surface-3 transition-colors"
+          >
+            <X className="w-3 h-3" aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {query.isError ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, TriangleAlert, RotateCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
-import { formatSeriesTitle, titleHasEmbeddedYear } from '@/lib/title';
+import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 import { SeriesPoster } from '@/components/SeriesPoster';
 
@@ -37,9 +37,9 @@ export function PosterTile({ item }: PosterTileProps) {
   const variant = classifyVariant(item);
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const { season, first, last } = parseEpisode(item.last_imported_episode);
-  // Hide standalone year in footer when Sonarr already disambiguated
-  // the title (Story 075 / PRD F-P1-4).
-  const showYearFooter = item.year !== undefined && !titleHasEmbeddedYear(item.title);
+  // Operator R2: always render the subtitle when year is available —
+  // no embedded-year suppression.
+  const showYearFooter = item.year !== undefined;
   const ariaLabel = t('dashboard.poster.posterAria', {
     label: formatSeriesTitle(item.title, item.year),
   });
