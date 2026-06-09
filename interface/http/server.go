@@ -16,10 +16,12 @@ import (
 	apprescan "github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
+	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
@@ -138,7 +140,13 @@ func NewServer(
 		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
-		seriesPosterHandler := handlers.NewSeriesPosterHandler(instanceReg, logger)
+		// Singleton poster cache. Lives for the life of the process
+		// — there's no reload path because the cap + TTL are
+		// package-level constants (see internal/runtime/snapshot.go).
+		posterCache := sonarr.NewLRUPosterCache(
+			runtime.PosterCacheMaxBytes, runtime.PosterCacheTTL)
+		seriesPosterHandler := handlers.NewSeriesPosterHandler(
+			instanceReg, logger, handlers.WithPosterCache(posterCache))
 		guarded.GET("/instances/:name/series/:id/poster", seriesPosterHandler.Proxy)
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)

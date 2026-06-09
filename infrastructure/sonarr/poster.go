@@ -37,8 +37,12 @@ type MediaCoverResponse struct {
 // GetMediaCover streams the poster image from Sonarr's
 // /api/v3/MediaCover/{seriesID}/poster[-500].jpg endpoint. Unlike the
 // other Client methods, this one bypasses Client.do because do() forces
-// JSON decode of the body. The rate-limiter (per-instance + global) is
-// still honoured.
+// JSON decode of the body.
+//
+// Rate-limiting policy: per-instance + dedicated poster limiter. The
+// global limiter is INTENTIONALLY bypassed — poster bursts from the
+// frontend would otherwise starve concurrent watchdog SystemStatus
+// calls that share the global bucket.
 //
 // ifNoneMatch is forwarded verbatim if non-empty; upstream 304 surfaces
 // as MediaCoverResponse{NotModified: true}.
@@ -68,8 +72,8 @@ func (c *Client) GetMediaCover(ctx context.Context, seriesID int, size PosterSiz
 	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
 		return nil, fmt.Errorf("rate limit wait %s: %w", endpoint, err)
 	}
-	if err := ratelimit.Wait(c.globalLimiter(), ctx); err != nil {
-		return nil, fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
+	if err := ratelimit.Wait(c.poster, ctx); err != nil {
+		return nil, fmt.Errorf("poster rate limit wait %s: %w", endpoint, err)
 	}
 
 	resp, err := c.http.Do(req)

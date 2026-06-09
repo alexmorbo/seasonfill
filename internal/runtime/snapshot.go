@@ -31,6 +31,23 @@ type RateLimitSnapshot struct {
 	Burst int
 }
 
+// Poster proxy tuning. These live as package-level constants (not DB-
+// persisted) because the whole point of the poster fix is to give
+// operators a sensible default they don't have to think about. Sized
+// for a 60-poster frontend grid: 60-token burst drains instantly,
+// 200 rpm sustains heavy navigation, and the 256 MiB cache holds
+// every poster for a 1000-series library at 200 KB/each.
+const (
+	PosterLimitRPM   = 200
+	PosterLimitBurst = 60
+	// PosterCacheMaxBytes — total cache size cap. Approximate, byte-
+	// accounted on Put with a small per-entry overhead.
+	PosterCacheMaxBytes int64 = 256 << 20
+	// PosterCacheTTL — entries older than this look like misses to
+	// the next Get; eviction is lazy.
+	PosterCacheTTL = 24 * time.Hour
+)
+
 // AuthModeForms, AuthModeBasic, AuthModeNone enumerate the auth backends
 // the dispatcher accepts. Any other value is rejected at validation time
 // (the DB-layer CHECK constraint only exists on postgres; the

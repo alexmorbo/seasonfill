@@ -43,7 +43,11 @@ type Client struct {
 	// supplied (last write wins in functional-options order).
 	global    *ratelimit.Limiter
 	globalPtr *atomic.Pointer[ratelimit.Limiter]
-	logger    *slog.Logger
+	// poster is a dedicated limiter for MediaCover requests. It exists
+	// so frontend-driven poster bursts can't starve watchdog
+	// SystemStatus calls that share the global limiter. nil = unlimited.
+	poster *ratelimit.Limiter
+	logger *slog.Logger
 }
 
 // Option configures a Client at construction.
@@ -75,6 +79,14 @@ func (c *Client) globalLimiter() *ratelimit.Limiter {
 		return c.globalPtr.Load()
 	}
 	return c.global
+}
+
+// WithPosterLimiter sets the dedicated MediaCover rate limiter. The
+// poster path does NOT share the global limiter — bursts from the
+// frontend grid (60+ posters/page) would otherwise starve concurrent
+// /system/status calls used by the watchdog. Pass nil for unlimited.
+func WithPosterLimiter(l *ratelimit.Limiter) Option {
+	return func(c *Client) { c.poster = l }
 }
 
 // WithSearchTimeout installs a separate http.Client used ONLY by
