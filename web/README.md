@@ -88,3 +88,16 @@ Page-level action buttons (e.g. "Refresh" + "Run scan") mount via
 
 Dashboard is the entry point for operators; it renders empty / first-run /
 error states gracefully. All routes require authentication via `ProtectedLayout`.
+
+## Tracker link rewrites
+
+`/settings → Integrations` exposes an operator-curated table of substring
+replacement rules applied client-side to tracker GUIDs before the watchdog
+series drawer renders the "Open on tracker" link. Rules persist via the
+runtime config (`guid_rewrites: [{from, to}]`) so the database keeps the
+original GUID intact. Typical use case: Sonarr is configured against an
+in-cluster proxy URL (`http://rutracker-proxy.servarr.svc.cluster.local/…`)
+but operators want the link to point at the public tracker URL
+(`https://rutracker.org/…`). Replacements run in array order as plain
+substring substitutions — first match wins per rule, order controlled by
+the operator. Up to 50 rules; trimmed and de-duplicated server-side.

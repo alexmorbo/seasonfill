@@ -270,6 +270,15 @@ components:
           example: unauthorized
           type: string
       type: object
+    dto.GUIDRewriteDTO:
+      properties:
+        from:
+          example: http://rutracker-proxy.servarr.svc.cluster.local
+          type: string
+        to:
+          example: https://rutracker.org
+          type: string
+      type: object
     dto.Grab:
       properties:
         attempts:
@@ -1076,6 +1085,14 @@ components:
           type: boolean
         global_rate_limit:
           $ref: '#/components/schemas/dto.RuntimeRateLimitDTO'
+        guid_rewrites:
+          description: |-
+            GUIDRewrites — operator-curated tracker GUID substitutions (107).
+            Always emitted as `[]` when no rules are configured (never null).
+          items:
+            $ref: '#/components/schemas/dto.GUIDRewriteDTO'
+          type: array
+          uniqueItems: false
         scan:
           $ref: '#/components/schemas/dto.RuntimeScanDTO'
         updated_at:

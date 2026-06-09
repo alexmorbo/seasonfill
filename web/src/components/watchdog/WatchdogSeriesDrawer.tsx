@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
   Ban,
+  ExternalLink,
   GitBranch,
   ShieldCheck,
   ShieldOff,
@@ -32,6 +33,12 @@ import {
   useWatchdogSeriesDetail,
   type WatchdogSeriesDetail,
 } from '@/lib/api/watchdogSeasons';
+import { useRuntimeConfig } from '@/lib/runtime-config';
+import {
+  applyGuidRewrites,
+  isTrackerUrl,
+  type GuidRewriteRule,
+} from '@/lib/guid-rewrite';
 import type { components } from '@/api/schema';
 
 type WatchdogSeriesSeason = components['schemas']['dto.WatchdogSeriesSeason'];
@@ -217,6 +224,24 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function SeasonOrigin({ season }: { season: WatchdogSeriesSeason }) {
   const { t } = useTranslation();
   const o = season.origin;
+  // Lazy-fetch runtime config — TanStack Query dedupes against the cached
+  // Settings/General/etc. query, so even if the operator opens the drawer
+  // without visiting Settings first this is at most one extra fetch and
+  // does not block render (the link just stays hidden until the data lands).
+  const runtime = useRuntimeConfig();
+  const rules: readonly GuidRewriteRule[] =
+    (runtime.data?.config.guid_rewrites ?? []).map((r) => ({
+      from: r.from ?? '',
+      to: r.to ?? '',
+    }));
+  // Build the tracker URL only when we have a GUID. Apply rewrites first;
+  // only render the link when the rewritten string is http(s). An empty
+  // rules list means we still render the link when Sonarr already stored
+  // a public URL as the GUID.
+  const trackerHref =
+    o?.guid && isTrackerUrl(applyGuidRewrites(o.guid, rules))
+      ? applyGuidRewrites(o.guid, rules)
+      : null;
   return (
     <section className="flex flex-col gap-1.5" data-testid="drawer-section-origin">
       <SectionLabel>{t('watchdog.drawer.origin.title')}</SectionLabel>
@@ -232,6 +257,18 @@ function SeasonOrigin({ season }: { season: WatchdogSeriesSeason }) {
           <span className="text-tx-faint">
             {t('watchdog.drawer.origin.lastUsed')}: {relativeTime(o.last_used_at ?? o.last_seen_at)}
           </span>
+          {trackerHref && (
+            <a
+              href={trackerHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="drawer-origin-tracker-link"
+              className="inline-flex items-center gap-1 text-tx-primary hover:underline mt-0.5"
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              {t('watchdog.drawer.origin.openTracker')}
+            </a>
+          )}
         </div>
       ) : (
         <span className="text-[12px] text-tx-faint">—</span>

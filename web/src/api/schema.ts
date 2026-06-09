@@ -3156,6 +3156,12 @@ export type components = {
             /** @example unauthorized */
             readonly error?: string;
         };
+        readonly "dto.GUIDRewriteDTO": {
+            /** @example http://rutracker-proxy.servarr.svc.cluster.local */
+            readonly from?: string;
+            /** @example https://rutracker.org */
+            readonly to?: string;
+        };
         readonly "dto.Grab": {
             readonly attempts?: number;
             readonly coverage_count?: number;
@@ -3705,6 +3711,11 @@ export type components = {
             readonly cron?: components["schemas"]["dto.RuntimeCronDTO"];
             readonly dry_run?: boolean;
             readonly global_rate_limit?: components["schemas"]["dto.RuntimeRateLimitDTO"];
+            /**
+             * @description GUIDRewrites — operator-curated tracker GUID substitutions (107).
+             *     Always emitted as `[]` when no rules are configured (never null).
+             */
+            readonly guid_rewrites?: readonly components["schemas"]["dto.GUIDRewriteDTO"][];
             readonly scan?: components["schemas"]["dto.RuntimeScanDTO"];
             readonly updated_at?: string;
         };

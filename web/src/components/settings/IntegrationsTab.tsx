@@ -16,6 +16,7 @@ import {
   type WebhookStatusItem,
 } from '@/lib/api/webhookStatus';
 import { useRuntimeConfig } from '@/lib/runtime-config';
+import { GuidRewritesEditor } from './GuidRewritesEditor';
 
 function Block({
   title, subtitle, headerRight, children,
@@ -267,6 +268,13 @@ export function IntegrationsTab() {
           </Link>
           {t('settings.integrations.qbit.deepLinkSuffix')}
         </p>
+      </Block>
+
+      <Block
+        title={t('settings.integrations.guidRewrites.section')}
+        subtitle={t('settings.integrations.guidRewrites.subtitle')}
+      >
+        <GuidRewritesEditor />
       </Block>
     </div>
   );
