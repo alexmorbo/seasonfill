@@ -72,6 +72,13 @@ type DecisionRepository interface {
 	// prelude already pre-applied the supersede pointer.
 	// ports.ErrNotFound on unknown id.
 	ClearSupersededBy(ctx context.Context, id uuid.UUID) error
+	// UpdateIntent writes the intent JSON column on an existing
+	// decision row. Used by the regrab use case (091a / F-P2-2) to
+	// refine ChosenBecauseWatchdogBetterOther into
+	// ChosenBecauseWatchdogBetterQuality once the candidate's quality
+	// is known. A nil intent persists NULL (resets the column).
+	// ports.ErrNotFound on unknown id.
+	UpdateIntent(ctx context.Context, id uuid.UUID, intent *decision.Intent) error
 	List(ctx context.Context, f DecisionFilter, p Pagination) ([]decision.Decision, *Cursor, error)
 }
 

@@ -142,6 +142,8 @@ components:
         instance:
           example: alpha
           type: string
+        intent:
+          $ref: '#/components/schemas/dto.DecisionIntent'
         missing_count:
           type: integer
         reason:
@@ -166,6 +168,54 @@ components:
         total_episodes:
           example: 10
           type: integer
+      type: object
+    dto.DecisionIntent:
+      description: |-
+        Intent surfaces the "why this grab" payload from the Decision
+        row that produced this grab (091a / F-P2-2). The audit handler
+        resolves the Decision lazily by (scan_run_id, instance, series,
+        season) at read time and copies the Intent here so GrabDrawer
+        can render "Почему этот грабе" without a second round-trip.
+        nil when no matching Decision was found OR the Decision itself
+        carried no intent (pre-091a rows, error decisions).
+      properties:
+        chosen_because:
+          enum:
+          - only_candidate
+          - highest_score
+          - first_pass_quality
+          - watchdog_better_quality
+          - watchdog_better_dub
+          - watchdog_better_other
+          - manual_selection
+          example: highest_score
+          type: string
+        chosen_reason_detail:
+          example: score 88 vs alternates 64, 71
+          type: string
+        had_episodes:
+          example:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+          - 9
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        target_episodes:
+          example:
+          - 10
+          - 11
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
       type: object
     dto.DecisionList:
       properties:
@@ -243,6 +293,8 @@ components:
         instance:
           example: alpha
           type: string
+        intent:
+          $ref: '#/components/schemas/dto.DecisionIntent'
         parsed:
           $ref: '#/components/schemas/dto.GrabParsed'
         parsed_at:

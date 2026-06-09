@@ -226,6 +226,10 @@ func (r *fakeDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error {
 	return nil
 }
 
+func (r *fakeDecRepo) UpdateIntent(context.Context, uuid.UUID, *decision.Intent) error {
+	return nil
+}
+
 type fakeCDRepo struct {
 	mu     sync.Mutex
 	sets   []cooldown.Cooldown

@@ -284,6 +284,50 @@ func TestAuditHandler_GetDecision_Found(t *testing.T) {
 	assert.Equal(t, float64(100), body["series_id"])
 	assert.Equal(t, float64(3), body["season_number"])
 	assert.Equal(t, "skip", body["decision"])
+	// 091a / F-P2-2: skip-path decisions carry no intent. The DTO
+	// emits null (omitempty + nil pointer drops the key entirely).
+	_, hasIntent := body["intent"]
+	assert.False(t, hasIntent, "skip decisions must omit intent from wire")
+}
+
+// TestAuditHandler_GetDecision_ReturnsIntent — 091a / F-P2-2: a
+// decision row carrying Intent surfaces it on GET /decisions/:id with
+// the right fields and chosen_because string.
+func TestAuditHandler_GetDecision_ReturnsIntent(t *testing.T) {
+	f := newAuditFixture(t, false)
+	scanRun := uuid.New()
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	d := decision.New(scanRun, "main", "Hijack", 100, 3)
+	d.Outcome = decision.OutcomeGrab
+	d.Reason = decision.ReasonGrabSelectedDryRun
+	d.DryRunWouldGrab = true
+	intent := decision.NewIntent(
+		[]int{10, 11}, []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+		decision.ChosenBecauseHighestScore,
+		"score 88 vs alternates 64",
+	)
+	d.Intent = &intent
+	d.CreatedAt = base
+	require.NoError(t, f.decs.Save(context.Background(), d))
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions/"+d.ID.String())
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	raw, ok := body["intent"].(map[string]any)
+	require.True(t, ok, "intent must be a JSON object")
+	assert.Equal(t, "highest_score", raw["chosen_because"])
+	assert.Equal(t, "score 88 vs alternates 64", raw["chosen_reason_detail"])
+
+	targets, ok := raw["target_episodes"].([]any)
+	require.True(t, ok)
+	require.Len(t, targets, 2)
+	assert.Equal(t, float64(10), targets[0])
+	assert.Equal(t, float64(11), targets[1])
+	had, ok := raw["had_episodes"].([]any)
+	require.True(t, ok)
+	assert.Len(t, had, 9)
 }
 
 func TestAuditHandler_GetDecision_NotFound(t *testing.T) {

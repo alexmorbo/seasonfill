@@ -93,12 +93,18 @@ type UseCase struct {
 	cooldowns   ports.CooldownRepository
 	blacklist   ports.WatchdogBlacklistRepository
 	counter     ports.NoBetterCounterRepository
-	evaluate    EvaluateExecutor
-	grabExec    GrabExecutor
-	metrics     Metrics
-	state       *RuntimeStateStore
-	logger      *slog.Logger
-	now         func() time.Time
+	// decisions is the optional DecisionRepository used to refine
+	// the watchdog Intent payload post-Execute (091a / F-P2-2). When
+	// nil, the placeholder ChosenBecauseWatchdogBetterOther sticks
+	// — frontend still renders something useful (the parent grab id
+	// in the detail string).
+	decisions ports.DecisionRepository
+	evaluate  EvaluateExecutor
+	grabExec  GrabExecutor
+	metrics   Metrics
+	state     *RuntimeStateStore
+	logger    *slog.Logger
+	now       func() time.Time
 }
 
 // NewUseCase wires the regrab orchestrator. logger=nil → slog.Default().
@@ -154,6 +160,15 @@ func (u *UseCase) WithClock(f func() time.Time) *UseCase {
 	if f != nil {
 		u.now = f
 	}
+	return u
+}
+
+// WithDecisions wires the DecisionRepository so the watchdog Intent
+// payload can be refined post-Execute (091a / F-P2-2). Optional —
+// when unset, the watchdog placeholder stays on every replay
+// decision row.
+func (u *UseCase) WithDecisions(d ports.DecisionRepository) *UseCase {
+	u.decisions = d
 	return u
 }
 
@@ -441,30 +456,116 @@ func (u *UseCase) runEvaluator(ctx context.Context, inst scan.Instance, origGrab
 		Episodes:  episodes,
 	}
 
+	// 091a / F-P2-2: stamp the watchdog intent on the persisted
+	// Decision row. We pre-seed ChosenBecauseWatchdogBetterOther so
+	// the row is never devoid of context — the post-Execute refine
+	// step below replaces it with ChosenBecauseWatchdogBetterQuality
+	// when the selected release's quality is plainly higher than the
+	// original's. Dub axis is left to the frontend's at-read-time
+	// derivation (DeriveReplayKind on the grab pair) because both
+	// sides need Parsed data which isn't on the candidate yet.
+	// Detail carries the parent grab id so an operator drilling into
+	// the Decision can hop straight to the parent in audit.
+	intentDetail := fmt.Sprintf("Watchdog re-grab of grab_%s", origGrab.ID.String())
+
 	// Detached writeCtx for the evaluator persist path — D60 pattern.
 	// The request ctx may be cancelled mid-iteration; the evaluator's
 	// decision row MUST still land.
 	runCtx := logger.WithTraceID(context.Background(), origGrab.ID.String())
 	d, err := u.evaluate.Execute(runCtx, evaluate.Input{
-		ScanRunID:            uuid.New(), // synthetic — re-grab has no parent scan
-		Instance:             origGrab.InstanceName,
-		Sonarr:               inst.Client,
-		Series:               seriesRow,
-		Season:               season,
-		Profile:              profile,
-		MinCustomFormatScore: inst.Config.Search.MinCustomFormatScore,
-		RequireAllAired:      inst.Config.Search.RequireAllAired,
-		SkipSpecials:         inst.Config.Search.SkipSpecials,
-		SkipAnime:            inst.Config.Search.SkipAnime,
-		DryRun:               false,
-		Now:                  u.now(),
-		IgnoreCooldown:       false,
-		PreferredDecisionID:  nil,
+		ScanRunID:             uuid.New(), // synthetic — re-grab has no parent scan
+		Instance:              origGrab.InstanceName,
+		Sonarr:                inst.Client,
+		Series:                seriesRow,
+		Season:                season,
+		Profile:               profile,
+		MinCustomFormatScore:  inst.Config.Search.MinCustomFormatScore,
+		RequireAllAired:       inst.Config.Search.RequireAllAired,
+		SkipSpecials:          inst.Config.Search.SkipSpecials,
+		SkipAnime:             inst.Config.Search.SkipAnime,
+		DryRun:                false,
+		Now:                   u.now(),
+		IgnoreCooldown:        false,
+		PreferredDecisionID:   nil,
+		IntentBecauseOverride: decision.ChosenBecauseWatchdogBetterOther,
+		IntentDetailOverride:  intentDetail,
 	})
 	if err != nil {
 		return OutcomeError, d, err
 	}
+
+	// 091a / F-P2-2: post-Execute refinement. When the evaluator
+	// picked a release whose Quality string outranks the original
+	// grab's, promote ChosenBecauseWatchdogBetterOther →
+	// ChosenBecauseWatchdogBetterQuality and rewrite the intent row.
+	// The original placeholder stays on rows where the comparison
+	// can't be made (no Selected, equal/unknown quality, no original
+	// Quality on file). u.decisions is optional — no-op when unwired.
+	if u.decisions != nil {
+		if refined, ok := refineWatchdogIntent(d, origGrab); ok {
+			if uerr := u.decisions.UpdateIntent(runCtx, d.ID, refined); uerr != nil {
+				u.logger.WarnContext(runCtx, "regrab_intent_refine_failed",
+					slog.String("decision_id", d.ID.String()),
+					slog.String("error", uerr.Error()))
+			} else {
+				d.Intent = refined
+			}
+		}
+	}
+
 	return classifyOutcome(d), d, nil
+}
+
+// refineWatchdogIntent inspects the just-decided Decision against
+// the original grab record and reports a refined Intent payload when
+// the quality axis is plainly higher. Returns (nil, false) when no
+// refinement is warranted (missing data, equal quality, downgrade).
+// 091a / F-P2-2.
+func refineWatchdogIntent(d decision.Decision, origGrab domaingrab.Record) (*decision.Intent, bool) {
+	if d.Outcome != decision.OutcomeGrab || d.Selected == nil || d.Intent == nil {
+		return nil, false
+	}
+	newQ := d.Selected.Release.QualityName
+	oldQ := origGrab.Quality
+	if newQ == "" || oldQ == "" {
+		return nil, false
+	}
+	newRank := watchdogQualityRank(newQ)
+	oldRank := watchdogQualityRank(oldQ)
+	if newRank <= oldRank {
+		return nil, false
+	}
+	refined := *d.Intent
+	refined.ChosenBecause = decision.ChosenBecauseWatchdogBetterQuality
+	refined.ChosenReasonDetail = fmt.Sprintf("%s beats %s (watchdog re-grab of grab_%s)",
+		newQ, oldQ, origGrab.ID.String())
+	return &refined, true
+}
+
+// watchdogQualityRank assigns a numeric resolution rank from a Sonarr
+// QualityName string. Matches the read-side derivation in
+// domain/grab.qualityRank so the decide-time refine and the
+// read-time replay_kind classifier agree on the ordering.
+// Unknown / SD / blank → 0. 091a / F-P2-2.
+func watchdogQualityRank(q string) int {
+	lc := strings.ToLower(q)
+	switch {
+	case strings.Contains(lc, "2160p"), strings.Contains(lc, "4k"), strings.Contains(lc, "uhd"):
+		return 7
+	case strings.Contains(lc, "1440p"):
+		return 6
+	case strings.Contains(lc, "1080p"):
+		return 5
+	case strings.Contains(lc, "720p"):
+		return 4
+	case strings.Contains(lc, "576p"):
+		return 3
+	case strings.Contains(lc, "480p"):
+		return 2
+	case strings.Contains(lc, "sd"):
+		return 1
+	}
+	return 0
 }
 
 // classifyOutcome maps a decision.Decision into the regrab OutcomeReason

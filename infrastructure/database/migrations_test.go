@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 092 / F-P2-4: latest migration is 000020_decisions_error_detail_widen.
-	assert.Equal(t, 20, version)
+	// 091a / F-P2-2: latest migration is 000021_decisions_intent.
+	assert.Equal(t, 21, version)
 	assert.False(t, dirty)
 }
 
@@ -210,6 +210,24 @@ func TestMigrationFilesHaveDownSibling(t *testing.T) {
 			assert.True(t, ups[prefix], "missing %s", path.Join(dir, prefix+".up.sql"))
 		}
 	}
+}
+
+// TestMigrate_V21_AddsIntentColumn asserts the 091a / F-P2-2 migration
+// adds the `intent` column to the decisions table on SQLite. The
+// Postgres mirror is exercised in CI via the Postgres integration
+// test below.
+func TestMigrate_V21_AddsIntentColumn(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, Migrate(db))
+
+	assert.True(t, db.Migrator().HasColumn(&DecisionModel{}, "intent"),
+		"v21 must add the intent column to decisions")
 }
 
 // TestMigrate_PostgresIntegration runs the full migrate path against a

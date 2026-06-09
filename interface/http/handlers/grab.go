@@ -164,8 +164,12 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	// the row was just inserted with replay_of_id=NULL. Pass nil to
 	// skip the now-required ListReplaysOf fan-out. Parent is nil too;
 	// DeriveReplayKind short-circuits to ReplayKindPrimary which the
-	// DTO omits from wire.
-	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil))
+	// DTO omits from wire. 091a / F-P2-2: intent is also nil here —
+	// the decision row exists (we just GetByID'd it) but loading and
+	// shipping it on this single-row 200 path adds latency for a
+	// drawer field the SPA can re-fetch via GET /decisions/:id. The
+	// frontend treats nil intent here as "fetch on drawer open".
+	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil, nil))
 }
 
 // findExistingGrab returns the first non-terminal row for this

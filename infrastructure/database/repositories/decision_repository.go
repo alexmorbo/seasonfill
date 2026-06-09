@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
@@ -37,6 +38,24 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 			return fmt.Errorf("marshal selected: %w", err)
 		}
 	}
+	var intentJSON []byte
+	if d.Intent != nil {
+		intentJSON, err = json.Marshal(d.Intent)
+		if err != nil {
+			return fmt.Errorf("marshal intent: %w", err)
+		}
+		// 091a / F-P2-2: cap the persisted payload at 4 KiB so a
+		// pathological caller can't bloat the row. Truncating JSON
+		// at a byte boundary breaks parsing on read, but the cap
+		// trips only on absurdly long detail strings; tests assert
+		// well-formed input stays under the limit. Keep the clamp
+		// anyway so the column never grows past expected bounds —
+		// a corrupted Intent on read degrades to nil at the DTO
+		// layer (toDecision handles parse failures gracefully).
+		if len(intentJSON) > errtext.MaxBytes {
+			intentJSON = []byte(errtext.Clamp(string(intentJSON)))
+		}
+	}
 	model := database.DecisionModel{
 		ID:               d.ID.String(),
 		ScanRunID:        d.ScanRunID.String(),
@@ -60,6 +79,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		AiredEpisodes:    d.AiredEpisodes,
 		ExistingEpisodes: d.ExistingEpisodes,
 		GrabbedEpisodes:  d.GrabbedEpisodes,
+		Intent:           intentJSON,
 		CreatedAt:        d.CreatedAt,
 	}
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
@@ -88,6 +108,36 @@ func (r *DecisionRepository) UpdateSupersededBy(ctx context.Context, id, newID u
 		Update("superseded_by_id", &newIDStr)
 	if res.Error != nil {
 		return fmt.Errorf("update superseded_by_id: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// UpdateIntent writes the intent JSON column on an existing decision
+// row. 091a / F-P2-2: regrab use case refines the watchdog placeholder
+// (ChosenBecauseWatchdogBetterOther) into the concrete axis
+// classification once the selected release's quality is in hand. A nil
+// intent persists NULL — useful for rollback paths.
+func (r *DecisionRepository) UpdateIntent(ctx context.Context, id uuid.UUID, intent *decision.Intent) error {
+	var payload []byte
+	if intent != nil {
+		raw, err := json.Marshal(intent)
+		if err != nil {
+			return fmt.Errorf("marshal intent: %w", err)
+		}
+		if len(raw) > errtext.MaxBytes {
+			raw = []byte(errtext.Clamp(string(raw)))
+		}
+		payload = raw
+	}
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.DecisionModel{}).
+		Where("id = ?", id.String()).
+		Update("intent", payload)
+	if res.Error != nil {
+		return fmt.Errorf("update intent: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
 		return ports.ErrNotFound
@@ -185,6 +235,19 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 		}
 		selected = &scored
 	}
+	// 091a / F-P2-2: Intent is best-effort on read. A row whose
+	// `intent` column is NULL or a corrupted partial JSON returns
+	// Intent=nil — the DTO emits `null` and the SPA renders the
+	// "no intent recorded" placeholder. We do NOT fail the whole
+	// decision read on a parse error: the rest of the row is still
+	// useful for the operator.
+	var intent *decision.Intent
+	if len(m.Intent) > 0 {
+		var parsed decision.Intent
+		if err := json.Unmarshal(m.Intent, &parsed); err == nil {
+			intent = &parsed
+		}
+	}
 	return decision.Decision{
 		ID:               id,
 		ScanRunID:        scanRunID,
@@ -207,6 +270,7 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 		AiredEpisodes:    m.AiredEpisodes,
 		ExistingEpisodes: m.ExistingEpisodes,
 		GrabbedEpisodes:  m.GrabbedEpisodes,
+		Intent:           intent,
 		CreatedAt:        m.CreatedAt,
 	}, nil
 }

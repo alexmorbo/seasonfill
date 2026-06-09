@@ -230,6 +230,10 @@ func (abortFakeDecisionRepo) ClearSupersededBy(_ context.Context, _ uuid.UUID) e
 	return nil
 }
 
+func (abortFakeDecisionRepo) UpdateIntent(_ context.Context, _ uuid.UUID, _ *decision.Intent) error {
+	return nil
+}
+
 // abortFakeGrabRepo discards grab records.
 type abortFakeGrabRepo struct{}
 

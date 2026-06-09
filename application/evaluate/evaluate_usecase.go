@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
+	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
@@ -45,6 +47,15 @@ type Input struct {
 	// can wire the supersede pointer before the goroutine writes the
 	// new decision row. nil = use decision.New's default (uuid.New()).
 	PreferredDecisionID *uuid.UUID
+	// IntentBecauseOverride, when non-empty, overrides the
+	// auto-classified ChosenBecause (091a / F-P2-2). The replay
+	// (Watchdog) and manual-grab paths use this to stamp their
+	// reason directly on the persisted Decision row — the evaluator
+	// has no other way to know "this came from a replay" vs a fresh
+	// auto-scan. The free-text amplification rides along in
+	// IntentDetailOverride. Both empty = use the auto classifier.
+	IntentBecauseOverride decision.ChosenBecause
+	IntentDetailOverride  string
 }
 
 type UseCase struct {
@@ -199,6 +210,24 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 	d.Selected = &best
 	observability.ObserveCoverageCount(in.Instance, best.Coverage)
 
+	// 091a / F-P2-2: capture the grab intent — why this candidate
+	// beat its alternatives. Two paths in the auto-scan default:
+	//   - len(scored)==1 → ChosenBecauseOnlyCandidate (no comparison)
+	//   - len(scored)>1  → ChosenBecauseHighestScore + detail string
+	// `had` is the per-episode HaveNumbers() from the same call site
+	// that produced `missing`, so the operator-visible target / had
+	// pair matches the evaluator's view at decide-time. Replay
+	// (Watchdog) and manual paths supply IntentBecauseOverride +
+	// IntentDetailOverride so the persisted row carries their
+	// reason instead of the auto classifier's output.
+	because, detail := classifyAutoIntent(scored)
+	if in.IntentBecauseOverride != "" {
+		because = in.IntentBecauseOverride
+		detail = in.IntentDetailOverride
+	}
+	intent := decision.NewIntent(missing, in.Season.HaveNumbers(), because, detail)
+	d.Intent = &intent
+
 	if in.DryRun {
 		d.Outcome = decision.OutcomeGrab
 		d.Reason = decision.ReasonGrabSelectedDryRun
@@ -211,6 +240,44 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 		d.DryRunWouldGrab = false
 	}
 	return u.finalize(ctx, d, in)
+}
+
+// classifyAutoIntent reports the ChosenBecause + free-text detail for
+// a successful auto-pick (the only path that has multiple candidates
+// to compare). Replay / manual paths supply their own Intent in the
+// caller — this helper is the scan-path default.
+//
+//   - len(scored)==0: defensive nil; Execute never reaches this with
+//     an empty slice (the no-candidates branch returned earlier), so
+//     the empty enum is fine.
+//   - len(scored)==1: ChosenBecauseOnlyCandidate, detail is the lone
+//     CFS so the SPA can render the absolute score even without
+//     comparison.
+//   - len(scored)>=2: ChosenBecauseHighestScore. Detail enumerates
+//     up to 3 alternates' CFS so the operator sees the gap that
+//     drove the pick.
+func classifyAutoIntent(scored []release.Scored) (decision.ChosenBecause, string) {
+	switch len(scored) {
+	case 0:
+		return decision.ChosenBecause(""), ""
+	case 1:
+		return decision.ChosenBecauseOnlyCandidate,
+			fmt.Sprintf("score %d", scored[0].Release.CustomFormatScore)
+	default:
+	}
+	const maxAlternates = 3
+	bestScore := scored[0].Release.CustomFormatScore
+	alts := make([]string, 0, maxAlternates)
+	for i := 1; i < len(scored) && i <= maxAlternates; i++ {
+		alts = append(alts, fmt.Sprintf("%d", scored[i].Release.CustomFormatScore))
+	}
+	more := ""
+	if len(scored)-1 > maxAlternates {
+		more = fmt.Sprintf(" (+%d more)", len(scored)-1-maxAlternates)
+	}
+	detail := fmt.Sprintf("score %d vs alternates %s%s",
+		bestScore, strings.Join(alts, ", "), more)
+	return decision.ChosenBecauseHighestScore, detail
 }
 
 func (u *UseCase) finalize(ctx context.Context, d decision.Decision, in Input) (decision.Decision, error) {

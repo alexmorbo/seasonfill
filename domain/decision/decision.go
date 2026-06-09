@@ -76,7 +76,13 @@ type Decision struct {
 	AiredEpisodes    int
 	ExistingEpisodes int
 	GrabbedEpisodes  int
-	CreatedAt        time.Time
+	// Intent is the F-P2-2 "why this grab" capture (091a). nil on
+	// pre-091a rows AND on paths where the call site couldn't infer
+	// a reason (synthetic skip rows, error rows). The DTO emits
+	// `null` for nil Intent so the frontend treats absent intent as
+	// honest unknown rather than a typed default.
+	Intent    *Intent
+	CreatedAt time.Time
 }
 
 func New(scanRunID uuid.UUID, instance, seriesTitle string, seriesID, season int) Decision {

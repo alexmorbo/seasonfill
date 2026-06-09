@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -96,7 +97,32 @@ func toDecisionDTO(d decision.Decision) dto.Decision {
 		AiredEpisodes:    d.AiredEpisodes,
 		ExistingEpisodes: d.ExistingEpisodes,
 		GrabbedEpisodes:  d.GrabbedEpisodes,
+		Intent:           intentToDTO(d.Intent),
 		CreatedAt:        d.CreatedAt,
+	}
+}
+
+// intentToDTO lifts a *decision.Intent onto a *dto.DecisionIntent.
+// nil in → nil out (DTO emits `null`). Non-nil zero-valued Intent
+// → non-nil DTO with empty arrays + empty strings so the SPA can
+// always indexing without branching on inner nil. 091a / F-P2-2.
+func intentToDTO(i *decision.Intent) *dto.DecisionIntent {
+	if i == nil {
+		return nil
+	}
+	target := i.TargetEpisodes
+	if target == nil {
+		target = []int{}
+	}
+	had := i.HadEpisodes
+	if had == nil {
+		had = []int{}
+	}
+	return &dto.DecisionIntent{
+		TargetEpisodes:     target,
+		HadEpisodes:        had,
+		ChosenBecause:      string(i.ChosenBecause),
+		ChosenReasonDetail: i.ChosenReasonDetail,
 	}
 }
 
@@ -107,7 +133,7 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
-func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record) dto.Grab {
+func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent) dto.Grab {
 	d := dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
@@ -131,6 +157,7 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record) dto.G
 		SizeBytes:         r.SizeBytes,
 		Parsed:            grabParsedToDTO(r.Parsed),
 		ParsedAt:          r.ParsedAt,
+		Intent:            intentToDTO(intent),
 	}
 	if r.ReplayOfID != nil {
 		s := r.ReplayOfID.String()
@@ -454,6 +481,14 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		parents[pid] = p
 	}
 
+	// 091a / F-P2-2: per-page Decision lookup so GrabDrawer can render
+	// the "why this grab" intent without a second round-trip. We key
+	// on the grab's scan_run_id and pick the latest Decision row for
+	// (scan_run_id, instance, series_id, season_number). Best-effort
+	// — a miss (no Decision OR Decision has nil Intent) leaves the
+	// Grab DTO's intent field nil, which the frontend handles.
+	intents := h.collectGrabIntents(ctx, recs)
+
 	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
 		var parent *grab.Record
@@ -462,9 +497,55 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 				parent = &p
 			}
 		}
-		out = append(out, toGrabDTO(r, replays[r.ID], parent))
+		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID]))
 	}
 	writeListResponse(c, out, next)
+}
+
+// collectGrabIntents resolves the per-grab Intent payload for the
+// supplied page of grab records. One Decision lookup per grab keyed
+// on (scan_run_id, instance, series_id, season_number): we use the
+// existing DecisionRepository.List filter API rather than introduce a
+// new bulk endpoint, because the page size is bounded (<=200) and the
+// indexes on (scan_run_id, instance_name, series_id, season_number)
+// already make each lookup an index seek. Misses are logged at WARN
+// and the offending grab degrades to no-intent (UI placeholder).
+//
+// 091a / F-P2-2.
+func (h *AuditHandler) collectGrabIntents(ctx context.Context, recs []grab.Record) map[uuid.UUID]*decision.Intent {
+	out := make(map[uuid.UUID]*decision.Intent, len(recs))
+	if h.decisions == nil {
+		return out
+	}
+	for _, r := range recs {
+		// Empty scan_run_id is impossible for a real row (always
+		// uuid.New on Create), but defend against test fixtures.
+		if r.ScanRunID == uuid.Nil {
+			continue
+		}
+		scanID := r.ScanRunID
+		inst := r.InstanceName
+		sid := r.SeriesID
+		season := r.SeasonNumber
+		decs, _, err := h.decisions.List(ctx, ports.DecisionFilter{
+			ScanRunID:    &scanID,
+			Instance:     &inst,
+			SeriesID:     &sid,
+			SeasonNumber: &season,
+		}, ports.Pagination{Limit: 1})
+		if err != nil {
+			h.logger.WarnContext(ctx, "audit_list_grabs_intent_lookup_failed",
+				slog.String("grab_id", r.ID.String()),
+				slog.String("scan_run_id", scanID.String()),
+				slog.String("error", err.Error()))
+			continue
+		}
+		if len(decs) == 0 {
+			continue
+		}
+		out[r.ID] = decs[0].Intent
+	}
+	return out
 }
 
 // grabParsedToDTO lifts a *grab.Parsed onto a *dto.GrabParsed. nil in →

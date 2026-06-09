@@ -105,6 +105,10 @@ func (noopDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) err
 
 func (noopDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
 
+func (noopDecRepo) UpdateIntent(context.Context, uuid.UUID, *decision.Intent) error {
+	return nil
+}
+
 type noopGrabRepo struct{}
 
 func (noopGrabRepo) Create(context.Context, grab.Record) error { return nil }

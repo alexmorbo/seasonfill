@@ -76,6 +76,9 @@ func (f *rescanFakeDec) ClearSupersededBy(_ context.Context, id uuid.UUID) error
 func (f *rescanFakeDec) List(context.Context, ports.DecisionFilter, ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	return nil, nil, nil
 }
+func (f *rescanFakeDec) UpdateIntent(context.Context, uuid.UUID, *decision.Intent) error {
+	return nil
+}
 
 type rescanFakeGrab struct {
 	mu     sync.Mutex

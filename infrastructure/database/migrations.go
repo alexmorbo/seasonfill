@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 20
+	latestVersion   = 21
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -159,6 +159,18 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV19 {
 		version = 19
+	}
+	// 091a / F-P2-2: Detect v21 by checking for intent on decisions.
+	// v20 (error_detail widen) cannot be detected via columnExists because
+	// the type change leaves the column name unchanged, so the prior
+	// v19 stamp covers both v19 and v20 — v20 will be reapplied as a
+	// no-op widen on legacy DBs, which is intentional.
+	hasV21, err := columnExists(ctx, sqlDB, dialect, "decisions", "intent")
+	if err != nil {
+		return err
+	}
+	if hasV21 {
+		version = 21
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {

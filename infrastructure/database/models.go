@@ -60,11 +60,17 @@ type DecisionModel struct {
 	// status=imported) so the value stays pinned to the scan that
 	// produced the decision and historic decisions don't shift under
 	// future grabs.
-	TotalEpisodes    int       `gorm:"not null;default:0;column:total_episodes"`
-	AiredEpisodes    int       `gorm:"not null;default:0;column:aired_episodes"`
-	ExistingEpisodes int       `gorm:"not null;default:0;column:existing_episodes"`
-	GrabbedEpisodes  int       `gorm:"not null;default:0;column:grabbed_episodes"`
-	CreatedAt        time.Time `gorm:"index:idx_decisions_created_at_id,priority:1"`
+	TotalEpisodes    int `gorm:"not null;default:0;column:total_episodes"`
+	AiredEpisodes    int `gorm:"not null;default:0;column:aired_episodes"`
+	ExistingEpisodes int `gorm:"not null;default:0;column:existing_episodes"`
+	GrabbedEpisodes  int `gorm:"not null;default:0;column:grabbed_episodes"`
+	// Intent carries the F-P2-2 "why this grab" payload (091a). The
+	// column is `jsonb` on Postgres and `text` on SQLite (see
+	// migration 000021). Both backends accept a JSON document and
+	// the GORM datatypes.JSON column handles the read/write transcode.
+	// Nullable on purpose — pre-091a rows have no intent.
+	Intent    datatypes.JSON `gorm:"column:intent"`
+	CreatedAt time.Time      `gorm:"index:idx_decisions_created_at_id,priority:1"`
 }
 
 func (DecisionModel) TableName() string { return "decisions" }

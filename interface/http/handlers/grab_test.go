@@ -61,6 +61,10 @@ func (f *fakeDecRepo) UpdateSupersededBy(context.Context, uuid.UUID, uuid.UUID) 
 
 func (f *fakeDecRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
 
+func (f *fakeDecRepo) UpdateIntent(context.Context, uuid.UUID, *decision.Intent) error {
+	return nil
+}
+
 type fakeGrabRepo struct {
 	mu     sync.Mutex
 	stored []grab.Record

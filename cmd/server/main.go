@@ -385,7 +385,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		grabRepo, cooldownRepo, blacklistRepo, noBetterCounterRepo,
 		evaluator, grabUC,
 		log,
-	).WithMetrics(observability.WatchdogMetricsAdapter{})
+	).WithMetrics(observability.WatchdogMetricsAdapter{}).
+		WithDecisions(decisionRepo)
 
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
 	// is called from the OnApplied fanout below.

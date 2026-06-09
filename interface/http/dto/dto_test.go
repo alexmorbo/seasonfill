@@ -149,3 +149,33 @@ func TestSeriesSearchList_PreservesItemsKey(t *testing.T) {
 	assert.Contains(t, string(raw), `"items":[]`)
 	assert.Contains(t, string(raw), `"total":0`)
 }
+
+// 091a / F-P2-2 — DecisionIntent shape round-trips byte-equal.
+func TestDecisionIntent_WireFormat(t *testing.T) {
+	t.Parallel()
+	in := DecisionIntent{
+		TargetEpisodes:     []int{10, 11},
+		HadEpisodes:        []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+		ChosenBecause:      "highest_score",
+		ChosenReasonDetail: "score 88 vs alternates 64, 71",
+	}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"target_episodes":[10,11],"had_episodes":[1,2,3,4,5,6,7,8,9],`+
+			`"chosen_because":"highest_score","chosen_reason_detail":"score 88 vs alternates 64, 71"}`,
+		string(raw))
+	var out DecisionIntent
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, in, out)
+}
+
+// 091a — Decision DTO with nil Intent must omit the key from the wire
+// (pointer + omitempty). Frontend depends on null vs missing.
+func TestDecision_OmitsIntentWhenNil(t *testing.T) {
+	t.Parallel()
+	in := Decision{ID: "x", Decision: "skip"}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "intent")
+}

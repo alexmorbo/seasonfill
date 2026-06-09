@@ -129,28 +129,49 @@ type Scan struct {
 // per-season statistics block. Pre-046a rows render with all four new
 // fields = 0 — the UI treats 0 as "unknown" (em-dash placeholder).
 type Decision struct {
-	ID               string    `json:"id"               example:"dec_001"`
-	ScanRunID        string    `json:"scan_run_id"`
-	Instance         string    `json:"instance"         example:"alpha"`
-	SeriesID         int       `json:"series_id"`
-	SeriesTitle      string    `json:"series_title"     example:"Severance"`
-	SeasonNumber     int       `json:"season_number"`
-	Decision         string    `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
-	Reason           string    `json:"reason"           example:"upgrade_available"`
-	Category         string    `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
-	MissingCount     int       `json:"missing_count"`
-	ExistingCount    int       `json:"existing_count"`
-	ReleasesFound    int       `json:"releases_found"`
-	CandidatesCount  int       `json:"candidates_count"`
-	SelectedGUID     string    `json:"selected_guid,omitempty"`
-	DryRunWouldGrab  bool      `json:"dry_run_would_grab"`
-	ErrorDetail      string    `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
-	SupersededByID   string    `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
-	TotalEpisodes    int       `json:"total_episodes"    example:"10"`
-	AiredEpisodes    int       `json:"aired_episodes"    example:"8"`
-	ExistingEpisodes int       `json:"existing_episodes" example:"3"`
-	GrabbedEpisodes  int       `json:"grabbed_episodes"  example:"5"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               string `json:"id"               example:"dec_001"`
+	ScanRunID        string `json:"scan_run_id"`
+	Instance         string `json:"instance"         example:"alpha"`
+	SeriesID         int    `json:"series_id"`
+	SeriesTitle      string `json:"series_title"     example:"Severance"`
+	SeasonNumber     int    `json:"season_number"`
+	Decision         string `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
+	Reason           string `json:"reason"           example:"upgrade_available"`
+	Category         string `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
+	MissingCount     int    `json:"missing_count"`
+	ExistingCount    int    `json:"existing_count"`
+	ReleasesFound    int    `json:"releases_found"`
+	CandidatesCount  int    `json:"candidates_count"`
+	SelectedGUID     string `json:"selected_guid,omitempty"`
+	DryRunWouldGrab  bool   `json:"dry_run_would_grab"`
+	ErrorDetail      string `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
+	SupersededByID   string `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
+	TotalEpisodes    int    `json:"total_episodes"    example:"10"`
+	AiredEpisodes    int    `json:"aired_episodes"    example:"8"`
+	ExistingEpisodes int    `json:"existing_episodes" example:"3"`
+	GrabbedEpisodes  int    `json:"grabbed_episodes"  example:"5"`
+	// Intent — the F-P2-2 "why this grab" capture (091a). nil for
+	// pre-091a rows AND for any decision path that couldn't infer a
+	// reason (synthetic skip rows, error rows). Frontend GrabDrawer
+	// renders a localised label for chosen_because and the raw
+	// chosen_reason_detail string underneath. Always present as a
+	// JSON key on the wire (null vs object), per omitempty/pointer
+	// semantics, so the SPA can branch on `null` directly.
+	Intent    *DecisionIntent `json:"intent,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// DecisionIntent is the wire shape of the F-P2-2 "why this grab"
+// capture. Mirrors domain/decision.Intent verbatim. Slices are
+// always emitted as JSON arrays (never null) so the SPA can
+// `intent.target_episodes.map(...)` without branching on null.
+// chosen_because stays a free-form string on the wire so adding a
+// new enum value is an additive change.
+type DecisionIntent struct {
+	TargetEpisodes     []int  `json:"target_episodes"             example:"10,11"`
+	HadEpisodes        []int  `json:"had_episodes"                example:"1,2,3,4,5,6,7,8,9"`
+	ChosenBecause      string `json:"chosen_because"              example:"highest_score" enums:"only_candidate,highest_score,first_pass_quality,watchdog_better_quality,watchdog_better_dub,watchdog_better_other,manual_selection"`
+	ChosenReasonDetail string `json:"chosen_reason_detail"        example:"score 88 vs alternates 64, 71"`
 }
 
 // Grab — one grab_records row.
@@ -209,6 +230,14 @@ type Grab struct {
 	// title. Always emitted alongside a non-null Parsed; omitted when
 	// Parsed is null.
 	ParsedAt *time.Time `json:"parsed_at,omitempty"`
+	// Intent surfaces the "why this grab" payload from the Decision
+	// row that produced this grab (091a / F-P2-2). The audit handler
+	// resolves the Decision lazily by (scan_run_id, instance, series,
+	// season) at read time and copies the Intent here so GrabDrawer
+	// can render "Почему этот грабе" without a second round-trip.
+	// nil when no matching Decision was found OR the Decision itself
+	// carried no intent (pre-091a rows, error decisions).
+	Intent *DecisionIntent `json:"intent,omitempty"`
 }
 
 // GrabParsed is the Sonarr-parsed release metadata block exposed on

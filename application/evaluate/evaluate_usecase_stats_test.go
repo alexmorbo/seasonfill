@@ -37,6 +37,9 @@ func (r *recordingDecisionRepo) UpdateSupersededBy(context.Context, uuid.UUID, u
 	return nil
 }
 func (r *recordingDecisionRepo) ClearSupersededBy(context.Context, uuid.UUID) error { return nil }
+func (r *recordingDecisionRepo) UpdateIntent(context.Context, uuid.UUID, *decision.Intent) error {
+	return nil
+}
 
 // stubGrabRepo returns a configurable CountImportedEpisodes value and
 // records the (instance, series, season) tuple it was queried with.
