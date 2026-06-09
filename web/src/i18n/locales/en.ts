@@ -138,6 +138,7 @@ export const en = {
     scans: 'Scans',
     decisions: 'Decisions',
     grabs: 'Grabs',
+    queue: 'Queue',
     settings: 'Settings',
     logout: 'Logout',
     changePassword: 'Change password',

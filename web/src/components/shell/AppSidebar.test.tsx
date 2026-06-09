@@ -3,7 +3,9 @@ import { screen } from "@testing-library/react"
 
 import { renderWithProviders } from "@/test-utils"
 import { AppSidebar } from "./AppSidebar"
+import { InstanceFilterCtx } from "@/lib/instance-filter-context-internal"
 import * as auth from "@/lib/auth"
+import * as instances from "@/lib/instances"
 
 vi.mock("@/lib/api/webhookStatus", () => ({
   useWebhookStatusAggregate: vi.fn(),
@@ -13,6 +15,14 @@ vi.mock("./InstanceSwitcher", () => ({
 }))
 import { useWebhookStatusAggregate } from "@/lib/api/webhookStatus"
 const useWh = vi.mocked(useWebhookStatusAggregate)
+
+function wrapWithFilter(node: React.ReactElement, filter: string | null) {
+  return (
+    <InstanceFilterCtx.Provider value={{ filter, setFilter: vi.fn() }}>
+      {node}
+    </InstanceFilterCtx.Provider>
+  )
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ok = <T,>(d: T) => ({ data: d, isPending: false, isError: false } as any)
@@ -30,6 +40,11 @@ beforeEach(() => {
     isError: false,
     error: null,
   } as unknown as ReturnType<typeof auth.useSession>)
+  vi.spyOn(instances, "useInstances").mockReturnValue({
+    data: { instances: [{ name: "homelab", mode: "auto", health: "available" }] },
+    isPending: false,
+    isError: false,
+  } as unknown as ReturnType<typeof instances.useInstances>)
 })
 
 describe("<AppSidebar /> webhook count", () => {
@@ -44,7 +59,7 @@ describe("<AppSidebar /> webhook count", () => {
         unhealthy_count: 0,
       }),
     )
-    renderWithProviders(<AppSidebar />)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
     const badge = screen.getByTestId("sidebar-webhook-ok")
     expect(badge).toBeInTheDocument()
     expect(badge.textContent).toMatch(/2/)
@@ -63,7 +78,7 @@ describe("<AppSidebar /> webhook count", () => {
         unhealthy_count: 2,
       }),
     )
-    renderWithProviders(<AppSidebar />)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
     const badge = screen.getByTestId("sidebar-webhook-warn")
     expect(badge).toBeInTheDocument()
     expect(badge.textContent).toMatch(/2/)
@@ -73,23 +88,52 @@ describe("<AppSidebar /> webhook count", () => {
 
   it("renders nothing when there are no items", () => {
     useWh.mockReturnValue(ok({ items: [], healthy_count: 0, unhealthy_count: 0 }))
-    renderWithProviders(<AppSidebar />)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
     expect(screen.queryByTestId("sidebar-webhook-ok")).toBeNull()
     expect(screen.queryByTestId("sidebar-webhook-warn")).toBeNull()
   })
 
   it("renders nothing while pending", () => {
     useWh.mockReturnValue(pending())
-    renderWithProviders(<AppSidebar />)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
     expect(screen.queryByTestId("sidebar-webhook-ok")).toBeNull()
     expect(screen.queryByTestId("sidebar-webhook-warn")).toBeNull()
   })
 
   it("renders nothing on error (no placeholder leftover)", () => {
     useWh.mockReturnValue(err())
-    renderWithProviders(<AppSidebar />)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
     expect(screen.queryByTestId("sidebar-webhook-ok")).toBeNull()
     expect(screen.queryByTestId("sidebar-webhook-warn")).toBeNull()
     expect(screen.queryByText(/—/)).toBeNull()
+  })
+})
+
+describe("<AppSidebar /> queue nav entry", () => {
+  beforeEach(() => {
+    useWh.mockReturnValue(ok({ items: [], healthy_count: 0, unhealthy_count: 0 }))
+  })
+
+  it("renders a Queue link pointing at the active instance", () => {
+    renderWithProviders(wrapWithFilter(<AppSidebar />, "homelab"))
+    const link = screen.getByRole("link", { name: /queue/i })
+    expect(link).toHaveAttribute("href", "/instances/homelab/queue")
+  })
+
+  it("falls back to the first instance when no filter is set", () => {
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
+    const link = screen.getByRole("link", { name: /queue/i })
+    expect(link).toHaveAttribute("href", "/instances/homelab/queue")
+  })
+
+  it("falls back to /instances when no instances exist at all", () => {
+    vi.spyOn(instances, "useInstances").mockReturnValue({
+      data: { instances: [] },
+      isPending: false,
+      isError: false,
+    } as unknown as ReturnType<typeof instances.useInstances>)
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
+    const link = screen.getByRole("link", { name: /queue/i })
+    expect(link).toHaveAttribute("href", "/instances")
   })
 })

@@ -154,7 +154,7 @@ export function InstanceQueue() {
         </Alert>
       )}
 
-      {!missing.isError && (
+      {!missing.isError && !missing.isPending && (
         <QueueStatsStrip
           backlogCount={totalBacklog}
           missingEpisodes={totalEpisodes}
@@ -163,7 +163,7 @@ export function InstanceQueue() {
       )}
 
       {!missing.isError && missing.isPending && (
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2.5" data-testid="queue-loading">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[100px] w-full rounded-lg" />
           ))}

@@ -140,6 +140,7 @@ export const ru: Translations = {
     scans: 'Сканы',
     decisions: 'Решения',
     grabs: 'Захваты',
+    queue: 'Очередь',
     settings: 'Настройки',
     logout: 'Выйти',
     changePassword: 'Сменить пароль',

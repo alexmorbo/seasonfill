@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom"
+import { NavLink, useLocation } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
   LayoutDashboard,
@@ -12,6 +12,7 @@ import {
   TriangleAlert,
   Check,
   ChevronDown,
+  ListChecks,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -19,6 +20,8 @@ import { useSession } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useWebhookStatusAggregate } from "@/lib/api/webhookStatus"
+import { useInstanceFilter } from "@/lib/instance-filter-context-internal"
+import { useInstances } from "@/lib/instances"
 import { InstanceSwitcher } from "./InstanceSwitcher"
 
 type Item = {
@@ -26,49 +29,71 @@ type Item = {
   end?: boolean
   icon: ComponentType<{ className?: string }>
   key: string
+  // Optional override of the active-route check. Used by /instances/:name/queue
+  // where router pattern matching against a literal `to` would never trigger.
+  matchPathname?: (pathname: string) => boolean
 }
 
 const OVERVIEW: Item[] = [
   { to: "/", end: true, icon: LayoutDashboard, key: "dashboard" },
   { to: "/series", icon: Library, key: "series" },
 ]
-const ACTIVITY: Item[] = [
-  { to: "/scans", icon: Radar, key: "scans" },
-  { to: "/decisions", icon: GitBranch, key: "decisions" },
-  { to: "/grabs", icon: Download, key: "grabs" },
-  { to: "/watchdog", icon: Shield, key: "watchdog" },
-]
 const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },
   { to: "/settings", icon: SettingsIcon, key: "settings" },
 ]
 
+function useActivityItems(): Item[] {
+  const { filter } = useInstanceFilter()
+  const { data } = useInstances()
+  const list = data?.instances ?? []
+  const active = list.find((i) => i.name === filter)?.name ?? list[0]?.name
+  const queueTo = active ? `/instances/${active}/queue` : "/instances"
+  return [
+    { to: "/scans", icon: Radar, key: "scans" },
+    { to: "/decisions", icon: GitBranch, key: "decisions" },
+    { to: "/grabs", icon: Download, key: "grabs" },
+    {
+      to: queueTo,
+      icon: ListChecks,
+      key: "queue",
+      matchPathname: (p) => /^\/instances\/[^/]+\/queue$/.test(p),
+    },
+    { to: "/watchdog", icon: Shield, key: "watchdog" },
+  ]
+}
+
 function NavGroup({ label, items }: { label: string; items: Item[] }) {
   const { t } = useTranslation()
+  const { pathname } = useLocation()
   return (
     <div className="mt-3.5">
       <div className="px-2 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-tx-faint">
         {label}
       </div>
-      {items.map((it) => (
-        <NavLink
-          key={it.key}
-          to={it.to}
-          end={it.end ?? false}
-          className={({ isActive }) =>
-            cn(
-              "relative flex items-center gap-2.5 px-2 py-1.5 mb-px rounded-md",
-              "text-[13.5px] text-tx-secondary",
-              "hover:bg-bg-surface hover:text-tx-primary",
-              isActive &&
-                "bg-bg-surface-2 text-tx-primary font-medium before:content-[''] before:absolute before:left-[-8px] before:top-[7px] before:bottom-[7px] before:w-[2.5px] before:rounded-sm before:bg-accent [&>svg]:text-accent",
-            )
-          }
-        >
-          <it.icon className="w-4 h-4 shrink-0 text-tx-muted" />
-          <span>{t(`nav.${it.key}`)}</span>
-        </NavLink>
-      ))}
+      {items.map((it) => {
+        const customActive = it.matchPathname?.(pathname)
+        return (
+          <NavLink
+            key={it.key}
+            to={it.to}
+            end={it.end ?? false}
+            className={({ isActive }) => {
+              const active = customActive ?? isActive
+              return cn(
+                "relative flex items-center gap-2.5 px-2 py-1.5 mb-px rounded-md",
+                "text-[13.5px] text-tx-secondary",
+                "hover:bg-bg-surface hover:text-tx-primary",
+                active &&
+                  "bg-bg-surface-2 text-tx-primary font-medium before:content-[''] before:absolute before:left-[-8px] before:top-[7px] before:bottom-[7px] before:w-[2.5px] before:rounded-sm before:bg-accent [&>svg]:text-accent",
+              )
+            }}
+          >
+            <it.icon className="w-4 h-4 shrink-0 text-tx-muted" />
+            <span>{t(`nav.${it.key}`)}</span>
+          </NavLink>
+        )
+      })}
     </div>
   )
 }
@@ -110,6 +135,7 @@ export function AppSidebar() {
   const { data: session } = useSession()
   const username = session?.username ?? "—"
   const initial = (username[0] ?? "?").toUpperCase()
+  const activity = useActivityItems()
 
   return (
     <aside className="bg-bg-base border-r border-border-faint flex flex-col min-h-0">
@@ -135,7 +161,7 @@ export function AppSidebar() {
 
       <nav className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
         <NavGroup label={t("nav.groups.overview")} items={OVERVIEW} />
-        <NavGroup label={t("nav.groups.activity")} items={ACTIVITY} />
+        <NavGroup label={t("nav.groups.activity")} items={activity} />
         <NavGroup label={t("nav.groups.setup")} items={SETUP} />
       </nav>
 

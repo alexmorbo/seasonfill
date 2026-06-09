@@ -23,7 +23,7 @@ type Captured = {
 };
 
 function fetchStub(
-  perPath: Record<string, (init?: RequestInit) => Response>,
+  perPath: Record<string, (init?: RequestInit) => Response | Promise<Response>>,
   captured: Captured = {},
 ) {
   captured.urls ??= []; captured.methods ??= []; captured.bodies ??= [];
@@ -95,6 +95,59 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(
       await screen.findByText(/no backlog/i),
     ).toBeInTheDocument();
+  });
+
+  it('hides the stats strip while loading so 0/0 placeholders never show', async () => {
+    let resolveMissing: ((r: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      resolveMissing = resolve;
+    });
+    globalThis.fetch = fetchStub({
+      '/instances/alpha/missing': () => pending,
+      '/instances': () =>
+        json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
+    }) as typeof fetch;
+
+    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
+    // While the request is in flight: skeletons visible, stats strip hidden.
+    expect(await screen.findByTestId('queue-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('queue-stats')).not.toBeInTheDocument();
+    // Resolve the request — stats strip materialises with the real numbers.
+    resolveMissing?.(json({ items: [missingSeverance, missingAndor], total: 2 }));
+    expect(await screen.findByTestId('queue-stats')).toBeInTheDocument();
+    expect(screen.getByText('11')).toBeInTheDocument();
+  });
+
+  it('renders rows from a live-shaped response with 111 items + counters', async () => {
+    // Synthetic large payload modelled on the live /missing response so the
+    // page can never silently regress to "0 series / 0 episodes" when the
+    // backend does return data.
+    const items = Array.from({ length: 111 }).map((_, i) => ({
+      series_id: 1000 + i,
+      title: `Show ${i}`,
+      title_slug: `show-${i}`,
+      year: 2010 + (i % 15),
+      monitored: true,
+      total_missing_aired: (i % 7) + 1,
+      seasons: [
+        { season_number: 1, missing_aired_count: (i % 7) + 1 },
+      ],
+    }));
+    const totalEpisodes = items.reduce((a, s) => a + s.total_missing_aired, 0);
+
+    globalThis.fetch = fetchStub({
+      '/instances/alpha/missing': () =>
+        json({ items, total: items.length }),
+      '/instances': () =>
+        json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
+    }) as typeof fetch;
+
+    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
+    expect(await screen.findByText('Show 0')).toBeInTheDocument();
+    const list = await screen.findByTestId('queue-list');
+    expect(list.children.length).toBe(items.length);
+    expect(screen.getByText(String(items.length))).toBeInTheDocument();
+    expect(screen.getByText(totalEpisodes.toLocaleString())).toBeInTheDocument();
   });
 
   it('renders rows with title + season chips and stats strip', async () => {
