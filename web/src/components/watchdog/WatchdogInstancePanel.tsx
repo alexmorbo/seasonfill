@@ -23,29 +23,30 @@ export function WatchdogInstancePanel({
 }: WatchdogInstancePanelProps) {
   const { t } = useTranslation();
   const toggle = useWatchdogToggle();
-  const settings = useQbitSettings(rollup.instance);
+  const settings = useQbitSettings(rollup.instance_name);
   const toggleReady = Boolean(settings.data);
 
   const handleToggle = (next: boolean) => {
     if (!settings.data) return;
     toggle.mutate({
-      instance: rollup.instance,
+      instance: rollup.instance_name,
       enabled: next,
       current: settings.data,
     });
   };
-  const handleConfigure = () => onOpenInstanceForm?.(rollup.instance);
+  const handleConfigure = () => onOpenInstanceForm?.(rollup.instance_name);
   const isOff = !rollup.enabled;
+  const pollMinutes = Math.max(1, Math.round(rollup.poll_interval_seconds / 60));
 
   return (
     <Card
-      data-testid={`watchdog-panel-${rollup.instance}`}
+      data-testid={`watchdog-panel-${rollup.instance_name}`}
       className={cn('flex flex-col gap-3 p-3.5', isOff && 'opacity-90')}
     >
       <div className="flex items-center gap-2.5">
-        <h3 className="flex-1 text-[15px] font-semibold">{rollup.instance}</h3>
+        <h3 className="flex-1 text-[15px] font-semibold">{rollup.instance_name}</h3>
         <Switch
-          data-testid={`watchdog-panel-toggle-${rollup.instance}`}
+          data-testid={`watchdog-panel-toggle-${rollup.instance_name}`}
           checked={rollup.enabled}
           disabled={toggle.isPending || !toggleReady}
           onCheckedChange={handleToggle}
@@ -65,7 +66,7 @@ export function WatchdogInstancePanel({
           <Button
             variant="outline" size="sm" className="justify-center"
             onClick={handleConfigure}
-            data-testid={`watchdog-panel-enable-${rollup.instance}`}
+            data-testid={`watchdog-panel-enable-${rollup.instance_name}`}
           >
             <Power className="mr-1 h-4 w-4" />
             {t('watchdog.config.cta.enable')}
@@ -85,13 +86,13 @@ export function WatchdogInstancePanel({
           </Badge>
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="solid" mono>
-              {t('watchdog.config.chips.poll', { n: rollup.poll_interval_min })}
+              {t('watchdog.config.chips.poll', { n: pollMinutes })}
             </Badge>
             <Badge variant="solid" mono>
-              {t('watchdog.config.chips.cooldown', { n: rollup.regrab_cooldown_h })}
+              {t('watchdog.config.chips.cooldown', { n: rollup.cooldown_hours })}
             </Badge>
             <Badge variant="solid" mono>
-              {t('watchdog.config.chips.noBetterMax', { n: rollup.max_no_better })}
+              {t('watchdog.config.chips.noBetterMax', { n: rollup.no_better_max })}
             </Badge>
             <Badge variant="solid" mono>
               {t('watchdog.config.chips.watched', { n: rollup.watched })}
@@ -100,7 +101,7 @@ export function WatchdogInstancePanel({
           <div className="flex items-end gap-2">
             <Sparkline
               data={sparkline}
-              ariaLabel={`regrab-sparkline-${rollup.instance}`}
+              ariaLabel={`regrab-sparkline-${rollup.instance_name}`}
               className="h-[30px] flex-1"
             />
             <span className="text-[10px] uppercase tracking-wide text-tx-faint">
@@ -110,7 +111,7 @@ export function WatchdogInstancePanel({
           <Button
             variant="outline" size="sm" className="justify-center"
             onClick={handleConfigure}
-            data-testid={`watchdog-panel-configure-${rollup.instance}`}
+            data-testid={`watchdog-panel-configure-${rollup.instance_name}`}
           >
             <SettingsIcon className="mr-1 h-4 w-4" />
             {t('watchdog.config.cta.configure')}

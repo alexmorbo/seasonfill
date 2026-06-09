@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -220,5 +222,174 @@ func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
 	}
 	if elapsed > 100*time.Millisecond {
 		t.Errorf("aggregate latency: %v want < 100ms", elapsed)
+	}
+}
+
+// --- Story 090: on-demand qBT reachability probe ---------------------------
+
+// stubProbe satisfies QbitProbe; tracks call counts so the cache test
+// can assert hits/misses.
+type stubProbe struct {
+	mu        sync.Mutex
+	reachable bool
+	err       error
+	calls     map[string]int
+}
+
+func newStubProbe(reachable bool, err error) *stubProbe {
+	return &stubProbe{reachable: reachable, err: err, calls: map[string]int{}}
+}
+
+func (p *stubProbe) Probe(_ context.Context, s regrab.Settings) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls[s.InstanceName]++
+	return p.reachable, p.err
+}
+
+func (p *stubProbe) callsFor(name string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls[name]
+}
+
+func setupProbeHandler(t *testing.T, snaps stubSnapshots, settings stubSettings, probe QbitProbe) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	h := NewWatchdogRollupHandler(
+		settings, snaps,
+		&stubGrabs{replaysSince: map[string]map[time.Duration]int{}, replaysAll: map[string]int{}},
+		stubBlacklistCount{},
+		stubLister{"homelab"},
+		stubLookup{"homelab": 1},
+		nil,
+	).WithClock(func() time.Time { return fixedNow }).
+		WithQbitProbe(probe).
+		WithProbeTimeout(50 * time.Millisecond)
+	r := gin.New()
+	r.GET("/api/v1/instances/:name/watchdog/rollups", h.One)
+	return r
+}
+
+func TestWatchdogRollupHandler_ProbeWhenSnapshotMissing(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(true, nil)
+	r := setupProbeHandler(t, stubSnapshots{}, settings, probe)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got dto.WatchdogRollup
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !got.QbitReachable {
+		t.Errorf("expected QbitReachable=true via probe, got %+v", got)
+	}
+	if !got.Active {
+		t.Errorf("expected Active=true, got %+v", got)
+	}
+	if probe.callsFor("homelab") != 1 {
+		t.Errorf("expected exactly 1 probe call, got %d", probe.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ProbeCached(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(true, nil)
+	r := setupProbeHandler(t, stubSnapshots{}, settings, probe)
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("iter %d status: %d", i, w.Code)
+		}
+	}
+	if probe.callsFor("homelab") != 1 {
+		t.Errorf("expected 1 probe call (TTL cache), got %d", probe.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ProbeSkippedWhenDisabled(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: false,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(true, nil)
+	r := setupProbeHandler(t, stubSnapshots{}, settings, probe)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if probe.callsFor("homelab") != 0 {
+		t.Errorf("expected 0 probe calls when watchdog disabled, got %d", probe.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ProbeSkippedWhenSnapshotFresh(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	snaps := stubSnapshots{}
+	snaps["homelab"] = regrab.RuntimeState{
+		LastPollAt: fixedNow.Add(-5 * time.Minute), LastPollResult: regrab.PollResultOK,
+		QbitReachable: true, Watched: 12,
+	}
+	probe := newStubProbe(false, errors.New("should not be called"))
+	r := setupProbeHandler(t, snaps, settings, probe)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if probe.callsFor("homelab") != 0 {
+		t.Errorf("expected 0 probe calls when snapshot fresh, got %d", probe.callsFor("homelab"))
+	}
+	var got dto.WatchdogRollup
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if !got.QbitReachable {
+		t.Errorf("expected QbitReachable=true from snapshot, got %+v", got)
+	}
+}
+
+func TestWatchdogRollupHandler_ProbeRecoveryAfterStaleUnreachable(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	snaps := stubSnapshots{}
+	snaps["homelab"] = regrab.RuntimeState{
+		LastPollAt: fixedNow.Add(-2 * time.Minute), LastPollResult: regrab.PollResultQbitError,
+		QbitReachable: false, Watched: 0,
+	}
+	probe := newStubProbe(true, nil)
+	r := setupProbeHandler(t, snaps, settings, probe)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if probe.callsFor("homelab") != 1 {
+		t.Errorf("expected 1 probe call (stale unreachable snapshot), got %d", probe.callsFor("homelab"))
+	}
+	var got dto.WatchdogRollup
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if !got.QbitReachable {
+		t.Errorf("expected probe to override stale unreachable snapshot, got %+v", got)
 	}
 }

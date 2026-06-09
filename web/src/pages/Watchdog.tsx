@@ -57,8 +57,8 @@ export function Watchdog() {
             <div>
               {primary ? (
                 <WatchdogActivityFeed
-                  instance={primary.instance}
-                  maxNoBetter={primary.max_no_better}
+                  instance={primary.instance_name}
+                  maxNoBetter={primary.no_better_max}
                 />
               ) : (
                 <Skeleton className="h-[400px] w-full" />
@@ -71,7 +71,7 @@ export function Watchdog() {
                   ))
                 : items.map((r) => (
                     <WatchdogInstancePanel
-                      key={r.instance}
+                      key={r.instance_name}
                       rollup={r}
                       onOpenInstanceForm={openInstanceForm}
                     />
@@ -84,9 +84,9 @@ export function Watchdog() {
               .filter((r) => r.enabled)
               .map((r) => (
                 <WatchdogBlacklistTable
-                  key={r.instance}
-                  instance={r.instance}
-                  maxNoBetter={r.max_no_better}
+                  key={r.instance_name}
+                  instance={r.instance_name}
+                  maxNoBetter={r.no_better_max}
                 />
               ))}
           </div>

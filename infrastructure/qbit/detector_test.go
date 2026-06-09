@@ -26,7 +26,8 @@ func (f *fakeClient) GetTrackers(ctx context.Context, hash string) ([]Tracker, e
 	}
 	return trk, nil
 }
-func (f *fakeClient) Close() error { return nil }
+func (f *fakeClient) Ping(ctx context.Context) error { return nil }
+func (f *fakeClient) Close() error                   { return nil }
 
 func TestDetector_Detect(t *testing.T) {
 	cases := []struct {

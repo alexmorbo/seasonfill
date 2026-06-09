@@ -12,16 +12,16 @@ function wrap(ui: React.ReactNode) {
 const baseRollup = {
   enabled: true, active: true, watched: 12, unregistered: 2,
   regrabs_24h: 1, regrabs_7d: 5, blacklist_size: 3,
-  qbit_reachable: true, poll_interval_min: 30,
-  regrab_cooldown_h: 120, max_no_better: 3,
+  qbit_reachable: true, poll_interval_seconds: 1800,
+  cooldown_hours: 120, no_better_max: 3,
 } as const;
 
 const fixture: WatchdogRollupAggregate = {
   items: [
-    { instance: 'homelab', ...baseRollup,
+    { instance_name: 'homelab', ...baseRollup,
       last_poll_at: new Date(Date.now() - 2 * 60_000).toISOString(),
       last_poll_result: 'ok' },
-    { instance: '4k', ...baseRollup, enabled: false, active: false,
+    { instance_name: '4k', ...baseRollup, enabled: false, active: false,
       watched: 0, unregistered: 0, regrabs_24h: 0, regrabs_7d: 0,
       blacklist_size: 0, qbit_reachable: false },
   ],

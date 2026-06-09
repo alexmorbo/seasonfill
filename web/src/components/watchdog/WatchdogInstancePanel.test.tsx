@@ -8,13 +8,13 @@ import { WatchdogInstancePanel } from './WatchdogInstancePanel';
 import type { WatchdogRollup } from '@/lib/api/watchdogRollups';
 
 const enabled: WatchdogRollup = {
-  instance: 'homelab', enabled: true, active: true,
+  instance_name: 'homelab', enabled: true, active: true,
   watched: 12, unregistered: 2, regrabs_24h: 1, regrabs_7d: 5,
   blacklist_size: 3, qbit_reachable: true,
-  poll_interval_min: 30, regrab_cooldown_h: 120, max_no_better: 3,
+  poll_interval_seconds: 1800, cooldown_hours: 120, no_better_max: 3,
 };
 const disabled: WatchdogRollup = {
-  ...enabled, instance: '4k', enabled: false, active: false,
+  ...enabled, instance_name: '4k', enabled: false, active: false,
   watched: 0, qbit_reachable: false,
 };
 
@@ -99,5 +99,26 @@ describe('<WatchdogInstancePanel />', () => {
     render(wrap(<WatchdogInstancePanel rollup={disabled} onOpenInstanceForm={cb} />));
     await u.click(screen.getByTestId('watchdog-panel-enable-4k'));
     expect(cb).toHaveBeenCalledWith('4k');
+  });
+
+  // Regression guard for Story 090 Bug 1: prior frontend type used
+  // `instance` but the API returns `instance_name`. Clicking "Настроить"
+  // navigated to `/instances?edit=undefined`. This test forces a wire-
+  // shaped object through the component and asserts the callback never
+  // receives undefined.
+  it('Bug 1 regression: configure click never passes undefined', async () => {
+    const u = userEvent.setup();
+    const cb = vi.fn();
+    const wireRollup = {
+      instance_name: 'homelab', enabled: true, active: true,
+      watched: 0, unregistered: 0, regrabs_24h: 0, regrabs_7d: 0,
+      blacklist_size: 0, qbit_reachable: false,
+      poll_interval_seconds: 1800, cooldown_hours: 120, no_better_max: 3,
+    } satisfies WatchdogRollup;
+    render(wrap(<WatchdogInstancePanel rollup={wireRollup} onOpenInstanceForm={cb} />));
+    await u.click(screen.getByTestId('watchdog-panel-configure-homelab'));
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith('homelab');
+    expect(cb).not.toHaveBeenCalledWith(undefined);
   });
 });

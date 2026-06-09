@@ -402,7 +402,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		watchdogInstanceAdapter, // InstanceLister
 		watchdogInstanceAdapter, // InstanceIDLookup
 		log,
-	)
+	).WithQbitProbe(infraregrab.QbitProbeFunc{})
 
 	// 047b — blacklist handler + webhooks aggregate handler. blacklistRepo
 	// and seriesCacheRepo are already constructed above (Phase 11 + 047a);

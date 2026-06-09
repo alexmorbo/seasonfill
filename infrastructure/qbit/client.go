@@ -47,6 +47,7 @@ type Client interface {
 	Login(ctx context.Context) error
 	ListTorrents(ctx context.Context) ([]Torrent, error)
 	GetTrackers(ctx context.Context, hash string) ([]Tracker, error)
+	Ping(ctx context.Context) error
 	Close() error
 }
 
@@ -185,6 +186,31 @@ func (c *client) GetTrackers(ctx context.Context, hash string) ([]Tracker, error
 		})
 	}
 	return out, nil
+}
+
+// Ping performs a fast reachability check against qBit. It logs in
+// (no-op for anonymous deployments per D61) and then calls
+// /api/v2/app/version. Returns nil on success; any error indicates
+// qBit is unreachable, unauthenticated, or otherwise unhealthy.
+//
+// Used by the watchdog rollup handler (Story 090) to fill the
+// QbitReachable bit before the per-instance polling loop has had its
+// first cycle. The caller is expected to bound this call with a short
+// ctx deadline (3s in the rollup handler).
+func (c *client) Ping(ctx context.Context) error {
+	if c.closed {
+		return errors.New("qbit client closed")
+	}
+	if err := c.Login(ctx); err != nil {
+		return fmt.Errorf("qbit ping: %w", err)
+	}
+	if _, err := c.inner.GetAppVersionCtx(ctx); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("qbit ping: %w", ctxErr)
+		}
+		return fmt.Errorf("qbit ping: %w", errors.Join(err, domain.ErrInstanceNetwork))
+	}
+	return nil
 }
 
 // Close marks the client as closed. The upstream qbt.Client uses

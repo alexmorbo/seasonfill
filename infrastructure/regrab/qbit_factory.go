@@ -33,6 +33,34 @@ func (QbitClientFactoryFunc) NewClient(s appregrab.Settings) (qbit.Client, error
 	})
 }
 
+// QbitProbeFunc satisfies handlers.QbitProbe. It builds a transient
+// qbit.Client, calls Ping with the supplied ctx, and closes the client.
+// Story 090 introduced this so the watchdog rollup handler can fill
+// QbitReachable before the per-instance polling loop has run for the
+// first time after a pod restart.
+type QbitProbeFunc struct{}
+
+// Probe implements handlers.QbitProbe. Returns true when qBit responded
+// to /api/v2/app/version within the supplied ctx deadline. Any other
+// outcome (timeout, network error, unauthenticated) returns false; the
+// error is surfaced for caller-side debug logging only.
+func (QbitProbeFunc) Probe(ctx context.Context, s appregrab.Settings) (bool, error) {
+	client, err := qbit.NewClient(qbit.Config{
+		URL:      s.URL,
+		Username: s.Username,
+		Password: s.PasswordPlaintext,
+		Category: s.Category,
+	})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = client.Close() }()
+	if err := client.Ping(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // DetectorFactoryFunc satisfies application/regrab.DetectorFactory by
 // wrapping qbit.NewDetector. The use case calls this once per cycle
 // with the per-instance customMsgs slice.

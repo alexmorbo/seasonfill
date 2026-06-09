@@ -1,13 +1,14 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { ApiError, api } from '@/lib/api';
 
-// Local mirror of PRD §3 B5 / 047a DTOs. Once `web/src/api/schema.ts`
-// is regenerated post-047a merge, swap these for the
-// `components['schemas']['dto.WatchdogRollup']` aliases. The runtime
-// JSON shape is identical; only the type provenance changes.
-
+// Wire shape matches `dto.WatchdogRollup` exactly (verified against
+// the deployed `/api/v1/watchdog/rollups` payload and the generated
+// `components['schemas']['dto.WatchdogRollup']`). Story 090 fixed an
+// earlier guess that used `instance`, `poll_interval_min`,
+// `regrab_cooldown_h`, `max_no_better` — none of those existed on the
+// wire, which caused `?edit=undefined` and NaN chips.
 export interface WatchdogRollup {
-  instance: string;
+  instance_name: string;
   enabled: boolean;
   active: boolean;
   watched: number;
@@ -17,10 +18,11 @@ export interface WatchdogRollup {
   blacklist_size: number;
   last_poll_at?: string | undefined;
   last_poll_result?: 'ok' | 'qbit_error' | 'skipped' | undefined;
+  next_poll_at?: string | undefined;
   qbit_reachable: boolean;
-  poll_interval_min: number;
-  regrab_cooldown_h: number;
-  max_no_better: number;
+  poll_interval_seconds: number;
+  cooldown_hours: number;
+  no_better_max: number;
 }
 
 export interface WatchdogRollupAggregate {

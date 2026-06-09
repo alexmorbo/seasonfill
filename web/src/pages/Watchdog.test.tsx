@@ -28,7 +28,7 @@ function routeApi(handler: (path: string) => unknown) {
 }
 
 const baseRollup = {
-  instance: 'homelab',
+  instance_name: 'homelab',
   enabled: true,
   active: true,
   watched: 12,
@@ -39,9 +39,9 @@ const baseRollup = {
   last_poll_at: new Date(Date.now() - 60_000).toISOString(),
   last_poll_result: 'ok' as const,
   qbit_reachable: true,
-  poll_interval_min: 30,
-  regrab_cooldown_h: 120,
-  max_no_better: 3,
+  poll_interval_seconds: 1800,
+  cooldown_hours: 120,
+  no_better_max: 3,
 };
 
 const activeRollups: WatchdogRollupAggregate = {
