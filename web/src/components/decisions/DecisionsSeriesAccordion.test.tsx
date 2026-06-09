@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { DecisionsSeriesAccordion } from './DecisionsSeriesAccordion';
 import { DtoDecisionCategory, DtoDecisionDecision } from '@/api/schema';
@@ -25,9 +27,16 @@ const rows: readonly Decision[] = [
 ];
 
 function renderAcc(input: readonly Decision[] = rows, onOpen = vi.fn()) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
   return render(
     <I18nextProvider i18n={i18n}>
-      <DecisionsSeriesAccordion rows={input} onOpenSeason={onOpen} />
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <DecisionsSeriesAccordion rows={input} onOpenSeason={onOpen} />
+        </TooltipProvider>
+      </QueryClientProvider>
     </I18nextProvider>,
   );
 }

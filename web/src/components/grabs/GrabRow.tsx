@@ -8,6 +8,8 @@ import { relativeTime } from '@/lib/format';
 import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { ReGrabThread } from '@/components/grabs/ReGrabThread';
 import { SeriesPoster } from '@/components/SeriesPoster';
+import { SonarrLink } from '@/components/SonarrLink';
+import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
 export interface GrabRowProps {
   grab: Grab;
@@ -50,6 +52,10 @@ export function GrabRow({
 }: GrabRowProps) {
   const { t } = useTranslation();
   const status = grab.status ?? 'grabbed';
+  // Prefer the per-row grab.instance so the link works on the
+  // "all instances" view where the global filter prop is null.
+  const sonarrInstance = grab.instance ?? instance ?? null;
+  const sonarrPublicURL = useInstancePublicURL(sonarrInstance);
   const meta = STATUS_META[status] || STATUS_META['grabbed']!;
   const StatusIcon = meta.icon;
   const isFailRow = status === 'import_failed' || status === 'grab_failed';
@@ -126,6 +132,14 @@ export function GrabRow({
           <span className="text-[14px] font-semibold tracking-tight truncate">
             {grab.series_title ?? '—'}
           </span>
+          <SonarrLink
+            instance={sonarrInstance}
+            publicUrl={sonarrPublicURL}
+            seriesId={grab.series_id ?? undefined}
+            title={grab.series_title ?? ''}
+            variant="chip"
+            size="sm"
+          />
           <div className="flex-1" />
           <span
             className={cn(

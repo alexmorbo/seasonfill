@@ -41,6 +41,7 @@ export const en = {
     loadMore: 'Show more',
     on: 'on',
     off: 'off',
+    openInSonarr: 'Open in Sonarr',
   },
   net: {
     reconnected: 'Reconnected',

@@ -5,6 +5,7 @@ import {
 import { groupBySeries, sortGroups } from '@/lib/decision-grouping';
 import type { Decision } from '@/lib/api/decisions';
 import { reduceLatestPerSeason } from '@/lib/api/decisions';
+import { useInstances } from '@/lib/instances';
 import { DecisionsSeriesRow } from './DecisionsSeriesRow';
 import { DecisionsSeasonRow } from './DecisionsSeasonRow';
 
@@ -18,6 +19,16 @@ export function DecisionsSeriesAccordion({
 }: DecisionsSeriesAccordionProps) {
   const grouped = useMemo(() => sortGroups(groupBySeries(rows)), [rows]);
   const latest = useMemo(() => reduceLatestPerSeason(rows), [rows]);
+  const instancesQ = useInstances();
+  const instancePublicURLs = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const i of instancesQ.data?.instances ?? []) {
+      if (i.name && i.public_url && i.public_url.length > 0) {
+        out.set(i.name, i.public_url);
+      }
+    }
+    return out;
+  }, [instancesQ.data]);
 
   // Default-open series whose worstCategory is not all_complete.
   const defaultOpenIds = useMemo(
@@ -81,6 +92,9 @@ export function DecisionsSeriesAccordion({
                 seasonCount={g.seasons.length}
                 stuckCycles={stuckCycles}
                 open={openIds.includes(String(g.seriesId))}
+                instance={g.instance}
+                seriesId={g.seriesId}
+                sonarrPublicURL={g.instance ? instancePublicURLs.get(g.instance) : undefined}
               />
             </AccordionTrigger>
             <AccordionContent className="pt-0 pb-2">

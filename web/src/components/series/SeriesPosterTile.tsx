@@ -5,6 +5,8 @@ import { relativeTime } from '@/lib/format';
 import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 import { SeriesPoster } from '@/components/SeriesPoster';
+import { SonarrLink } from '@/components/SonarrLink';
+import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
 export interface SeriesPosterTileProps {
   readonly item: SeriesCacheItem;
@@ -13,6 +15,7 @@ export interface SeriesPosterTileProps {
 export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const sonarrPublicURL = useInstancePublicURL(item.instance_name);
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
   // Operator R2: always render the subtitle when either year or
@@ -70,6 +73,17 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
           'absolute z-30 top-2.5 left-2.5 inline-flex items-center justify-center w-2.5 h-2.5 rounded-full',
           item.monitored ? 'bg-ok' : 'bg-neutral',
         )}
+      />
+
+      <SonarrLink
+        instance={item.instance_name}
+        publicUrl={sonarrPublicURL}
+        seriesId={item.sonarr_series_id}
+        title={item.title}
+        titleSlug={item.title_slug}
+        variant="icon"
+        size="sm"
+        className="absolute z-30 top-2 left-6"
       />
 
       {item.missing_count > 0 && (

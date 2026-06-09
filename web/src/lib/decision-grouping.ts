@@ -12,6 +12,8 @@ export interface SeriesGroup {
   readonly seriesId: number;
   // First non-empty title wins. Doubles as the URL-expand key (see §4).
   readonly seriesTitle: string;
+  // First non-empty instance wins. Drives Sonarr deep-link lookup.
+  readonly instance?: string | undefined;
   readonly seasons: readonly SeasonRow[];
   // Max-priority category among seasons; drives sortGroups + the
   // "default-expand when != all_complete" rule in ScanDetail.
@@ -27,7 +29,7 @@ export interface SeriesGroup {
 // Records firstSeenIndex per series so sortGroups can keep render order
 // stable across live polling updates (Fix 4).
 export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGroup[] {
-  const acc = new Map<number, { title: string; seasons: SeasonRow[]; firstSeenIndex: number }>();
+  const acc = new Map<number, { title: string; instance: string | undefined; seasons: SeasonRow[]; firstSeenIndex: number }>();
   for (let i = 0; i < decisions.length; i++) {
     const d = decisions[i]!;
     const sid = d.series_id ?? -1;
@@ -35,13 +37,19 @@ export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGr
     const slot = acc.get(sid);
     if (slot) {
       if (!slot.title && d.series_title) slot.title = d.series_title;
+      if (!slot.instance && d.instance) slot.instance = d.instance;
       slot.seasons.push(row);
     } else {
-      acc.set(sid, { title: d.series_title ?? '—', seasons: [row], firstSeenIndex: i });
+      acc.set(sid, {
+        title: d.series_title ?? '—',
+        instance: d.instance,
+        seasons: [row],
+        firstSeenIndex: i,
+      });
     }
   }
   const groups: SeriesGroup[] = [];
-  for (const [seriesId, { title, seasons, firstSeenIndex }] of acc) {
+  for (const [seriesId, { title, instance, seasons, firstSeenIndex }] of acc) {
     seasons.sort((a, b) => a.seasonNumber - b.seasonNumber);
     let worst: CategoryKind = 'all_complete';
     let worstPriority = CATEGORY.all_complete.priority;
@@ -50,7 +58,7 @@ export function groupBySeries(decisions: readonly Decision[]): readonly SeriesGr
       const p = CATEGORY[k].priority;
       if (p > worstPriority) { worst = k; worstPriority = p; }
     }
-    groups.push({ seriesId, seriesTitle: title, seasons, worstCategory: worst, firstSeenIndex });
+    groups.push({ seriesId, seriesTitle: title, instance, seasons, worstCategory: worst, firstSeenIndex });
   }
   return groups;
 }

@@ -43,6 +43,7 @@ export const ru: Translations = {
     loadMore: 'Показать ещё',
     on: 'вкл',
     off: 'выкл',
+    openInSonarr: 'Открыть в Sonarr',
   },
   net: {
     reconnected: 'Соединение восстановлено',

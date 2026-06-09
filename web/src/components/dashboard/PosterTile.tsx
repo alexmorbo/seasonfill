@@ -6,6 +6,8 @@ import { relativeTime } from '@/lib/format';
 import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 import { SeriesPoster } from '@/components/SeriesPoster';
+import { SonarrLink } from '@/components/SonarrLink';
+import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
 export interface PosterTileProps {
   readonly item: SeriesCacheItem;
@@ -35,6 +37,7 @@ export function PosterTile({ item }: PosterTileProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const variant = classifyVariant(item);
+  const sonarrPublicURL = useInstancePublicURL(item.instance_name);
   const mono = (item.title.charAt(0) || '?').toUpperCase();
   const { season, first, last } = parseEpisode(item.last_imported_episode);
   // Operator R2: always render the subtitle when year is available —
@@ -94,6 +97,16 @@ export function PosterTile({ item }: PosterTileProps) {
       >
         {mono}
       </span>
+      <SonarrLink
+        instance={item.instance_name}
+        publicUrl={sonarrPublicURL}
+        seriesId={item.sonarr_series_id}
+        title={item.title}
+        titleSlug={item.title_slug}
+        variant="icon"
+        size="sm"
+        className="absolute z-30 top-2.5 left-2.5"
+      />
       <span
         className={cn(
           'absolute z-30 top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold backdrop-blur-sm',

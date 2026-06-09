@@ -3,6 +3,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { PosterTile } from './PosterTile';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
@@ -33,11 +35,18 @@ const fixture: SeriesCacheItem = {
 };
 
 function renderTile(item: SeriesCacheItem) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
   return render(
     <I18nextProvider i18n={i18n}>
-      <BrowserRouter>
-        <PosterTile item={item} />
-      </BrowserRouter>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <BrowserRouter>
+            <PosterTile item={item} />
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
     </I18nextProvider>,
   );
 }

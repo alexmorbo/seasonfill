@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from 'i18next';
 
 import { SeriesPosterTile } from './SeriesPosterTile';
@@ -40,14 +42,21 @@ function LocationProbe() {
 }
 
 function renderTile(item: SeriesCacheItem) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
   render(
     <I18nextProvider i18n={i18n}>
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<SeriesPosterTile item={item} />} />
-          <Route path="/grabs" element={<LocationProbe />} />
-        </Routes>
-      </MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/']}>
+            <Routes>
+              <Route path="/" element={<SeriesPosterTile item={item} />} />
+              <Route path="/grabs" element={<LocationProbe />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
     </I18nextProvider>,
   );
 }

@@ -80,4 +80,20 @@ describe('<SeriesTitleLink />', () => {
     const allParenYear = screen.queryAllByText(/\(2021\)/);
     expect(allParenYear.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('never applies the underline utility — title is not decorated by default', () => {
+    render(
+      <SeriesTitleLink
+        title="Severance"
+        titleSlug="severance"
+        instanceUiUrl="https://sonarr.example.com"
+      />,
+    );
+    const link = screen.getByRole('link', { name: /Severance/i });
+    // hover:underline was removed entirely in the underline-drop pass —
+    // the link must carry the explicit no-underline utility so the
+    // browser default does not paint one either.
+    expect(link.className).toMatch(/(?:^|\s)no-underline(?:\s|$)/);
+    expect(link.className).not.toMatch(/(?:^|\s)hover:underline(?:\s|$)/);
+  });
 });

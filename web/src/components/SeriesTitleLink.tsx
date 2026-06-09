@@ -44,7 +44,7 @@ export function SeriesTitleLink({
       href={buildHref(instanceUiUrl!, titleSlug!)}
       target="_blank"
       rel="noopener noreferrer"
-      className="font-medium inline-flex items-center gap-1 group hover:underline"
+      className="font-medium inline-flex items-center gap-1 group no-underline hover:no-underline hover:text-accent transition-colors"
     >
       <span>
         {title}
