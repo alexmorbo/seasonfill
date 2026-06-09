@@ -83,7 +83,7 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
         titleSlug={item.title_slug}
         variant="icon"
         size="sm"
-        className="absolute z-30 top-2 left-6"
+        className="absolute z-30 bottom-2 right-2"
       />
 
       {item.missing_count > 0 && (

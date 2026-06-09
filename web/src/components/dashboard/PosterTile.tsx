@@ -105,7 +105,7 @@ export function PosterTile({ item }: PosterTileProps) {
         titleSlug={item.title_slug}
         variant="icon"
         size="sm"
-        className="absolute z-30 top-2.5 left-2.5"
+        className="absolute z-30 bottom-2.5 right-2.5"
       />
       <span
         className={cn(

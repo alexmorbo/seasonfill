@@ -18,8 +18,8 @@ export function CategoryChip({
   const label = t(categoryLabelKey(kind));
   const base =
     variant === 'compact'
-      ? 'inline-flex items-center gap-1.5 px-1.5 h-[18px] rounded-full border font-mono text-[10.5px]'
-      : 'inline-flex items-center gap-2 px-2 h-[22px] rounded-full border font-mono text-[11px]';
+      ? 'inline-flex items-center gap-1.5 px-1.5 h-[18px] rounded-full border font-mono text-[10.5px] whitespace-nowrap'
+      : 'inline-flex items-center gap-2 px-2 h-[22px] rounded-full border font-mono text-[11px] whitespace-nowrap';
   return (
     <span
       className={cn(

@@ -21,7 +21,7 @@ export function DecisionsSeasonRow({
       type="button"
       onClick={() => onOpen(decision)}
       className={cn(
-        'grid grid-cols-[46px_150px_88px_1fr_auto] gap-3 items-center w-full',
+        'grid grid-cols-[46px_170px_88px_1fr_auto] gap-3 items-center w-full',
         'px-3 py-2 text-left rounded-md hover:bg-surface-2',
         'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
       )}
