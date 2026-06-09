@@ -12,6 +12,8 @@ function withTooltip(ui: React.ReactElement) {
   );
 }
 
+const EMPTY = new Set<number>();
+
 const row: MissingSeries = {
   series_id: 122,
   title: 'Severance',
@@ -32,7 +34,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -50,7 +52,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -70,7 +72,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={onSeasonToggle}
         onScan={vi.fn()}
@@ -86,7 +88,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={2}
+        openSeasons={new Set([2])}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -98,22 +100,70 @@ describe('<QueueRow />', () => {
       .toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('renders the drill slot when a season is open', () => {
+  it('renders an inline drill panel directly below the active season chip', () => {
     renderWithProviders(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={2}
+        openSeasons={new Set([2])}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
-        drillSlot={<span>drill-placeholder</span>}
+        renderDrill={(n) => <span>drill-placeholder-{n}</span>}
       />,
     );
     const slot = screen.getByTestId('queue-drill-slot');
     expect(slot).toHaveAttribute('data-season-number', '2');
-    expect(slot).toHaveTextContent('drill-placeholder');
+    expect(slot).toHaveTextContent('drill-placeholder-2');
+
+    // The drill panel must be a descendant of its specific season's
+    // list item — not floating at the bottom of the row.
+    const seasonItem = slot.closest('[data-testid="queue-row-season"]');
+    expect(seasonItem).not.toBeNull();
+    expect(seasonItem?.getAttribute('data-season-number')).toBe('2');
+  });
+
+  it('renders a drill panel for every open season simultaneously', () => {
+    renderWithProviders(
+      <QueueRow
+        row={row}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeasons={new Set([2, 3])}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+        renderDrill={(n) => <span data-testid={`drill-body-${n}`}>drill-{n}</span>}
+      />,
+    );
+    const slots = screen.getAllByTestId('queue-drill-slot');
+    expect(slots).toHaveLength(2);
+    const seasonNumbers = slots
+      .map((el) => el.getAttribute('data-season-number'))
+      .sort();
+    expect(seasonNumbers).toEqual(['2', '3']);
+    expect(screen.getByTestId('drill-body-2')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-body-3')).toBeInTheDocument();
+  });
+
+  it('only renders the drill panel for the open chip when others are closed', () => {
+    renderWithProviders(
+      <QueueRow
+        row={row}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeasons={new Set([3])}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+        renderDrill={(n) => <span>drill-{n}</span>}
+      />,
+    );
+    const slots = screen.getAllByTestId('queue-drill-slot');
+    expect(slots).toHaveLength(1);
+    expect(slots[0]).toHaveAttribute('data-season-number', '3');
+    expect(slots[0]).toHaveTextContent('drill-3');
   });
 
   it('renders per-episode chip grid when season.episodes is provided', () => {
@@ -135,7 +185,7 @@ describe('<QueueRow />', () => {
         row={rowWithEpisodes}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -154,7 +204,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -166,17 +216,17 @@ describe('<QueueRow />', () => {
     expect(screen.getByLabelText(/Season 2: 8 missing/i)).toBeInTheDocument();
   });
 
-  it('hides the drill slot when no season is open', () => {
+  it('hides every drill panel when no season is open', () => {
     renderWithProviders(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
-        drillSlot={<span>drill-placeholder</span>}
+        renderDrill={() => <span>drill-placeholder</span>}
       />,
     );
     expect(screen.queryByTestId('queue-drill-slot')).not.toBeInTheDocument();
@@ -189,7 +239,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={onScan}
@@ -202,7 +252,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeason={null}
+        openSeasons={EMPTY}
         isInFlight
         onSeasonToggle={vi.fn()}
         onScan={onScan}
