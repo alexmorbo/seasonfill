@@ -293,12 +293,15 @@ type ReadyStatus struct {
 
 // MissingSeasonStat — per-season aired-missing count. Season 0 = specials.
 //
-// `episodes` is optional (omitempty) — populated for seasons with
-// `aired_episode_count` <= seasonEpisodesEmbedCap so the queue UI can
-// render per-episode chips with titles inline. Large seasons (e.g.
-// 500-ep anime arcs) omit the field so the operator's queue payload
-// doesn't balloon; the UI falls back to the aggregate chip and the
-// drill endpoint stays the source of truth.
+// `episodes` is optional (omitempty) — historically the Missing handler
+// embedded per-episode presence inline for small seasons (054c), but
+// that fan-out cost N×ListEpisodes Sonarr calls per /missing request
+// and saturated the 60s gateway timeout on real backlogs. The list
+// handler no longer populates `episodes`; episode-level state lives on
+// the drill endpoint /instances/:name/series/:id/seasons/:n/episodes
+// (SeasonEpisodes handler). The field stays on the DTO for backward
+// wire-shape compatibility — older clients that read `episodes` simply
+// see it omitted and fall back to the season aggregate chip.
 type MissingSeasonStat struct {
 	SeasonNumber      int                     `json:"season_number"`
 	MissingAiredCount int                     `json:"missing_aired_count"`
