@@ -734,6 +734,125 @@ type WatchdogBlacklistList struct {
 	NextCursor string                  `json:"next_cursor,omitempty"`
 }
 
+// --- Watchdog seasons (098a) -------------------------------------------------
+
+// WatchdogSeasonOrigin mirrors the origin_releases row (instance, series,
+// season). All timestamps are UTC. Indexer is empty when the row was
+// inserted before the indexer-name column populated.
+type WatchdogSeasonOrigin struct {
+	Indexer     string     `json:"indexer"        example:"RuTracker (Prowlarr)"`
+	FirstSeenAt time.Time  `json:"first_seen_at"`
+	LastSeenAt  time.Time  `json:"last_seen_at"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	GUID        string     `json:"guid"           example:"abc123"`
+}
+
+// WatchdogSeasonCooldown surfaces an active cooldowns row scoped to one
+// (instance, series, season) triple. Nil when no active cooldown exists.
+type WatchdogSeasonCooldown struct {
+	ExpiresAt time.Time `json:"expires_at"`
+	Reason    string    `json:"reason" example:"series_after_grab"`
+}
+
+// WatchdogSeasonNoBetter surfaces one regrab_no_better_counter row. Max
+// mirrors the per-instance MaxConsecutiveNoBetter setting at the time
+// the row was read so the SPA can render the n/N progress directly.
+type WatchdogSeasonNoBetter struct {
+	Consecutive int       `json:"consecutive" example:"1"`
+	Max         int       `json:"max"         example:"3"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+}
+
+// WatchdogSeasonBlacklist surfaces an active watchdog_blacklist row.
+// ExpiresAt is nil for v1 (manual unblock only) but kept as pointer so
+// a future auto-unblock policy doesn't break the wire shape.
+type WatchdogSeasonBlacklist struct {
+	Reason    string     `json:"reason"     example:"consecutive_no_better"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// WatchdogSeason is one row of GET /api/v1/watchdog/seasons. All
+// optional sub-objects are nil when their backing table has no row for
+// the (instance, series, season) triple.
+type WatchdogSeason struct {
+	Instance          string                   `json:"instance"           example:"homelab"`
+	SeriesID          int                      `json:"series_id"          example:"169"`
+	SeriesTitle       string                   `json:"series_title"       example:"Your Friends & Neighbors"`
+	SeasonNumber      int                      `json:"season_number"      example:"2"`
+	Monitored         bool                     `json:"monitored"          example:"true"`
+	Origin            *WatchdogSeasonOrigin    `json:"origin,omitempty"`
+	Cooldown          *WatchdogSeasonCooldown  `json:"cooldown,omitempty"`
+	NoBetterCounter   *WatchdogSeasonNoBetter  `json:"no_better_counter,omitempty"`
+	Blacklist         *WatchdogSeasonBlacklist `json:"blacklist,omitempty"`
+	MissingAiredCount int                      `json:"missing_aired_count" example:"0"`
+	LastAiredAt       *time.Time               `json:"last_aired_at,omitempty"`
+}
+
+// WatchdogSeasonsList — body of GET /api/v1/watchdog/seasons. NextCursor
+// is the opaque keyset cursor for the next page (encoded
+// instance:series_id:season tuple).
+type WatchdogSeasonsList struct {
+	Items      []WatchdogSeason `json:"items"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+}
+
+// WatchdogSeriesSeasonStats is the per-season counter triplet derived
+// from the most recent decisions row for the season. Fields are zero
+// when no decision has ever run for the season.
+type WatchdogSeriesSeasonStats struct {
+	AiredEpisodeCount int `json:"aired_episode_count"  example:"10"`
+	EpisodeFileCount  int `json:"episode_file_count"   example:"10"`
+	MissingAiredCount int `json:"missing_aired_count"  example:"0"`
+}
+
+// WatchdogSeriesRecentDecision is one row of the per-season
+// recent_decisions trailer on GET /api/v1/watchdog/series/:instance/:id.
+// Cap is 20 most recent first.
+type WatchdogSeriesRecentDecision struct {
+	ID        string    `json:"id"           example:"7b3d4a92-1234-4abc-9def-000000000001"`
+	ScanRunID string    `json:"scan_run_id"  example:"7b3d4a92-1234-4abc-9def-000000000099"`
+	Decision  string    `json:"decision"     example:"skip"`
+	Reason    string    `json:"reason"       example:"skip_all_complete"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// WatchdogSeriesRecentGrab is one row of the per-season recent_grabs
+// trailer on GET /api/v1/watchdog/series/:instance/:id. Cap is 20 most
+// recent first.
+type WatchdogSeriesRecentGrab struct {
+	ID           string    `json:"id"            example:"7b3d4a92-1234-4abc-9def-000000000002"`
+	ReleaseTitle string    `json:"release_title" example:"Severance.S03E01.2160p..."`
+	Status       string    `json:"status"        example:"imported"`
+	ReplayOfID   *string   `json:"replay_of_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// WatchdogSeriesSeason is the per-season aggregate inside the series
+// drill response. Sub-objects mirror WatchdogSeason; trailers cap the
+// per-season audit slices.
+type WatchdogSeriesSeason struct {
+	SeasonNumber    int                            `json:"season_number"     example:"2"`
+	Stats           WatchdogSeriesSeasonStats      `json:"stats"`
+	Origin          *WatchdogSeasonOrigin          `json:"origin,omitempty"`
+	Cooldown        *WatchdogSeasonCooldown        `json:"cooldown,omitempty"`
+	NoBetterCounter *WatchdogSeasonNoBetter        `json:"no_better_counter,omitempty"`
+	Blacklist       *WatchdogSeasonBlacklist       `json:"blacklist,omitempty"`
+	RecentDecisions []WatchdogSeriesRecentDecision `json:"recent_decisions"`
+	RecentGrabs     []WatchdogSeriesRecentGrab     `json:"recent_grabs"`
+}
+
+// WatchdogSeriesDetail — body of GET
+// /api/v1/watchdog/series/:instance/:id. Seasons is sorted ascending by
+// SeasonNumber so the SPA can render them in airing order without a
+// client-side sort.
+type WatchdogSeriesDetail struct {
+	Instance    string                 `json:"instance"     example:"homelab"`
+	SeriesID    int                    `json:"series_id"    example:"169"`
+	SeriesTitle string                 `json:"series_title" example:"Your Friends & Neighbors"`
+	Monitored   bool                   `json:"monitored"    example:"true"`
+	Seasons     []WatchdogSeriesSeason `json:"seasons"`
+}
+
 // --- Webhooks status aggregate (047b) ----------------------------------------
 
 // WebhookStatusAggregateItem is one row of GET /api/v1/webhooks/status.

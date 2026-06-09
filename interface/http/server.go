@@ -59,6 +59,7 @@ func NewServer(
 	counterRepo ports.CounterRepository,
 	watchdogRollupHandler *handlers.WatchdogRollupHandler,
 	watchdogBlacklistHandler *handlers.WatchdogBlacklistHandler,
+	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	logger *slog.Logger,
 ) *Server {
@@ -171,6 +172,10 @@ func NewServer(
 		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)
 		guarded.GET("/instances/:name/watchdog/blacklist", watchdogBlacklistHandler.List)
 		guarded.DELETE("/instances/:name/watchdog/blacklist/:id", watchdogBlacklistHandler.Delete)
+		if watchdogSeasonsHandler != nil {
+			guarded.GET("/watchdog/seasons", watchdogSeasonsHandler.List)
+			guarded.GET("/watchdog/series/:instance/:id", watchdogSeasonsHandler.Series)
+		}
 		guarded.GET("/webhooks/status", webhooksAggregateHandler.Status)
 		guarded.GET("/scans", auditHandler.ListScans)
 		guarded.GET("/scans/:id", auditHandler.GetScan)

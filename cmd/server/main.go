@@ -415,6 +415,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		watchdogInstanceAdapter, // InstanceIDLookup — same adapter as 047a
 		log,
 	)
+
+	// 098a — watchdog seasons aggregate read view. Joins the watchdog
+	// source-of-truth tables (origin_releases, cooldowns, regrab_no_
+	// better_counter, watchdog_blacklist) with series_cache so the SPA
+	// can render the watched-seasons page without per-row fetches.
+	watchdogSeasonsRepo := repositories.NewWatchdogSeasonsRepository(db)
+	watchdogSeasonsHandler := handlers.NewWatchdogSeasonsHandler(
+		watchdogSeasonsRepo,
+		watchdogSeasonsRepo,
+		qbitSettingsUC,
+		log,
+	)
 	webhooksAggregateHandler := handlers.NewWebhooksAggregateHandler(
 		webhookReconciler,
 		watchdogInstanceAdapter, // InstanceLister
@@ -468,7 +480,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		qbitSettingsHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
-		watchdogBlacklistHandler, webhooksAggregateHandler, log)
+		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

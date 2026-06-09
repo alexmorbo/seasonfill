@@ -1525,6 +1525,180 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.WatchdogSeason:
+      properties:
+        blacklist:
+          $ref: '#/components/schemas/dto.WatchdogSeasonBlacklist'
+        cooldown:
+          $ref: '#/components/schemas/dto.WatchdogSeasonCooldown'
+        instance:
+          example: homelab
+          type: string
+        last_aired_at:
+          type: string
+        missing_aired_count:
+          example: 0
+          type: integer
+        monitored:
+          example: true
+          type: boolean
+        no_better_counter:
+          $ref: '#/components/schemas/dto.WatchdogSeasonNoBetter'
+        origin:
+          $ref: '#/components/schemas/dto.WatchdogSeasonOrigin'
+        season_number:
+          example: 2
+          type: integer
+        series_id:
+          example: 169
+          type: integer
+        series_title:
+          example: Your Friends & Neighbors
+          type: string
+      type: object
+    dto.WatchdogSeasonBlacklist:
+      properties:
+        expires_at:
+          type: string
+        reason:
+          example: consecutive_no_better
+          type: string
+      type: object
+    dto.WatchdogSeasonCooldown:
+      properties:
+        expires_at:
+          type: string
+        reason:
+          example: series_after_grab
+          type: string
+      type: object
+    dto.WatchdogSeasonNoBetter:
+      properties:
+        consecutive:
+          example: 1
+          type: integer
+        last_seen_at:
+          type: string
+        max:
+          example: 3
+          type: integer
+      type: object
+    dto.WatchdogSeasonOrigin:
+      properties:
+        first_seen_at:
+          type: string
+        guid:
+          example: abc123
+          type: string
+        indexer:
+          example: RuTracker (Prowlarr)
+          type: string
+        last_seen_at:
+          type: string
+        last_used_at:
+          type: string
+      type: object
+    dto.WatchdogSeasonsList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogSeason'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+      type: object
+    dto.WatchdogSeriesDetail:
+      properties:
+        instance:
+          example: homelab
+          type: string
+        monitored:
+          example: true
+          type: boolean
+        seasons:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogSeriesSeason'
+          type: array
+          uniqueItems: false
+        series_id:
+          example: 169
+          type: integer
+        series_title:
+          example: Your Friends & Neighbors
+          type: string
+      type: object
+    dto.WatchdogSeriesRecentDecision:
+      properties:
+        created_at:
+          type: string
+        decision:
+          example: skip
+          type: string
+        id:
+          example: 7b3d4a92-1234-4abc-9def-000000000001
+          type: string
+        reason:
+          example: skip_all_complete
+          type: string
+        scan_run_id:
+          example: 7b3d4a92-1234-4abc-9def-000000000099
+          type: string
+      type: object
+    dto.WatchdogSeriesRecentGrab:
+      properties:
+        created_at:
+          type: string
+        id:
+          example: 7b3d4a92-1234-4abc-9def-000000000002
+          type: string
+        release_title:
+          example: Severance.S03E01.2160p...
+          type: string
+        replay_of_id:
+          type: string
+        status:
+          example: imported
+          type: string
+      type: object
+    dto.WatchdogSeriesSeason:
+      properties:
+        blacklist:
+          $ref: '#/components/schemas/dto.WatchdogSeasonBlacklist'
+        cooldown:
+          $ref: '#/components/schemas/dto.WatchdogSeasonCooldown'
+        no_better_counter:
+          $ref: '#/components/schemas/dto.WatchdogSeasonNoBetter'
+        origin:
+          $ref: '#/components/schemas/dto.WatchdogSeasonOrigin'
+        recent_decisions:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogSeriesRecentDecision'
+          type: array
+          uniqueItems: false
+        recent_grabs:
+          items:
+            $ref: '#/components/schemas/dto.WatchdogSeriesRecentGrab'
+          type: array
+          uniqueItems: false
+        season_number:
+          example: 2
+          type: integer
+        stats:
+          $ref: '#/components/schemas/dto.WatchdogSeriesSeasonStats'
+      type: object
+    dto.WatchdogSeriesSeasonStats:
+      properties:
+        aired_episode_count:
+          example: 10
+          type: integer
+        episode_file_count:
+          example: 10
+          type: integer
+        missing_aired_count:
+          example: 0
+          type: integer
+      type: object
     dto.WebhookInstallDTO:
       properties:
         created:
@@ -3490,6 +3664,106 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Watchdog rollups for every configured instance
+      tags:
+      - watchdog
+  /watchdog/seasons:
+    get:
+      description: Aggregate read view driven by origin_releases.
+      parameters:
+      - description: Filter by instance name
+        in: query
+        name: instance
+        schema:
+          type: string
+      - description: Search series title (LIKE %q%)
+        in: query
+        name: q
+        schema:
+          type: string
+      - description: Only seasons with an active cooldown
+        in: query
+        name: cooldown_only
+        schema:
+          type: boolean
+      - description: Only seasons with an active blacklist row
+        in: query
+        name: blacklisted_only
+        schema:
+          type: boolean
+      - description: Page size (default 100, max 500)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WatchdogSeasonsList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List watchdog-tracked seasons
+      tags:
+      - watchdog
+  /watchdog/series/{instance}/{id}:
+    get:
+      description: Per-season aggregate plus recent decisions + grabs.
+      parameters:
+      - description: Instance name
+        in: path
+        name: instance
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.WatchdogSeriesDetail'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Watchdog detail for one series
       tags:
       - watchdog
   /webhooks/status:
