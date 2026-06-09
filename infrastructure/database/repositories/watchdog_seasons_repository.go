@@ -106,6 +106,18 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		InstanceDBID *uint      `gorm:"column:instance_id"`
 	}
 
+	// origin_releases is append-only and is never cleaned up when an
+	// instance is renamed/removed or a series is deleted from Sonarr.
+	// Two INNER JOINs are the load-bearing filter:
+	//   * sonarr_instance — drops rows whose instance_name no longer
+	//     matches a configured instance (e.g. an old "Sonarr" default
+	//     left behind after the operator renamed the instance).
+	//   * series_cache    — drops rows for series that no longer exist
+	//     in Sonarr (the cache row is gone or soft-deleted), which
+	//     would otherwise render with an empty title in the UI.
+	// origin_releases data is retained for forensics; the API just
+	// hides the ghosts. See watchdog_seasons_repository_test.go
+	// (Orphan_*) for the regression cases.
 	q := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("origin_releases o").
 		Select(`o.instance_name AS instance_name,
@@ -121,8 +133,8 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 			sc.missing_count AS missing_count,
 			sc.last_aired_at AS last_aired_at,
 			si.id AS instance_id`).
-		Joins("LEFT JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id").
-		Joins("LEFT JOIN sonarr_instance si ON si.name = o.instance_name")
+		Joins("JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id AND sc.deleted_at IS NULL AND sc.title <> ''").
+		Joins("JOIN sonarr_instance si ON si.name = o.instance_name")
 
 	if f.Instance != "" {
 		q = q.Where("o.instance_name = ?", f.Instance)

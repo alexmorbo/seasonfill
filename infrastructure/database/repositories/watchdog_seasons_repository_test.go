@@ -75,9 +75,11 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
+	seedSeriesCache(t, db, scRepo, "homelab", 169, "Friends", false, 0, now)
 	seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 
 	repo := NewWatchdogSeasonsRepository(db)
@@ -91,11 +93,65 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 	assert.Equal(t, 169, row.SeriesID)
 	assert.Equal(t, 2, row.SeasonNumber)
 	assert.Equal(t, "Prowlarr", row.OriginIndexerName)
-	assert.Equal(t, "", row.SeriesTitle)
+	assert.Equal(t, "Friends", row.SeriesTitle)
 	assert.False(t, row.Monitored)
 	assert.Nil(t, row.Cooldown, "no cooldown row")
 	assert.Nil(t, row.NoBetterCounter, "no no_better row")
 	assert.Nil(t, row.Blacklist, "no blacklist row")
+}
+
+// Regression: origin_releases rows whose instance_name no longer
+// matches any configured sonarr_instance (operator renamed/removed
+// the instance) must NOT surface on /watchdog/seasons. The DB row is
+// retained so the operator can clean up out-of-band.
+func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// Configured instance + its series + its origin row.
+	seedInstance(t, db, "homelab")
+	seedSeriesCache(t, db, scRepo, "homelab", 369, "FROM", true, 0, now)
+	seedOrigin(t, db, originRepo, "homelab", 369, 4, "Prowlarr", now)
+
+	// Orphan origin row pointing at a phantom instance ("Sonarr"); the
+	// series_cache has the same series_id under "homelab" but NOT
+	// under "Sonarr" — exactly the production shape we hit.
+	seedOrigin(t, db, originRepo, "Sonarr", 369, 4, "Prowlarr", now)
+
+	repo := NewWatchdogSeasonsRepository(db)
+	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 10, nil, now)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "homelab", rows[0].InstanceName)
+	assert.Equal(t, "FROM", rows[0].SeriesTitle)
+}
+
+// Regression: origin_releases rows whose series_cache row is missing
+// (series deleted from Sonarr, cache row never written or
+// soft-deleted) must NOT surface — they render with an empty title in
+// the UI which the operator reads as a corrupted row.
+func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	seedInstance(t, db, "homelab")
+	seedSeriesCache(t, db, scRepo, "homelab", 100, "The Boroughs", true, 0, now)
+	seedOrigin(t, db, originRepo, "homelab", 100, 1, "Prowlarr", now)
+
+	// series_id=999 has no series_cache row at all.
+	seedOrigin(t, db, originRepo, "homelab", 999, 1, "Prowlarr", now)
+
+	repo := NewWatchdogSeasonsRepository(db)
+	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 10, nil, now)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 100, rows[0].SeriesID)
 }
 
 func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
@@ -149,10 +205,13 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
 	cdRepo := NewCooldownRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
+	seedSeriesCache(t, db, scRepo, "homelab", 169, "Friends", true, 0, now)
+	seedSeriesCache(t, db, scRepo, "homelab", 200, "ER", true, 0, now)
 	seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 	seedOrigin(t, db, originRepo, "homelab", 200, 1, "Prowlarr", now)
 
@@ -176,10 +235,13 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
 	seedInstance(t, db, "4k")
+	seedSeriesCache(t, db, scRepo, "homelab", 169, "Friends", true, 0, now)
+	seedSeriesCache(t, db, scRepo, "4k", 200, "ER", true, 0, now)
 	seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 	seedOrigin(t, db, originRepo, "4k", 200, 1, "Prowlarr", now)
 
@@ -194,9 +256,13 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
+	scRepo := NewSeriesCacheRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
+	seedSeriesCache(t, db, scRepo, "homelab", 100, "S100", true, 0, now)
+	seedSeriesCache(t, db, scRepo, "homelab", 200, "S200", true, 0, now)
+	seedSeriesCache(t, db, scRepo, "homelab", 300, "S300", true, 0, now)
 	seedOrigin(t, db, originRepo, "homelab", 100, 1, "Prowlarr", now)
 	seedOrigin(t, db, originRepo, "homelab", 200, 1, "Prowlarr", now)
 	seedOrigin(t, db, originRepo, "homelab", 300, 1, "Prowlarr", now)
