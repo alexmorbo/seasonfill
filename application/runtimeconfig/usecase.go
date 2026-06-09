@@ -68,6 +68,17 @@ const (
 	// localNetworksMaxLen caps the per-request CIDR allow-list. Larger
 	// values blow the per-request linear scan on the bypass hot path.
 	localNetworksMaxLen = 64
+
+	// guidRewritesMaxLen / guidRewriteFromMaxLen / guidRewriteToMaxLen
+	// bound the operator-curated tracker-URL substitution table (107).
+	// 50 rules covers any realistic operator setup; the per-entry caps
+	// keep a malicious / accidental PUT body small. The combined worst-
+	// case payload (50×(512+1024)) is well under runtimeConfigBodyLimit
+	// (64 KiB) which already caps the total — the per-entry checks just
+	// give a precise error code.
+	guidRewritesMaxLen    = 50
+	guidRewriteFromMaxLen = 512
+	guidRewriteToMaxLen   = 1024
 )
 
 var cronParser = cron.NewParser(
@@ -140,6 +151,7 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 		row = ports.RuntimeConfigRow{
 			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
 			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
+			GUIDRewrites: def.GUIDRewrites,
 		}
 	default:
 		return Output{}, time.Time{},
@@ -231,6 +243,7 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 		row = ports.RuntimeConfigRow{
 			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
 			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
+			GUIDRewrites: def.GUIDRewrites,
 		}
 	default:
 		return 0, fmt.Errorf("runtimeconfig: get row: %w", err)
@@ -260,6 +273,7 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 				GroupsClaim:   row.Auth.OIDC.GroupsClaim,
 			},
 		},
+		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...),
 	}
 	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
 		return 0, fmt.Errorf("runtimeconfig: upsert: %w", err)
@@ -324,7 +338,8 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 	snap := runtime.Snapshot{
 		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
 		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
-		Instances: insts,
+		Instances:    insts,
+		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...),
 	}
 	if u.bus != nil {
 		u.bus.Publish(ctx, snap)
@@ -390,6 +405,10 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 		u.clientSecretEnv, hasStored); err != nil {
 		return runtime.Snapshot{}, err
 	}
+	cleanedRewrites, err := validateGUIDRewrites(in.GUIDRewrites)
+	if err != nil {
+		return runtime.Snapshot{}, err
+	}
 	return runtime.Snapshot{
 		Cron: runtime.CronSnapshot{
 			Enabled:  in.Cron.Enabled,
@@ -422,6 +441,7 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 				GroupsClaim:   defaultIfBlank(in.Auth.OIDC.GroupsClaim, "groups"),
 			},
 		},
+		GUIDRewrites: cleanedRewrites,
 	}, nil
 }
 
@@ -542,6 +562,53 @@ func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) err
 	return nil
 }
 
+// validateGUIDRewrites trims, bounds, and dedupes the rule list. Returns
+// the cleaned slice (always non-nil) so the caller can persist canonical
+// form. Empty input → empty (non-nil) output.
+//
+// Rules:
+//   - len ≤ guidRewritesMaxLen (DoS bound + sanity cap on UI list size)
+//   - each From trimmed; non-empty after trim
+//   - each From ≤ guidRewriteFromMaxLen chars
+//   - each To trimmed; ≤ guidRewriteToMaxLen chars (empty allowed)
+//   - From values are unique (operator typo guard)
+func validateGUIDRewrites(list []runtime.GUIDRewriteRule) ([]runtime.GUIDRewriteRule, error) {
+	if len(list) > guidRewritesMaxLen {
+		return nil, newValidationErr("guid_rewrites",
+			"INVALID_GUID_REWRITES_TOO_MANY",
+			fmt.Sprintf("at most %d rules allowed", guidRewritesMaxLen))
+	}
+	out := make([]runtime.GUIDRewriteRule, 0, len(list))
+	seen := make(map[string]struct{}, len(list))
+	for i, raw := range list {
+		from := strings.TrimSpace(raw.From)
+		to := strings.TrimSpace(raw.To)
+		if from == "" {
+			return nil, newValidationErr("guid_rewrites",
+				"INVALID_GUID_REWRITE_FROM_EMPTY",
+				fmt.Sprintf("rule %d: from must not be empty", i))
+		}
+		if len(from) > guidRewriteFromMaxLen {
+			return nil, newValidationErr("guid_rewrites",
+				"INVALID_GUID_REWRITE_FROM_TOO_LONG",
+				fmt.Sprintf("rule %d: from exceeds %d chars", i, guidRewriteFromMaxLen))
+		}
+		if len(to) > guidRewriteToMaxLen {
+			return nil, newValidationErr("guid_rewrites",
+				"INVALID_GUID_REWRITE_TO_TOO_LONG",
+				fmt.Sprintf("rule %d: to exceeds %d chars", i, guidRewriteToMaxLen))
+		}
+		if _, dup := seen[from]; dup {
+			return nil, newValidationErr("guid_rewrites",
+				"INVALID_GUID_REWRITE_DUPLICATE_FROM",
+				fmt.Sprintf("rule %d: duplicate from value %q", i, from))
+		}
+		seen[from] = struct{}{}
+		out = append(out, runtime.GUIDRewriteRule{From: from, To: to})
+	}
+	return out, nil
+}
+
 func boundDuration(field, code string, d, min, max time.Duration) error {
 	if d < min || d > max {
 		return newValidationErr(field, code,
@@ -603,6 +670,10 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 	if networks == nil {
 		networks = []string{}
 	}
+	rewrites := append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...)
+	if rewrites == nil {
+		rewrites = []runtime.GUIDRewriteRule{}
+	}
 	mode := row.Auth.Mode
 	if mode == "" {
 		mode = runtime.AuthModeForms
@@ -644,5 +715,6 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 		},
 		AutoGeneratedAPIKey: row.APIKeyAutoGenerated,
 		UpdatedAt:           ts.UTC(),
+		GUIDRewrites:        rewrites,
 	}
 }

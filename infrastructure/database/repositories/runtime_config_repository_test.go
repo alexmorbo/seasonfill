@@ -296,3 +296,69 @@ func TestRuntimeConfigRepository_OIDCAllowedGroups_OrderPreserved(t *testing.T) 
 	assert.Equal(t, ordered, row.Auth.OIDC.AllowedGroups,
 		"allowed_groups JSON round-trip must preserve order and elements")
 }
+
+// --- 107: guid_rewrites round-trip ---------------------------------------
+
+func TestRuntimeConfigRepository_GUIDRewrites_PreservesOrder(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db, nil)
+	ctx := context.Background()
+
+	ordered := []runtime.GUIDRewriteRule{
+		{From: "http://rutracker-proxy", To: "https://rutracker.org"},
+		{From: "http://nnm-proxy", To: "https://nnm-club.me"},
+		{From: "http://kinozal-proxy", To: "https://kinozal.tv"},
+	}
+	snap := runtime.Defaults()
+	snap.GUIDRewrites = ordered
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ordered, row.GUIDRewrites,
+		"order and content must round-trip through JSON serialisation")
+}
+
+func TestRuntimeConfigRepository_GUIDRewrites_EmptyOnFreshRow(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db, nil)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, row.GUIDRewrites)
+	assert.Empty(t, row.GUIDRewrites)
+}
+
+func TestRuntimeConfigRepository_GUIDRewrites_NilSnapshotPersistsEmptyArray(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db, nil)
+	ctx := context.Background()
+
+	snap := runtime.Defaults()
+	snap.GUIDRewrites = nil // simulate a snapshot built without the field
+	require.NoError(t, repo.Upsert(ctx, snap, nil))
+
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, row.GUIDRewrites,
+		"nil snapshot must persist as `[]` so Get returns non-nil")
+	assert.Empty(t, row.GUIDRewrites)
+}
+
+func TestRuntimeConfigRepository_GUIDRewrites_SaveAPIKeyBootstrap(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRuntimeConfigRepository(db, nil)
+	ctx := context.Background()
+
+	// SaveAPIKey on a missing row seeds defaults — verify guid_rewrites
+	// arrives as a valid empty JSON array so a subsequent Get works.
+	require.NoError(t, repo.SaveAPIKey(ctx, []byte{0xAA}, true))
+	row, err := repo.Get(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, row.GUIDRewrites)
+	assert.Empty(t, row.GUIDRewrites)
+}

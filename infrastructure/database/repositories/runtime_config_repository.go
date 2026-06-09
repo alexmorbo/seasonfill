@@ -98,6 +98,17 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 	if len(m.OIDCClientSecretCiphertext) > 0 {
 		row.OIDCClientSecretCiphertext = append([]byte(nil), m.OIDCClientSecretCiphertext...)
 	}
+	// guid_rewrites — NULL/empty TEXT → empty (non-nil) slice. Malformed
+	// JSON falls back to empty for the same reason auth_local_networks
+	// does: a corrupt row should not 500 the entire GET handler. The
+	// next PUT canonicalises the column. Story 107.
+	row.GUIDRewrites = []runtime.GUIDRewriteRule{}
+	if m.GUIDRewrites != "" {
+		var parsed []runtime.GUIDRewriteRule
+		if err := json.Unmarshal([]byte(m.GUIDRewrites), &parsed); err == nil && parsed != nil {
+			row.GUIDRewrites = parsed
+		}
+	}
 	return row, nil
 }
 
@@ -127,6 +138,16 @@ func (r *RuntimeConfigRepository) Upsert(
 	networks, _ := json.Marshal(snap.Auth.LocalNetworks)
 	oidcScopes, _ := json.Marshal(snap.Auth.OIDC.Scopes)
 	oidcGroups, _ := json.Marshal(snap.Auth.OIDC.AllowedGroups)
+	// Marshal a non-nil slice so the column always carries `[]` for an
+	// empty rule list (never `null`). The validate step in the usecase
+	// already produces a non-nil slice; this is a belt-and-braces guard
+	// for the SaveAPIKey bootstrap path that constructs the row directly
+	// (Story 107).
+	rewriteList := snap.GUIDRewrites
+	if rewriteList == nil {
+		rewriteList = []runtime.GUIDRewriteRule{}
+	}
+	rewrites, _ := json.Marshal(rewriteList)
 
 	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
@@ -165,6 +186,7 @@ func (r *RuntimeConfigRepository) Upsert(
 			existing.OIDCUsernameClaim = snap.Auth.OIDC.UsernameClaim
 			existing.OIDCAllowedGroups = string(oidcGroups)
 			existing.OIDCGroupsClaim = snap.Auth.OIDC.GroupsClaim
+			existing.GUIDRewrites = string(rewrites)
 			existing.UpdatedAt = now
 			return tx.Save(&existing).Error
 		case errors.Is(err, gorm.ErrRecordNotFound):
@@ -191,6 +213,7 @@ func (r *RuntimeConfigRepository) Upsert(
 				OIDCUsernameClaim:  snap.Auth.OIDC.UsernameClaim,
 				OIDCAllowedGroups:  string(oidcGroups),
 				OIDCGroupsClaim:    snap.Auth.OIDC.GroupsClaim,
+				GUIDRewrites:       string(rewrites),
 				CreatedAt:          now, UpdatedAt: now,
 			}
 			return tx.Create(&row).Error
@@ -243,6 +266,7 @@ func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, aut
 			OIDCUsernameClaim:    def.Auth.OIDC.UsernameClaim,
 			OIDCAllowedGroups:    string(mustJSON(def.Auth.OIDC.AllowedGroups)),
 			OIDCGroupsClaim:      "groups",
+			GUIDRewrites:         "[]",
 		}
 		return db.Create(&row).Error
 	default:

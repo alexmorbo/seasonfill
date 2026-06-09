@@ -96,6 +96,14 @@ via `valueFrom.secretKeyRef` from a pre-created or chart-rendered
 Secret; compose wires them from `.env`. See the deploy-path READMEs
 for the exact key names.
 
+The runtime config also carries a `guid_rewrites` table — an ordered
+list of `{from, to}` substring substitutions applied to tracker GUIDs
+when the UI renders "open on tracker" links. The replacements run
+client-side; the database stores release GUIDs unchanged. Useful when
+Sonarr is configured against a private cluster proxy
+(`http://rutracker-proxy.servarr.svc.cluster.local/…`) but the UI
+should show the public tracker URL.
+
 ## API surface
 
 REST API under `/api/v1/*` (includes `/api/v1/auth/login`,

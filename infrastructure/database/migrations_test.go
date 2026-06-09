@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 091a / F-P2-2: latest migration is 000021_decisions_intent.
-	assert.Equal(t, 21, version)
+	// 107: latest migration is 000022_runtime_config_guid_rewrites.
+	assert.Equal(t, 22, version)
 	assert.False(t, dirty)
 }
 
@@ -228,6 +228,35 @@ func TestMigrate_V21_AddsIntentColumn(t *testing.T) {
 
 	assert.True(t, db.Migrator().HasColumn(&DecisionModel{}, "intent"),
 		"v21 must add the intent column to decisions")
+}
+
+// TestMigrate_V22_AddsGUIDRewritesColumn asserts the 107 migration adds
+// the `guid_rewrites` column to runtime_config and that the default
+// value is the literal JSON `[]`.
+func TestMigrate_V22_AddsGUIDRewritesColumn(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, Migrate(db))
+
+	assert.True(t, db.Migrator().HasColumn(&RuntimeConfigModel{}, "guid_rewrites"),
+		"v22 must add the guid_rewrites column to runtime_config")
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = sqlDB.ExecContext(ctx,
+		`INSERT INTO runtime_config (id, cron_enabled, cron_schedule) VALUES (1, 1, 'x')`)
+	require.NoError(t, err)
+	var rewrites string
+	require.NoError(t, sqlDB.QueryRowContext(ctx,
+		`SELECT guid_rewrites FROM runtime_config WHERE id=1`).Scan(&rewrites))
+	assert.Equal(t, "[]", rewrites,
+		"default must be the literal JSON empty array")
 }
 
 // TestMigrate_PostgresIntegration runs the full migrate path against a

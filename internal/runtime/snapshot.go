@@ -12,6 +12,21 @@ type Snapshot struct {
 	GlobalRateLimit RateLimitSnapshot
 	Auth            AuthSnapshot
 	Instances       []InstanceSnapshot
+	// GUIDRewrites is the ordered list of substring replacement rules
+	// applied client-side to tracker GUIDs surfaced as "open on tracker"
+	// links. Backend persists and round-trips only — never rewrites a
+	// stored GUID. Empty slice = no rewrites. Order matters (operator-
+	// controlled priority): applied left-to-right via repeated
+	// strings.Replace(s, rule.From, rule.To, -1).
+	GUIDRewrites []GUIDRewriteRule
+}
+
+// GUIDRewriteRule is one operator-curated substring replacement.
+// Trim is applied at validation time; the persisted From is non-empty.
+// To may be empty (rule strips the substring).
+type GUIDRewriteRule struct {
+	From string
+	To   string
 }
 
 type CronSnapshot struct {
@@ -277,6 +292,7 @@ func Defaults() Snapshot {
 			SessionEpoch:   0,
 			OIDC:           DefaultOIDCSnapshot(),
 		},
+		GUIDRewrites: []GUIDRewriteRule{},
 	}
 }
 

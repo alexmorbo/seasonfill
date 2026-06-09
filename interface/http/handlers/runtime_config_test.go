@@ -49,7 +49,8 @@ func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot, ifUnmodifi
 	f.row = ports.RuntimeConfigRow{
 		Cron: s.Cron, Scan: s.Scan, DryRun: s.DryRun,
 		GlobalRateLimit: s.GlobalRateLimit, Auth: s.Auth,
-		UpdatedAt: time.Now().UTC(),
+		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), s.GUIDRewrites...),
+		UpdatedAt:    time.Now().UTC(),
 	}
 	f.exists = true
 	return nil
@@ -334,6 +335,66 @@ func TestRC_IUS_BadFormat(t *testing.T) {
 		map[string]string{"If-Unmodified-Since": "not-a-date"})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "If-Unmodified-Since")
+}
+
+// --- 107: guid_rewrites DTO round trip -----------------------------------
+
+func TestRC_Get_GUIDRewrites_EmptyArrayNotNull(t *testing.T) {
+	t.Parallel()
+	r, _ := setupRC(t)
+	w := rcDoJSON(t, r, http.MethodGet, "/api/v1/config/runtime", nil, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var body struct {
+		GUIDRewrites json.RawMessage `json:"guid_rewrites"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "[]", string(body.GUIDRewrites),
+		"GET with no row must emit guid_rewrites as `[]` not `null`")
+}
+
+func TestRC_Put_GUIDRewrites_RoundTrip(t *testing.T) {
+	t.Parallel()
+	r, _ := setupRC(t)
+	b := validRCBody()
+	b["guid_rewrites"] = []map[string]any{
+		{"from": "http://rutracker-proxy", "to": "https://rutracker.org"},
+		{"from": "http://nnm-proxy", "to": "https://nnm-club.me"},
+	}
+	w := rcDoJSON(t, r, http.MethodPut, "/api/v1/config/runtime", b, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	rules := got["guid_rewrites"].([]any)
+	require.Len(t, rules, 2)
+	first := rules[0].(map[string]any)
+	assert.Equal(t, "http://rutracker-proxy", first["from"])
+	assert.Equal(t, "https://rutracker.org", first["to"])
+	second := rules[1].(map[string]any)
+	assert.Equal(t, "http://nnm-proxy", second["from"])
+	assert.Equal(t, "https://nnm-club.me", second["to"])
+
+	// Round trip via GET — order must be preserved.
+	w2 := rcDoJSON(t, r, http.MethodGet, "/api/v1/config/runtime", nil, nil)
+	require.Equal(t, http.StatusOK, w2.Code)
+	var got2 map[string]any
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &got2))
+	rules2 := got2["guid_rewrites"].([]any)
+	require.Len(t, rules2, 2)
+	first2 := rules2[0].(map[string]any)
+	assert.Equal(t, "http://rutracker-proxy", first2["from"])
+}
+
+func TestRC_Put_GUIDRewrites_DuplicateFrom_400(t *testing.T) {
+	t.Parallel()
+	r, _ := setupRC(t)
+	b := validRCBody()
+	b["guid_rewrites"] = []map[string]any{
+		{"from": "http://a", "to": "https://x"},
+		{"from": "http://a", "to": "https://y"},
+	}
+	w := rcDoJSON(t, r, http.MethodPut, "/api/v1/config/runtime", b, nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "INVALID_GUID_REWRITE_DUPLICATE_FROM")
 }
 
 // TestRC_Body_TooLarge exercises the MaxBytesError branch in

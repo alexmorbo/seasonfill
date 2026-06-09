@@ -52,7 +52,8 @@ func (f *fakeRuntimeRepo) Upsert(_ context.Context, snap runtime.Snapshot, ifUnm
 	f.row = ports.RuntimeConfigRow{
 		Cron: snap.Cron, Scan: snap.Scan, DryRun: snap.DryRun,
 		GlobalRateLimit: snap.GlobalRateLimit, Auth: snap.Auth,
-		UpdatedAt: time.Now().UTC(),
+		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), snap.GUIDRewrites...),
+		UpdatedAt:    time.Now().UTC(),
 	}
 	f.exists = true
 	return nil
@@ -415,6 +416,171 @@ func (staleOnIUSRepo) UpsertOIDCSecret(_ context.Context, _ string) error {
 
 func (staleOnIUSRepo) DecryptOIDCSecret(_ context.Context) (string, error) {
 	return "", nil
+}
+
+// --- 107: guid_rewrites validation + round-trip --------------------------
+
+func TestValidate_GUIDRewrites_EmptyOK(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = nil
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, out.GUIDRewrites, "Output must surface [] not nil")
+	assert.Empty(t, out.GUIDRewrites)
+}
+
+func TestValidate_GUIDRewrites_AtMax(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = make([]runtime.GUIDRewriteRule, guidRewritesMaxLen)
+	for i := range in.GUIDRewrites {
+		in.GUIDRewrites[i] = runtime.GUIDRewriteRule{
+			From: "http://internal" + grItoa(i),
+			To:   "https://public" + grItoa(i),
+		}
+	}
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.Len(t, out.GUIDRewrites, guidRewritesMaxLen)
+}
+
+func TestValidate_GUIDRewrites_TooMany(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = make([]runtime.GUIDRewriteRule, guidRewritesMaxLen+1)
+	for i := range in.GUIDRewrites {
+		in.GUIDRewrites[i] = runtime.GUIDRewriteRule{
+			From: "http://internal" + grItoa(i),
+			To:   "https://public",
+		}
+	}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_GUID_REWRITES_TOO_MANY", verr.Code)
+}
+
+func TestValidate_GUIDRewrites_EmptyFrom(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{
+		{From: "   ", To: "https://x"},
+	}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_GUID_REWRITE_FROM_EMPTY", verr.Code)
+}
+
+func TestValidate_GUIDRewrites_Duplicate(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{
+		{From: "http://a", To: "https://x"},
+		{From: "http://a", To: "https://y"},
+	}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_GUID_REWRITE_DUPLICATE_FROM", verr.Code)
+}
+
+func TestValidate_GUIDRewrites_FromTooLong(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	long := make([]byte, guidRewriteFromMaxLen+1)
+	for i := range long {
+		long[i] = 'x'
+	}
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{{From: string(long), To: "y"}}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_GUID_REWRITE_FROM_TOO_LONG", verr.Code)
+}
+
+func TestValidate_GUIDRewrites_ToTooLong(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	long := make([]byte, guidRewriteToMaxLen+1)
+	for i := range long {
+		long[i] = 'x'
+	}
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{{From: "a", To: string(long)}}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	var verr *ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "INVALID_GUID_REWRITE_TO_TOO_LONG", verr.Code)
+}
+
+func TestValidate_GUIDRewrites_TrimsWhitespace(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{
+		{From: "  http://internal  ", To: "  https://public  "},
+	}
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	require.Len(t, out.GUIDRewrites, 1)
+	assert.Equal(t, "http://internal", out.GUIDRewrites[0].From)
+	assert.Equal(t, "https://public", out.GUIDRewrites[0].To)
+}
+
+func TestValidate_GUIDRewrites_OrderPreserved(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.GUIDRewrites = []runtime.GUIDRewriteRule{
+		{From: "http://z", To: "https://z"},
+		{From: "http://a", To: "https://a"},
+		{From: "http://m", To: "https://m"},
+	}
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	require.Len(t, out.GUIDRewrites, 3)
+	assert.Equal(t, "http://z", out.GUIDRewrites[0].From)
+	assert.Equal(t, "http://a", out.GUIDRewrites[1].From)
+	assert.Equal(t, "http://m", out.GUIDRewrites[2].From)
+
+	got, _, err := uc.Get(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got.GUIDRewrites, 3)
+	assert.Equal(t, "http://z", got.GUIDRewrites[0].From)
+	assert.Equal(t, "http://a", got.GUIDRewrites[1].From)
+	assert.Equal(t, "http://m", got.GUIDRewrites[2].From)
+}
+
+// grItoa avoids importing strconv just for the test stubs above.
+func grItoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := false
+	if i < 0 {
+		neg = true
+		i = -i
+	}
+	var b [20]byte
+	pos := len(b)
+	for i > 0 {
+		pos--
+		b[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		b[pos] = '-'
+	}
+	return string(b[pos:])
 }
 
 // TestUpdate_StaleIUS_FromRepo is the CR-1 + M-2 regression test.

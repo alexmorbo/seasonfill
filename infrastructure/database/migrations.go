@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 21
+	latestVersion   = 22
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -171,6 +171,14 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV21 {
 		version = 21
+	}
+	// 107: Detect v22 by checking for guid_rewrites on runtime_config.
+	hasV22, err := columnExists(ctx, sqlDB, dialect, "runtime_config", "guid_rewrites")
+	if err != nil {
+		return err
+	}
+	if hasV22 {
+		version = 22
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {
