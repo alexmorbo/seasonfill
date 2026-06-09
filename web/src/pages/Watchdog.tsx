@@ -95,10 +95,10 @@ export function Watchdog() {
           />
 
           <div
-            className="mb-5 grid gap-5 items-start [grid-template-columns:1fr_320px] max-[1080px]:[grid-template-columns:1fr]"
+            className="mb-5 grid gap-5 items-start [grid-template-columns:minmax(0,1fr)_320px] max-[1080px]:[grid-template-columns:minmax(0,1fr)]"
             data-testid="watchdog-grid"
           >
-            <div className="flex flex-col gap-3.5">
+            <div className="flex min-w-0 flex-col gap-3.5">
               {primary ? (
                 <WatchdogActivityFeed
                   instance={primary.instance_name}

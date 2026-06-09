@@ -441,7 +441,7 @@ function SeasonGrabs({ season }: { season: WatchdogSeriesSeason }) {
 
 function GrabRow({ g }: { g: WatchdogSeriesRecentGrab }) {
   const { t } = useTranslation();
-  const href = g.id ? `/grabs?drawer=${encodeURIComponent(g.id)}` : null;
+  const href = g.id ? `/grabs?open=${encodeURIComponent(g.id)}` : null;
   const replay = Boolean(g.replay_of_id);
   return (
     <li

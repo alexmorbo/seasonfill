@@ -231,6 +231,19 @@ describe('<WatchdogSeriesDrawer />', () => {
     });
   });
 
+  it('uses ?open=<id> for the grab-drawer link (Grabs page reads `open`)', async () => {
+    vi.mocked(api).mockResolvedValueOnce(fullPayload);
+    render(<Harness initialEntry="/watchdog?series_id=169&instance=homelab" />);
+
+    const links = await screen.findAllByTestId('drawer-grab-open');
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0]).toHaveAttribute('href', '/grabs?open=grab-0');
+    // All links use the canonical `open` param (matching Grabs.tsx).
+    for (const link of links) {
+      expect(link.getAttribute('href')).toMatch(/^\/grabs\?open=/);
+    }
+  });
+
   it('clears URL params when the drawer is closed', async () => {
     vi.mocked(api).mockResolvedValueOnce(fullPayload);
     render(<Harness initialEntry="/watchdog?series_id=169&instance=homelab" />);

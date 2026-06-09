@@ -273,36 +273,38 @@ export function WatchdogSeasonsTable({ filters }: WatchdogSeasonsTableProps) {
             {t('watchdog.table.emptyState')}
           </div>
         ) : (
-          <div role="table">
-            <HeaderRow />
-            {items.map((r) => (
-              <DataRow
-                key={`${r.instance ?? '?'}:${r.series_id ?? '?'}:${r.season_number ?? '?'}`}
-                row={r}
-                onOpen={openSeries}
+          <div role="table" className="overflow-x-auto">
+            <div className="min-w-[980px]">
+              <HeaderRow />
+              {items.map((r) => (
+                <DataRow
+                  key={`${r.instance ?? '?'}:${r.series_id ?? '?'}:${r.season_number ?? '?'}`}
+                  row={r}
+                  onOpen={openSeries}
+                />
+              ))}
+              <div
+                ref={sentinelRef}
+                data-testid="watchdog-seasons-sentinel"
+                className="h-2 w-full"
               />
-            ))}
-            <div
-              ref={sentinelRef}
-              data-testid="watchdog-seasons-sentinel"
-              className="h-2 w-full"
-            />
-            {query.isFetchingNextPage ? (
-              <div className="px-4 py-3 text-center text-[12px] text-tx-faint">
-                {t('watchdog.table.loadingMore')}
-              </div>
-            ) : query.hasNextPage ? (
-              <div className="px-4 py-3 text-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void query.fetchNextPage()}
-                  data-testid="watchdog-seasons-load-more"
-                >
-                  {t('watchdog.table.loadMore')}
-                </Button>
-              </div>
-            ) : null}
+              {query.isFetchingNextPage ? (
+                <div className="px-4 py-3 text-center text-[12px] text-tx-faint">
+                  {t('watchdog.table.loadingMore')}
+                </div>
+              ) : query.hasNextPage ? (
+                <div className="px-4 py-3 text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void query.fetchNextPage()}
+                    data-testid="watchdog-seasons-load-more"
+                  >
+                    {t('watchdog.table.loadMore')}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
       </CardContent>
