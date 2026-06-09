@@ -115,3 +115,32 @@ export function useWatchdogSeasonsTotals(): UseQueryResult<
     },
   });
 }
+
+// === series drill-down (Story 098c) ==============================
+// Endpoint B from Story 098a returns the per-season aggregation for
+// one series at one instance: origin, stats, cooldown, blacklist,
+// no-better counter, plus the most recent decisions and grabs. The
+// drawer mounts whenever both args are non-null.
+
+export const watchdogSeriesDetailKey = (
+  instance: string | null,
+  seriesID: number | null,
+) => ['watchdog', 'series', instance, seriesID] as const;
+
+export function useWatchdogSeriesDetail(
+  instance: string | null,
+  seriesID: number | null,
+): UseQueryResult<WatchdogSeriesDetail, ApiError> {
+  const enabled = Boolean(instance) && seriesID !== null && Number.isFinite(seriesID);
+  return useQuery<WatchdogSeriesDetail, ApiError>({
+    queryKey: watchdogSeriesDetailKey(instance, seriesID),
+    queryFn: () =>
+      api<WatchdogSeriesDetail>(
+        `/watchdog/series/${encodeURIComponent(instance!)}/${seriesID!}`,
+      ),
+    enabled,
+    refetchInterval: enabled ? 60_000 : false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+}

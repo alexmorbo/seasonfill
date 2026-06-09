@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWatchdogRollups } from '@/lib/api/watchdogRollups';
 import { useWatchdogSeasonsTotals } from '@/lib/api/watchdogSeasons';
@@ -11,6 +11,7 @@ import { WatchdogBlacklistTable } from '@/components/watchdog/WatchdogBlacklistT
 import { WatchdogNotConfiguredEmpty } from '@/components/watchdog/WatchdogNotConfiguredEmpty';
 import { WatchdogSeasonsFilters as SeasonsFilters } from '@/components/watchdog/WatchdogSeasonsFilters';
 import { WatchdogSeasonsTable } from '@/components/watchdog/WatchdogSeasonsTable';
+import { WatchdogSeriesDrawer } from '@/components/watchdog/WatchdogSeriesDrawer';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 
@@ -41,6 +42,29 @@ export function Watchdog() {
     cooldownOnly: false,
     blacklistedOnly: false,
   });
+
+  // Drill-down drawer (Story 098c) is driven by URL params written by
+  // WatchdogSeasonsTable row clicks. Keep state in the URL so deep
+  // links + back/forward remain stable.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const seriesIDRaw = searchParams.get('series_id');
+  const drawerInstance = searchParams.get('instance');
+  const drawerSeriesID = seriesIDRaw ? Number(seriesIDRaw) : null;
+  const drawerSeriesIDValid =
+    drawerSeriesID !== null && Number.isFinite(drawerSeriesID)
+      ? drawerSeriesID
+      : null;
+
+  const onDrawerOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) return;
+      const next = new URLSearchParams(searchParams);
+      next.delete('series_id');
+      next.delete('instance');
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const openInstanceForm = useCallback(
     (name: string) => {
@@ -119,6 +143,12 @@ export function Watchdog() {
                 />
               ))}
           </div>
+
+          <WatchdogSeriesDrawer
+            seriesID={drawerSeriesIDValid}
+            instance={drawerInstance}
+            onOpenChange={onDrawerOpenChange}
+          />
         </>
       )}
     </div>

@@ -1538,6 +1538,48 @@ export const en = {
         openInstances: 'To instances list',
       },
     },
+    drawer: {
+      title: 'Series detail',
+      loading: 'Loading…',
+      empty: 'This series has not been scanned yet',
+      season: {
+        title: 'Stats',
+        stats: {
+          aired: 'aired',
+          files: 'files',
+          missing: 'missing',
+        },
+      },
+      origin: {
+        title: 'Source',
+        indexer: 'indexer',
+        firstSeen: 'first seen',
+        lastUsed: 'last used',
+      },
+      cooldown: {
+        title: 'Cooldown',
+        until: 'active until {{ts}}',
+        none: '—',
+      },
+      noBetter: {
+        title: 'No-better counter',
+        count: '{{consecutive}}/{{max}}',
+      },
+      decisions: {
+        title: 'Recent decisions',
+        showMore: 'Show more',
+        showLess: 'Show less',
+        empty: 'No recent decisions',
+      },
+      grabs: {
+        title: 'Recent grabs',
+        replayMarker: 'replay',
+        openDrawer: 'Open',
+        showMore: 'Show more',
+        showLess: 'Show less',
+        empty: 'No recent grabs',
+      },
+    },
   },
   series: {
     title: 'Series',

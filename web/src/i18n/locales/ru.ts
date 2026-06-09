@@ -1536,6 +1536,48 @@ export const ru: Translations = {
         openInstances: 'К списку инстансов',
       },
     },
+    drawer: {
+      title: 'Деталь сериала',
+      loading: 'Загружаем…',
+      empty: 'Эта серия пока не сканировалась',
+      season: {
+        title: 'Статистика',
+        stats: {
+          aired: 'aired',
+          files: 'files',
+          missing: 'missing',
+        },
+      },
+      origin: {
+        title: 'Origin',
+        indexer: 'indexer',
+        firstSeen: 'first seen',
+        lastUsed: 'last used',
+      },
+      cooldown: {
+        title: 'Cooldown',
+        until: 'до {{ts}}',
+        none: '—',
+      },
+      noBetter: {
+        title: 'No-better counter',
+        count: '{{consecutive}}/{{max}}',
+      },
+      decisions: {
+        title: 'Последние решения',
+        showMore: 'Показать ещё',
+        showLess: 'Скрыть',
+        empty: 'Нет недавних решений',
+      },
+      grabs: {
+        title: 'Последние grab’ы',
+        replayMarker: 'replay',
+        openDrawer: 'Открыть',
+        showMore: 'Показать ещё',
+        showLess: 'Скрыть',
+        empty: 'Нет недавних grab’ов',
+      },
+    },
   },
   series: {
     title: 'Сериалы',
