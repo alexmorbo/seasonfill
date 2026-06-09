@@ -83,6 +83,23 @@ export function ScanDetail() {
     fetchNextPage: decisions.fetchNextPage,
   });
 
+  // F-P1-10 follow-up: eager-fetch every decisions page for the current
+  // scan so the "+N пропущенных" counter (and the worst-category badge
+  // counts) reflect the FULL scan, not the prefix that happens to be
+  // loaded. Decisions for a single scan are bounded by series × seasons
+  // and tiny in practice; the trade-off is acceptable. Without this the
+  // hiddenCount in ScanDecisionsCard grows as the user scrolls, which
+  // operators rightly report as a moving target.
+  const decisionsHasNextPage = decisions.hasNextPage;
+  const decisionsIsFetchingNextPage = decisions.isFetchingNextPage;
+  const decisionsFetchNextPage = decisions.fetchNextPage;
+  const decisionsPageCount = decisions.data?.pages.length ?? 0;
+  useEffect(() => {
+    if (decisionsHasNextPage && !decisionsIsFetchingNextPage) {
+      decisionsFetchNextPage();
+    }
+  }, [decisionsHasNextPage, decisionsIsFetchingNextPage, decisionsFetchNextPage, decisionsPageCount]);
+
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
     if (!v || v === 'all') next.delete(k); else next.set(k, v);

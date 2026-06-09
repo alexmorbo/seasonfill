@@ -88,7 +88,7 @@ export const KIND_CLASS: Record<BadgeKind, string> = {
   danger: 'bg-status-danger/15 text-status-danger border-status-danger/30',
   warning: 'bg-status-warning/15 text-status-warning border-status-warning/30',
   info: 'bg-status-info/15 text-status-info border-status-info/30',
-  neutral: 'bg-surface-2 text-foreground-2 border-border-faint',
+  neutral: 'bg-status-neutral/15 text-foreground-2 border-status-neutral/30',
 };
 
 export const KIND_DOT: Record<BadgeKind, string> = {
