@@ -25,11 +25,17 @@ type Config struct {
 
 // Torrent is the lean per-torrent shape the Watchdog cares about. Sourced
 // from qbt.Torrent — only fields the use case reads are exposed here.
+//
+// Tags is the raw comma-separated qBit tag string ("issue, foo, bar"); the
+// watchdog rollup handler scans it for qbit_manage-style markers
+// ("issue" / "unregistered" / "tracker_error") to compute the on-demand
+// unregistered counter without a per-torrent tracker probe (Story 094).
 type Torrent struct {
 	Hash     string
 	Name     string
 	Category string
 	State    string
+	Tags     string
 	AddedOn  time.Time
 }
 
@@ -150,6 +156,7 @@ func (c *client) ListTorrents(ctx context.Context) ([]Torrent, error) {
 			Name:     t.Name,
 			Category: t.Category,
 			State:    string(t.State),
+			Tags:     t.Tags,
 			AddedOn:  time.Unix(t.AddedOn, 0).UTC(),
 		})
 	}

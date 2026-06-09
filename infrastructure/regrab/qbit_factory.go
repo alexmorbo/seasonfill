@@ -61,6 +61,36 @@ func (QbitProbeFunc) Probe(ctx context.Context, s appregrab.Settings) (bool, err
 	return true, nil
 }
 
+// QbitTorrentsListerFunc satisfies handlers.QbitTorrentsLister. It
+// builds a transient qbit.Client, lists torrents (server-side filtered
+// by Settings.Category), and closes the client. Story 094 added this
+// so the watchdog rollup handler can compute the watched and
+// unregistered counters on demand — before the per-instance polling
+// loop has stamped its first runtime-state snapshot.
+type QbitTorrentsListerFunc struct{}
+
+// ListTorrents implements handlers.QbitTorrentsLister. The returned
+// slice is empty when qBit is unreachable, unauthenticated, or returns
+// no torrents in the configured category. Errors are surfaced for the
+// caller's debug logging only — the rollup handler treats any non-nil
+// error as "fall back to the prior RuntimeStateStore value".
+func (QbitTorrentsListerFunc) ListTorrents(ctx context.Context, s appregrab.Settings) ([]qbit.Torrent, error) {
+	client, err := qbit.NewClient(qbit.Config{
+		URL:      s.URL,
+		Username: s.Username,
+		Password: s.PasswordPlaintext,
+		Category: s.Category,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.Close() }()
+	if err := client.Login(ctx); err != nil {
+		return nil, err
+	}
+	return client.ListTorrents(ctx)
+}
+
 // DetectorFactoryFunc satisfies application/regrab.DetectorFactory by
 // wrapping qbit.NewDetector. The use case calls this once per cycle
 // with the per-instance customMsgs slice.

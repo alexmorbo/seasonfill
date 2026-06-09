@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
+	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
@@ -137,7 +138,12 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 	if got.InstanceName != "homelab" || !got.Enabled || !got.Active {
 		t.Errorf("envelope: %+v", got)
 	}
-	if got.Watched != 12 || got.Unregistered != 24 || got.Regrabs24h != 1 || got.Regrabs7d != 5 || got.BlacklistSize != 3 {
+	// Story 094 swapped Unregistered's source from lifetime replays
+	// (CountReplaysAll) to live qBT-derived counts. Without a
+	// QbitTorrentsLister wired (this test doesn't inject one), the
+	// counter falls back to zero — exactly what the cold-start UX
+	// should show before the first list call returns.
+	if got.Watched != 12 || got.Unregistered != 0 || got.Regrabs24h != 1 || got.Regrabs7d != 5 || got.BlacklistSize != 3 {
 		t.Errorf("counters: %+v", got)
 	}
 	if got.LastPollAt == nil || got.LastPollResult == nil || *got.LastPollResult != regrab.PollResultOK || got.NextPollAt == nil {
@@ -364,6 +370,238 @@ func TestWatchdogRollupHandler_ProbeSkippedWhenSnapshotFresh(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if !got.QbitReachable {
 		t.Errorf("expected QbitReachable=true from snapshot, got %+v", got)
+	}
+}
+
+// --- Story 094: on-demand torrents counters --------------------------------
+
+// stubLister satisfies QbitTorrentsLister. Tracks call counts per
+// instance so the cache test can assert hits/misses, and mirrors
+// stubProbe's shape on purpose.
+type stubLister2 struct {
+	mu       sync.Mutex
+	torrents []qbit.Torrent
+	err      error
+	calls    map[string]int
+}
+
+func newStubLister(torrents []qbit.Torrent, err error) *stubLister2 {
+	return &stubLister2{torrents: torrents, err: err, calls: map[string]int{}}
+}
+
+func (s *stubLister2) ListTorrents(_ context.Context, sett regrab.Settings) ([]qbit.Torrent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls[sett.InstanceName]++
+	return s.torrents, s.err
+}
+
+func (s *stubLister2) callsFor(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls[name]
+}
+
+func setupListerHandler(t *testing.T, snaps stubSnapshots, settings stubSettings, probe QbitProbe, lister QbitTorrentsLister) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	h := NewWatchdogRollupHandler(
+		settings, snaps,
+		&stubGrabs{replaysSince: map[string]map[time.Duration]int{}, replaysAll: map[string]int{}},
+		stubBlacklistCount{},
+		stubLister{"homelab"},
+		stubLookup{"homelab": 1},
+		nil,
+	).WithClock(func() time.Time { return fixedNow }).
+		WithQbitProbe(probe).
+		WithProbeTimeout(50 * time.Millisecond).
+		WithQbitTorrentsLister(lister).
+		WithTorrentsTimeout(50 * time.Millisecond)
+	r := gin.New()
+	r.GET("/api/v1/instances/:name/watchdog/rollups", h.One)
+	return r
+}
+
+func TestWatchdogRollupHandler_ListTorrentsFillsCountersWhenSnapshotMissing(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+		Category: "sonarr",
+	}
+	probe := newStubProbe(true, nil)
+	lister := newStubLister([]qbit.Torrent{
+		{Hash: "a", Category: "sonarr", Tags: ""},
+		{Hash: "b", Category: "sonarr", Tags: "issue"},
+		{Hash: "c", Category: "sonarr", Tags: "foo,unregistered"},
+		{Hash: "d", Category: "sonarr", Tags: "Issue, hd"},
+		{Hash: "e", Category: "other", Tags: "issue"}, // filtered out by category
+	}, nil)
+	r := setupListerHandler(t, stubSnapshots{}, settings, probe, lister)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got dto.WatchdogRollup
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Watched != 4 {
+		t.Errorf("watched: want 4, got %d (row=%+v)", got.Watched, got)
+	}
+	if got.Unregistered != 3 {
+		t.Errorf("unregistered: want 3, got %d (row=%+v)", got.Unregistered, got)
+	}
+	if lister.callsFor("homelab") != 1 {
+		t.Errorf("expected 1 list call, got %d", lister.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ListTorrentsCached(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(true, nil)
+	lister := newStubLister([]qbit.Torrent{{Hash: "a", Tags: "issue"}}, nil)
+	r := setupListerHandler(t, stubSnapshots{}, settings, probe, lister)
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("iter %d status: %d", i, w.Code)
+		}
+	}
+	if lister.callsFor("homelab") != 1 {
+		t.Errorf("expected 1 list call (TTL cache), got %d", lister.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ListTorrentsFallsBackToSnapshotOnError(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	snaps := stubSnapshots{}
+	snaps["homelab"] = regrab.RuntimeState{
+		LastPollAt: fixedNow.Add(-2 * time.Hour), LastPollResult: regrab.PollResultOK,
+		QbitReachable: true, Watched: 42,
+	}
+	probe := newStubProbe(true, nil)
+	lister := newStubLister(nil, errors.New("qbit list boom"))
+	r := setupListerHandler(t, snaps, settings, probe, lister)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got dto.WatchdogRollup
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.Watched != 42 {
+		t.Errorf("expected snapshot Watched=42 fallback, got %d", got.Watched)
+	}
+	if got.Unregistered != 0 {
+		t.Errorf("unregistered fallback default: want 0, got %d", got.Unregistered)
+	}
+}
+
+func TestWatchdogRollupHandler_ListTorrentsSkippedWhenSnapshotFresh(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	snaps := stubSnapshots{}
+	snaps["homelab"] = regrab.RuntimeState{
+		LastPollAt: fixedNow.Add(-5 * time.Minute), LastPollResult: regrab.PollResultOK,
+		QbitReachable: true, Watched: 12,
+	}
+	probe := newStubProbe(true, nil)
+	lister := newStubLister(nil, errors.New("should not be called"))
+	r := setupListerHandler(t, snaps, settings, probe, lister)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if lister.callsFor("homelab") != 0 {
+		t.Errorf("expected 0 list calls when snapshot fresh, got %d", lister.callsFor("homelab"))
+	}
+	var got dto.WatchdogRollup
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.Watched != 12 {
+		t.Errorf("expected snapshot Watched=12, got %d", got.Watched)
+	}
+}
+
+func TestWatchdogRollupHandler_ListTorrentsSkippedWhenQbitUnreachable(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(false, nil)
+	lister := newStubLister(nil, errors.New("should not be called"))
+	r := setupListerHandler(t, stubSnapshots{}, settings, probe, lister)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if lister.callsFor("homelab") != 0 {
+		t.Errorf("expected 0 list calls when qBT unreachable, got %d", lister.callsFor("homelab"))
+	}
+}
+
+func TestWatchdogRollupHandler_ListTorrentsSkippedWhenDisabled(t *testing.T) {
+	settings := stubSettings{}
+	settings["homelab"] = regrab.Settings{
+		InstanceID: 1, InstanceName: "homelab", Enabled: false,
+		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
+	}
+	probe := newStubProbe(true, nil)
+	lister := newStubLister(nil, errors.New("should not be called"))
+	r := setupListerHandler(t, stubSnapshots{}, settings, probe, lister)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if lister.callsFor("homelab") != 0 {
+		t.Errorf("expected 0 list calls when watchdog disabled, got %d", lister.callsFor("homelab"))
+	}
+}
+
+func TestCountTorrentsAndUnregisteredTagHeuristic(t *testing.T) {
+	torrents := []qbit.Torrent{
+		{Category: "sonarr", Tags: ""},
+		{Category: "sonarr", Tags: "issue"},
+		{Category: "sonarr", Tags: "Tracker_Error"},
+		{Category: "sonarr", Tags: "foo,unregistered,bar"},
+		{Category: "sonarr", Tags: "harmless"},
+		{Category: "movies", Tags: "issue"}, // filtered
+	}
+	w, u := countTorrents(torrents, "sonarr")
+	if w != 5 {
+		t.Errorf("watched: want 5, got %d", w)
+	}
+	if u != 3 {
+		t.Errorf("unregistered: want 3, got %d", u)
+	}
+
+	// Empty category bypasses the filter (qBT did the server-side filter).
+	w2, u2 := countTorrents(torrents, "")
+	if w2 != 6 {
+		t.Errorf("watched (no filter): want 6, got %d", w2)
+	}
+	if u2 != 4 {
+		t.Errorf("unregistered (no filter): want 4, got %d", u2)
 	}
 }
 
