@@ -3,11 +3,14 @@ import { Link } from 'react-router-dom';
 import {
   Ban,
   Check,
+  CheckCircle2,
+  DownloadCloud,
   RotateCw,
   TriangleAlert,
   Unplug,
   GitBranch,
   Radar,
+  XCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,17 +29,21 @@ const TYPE_ICON: Record<WatchdogActivityType, LucideIcon> = {
   better: Check,
   no_better: TriangleAlert,
   blacklist: Ban,
+  grab: DownloadCloud,
+  decision: CheckCircle2,
 };
 
 const TYPE_VARIANT: Record<
   WatchdogActivityType,
-  'danger' | 'accent' | 'ok' | 'warn'
+  'danger' | 'accent' | 'ok' | 'warn' | 'neutral'
 > = {
   unregistered: 'danger',
   regrab: 'accent',
   better: 'ok',
   no_better: 'warn',
   blacklist: 'danger',
+  grab: 'accent',
+  decision: 'neutral',
 };
 
 function formatRowTime(iso: string): string {
@@ -57,7 +64,13 @@ function formatRowTime(iso: string): string {
 function EventRow({ ev }: { ev: WatchdogActivityEvent }) {
   const { t } = useTranslation();
   const Icon = TYPE_ICON[ev.type];
-  const variant = TYPE_VARIANT[ev.type];
+  const isErrorDecision =
+    ev.type === 'decision' &&
+    (ev.decision_outcome === 'error' ||
+      ev.decision_outcome === 'blocked_cooldown' ||
+      ev.decision_outcome === 'expired');
+  const variant = isErrorDecision ? 'warn' : TYPE_VARIANT[ev.type];
+  const DisplayIcon = isErrorDecision ? XCircle : Icon;
   const seriesLabel = `${ev.series_title} · S${String(ev.season_number).padStart(2, '0')}`;
   const detail = (() => {
     switch (ev.detail_key) {
@@ -80,13 +93,22 @@ function EventRow({ ev }: { ev: WatchdogActivityEvent }) {
         });
       case 'unregistered':
         return ''; // event chip alone is enough
+      case 'grab':
+        return ev.release_title ?? '';
+      case 'decision':
+        return t('watchdog.activity.detail.decision', {
+          outcome: ev.decision_outcome ?? '?',
+          reason: ev.decision_reason ?? '—',
+        });
     }
   })();
 
   const actionTo =
     ev.type === 'regrab' || ev.type === 'unregistered'
       ? `/scans?instance=${encodeURIComponent(ev.instance)}`
-      : `/grabs?instance=${encodeURIComponent(ev.instance)}&series=${ev.series_id}`;
+      : ev.type === 'decision'
+        ? `/decisions?instance=${encodeURIComponent(ev.instance)}&series=${ev.series_id}`
+        : `/grabs?instance=${encodeURIComponent(ev.instance)}&series=${ev.series_id}`;
 
   return (
     <div
@@ -97,7 +119,7 @@ function EventRow({ ev }: { ev: WatchdogActivityEvent }) {
         {formatRowTime(ev.at)}
       </span>
       <Badge variant={variant} className="flex-none gap-1 px-2 py-0.5 text-[11px]">
-        <Icon className="h-3 w-3" />
+        <DisplayIcon className="h-3 w-3" />
         {t(`watchdog.activity.event.${camelType(ev.type)}`)}
       </Badge>
       <span className="min-w-0 flex-1 text-[13px] text-tx-secondary">

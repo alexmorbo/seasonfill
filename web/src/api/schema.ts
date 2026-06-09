@@ -2803,6 +2803,138 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/watchdog/seasons": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List watchdog-tracked seasons
+         * @description Aggregate read view driven by origin_releases.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Filter by instance name */
+                    readonly instance?: string;
+                    /** @description Search series title (LIKE %q%) */
+                    readonly q?: string;
+                    /** @description Only seasons with an active cooldown */
+                    readonly cooldown_only?: boolean;
+                    /** @description Only seasons with an active blacklist row */
+                    readonly blacklisted_only?: boolean;
+                    /** @description Page size (default 100, max 500) */
+                    readonly limit?: number;
+                    /** @description Opaque next_cursor */
+                    readonly cursor?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WatchdogSeasonsList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/watchdog/series/{instance}/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Watchdog detail for one series
+         * @description Per-season aggregate plus recent decisions + grabs.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly instance: string;
+                    /** @description Sonarr series id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.WatchdogSeriesDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/webhooks/status": {
         readonly parameters: {
             readonly query?: never;
@@ -3849,6 +3981,106 @@ export type components = {
         };
         readonly "dto.WatchdogRollupList": {
             readonly items?: readonly components["schemas"]["dto.WatchdogRollup"][];
+        };
+        readonly "dto.WatchdogSeason": {
+            readonly blacklist?: components["schemas"]["dto.WatchdogSeasonBlacklist"];
+            readonly cooldown?: components["schemas"]["dto.WatchdogSeasonCooldown"];
+            /** @example homelab */
+            readonly instance?: string;
+            readonly last_aired_at?: string;
+            /** @example 0 */
+            readonly missing_aired_count?: number;
+            /** @example true */
+            readonly monitored?: boolean;
+            readonly no_better_counter?: components["schemas"]["dto.WatchdogSeasonNoBetter"];
+            readonly origin?: components["schemas"]["dto.WatchdogSeasonOrigin"];
+            /** @example 2 */
+            readonly season_number?: number;
+            /** @example 169 */
+            readonly series_id?: number;
+            /** @example Your Friends & Neighbors */
+            readonly series_title?: string;
+        };
+        readonly "dto.WatchdogSeasonBlacklist": {
+            readonly expires_at?: string;
+            /** @example consecutive_no_better */
+            readonly reason?: string;
+        };
+        readonly "dto.WatchdogSeasonCooldown": {
+            readonly expires_at?: string;
+            /** @example series_after_grab */
+            readonly reason?: string;
+        };
+        readonly "dto.WatchdogSeasonNoBetter": {
+            /** @example 1 */
+            readonly consecutive?: number;
+            readonly last_seen_at?: string;
+            /** @example 3 */
+            readonly max?: number;
+        };
+        readonly "dto.WatchdogSeasonOrigin": {
+            readonly first_seen_at?: string;
+            /** @example abc123 */
+            readonly guid?: string;
+            /** @example RuTracker (Prowlarr) */
+            readonly indexer?: string;
+            readonly last_seen_at?: string;
+            readonly last_used_at?: string;
+        };
+        readonly "dto.WatchdogSeasonsList": {
+            readonly items?: readonly components["schemas"]["dto.WatchdogSeason"][];
+            readonly next_cursor?: string;
+        };
+        readonly "dto.WatchdogSeriesDetail": {
+            /** @example homelab */
+            readonly instance?: string;
+            /** @example true */
+            readonly monitored?: boolean;
+            readonly seasons?: readonly components["schemas"]["dto.WatchdogSeriesSeason"][];
+            /** @example 169 */
+            readonly series_id?: number;
+            /** @example Your Friends & Neighbors */
+            readonly series_title?: string;
+        };
+        readonly "dto.WatchdogSeriesRecentDecision": {
+            readonly created_at?: string;
+            /** @example skip */
+            readonly decision?: string;
+            /** @example 7b3d4a92-1234-4abc-9def-000000000001 */
+            readonly id?: string;
+            /** @example skip_all_complete */
+            readonly reason?: string;
+            /** @example 7b3d4a92-1234-4abc-9def-000000000099 */
+            readonly scan_run_id?: string;
+        };
+        readonly "dto.WatchdogSeriesRecentGrab": {
+            readonly created_at?: string;
+            /** @example 7b3d4a92-1234-4abc-9def-000000000002 */
+            readonly id?: string;
+            /** @example Severance.S03E01.2160p... */
+            readonly release_title?: string;
+            readonly replay_of_id?: string;
+            /** @example imported */
+            readonly status?: string;
+        };
+        readonly "dto.WatchdogSeriesSeason": {
+            readonly blacklist?: components["schemas"]["dto.WatchdogSeasonBlacklist"];
+            readonly cooldown?: components["schemas"]["dto.WatchdogSeasonCooldown"];
+            readonly no_better_counter?: components["schemas"]["dto.WatchdogSeasonNoBetter"];
+            readonly origin?: components["schemas"]["dto.WatchdogSeasonOrigin"];
+            readonly recent_decisions?: readonly components["schemas"]["dto.WatchdogSeriesRecentDecision"][];
+            readonly recent_grabs?: readonly components["schemas"]["dto.WatchdogSeriesRecentGrab"][];
+            /** @example 2 */
+            readonly season_number?: number;
+            readonly stats?: components["schemas"]["dto.WatchdogSeriesSeasonStats"];
+        };
+        readonly "dto.WatchdogSeriesSeasonStats": {
+            /** @example 10 */
+            readonly aired_episode_count?: number;
+            /** @example 10 */
+            readonly episode_file_count?: number;
+            /** @example 0 */
+            readonly missing_aired_count?: number;
         };
         readonly "dto.WebhookInstallDTO": {
             /** @example true */

@@ -1,12 +1,16 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWatchdogRollups } from '@/lib/api/watchdogRollups';
+import { useWatchdogSeasonsTotals } from '@/lib/api/watchdogSeasons';
+import type { WatchdogSeasonsFilters } from '@/lib/api/watchdogSeasons';
 import { WatchdogAggregateStrip } from '@/components/watchdog/WatchdogAggregateStrip';
 import { WatchdogActivityFeed } from '@/components/watchdog/WatchdogActivityFeed';
 import { WatchdogInstancePanel } from '@/components/watchdog/WatchdogInstancePanel';
 import { WatchdogBlacklistTable } from '@/components/watchdog/WatchdogBlacklistTable';
 import { WatchdogNotConfiguredEmpty } from '@/components/watchdog/WatchdogNotConfiguredEmpty';
+import { WatchdogSeasonsFilters as SeasonsFilters } from '@/components/watchdog/WatchdogSeasonsFilters';
+import { WatchdogSeasonsTable } from '@/components/watchdog/WatchdogSeasonsTable';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 
@@ -14,14 +18,29 @@ export function Watchdog() {
   const { t } = useTranslation();
   useSetPageTitle(t('watchdog.title'));
   const rollups = useWatchdogRollups();
+  const totals = useWatchdogSeasonsTotals();
 
   // Primary "current" instance for the activity feed = first active
   // instance, else first by name. The future F2 instance switcher in
   // the topbar will override this once it ships; for tonight we pick
   // the natural default.
   const navigate = useNavigate();
-  const items = rollups.data?.items ?? [];
+  const items = useMemo(() => rollups.data?.items ?? [], [rollups.data?.items]);
   const primary = items.find((r) => r.active) ?? items[0] ?? null;
+  const instanceNames = useMemo(
+    () => items.map((r) => r.instance_name).filter(Boolean),
+    [items],
+  );
+
+  // Local filter state for the new seasons table. Persisting these in
+  // the URL is a follow-up — for now we keep the page reload-safe by
+  // defaulting to "all" / "no filters".
+  const [filters, setFilters] = useState<WatchdogSeasonsFilters>({
+    instance: null,
+    q: '',
+    cooldownOnly: false,
+    blacklistedOnly: false,
+  });
 
   const openInstanceForm = useCallback(
     (name: string) => {
@@ -48,13 +67,14 @@ export function Watchdog() {
           <WatchdogAggregateStrip
             rollups={rollups.data}
             isLoading={rollups.isLoading}
+            totals={totals.data}
           />
 
           <div
             className="mb-5 grid gap-5 items-start [grid-template-columns:1fr_320px] max-[1080px]:[grid-template-columns:1fr]"
             data-testid="watchdog-grid"
           >
-            <div>
+            <div className="flex flex-col gap-3.5">
               {primary ? (
                 <WatchdogActivityFeed
                   instance={primary.instance_name}
@@ -63,6 +83,15 @@ export function Watchdog() {
               ) : (
                 <Skeleton className="h-[400px] w-full" />
               )}
+
+              <section data-testid="watchdog-seasons-section">
+                <SeasonsFilters
+                  filters={filters}
+                  instances={instanceNames}
+                  onChange={setFilters}
+                />
+                <WatchdogSeasonsTable filters={filters} />
+              </section>
             </div>
             <div className="flex flex-col gap-3.5">
               {rollups.isLoading

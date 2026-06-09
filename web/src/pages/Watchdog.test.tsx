@@ -78,11 +78,13 @@ describe('<Watchdog /> (integration)', () => {
     vi.mocked(api).mockReset();
   });
 
-  it('renders the active page (strip + feed + panel + blacklist slot)', async () => {
+  it('renders the active page (strip + feed + seasons table + panel + blacklist slot)', async () => {
     routeApi((path) => {
       if (path === '/watchdog/rollups') return activeRollups;
       if (path.includes('/watchdog/blacklist')) return { items: [] };
       if (path.startsWith('/grabs')) return { items: [] };
+      if (path.startsWith('/decisions')) return { items: [] };
+      if (path.startsWith('/watchdog/seasons')) return { items: [] };
       return {};
     });
     renderWithProviders(wrap(<Watchdog />), { route: '/watchdog' });
@@ -98,6 +100,17 @@ describe('<Watchdog /> (integration)', () => {
         screen.getByTestId('watchdog-blacklist-slot'),
       ).toBeInTheDocument(),
     );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('watchdog-seasons-section'),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('watchdog-seasons-filters'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('watchdog-seasons-table'),
+    ).toBeInTheDocument();
     expect(
       screen.queryByTestId('watchdog-not-configured'),
     ).not.toBeInTheDocument();
@@ -126,6 +139,8 @@ describe('<Watchdog /> (integration)', () => {
       if (path === '/watchdog/rollups') return disabledRollups;
       if (path.includes('/watchdog/blacklist')) return { items: [] };
       if (path.startsWith('/grabs')) return { items: [] };
+      if (path.startsWith('/decisions')) return { items: [] };
+      if (path.startsWith('/watchdog/seasons')) return { items: [] };
       return {};
     });
     renderWithProviders(wrap(<Watchdog />), { route: '/watchdog' });
@@ -151,6 +166,8 @@ describe('<Watchdog /> (integration)', () => {
       if (path === '/watchdog/rollups') return unreachableRollups;
       if (path.includes('/watchdog/blacklist')) return { items: [] };
       if (path.startsWith('/grabs')) return { items: [] };
+      if (path.startsWith('/decisions')) return { items: [] };
+      if (path.startsWith('/watchdog/seasons')) return { items: [] };
       return {};
     });
     renderWithProviders(wrap(<Watchdog />), { route: '/watchdog' });

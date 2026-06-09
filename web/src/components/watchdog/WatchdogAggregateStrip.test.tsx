@@ -52,4 +52,32 @@ describe('<WatchdogAggregateStrip />', () => {
     render(wrap(<WatchdogAggregateStrip isLoading />));
     expect(screen.getByTestId('watchdog-strip-loading')).toBeInTheDocument();
   });
+
+  it('surfaces cooldown-season and tracked-origin tiles from totals', () => {
+    render(
+      wrap(
+        <WatchdogAggregateStrip
+          rollups={fixture}
+          totals={{ origins: 17, cooldownActive: 5, truncated: false }}
+        />,
+      ),
+    );
+    const origins = screen.getByTestId('watchdog-strip-tracked-origins');
+    expect(origins).toHaveTextContent('17');
+    const cool = screen.getByTestId('watchdog-strip-cooldown-seasons');
+    expect(cool).toHaveTextContent('5');
+  });
+
+  it('appends "+" to tracked-origins value when totals are truncated', () => {
+    render(
+      wrap(
+        <WatchdogAggregateStrip
+          rollups={fixture}
+          totals={{ origins: 500, cooldownActive: 0, truncated: true }}
+        />,
+      ),
+    );
+    const origins = screen.getByTestId('watchdog-strip-tracked-origins');
+    expect(origins).toHaveTextContent('500+');
+  });
 });

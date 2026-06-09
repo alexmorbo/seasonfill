@@ -2,9 +2,9 @@ import { useTranslation } from 'react-i18next';
 import {
   ShieldCheck,
   Eye,
-  Unplug,
+  Timer,
+  Database,
   RotateCw,
-  Ban,
   Clock,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
   countActiveInstances,
   type WatchdogRollupAggregate,
 } from '@/lib/api/watchdogRollups';
+import type { WatchdogSeasonsTotals } from '@/lib/api/watchdogSeasons';
 
 interface TileProps {
   icon: LucideIcon;
@@ -72,11 +73,13 @@ function formatRelative(iso: string | undefined, neverLabel: string): string {
 export interface WatchdogAggregateStripProps {
   rollups?: WatchdogRollupAggregate | undefined;
   isLoading?: boolean | undefined;
+  totals?: WatchdogSeasonsTotals | undefined;
 }
 
 export function WatchdogAggregateStrip({
   rollups,
   isLoading = false,
+  totals,
 }: WatchdogAggregateStripProps) {
   const { t } = useTranslation();
 
@@ -93,9 +96,11 @@ export function WatchdogAggregateStrip({
   const items = rollups.items ?? [];
   const { active, total } = countActiveInstances(rollups);
   const watched = items.reduce((s, r) => s + (r.watched ?? 0), 0);
-  const unregistered = items.reduce((s, r) => s + (r.unregistered ?? 0), 0);
   const regrabs7d = items.reduce((s, r) => s + (r.regrabs_7d ?? 0), 0);
-  const blacklistSize = items.reduce((s, r) => s + (r.blacklist_size ?? 0), 0);
+
+  const cooldownSeasons = totals?.cooldownActive ?? 0;
+  const trackedOrigins = totals?.origins ?? 0;
+  const originsSuffix = totals?.truncated ? '+' : '';
 
   const lastPollIso = items
     .map((r) => r.last_poll_at)
@@ -119,28 +124,32 @@ export function WatchdogAggregateStrip({
         icon={Eye}
         value={String(watched)}
         label={t('watchdog.aggregate.watched')}
+        testid="watchdog-strip-watched"
       />
       <Tile
-        icon={Unplug}
-        value={String(unregistered)}
-        label={t('watchdog.aggregate.unregistered')}
-        tone={unregistered > 0 ? 'warn' : 'default'}
+        icon={Timer}
+        value={String(cooldownSeasons)}
+        label={t('watchdog.aggregate.cooldownSeasons')}
+        tone={cooldownSeasons > 0 ? 'warn' : 'default'}
+        testid="watchdog-strip-cooldown-seasons"
+      />
+      <Tile
+        icon={Database}
+        value={`${trackedOrigins}${originsSuffix}`}
+        label={t('watchdog.aggregate.trackedOrigins')}
+        testid="watchdog-strip-tracked-origins"
       />
       <Tile
         icon={RotateCw}
         value={String(regrabs7d)}
         label={t('watchdog.aggregate.regrab7d')}
-      />
-      <Tile
-        icon={Ban}
-        value={String(blacklistSize)}
-        label={t('watchdog.aggregate.blacklist')}
-        tone={blacklistSize > 0 ? 'warn' : 'default'}
+        testid="watchdog-strip-regrab7d"
       />
       <Tile
         icon={Clock}
         value={formatRelative(lastPollIso, t('watchdog.aggregate.never'))}
         label={t('watchdog.aggregate.lastPoll')}
+        testid="watchdog-strip-last-poll"
       />
     </div>
   );
