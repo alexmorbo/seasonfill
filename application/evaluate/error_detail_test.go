@@ -50,17 +50,34 @@ func TestTruncateErrorDetail_OneOverCap(t *testing.T) {
 	t.Parallel()
 	in := strings.Repeat("a", errorDetailMaxRunes+1)
 	got := truncateErrorDetail(in)
-	assert.Equal(t, errorDetailMaxRunes, utf8.RuneCountInString(got),
-		"total rune count after truncation must equal cap")
-	assert.True(t, strings.HasSuffix(got, "..."))
+	// Kept = cap, plus the suffix.
+	assert.True(t, strings.HasPrefix(got, strings.Repeat("a", errorDetailMaxRunes)))
+	assert.Contains(t, got, "(truncated 1 runes)")
 }
 
 func TestTruncateErrorDetail_FarOverCap_Multibyte(t *testing.T) {
 	t.Parallel()
-	// 1000 multibyte runes — truncation must not split a codepoint.
-	in := strings.Repeat("ы", 1000)
+	// 5000 multibyte runes — truncation must not split a codepoint
+	// (Q-014-1). Cap is 4096, suffix records the 904-rune drop.
+	in := strings.Repeat("ы", 5000)
 	got := truncateErrorDetail(in)
 	assert.True(t, utf8.ValidString(got), "result must remain valid UTF-8")
-	assert.Equal(t, errorDetailMaxRunes, utf8.RuneCountInString(got))
-	assert.True(t, strings.HasSuffix(got, "..."))
+	assert.True(t, strings.HasPrefix(got, strings.Repeat("ы", errorDetailMaxRunes)))
+	assert.Contains(t, got, "(truncated 904 runes)")
+}
+
+// TestTruncateErrorDetail_RealisticSonarrBody asserts a ~3.5 KiB
+// Sonarr stack trace stays under the cap unchanged — the operator
+// sees the full upstream context in the drawer (F-P2-4).
+func TestTruncateErrorDetail_RealisticSonarrBody(t *testing.T) {
+	t.Parallel()
+	body := "sonarr /api/v3/release returned status=500 body=" +
+		strings.Repeat("NzbDrone.Core.Download.Clients.DownloadClientException: Download client failed to add torrent\\n   at NzbDrone.Core.Download.Clients.QBittorrent.QBittorrentProxyV2.AddTorrentFromFile(...). ", 20)
+	if len(body) > errorDetailMaxRunes {
+		t.Fatalf("fixture too large: %d bytes; pick a shorter repetition", len(body))
+	}
+	got := truncateErrorDetail(body)
+	// Multi-line flattening still applies — newlines collapsed, but
+	// the body is under the cap so no suffix.
+	assert.NotContains(t, got, "(truncated")
 }

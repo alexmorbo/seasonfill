@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -935,7 +936,9 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
 	rec.Status = "aborted"
 	if cause != nil {
-		rec.ErrorMessage = cause.Error()
+		// F-P2-4: cap at 4 KiB (errtext.MaxBytes). cause is typically a
+		// wrapped sonarr.StatusError carrying the full upstream body.
+		rec.ErrorMessage = errtext.Clamp(cause.Error())
 	}
 	finish := time.Now().UTC()
 	rec.FinishedAt = &finish
@@ -974,7 +977,8 @@ func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord,
 func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
 	rec.Status = "failed"
 	if cause != nil {
-		rec.ErrorMessage = cause.Error()
+		// F-P2-4: cap at 4 KiB (errtext.MaxBytes). Matches finalizeScanAborted.
+		rec.ErrorMessage = errtext.Clamp(cause.Error())
 	}
 	finish := time.Now().UTC()
 	rec.FinishedAt = &finish

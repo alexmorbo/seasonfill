@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
@@ -179,7 +180,11 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	}
 
 	work := func(txCtx context.Context) error {
-		if err := u.grabs.UpdateStatus(txCtx, rec.ID, target, evt.Message); err != nil {
+		// F-P2-4: cap upstream message at 4 KiB before persistence.
+		// Sonarr's DownloadStatusMessages are usually <200 bytes but a
+		// pathological multi-tracker concatenation could grow unboundedly.
+		message := errtext.Clamp(evt.Message)
+		if err := u.grabs.UpdateStatus(txCtx, rec.ID, target, message); err != nil {
 			return fmt.Errorf("update status: %w", err)
 		}
 		if target == grab.StatusImportFailed {

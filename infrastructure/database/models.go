@@ -44,10 +44,12 @@ type DecisionModel struct {
 	SelectedGUID    string `gorm:"size:512"`
 	SelectedData    datatypes.JSON
 	DryRunWouldGrab bool `gorm:"column:would_grab"`
-	// ErrorDetail mirrors domain/decision.Decision.ErrorDetail. size:300
-	// is intentional slack above the 256-rune application-layer cap so a
-	// future truncation tweak does not require a schema migration.
-	ErrorDetail    string  `gorm:"size:300"`
+	// ErrorDetail mirrors domain/decision.Decision.ErrorDetail. Backed
+	// by a `text` column (migration v20, story 092 / F-P2-4) so the full
+	// upstream Sonarr body fits — the 4096-rune application-layer cap
+	// (application/evaluate.truncateErrorDetail) holds the operator-visible
+	// shape; the schema no longer constrains it.
+	ErrorDetail    string  `gorm:"type:text"`
 	SupersededByID *string `gorm:"size:36"`
 	// 046a — partial-pack-aware season-stats snapshot. All four default
 	// to 0 NOT NULL via the paired migration so pre-046a rows look like

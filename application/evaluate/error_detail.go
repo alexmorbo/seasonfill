@@ -1,23 +1,33 @@
 package evaluate
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
 
 // errorDetailMaxRunes — soft cap on the persisted error_detail size.
-// 256 fits the common upstream-error shape (HTTP status + short URL +
-// short message). Beyond that, the structured log keeps the original;
-// the persisted preview is enough to identify the failure class. Bound
+// Widened from 256 → 4096 by story 092 (F-P2-4) so error-category
+// decisions carry the full upstream Sonarr body (or an explicit
+// "truncated N runes" suffix on overflow). Paired with the migration
+// that widens decisions.error_detail from varchar(300) to text. Bound
 // is in runes, not bytes, so multibyte glyphs do not truncate mid-
-// codepoint (Q-014-1). Buffer above this in models.go is `size:300`.
-const errorDetailMaxRunes = 256
+// codepoint (Q-014-1).
+const errorDetailMaxRunes = 4096
 
 // truncateErrorDetail normalises an error.Error() string for storage
 // + UI display:
 //   - trim leading/trailing whitespace
 //   - flatten newlines (\r, \n) to spaces; collapse runs of whitespace
-//   - cap at errorDetailMaxRunes; append "..." when truncated
+//   - cap at errorDetailMaxRunes; append "…(truncated N runes)" suffix on overflow
+//
+// The newline flattening stays — the decision drawer's
+// error_detail block sits below a series of single-line meta rows and
+// newlines would push the layout out of alignment. Operators copying
+// the field into a grep pipeline want a flat string anyway. The grab
+// drawer's error_message has a different layout (top-of-drawer <pre>
+// block) and preserves newlines via errtext.Clamp — these two paths
+// are intentionally distinct.
 //
 // Returns "" for empty input — the zero-value is the wire signal that
 // no error detail is attached (Q-014-3).
@@ -36,20 +46,21 @@ func truncateErrorDetail(s string) string {
 		return s
 	}
 	// Walk the string by rune to find the byte-offset of the
-	// (errorDetailMaxRunes-3)th rune so "..." brings total to the cap.
-	const ellipsis = "..."
-	keepRunes := errorDetailMaxRunes - len(ellipsis)
+	// errorDetailMaxRunes-th rune. Count the dropped runes so the
+	// suffix tells the operator exactly how much was elided.
 	var b strings.Builder
 	b.Grow(len(s))
-	count := 0
+	kept := 0
 	for _, r := range s {
-		if count == keepRunes {
+		if kept == errorDetailMaxRunes {
 			break
 		}
 		b.WriteRune(r)
-		count++
+		kept++
 	}
-	b.WriteString(ellipsis)
+	total := utf8.RuneCountInString(s)
+	dropped := total - kept
+	fmt.Fprintf(&b, "…(truncated %d runes)", dropped)
 	return b.String()
 }
 

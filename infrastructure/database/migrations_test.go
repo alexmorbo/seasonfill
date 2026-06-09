@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 082: latest migration is 000019_qbit_settings_public_url.
-	assert.Equal(t, 19, version)
+	// 092 / F-P2-4: latest migration is 000020_decisions_error_detail_widen.
+	assert.Equal(t, 20, version)
 	assert.False(t, dirty)
 }
 

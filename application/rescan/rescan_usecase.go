@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -251,7 +252,8 @@ func (u *UseCase) failAndRollback(rec ports.ScanRecord, originalID uuid.UUID, st
 func (u *UseCase) finalizeAsFailed(rec ports.ScanRecord, started time.Time, cause error) {
 	rec.Status = "failed"
 	if cause != nil {
-		rec.ErrorMessage = cause.Error()
+		// F-P2-4: cap at 4 KiB (errtext.MaxBytes).
+		rec.ErrorMessage = errtext.Clamp(cause.Error())
 	}
 	finish := time.Now().UTC()
 	rec.FinishedAt = &finish

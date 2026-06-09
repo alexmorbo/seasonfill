@@ -186,7 +186,7 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	observability.SonarrAPIRequest(c.name, endpoint, strconv.Itoa(resp.StatusCode))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, SonarrBodyMaxBytes))
 		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
 			return fmt.Errorf("%w: %w", domain.ErrInstanceUnauthorized, se)

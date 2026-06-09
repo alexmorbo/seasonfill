@@ -69,7 +69,12 @@ func TestIsTransient_NilAndUnknown(t *testing.T) {
 	assert.False(t, IsTransient(errors.New("random")))
 }
 
-func TestStatusError_Error_Truncates(t *testing.T) {
+// TestStatusError_Error_PreservesFullBody locks in the F-P2-4 fix: the
+// previous implementation trimmed Body to 256 chars + "..." which dropped
+// most of a typical Sonarr stack trace before persistence. Body is already
+// bounded by SonarrBodyMaxBytes (4096) at the io.LimitReader call in
+// client.go, so Error() emits it verbatim.
+func TestStatusError_Error_PreservesFullBody(t *testing.T) {
 	t.Parallel()
 	body := make([]byte, 1024)
 	for i := range body {
@@ -77,8 +82,27 @@ func TestStatusError_Error_Truncates(t *testing.T) {
 	}
 	e := &StatusError{Endpoint: "/x", Status: 500, Body: string(body)}
 	msg := e.Error()
-	assert.Contains(t, msg, "...")
-	assert.Less(t, len(msg), 600)
+	assert.NotContains(t, msg, "...")
+	// Full 1024-byte body present (plus the "sonarr /x returned
+	// status=500 body=" prefix — 30+ bytes).
+	assert.GreaterOrEqual(t, len(msg), 1024)
+	assert.Contains(t, msg, string(body))
+}
+
+// TestStatusError_Error_4KBBodyPreserved exercises the realistic upstream
+// case: 4 KiB of NzbDrone stack trace bytes flow end-to-end without
+// truncation. Pairs with errtext.Clamp at the persistence layer (which
+// only kicks in past 4 KiB).
+func TestStatusError_Error_4KBBodyPreserved(t *testing.T) {
+	t.Parallel()
+	body := make([]byte, 4096)
+	for i := range body {
+		body[i] = 'B'
+	}
+	e := &StatusError{Endpoint: "/api/v3/release", Status: 500, Body: string(body)}
+	msg := e.Error()
+	assert.NotContains(t, msg, "...")
+	assert.Contains(t, msg, string(body))
 }
 
 func TestIsTransient_DNSError(t *testing.T) {

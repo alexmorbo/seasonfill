@@ -8,8 +8,24 @@ import (
 	"os"
 )
 
+// SonarrBodyMaxBytes is the upper bound on bytes captured from a Sonarr
+// non-2xx response body. 4096 matches application/errtext.MaxBytes so
+// the operator-visible drawer text matches what the network layer
+// actually saw. Anything past this is dropped at io.ReadAll time — the
+// log/persistence pipeline never sees it. Previously 1024, which was
+// too short to hold a typical NzbDrone stack trace (story 092 / F-P2-4).
+const SonarrBodyMaxBytes = 4096
+
 // StatusError carries the HTTP status returned by Sonarr alongside the body
 // snippet for diagnostics. It is the canonical error type for non-2xx responses.
+//
+// The Body field holds at most SonarrBodyMaxBytes (4096) bytes — the
+// network layer bounds the read with io.LimitReader so the field cannot
+// blow up logs or DB rows. Error() therefore emits the full body
+// verbatim; persistence sites cap downstream via errtext.Clamp (story
+// 092 / F-P2-4). Previously Error() trimmed Body to 256 chars, which
+// dropped useful Sonarr stack-trace context before it ever reached the
+// drawer — fixed here.
 type StatusError struct {
 	Endpoint string
 	Status   int
@@ -17,14 +33,7 @@ type StatusError struct {
 }
 
 func (e *StatusError) Error() string {
-	return fmt.Sprintf("sonarr %s returned status=%d body=%s", e.Endpoint, e.Status, truncate(e.Body, 256))
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
+	return fmt.Sprintf("sonarr %s returned status=%d body=%s", e.Endpoint, e.Status, e.Body)
 }
 
 // IsTransient reports whether a Sonarr error is retry-eligible. Covers:

@@ -308,6 +308,65 @@ describe('<GrabDrawer />', () => {
     expect(screen.queryByTestId('drawer-error-section')).toBeNull();
   });
 
+  it('DrawerErrorSection renders a realistic 3.5 KiB Sonarr stack trace verbatim (092 / F-P2-4)', async () => {
+    // Story 092 audit found StatusError.Error() was capping the body
+    // at 256 chars before persistence — operators saw `(...` truncation.
+    // With the backend fix, error_message now carries the full upstream
+    // body (capped at 4 KiB by errtext.Clamp). This test pins the
+    // drawer's render path against future CSS-clamp regressions: the
+    // <pre> block must show every byte and preserve newlines.
+    const stackLine =
+      'NzbDrone.Core.Download.Clients.DownloadClientException: ' +
+      'Download client failed to add torrent\n' +
+      '   at NzbDrone.Core.Download.Clients.QBittorrent.QBittorrentProxyV2.' +
+      'AddTorrentFromFile(TorrentSeedConfiguration seedConfig, String hash, ' +
+      'String fileName, Byte[] fileContent, QBittorrentSettings settings) in ' +
+      '/build/sonarr/src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrentProxyV2.cs:line 142\n';
+    // ~8 repeats × ~400 bytes ≈ 3.5 KiB; below the 4 KiB clamp ceiling.
+    const longErr =
+      'sonarr /api/v3/release returned status=500 body={\n' +
+      '  "message": "Download client failed to add torrent",\n' +
+      '  "description": "' +
+      stackLine.repeat(8) +
+      '",\n' +
+      '  "exception": "NzbDroneException"\n' +
+      '}';
+    expect(longErr.length).toBeGreaterThan(3000);
+    expect(longErr.length).toBeLessThan(4096);
+    const failedGrab: Grab = {
+      ...baseGrab,
+      id: 'g_fail_big',
+      status: DtoGrabStatus.grab_failed,
+      error_message: longErr,
+      attempts: 3,
+    };
+    globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/episode-files')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.includes('/qbit/settings')) {
+        return Promise.resolve(new Response(JSON.stringify({ url: '' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as typeof fetch;
+    render(wrap(
+      <GrabDrawer id="g_fail_big" open={true} onOpenChange={() => {}} rows={[failedGrab]} />,
+    ));
+    const text = await screen.findByTestId('drawer-error-text');
+    // Tag must be <pre> for whitespace preservation.
+    expect(text.tagName.toLowerCase()).toBe('pre');
+    // Wrap classes applied — full body fits without DOM truncation.
+    expect(text.className).toMatch(/whitespace-pre-wrap/);
+    expect(text.className).toMatch(/break-all/);
+    // textContent carries the entire payload (jsdom does no CSS clamping).
+    expect(text.textContent).toBe(longErr);
+    // Newlines preserved — the renderer must not flatten them.
+    expect(text.textContent).toContain('\n  "message"');
+  });
+
   // 083 / F-P2-1 — link prefers qbit_public_url, hides on internal fallback
   it('link prefers qbit_public_url when set (083)', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {

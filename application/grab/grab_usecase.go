@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
@@ -222,7 +223,11 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	rec.Status = domaingrab.StatusGrabFailed
 	rec.Attempts = attempts
 	if lastErr != nil {
-		rec.ErrorMessage = lastErr.Error()
+		// F-P2-4: cap at errtext.MaxBytes (4 KiB). lastErr.Error() now
+		// emits the full Sonarr body verbatim (StatusError truncation
+		// removed) — clamp guards the rare case where a wrapped chain
+		// concatenates several upstream messages past 4 KiB.
+		rec.ErrorMessage = errtext.Clamp(lastErr.Error())
 	}
 	rec.UpdatedAt = u.now()
 	if persistErr := u.grabs.Create(ctx, rec); persistErr != nil {
