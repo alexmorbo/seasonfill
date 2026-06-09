@@ -353,7 +353,15 @@ export const ru: Translations = {
       actions: {
         edit: 'Edit',
         forceScan: 'Force scan',
+        forceScanRunning: 'Сканирование…',
         openSonarr: 'Sonarr',
+      },
+      forceScan: {
+        toastStarted: 'Сканирование запущено для {{instance}}',
+        toastAlreadyRunning: 'Сканирование уже идёт',
+        toastFinished: 'Сканирование завершено',
+        toastFailed: 'Сканирование завершилось с ошибкой',
+        toastError: 'Не удалось запустить скан: {{error}}',
       },
       chips: {
         missing_one: '{{count}} эпизод missing',

@@ -86,7 +86,6 @@ export function Instances() {
 
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (name: string) => { setEditing(name); setDialogOpen(true); };
-  const onForceScan = (name: string) => { trigger.mutate({ instance: name }); };
   const onRecheck = (name: string) => { trigger.mutate({ instance: name }); };
   const onDeleteClick = (name: string) => { setDeleting(name); };
   const confirmDelete = async () => {
@@ -140,7 +139,6 @@ export function Instances() {
           <InstanceHero
             instance={hero}
             onEdit={openEdit}
-            onForceScan={onForceScan}
           />
           {rest.map((inst) => (
             <InstanceCompactRow

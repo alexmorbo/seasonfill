@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
-import { Pencil, Play, ExternalLink } from 'lucide-react';
+import { Pencil, Play, ExternalLink, Loader2 } from 'lucide-react';
 import type { Instance } from '@/lib/instances';
 import { useInstanceCounters } from '@/lib/counters';
 import { useMissing } from '@/lib/missing';
 import { useWebhookStatus } from '@/lib/webhook-status';
 import { useQbitSettings } from '@/lib/qbit-settings';
+import { useForceScanButton } from '@/lib/scan-mutations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,6 @@ import { InstanceChipRow } from './InstanceChipRow';
 export interface InstanceHeroProps {
   readonly instance: Instance;
   readonly onEdit: (name: string) => void;
-  readonly onForceScan: (name: string) => void;
 }
 
 /**
@@ -29,7 +29,7 @@ export interface InstanceHeroProps {
  * `counters.sparkline` slice. Degradation tint applies when
  * health != 'Available'.
  */
-export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProps) {
+export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
   const { t } = useTranslation();
   const name = instance.name ?? '';
   const c24 = useInstanceCounters(name, '24h');
@@ -37,6 +37,7 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
   const missing = useMissing(name);
   const webhook = useWebhookStatus(name);
   const qbit = useQbitSettings(name);
+  const forceScan = useForceScanButton(name);
 
   const kind = healthKind(instance.health);
   const degraded = kind !== 'success';
@@ -97,9 +98,22 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
               <Pencil className="w-3.5 h-3.5 mr-1.5" />
               {t('instances.hero.actions.edit')}
             </Button>
-            <Button size="sm" variant="primary" onClick={() => onForceScan(name)}>
-              <Play className="w-3.5 h-3.5 mr-1.5" />
-              {t('instances.hero.actions.forceScan')}
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={forceScan.start}
+              disabled={forceScan.disabled}
+              data-testid={`hero-force-scan-${name}`}
+              data-busy={forceScan.disabled ? 'true' : 'false'}
+            >
+              {forceScan.disabled ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              {forceScan.disabled
+                ? t('instances.hero.actions.forceScanRunning')
+                : t('instances.hero.actions.forceScan')}
             </Button>
             {sonarrHref && (
               <Button size="sm" variant="outline" asChild>

@@ -57,6 +57,36 @@ export function useScan(id: string | undefined): UseQueryResult<Scan, ApiError> 
   });
 }
 
+/**
+ * useInstanceLatestScan polls /scans?instance=<name> and returns the most
+ * recent run for the given instance. While the latest run is `running`
+ * it auto-refetches every 6 s so the UI can observe `running → completed`
+ * transitions; otherwise polling is disabled.
+ *
+ * Used by the Force-scan button on InstanceHero (operator pain point #4):
+ * lets the button stay in a busy state for the duration of an in-flight
+ * scan instead of toggling back to idle immediately after the 202.
+ */
+export function useInstanceLatestScan(
+  instance: string | undefined,
+): UseQueryResult<Scan | null, ApiError> {
+  return useQuery<Scan | null, ApiError>({
+    queryKey: ['scans', 'latest', instance ?? ''] as const,
+    queryFn: async () => {
+      const sp = new URLSearchParams();
+      if (instance) sp.set('instance', instance);
+      const qs = sp.toString();
+      const list = await api<ScanList>(qs ? `/scans?${qs}` : '/scans');
+      // TanStack disallows `undefined` query data — normalise to null.
+      return list.items?.[0] ?? null;
+    },
+    enabled: Boolean(instance),
+    staleTime: 0,
+    refetchInterval: (q) => (q.state.data?.status === 'running' ? 6_000 : false),
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function flattenScans(pages: readonly ScanList[] | undefined): readonly Scan[] {
   return pages ? pages.flatMap((p) => p.items ?? []) : [];
 }

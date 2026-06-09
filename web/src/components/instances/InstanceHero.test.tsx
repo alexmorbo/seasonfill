@@ -1,7 +1,19 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test-utils';
 import { InstanceHero } from './InstanceHero';
+
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+const toastMessage = vi.fn();
+vi.mock('sonner', () => ({
+  toast: {
+    success: (m: string) => toastSuccess(m),
+    error: (m: string) => toastError(m),
+    message: (m: string) => toastMessage(m),
+  },
+}));
 
 const origFetch = globalThis.fetch;
 
@@ -62,7 +74,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={inst}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     await waitFor(() => {
@@ -93,7 +104,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={degraded}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     const card = screen.getByTestId('instance-hero-homelab');
@@ -112,7 +122,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={withPublic}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -129,7 +138,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={noPublic}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -155,7 +163,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={omitted}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -176,7 +183,6 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={throttled}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     const card = screen.getByTestId('instance-hero-homelab');
@@ -198,11 +204,253 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={bare}
         onEdit={() => undefined}
-        onForceScan={() => undefined}
       />,
     );
     // Wait for a stable render via an unrelated chip query.
     await screen.findByTestId('chip-missing');
     expect(screen.queryByTestId('hero-sonarr-link-homelab')).toBeNull();
+  });
+});
+
+describe('<InstanceHero /> — Force scan button busy/running UX', () => {
+  const inst = {
+    name: 'homelab',
+    mode: 'auto',
+    health: 'Available',
+    last_check_at: new Date().toISOString(),
+    transitions_count: 0,
+    url: 'http://sonarr:80',
+  } as never;
+
+  beforeEach(() => {
+    toastSuccess.mockClear();
+    toastError.mockClear();
+    toastMessage.mockClear();
+  });
+
+  it('starts in idle state when no scan is running for the instance', async () => {
+    // Default fetch mock returns `{}` for /scans → no running scan
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    const btn = await screen.findByTestId('hero-force-scan-homelab');
+    expect(btn).toHaveAttribute('data-busy', 'false');
+    expect(btn).not.toBeDisabled();
+    expect(btn.textContent).toMatch(/Force scan/);
+  });
+
+  it('starts in running state when /scans says latest run is running (page reload during in-flight scan)', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/scans?instance=homelab')) {
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'run-1', instance: 'homelab', status: 'running',
+            started_at: new Date().toISOString(), trigger: 'manual',
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes('/counters')) {
+        return new Response(JSON.stringify({
+          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+        }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as never;
+
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    await waitFor(() => {
+      const btn = screen.getByTestId('hero-force-scan-homelab');
+      expect(btn).toHaveAttribute('data-busy', 'true');
+    });
+    const btn = screen.getByTestId('hero-force-scan-homelab');
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toMatch(/Scanning|Сканирование/);
+  });
+
+  it('clicking transitions to running state + fires Scan started toast', async () => {
+    // First /scans poll → no run; POST /scan → 202 running; subsequent /scans → running
+    let scanRunning = false;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/scan') && init?.method === 'POST') {
+        scanRunning = true;
+        return new Response(JSON.stringify([{
+          scan_run_id: 'run-7', instance: 'homelab', status: 'running',
+          started_at: new Date().toISOString(),
+        }]), { status: 202, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/scans?instance=homelab')) {
+        const items = scanRunning ? [{
+          id: 'run-7', instance: 'homelab', status: 'running',
+          started_at: new Date().toISOString(), trigger: 'manual',
+        }] : [];
+        return new Response(JSON.stringify({ items }), { status: 200 });
+      }
+      if (url.includes('/counters')) {
+        return new Response(JSON.stringify({
+          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+        }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as never;
+
+    const user = userEvent.setup();
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    const btn = await screen.findByTestId('hero-force-scan-homelab');
+    expect(btn).not.toBeDisabled();
+
+    await user.click(btn);
+
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringMatching(/Scan started for homelab|Сканирование запущено/),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'true');
+    });
+  });
+
+  it('409 surfaces "already running" toast and clamps the button busy', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/scan') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          error: 'scan already running', instance: 'homelab', code: 'SCAN_IN_PROGRESS',
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/scans?instance=homelab')) {
+        // Empty initially so the button is clickable on first render
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }
+      if (url.includes('/counters')) {
+        return new Response(JSON.stringify({
+          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+        }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as never;
+
+    const user = userEvent.setup();
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    const btn = await screen.findByTestId('hero-force-scan-homelab');
+    await user.click(btn);
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringMatching(/already running|уже идёт/i),
+      );
+    });
+  });
+
+  it('rapid clicks while busy do not pile up additional POSTs (button no-ops)', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/scans?instance=homelab')) {
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'run-1', instance: 'homelab', status: 'running',
+            started_at: new Date().toISOString(), trigger: 'manual',
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes('/counters')) {
+        return new Response(JSON.stringify({
+          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+        }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    });
+    globalThis.fetch = fetchSpy as never;
+
+    const user = userEvent.setup();
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'true');
+    });
+    const btn = screen.getByTestId('hero-force-scan-homelab');
+    // Three rapid clicks; button is disabled, none of them should hit POST /scan
+    await user.click(btn);
+    await user.click(btn);
+    await user.click(btn);
+
+    const postCalls = fetchSpy.mock.calls.filter(([u, init]) => {
+      const url = String(u);
+      const method = (init as RequestInit | undefined)?.method;
+      return url.endsWith('/scan') && method === 'POST';
+    });
+    expect(postCalls.length).toBe(0);
+  });
+
+  it('click → running → completed flow fires "started" then "finished" toasts and re-enables button', { timeout: 15_000 }, async () => {
+    // Click → POST 202 → invalidation triggers /scans refetch → status
+    // 'running' → button stays busy. Next poll → 'completed' → hook
+    // detects the transition, fires the finished toast, and the button
+    // returns to the idle state. We use fake timers to skip the 6 s poll.
+    let phase: 'idle' | 'running' | 'completed' = 'idle';
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/scan') && init?.method === 'POST') {
+        phase = 'running';
+        return new Response(JSON.stringify([{
+          scan_run_id: 'run-x', instance: 'homelab', status: 'running',
+          started_at: new Date().toISOString(),
+        }]), { status: 202, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/scans?instance=homelab')) {
+        if (phase === 'idle') {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+        const status = phase;
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'run-x', instance: 'homelab', status,
+            started_at: new Date().toISOString(),
+            finished_at: status === 'completed' ? new Date().toISOString() : undefined,
+            trigger: 'manual',
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes('/counters')) {
+        return new Response(JSON.stringify({
+          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+        }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as never;
+
+    const user = userEvent.setup();
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    const btn = await screen.findByTestId('hero-force-scan-homelab');
+    await user.click(btn);
+
+    // After click: started toast fires; button transitions to busy as the
+    // invalidation-triggered refetch reads `running`.
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringMatching(/Scan started for homelab|Сканирование запущено/),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'true');
+    });
+
+    // Advance the test "phase" to completed and force a refetch (mimics
+    // the next 6 s poll tick). We poke fetch via dispatching a window
+    // 'focus' wouldn't help (refetchOnWindowFocus is off), so just wait
+    // — the 6 s interval will tick. Bump the test timeout via waitFor.
+    phase = 'completed';
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith(
+        expect.stringMatching(/Scan finished|Сканирование завершено/),
+      );
+    }, { timeout: 8000 });
+    await waitFor(() => {
+      expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'false');
+    });
   });
 });

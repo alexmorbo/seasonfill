@@ -348,7 +348,19 @@ export const en = {
         label: 'grabs · 7 days',
         aria: 'Grab sparkline for {{instance}} over 7 days',
       },
-      actions: { edit: 'Edit', forceScan: 'Force scan', openSonarr: 'Sonarr' },
+      actions: {
+        edit: 'Edit',
+        forceScan: 'Force scan',
+        forceScanRunning: 'Scanning…',
+        openSonarr: 'Sonarr',
+      },
+      forceScan: {
+        toastStarted: 'Scan started for {{instance}}',
+        toastAlreadyRunning: 'Scan is already running',
+        toastFinished: 'Scan finished',
+        toastFailed: 'Scan finished with errors',
+        toastError: 'Failed to start scan: {{error}}',
+      },
       chips: {
         missing_one: '{{count}} missing episode',
         missing_few: '{{count}} missing episodes',
