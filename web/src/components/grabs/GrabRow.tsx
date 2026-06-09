@@ -89,9 +89,10 @@ export function GrabRow({
         ],
       )}
     >
-      {/* poster thumb */}
+      {/* poster thumb — prefer per-row instance (DTO field) so posters render
+          on the "all instances" view where the global filter prop is null. */}
       <SeriesPoster
-        instance={instance ?? undefined}
+        instance={grab.instance ?? instance ?? undefined}
         seriesId={grab.series_id ?? 0}
         title={grab.series_title ?? ''}
         hueKey={String(grab.series_id ?? 0)}

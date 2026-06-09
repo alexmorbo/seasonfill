@@ -370,7 +370,7 @@ export const en = {
         lastError: '{{error}}',
       },
     },
-    add: { ghost: '+ Add instance' },
+    add: { ghost: 'Add instance' },
     empty: {
       title: 'No instances configured yet',
       body: 'Connect a Sonarr server so Seasonfill can monitor missing episodes and back-fill incomplete season packs. Typical setup is 1–3 instances (homelab + 4k).',

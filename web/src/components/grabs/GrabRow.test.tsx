@@ -58,6 +58,19 @@ describe('<GrabRow />', () => {
     expect(screen.queryByTestId('series-poster-img')).toBeNull();
   });
 
+  it('renders poster from per-row grab.instance when the prop is null (all-instances view)', () => {
+    const withInstance: Partial<Grab> = { ...base, instance: 'homelab' };
+    render(wrap(
+      <GrabRow grab={withInstance as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        instance={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(
+      '/api/v1/instances/homelab/series/1234/poster?size=small',
+    );
+  });
+
   it('renders title, status chip, and full chip set', () => {
     render(wrap(
       <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
