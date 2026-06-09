@@ -2,7 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueueSeasonDrill } from './QueueSeasonDrill';
+
+function withTooltip(ui: React.ReactElement) {
+  return <TooltipProvider delayDuration={0}>{ui}</TooltipProvider>;
+}
 
 const origFetch = globalThis.fetch;
 const json = (body: unknown, status = 200) =>
@@ -31,7 +36,7 @@ describe('<QueueSeasonDrill />', () => {
       return json({});
     }) as typeof fetch;
 
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueSeasonDrill
         instanceName="alpha"
         seriesId={122}
@@ -39,7 +44,7 @@ describe('<QueueSeasonDrill />', () => {
         isScanInFlight={false}
         onScanSeason={vi.fn()}
       />,
-    );
+    ));
     expect(screen.getByTestId('queue-drill-loading')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('queue-drill')).toBeInTheDocument());
     expect(screen.getByText(/S2 — missing 1 of 2/i)).toBeInTheDocument();
@@ -48,7 +53,7 @@ describe('<QueueSeasonDrill />', () => {
 
   it('renders error state on fetch failure', async () => {
     globalThis.fetch = vi.fn(async () => json({ error: 'boom' }, 502)) as typeof fetch;
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueSeasonDrill
         instanceName="alpha"
         seriesId={122}
@@ -56,7 +61,7 @@ describe('<QueueSeasonDrill />', () => {
         isScanInFlight={false}
         onScanSeason={vi.fn()}
       />,
-    );
+    ));
     expect(await screen.findByTestId('queue-drill-error')).toBeInTheDocument();
   });
 
@@ -68,7 +73,7 @@ describe('<QueueSeasonDrill />', () => {
       }),
     ) as typeof fetch;
     const onScanSeason = vi.fn();
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueSeasonDrill
         instanceName="alpha"
         seriesId={122}
@@ -76,7 +81,7 @@ describe('<QueueSeasonDrill />', () => {
         isScanInFlight={false}
         onScanSeason={onScanSeason}
       />,
-    );
+    ));
     const btn = await screen.findByTestId('queue-drill-scan-season');
     expect(btn).toHaveAttribute('title', expect.stringMatching(/per-season targeting/i));
     await userEvent.click(btn);

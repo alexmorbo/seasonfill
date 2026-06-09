@@ -94,6 +94,8 @@ export const ru: Translations = {
       miss: 'недостаёт',
       upcoming: 'впереди',
       episodeAria: 'E{{num}}: {{state}}',
+      episodeTooltipTitled: 'Эпизод {{num}}: {{title}}',
+      episodeTooltipPlain: 'Эпизод {{num}}',
       loading: 'загрузка сезона…',
       error: 'Не удалось загрузить эпизоды сезона.',
     },

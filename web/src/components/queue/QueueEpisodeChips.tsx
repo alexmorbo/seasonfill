@@ -1,6 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   episodeState,
   type SeasonEpisodeItem,
   type EpisodeState,
@@ -26,22 +31,31 @@ export function QueueEpisodeChips({ items }: QueueEpisodeChipsProps) {
     >
       {items.map((e) => {
         const state = episodeState(e);
+        const title = (e.title ?? '').trim();
+        const tooltip = title.length > 0
+          ? t('instanceQueue.drill.episodeTooltipTitled', { num: e.number, title })
+          : t('instanceQueue.drill.episodeTooltipPlain', { num: e.number });
         return (
-          <span
-            key={e.number}
-            role="listitem"
-            className={cn(
-              'font-mono text-[10.5px] px-1.5 py-px rounded-sm border',
-              stateClass[state],
-            )}
-            data-state={state}
-            aria-label={t('instanceQueue.drill.episodeAria', {
-              num: e.number,
-              state: t(`instanceQueue.drill.${state}`),
-            })}
-          >
-            E{e.number}
-          </span>
+          <Tooltip key={e.number}>
+            <TooltipTrigger asChild>
+              <span
+                role="listitem"
+                className={cn(
+                  'font-mono text-[10.5px] px-1.5 py-px rounded-sm border cursor-default',
+                  stateClass[state],
+                )}
+                data-state={state}
+                data-episode-title={title}
+                aria-label={t('instanceQueue.drill.episodeAria', {
+                  num: e.number,
+                  state: t(`instanceQueue.drill.${state}`),
+                })}
+              >
+                E{e.number}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+          </Tooltip>
         );
       })}
     </div>

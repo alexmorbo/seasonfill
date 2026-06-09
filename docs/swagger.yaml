@@ -850,6 +850,13 @@ components:
       type: object
     dto.MissingSeasonStat:
       properties:
+        aired_episode_count:
+          type: integer
+        episodes:
+          items:
+            $ref: '#/components/schemas/dto.SeasonEpisodePresence'
+          type: array
+          uniqueItems: false
         missing_aired_count:
           type: integer
         season_number:
@@ -1280,6 +1287,9 @@ components:
         number:
           example: 5
           type: integer
+        title:
+          example: The Jerrick Trick
+          type: string
       type: object
     dto.SeasonEpisodeList:
       properties:
@@ -1297,6 +1307,18 @@ components:
         total:
           example: 24
           type: integer
+      type: object
+    dto.SeasonEpisodePresence:
+      properties:
+        number:
+          example: 5
+          type: integer
+        present:
+          example: true
+          type: boolean
+        title:
+          example: The Jerrick Trick
+          type: string
       type: object
     dto.SeriesCacheItem:
       properties:

@@ -2,9 +2,17 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueueRow } from './QueueRow';
+import type { MissingSeries } from '@/lib/missing';
 
-const row = {
+function withTooltip(ui: React.ReactElement) {
+  return (
+    <TooltipProvider delayDuration={0}>{ui}</TooltipProvider>
+  );
+}
+
+const row: MissingSeries = {
   series_id: 122,
   title: 'Severance',
   title_slug: 'severance',
@@ -106,6 +114,56 @@ describe('<QueueRow />', () => {
     const slot = screen.getByTestId('queue-drill-slot');
     expect(slot).toHaveAttribute('data-season-number', '2');
     expect(slot).toHaveTextContent('drill-placeholder');
+  });
+
+  it('renders per-episode chip grid when season.episodes is provided', () => {
+    const rowWithEpisodes: MissingSeries = {
+      ...row,
+      seasons: [{
+        season_number: 2,
+        missing_aired_count: 2,
+        aired_episode_count: 3,
+        episodes: [
+          { number: 1, title: 'Good Parts Version', present: true },
+          { number: 2, title: 'Trojan Horse', present: false },
+          { number: 3, title: 'Hello, Ms. Cobel', present: false },
+        ],
+      }],
+    };
+    renderWithProviders(withTooltip(
+      <QueueRow
+        row={rowWithEpisodes}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    ));
+    const grid = screen.getByTestId('queue-season-chips');
+    expect(grid.getAttribute('data-season-number')).toBe('2');
+    expect(within(grid).getByText('E1').getAttribute('data-present')).toBe('true');
+    expect(within(grid).getByText('E2').getAttribute('data-present')).toBe('false');
+    expect(within(grid).getByText('E3').getAttribute('data-present')).toBe('false');
+  });
+
+  it('omits per-episode chip grid when season.episodes is absent', () => {
+    renderWithProviders(withTooltip(
+      <QueueRow
+        row={row}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    ));
+    expect(screen.queryByTestId('queue-season-chips')).toBeNull();
+    // The aggregate season pills still render so the drill remains
+    // reachable for large seasons that bypass the embed.
+    expect(screen.getByLabelText(/Season 2: 8 missing/i)).toBeInTheDocument();
   });
 
   it('hides the drill slot when no season is open', () => {

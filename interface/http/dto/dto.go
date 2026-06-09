@@ -292,9 +292,28 @@ type ReadyStatus struct {
 }
 
 // MissingSeasonStat — per-season aired-missing count. Season 0 = specials.
+//
+// `episodes` is optional (omitempty) — populated for seasons with
+// `aired_episode_count` <= seasonEpisodesEmbedCap so the queue UI can
+// render per-episode chips with titles inline. Large seasons (e.g.
+// 500-ep anime arcs) omit the field so the operator's queue payload
+// doesn't balloon; the UI falls back to the aggregate chip and the
+// drill endpoint stays the source of truth.
 type MissingSeasonStat struct {
-	SeasonNumber      int `json:"season_number"`
-	MissingAiredCount int `json:"missing_aired_count"`
+	SeasonNumber      int                     `json:"season_number"`
+	MissingAiredCount int                     `json:"missing_aired_count"`
+	AiredEpisodeCount int                     `json:"aired_episode_count,omitempty"`
+	Episodes          []SeasonEpisodePresence `json:"episodes,omitempty"`
+}
+
+// SeasonEpisodePresence — one episode's on-disk state with title.
+// Trimmed shape for the queue list: only what the chip-grid needs.
+// `present` mirrors Sonarr's `hasFile`. Quality is not surfaced here —
+// the operator opens the drill for per-quality detail.
+type SeasonEpisodePresence struct {
+	Number  int    `json:"number"        example:"5"`
+	Title   string `json:"title"         example:"The Jerrick Trick"`
+	Present bool   `json:"present"       example:"true"`
 }
 
 // MissingSeries — one row of GET /instances/:name/missing.
@@ -744,6 +763,7 @@ type WebhookStatusAggregate struct {
 // the queue drill renders chips, not episode metadata.
 type SeasonEpisodeItem struct {
 	Number     int       `json:"number"        example:"5"`
+	Title      string    `json:"title"         example:"The Jerrick Trick"`
 	Monitored  bool      `json:"monitored"     example:"true"`
 	HasFile    bool      `json:"has_file"      example:"false"`
 	Aired      bool      `json:"aired"         example:"true"`

@@ -5,6 +5,7 @@ import { SeriesTitleLink } from '@/components/SeriesTitleLink';
 import { SeriesPoster } from '@/components/SeriesPoster';
 import { cn } from '@/lib/utils';
 import type { MissingSeries } from '@/lib/missing';
+import { QueueSeasonChips } from './QueueSeasonChips';
 
 export interface QueueRowProps {
   readonly row: MissingSeries;
@@ -98,7 +99,7 @@ export function QueueRow({
           </div>
 
           <div
-            className="flex flex-wrap gap-1.5"
+            className="flex flex-col gap-1.5"
             data-testid="queue-row-seasons"
             role="list"
           >
@@ -106,27 +107,38 @@ export function QueueRow({
               const num = sea.season_number ?? 0;
               const count = sea.missing_aired_count ?? 0;
               const active = openSeason === num;
+              const episodes = sea.episodes ?? [];
+              const hasEmbed = episodes.length > 0;
               return (
-                <button
+                <div
                   key={num}
-                  type="button"
                   role="listitem"
-                  onClick={() => onSeasonToggle(num)}
-                  aria-pressed={active}
-                  aria-label={t('instanceQueue.row.seasonAria', { num, count })}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5',
-                    'font-mono text-[11px] font-semibold cursor-pointer',
-                    active
-                      ? 'bg-accent-dim border-accent/40 text-accent'
-                      : 'bg-surface-2 border-border-subtle text-tx-secondary hover:border-border-strong hover:text-foreground',
-                  )}
+                  data-testid="queue-row-season"
+                  data-season-number={num}
+                  className="flex flex-wrap items-center gap-1.5"
                 >
-                  S{String(num).padStart(2, '0')}
-                  <span className={cn('font-normal', active ? 'text-accent' : 'text-warn')}>
-                    ·{count}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSeasonToggle(num)}
+                    aria-pressed={active}
+                    aria-label={t('instanceQueue.row.seasonAria', { num, count })}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 flex-none',
+                      'font-mono text-[11px] font-semibold cursor-pointer',
+                      active
+                        ? 'bg-accent-dim border-accent/40 text-accent'
+                        : 'bg-surface-2 border-border-subtle text-tx-secondary hover:border-border-strong hover:text-foreground',
+                    )}
+                  >
+                    S{String(num).padStart(2, '0')}
+                    <span className={cn('font-normal', active ? 'text-accent' : 'text-warn')}>
+                      ·{count}
+                    </span>
+                  </button>
+                  {hasEmbed && (
+                    <QueueSeasonChips seasonNumber={num} episodes={episodes} />
+                  )}
+                </div>
               );
             })}
           </div>

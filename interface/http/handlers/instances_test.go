@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -112,6 +113,10 @@ type missingFakeSonarr struct {
 	*fakeSonarr
 	all []series.Series
 	err error
+	// eps mirrors episodesFakeSonarr.eps: seriesID → season → episodes.
+	// Optional — nil/empty makes ListEpisodes a no-op so the existing
+	// missing tests keep their pre-054c assertions.
+	eps map[int]map[int][]series.Episode
 }
 
 func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) {
@@ -119,6 +124,17 @@ func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, erro
 		return nil, m.err
 	}
 	return m.all, nil
+}
+
+func (m *missingFakeSonarr) ListEpisodes(_ context.Context, seriesID, seasonNumber int) ([]series.Episode, error) {
+	if m.eps == nil {
+		return nil, nil
+	}
+	bySeason, ok := m.eps[seriesID]
+	if !ok {
+		return nil, nil
+	}
+	return bySeason[seasonNumber], nil
 }
 
 // doMissing wires a one-route gin engine and returns the recorder.
@@ -220,6 +236,135 @@ func TestInstancesHandler_Missing_FiltersUnmonitored(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, 0, body.Total, "unmonitored series excluded")
+}
+
+// TestInstancesHandler_Missing_EmbedsEpisodesForSmallSeasons drives the
+// 054c per-episode chip path: small seasons (≤100 aired) inline the
+// episode list; oversized seasons keep the aggregate-only shape so the
+// payload stays bounded. Future-dated episodes are filtered server-side
+// so the binary present/miss chip grid doesn't mislabel them.
+func TestInstancesHandler_Missing_EmbedsEpisodesForSmallSeasons(t *testing.T) {
+	past := time.Now().Add(-7 * 24 * time.Hour)
+	future := time.Now().Add(7 * 24 * time.Hour)
+	small := series.Statistics{EpisodeCount: 10, EpisodeFileCount: 6, Aired: 10}
+	huge := series.Statistics{EpisodeCount: 500, EpisodeFileCount: 100, Aired: 500}
+	mf := &missingFakeSonarr{
+		fakeSonarr: &fakeSonarr{name: "alpha"},
+		all: []series.Series{
+			{ID: 1, Title: "Standard", Monitored: true,
+				Statistics: series.Statistics{EpisodeCount: 10, EpisodeFileCount: 6, Aired: 10},
+				Seasons: []series.Season{
+					{Number: 1, Monitored: true, Statistics: small},
+				}},
+			{ID: 2, Title: "Long Anime", Monitored: true,
+				Statistics: series.Statistics{EpisodeCount: 500, EpisodeFileCount: 100, Aired: 500},
+				Seasons: []series.Season{
+					{Number: 1, Monitored: true, Statistics: huge},
+				}},
+		},
+		eps: map[int]map[int][]series.Episode{
+			1: {1: {
+				{Number: 1, Title: "Pilot", Monitored: true, HasFile: true, AirDateUTC: past},
+				{Number: 2, Title: "The Reveal", Monitored: true, HasFile: false, AirDateUTC: past},
+				{Number: 3, Title: "", Monitored: true, HasFile: false, AirDateUTC: past},
+				{Number: 4, Title: "Future Tease", Monitored: true, HasFile: false, AirDateUTC: future},
+			}},
+			// 2/1 left unset: ListEpisodes returns nil and the cap omits
+			// the field anyway, so we never call it.
+		},
+	}
+	w := doMissing(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "auto"})
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Items []struct {
+			SeriesID int `json:"series_id"`
+			Seasons  []struct {
+				SeasonNumber      int `json:"season_number"`
+				MissingAiredCount int `json:"missing_aired_count"`
+				AiredEpisodeCount int `json:"aired_episode_count"`
+				Episodes          []struct {
+					Number  int    `json:"number"`
+					Title   string `json:"title"`
+					Present bool   `json:"present"`
+				} `json:"episodes"`
+			} `json:"seasons"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 2)
+
+	var small1, large2 int
+	for i, it := range body.Items {
+		if it.SeriesID == 1 {
+			small1 = i
+		}
+		if it.SeriesID == 2 {
+			large2 = i
+		}
+	}
+
+	// Small season: episodes embedded, sorted by number.
+	require.Len(t, body.Items[small1].Seasons, 1)
+	sm := body.Items[small1].Seasons[0]
+	assert.Equal(t, 10, sm.AiredEpisodeCount)
+	require.Len(t, sm.Episodes, 3)
+	assert.Equal(t, 1, sm.Episodes[0].Number)
+	assert.Equal(t, "Pilot", sm.Episodes[0].Title)
+	assert.True(t, sm.Episodes[0].Present)
+	assert.Equal(t, "The Reveal", sm.Episodes[1].Title)
+	assert.False(t, sm.Episodes[1].Present)
+	assert.Empty(t, sm.Episodes[2].Title, "missing title passes through verbatim")
+
+	// Large season: cap exceeded, episodes omitted.
+	require.Len(t, body.Items[large2].Seasons, 1)
+	lg := body.Items[large2].Seasons[0]
+	assert.Equal(t, 500, lg.AiredEpisodeCount)
+	assert.Nil(t, lg.Episodes, "seasons over the embed cap omit episodes")
+}
+
+// TestInstancesHandler_Missing_LegacyEpisodeCountStillEmbeds covers
+// fixtures (and Sonarr instances pre-046a) where Statistics.Aired is
+// zero but EpisodeCount is set. The handler falls back to EpisodeCount
+// for the cap decision so legacy callers keep the embed feature.
+func TestInstancesHandler_Missing_LegacyEpisodeCountStillEmbeds(t *testing.T) {
+	mf := &missingFakeSonarr{
+		fakeSonarr: &fakeSonarr{name: "alpha"},
+		all: []series.Series{{
+			ID: 9, Title: "Legacy", Monitored: true,
+			Statistics: series.Statistics{EpisodeFileCount: 0, EpisodeCount: 5},
+			Seasons: []series.Season{
+				{Number: 1, Monitored: true,
+					Statistics: series.Statistics{EpisodeFileCount: 0, EpisodeCount: 5}},
+			},
+		}},
+		eps: map[int]map[int][]series.Episode{
+			9: {1: {{
+				Number: 1, Title: "Pilot", Monitored: true, HasFile: false,
+				AirDateUTC: time.Now().Add(-24 * time.Hour),
+			}}},
+		},
+	}
+	w := doMissing(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "auto"})
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Items []struct {
+			Seasons []struct {
+				Episodes          []map[string]any `json:"episodes"`
+				AiredEpisodeCount int              `json:"aired_episode_count"`
+			} `json:"seasons"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	require.Len(t, body.Items[0].Seasons, 1)
+	assert.Equal(t, 5, body.Items[0].Seasons[0].AiredEpisodeCount)
+	assert.Len(t, body.Items[0].Seasons[0].Episodes, 1)
 }
 
 func TestInstanceDTO_EmitsMode(t *testing.T) {

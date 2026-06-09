@@ -92,6 +92,8 @@ export const en = {
       miss: 'missing',
       upcoming: 'upcoming',
       episodeAria: 'E{{num}}: {{state}}',
+      episodeTooltipTitled: 'Episode {{num}}: {{title}}',
+      episodeTooltipPlain: 'Episode {{num}}',
       loading: 'loading season…',
       error: 'Failed to load season episodes.',
     },

@@ -30,6 +30,14 @@ const (
 	// before the typing-to-narrow loop becomes the better UX; 100 is
 	// generous slack for power users with broad queries.
 	searchMaxLimit = 100
+	// seasonEpisodesEmbedCap — Missing handler embeds per-episode
+	// presence inline for seasons up to this aired-episode count.
+	// Standard scripted seasons sit at 8–26 episodes; the cap covers
+	// long-running soaps and anime cours (24 × multi-cour) without
+	// inflating the payload for 500-ep anime monoliths where the chip
+	// grid wouldn't fit on screen anyway. The drill endpoint stays the
+	// fallback for any season above the cap.
+	seasonEpisodesEmbedCap = 100
 )
 
 type InstancesHandler struct {
@@ -139,8 +147,19 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 			if am == 0 {
 				continue
 			}
-			seasons = append(seasons, dto.MissingSeasonStat{
-				SeasonNumber: season.Number, MissingAiredCount: am})
+			aired := season.Statistics.Aired
+			if aired == 0 {
+				aired = season.Statistics.EpisodeCount
+			}
+			stat := dto.MissingSeasonStat{
+				SeasonNumber:      season.Number,
+				MissingAiredCount: am,
+				AiredEpisodeCount: aired,
+			}
+			if aired > 0 && aired <= seasonEpisodesEmbedCap {
+				stat.Episodes = h.buildSeasonPresence(ctx, inst.Client, name, s.ID, season.Number)
+			}
+			seasons = append(seasons, stat)
 		}
 		sort.Slice(seasons, func(i, j int) bool { return seasons[i].SeasonNumber < seasons[j].SeasonNumber })
 		items = append(items, dto.MissingSeries{
@@ -151,6 +170,50 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 	sort.Slice(items, func(i, j int) bool { return items[i].SeriesID < items[j].SeriesID })
 	h.enrichMissingFromCache(ctx, name, items)
 	c.JSON(http.StatusOK, dto.MissingSeriesList{Items: items, Total: len(items)})
+}
+
+// buildSeasonPresence calls ListEpisodes for one season and trims the
+// result to the chip-grid DTO (number, title, present). Only aired
+// episodes pass through — future episodes would render as "missing"
+// on the binary present/miss chip grid, which is misleading. Returns
+// nil on error or no aired episodes — the caller treats nil as
+// "omit episodes" which is the same wire-shape as the cap-exceeded
+// path, so the UI's fallback branch handles both transparently.
+// Errors WARN-log so the queue request keeps its 200 even when one
+// of N season fetches dies.
+func (h *InstancesHandler) buildSeasonPresence(
+	ctx context.Context,
+	client ports.SonarrClient,
+	name string,
+	seriesID, seasonNumber int,
+) []dto.SeasonEpisodePresence {
+	eps, err := client.ListEpisodes(ctx, seriesID, seasonNumber)
+	if err != nil {
+		h.logger.WarnContext(ctx, "missing_season_episodes_failed",
+			slog.String("instance", name),
+			slog.Int("series_id", seriesID),
+			slog.Int("season", seasonNumber),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	if len(eps) == 0 {
+		return nil
+	}
+	now := time.Now()
+	out := make([]dto.SeasonEpisodePresence, 0, len(eps))
+	for _, e := range eps {
+		if !e.Aired(now) {
+			continue
+		}
+		out = append(out, dto.SeasonEpisodePresence{
+			Number: e.Number, Title: e.Title, Present: e.HasFile,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Number < out[j].Number })
+	return out
 }
 
 // enrichMissingFromCache joins TitleSlug / Year / PosterPath from
@@ -370,6 +433,7 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 		aired := e.Aired(now)
 		items = append(items, dto.SeasonEpisodeItem{
 			Number:     e.Number,
+			Title:      e.Title,
 			Monitored:  e.Monitored,
 			HasFile:    e.HasFile,
 			Aired:      aired,

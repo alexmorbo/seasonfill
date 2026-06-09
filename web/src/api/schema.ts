@@ -3431,6 +3431,8 @@ export type components = {
             readonly username?: string;
         };
         readonly "dto.MissingSeasonStat": {
+            readonly aired_episode_count?: number;
+            readonly episodes?: readonly components["schemas"]["dto.SeasonEpisodePresence"][];
             readonly missing_aired_count?: number;
             readonly season_number?: number;
         };
@@ -3700,6 +3702,8 @@ export type components = {
             readonly monitored?: boolean;
             /** @example 5 */
             readonly number?: number;
+            /** @example The Jerrick Trick */
+            readonly title?: string;
         };
         readonly "dto.SeasonEpisodeList": {
             /** @example 11 */
@@ -3709,6 +3713,14 @@ export type components = {
             readonly miss?: number;
             /** @example 24 */
             readonly total?: number;
+        };
+        readonly "dto.SeasonEpisodePresence": {
+            /** @example 5 */
+            readonly number?: number;
+            /** @example true */
+            readonly present?: boolean;
+            /** @example The Jerrick Trick */
+            readonly title?: string;
         };
         readonly "dto.SeriesCacheItem": {
             /** @example homelab */
