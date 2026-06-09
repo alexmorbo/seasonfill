@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -183,6 +184,117 @@ func TestScan_PrefilterFlagOff(t *testing.T) {
 	assert.False(t, sawSonarrHandles)
 	assert.EqualValues(t, 1, sonarr.listEpisodesCalls.Load())
 	assert.EqualValues(t, 1, sonarr.searchReleasesCalls.Load())
+}
+
+// TestSeriesAllSeasonsComplete is the pure unit for the series-level
+// fast-path helper. Mirrors decidePrefilter's table-driven style.
+func TestSeriesAllSeasonsComplete(t *testing.T) {
+	tests := []struct {
+		name string
+		s    series.Series
+		want bool
+	}{
+		{
+			name: "all_monitored_complete",
+			s: series.Series{Seasons: []series.Season{
+				mkSeasonWithStats(1, 10, 10, 10),
+				mkSeasonWithStats(2, 8, 8, 8),
+			}},
+			want: true,
+		},
+		{
+			name: "one_partial_breaks_short_circuit",
+			s: series.Series{Seasons: []series.Season{
+				mkSeasonWithStats(1, 10, 10, 10),
+				mkSeasonWithStats(2, 10, 8, 3),
+			}},
+			want: false,
+		},
+		{
+			name: "sonarr_handles_blocks_short_circuit",
+			s: series.Series{Seasons: []series.Season{
+				mkSeasonWithStats(1, 10, 10, 10),
+				mkSeasonWithStats(2, 8, 8, 0),
+			}},
+			want: false,
+		},
+		{
+			name: "unmonitored_partial_season_ignored",
+			s: series.Series{Seasons: []series.Season{
+				mkSeasonWithStats(1, 10, 10, 10),
+				{Number: 2, Monitored: false, Statistics: series.Statistics{Total: 10, Aired: 8, EpisodeFileCount: 0}},
+			}},
+			want: true,
+		},
+		{
+			name: "zero_monitored_returns_false",
+			s: series.Series{Seasons: []series.Season{
+				{Number: 1, Monitored: false, Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 10}},
+			}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, seriesAllSeasonsComplete(tt.s))
+		})
+	}
+}
+
+// panicSonarr wraps fakeSonarr so the series-level fast-path test can
+// assert "GetQualityProfile / ListEpisodeFiles MUST NOT be called when
+// every monitored season is complete". Any invocation panics with the
+// method name — propagating as a test failure via t.Cleanup recover.
+type panicSonarr struct {
+	*fakeSonarr
+}
+
+func (p *panicSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
+	panic("GetQualityProfile must not be called when every monitored season is complete")
+}
+func (p *panicSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+	panic("ListEpisodeFiles must not be called when every monitored season is complete")
+}
+
+// TestScan_SeriesAllSeasonsComplete_SkipsBeforeSonarrCalls is the R5
+// integration guard. A series whose every monitored season is complete
+// must:
+//   - emit per-season ReasonAllComplete Decision rows (audit trail);
+//   - NOT call GetQualityProfile or ListEpisodeFiles (the panicSonarr
+//     would otherwise crash the scan).
+func TestScan_SeriesAllSeasonsComplete_SkipsBeforeSonarrCalls(t *testing.T) {
+	sonarr := &panicSonarr{fakeSonarr: &fakeSonarr{
+		name: "homelab",
+		series: []series.Series{{
+			ID: 11, Title: "ComplerSeries", Type: series.SeriesTypeStandard,
+			Monitored: true, QualityProfile: 14,
+			Seasons: []series.Season{
+				mkSeasonWithStats(1, 10, 10, 10),
+				mkSeasonWithStats(2, 8, 8, 8),
+			},
+		}},
+	}}
+
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	decRepo := &fakeDecRepo{}
+	evalUC := evaluate.NewUseCase(sonarr, decRepo, lg)
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "homelab",
+			Limits: config.LimitsConfig{ScanMaxSeries: 100, MaxGrabsPerScan: 10},
+		},
+		Client: sonarr,
+	}}, evalUC, &fakeScanRepo{}, lg, true)
+
+	results, err := uc.Run(context.Background(), TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", results[0].Status)
+	require.Len(t, decRepo.d, 2, "one synthetic skip Decision per monitored season")
+	for _, d := range decRepo.d {
+		assert.Equal(t, decision.OutcomeSkip, d.Outcome)
+		assert.Equal(t, decision.ReasonAllComplete, d.Reason)
+		assert.Equal(t, "ComplerSeries", d.SeriesTitle)
+	}
 }
 
 var _ = time.Now // silence unused-import on future trim

@@ -517,7 +517,8 @@ func TestClient_ListEpisodeFilesBySeason_HappyPath(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "122", r.URL.Query().Get("seriesId"))
-		require.Equal(t, "2", r.URL.Query().Get("seasonNumber"))
+		// Sonarr ignores seasonNumber on this endpoint; client drops it.
+		require.Empty(t, r.URL.Query().Get("seasonNumber"))
 		_, _ = w.Write([]byte(`[
 			{"id": 7001, "seriesId": 122, "seasonNumber": 2,
 			 "relativePath": "Season 02/Severance.S02E01.mkv",
@@ -530,6 +531,7 @@ func TestClient_ListEpisodeFilesBySeason_HappyPath(t *testing.T) {
 		]`))
 	})
 	mux.HandleFunc("/api/v3/episode", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "2", r.URL.Query().Get("seasonNumber"))
 		_, _ = w.Write([]byte(`[
 			{"id": 1, "episodeNumber": 1, "seasonNumber": 2, "episodeFileId": 7001},
 			{"id": 2, "episodeNumber": 2, "seasonNumber": 2, "episodeFileId": 7002}
@@ -612,6 +614,51 @@ func TestClient_ListEpisodeFilesBySeason_UnmappedFileHasEmptyEpisodes(t *testing
 		"non-nil empty slice must marshal as [], never null")
 	assert.NotContains(t, string(raw), `"EpisodeNumbers":null`,
 		"nil leak would regress GrabDrawer crash on /grabs?open=<id>")
+}
+
+// TestClient_ListEpisodeFilesBySeason_FiltersCrossSeason guards the
+// operator-#4 Rick&Morty bug: Sonarr's /api/v3/episodeFile endpoint
+// ignores `seasonNumber` and returns every file for the series — the
+// client must filter to the requested season in Go.
+func TestClient_ListEpisodeFilesBySeason_FiltersCrossSeason(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/episodeFile", func(w http.ResponseWriter, _ *http.Request) {
+		// Sonarr returns ALL seasons regardless of seasonNumber query.
+		_, _ = w.Write([]byte(`[
+			{"id": 1, "seasonNumber": 1, "relativePath": "S01/E01.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-1080p"}}},
+			{"id": 2, "seasonNumber": 2, "relativePath": "S02/E01.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-1080p"}}},
+			{"id": 3, "seasonNumber": 5, "relativePath": "S05/E01.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-1080p"}}},
+			{"id": 4, "seasonNumber": 9, "relativePath": "S09/E01.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}},
+			{"id": 5, "seasonNumber": 9, "relativePath": "S09/E02.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}},
+			{"id": 6, "seasonNumber": 9, "relativePath": "S09/E03.mkv",
+			 "quality": {"quality": {"id": 19, "name": "WEBDL-2160p"}}}
+		]`))
+	})
+	mux.HandleFunc("/api/v3/episode", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id": 90, "episodeNumber": 1, "seasonNumber": 9, "episodeFileId": 4},
+			{"id": 91, "episodeNumber": 2, "seasonNumber": 9, "episodeFileId": 5},
+			{"id": 92, "episodeNumber": 3, "seasonNumber": 9, "episodeFileId": 6}
+		]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	out, err := c.ListEpisodeFilesBySeason(context.Background(), 555, 9)
+	require.NoError(t, err)
+	require.Len(t, out, 3, "must return only S09 entries — Sonarr's seasonNumber filter is a no-op")
+	for _, ef := range out {
+		assert.Equal(t, 9, ef.SeasonNumber)
+	}
+	ids := []int{out[0].ID, out[1].ID, out[2].ID}
+	assert.ElementsMatch(t, []int{4, 5, 6}, ids)
 }
 
 func TestSeriesDTOToCacheEntry_CapturesPreviousAiring(t *testing.T) {

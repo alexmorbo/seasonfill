@@ -588,6 +588,44 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		processed++
 		pendingDelta++ // 011c: count series committed to evaluation
 
+		// Series-level fast-path: if EVERY monitored season is already
+		// complete (Aired - Existing <= 0), no Sonarr work is possible
+		// — emit synthetic ReasonAllComplete rows for the audit trail
+		// and continue without GetQualityProfile / ListEpisodeFiles.
+		// Per-season decidePrefilter below stays as defense-in-depth
+		// for the mixed-state path. R5: ~40 of 46 series in operator's
+		// example were all-complete → ~40 wasted GetQualityProfile +
+		// ListEpisodeFiles call pairs eliminated per scan.
+		if seriesAllSeasonsComplete(s) {
+			u.logger.DebugContext(ctx, "series_skipped_all_seasons_complete",
+				slog.String("instance", inst.Config.Name),
+				slog.Int("series_id", s.ID),
+				slog.String("series_title", s.Title),
+				slog.Int("monitored_seasons", len(seasons)),
+			)
+			for _, season := range seasons {
+				stats := series.SeasonStatsFromStatistics(season.Statistics)
+				if _, err := u.evaluator.RecordSkip(ctx, evaluate.Input{
+					ScanRunID: scanID,
+					Instance:  inst.Config.Name,
+					Series:    s,
+					Season:    season,
+					DryRun:    dryRun,
+					Now:       time.Now().UTC(),
+				}, decision.ReasonAllComplete, stats); err != nil {
+					u.logger.WarnContext(ctx, "prefilter_record_skip_failed",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("series_id", s.ID),
+						slog.Int("season_number", season.Number),
+						slog.String("reason", string(decision.ReasonAllComplete)),
+						slog.String("error", err.Error()))
+				}
+				observability.IncScanSkipped(inst.Config.Name, prefilterReasonLabel(decision.ReasonAllComplete))
+				observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+			}
+			continue
+		}
+
 		var profile ports.QualityProfile
 		if cached, ok := profileCache[s.QualityProfile]; ok {
 			profile = cached
@@ -1150,6 +1188,25 @@ func (u *UseCase) decidePrefilter(stats series.SeasonStats, inst Instance) (deci
 		return decision.ReasonSonarrHandles, true
 	}
 	return "", false
+}
+
+// seriesAllSeasonsComplete reports whether EVERY monitored season is
+// SeasonStats.IsComplete(). Callers use it as a series-level fast-path
+// to skip GetQualityProfile / ListEpisodeFiles when no season has work.
+// Series with zero monitored seasons return false so the existing
+// "len(seasons) == 0" guard upstream stays the sole owner of that path
+// (avoids surprising every-empty-set-is-true semantics).
+func seriesAllSeasonsComplete(s series.Series) bool {
+	monitored := s.MonitoredSeasons()
+	if len(monitored) == 0 {
+		return false
+	}
+	for _, season := range monitored {
+		if !series.SeasonStatsFromStatistics(season.Statistics).IsComplete() {
+			return false
+		}
+	}
+	return true
 }
 
 // flushSeriesScannedIfDue commits pending series_scanned delta when it

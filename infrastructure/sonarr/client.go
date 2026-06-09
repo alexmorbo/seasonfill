@@ -428,25 +428,41 @@ func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]in
 // ListEpisodeFilesBySeason returns the rich per-file metadata for one
 // season. Two Sonarr round-trips:
 //
-//  1. GET /api/v3/episodeFile?seriesId=&seasonNumber=  → file rows
-//  2. GET /api/v3/episode?seriesId=&seasonNumber=      → episode rows
-//     (we read episode.episodeFileId → episodeNumber map)
+//  1. GET /api/v3/episodeFile?seriesId=          → file rows (ALL seasons)
+//  2. GET /api/v3/episode?seriesId=&seasonNumber= → episode rows for season
+//
+// Sonarr's /api/v3/episodeFile endpoint ignores `seasonNumber` and
+// returns every file for the series, so we filter client-side keeping
+// only rows where f.SeasonNumber == seasonNumber. The bug was visible
+// in the UI as a S09 grab surfacing 96 files spanning S01–S09 in the
+// drawer.
 //
 // Grouping happens in Go so the API stays stable across Sonarr
-// versions. Capped at 200 entries server-side; Sonarr's natural
-// response is ≤ 1000 per season. 043c.
+// versions. Capped at 200 entries; Sonarr's natural response is
+// ≤ 1000 per season. 043c.
 func (c *Client) ListEpisodeFilesBySeason(
 	ctx context.Context, seriesID, seasonNumber int,
 ) ([]ports.EpisodeFileDetail, error) {
-	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
-	q.Set("seasonNumber", strconv.Itoa(seasonNumber))
+	fq := url.Values{}
+	fq.Set("seriesId", strconv.Itoa(seriesID))
 	var fileDTOs []episodeFileDTO
-	if err := c.get(ctx, "/api/v3/episodeFile", q, &fileDTOs); err != nil {
+	if err := c.get(ctx, "/api/v3/episodeFile", fq, &fileDTOs); err != nil {
 		return nil, fmt.Errorf("sonarr episodeFile: %w", err)
 	}
+	// Sonarr ignores `seasonNumber` on /api/v3/episodeFile — filter in Go.
+	filtered := fileDTOs[:0]
+	for _, f := range fileDTOs {
+		if f.SeasonNumber == seasonNumber {
+			filtered = append(filtered, f)
+		}
+	}
+	fileDTOs = filtered
+
+	eq := url.Values{}
+	eq.Set("seriesId", strconv.Itoa(seriesID))
+	eq.Set("seasonNumber", strconv.Itoa(seasonNumber))
 	var epDTOs []episodeDTO
-	if err := c.get(ctx, "/api/v3/episode", q, &epDTOs); err != nil {
+	if err := c.get(ctx, "/api/v3/episode", eq, &epDTOs); err != nil {
 		return nil, fmt.Errorf("sonarr episode: %w", err)
 	}
 

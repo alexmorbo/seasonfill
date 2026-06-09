@@ -422,8 +422,15 @@ func (l *listSeriesCounter) ListSeries(ctx context.Context) ([]series.Series, er
 }
 
 func monSeries(id int, title string) series.Series {
+	// Partial-pack stats (Aired=10 > Existing=3) keep the series out of
+	// the all-complete fast-path so the rest of the scan pipeline runs.
 	return series.Series{ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
-		QualityProfile: 14, Seasons: []series.Season{{Number: 1, Monitored: true}}}
+		QualityProfile: 14,
+		Seasons: []series.Season{{
+			Number: 1, Monitored: true,
+			Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 3},
+		}},
+	}
 }
 
 func instCfg(name, mode string) config.SonarrInstance {
@@ -845,11 +852,15 @@ func TestScan_SeriesCooldown_BatchesFilterActive(t *testing.T) {
 	sonarr := &fakeSonarr{
 		name: "main",
 		series: []series.Series{
+			// Each season carries partial-pack stats (aired > existing) so
+			// the series-level all-complete fast-path doesn't short-circuit
+			// before cooldown lookup. Cooldown lookup batches all 3 keys
+			// in a single FilterActive call.
 			{ID: 200, Title: "Show", Type: series.SeriesTypeStandard, Monitored: true, QualityProfile: 14,
 				Seasons: []series.Season{
-					{Number: 1, Monitored: true},
-					{Number: 2, Monitored: true},
-					{Number: 3, Monitored: true},
+					{Number: 1, Monitored: true, Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 3}},
+					{Number: 2, Monitored: true, Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 3}},
+					{Number: 3, Monitored: true, Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 3}},
 				}},
 		},
 	}
