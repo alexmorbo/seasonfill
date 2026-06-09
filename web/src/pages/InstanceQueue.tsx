@@ -40,13 +40,13 @@ export function InstanceQueue() {
 
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<QueueSort>('debt');
-  // Map<series_id, Set<season_number>> — per-row, multiple seasons can be
-  // drilled open simultaneously. Each chip toggles its own inline drill
-  // panel directly below it (see QueueRow).
-  const [openSeasons, setOpenSeasons] = useState<ReadonlyMap<number, ReadonlySet<number>>>(
+  // Map<series_id, season_number> — at most one drill open per series,
+  // rendered at the bottom of the series row (single-open UX, see
+  // QueueRow). The map shape (vs a flat number|null) lets multiple
+  // series each have their own open season independently.
+  const [openSeasons, setOpenSeasons] = useState<ReadonlyMap<number, number>>(
     () => new Map(),
   );
-  const emptySeasonSet = useMemo<ReadonlySet<number>>(() => new Set(), []);
   // Lazy "now" anchor: only consulted before the first fetch resolves
   // (after that `missing.dataUpdatedAt` is truthy and wins). Captured
   // once at mount so the QueueHeader gets a stable updatedAtMs prop.
@@ -72,17 +72,10 @@ export function InstanceQueue() {
   const onSeasonToggle = useCallback((seriesId: number, seasonNumber: number) => {
     setOpenSeasons((prev) => {
       const next = new Map(prev);
-      const current = next.get(seriesId);
-      const updated = new Set<number>(current ?? []);
-      if (updated.has(seasonNumber)) {
-        updated.delete(seasonNumber);
-      } else {
-        updated.add(seasonNumber);
-      }
-      if (updated.size === 0) {
+      if (next.get(seriesId) === seasonNumber) {
         next.delete(seriesId);
       } else {
-        next.set(seriesId, updated);
+        next.set(seriesId, seasonNumber);
       }
       return next;
     });
@@ -190,33 +183,30 @@ export function InstanceQueue() {
           <div className="flex flex-col gap-2.5" data-testid="queue-list">
             {rows.map((row) => {
               const sid = row.series_id ?? 0;
-              const rowOpenSeasons = openSeasons.get(sid) ?? emptySeasonSet;
+              const openSeason = openSeasons.get(sid) ?? null;
               const isInFlight = Boolean(
                 inFlightId !== undefined && inFlightId !== false && inFlightId === sid,
               );
-              const seriesId = row.series_id;
               return (
                 <QueueRow
                   key={sid}
                   row={row}
                   instanceName={name ?? ''}
                   instanceUiUrl={uiUrl}
-                  openSeasons={rowOpenSeasons}
+                  openSeason={openSeason}
                   isInFlight={isInFlight}
                   onSeasonToggle={(season) => onSeasonToggle(sid, season)}
                   onScan={() => onScan(row)}
-                  renderDrill={
-                    seriesId !== undefined
-                      ? (seasonNumber) => (
-                        <QueueSeasonDrill
-                          instanceName={name}
-                          seriesId={seriesId}
-                          seasonNumber={seasonNumber}
-                          isScanInFlight={isInFlight}
-                          onScanSeason={() => onScan(row)}
-                        />
-                      )
-                      : undefined
+                  drillSlot={
+                    openSeason !== null && row.series_id !== undefined ? (
+                      <QueueSeasonDrill
+                        instanceName={name}
+                        seriesId={row.series_id}
+                        seasonNumber={openSeason}
+                        isScanInFlight={isInFlight}
+                        onScanSeason={() => onScan(row)}
+                      />
+                    ) : null
                   }
                 />
               );

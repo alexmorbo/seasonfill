@@ -42,6 +42,10 @@ func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) 
 func (f *fakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
@@ -381,6 +385,10 @@ func (s *slowFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, err
 func (s *slowFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (s *slowFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (s *slowFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }
@@ -480,6 +488,10 @@ func (s *sleepyFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, e
 	return series.Series{}, nil
 }
 func (s *sleepyFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+
+func (s *sleepyFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 func (s *sleepyFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {

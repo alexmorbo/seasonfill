@@ -8,17 +8,21 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
 const (
@@ -33,10 +37,11 @@ const (
 )
 
 type InstancesHandler struct {
-	checker     *healthcheck.Checker
-	reg         InstanceRegistry
-	seriesCache ports.SeriesCacheRepository
-	logger      *slog.Logger
+	checker       *healthcheck.Checker
+	reg           InstanceRegistry
+	seriesCache   ports.SeriesCacheRepository
+	episodesCache sonarr.EpisodesCache
+	logger        *slog.Logger
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
@@ -60,6 +65,15 @@ func NewInstancesHandler(
 // signature stable across the 10+ existing test call sites.
 func (h *InstancesHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *InstancesHandler {
 	h.seriesCache = repo
+	return h
+}
+
+// WithEpisodesCache wires the in-process LRU cache the Missing handler
+// uses to amortize per-series ListEpisodesBySeries calls (TTL 5 min).
+// nil cache = always fetch from upstream; handler stays correct, just
+// loses the warm-path speedup. Builder pattern mirrors WithSeriesCache.
+func (h *InstancesHandler) WithEpisodesCache(cache sonarr.EpisodesCache) *InstancesHandler {
+	h.episodesCache = cache
 	return h
 }
 
@@ -124,7 +138,14 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unavailable"})
 		return
 	}
+	// Pass 1: materialize series rows + per-season stats, and collect
+	// the series IDs that need per-episode embeds (any series with at
+	// least one missing season whose aired-episode count fits under
+	// MissingSeasonEmbedAiredCap). Embed eligibility is computed once
+	// per series; the per-season slice happens in pass 2 once we have
+	// the upstream episode list.
 	items := make([]dto.MissingSeries, 0, len(allSeries))
+	embedSeasonsByID := make(map[int]map[int]int, len(allSeries))
 	for _, s := range allSeries {
 		if !s.Monitored {
 			continue
@@ -134,6 +155,7 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 			continue
 		}
 		seasons := make([]dto.MissingSeasonStat, 0, len(s.Seasons))
+		seasonsToEmbed := map[int]int{}
 		for _, season := range s.Seasons {
 			am := season.Statistics.AiredMissing()
 			if am == 0 {
@@ -143,29 +165,176 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 			if aired == 0 {
 				aired = season.Statistics.EpisodeCount
 			}
-			// 054c embedded per-episode presence inline for small
-			// seasons; that fan-out cost ~N×ListEpisodes Sonarr calls
-			// per request and serialized on the per-instance rate
-			// limiter — a 9-row backlog × ~3 seasons saturated the
-			// 60s gateway timeout (see logs: missing_season_episodes_failed
-			// "context canceled"). Episode-level detail now lives behind
-			// the drill endpoint /instances/:name/series/:id/seasons/:n/episodes,
-			// which is only paid for when the operator opens a season.
 			seasons = append(seasons, dto.MissingSeasonStat{
 				SeasonNumber:      season.Number,
 				MissingAiredCount: am,
 				AiredEpisodeCount: aired,
 			})
+			// Eligible-for-embed: aired must be positive (no upstream
+			// fetch worth doing if Sonarr reports nothing aired) and
+			// under the cap (anime monoliths skip; UI falls back to
+			// the aggregate chip + on-demand drill).
+			if aired > 0 && aired <= runtime.MissingSeasonEmbedAiredCap {
+				seasonsToEmbed[season.Number] = aired
+			}
 		}
 		sort.Slice(seasons, func(i, j int) bool { return seasons[i].SeasonNumber < seasons[j].SeasonNumber })
 		items = append(items, dto.MissingSeries{
 			SeriesID: s.ID, Title: s.Title, Monitored: s.Monitored,
 			TotalMissingAired: total, Seasons: seasons,
 		})
+		if len(seasonsToEmbed) > 0 {
+			embedSeasonsByID[s.ID] = seasonsToEmbed
+		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].SeriesID < items[j].SeriesID })
+	// Pass 2: concurrent per-series ListEpisodesBySeries fetch (one
+	// upstream call per series, NOT per season). Cap concurrency at
+	// MissingPerSeriesEpisodeFetchConcurrency so we don't fan out
+	// faster than the per-instance rate limiter drains. errgroup with
+	// nil-error semantics: a single-series failure WARN-logs and
+	// emits a row without the embed (same wire-shape as the cap-skip
+	// path) — the queue request must NOT 5xx when one upstream call
+	// hiccups.
+	h.embedSeasonEpisodes(ctx, inst.Client, name, items, embedSeasonsByID)
 	h.enrichMissingFromCache(ctx, name, items)
 	c.JSON(http.StatusOK, dto.MissingSeriesList{Items: items, Total: len(items)})
+}
+
+// embedSeasonEpisodes performs the per-series concurrent episode
+// fetch, in-process LRU cache lookup, and per-season slice that
+// populates MissingSeasonStat.Episodes. Concurrency capped at
+// runtime.MissingPerSeriesEpisodeFetchConcurrency; per-series
+// failures are WARN-logged and DROP the embed for that series only
+// (the row still ships with the aggregate season chip).
+func (h *InstancesHandler) embedSeasonEpisodes(
+	ctx context.Context,
+	client ports.SonarrClient,
+	name string,
+	items []dto.MissingSeries,
+	embedSeasonsByID map[int]map[int]int,
+) {
+	if len(embedSeasonsByID) == 0 {
+		return
+	}
+	// Build seriesID → row-index map so worker goroutines can write
+	// back into items without scanning. items is sorted by SeriesID
+	// at this point (caller invariant).
+	rowIdx := make(map[int]int, len(items))
+	for i, it := range items {
+		rowIdx[it.SeriesID] = i
+	}
+	type fetchResult struct {
+		seriesID int
+		episodes []series.Episode
+		cacheHit bool
+		err      error
+	}
+	results := make([]fetchResult, 0, len(embedSeasonsByID))
+	resultsMu := sync.Mutex{}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.MissingPerSeriesEpisodeFetchConcurrency)
+	for seriesID := range embedSeasonsByID {
+		seriesID := seriesID
+		g.Go(func() error {
+			if gctx.Err() != nil {
+				return gctx.Err()
+			}
+			var (
+				eps []series.Episode
+				hit bool
+			)
+			if h.episodesCache != nil {
+				key := sonarr.EpisodesCacheKey(name, seriesID)
+				if cached, ok := h.episodesCache.Get(key); ok {
+					eps = cached
+					hit = true
+				}
+			}
+			if !hit {
+				fetched, err := client.ListEpisodesBySeries(gctx, seriesID)
+				if err != nil {
+					resultsMu.Lock()
+					results = append(results, fetchResult{seriesID: seriesID, err: err})
+					resultsMu.Unlock()
+					// Swallow per-series error: the queue request must
+					// stay 200. errgroup keeps running siblings — we
+					// return nil here so a single transient Sonarr 5xx
+					// doesn't drop the embed for every other row. The
+					// error itself is captured in `results` above and
+					// WARN-logged by the caller after Wait returns.
+					return nil //nolint:nilerr // intentional: per-series failure isolated, see comment above
+				}
+				eps = fetched
+				if h.episodesCache != nil {
+					h.episodesCache.Put(sonarr.EpisodesCacheKey(name, seriesID), eps)
+				}
+			}
+			resultsMu.Lock()
+			results = append(results, fetchResult{seriesID: seriesID, episodes: eps, cacheHit: hit})
+			resultsMu.Unlock()
+			return nil
+		})
+	}
+	// Wait surfaces only ctx.Err() — per-series errors already
+	// swallowed above so they don't poison siblings.
+	if err := g.Wait(); err != nil {
+		h.logger.WarnContext(ctx, "missing_episodes_fetch_cancelled",
+			slog.String("instance", name), slog.String("error", err.Error()))
+		return
+	}
+	now := time.Now()
+	for _, res := range results {
+		idx, ok := rowIdx[res.seriesID]
+		if !ok {
+			continue
+		}
+		if res.err != nil {
+			h.logger.WarnContext(ctx, "missing_episodes_fetch_failed",
+				slog.String("instance", name),
+				slog.Int("series_id", res.seriesID),
+				slog.String("error", res.err.Error()))
+			continue
+		}
+		if res.cacheHit {
+			h.logger.DebugContext(ctx, "missing_episodes_cache_hit",
+				slog.String("instance", name),
+				slog.Int("series_id", res.seriesID))
+		} else {
+			h.logger.DebugContext(ctx, "missing_episodes_cache_miss",
+				slog.String("instance", name),
+				slog.Int("series_id", res.seriesID))
+		}
+		// Per-season slice + present-flag projection. Future-dated
+		// episodes are filtered server-side so the binary present/miss
+		// chip grid doesn't mislabel them. Mirrors the pre-Story-101
+		// buildSeasonPresence behaviour exactly.
+		bySeason := make(map[int][]dto.SeasonEpisodePresence)
+		for _, e := range res.episodes {
+			if !e.Aired(now) {
+				continue
+			}
+			bySeason[e.SeasonNumber] = append(bySeason[e.SeasonNumber], dto.SeasonEpisodePresence{
+				Number:  e.Number,
+				Title:   e.Title,
+				Present: e.HasFile,
+			})
+		}
+		for sn := range bySeason {
+			sort.Slice(bySeason[sn], func(i, j int) bool { return bySeason[sn][i].Number < bySeason[sn][j].Number })
+		}
+		embedSeasons := embedSeasonsByID[res.seriesID]
+		for j := range items[idx].Seasons {
+			season := &items[idx].Seasons[j]
+			if _, ok := embedSeasons[season.SeasonNumber]; !ok {
+				continue
+			}
+			if eps := bySeason[season.SeasonNumber]; len(eps) > 0 {
+				season.Episodes = eps
+			}
+		}
+	}
 }
 
 // enrichMissingFromCache joins TitleSlug / Year / PosterPath from

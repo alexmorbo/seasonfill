@@ -83,6 +83,7 @@ export const en = {
       moreAria: 'More actions',
       openSonarr: 'Open in Sonarr',
       seasonAria: 'Season {{num}}: {{count}} missing',
+      seasonRatioTooltip: 'S{{num}} — {{present}}/{{total}} episodes present',
     },
     drill: {
       scanSeason: 'Scan season S{{num}}',

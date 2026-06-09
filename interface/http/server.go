@@ -81,8 +81,17 @@ func NewServer(
 
 	healthHandler := handlers.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
+	// Singleton episodes cache shared by the Missing handler. Lives
+	// for the life of the process — like the poster cache, the cap +
+	// TTL are package-level constants (see internal/runtime/snapshot.go).
+	// 5-min TTL means operator-driven /missing polls reflect new
+	// imports within the next refetch; 32 MiB byte cap holds ~200k
+	// episodes worth of metadata.
+	episodesCache := sonarr.NewLRUEpisodesCache(
+		runtime.EpisodesCacheMaxBytes, runtime.EpisodesCacheTTL)
 	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger).
-		WithSeriesCache(seriesCacheRepo)
+		WithSeriesCache(seriesCacheRepo).
+		WithEpisodesCache(episodesCache)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)

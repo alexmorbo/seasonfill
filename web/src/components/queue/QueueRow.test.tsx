@@ -12,8 +12,6 @@ function withTooltip(ui: React.ReactElement) {
   );
 }
 
-const EMPTY = new Set<number>();
-
 const row: MissingSeries = {
   series_id: 122,
   title: 'Severance',
@@ -22,24 +20,24 @@ const row: MissingSeries = {
   monitored: true,
   total_missing_aired: 8,
   seasons: [
-    { season_number: 2, missing_aired_count: 8 },
-    { season_number: 3, missing_aired_count: 0 },
+    { season_number: 2, missing_aired_count: 8, aired_episode_count: 10 },
+    { season_number: 3, missing_aired_count: 0, aired_episode_count: 0 },
   ],
 };
 
 describe('<QueueRow />', () => {
   it('renders the small poster img pointing at the proxy endpoint', () => {
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
       />,
-    );
+    ));
     const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
     expect(img.getAttribute('src')).toBe(
       '/api/v1/instances/alpha/series/122/poster?size=small',
@@ -47,17 +45,17 @@ describe('<QueueRow />', () => {
   });
 
   it('renders the title, year, missing pill, and season chips', () => {
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
       />,
-    );
+    ));
     expect(screen.getByText('Severance')).toBeInTheDocument();
     expect(screen.getByTestId('queue-row-missing-pill')).toHaveTextContent(/8 missing/i);
     const seasons = within(screen.getByTestId('queue-row-seasons'));
@@ -65,105 +63,100 @@ describe('<QueueRow />', () => {
     expect(seasons.getByText(/S03/)).toBeInTheDocument();
   });
 
-  it('fires onSeasonToggle with the clicked season number', async () => {
-    const onSeasonToggle = vi.fn();
-    renderWithProviders(
+  it('annotates each season chip with present-count and aired-count attributes', () => {
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    ));
+    // S2: aired=10, missing=8 → present=2.
+    const s2 = screen.getByLabelText(/Season 2: 8 missing/i);
+    expect(s2.getAttribute('data-aired-count')).toBe('10');
+    expect(s2.getAttribute('data-present-count')).toBe('2');
+    // S3: aired=0 → present=0 (no ratio data emitted but the chip still
+    // renders for parity with pre-embed shapes).
+    const s3 = screen.getByLabelText(/Season 3: 0 missing/i);
+    expect(s3.getAttribute('data-aired-count')).toBe('0');
+    expect(s3.getAttribute('data-present-count')).toBe('0');
+  });
+
+  it('fires onSeasonToggle with the clicked season number', async () => {
+    const onSeasonToggle = vi.fn();
+    renderWithProviders(withTooltip(
+      <QueueRow
+        row={row}
+        instanceName="alpha"
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={onSeasonToggle}
         onScan={vi.fn()}
       />,
-    );
+    ));
     await userEvent.click(screen.getByLabelText(/Season 2: 8 missing/i));
     expect(onSeasonToggle).toHaveBeenCalledWith(2);
   });
 
   it('marks the active season chip via aria-pressed', () => {
-    renderWithProviders(
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={new Set([2])}
+        openSeason={2}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
       />,
-    );
+    ));
     expect(screen.getByLabelText(/Season 2: 8 missing/i))
       .toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText(/Season 3: 0 missing/i))
       .toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('renders an inline drill panel directly below the active season chip', () => {
-    renderWithProviders(
+  it('renders a single drill panel at the bottom of the row when openSeason is set', () => {
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={new Set([2])}
+        openSeason={2}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
-        renderDrill={(n) => <span>drill-placeholder-{n}</span>}
+        drillSlot={<span>drill-placeholder</span>}
       />,
-    );
+    ));
     const slot = screen.getByTestId('queue-drill-slot');
     expect(slot).toHaveAttribute('data-season-number', '2');
-    expect(slot).toHaveTextContent('drill-placeholder-2');
-
-    // The drill panel must be a descendant of its specific season's
-    // list item — not floating at the bottom of the row.
+    expect(slot).toHaveTextContent('drill-placeholder');
+    // The drill panel must NOT be nested inside any specific season's
+    // list item — it lives at the bottom of the series row.
     const seasonItem = slot.closest('[data-testid="queue-row-season"]');
-    expect(seasonItem).not.toBeNull();
-    expect(seasonItem?.getAttribute('data-season-number')).toBe('2');
+    expect(seasonItem).toBeNull();
   });
 
-  it('renders a drill panel for every open season simultaneously', () => {
-    renderWithProviders(
+  it('hides the drill panel when openSeason is null', () => {
+    renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={new Set([2, 3])}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
-        renderDrill={(n) => <span data-testid={`drill-body-${n}`}>drill-{n}</span>}
+        drillSlot={<span>drill-placeholder</span>}
       />,
-    );
-    const slots = screen.getAllByTestId('queue-drill-slot');
-    expect(slots).toHaveLength(2);
-    const seasonNumbers = slots
-      .map((el) => el.getAttribute('data-season-number'))
-      .sort();
-    expect(seasonNumbers).toEqual(['2', '3']);
-    expect(screen.getByTestId('drill-body-2')).toBeInTheDocument();
-    expect(screen.getByTestId('drill-body-3')).toBeInTheDocument();
-  });
-
-  it('only renders the drill panel for the open chip when others are closed', () => {
-    renderWithProviders(
-      <QueueRow
-        row={row}
-        instanceName="alpha"
-        instanceUiUrl="https://sonarr.example.com"
-        openSeasons={new Set([3])}
-        isInFlight={false}
-        onSeasonToggle={vi.fn()}
-        onScan={vi.fn()}
-        renderDrill={(n) => <span>drill-{n}</span>}
-      />,
-    );
-    const slots = screen.getAllByTestId('queue-drill-slot');
-    expect(slots).toHaveLength(1);
-    expect(slots[0]).toHaveAttribute('data-season-number', '3');
-    expect(slots[0]).toHaveTextContent('drill-3');
+    ));
+    expect(screen.queryByTestId('queue-drill-slot')).not.toBeInTheDocument();
   });
 
   it('renders per-episode chip grid when season.episodes is provided', () => {
@@ -185,7 +178,7 @@ describe('<QueueRow />', () => {
         row={rowWithEpisodes}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -204,7 +197,7 @@ describe('<QueueRow />', () => {
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={vi.fn()}
@@ -216,48 +209,32 @@ describe('<QueueRow />', () => {
     expect(screen.getByLabelText(/Season 2: 8 missing/i)).toBeInTheDocument();
   });
 
-  it('hides every drill panel when no season is open', () => {
-    renderWithProviders(
-      <QueueRow
-        row={row}
-        instanceName="alpha"
-        instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
-        isInFlight={false}
-        onSeasonToggle={vi.fn()}
-        onScan={vi.fn()}
-        renderDrill={() => <span>drill-placeholder</span>}
-      />,
-    );
-    expect(screen.queryByTestId('queue-drill-slot')).not.toBeInTheDocument();
-  });
-
   it('fires onScan and disables the button when in-flight', async () => {
     const onScan = vi.fn();
-    const { rerender } = renderWithProviders(
+    const { rerender } = renderWithProviders(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight={false}
         onSeasonToggle={vi.fn()}
         onScan={onScan}
       />,
-    );
+    ));
     await userEvent.click(screen.getByRole('button', { name: /scan severance now/i }));
     expect(onScan).toHaveBeenCalledTimes(1);
-    rerender(
+    rerender(withTooltip(
       <QueueRow
         row={row}
         instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
-        openSeasons={EMPTY}
+        openSeason={null}
         isInFlight
         onSeasonToggle={vi.fn()}
         onScan={onScan}
       />,
-    );
+    ));
     expect(screen.getByRole('button', { name: /scan severance now/i })).toBeDisabled();
   });
 });

@@ -42,6 +42,10 @@ func (s *stubSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) 
 func (s *stubSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (s *stubSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (s *stubSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return map[int]int{}, nil
 }

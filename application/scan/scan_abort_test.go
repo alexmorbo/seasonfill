@@ -113,6 +113,10 @@ func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.E
 	}, nil
 }
 
+func (f *abortFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+
 func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	atomic.AddInt64(&f.listFilesCalls, 1)
 	return map[int]int{}, nil
@@ -487,6 +491,10 @@ func (f *authFailFakeSonarrWrapped) GetSeries(_ context.Context, _ int) (series.
 	return series.Series{}, nil
 }
 func (f *authFailFakeSonarrWrapped) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+
+func (f *authFailFakeSonarrWrapped) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {

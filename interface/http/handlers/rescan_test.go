@@ -208,6 +208,10 @@ func (f *rescanFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.E
 		{Number: 2, Monitored: true, HasFile: false},
 	}, nil
 }
+
+func (f *rescanFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (f *rescanFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return map[int]int{}, nil
 }

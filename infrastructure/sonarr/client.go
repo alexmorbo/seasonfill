@@ -411,6 +411,35 @@ func (c *Client) ListEpisodes(ctx context.Context, seriesID, seasonNumber int) (
 	return out, nil
 }
 
+// ListEpisodesBySeries calls /api/v3/episode WITHOUT a seasonNumber
+// filter — Sonarr returns the full episode list for the series in one
+// round-trip. Used by the queue Missing handler to embed per-episode
+// presence inline (one upstream call per series instead of one per
+// season) so a backlog with N missing seasons stays at O(series),
+// not O(seasons). Episodes are returned in Sonarr's natural order.
+func (c *Client) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+	q := url.Values{}
+	q.Set("seriesId", strconv.Itoa(seriesID))
+	var dtos []episodeDTO
+	if err := c.get(ctx, "/api/v3/episode", q, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]series.Episode, 0, len(dtos))
+	for _, d := range dtos {
+		out = append(out, series.Episode{
+			ID:            d.ID,
+			Number:        d.EpisodeNumber,
+			SeasonNumber:  d.SeasonNumber,
+			Title:         d.Title,
+			Monitored:     d.Monitored,
+			HasFile:       d.HasFile,
+			AirDateUTC:    d.AirDateUtc,
+			EpisodeFileID: d.EpisodeFileID,
+		})
+	}
+	return out, nil
+}
+
 func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error) {
 	q := url.Values{}
 	q.Set("seriesId", strconv.Itoa(seriesID))

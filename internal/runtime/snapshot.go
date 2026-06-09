@@ -48,6 +48,29 @@ const (
 	PosterCacheTTL = 24 * time.Hour
 )
 
+// Queue episodes-embed cache tuning. The Missing handler embeds
+// per-episode presence inline for small seasons (aired ≤ 100) by
+// fetching the full episode list per series and slicing in memory.
+// Cache hits skip the upstream call entirely. Episodes are
+// lightweight (~150 B each); 32 MiB holds ~200k episodes — more
+// than any realistic library. TTL is short so operator-driven
+// /missing polls reflect new imports within the next refetch.
+const (
+	EpisodesCacheMaxBytes int64         = 32 << 20 // 32 MiB
+	EpisodesCacheTTL      time.Duration = 5 * time.Minute
+	// MissingPerSeriesEpisodeFetchConcurrency caps the parallel
+	// ListEpisodesBySeries fan-out per /missing request. Each goroutine
+	// still serializes on the per-instance Sonarr rate limiter inside
+	// the client, so the practical ceiling is the limiter burst; 5
+	// keeps the in-process scheduler load light while shaving wall-
+	// clock by ~5× vs. sequential on a typical 9-series backlog.
+	MissingPerSeriesEpisodeFetchConcurrency = 5
+	// MissingSeasonEmbedAiredCap — seasons with more aired episodes
+	// than this skip the inline embed (the chip grid wouldn't fit on
+	// screen anyway). The drill endpoint stays the fallback.
+	MissingSeasonEmbedAiredCap = 100
+)
+
 // AuthModeForms, AuthModeBasic, AuthModeNone enumerate the auth backends
 // the dispatcher accepts. Any other value is rejected at validation time
 // (the DB-layer CHECK constraint only exists on postgres; the

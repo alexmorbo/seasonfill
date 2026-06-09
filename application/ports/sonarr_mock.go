@@ -41,6 +41,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //			ListEpisodesFunc: func(ctx context.Context, seriesID int, seasonNumber int) ([]series.Episode, error) {
 //				panic("mock out the ListEpisodes method")
 //			},
+//			ListEpisodesBySeriesFunc: func(ctx context.Context, seriesID int) ([]series.Episode, error) {
+//				panic("mock out the ListEpisodesBySeries method")
+//			},
 //			ListIndexersFunc: func(ctx context.Context) ([]Indexer, error) {
 //				panic("mock out the ListIndexers method")
 //			},
@@ -92,6 +95,9 @@ type SonarrClientMock struct {
 
 	// ListEpisodesFunc mocks the ListEpisodes method.
 	ListEpisodesFunc func(ctx context.Context, seriesID int, seasonNumber int) ([]series.Episode, error)
+
+	// ListEpisodesBySeriesFunc mocks the ListEpisodesBySeries method.
+	ListEpisodesBySeriesFunc func(ctx context.Context, seriesID int) ([]series.Episode, error)
 
 	// ListIndexersFunc mocks the ListIndexers method.
 	ListIndexersFunc func(ctx context.Context) ([]Indexer, error)
@@ -174,6 +180,13 @@ type SonarrClientMock struct {
 			// SeasonNumber is the seasonNumber argument value.
 			SeasonNumber int
 		}
+		// ListEpisodesBySeries holds details about calls to the ListEpisodesBySeries method.
+		ListEpisodesBySeries []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SeriesID is the seriesID argument value.
+			SeriesID int
+		}
 		// ListIndexers holds details about calls to the ListIndexers method.
 		ListIndexers []struct {
 			// Ctx is the ctx argument value.
@@ -228,6 +241,7 @@ type SonarrClientMock struct {
 	lockListEpisodeFiles         sync.RWMutex
 	lockListEpisodeFilesBySeason sync.RWMutex
 	lockListEpisodes             sync.RWMutex
+	lockListEpisodesBySeries     sync.RWMutex
 	lockListIndexers             sync.RWMutex
 	lockListSeries               sync.RWMutex
 	lockListSeriesCache          sync.RWMutex
@@ -499,6 +513,42 @@ func (mock *SonarrClientMock) ListEpisodesCalls() []struct {
 	mock.lockListEpisodes.RLock()
 	calls = mock.calls.ListEpisodes
 	mock.lockListEpisodes.RUnlock()
+	return calls
+}
+
+// ListEpisodesBySeries calls ListEpisodesBySeriesFunc.
+func (mock *SonarrClientMock) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+	if mock.ListEpisodesBySeriesFunc == nil {
+		panic("SonarrClientMock.ListEpisodesBySeriesFunc: method is nil but SonarrClient.ListEpisodesBySeries was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		SeriesID int
+	}{
+		Ctx:      ctx,
+		SeriesID: seriesID,
+	}
+	mock.lockListEpisodesBySeries.Lock()
+	mock.calls.ListEpisodesBySeries = append(mock.calls.ListEpisodesBySeries, callInfo)
+	mock.lockListEpisodesBySeries.Unlock()
+	return mock.ListEpisodesBySeriesFunc(ctx, seriesID)
+}
+
+// ListEpisodesBySeriesCalls gets all the calls that were made to ListEpisodesBySeries.
+// Check the length with:
+//
+//	len(mockedSonarrClient.ListEpisodesBySeriesCalls())
+func (mock *SonarrClientMock) ListEpisodesBySeriesCalls() []struct {
+	Ctx      context.Context
+	SeriesID int
+} {
+	var calls []struct {
+		Ctx      context.Context
+		SeriesID int
+	}
+	mock.lockListEpisodesBySeries.RLock()
+	calls = mock.calls.ListEpisodesBySeries
+	mock.lockListEpisodesBySeries.RUnlock()
 	return calls
 }
 

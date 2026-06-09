@@ -59,6 +59,10 @@ func (f *fakeSonarr) ListEpisodes(_ context.Context, sID, sn int) ([]series.Epis
 		{Number: 3, SeasonNumber: sn, Monitored: true, HasFile: false},
 	}, nil
 }
+
+func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return map[int]int{}, nil
 }

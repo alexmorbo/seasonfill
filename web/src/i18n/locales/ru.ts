@@ -85,6 +85,7 @@ export const ru: Translations = {
       moreAria: 'Ещё',
       openSonarr: 'Открыть в Sonarr',
       seasonAria: 'Сезон {{num}}: недостаёт {{count}}',
+      seasonRatioTooltip: 'S{{num}} — {{present}} из {{total}} эпизодов на диске',
     },
     drill: {
       scanSeason: 'Скан сезона S{{num}}',

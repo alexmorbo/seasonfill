@@ -37,6 +37,10 @@ func (e *episodesFakeSonarr) ListEpisodes(_ context.Context, seriesID, seasonNum
 	return bySeason[seasonNumber], nil
 }
 
+func (e *episodesFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+
 func doSeasonEpisodes(
 	t *testing.T,
 	name string,

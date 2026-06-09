@@ -61,6 +61,10 @@ func (f *fakeSonarrGrab) GetSeries(_ context.Context, _ int) (series.Series, err
 func (f *fakeSonarrGrab) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (f *fakeSonarrGrab) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (f *fakeSonarrGrab) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }

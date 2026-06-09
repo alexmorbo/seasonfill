@@ -27,6 +27,10 @@ func (f *fakeSonarrClient) GetSeries(_ context.Context, _ int) (series.Series, e
 func (f *fakeSonarrClient) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (f *fakeSonarrClient) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (f *fakeSonarrClient) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }

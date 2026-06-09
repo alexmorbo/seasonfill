@@ -131,6 +131,9 @@ func (fakeSonarr) Name() string {
 func (fakeSonarr) ListEpisodes(ctx context.Context, id, season int) ([]series.Episode, error) {
 	return []series.Episode{{Number: 1, AirDateUTC: time.Now().Add(-time.Hour)}}, nil
 }
+func (fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (fakeSonarr) ListEpisodeFiles(ctx context.Context, id int) (map[int]int, error) {
 	return map[int]int{}, nil
 }

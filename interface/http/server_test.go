@@ -49,6 +49,10 @@ func (n *noopSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) 
 func (n *noopSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
+
+func (n *noopSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (n *noopSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
 	return nil, nil
 }

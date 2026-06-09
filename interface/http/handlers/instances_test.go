@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -18,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -112,15 +115,21 @@ type missingFakeSonarr struct {
 	*fakeSonarr
 	all []series.Series
 	err error
-	// eps mirrors episodesFakeSonarr.eps: seriesID → season → episodes.
-	// Optional — nil/empty makes ListEpisodes a no-op so existing
-	// missing tests don't need a pre-populated episode map.
-	eps map[int]map[int][]series.Episode
-	// listEpisodesCalls counts ListEpisodes invocations. The Missing
-	// handler MUST NOT fan out per-season episode calls (this was the
-	// 054c regression that saturated the 60s gateway). The drill
-	// endpoint stays the source of truth for episode-level state.
-	listEpisodesCalls int
+	// epsBySeries: seriesID → ALL episodes (every season). The Missing
+	// handler now calls ListEpisodesBySeries once per series and
+	// filters by season in Go.
+	epsBySeries map[int][]series.Episode
+	// upstreamDelay simulates per-call Sonarr latency so concurrency
+	// tests can assert wall-clock budget (sequential vs. parallel).
+	upstreamDelay time.Duration
+	// listEpisodesBySeriesIDs tracks every ListEpisodesBySeries call so
+	// tests can assert per-request fan-out is bounded by series count
+	// (NOT season count) — the perf invariant for the embed path.
+	mu                      sync.Mutex
+	listEpisodesBySeriesIDs []int
+	// errBySeries lets tests inject per-series failures so the partial-
+	// failure path (one series fails, others succeed) is testable.
+	errBySeries map[int]error
 }
 
 func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) {
@@ -130,16 +139,39 @@ func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, erro
 	return m.all, nil
 }
 
-func (m *missingFakeSonarr) ListEpisodes(_ context.Context, seriesID, seasonNumber int) ([]series.Episode, error) {
-	m.listEpisodesCalls++
-	if m.eps == nil {
+// ListEpisodes — drill-endpoint path only; the Missing list handler
+// no longer calls it (replaced by ListEpisodesBySeries with in-Go
+// season filtering).
+func (m *missingFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
+
+func (m *missingFakeSonarr) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+	if m.upstreamDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(m.upstreamDelay):
+		}
+	}
+	m.mu.Lock()
+	m.listEpisodesBySeriesIDs = append(m.listEpisodesBySeriesIDs, seriesID)
+	m.mu.Unlock()
+	if err, ok := m.errBySeries[seriesID]; ok {
+		return nil, err
+	}
+	if m.epsBySeries == nil {
 		return nil, nil
 	}
-	bySeason, ok := m.eps[seriesID]
-	if !ok {
-		return nil, nil
-	}
-	return bySeason[seasonNumber], nil
+	return m.epsBySeries[seriesID], nil
+}
+
+func (m *missingFakeSonarr) listEpisodesBySeriesCalls() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]int, len(m.listEpisodesBySeriesIDs))
+	copy(out, m.listEpisodesBySeriesIDs)
+	return out
 }
 
 // doMissing wires a one-route gin engine and returns the recorder.
@@ -243,25 +275,46 @@ func TestInstancesHandler_Missing_FiltersUnmonitored(t *testing.T) {
 	assert.Equal(t, 0, body.Total, "unmonitored series excluded")
 }
 
-// TestInstancesHandler_Missing_DoesNotFanOutListEpisodes is the perf
-// regression guard for the /missing endpoint. 054c originally embedded
-// per-episode presence inline by calling ListEpisodes once per missing
-// season; on a real instance (~9 series × ~3 seasons) that fan-out
-// serialized through the per-instance Sonarr rate limiter and pushed
-// the request past the 60s gateway timeout (see pod-log smoking gun:
-// missing_season_episodes_failed "context canceled" + duration_ms:60001).
-// The list endpoint now stays cheap (one ListSeries + one cache lookup);
-// per-episode detail moved to the on-demand drill endpoint
-// /instances/:name/series/:id/seasons/:n/episodes (handler:
-// SeasonEpisodes), opened only when the operator clicks a season chip.
-//
-// Asserts both halves of the contract: the wire-shape omits `episodes`
-// (regardless of season size, no more cap branch) AND the upstream
-// ListEpisodes is never invoked while building the list.
-func TestInstancesHandler_Missing_DoesNotFanOutListEpisodes(t *testing.T) {
+// doMissingWithEpisodesCache wires both the SeriesCacheRepository and
+// the in-process EpisodesCache. Episode-cache=nil reproduces the cold-
+// path (every call hits upstream); pass an LRU to drive cache-hit
+// assertions.
+func doMissingWithEpisodesCache(
+	t *testing.T,
+	name string,
+	clients map[string]ports.SonarrClient,
+	modes map[string]string,
+	episodesCache sonarr.EpisodesCache,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	c := healthcheck.New(openInstancesDB(t), nil)
+	r := gin.New()
+	h := NewInstancesHandler(c, buildRegistry(clients, modes, nil), nil)
+	if episodesCache != nil {
+		h = h.WithEpisodesCache(episodesCache)
+	}
+	r.GET("/api/v1/instances/:name/missing", h.Missing)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/instances/"+name+"/missing", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// TestInstancesHandler_Missing_EmbedsEpisodesPerSeries asserts the
+// post-revert behaviour: the queue Missing handler re-embeds per-
+// episode presence inline for seasons under the embed cap, but fans
+// out ONCE per series (not once per season) by calling the new
+// ListEpisodesBySeries endpoint. The fan-out is the perf invariant
+// that keeps a backlog with N missing seasons at O(series), not
+// O(seasons) — the pre-Story-101 regression was 9 series × 3 seasons
+// = 27 round-trips per /missing request.
+func TestInstancesHandler_Missing_EmbedsEpisodesPerSeries(t *testing.T) {
+	past := time.Now().Add(-7 * 24 * time.Hour)
+	future := time.Now().Add(7 * 24 * time.Hour)
 	small := series.Statistics{EpisodeCount: 10, EpisodeFileCount: 6, Aired: 10}
 	huge := series.Statistics{EpisodeCount: 500, EpisodeFileCount: 100, Aired: 500}
-	legacy := series.Statistics{EpisodeCount: 5, EpisodeFileCount: 0} // Aired=0, EpisodeCount fallback
+	legacy := series.Statistics{EpisodeCount: 5, EpisodeFileCount: 0}
 	mf := &missingFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
 		all: []series.Series{
@@ -281,19 +334,35 @@ func TestInstancesHandler_Missing_DoesNotFanOutListEpisodes(t *testing.T) {
 					{Number: 1, Monitored: true, Statistics: legacy},
 				}},
 		},
-		// eps is intentionally nil — even if the handler regressed and
-		// called ListEpisodes, the counter assertion below would still
-		// catch it.
+		epsBySeries: map[int][]series.Episode{
+			1: {
+				{Number: 1, SeasonNumber: 1, Title: "Pilot", Monitored: true, HasFile: true, AirDateUTC: past},
+				{Number: 2, SeasonNumber: 1, Title: "The Reveal", Monitored: true, HasFile: false, AirDateUTC: past},
+				{Number: 3, SeasonNumber: 1, Title: "", Monitored: true, HasFile: false, AirDateUTC: past},
+				{Number: 4, SeasonNumber: 1, Title: "Future Tease", Monitored: true, HasFile: false, AirDateUTC: future},
+			},
+			9: {
+				{Number: 1, SeasonNumber: 1, Title: "Pilot", Monitored: true, HasFile: false, AirDateUTC: past},
+			},
+		},
 	}
 	w := doMissing(t, "alpha",
 		map[string]ports.SonarrClient{"alpha": mf},
 		map[string]string{"alpha": "auto"})
 	require.Equal(t, http.StatusOK, w.Code)
 
-	// 1. Perf invariant: the LIST handler never fans out per-season
-	//    episode calls. Episode-level state lives behind the drill.
-	assert.Equal(t, 0, mf.listEpisodesCalls,
-		"Missing list MUST NOT call ListEpisodes — use the drill endpoint instead")
+	calls := mf.listEpisodesBySeriesCalls()
+	// Perf invariant: one call per series with at least one embed-
+	// eligible season. Series 2 (Long Anime, aired=500) is over the
+	// cap → skipped. Series 1 + 9 = 2 calls total, NOT 3.
+	assert.Len(t, calls, 2, "exactly one fetch per embed-eligible series")
+	gotIDs := map[int]bool{}
+	for _, id := range calls {
+		gotIDs[id] = true
+	}
+	assert.True(t, gotIDs[1], "series 1 must be fetched")
+	assert.True(t, gotIDs[9], "series 9 must be fetched")
+	assert.False(t, gotIDs[2], "series 2 (over embed cap) must NOT be fetched")
 
 	var body struct {
 		Items []struct {
@@ -312,28 +381,174 @@ func TestInstancesHandler_Missing_DoesNotFanOutListEpisodes(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body.Items, 3)
-
-	// 2. Wire shape: `episodes` is omitted on every season, regardless
-	//    of size. AiredEpisodeCount is still emitted (cheap aggregate)
-	//    and falls back to EpisodeCount when Statistics.Aired is zero
-	//    (pre-046a Sonarr fixtures).
 	byID := make(map[int]int, len(body.Items))
 	for i, it := range body.Items {
 		byID[it.SeriesID] = i
 	}
-	for _, want := range []struct {
-		id    int
-		aired int
-	}{{1, 10}, {2, 500}, {9, 5}} {
-		idx, ok := byID[want.id]
-		require.True(t, ok, "series_id %d missing from response", want.id)
-		require.Len(t, body.Items[idx].Seasons, 1)
-		s := body.Items[idx].Seasons[0]
-		assert.Equal(t, want.aired, s.AiredEpisodeCount,
-			"series_id %d: aired_episode_count", want.id)
-		assert.Nil(t, s.Episodes,
-			"series_id %d: episodes must be omitted in list response", want.id)
+
+	// Small season: embed populated, sorted, future-dated filtered.
+	small1 := body.Items[byID[1]].Seasons[0]
+	require.Len(t, small1.Episodes, 3, "future-dated episode must be filtered out")
+	assert.Equal(t, 1, small1.Episodes[0].Number)
+	assert.Equal(t, "Pilot", small1.Episodes[0].Title)
+	assert.True(t, small1.Episodes[0].Present)
+	assert.Equal(t, "The Reveal", small1.Episodes[1].Title)
+	assert.False(t, small1.Episodes[1].Present)
+	assert.Empty(t, small1.Episodes[2].Title)
+
+	// Large season: cap exceeded → embed omitted.
+	large2 := body.Items[byID[2]].Seasons[0]
+	assert.Equal(t, 500, large2.AiredEpisodeCount)
+	assert.Nil(t, large2.Episodes, "seasons over the embed cap omit episodes")
+
+	// Legacy fixture (Aired=0, EpisodeCount fallback): embed populated.
+	legacy9 := body.Items[byID[9]].Seasons[0]
+	assert.Equal(t, 5, legacy9.AiredEpisodeCount)
+	require.Len(t, legacy9.Episodes, 1)
+}
+
+// TestInstancesHandler_Missing_PartialFailureKeepsRequest200 asserts
+// that a single-series upstream failure WARN-logs and DROPS the embed
+// for that one series without poisoning siblings. The queue request
+// MUST stay 200 — a flaky Sonarr endpoint can't be allowed to break
+// the entire queue page.
+func TestInstancesHandler_Missing_PartialFailureKeepsRequest200(t *testing.T) {
+	past := time.Now().Add(-7 * 24 * time.Hour)
+	stat := series.Statistics{EpisodeCount: 5, EpisodeFileCount: 2, Aired: 5}
+	mf := &missingFakeSonarr{
+		fakeSonarr: &fakeSonarr{name: "alpha"},
+		all: []series.Series{
+			{ID: 1, Title: "OK", Monitored: true, Statistics: stat,
+				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
+			{ID: 2, Title: "Boom", Monitored: true, Statistics: stat,
+				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
+		},
+		epsBySeries: map[int][]series.Episode{
+			1: {{Number: 1, SeasonNumber: 1, Title: "Pilot", HasFile: true, AirDateUTC: past}},
+		},
+		errBySeries: map[int]error{
+			2: errors.New("sonarr 503"),
+		},
 	}
+	w := doMissing(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "auto"})
+	require.Equal(t, http.StatusOK, w.Code,
+		"single-series failure must not break the queue request")
+	var body struct {
+		Items []struct {
+			SeriesID int `json:"series_id"`
+			Seasons  []struct {
+				Episodes []struct{ Number int } `json:"episodes"`
+			} `json:"seasons"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 2)
+	byID := map[int]int{}
+	for i, it := range body.Items {
+		byID[it.SeriesID] = i
+	}
+	// Survivor row still has its embed.
+	assert.Len(t, body.Items[byID[1]].Seasons[0].Episodes, 1)
+	// Failed row: embed omitted, but the season/stat row still ships.
+	assert.Empty(t, body.Items[byID[2]].Seasons[0].Episodes)
+}
+
+// TestInstancesHandler_Missing_CacheHitsSkipUpstream pre-populates the
+// in-process LRU cache for one series and asserts the handler skips
+// the upstream ListEpisodesBySeries call for that ID. The cache is
+// keyed by (instance, seriesID); a different instance must still
+// trigger a fetch (collision guard).
+func TestInstancesHandler_Missing_CacheHitsSkipUpstream(t *testing.T) {
+	past := time.Now().Add(-7 * 24 * time.Hour)
+	stat := series.Statistics{EpisodeCount: 3, EpisodeFileCount: 1, Aired: 3}
+	mf := &missingFakeSonarr{
+		fakeSonarr: &fakeSonarr{name: "alpha"},
+		all: []series.Series{
+			{ID: 1, Title: "Cached", Monitored: true, Statistics: stat,
+				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
+			{ID: 2, Title: "Cold", Monitored: true, Statistics: stat,
+				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
+		},
+		epsBySeries: map[int][]series.Episode{
+			1: {{Number: 1, SeasonNumber: 1, Title: "Live", HasFile: true, AirDateUTC: past}},
+			2: {{Number: 1, SeasonNumber: 1, Title: "Live", HasFile: false, AirDateUTC: past}},
+		},
+	}
+	cache := sonarr.NewLRUEpisodesCache(0, time.Hour)
+	// Pre-warm the cache for series 1 only; series 2 cold.
+	cache.Put(sonarr.EpisodesCacheKey("alpha", 1), []series.Episode{
+		{Number: 1, SeasonNumber: 1, Title: "Cached", HasFile: true, AirDateUTC: past},
+	})
+	w := doMissingWithEpisodesCache(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "auto"}, cache)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	calls := mf.listEpisodesBySeriesCalls()
+	assert.Len(t, calls, 1, "only series 2 (cold) should hit upstream")
+	assert.Equal(t, 2, calls[0], "the one upstream call must be for series 2")
+
+	var body struct {
+		Items []struct {
+			SeriesID int `json:"series_id"`
+			Seasons  []struct {
+				Episodes []struct {
+					Title string `json:"title"`
+				} `json:"episodes"`
+			} `json:"seasons"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	byID := map[int]int{}
+	for i, it := range body.Items {
+		byID[it.SeriesID] = i
+	}
+	// The cached embed wins over the live fixture — proof we used the
+	// cache, not the upstream call.
+	assert.Equal(t, "Cached", body.Items[byID[1]].Seasons[0].Episodes[0].Title)
+	assert.Equal(t, "Live", body.Items[byID[2]].Seasons[0].Episodes[0].Title)
+}
+
+// TestInstancesHandler_Missing_ConcurrentFetchBudget validates the
+// errgroup fan-out. With concurrency=5 and 9 series each at 200 ms
+// simulated upstream latency, sequential would be ≥ 1.8 s while
+// concurrent (5 parallel slots) must finish under 1 s.
+func TestInstancesHandler_Missing_ConcurrentFetchBudget(t *testing.T) {
+	past := time.Now().Add(-7 * 24 * time.Hour)
+	stat := series.Statistics{EpisodeCount: 5, EpisodeFileCount: 2, Aired: 5}
+	all := make([]series.Series, 9)
+	epsBySeries := map[int][]series.Episode{}
+	for i := range 9 {
+		id := i + 1
+		all[i] = series.Series{
+			ID: id, Title: "S", Monitored: true, Statistics: stat,
+			Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}},
+		}
+		epsBySeries[id] = []series.Episode{
+			{Number: 1, SeasonNumber: 1, Title: "ep", HasFile: false, AirDateUTC: past},
+		}
+	}
+	mf := &missingFakeSonarr{
+		fakeSonarr:    &fakeSonarr{name: "alpha"},
+		all:           all,
+		epsBySeries:   epsBySeries,
+		upstreamDelay: 200 * time.Millisecond,
+	}
+	start := time.Now()
+	w := doMissing(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "auto"})
+	elapsed := time.Since(start)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Sequential floor: 9 × 200 ms = 1.8 s.
+	// Concurrent (limit 5) ceiling: ceil(9/5) × 200 ms = 400 ms + slack.
+	assert.Less(t, elapsed, time.Second,
+		"concurrent fan-out budget violated: sequential would be ≥1.8s, got %s", elapsed)
+	assert.Len(t, mf.listEpisodesBySeriesCalls(), 9,
+		"exactly one upstream call per series")
 }
 
 func TestInstanceDTO_EmitsMode(t *testing.T) {

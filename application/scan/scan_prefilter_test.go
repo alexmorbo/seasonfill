@@ -75,6 +75,10 @@ func (p *prefilterSonarr) ListEpisodes(ctx context.Context, sID, sn int) ([]seri
 	p.listEpisodesCalls.Add(1)
 	return p.fakeSonarr.ListEpisodes(ctx, sID, sn)
 }
+
+func (p *prefilterSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+	return nil, nil
+}
 func (p *prefilterSonarr) SearchReleases(ctx context.Context, sID, sn int) ([]release.Release, error) {
 	p.searchReleasesCalls.Add(1)
 	return p.fakeSonarr.SearchReleases(ctx, sID, sn)
