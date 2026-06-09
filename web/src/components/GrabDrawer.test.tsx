@@ -446,6 +446,37 @@ describe('<GrabDrawer />', () => {
     });
   });
 
+  it('renders GrabIntentSection when grab carries an intent (091a / F-P2-2)', async () => {
+    const grabWithIntent: Grab = {
+      ...baseGrab,
+      id: 'g_intent',
+      intent: {
+        target_episodes: [10, 11],
+        had_episodes: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        chosen_because: 'highest_score',
+        chosen_reason_detail: 'score 88 vs alternates 64, 71',
+      },
+    } as Grab;
+    render(wrap(
+      <GrabDrawer id="g_intent" open={true} onOpenChange={() => {}} rows={[grabWithIntent]} />,
+    ));
+    const section = await screen.findByTestId('drawer-intent-section');
+    expect(section).toBeInTheDocument();
+    expect(screen.getByTestId('drawer-intent-reason')).toHaveTextContent(
+      /Highest score|Лучший по баллам/i,
+    );
+    expect(screen.getByText('E10')).toBeInTheDocument();
+    expect(screen.getByText('E11')).toBeInTheDocument();
+  });
+
+  it('omits GrabIntentSection when grab.intent is absent (091a / F-P2-2)', async () => {
+    render(wrap(
+      <GrabDrawer id="g_001" open={true} onOpenChange={() => {}} rows={[baseGrab]} />,
+    ));
+    await screen.findByText('For All Mankind');
+    expect(screen.queryByTestId('drawer-intent-section')).toBeNull();
+  });
+
   it('link is hidden when public URL empty and qbit_url is kube-internal (083)', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string | URL) => {
       const u = url.toString();

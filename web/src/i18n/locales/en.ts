@@ -803,6 +803,23 @@ export const en = {
       copied: 'Hash copied to clipboard',
       copyFailed: 'Could not copy hash',
     },
+    intent: {
+      title: 'Why this grab',
+      wanted: 'Wanted',
+      had: 'Had',
+      wantedNone: 'no target episodes',
+      hadNone: 'nothing on disk',
+      more: '+{{count}} more',
+      reason: {
+        onlyCandidate: 'Only candidate',
+        highestScore: 'Highest score',
+        firstPassQuality: 'First match by quality',
+        watchdogBetterQuality: 'Watchdog: better quality',
+        watchdogBetterDub: 'Watchdog: better dub',
+        watchdogBetterOther: 'Watchdog: upgrade',
+        manualSelection: 'Manually selected',
+      },
+    },
   },
   seriesPicker: {
     placeholder: 'Filter by series (optional)',

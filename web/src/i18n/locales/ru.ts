@@ -812,6 +812,23 @@ export const ru: Translations = {
       copied: 'Hash скопирован в буфер',
       copyFailed: 'Не удалось скопировать hash',
     },
+    intent: {
+      title: 'Почему этот граб',
+      wanted: 'Хотели',
+      had: 'Имели',
+      wantedNone: 'нет целевых эпизодов',
+      hadNone: 'на диске пусто',
+      more: '+ещё {{count}}',
+      reason: {
+        onlyCandidate: 'Единственный кандидат',
+        highestScore: 'Лучший по баллам',
+        firstPassQuality: 'Первая подходящая по качеству',
+        watchdogBetterQuality: 'Watchdog: лучше качество',
+        watchdogBetterDub: 'Watchdog: лучшая дорожка',
+        watchdogBetterOther: 'Watchdog: улучшение',
+        manualSelection: 'Выбрано вручную',
+      },
+    },
   },
   seriesPicker: {
     placeholder: 'Фильтр по сериалам (необязательно)',

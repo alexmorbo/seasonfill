@@ -2937,6 +2937,7 @@ export type components = {
             readonly id?: string;
             /** @example alpha */
             readonly instance?: string;
+            readonly intent?: components["schemas"]["dto.DecisionIntent"];
             readonly missing_count?: number;
             /** @example upgrade_available */
             readonly reason?: string;
@@ -2951,6 +2952,45 @@ export type components = {
             readonly superseded_by_id?: string;
             /** @example 10 */
             readonly total_episodes?: number;
+        };
+        /**
+         * @description Intent surfaces the "why this grab" payload from the Decision
+         *     row that produced this grab (091a / F-P2-2). The audit handler
+         *     resolves the Decision lazily by (scan_run_id, instance, series,
+         *     season) at read time and copies the Intent here so GrabDrawer
+         *     can render "Почему этот грабе" without a second round-trip.
+         *     nil when no matching Decision was found OR the Decision itself
+         *     carried no intent (pre-091a rows, error decisions).
+         */
+        readonly "dto.DecisionIntent": {
+            /**
+             * @example highest_score
+             * @enum {string}
+             */
+            readonly chosen_because?: DtoDecisionIntentChosen_because;
+            /** @example score 88 vs alternates 64, 71 */
+            readonly chosen_reason_detail?: string;
+            /**
+             * @example [
+             *       1,
+             *       2,
+             *       3,
+             *       4,
+             *       5,
+             *       6,
+             *       7,
+             *       8,
+             *       9
+             *     ]
+             */
+            readonly had_episodes?: readonly number[];
+            /**
+             * @example [
+             *       10,
+             *       11
+             *     ]
+             */
+            readonly target_episodes?: readonly number[];
         };
         readonly "dto.DecisionList": {
             readonly items?: readonly components["schemas"]["dto.Decision"][];
@@ -2997,6 +3037,7 @@ export type components = {
             readonly indexer_name?: string;
             /** @example alpha */
             readonly instance?: string;
+            readonly intent?: components["schemas"]["dto.DecisionIntent"];
             readonly parsed?: components["schemas"]["dto.GrabParsed"];
             /**
              * @description ParsedAt is the wall-clock at which Sonarr parsed the release
@@ -3911,6 +3952,15 @@ export enum DtoDecisionDecision {
     already_optimal = "already_optimal",
     expired = "expired",
     error = "error"
+}
+export enum DtoDecisionIntentChosen_because {
+    only_candidate = "only_candidate",
+    highest_score = "highest_score",
+    first_pass_quality = "first_pass_quality",
+    watchdog_better_quality = "watchdog_better_quality",
+    watchdog_better_dub = "watchdog_better_dub",
+    watchdog_better_other = "watchdog_better_other",
+    manual_selection = "manual_selection"
 }
 export enum DtoGrabReplay_kind {
     replay_quality = "replay_quality",

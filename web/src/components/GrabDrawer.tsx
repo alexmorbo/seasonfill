@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { EpisodeFilesList } from '@/components/grabs/EpisodeFilesList';
+import { GrabIntentSection } from '@/components/grabs/GrabIntentSection';
 import { buildChips, type Grab } from '@/lib/grabs/chipBuilder';
 import { formatEpisodeRange } from '@/lib/grabs/format';
 import { isKubeInternalHost } from '@/lib/grabs/qbit';
@@ -77,6 +78,7 @@ export function GrabDrawer({ id, open, onOpenChange, rows }: GrabDrawerProps) {
             <DrawerHero grab={grab} />
             <DrawerErrorSection grab={grab} />
             <DrawerReleaseSection grab={grab} />
+            <GrabIntentSection intent={grab.intent ?? null} />
             <DrawerTorrentSection grab={grab} qbitHref={qbitHref} />
             <DrawerFilesSection grab={grab} instance={instance} open={open} />
           </div>
