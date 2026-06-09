@@ -107,7 +107,33 @@ func TestWatchdog_ShortestInterval(t *testing.T) {
 		"a": {RecheckIntervalAuth: 5 * time.Minute, RecheckIntervalNetwork: 1 * time.Minute},
 		"b": {RecheckIntervalAuth: 5 * time.Minute, RecheckIntervalNetwork: 30 * time.Second},
 	})
-	assert.Equal(t, 30*time.Second, w.shortest())
+	// shortest() is clamped to selfThrottledRecheck (15s) so SelfThrottled
+	// instances are rechecked on the documented short cycle even when the
+	// configured network/auth cadences are longer.
+	assert.Equal(t, 15*time.Second, w.shortest())
+}
+
+func TestWatchdog_ShortestInterval_BelowSelfThrottledFloorWins(t *testing.T) {
+	t.Parallel()
+	// When a configured cadence is faster than the self-throttled floor,
+	// the configured value wins — the clamp only kicks in when nothing
+	// else demands a faster tick.
+	w := New(nil, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)), map[string]config.HealthCheckConfig{
+		"fast": {RecheckIntervalAuth: time.Hour, RecheckIntervalNetwork: time.Second},
+	})
+	assert.Equal(t, time.Second, w.shortest())
+}
+
+func TestWatchdog_IntervalFor_SelfThrottled(t *testing.T) {
+	t.Parallel()
+	w := New(nil, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil)
+	cfg := config.HealthCheckConfig{
+		RecheckIntervalAuth:    5 * time.Minute,
+		RecheckIntervalNetwork: time.Minute,
+	}
+	assert.Equal(t, selfThrottledRecheck, w.intervalFor(instance.HealthSelfThrottled, cfg))
+	assert.Equal(t, time.Minute, w.intervalFor(instance.HealthUnavailableNetwork, cfg))
+	assert.Equal(t, 5*time.Minute, w.intervalFor(instance.HealthUnavailableAuth, cfg))
 }
 
 func TestWatchdog_ShortestInterval_AllZeroFallsBackToMinute(t *testing.T) {

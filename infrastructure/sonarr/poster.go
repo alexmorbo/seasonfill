@@ -70,9 +70,15 @@ func (c *Client) GetMediaCover(ctx context.Context, seriesID int, size PosterSiz
 	}
 
 	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
+		if errors.Is(err, ratelimit.ErrSelfThrottled) {
+			return nil, fmt.Errorf("rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+		}
 		return nil, fmt.Errorf("rate limit wait %s: %w", endpoint, err)
 	}
 	if err := ratelimit.Wait(c.poster, ctx); err != nil {
+		if errors.Is(err, ratelimit.ErrSelfThrottled) {
+			return nil, fmt.Errorf("poster rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+		}
 		return nil, fmt.Errorf("poster rate limit wait %s: %w", endpoint, err)
 	}
 

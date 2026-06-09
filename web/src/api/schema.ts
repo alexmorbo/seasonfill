@@ -1864,6 +1864,10 @@ export type paths = {
          *     /api/v3/MediaCover/{seriesId}/poster[-500].jpg with
          *     authentication injected server-side. size=small returns
          *     the 500px variant; default is the full-size poster.
+         *     Responses are served from an in-process LRU cache after
+         *     the first fetch; ETag is synthesized server-side so
+         *     If-None-Match cheaply produces a 304 without touching
+         *     Sonarr.
          */
         readonly get: {
             readonly parameters: {
@@ -1892,7 +1896,7 @@ export type paths = {
                         readonly "image/jpeg": string;
                     };
                 };
-                /** @description not modified (when If-None-Match matched upstream) */
+                /** @description not modified (when If-None-Match matched cache or upstream) */
                 readonly 304: {
                     headers: {
                         readonly [name: string]: unknown;
@@ -3922,6 +3926,7 @@ export enum DtoGrabStatus {
 }
 export enum DtoInstanceHealth {
     Available = "Available",
+    SelfThrottled = "SelfThrottled",
     UnavailableAuth = "UnavailableAuth",
     UnavailableNetwork = "UnavailableNetwork",
     UnavailableUnknown = "UnavailableUnknown"

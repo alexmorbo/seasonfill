@@ -135,6 +135,20 @@ func TestChecker_Preflight_UnknownErr(t *testing.T) {
 	assert.Equal(t, instance.HealthUnavailableUnknown, snap[0].Health)
 }
 
+func TestChecker_Preflight_SelfThrottled(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{
+		name: "main",
+		err:  fmt.Errorf("global rate limit wait /api/v3/system/status: %w", domain.ErrInstanceSelfThrottled),
+	}})
+	c.Preflight(context.Background())
+	snap := c.Snapshot()
+	require.Len(t, snap, 1)
+	assert.Equal(t, instance.HealthSelfThrottled, snap[0].Health,
+		"self-throttled ctx-cancellation must NOT collapse into UnavailableUnknown")
+}
+
 func TestChecker_Preflight_Mixed_AnyAvailable(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)

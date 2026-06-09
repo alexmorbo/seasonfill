@@ -38,7 +38,11 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
   const webhook = useWebhookStatus(name);
   const qbit = useQbitSettings(name);
 
-  const degraded = healthKind(instance.health) !== 'success';
+  const kind = healthKind(instance.health);
+  const degraded = kind !== 'success';
+  // Self-throttled wears a warning (amber) accent rather than the red
+  // danger accent — same border treatment, different colour token.
+  const warn = kind === 'warning';
   const sparkData = (c7.data?.sparkline ?? []).map((b) => b.grabs);
   const sonarrHref = pickPublicHref(instance.public_url, instance.url);
 
@@ -47,7 +51,9 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
       data-testid={`instance-hero-${name}`}
       className={cn(
         'p-[18px] flex flex-col gap-4',
-        degraded && 'border-l-[3px] border-l-status-danger',
+        degraded && (warn
+          ? 'border-l-[3px] border-l-status-warning'
+          : 'border-l-[3px] border-l-status-danger'),
       )}
     >
       <CardContent className="p-0 flex flex-col gap-4">
@@ -75,7 +81,13 @@ export function InstanceHero({ instance, onEdit, onForceScan }: InstanceHeroProp
               })}
             </div>
             {degraded && instance.last_error && (
-              <div data-testid="hero-error" className="font-mono text-[12px] text-status-danger break-all">
+              <div
+                data-testid="hero-error"
+                className={cn(
+                  'font-mono text-[12px] break-all',
+                  warn ? 'text-status-warning' : 'text-status-danger',
+                )}
+              >
                 {instance.last_error}
               </div>
             )}

@@ -96,10 +96,19 @@ func (w *Watchdog) Run(ctx context.Context) {
 	}
 }
 
+// selfThrottledRecheck is the cadence the watchdog uses while an
+// instance is in HealthSelfThrottled. It is intentionally shorter than
+// the configured network cadence because the throttle is transient
+// (drains as soon as the rate-limiter queue clears) — we want the UI
+// pill to flip back to green within ~15s of recovery.
+const selfThrottledRecheck = 15 * time.Second
+
 func (w *Watchdog) intervalFor(h instance.Health, cfg config.HealthCheckConfig) time.Duration {
 	switch h {
 	case instance.HealthUnavailableAuth:
 		return cfg.RecheckIntervalAuth
+	case instance.HealthSelfThrottled:
+		return selfThrottledRecheck
 	default:
 		return cfg.RecheckIntervalNetwork
 	}
@@ -118,6 +127,14 @@ func (w *Watchdog) shortest() time.Duration {
 				minD = d
 			}
 		}
+	}
+	// Clamp to the self-throttled short-cycle so a SelfThrottled
+	// instance is rechecked at the documented cadence even when the
+	// configured network/auth cadences are slower. The clamp is
+	// limited to configs where a positive cadence already exists —
+	// the all-zero case still returns 0 (Run falls back to time.Minute).
+	if minD > 0 && selfThrottledRecheck < minD {
+		minD = selfThrottledRecheck
 	}
 	return minD
 }

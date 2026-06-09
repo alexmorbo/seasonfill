@@ -150,10 +150,19 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	}
 
 	// Per-instance limiter first, then global. Both nil-safe and honor ctx.
+	// When the wait queue outruns ctx, surface as ErrInstanceSelfThrottled
+	// — distinct from "Sonarr is down" — so the healthcheck can transition
+	// the instance to SelfThrottled instead of UnavailableUnknown.
 	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
+		if errors.Is(err, ratelimit.ErrSelfThrottled) {
+			return fmt.Errorf("rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+		}
 		return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
 	}
 	if err := ratelimit.Wait(c.globalLimiter(), ctx); err != nil {
+		if errors.Is(err, ratelimit.ErrSelfThrottled) {
+			return fmt.Errorf("global rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+		}
 		return fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
 	}
 

@@ -397,6 +397,7 @@ components:
         health:
           enum:
           - Available
+          - SelfThrottled
           - UnavailableAuth
           - UnavailableNetwork
           - UnavailableUnknown
@@ -2805,6 +2806,10 @@ paths:
         /api/v3/MediaCover/{seriesId}/poster[-500].jpg with
         authentication injected server-side. size=small returns
         the 500px variant; default is the full-size poster.
+        Responses are served from an in-process LRU cache after
+        the first fetch; ETag is synthesized server-side so
+        If-None-Match cheaply produces a 304 without touching
+        Sonarr.
       parameters:
       - description: Instance name
         in: path
@@ -2835,7 +2840,7 @@ paths:
                 type: string
           description: poster image bytes
         "304":
-          description: not modified (when If-None-Match matched upstream)
+          description: not modified (when If-None-Match matched cache or upstream)
         "400":
           content:
             application/json:

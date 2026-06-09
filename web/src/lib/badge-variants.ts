@@ -52,6 +52,11 @@ export function healthKind(h?: string): BadgeKind {
   switch (h) {
     case 'Available':
       return 'success';
+    case 'SelfThrottled':
+      // Self-throttled is a transient slowdown caused by our own
+      // rate-limiter queue — the backend is reachable, the operator
+      // just sees degraded latency. Yellow/amber, not red.
+      return 'warning';
     case 'UnavailableAuth':
     case 'UnavailableNetwork':
     case 'UnavailableUnknown':
@@ -65,6 +70,8 @@ export function healthLabelKey(h?: string): string {
   switch (h) {
     case 'Available':
       return 'health.available';
+    case 'SelfThrottled':
+      return 'health.selfThrottled';
     case 'UnavailableAuth':
       return 'health.unavailableAuth';
     case 'UnavailableNetwork':

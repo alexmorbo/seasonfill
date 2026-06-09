@@ -2,10 +2,35 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"golang.org/x/time/rate"
 )
+
+// ErrSelfThrottled signals that Wait's context cancellation fired
+// WHILE the caller was sleeping in our own queue (i.e. the limiter
+// reported a positive delay and the deadline expired before the timer).
+// Distinct from the upstream HTTP call returning context.DeadlineExceeded.
+// Wrapped errors satisfy errors.Is for both ErrSelfThrottled and the
+// underlying ctx.Err() so call sites can keep their existing ctx-error
+// branches.
+var ErrSelfThrottled = errors.New("ratelimit: self-throttled")
+
+// selfThrottledErr joins ErrSelfThrottled with the originating ctx.Err()
+// so errors.Is(err, context.DeadlineExceeded) and errors.Is(err,
+// ErrSelfThrottled) both report true.
+type selfThrottledErr struct {
+	ctxErr error
+}
+
+func (e *selfThrottledErr) Error() string {
+	return ErrSelfThrottled.Error() + ": " + e.ctxErr.Error()
+}
+
+func (e *selfThrottledErr) Unwrap() []error {
+	return []error{ErrSelfThrottled, e.ctxErr}
+}
 
 // Observer is invoked by Wait exactly once when a call would have blocked
 // (i.e. the limiter's reservation reported a non-zero delay). It is NOT
@@ -127,7 +152,12 @@ func (l *Limiter) Wait(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		r.Cancel()
-		return ctx.Err()
+		// ctx fired WHILE we were sleeping in our own queue — this is
+		// distinct from the upstream call timing out (the request never
+		// left this process). Wrap with ErrSelfThrottled so the
+		// healthcheck can classify it as a self-imposed slowdown rather
+		// than "instance unavailable".
+		return &selfThrottledErr{ctxErr: ctx.Err()}
 	}
 }
 

@@ -162,6 +162,33 @@ describe('<InstanceHero />', () => {
     expect(link).toHaveAttribute('href', 'http://sonarr:80');
   });
 
+  it('SelfThrottled wears the amber warning accent, not the red danger accent', async () => {
+    const throttled = {
+      name: 'homelab',
+      mode: 'auto',
+      health: 'SelfThrottled',
+      last_check_at: new Date().toISOString(),
+      transitions_count: 0,
+      url: 'http://sonarr:80',
+      last_error: 'global rate limit wait /api/v3/system/status: context deadline exceeded',
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={throttled}
+        onEdit={() => undefined}
+        onForceScan={() => undefined}
+      />,
+    );
+    const card = screen.getByTestId('instance-hero-homelab');
+    // Warning border — NOT the red danger border the operator complained about.
+    expect(card.className).toMatch(/border-l-status-warning/);
+    expect(card.className).not.toMatch(/border-l-status-danger/);
+    const pill = screen.getByTestId('hero-health-homelab');
+    expect(pill.textContent).toMatch(/Throttled/);
+    const errorEl = await screen.findByTestId('hero-error');
+    expect(errorEl.className).toMatch(/text-status-warning/);
+  });
+
   it('"Sonarr" button is hidden when url is schemeless and no public_url', async () => {
     const bare = {
       ...(inst as object),

@@ -50,6 +50,7 @@ export const ru: Translations = {
   },
   health: {
     available: 'Доступен',
+    selfThrottled: 'Замедление',
     unavailableAuth: 'Недоступен (авторизация)',
     unavailableNetwork: 'Недоступен (сеть)',
     unavailableUnknown: 'Недоступен',

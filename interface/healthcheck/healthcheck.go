@@ -106,8 +106,13 @@ func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
 		state = instance.HealthUnavailableAuth
 	case errors.Is(err, domain.ErrInstanceNetwork):
 		state = instance.HealthUnavailableNetwork
+	case errors.Is(err, domain.ErrInstanceSelfThrottled):
+		state = instance.HealthSelfThrottled
 	}
 	c.registry.MarkUnavailable(name, state, err.Error(), now)
+	// SelfThrottled is still "we couldn't reach Sonarr this round" from
+	// the gauge perspective but the typed health code (see healthCode)
+	// gives dashboards the nuance.
 	observability.SetInstanceAvailable(name, false)
 }
 
@@ -178,6 +183,8 @@ func healthCode(h instance.Health) int {
 		return 1
 	case instance.HealthUnavailableNetwork:
 		return 2
+	case instance.HealthSelfThrottled:
+		return 4
 	default:
 		return 3
 	}

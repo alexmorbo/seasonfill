@@ -29,7 +29,12 @@ export function InstanceCompactRow({
   const { t } = useTranslation();
   const name = instance.name ?? '';
   const c7 = useInstanceCounters(name, '7d');
-  const degraded = healthKind(instance.health) !== 'success';
+  const kind = healthKind(instance.health);
+  const degraded = kind !== 'success';
+  // Self-throttled wears an amber accent — the backend is reachable,
+  // the operator just sees rate-limiter slowdown — so the row tints
+  // warning, not danger.
+  const warn = kind === 'warning';
   const flips = instance.transitions_count ?? 0;
   const totals = c7.data?.totals;
 
@@ -38,10 +43,15 @@ export function InstanceCompactRow({
       data-testid={`instance-row-${name}`}
       className={cn(
         'flex items-center gap-4 px-[18px] py-[13px]',
-        degraded && [
-          'border-l-[3px] border-l-status-danger',
-          'bg-[linear-gradient(90deg,var(--color-status-danger-dim),transparent_40%)]',
-        ],
+        degraded && (warn
+          ? [
+              'border-l-[3px] border-l-status-warning',
+              'bg-[linear-gradient(90deg,var(--color-status-warning-dim),transparent_40%)]',
+            ]
+          : [
+              'border-l-[3px] border-l-status-danger',
+              'bg-[linear-gradient(90deg,var(--color-status-danger-dim),transparent_40%)]',
+            ]),
       )}
     >
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
@@ -63,7 +73,13 @@ export function InstanceCompactRow({
           {instance.mode ?? 'auto'} · {instance.url ?? ''}
         </div>
         {degraded && instance.last_error && (
-          <div data-testid={`row-error-${name}`} className="font-mono text-[12px] text-status-danger break-all">
+          <div
+            data-testid={`row-error-${name}`}
+            className={cn(
+              'font-mono text-[12px] break-all',
+              warn ? 'text-status-warning' : 'text-status-danger',
+            )}
+          >
             <WifiOff className="w-3 h-3 inline -mt-0.5 mr-1" />
             {instance.last_error}
           </div>

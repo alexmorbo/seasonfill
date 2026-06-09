@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -86,6 +87,41 @@ func TestWait_ContextCancel(t *testing.T) {
 	defer cancel()
 	err := l.Wait(ctx)
 	assert.Error(t, err)
+}
+
+func TestWait_CtxCancelDuringSleepIsSelfThrottled(t *testing.T) {
+	t.Parallel()
+	// Burst is exhausted on the first call so the second one MUST enter
+	// the sleep branch — that is the only path that wraps ErrSelfThrottled.
+	l := New(0.5, 1)
+	require.NotNil(t, l)
+
+	bctx, bcancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer bcancel()
+	require.NoError(t, l.Wait(bctx))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	err := l.Wait(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSelfThrottled),
+		"ctx cancel while sleeping in the limiter must wrap ErrSelfThrottled")
+	assert.True(t, errors.Is(err, context.DeadlineExceeded),
+		"wrapped error must still satisfy errors.Is(..., context.DeadlineExceeded)")
+}
+
+func TestWait_CtxCancelOnEntryIsNotSelfThrottled(t *testing.T) {
+	t.Parallel()
+	// ctx already cancelled BEFORE Wait runs → we never entered the
+	// queue, so the error must NOT carry ErrSelfThrottled.
+	l := New(10, 1)
+	require.NotNil(t, l)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := l.Wait(ctx)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrSelfThrottled),
+		"pre-cancelled ctx must not be classified as self-throttled — we never queued")
 }
 
 func TestObserver_NotCalledOnInstantAcquire(t *testing.T) {

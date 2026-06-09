@@ -31,4 +31,11 @@ var (
 	// ErrInstanceUnavailable is returned by the scan loop (004c) when a scan
 	// is requested for an instance in an Unavailable* state.
 	ErrInstanceUnavailable = errors.New("sonarr instance unavailable")
+
+	// ErrInstanceSelfThrottled wraps ctx-cancellation that fires while
+	// the request is sleeping inside our OWN rate limiter (i.e. the queue
+	// outran the call timeout). It is distinct from ErrInstanceNetwork:
+	// the Sonarr backend never saw the call, so health should record a
+	// transient "self-throttled" state instead of "unavailable (unknown)".
+	ErrInstanceSelfThrottled = errors.New("sonarr instance self-throttled")
 )

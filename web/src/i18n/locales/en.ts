@@ -48,6 +48,7 @@ export const en = {
   },
   health: {
     available: 'Available',
+    selfThrottled: 'Throttled',
     unavailableAuth: 'Unavailable (auth)',
     unavailableNetwork: 'Unavailable (network)',
     unavailableUnknown: 'Unavailable',

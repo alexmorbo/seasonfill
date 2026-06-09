@@ -7,13 +7,17 @@ type Health string
 
 const (
 	HealthAvailable          Health = "Available"
+	HealthSelfThrottled      Health = "SelfThrottled"
 	HealthUnavailableAuth    Health = "UnavailableAuth"
 	HealthUnavailableNetwork Health = "UnavailableNetwork"
 	HealthUnavailableUnknown Health = "UnavailableUnknown"
 )
 
 // IsAvailable reports whether scans may proceed for this instance.
-func (h Health) IsAvailable() bool { return h == HealthAvailable }
+// SelfThrottled counts as available — the backend itself is reachable,
+// we just hit our own rate-limiter queue. Scans/probes continue; the
+// watchdog short-circuits on this state via an explicit branch.
+func (h Health) IsAvailable() bool { return h == HealthAvailable || h == HealthSelfThrottled }
 
 // IsUnavailable is the inverse of IsAvailable.
 func (h Health) IsUnavailable() bool { return !h.IsAvailable() }

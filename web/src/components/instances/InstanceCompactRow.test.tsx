@@ -48,6 +48,33 @@ describe('<InstanceCompactRow />', () => {
     });
   });
 
+  it('SelfThrottled wears the amber warning accent, not the red danger accent', async () => {
+    renderWithProviders(
+      <InstanceCompactRow
+        instance={{
+          name: 'slow',
+          mode: 'auto',
+          health: 'SelfThrottled',
+          last_check_at: new Date().toISOString(),
+          transitions_count: 1,
+          url: 'http://sonarr-slow:80',
+          last_error: 'global rate limit wait /api/v3/system/status: context deadline exceeded',
+        } as never}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+    const row = screen.getByTestId('instance-row-slow');
+    expect(row.className).toMatch(/border-l-status-warning/);
+    expect(row.className).not.toMatch(/border-l-status-danger/);
+    const err = screen.getByTestId('row-error-slow');
+    expect(err.className).toMatch(/text-status-warning/);
+    await waitFor(() => {
+      expect(screen.getByTestId('row-counts-slow')).toBeInTheDocument();
+    });
+  });
+
   it('hides flips chip and error line when healthy', () => {
     renderWithProviders(
       <InstanceCompactRow
