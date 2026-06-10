@@ -7,14 +7,36 @@ import (
 
 // qBit TrackerStatus values mirrored locally so the detector does not
 // import the upstream library — keeps the file unit-testable without
-// pulling httptest fixtures.
+// pulling httptest fixtures. Values 5 and 6 come from upstream
+// autobrr/go-qbittorrent v1.16.0/domain.go:295-301.
+//
+// Note: qBit reports the synthetic peer-discovery entries (DHT, PeX, LSD)
+// with Status=Working (2), NOT Status=Disabled (0). The "DHT, PeX, LSD"
+// comment on trackerStatusDisabled is kept for documentation but is NOT
+// the actual filter — those entries are excluded by URL via
+// isSyntheticTracker below.
 const (
-	trackerStatusDisabled   = 0 // DHT, PeX, LSD entries
-	trackerStatusNotContact = 1
-	trackerStatusWorking    = 2
-	trackerStatusUpdating   = 3
-	trackerStatusNotWorking = 4
+	trackerStatusDisabled     = 0
+	trackerStatusNotContact   = 1
+	trackerStatusWorking      = 2
+	trackerStatusUpdating     = 3
+	trackerStatusNotWorking   = 4
+	trackerStatusTrackerError = 5
+	trackerStatusUnreachable  = 6
 )
+
+// isSyntheticTracker reports whether url is one of the three stable
+// peer-discovery strings qBit emits regardless of real tracker
+// availability. These entries report Status=Working (2) even when every
+// real tracker is down, so they MUST be excluded from the C-4 alive
+// short-circuit and from verdict iteration.
+func isSyntheticTracker(url string) bool {
+	switch url {
+	case "** [DHT] **", "** [PeX] **", "** [LSD] **":
+		return true
+	}
+	return false
+}
 
 // DetectionResult is the per-hash verdict returned by Detect. Both
 // Unregistered and TrackerDown can be false (unknown error or all-disabled
@@ -52,7 +74,10 @@ func NewDetector(c Client, customUnregMsgs []string) *Detector {
 // Detect fetches the tracker list for hash and applies the verdict
 // pipeline:
 //
-//  1. Skip Status == Disabled (DHT/PeX/LSD).
+//  1. Skip Status == Disabled AND skip synthetic peer-discovery entries
+//     (DHT/PeX/LSD by URL). Current qBit reports synthetic entries with
+//     Status=Working, so a status-only filter would let them mask real
+//     tracker failures.
 //  2. If any remaining tracker has Status == Working → torrent is alive.
 //     Return all-false (Unregistered=false, TrackerDown=false). This is
 //     parent invariant C-4 — multi-tracker torrents are NEVER flagged
@@ -77,10 +102,13 @@ func (d *Detector) Detect(ctx context.Context, hash string) (DetectionResult, er
 
 	res := DetectionResult{Hash: hash}
 
-	// Build the working set (non-Disabled trackers).
+	// Build the working set: real trackers only (non-Disabled, non-synthetic).
 	active := make([]Tracker, 0, len(trackers))
 	for _, t := range trackers {
 		if t.Status == trackerStatusDisabled {
+			continue
+		}
+		if isSyntheticTracker(t.URL) {
 			continue
 		}
 		active = append(active, t)
@@ -118,5 +146,7 @@ func (d *Detector) Detect(ctx context.Context, hash string) (DetectionResult, er
 	_ = trackerStatusNotContact
 	_ = trackerStatusUpdating
 	_ = trackerStatusNotWorking
+	_ = trackerStatusTrackerError
+	_ = trackerStatusUnreachable
 	return res, nil
 }

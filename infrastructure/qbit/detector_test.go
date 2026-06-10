@@ -194,3 +194,119 @@ func TestDetector_NilCustomList(t *testing.T) {
 		t.Fatalf("want Unregistered=true with nil custom list, got %+v", res)
 	}
 }
+
+// TestDetect_SyntheticDHTDoesNotMaskUnregistered confirms the bug fix:
+// qBit reports synthetic DHT/PeX/LSD trackers with Status=Working (2),
+// not Status=Disabled (0). Without URL-based filtering, the C-4 short-
+// circuit would treat the torrent as alive even though every real
+// tracker reports "Torrent not registered". This mirrors the live
+// Y.F.A.N. S02 (hash 10b5dcf4…) repro: 3 synthetic entries at
+// Status=2 plus 3 real trackers at Status=5 with the unreg message.
+func TestDetect_SyntheticDHTDoesNotMaskUnregistered(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "** [DHT] **", Status: 2, Msg: ""},
+			{URL: "** [LSD] **", Status: 2, Msg: ""},
+			{URL: "** [PeX] **", Status: 2, Msg: ""},
+			{URL: "http://bt.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
+			{URL: "http://bt2.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if !res.Unregistered {
+		t.Fatalf("want Unregistered=true (synthetic trackers must not mask real unreg), got %+v", res)
+	}
+	if res.TrackerDown {
+		t.Fatalf("want TrackerDown=false, got %+v", res)
+	}
+	if res.TrackerURL != "http://bt.t-ru.org/ann?magnet" {
+		t.Fatalf("want first real tracker URL, got %q", res.TrackerURL)
+	}
+	if res.TrackerMsg != "Torrent not registered" {
+		t.Fatalf("want unreg msg, got %q", res.TrackerMsg)
+	}
+}
+
+// TestDetect_SyntheticPeXAlone covers the degenerate case where qBit
+// returns only synthetic entries (no real trackers were ever added).
+// After filtering, active is empty so no verdict can be made — must
+// return all-false, never crash.
+func TestDetect_SyntheticPeXAlone(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "** [DHT] **", Status: 2, Msg: ""},
+			{URL: "** [PeX] **", Status: 2, Msg: ""},
+			{URL: "** [LSD] **", Status: 2, Msg: ""},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if res.Unregistered || res.TrackerDown {
+		t.Fatalf("want all-false (no real trackers to verdict on), got %+v", res)
+	}
+}
+
+// TestDetect_OneRealWorkingTrackerKeepsItAlive guards the C-4 invariant
+// after the synthetic-filter change: when at least one REAL tracker
+// reports Working, the torrent is alive even if other real trackers
+// report unregistered AND synthetic DHT is present. The synthetic
+// filter must not weaken C-4 for real trackers.
+func TestDetect_OneRealWorkingTrackerKeepsItAlive(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "** [DHT] **", Status: 2, Msg: ""},
+			{URL: "http://tr-up/announce", Status: 2, Msg: ""},
+			{URL: "http://tr-down/announce", Status: 4, Msg: "Torrent not registered"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if res.Unregistered || res.TrackerDown {
+		t.Fatalf("want all-false (C-4: real tr-up is Working), got %+v", res)
+	}
+}
+
+// TestIsSyntheticTracker is a table-driven check of the URL-based
+// synthetic filter helper. The three stable strings qBit emits return
+// true; anything else (real http/https trackers, empty string,
+// case-variant, partial match) returns false. Case-sensitivity is
+// intentional — qBit's strings are stable literals.
+func TestIsSyntheticTracker(t *testing.T) {
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{"** [DHT] **", true},
+		{"** [PeX] **", true},
+		{"** [LSD] **", true},
+		{"", false},
+		{"http://tr/announce", false},
+		{"https://tracker.example.org:443/announce.php?id=abc", false},
+		{"udp://tracker.opentrackr.org:1337/announce", false},
+		// case-variants and partial matches are NOT filtered — qBit's
+		// strings are stable literals; matching loosely risks dropping
+		// real trackers that happen to contain "** [".
+		{"** [dht] **", false},
+		{"** [DHT]", false},
+		{"prefix ** [DHT] **", false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.url, func(t *testing.T) {
+			got := isSyntheticTracker(tc.url)
+			if got != tc.want {
+				t.Fatalf("isSyntheticTracker(%q) = %v, want %v", tc.url, got, tc.want)
+			}
+		})
+	}
+}
