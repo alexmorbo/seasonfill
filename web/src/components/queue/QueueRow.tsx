@@ -150,11 +150,11 @@ export function QueueRow({
                       >
                         S{String(num).padStart(2, '0')}
                         <span className={cn('font-normal', active ? 'text-accent' : 'text-warn')}>
-                          ·{count}
+                          · {count}
                         </span>
                         {aired > 0 && (
                           <span className="font-normal text-tx-secondary opacity-70">
-                            /{aired}
+                            / {aired}
                           </span>
                         )}
                       </button>
