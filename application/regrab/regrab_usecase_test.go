@@ -777,14 +777,13 @@ func TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator(t *testing
 			return "", &sonarrStatusError404{}
 		},
 	}
-	// Override the package-level adapter so the use case classifies our
+	// Inject a release-gone classifier so the use case classifies our
 	// stub error as "release gone" without importing the real sonarr
-	// package types into the test. See regrab/replay_test_export.go.
-	restore := regrab.OverrideReleaseGoneClassifier(func(err error) bool {
+	// package types into the test.
+	uc.WithReleaseGoneClassifier(func(err error) bool {
 		var target *sonarrStatusError404
 		return errors.As(err, &target)
 	})
-	defer restore()
 
 	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)

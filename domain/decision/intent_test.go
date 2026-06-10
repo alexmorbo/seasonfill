@@ -17,6 +17,7 @@ func TestChosenBecause_IsValid(t *testing.T) {
 		ChosenBecauseWatchdogBetterQuality,
 		ChosenBecauseWatchdogBetterDub,
 		ChosenBecauseWatchdogBetterOther,
+		ChosenBecauseWatchdogReplayUnregistered,
 		ChosenBecauseManualSelection,
 	} {
 		assert.True(t, v.IsValid(), "%s must be valid", v)

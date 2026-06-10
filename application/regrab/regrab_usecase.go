@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -112,6 +111,13 @@ type UseCase struct {
 	state     *RuntimeStateStore
 	logger    *slog.Logger
 	now       func() time.Time
+	// releaseGoneClassifier reports whether a Sonarr ForceGrab error is
+	// a 404 / 410 "release gone on indexer" — the signal that lets the
+	// same-GUID replay path fall through to the evaluator search instead
+	// of surfacing as OutcomeError. Defaults to sonarr.IsReleaseGone.
+	// Tests inject a stub via WithReleaseGoneClassifier so they don't
+	// have to construct real Sonarr StatusError values.
+	releaseGoneClassifier func(error) bool
 }
 
 // NewUseCase wires the regrab orchestrator. logger=nil → slog.Default().
@@ -135,20 +141,21 @@ func NewUseCase(
 		logger = slog.Default()
 	}
 	return &UseCase{
-		settings:    settings,
-		instances:   instances,
-		qbitFac:     qbitFac,
-		detectorFac: detectorFac,
-		grabs:       grabs,
-		cooldowns:   cooldowns,
-		blacklist:   blacklist,
-		counter:     counter,
-		evaluate:    evaluator,
-		grabExec:    grabExec,
-		metrics:     nullMetrics{},
-		state:       NewRuntimeStateStore(),
-		logger:      logger,
-		now:         func() time.Time { return time.Now().UTC() },
+		settings:              settings,
+		instances:             instances,
+		qbitFac:               qbitFac,
+		detectorFac:           detectorFac,
+		grabs:                 grabs,
+		cooldowns:             cooldowns,
+		blacklist:             blacklist,
+		counter:               counter,
+		evaluate:              evaluator,
+		grabExec:              grabExec,
+		metrics:               nullMetrics{},
+		state:                 NewRuntimeStateStore(),
+		logger:                logger,
+		now:                   func() time.Time { return time.Now().UTC() },
+		releaseGoneClassifier: sonarr.IsReleaseGone,
 	}
 }
 
@@ -176,6 +183,17 @@ func (u *UseCase) WithClock(f func() time.Time) *UseCase {
 // decision row.
 func (u *UseCase) WithDecisions(d ports.DecisionRepository) *UseCase {
 	u.decisions = d
+	return u
+}
+
+// WithReleaseGoneClassifier swaps the Sonarr 404/410 detector — tests
+// only. Nil restores the production sonarr.IsReleaseGone adapter so a
+// caller can reset the hook without having to know the default.
+func (u *UseCase) WithReleaseGoneClassifier(fn func(error) bool) *UseCase {
+	if fn == nil {
+		fn = sonarr.IsReleaseGone
+	}
+	u.releaseGoneClassifier = fn
 	return u
 }
 
@@ -532,7 +550,7 @@ func (u *UseCase) runEvaluator(
 		if err == nil {
 			return outcome, d, nil
 		}
-		if !callSonarrIsReleaseGone(err) {
+		if !u.releaseGoneClassifier(err) {
 			// Real error (5xx, network, ctx-cancel, 4xx other than
 			// 404/410). Caller activates cooldown + counts an error.
 			return OutcomeError, decision.Decision{}, err
@@ -724,38 +742,6 @@ func (u *UseCase) tryReplayByGUID(
 		slog.String("original_grab_id", origGrab.ID.String()))
 
 	return OutcomeGrabbed, d, nil
-}
-
-// sonarrIsReleaseGone is a tiny adapter so the use case package
-// doesn't reach into infrastructure/sonarr directly in the hot loop.
-// Swapped in tests via the package-private OverrideReleaseGoneClassifier
-// hook (see replay_test_export.go). Guarded by sonarrIsReleaseGoneMu so
-// the swap is race-free when parallel tests are in flight.
-var (
-	sonarrIsReleaseGoneMu sync.RWMutex
-	sonarrIsReleaseGone   = sonarrReleaseGoneAdapter
-)
-
-func sonarrReleaseGoneAdapter(err error) bool {
-	return sonarrIsReleaseGoneImpl(err)
-}
-
-// callSonarrIsReleaseGone reads the current classifier under the RW
-// mutex. Hot path: production reads complete in O(few ns); the mutex
-// only serialises against the rare test swap.
-func callSonarrIsReleaseGone(err error) bool {
-	sonarrIsReleaseGoneMu.RLock()
-	fn := sonarrIsReleaseGone
-	sonarrIsReleaseGoneMu.RUnlock()
-	return fn(err)
-}
-
-// sonarrIsReleaseGoneImpl is the production implementation — checks
-// the Sonarr StatusError 404/410 sentinels. Wrapped in a package-level
-// var (sonarrIsReleaseGone above) so tests can stub it without
-// importing infrastructure/sonarr or fabricating StatusError values.
-func sonarrIsReleaseGoneImpl(err error) bool {
-	return sonarr.IsReleaseGone(err)
 }
 
 // refineWatchdogIntent inspects the just-decided Decision against
