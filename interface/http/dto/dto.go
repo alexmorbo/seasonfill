@@ -238,6 +238,16 @@ type Grab struct {
 	// nil when no matching Decision was found OR the Decision itself
 	// carried no intent (pre-091a rows, error decisions).
 	Intent *DecisionIntent `json:"intent,omitempty"`
+	// TitleSlug is the authoritative Sonarr slug for this grab's
+	// series, joined at read time from series_cache on
+	// (instance_name, series_id). The FE deep-links into Sonarr
+	// using this value when present; absence falls the SPA back to
+	// its client-side slugifier (lossy for `&`, apostrophes, and
+	// year disambiguation). Omitted from wire when empty — pre-116
+	// rows and rows whose series_cache row is absent emit no key,
+	// keeping the audit handler test snapshots untouched. Mirrors
+	// the 041g pattern on dto.MissingSeries.TitleSlug.
+	TitleSlug string `json:"title_slug,omitempty" example:"your-friends-and-neighbors"`
 }
 
 // GrabParsed is the Sonarr-parsed release metadata block exposed on

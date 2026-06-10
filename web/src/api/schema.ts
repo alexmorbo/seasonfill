@@ -3233,6 +3233,19 @@ export type components = {
              */
             readonly status?: DtoGrabStatus;
             /**
+             * @description TitleSlug is the authoritative Sonarr slug for this grab's
+             *     series, joined at read time from series_cache on
+             *     (instance_name, series_id). The FE deep-links into Sonarr
+             *     using this value when present; absence falls the SPA back to
+             *     its client-side slugifier (lossy for `&`, apostrophes, and
+             *     year disambiguation). Omitted from wire when empty — pre-116
+             *     rows and rows whose series_cache row is absent emit no key,
+             *     keeping the audit handler test snapshots untouched. Mirrors
+             *     the 041g pattern on dto.MissingSeries.TitleSlug.
+             * @example your-friends-and-neighbors
+             */
+            readonly title_slug?: string;
+            /**
              * @description TorrentHash — qBit info-hash (40-char lowercase hex) captured
              *     by the OnGrab webhook (Phase 10) or stamped at force-grab time.
              *     Omitted from wire when nil so pre-Phase-10 rows stay clean.

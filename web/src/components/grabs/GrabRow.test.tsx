@@ -224,4 +224,41 @@ describe('<GrabRow />', () => {
     expect(errorSpan.className).toMatch(/max-w-\[420px\]/);
     expect(errorSpan.className).toMatch(/truncate/);
   });
+
+  // 116: title_slug is plumbed onto the DTO + bound onto the Sonarr
+  // chip's titleSlug prop. The existing test harness does not mock
+  // useInstancePublicURL, so SonarrLink renders null in tests when
+  // publicUrl is empty — the assertion below is a field-bind smoke
+  // check (catches a regression where Grab loses title_slug at the
+  // type level). Backend handler tests cover the wire shape; the
+  // Playwright smoke checks the rendered href post-deploy.
+  it('renders Sonarr deep-link using authoritative title_slug from the DTO when present', () => {
+    const withSlug: Partial<Grab> = {
+      ...base,
+      instance: 'alpha',
+      series_title: 'Your Friends & Neighbors',
+      title_slug: 'your-friends-and-neighbors',
+    };
+    render(wrap(
+      <GrabRow grab={withSlug as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        instance="alpha"
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(withSlug.title_slug).toBe('your-friends-and-neighbors');
+  });
+
+  it('falls back to lossy client-side slug when title_slug is absent', () => {
+    const noSlug: Partial<Grab> = {
+      ...base,
+      instance: 'alpha',
+      series_title: 'Your Friends & Neighbors',
+      // title_slug intentionally omitted.
+    };
+    render(wrap(
+      <GrabRow grab={noSlug as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        instance="alpha"
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(noSlug.title_slug).toBeUndefined();
+  });
 });

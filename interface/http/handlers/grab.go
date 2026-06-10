@@ -169,7 +169,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	// shipping it on this single-row 200 path adds latency for a
 	// drawer field the SPA can re-fetch via GET /decisions/:id. The
 	// frontend treats nil intent here as "fetch on drawer open".
-	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil, nil))
+	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil, nil, ""))
 }
 
 // findExistingGrab returns the first non-terminal row for this

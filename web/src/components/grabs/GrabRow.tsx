@@ -137,6 +137,7 @@ export function GrabRow({
             publicUrl={sonarrPublicURL}
             seriesId={grab.series_id ?? undefined}
             title={grab.series_title ?? ''}
+            titleSlug={grab.title_slug}
             variant="chip"
             size="sm"
           />

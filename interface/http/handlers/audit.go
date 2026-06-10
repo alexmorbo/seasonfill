@@ -21,10 +21,11 @@ import (
 // tests use real GORM repos against in-memory SQLite for stronger
 // coverage).
 type AuditHandler struct {
-	scans     ports.ScanRepository
-	decisions ports.DecisionRepository
-	grabs     ports.GrabRepository
-	logger    *slog.Logger
+	scans       ports.ScanRepository
+	decisions   ports.DecisionRepository
+	grabs       ports.GrabRepository
+	seriesCache ports.SeriesCacheRepository
+	logger      *slog.Logger
 }
 
 // NewAuditHandler wires the audit endpoints with their backing repos
@@ -35,6 +36,19 @@ func NewAuditHandler(scans ports.ScanRepository, decisions ports.DecisionReposit
 		logger = slog.Default()
 	}
 	return &AuditHandler{scans: scans, decisions: decisions, grabs: grabs, logger: logger}
+}
+
+// WithSeriesCache wires the read-side of series_cache so ListGrabs
+// can enrich each row with the authoritative Sonarr slug from
+// (instance_name, series_id). Mirrors the 041g pattern used by
+// InstancesHandler. nil repo (the default) leaves grab.title_slug
+// unset on the wire — the SPA falls back to its client-side
+// slugifier, the pre-116 behaviour. Builder pattern keeps the
+// constructor signature stable across the existing
+// audit_test.go call sites.
+func (h *AuditHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *AuditHandler {
+	h.seriesCache = repo
+	return h
 }
 
 // stringPtrFromQuery returns a pointer to the trimmed query value, or
@@ -133,7 +147,7 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
-func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent) dto.Grab {
+func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent, titleSlug string) dto.Grab {
 	d := dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
@@ -158,6 +172,7 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, inten
 		Parsed:            grabParsedToDTO(r.Parsed),
 		ParsedAt:          r.ParsedAt,
 		Intent:            intentToDTO(intent),
+		TitleSlug:         titleSlug,
 	}
 	if r.ReplayOfID != nil {
 		s := r.ReplayOfID.String()
@@ -489,6 +504,17 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 	// Grab DTO's intent field nil, which the frontend handles.
 	intents := h.collectGrabIntents(ctx, recs)
 
+	// 116: per-page series_cache lookup so the SPA can render the
+	// authoritative Sonarr deep-link (FE falls back to its lossy
+	// client-side slugifier when this map misses). One repo call
+	// per distinct instance on the page — production usage is
+	// almost always single-instance (the /grabs page passes
+	// ?instance=… in every real call), and the upper bound is the
+	// number of configured Sonarr instances (typically 1-3). Nil
+	// repo (constructor default in tests) or repo error degrades
+	// to no slugs; the page still renders.
+	slugs := h.collectGrabTitleSlugs(ctx, recs)
+
 	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
 		var parent *grab.Record
@@ -497,7 +523,7 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 				parent = &p
 			}
 		}
-		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID]))
+		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID], slugs[grabKey{instance: r.InstanceName, seriesID: r.SeriesID}]))
 	}
 	writeListResponse(c, out, next)
 }
@@ -544,6 +570,59 @@ func (h *AuditHandler) collectGrabIntents(ctx context.Context, recs []grab.Recor
 			continue
 		}
 		out[r.ID] = decs[0].Intent
+	}
+	return out
+}
+
+// grabKey scopes a series_cache lookup to (instance, series_id).
+// Used by collectGrabTitleSlugs to deduplicate per-page lookups
+// across multiple grabs of the same series.
+type grabKey struct {
+	instance string
+	seriesID int
+}
+
+// collectGrabTitleSlugs builds an (instance, series_id) →
+// authoritative-title-slug map for the supplied page of grab
+// records. One ListActiveByInstance call per distinct instance —
+// production usage is almost always single-instance (the /grabs
+// page passes ?instance=… in every real call), so this is a single
+// repo hit per request. Errors WARN-log and degrade to an empty
+// map for that instance; callers see an empty slug, the SPA falls
+// back to its client-side slugifier.
+//
+// Returns nil-safe even when h.seriesCache is unwired (the audit_
+// test.go fixture path).
+//
+// 116. Mirrors the 041g pattern on enrichMissingFromCache.
+func (h *AuditHandler) collectGrabTitleSlugs(ctx context.Context, recs []grab.Record) map[grabKey]string {
+	out := make(map[grabKey]string, len(recs))
+	if h.seriesCache == nil || len(recs) == 0 {
+		return out
+	}
+	// Distinct instances on this page.
+	instances := make(map[string]struct{}, 1)
+	for _, r := range recs {
+		if r.InstanceName == "" {
+			continue
+		}
+		instances[r.InstanceName] = struct{}{}
+	}
+	for inst := range instances {
+		entries, err := h.seriesCache.ListActiveByInstance(ctx, inst)
+		if err != nil {
+			h.logger.WarnContext(ctx, "audit_list_grabs_cache_lookup_failed",
+				slog.String("endpoint", "/api/v1/grabs"),
+				slog.String("instance", inst),
+				slog.String("error", err.Error()))
+			continue
+		}
+		for _, e := range entries {
+			if e.TitleSlug == "" {
+				continue
+			}
+			out[grabKey{instance: inst, seriesID: e.SonarrSeriesID}] = e.TitleSlug
+		}
 	}
 	return out
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
@@ -30,11 +31,12 @@ import (
 // --- harness --------------------------------------------------------------
 
 type auditFixture struct {
-	db     *gorm.DB
-	scans  *repositories.ScanRepository
-	decs   *repositories.DecisionRepository
-	grabs  *repositories.GrabRepository
-	router *gin.Engine
+	db          *gorm.DB
+	scans       *repositories.ScanRepository
+	decs        *repositories.DecisionRepository
+	grabs       *repositories.GrabRepository
+	seriesCache *repositories.SeriesCacheRepository
+	router      *gin.Engine
 }
 
 func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
@@ -46,8 +48,13 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	scans := repositories.NewScanRepository(db)
 	decs := repositories.NewDecisionRepository(db)
 	grabs := repositories.NewGrabRepository(db)
+	seriesCache := repositories.NewSeriesCacheRepository(db)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := NewAuditHandler(scans, decs, grabs, lg)
+	// Note: WithSeriesCache is wired here so the per-test slug
+	// fixture works. Tests that don't seed series_cache still see
+	// title_slug omitted from the wire (omitempty + empty slug
+	// from the lookup map miss).
+	h := NewAuditHandler(scans, decs, grabs, lg).WithSeriesCache(seriesCache)
 
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -62,7 +69,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	api.GET("/decisions/:id", h.GetDecision)
 	api.GET("/grabs", h.ListGrabs)
 
-	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, router: r}
+	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, seriesCache: seriesCache, router: r}
 }
 
 func (f *auditFixture) seedScan(t *testing.T, instance, status string, createdAt time.Time) ports.ScanRecord {
@@ -734,4 +741,61 @@ func TestAuditHandler_ListGrabs_SizeBytesOmittedWhenNil(t *testing.T) {
 	// Raw JSON inspection — size_bytes must be absent from the wire.
 	assert.NotContains(t, w.Body.String(), `"size_bytes"`,
 		"nil SizeBytes must omit the field from the wire")
+}
+
+// TestAuditHandler_ListGrabs_IncludesTitleSlugFromCache covers 116.
+// When a series_cache row exists for the (instance, series_id) tuple
+// of a grab, the wire response carries title_slug from that row —
+// the authoritative Sonarr slug (correctly expands `&` to `-and-`,
+// etc.) rather than the FE's lossy client-side slugifier.
+func TestAuditHandler_ListGrabs_IncludesTitleSlugFromCache(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	// Seed: one grab pointing at series 122 + a series_cache row
+	// with the authoritative slug Sonarr would have stamped.
+	rec := f.seedGrab(t, "main", 122, 1, grab.StatusImported, base)
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 122,
+		Title:          "Your Friends & Neighbors",
+		TitleSlug:      "your-friends-and-neighbors",
+		Monitored:      true,
+	}))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, rec.ID.String(), body.Items[0]["id"])
+	assert.Equal(t, "your-friends-and-neighbors", body.Items[0]["title_slug"])
+}
+
+// TestAuditHandler_ListGrabs_OmitsTitleSlugWhenCacheMisses covers
+// the degradation path — no series_cache row for the (instance,
+// series_id) tuple means the wire omits the key entirely (omitempty
+// kicks in). The SPA then falls back to its client-side slugifier.
+func TestAuditHandler_ListGrabs_OmitsTitleSlugWhenCacheMisses(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	// Seed a grab but NO series_cache row for that (instance,
+	// series_id) tuple. The series_cache row below is for a
+	// DIFFERENT series — proves the lookup is keyed correctly,
+	// not just "any row in the table".
+	f.seedGrab(t, "main", 122, 1, grab.StatusImported, base)
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 999, // unrelated series
+		Title:          "Other",
+		TitleSlug:      "other",
+		Monitored:      true,
+	}))
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	_, present := body.Items[0]["title_slug"]
+	assert.False(t, present, "title_slug should be omitted when no series_cache row matches")
 }

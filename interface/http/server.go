@@ -92,7 +92,8 @@ func NewServer(
 	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithEpisodesCache(episodesCache)
-	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger)
+	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
+		WithSeriesCache(seriesCacheRepo)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
