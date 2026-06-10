@@ -44,7 +44,38 @@ export function WatchdogInstancePanel({
       className={cn('flex flex-col gap-3 p-3.5', isOff && 'opacity-90')}
     >
       <div className="flex items-center gap-2.5">
-        <h3 className="flex-1 text-[15px] font-semibold">{rollup.instance_name}</h3>
+        <h3 className="flex-1 inline-flex items-center gap-2 text-[15px] font-semibold min-w-0">
+          <span className="truncate">{rollup.instance_name}</span>
+          {!isOff && (
+            <span
+              data-testid={`watchdog-panel-reachable-${rollup.instance_name}`}
+              className={cn(
+                'inline-block h-2 w-2 rounded-full shrink-0',
+                rollup.qbit_reachable ? 'bg-ok' : 'bg-warn',
+              )}
+              aria-label={
+                rollup.qbit_reachable
+                  ? t('watchdog.config.qbit.reachable')
+                  : t('watchdog.config.qbit.unreachable')
+              }
+              title={
+                rollup.qbit_reachable
+                  ? t('watchdog.config.qbit.reachable')
+                  : t('watchdog.config.qbit.unreachable')
+              }
+            />
+          )}
+        </h3>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-tx-muted hover:text-foreground"
+          onClick={handleConfigure}
+          aria-label={t('watchdog.config.cta.configure')}
+          data-testid={`watchdog-panel-configure-${rollup.instance_name}`}
+        >
+          <SettingsIcon className="h-4 w-4" />
+        </Button>
         <Switch
           data-testid={`watchdog-panel-toggle-${rollup.instance_name}`}
           checked={rollup.enabled}
@@ -74,16 +105,6 @@ export function WatchdogInstancePanel({
         </>
       ) : (
         <>
-          <Badge
-            variant={rollup.qbit_reachable ? 'ok' : 'warn'}
-            className="self-start"
-          >
-            <span className={cn('chip-dot',
-              rollup.qbit_reachable ? 'bg-ok' : 'bg-warn')} />
-            {rollup.qbit_reachable
-              ? t('watchdog.config.qbit.reachable')
-              : t('watchdog.config.qbit.unreachable')}
-          </Badge>
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="solid" mono>
               {t('watchdog.config.chips.poll', { n: pollMinutes })}
@@ -93,9 +114,6 @@ export function WatchdogInstancePanel({
             </Badge>
             <Badge variant="solid" mono>
               {t('watchdog.config.chips.noBetterMax', { n: rollup.no_better_max })}
-            </Badge>
-            <Badge variant="solid" mono>
-              {t('watchdog.config.chips.watched', { n: rollup.watched })}
             </Badge>
           </div>
           <div className="flex items-end gap-2">
@@ -108,14 +126,6 @@ export function WatchdogInstancePanel({
               {t('watchdog.config.sparkline.label', { n: rollup.regrabs_7d })}
             </span>
           </div>
-          <Button
-            variant="outline" size="sm" className="justify-center"
-            onClick={handleConfigure}
-            data-testid={`watchdog-panel-configure-${rollup.instance_name}`}
-          >
-            <SettingsIcon className="mr-1 h-4 w-4" />
-            {t('watchdog.config.cta.configure')}
-          </Button>
         </>
       )}
     </Card>
