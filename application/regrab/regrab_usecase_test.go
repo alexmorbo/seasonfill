@@ -1125,6 +1125,251 @@ func TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone(t *testing.T) {
 		"warm-then-404 still falls through; evaluator's verdict drives the outcome")
 }
 
+// TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed — Sonarr
+// returns 500 wrapping qBit 409 ("hash already in qBit"). Story 117:
+// the replay's intent (have the file in qBit) is realised, so the use
+// case must persist a decision row with ChosenBecauseWatchdogReplayAlreadyAdded
+// and treat the outcome as OutcomeGrabbed.
+func TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, gx, mt := makeUC(t, ctrl)
+	decisionsRepo := mocks.NewMockDecisionRepository(ctrl)
+	uc.WithDecisions(decisionsRepo)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			return "", &sonarrStatusError409{}
+		},
+	}
+	// Inject the already-added classifier so the use case fingerprints
+	// our stub error without needing the real Sonarr StatusError shape.
+	uc.WithReleaseAlreadyAddedClassifier(func(err error) bool {
+		var target *sonarrStatusError409
+		return errors.As(err, &target)
+	})
+
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	var saved decision.Decision
+	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d decision.Decision) error {
+		saved = d
+		return nil
+	})
+
+	// Evaluator MUST NOT be called.
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+
+	newID := uuid.New()
+	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
+		Record: domaingrab.Record{ID: newID, InstanceName: testInstance,
+			SeriesID: testSeries, SeasonNumber: testSeason},
+		Attempts: 1,
+	})
+	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.RegrabbedCount, "already-added counts as a grab")
+	require.NotNil(t, saved.Intent)
+	assert.Equal(t,
+		decision.ChosenBecauseWatchdogReplayAlreadyAdded,
+		saved.Intent.ChosenBecause,
+		"intent must mark the already-added path")
+	assert.Equal(t, decision.OutcomeGrab, saved.Outcome,
+		"already-added persists as OutcomeGrab so runGrab fires")
+	require.NotNil(t, saved.Selected, "Selected must be populated for runGrab")
+}
+
+// TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision — Sonarr
+// returns a generic 5xx (not release-gone, not already-added). Story 117:
+// use case must persist an audit-trail decision row with Outcome=Skip
+// + Intent=ReplayError + Reason=ReplayError, surface OutcomeError so
+// the caller fires the cooldown, and NOT emit the legacy
+// regrab_evaluate_failed WARN (the decision row IS the audit trail).
+func TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	buf := &bytes.Buffer{}
+	debugLogger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	settings := mocks.NewMockSettingsLookup(ctrl)
+	instances := mocks.NewMockInstanceRegistry(ctrl)
+	qbitFac := mocks.NewMockQbitClientFactory(ctrl)
+	detFac := mocks.NewMockDetectorFactory(ctrl)
+	det := mocks.NewMockDetector(ctrl)
+	qclient := mocks.NewMockClient(ctrl)
+	grabs := mocks.NewMockGrabRepository(ctrl)
+	cooldowns := mocks.NewMockCooldownRepository(ctrl)
+	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
+	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	ev := mocks.NewMockEvaluateExecutor(ctrl)
+	gx := mocks.NewMockGrabExecutor(ctrl)
+	mt := mocks.NewMockMetrics(ctrl)
+	decisionsRepo := mocks.NewMockDecisionRepository(ctrl)
+
+	uc := regrab.NewUseCase(settings, instances, qbitFac, detFac,
+		grabs, cooldowns, bl, cnt, ev, gx, debugLogger).
+		WithMetrics(mt).
+		WithDecisions(decisionsRepo)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	bootErr := errors.New("sonarr 503 service unavailable")
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			return "", bootErr
+		},
+	}
+	// Both classifiers default to false → falls into the "other error"
+	// branch which persists a SKIP audit decision.
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	var saved decision.Decision
+	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d decision.Decision) error {
+		saved = d
+		return nil
+	})
+
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+	mt.EXPECT().IncRegrabResult(testInstance, "error")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.ErrorCount, "other-error path still increments ErrorCount")
+	require.NotEqual(t, uuid.Nil, saved.ID, "audit decision must be persisted")
+	require.NotNil(t, saved.Intent)
+	assert.Equal(t,
+		decision.ChosenBecauseWatchdogReplayError,
+		saved.Intent.ChosenBecause,
+		"intent must mark the error path")
+	assert.Equal(t, decision.OutcomeSkip, saved.Outcome,
+		"error decision persists as OutcomeSkip + ReasonReplayError")
+	assert.Equal(t, decision.ReasonReplayError, saved.Reason)
+	assert.Equal(t, bootErr.Error(), saved.ErrorDetail,
+		"original error string must land in ErrorDetail")
+
+	msgs := collectLogMsgs(t, buf.Bytes())
+	_, hasLegacy := msgs["regrab_evaluate_failed"]
+	assert.False(t, hasLegacy,
+		"legacy regrab_evaluate_failed WARN must NOT fire when a decision row exists")
+	_, hasNew := msgs["regrab_replay_error_persisted"]
+	assert.True(t, hasNew,
+		"new regrab_replay_error_persisted INFO must fire instead")
+}
+
+// TestRunInstance_ReplayByGUID_OtherError_DecisionRepoNil_LegacyLogPath —
+// when DecisionRepository is unwired (nil), the replay error path
+// falls back to the legacy regrab_evaluate_failed WARN (no decision
+// row, no INFO). Back-compat guard.
+func TestRunInstance_ReplayByGUID_OtherError_DecisionRepoNil_LegacyLogPath(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	buf := &bytes.Buffer{}
+	debugLogger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	settings := mocks.NewMockSettingsLookup(ctrl)
+	instances := mocks.NewMockInstanceRegistry(ctrl)
+	qbitFac := mocks.NewMockQbitClientFactory(ctrl)
+	detFac := mocks.NewMockDetectorFactory(ctrl)
+	det := mocks.NewMockDetector(ctrl)
+	qclient := mocks.NewMockClient(ctrl)
+	grabs := mocks.NewMockGrabRepository(ctrl)
+	cooldowns := mocks.NewMockCooldownRepository(ctrl)
+	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
+	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	ev := mocks.NewMockEvaluateExecutor(ctrl)
+	gx := mocks.NewMockGrabExecutor(ctrl)
+	mt := mocks.NewMockMetrics(ctrl)
+
+	// NOTE: WithDecisions NOT called → u.decisions == nil.
+	uc := regrab.NewUseCase(settings, instances, qbitFac, detFac,
+		grabs, cooldowns, bl, cnt, ev, gx, debugLogger).WithMetrics(mt)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			return "", errors.New("sonarr 503 service unavailable")
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+	mt.EXPECT().IncRegrabResult(testInstance, "error")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	_, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+
+	msgs := collectLogMsgs(t, buf.Bytes())
+	_, hasLegacy := msgs["regrab_evaluate_failed"]
+	assert.True(t, hasLegacy,
+		"legacy WARN MUST still fire when decisions repo is unwired (back-compat)")
+}
+
+// sonarrStatusError409 is a stand-in for the real Sonarr StatusError
+// carrying a 500-wrapping-qBit-409 body. Mirrors sonarrStatusError404 —
+// kept tiny so the test stays decoupled from the real Sonarr types.
+type sonarrStatusError409 struct{}
+
+func (sonarrStatusError409) Error() string { return "stub: 500 [409:Conflict] qBittorrent" }
+
 // replayingSonarr wraps fakeSonarr with hooks on SearchReleases and
 // ForceGrab so the replay tests can both inspect call args and inject
 // errors. The default (nil hook) returns the fakeSonarr zero-value

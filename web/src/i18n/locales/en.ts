@@ -835,6 +835,8 @@ export const en = {
         watchdogBetterDub: 'Watchdog: better dub',
         watchdogBetterOther: 'Watchdog: upgrade',
         watchdogReplayUnregistered: 'Watchdog: re-grab (tracker said unregistered)',
+        watchdogReplayAlreadyAdded: 'Watchdog: re-grab (already in qBit)',
+        watchdogReplayError: 'Watchdog: re-grab (error)',
         manualSelection: 'Manually selected',
       },
     },

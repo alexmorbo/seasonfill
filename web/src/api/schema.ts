@@ -4231,6 +4231,8 @@ export enum DtoDecisionIntentChosen_because {
     watchdog_better_dub = "watchdog_better_dub",
     watchdog_better_other = "watchdog_better_other",
     watchdog_replay_unregistered = "watchdog_replay_unregistered",
+    watchdog_replay_already_added = "watchdog_replay_already_added",
+    watchdog_replay_error = "watchdog_replay_error",
     manual_selection = "manual_selection"
 }
 export enum DtoGrabReplay_kind {

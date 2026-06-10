@@ -52,6 +52,10 @@ var reasonCategory = map[decision.Reason]Category{
 	// evaluator-level skips without keying on the reason string.
 	decision.ReasonAllComplete:   CategoryAllComplete,
 	decision.ReasonSonarrHandles: CategorySonarrHandles,
+	// 117 — Watchdog replay error audit row. The cooldown still
+	// fires; the row IS the audit trail. Surface as CategoryError so
+	// the F7 Decisions UI groups it with the other error reasons.
+	decision.ReasonReplayError: CategoryError,
 }
 
 // Classify maps a raw reason to a UI category. Empty input or unmapped

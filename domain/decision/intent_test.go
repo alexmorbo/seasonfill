@@ -18,6 +18,8 @@ func TestChosenBecause_IsValid(t *testing.T) {
 		ChosenBecauseWatchdogBetterDub,
 		ChosenBecauseWatchdogBetterOther,
 		ChosenBecauseWatchdogReplayUnregistered,
+		ChosenBecauseWatchdogReplayAlreadyAdded,
+		ChosenBecauseWatchdogReplayError,
 		ChosenBecauseManualSelection,
 	} {
 		assert.True(t, v.IsValid(), "%s must be valid", v)
@@ -84,5 +86,23 @@ func TestChosenBecause_IsValid_ReplayUnregistered(t *testing.T) {
 		"watchdog_replay_unregistered must be IsValid()=true")
 	assert.Equal(t, "watchdog_replay_unregistered",
 		string(ChosenBecauseWatchdogReplayUnregistered),
+		"wire string is frozen — the SPA reason map keys on it")
+}
+
+func TestChosenBecause_IsValid_ReplayAlreadyAdded(t *testing.T) {
+	t.Parallel()
+	assert.True(t, ChosenBecauseWatchdogReplayAlreadyAdded.IsValid(),
+		"watchdog_replay_already_added must be IsValid()=true")
+	assert.Equal(t, "watchdog_replay_already_added",
+		string(ChosenBecauseWatchdogReplayAlreadyAdded),
+		"wire string is frozen — the SPA reason map keys on it")
+}
+
+func TestChosenBecause_IsValid_ReplayError(t *testing.T) {
+	t.Parallel()
+	assert.True(t, ChosenBecauseWatchdogReplayError.IsValid(),
+		"watchdog_replay_error must be IsValid()=true")
+	assert.Equal(t, "watchdog_replay_error",
+		string(ChosenBecauseWatchdogReplayError),
 		"wire string is frozen — the SPA reason map keys on it")
 }

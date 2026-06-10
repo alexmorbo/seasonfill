@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"strings"
 )
 
 // SonarrBodyMaxBytes is the upper bound on bytes captured from a Sonarr
@@ -121,6 +123,45 @@ func IsReleaseGone(err error) bool {
 		return se.Status == 404 || se.Status == 410
 	}
 	return false
+}
+
+// IsReleaseAlreadyAdded reports whether the error is a Sonarr 500
+// wrapping qBittorrent's 409 Conflict on POST /api/v2/torrents/add —
+// the "hash already present in qBit" condition. Sonarr surfaces this
+// as HTTP 500 with body containing the literal substring
+// `[409:Conflict]` together with `qBittorrent` and the qBit endpoint
+// path. Watchdog story 117 treats the situation as success-equivalent:
+// the replay's intent (have the file in qBit) was already realised
+// before the POST fired, so we record an OutcomeGrab decision row
+// rather than an error.
+//
+// The match is intentionally tight (literal `[409:Conflict]` AND
+// `qBittorrent` AND `/api/v2/torrents/add` substrings, all
+// case-insensitive) so unrelated 500 bodies don't get misclassified.
+// Returns false on nil, non-StatusError, or any body that doesn't
+// match all three markers.
+func IsReleaseAlreadyAdded(err error) bool {
+	if err == nil {
+		return false
+	}
+	var se *StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	if se.Status != http.StatusInternalServerError {
+		return false
+	}
+	body := strings.ToLower(se.Body)
+	if !strings.Contains(body, "[409:conflict]") {
+		return false
+	}
+	if !strings.Contains(body, "qbittorrent") {
+		return false
+	}
+	if !strings.Contains(body, "/api/v2/torrents/add") {
+		return false
+	}
+	return true
 }
 
 // Classifier is a struct-shaped adapter implementing application/grab.classifier.

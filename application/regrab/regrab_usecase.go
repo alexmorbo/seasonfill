@@ -118,6 +118,12 @@ type UseCase struct {
 	// Tests inject a stub via WithReleaseGoneClassifier so they don't
 	// have to construct real Sonarr StatusError values.
 	releaseGoneClassifier func(error) bool
+	// releaseAlreadyAddedClassifier reports whether a Sonarr ForceGrab
+	// error is the success-equivalent "qBit already has this hash"
+	// case (story 117). Default sonarr.IsReleaseAlreadyAdded; tests
+	// inject a stub via WithReleaseAlreadyAddedClassifier the same way
+	// they do for releaseGoneClassifier.
+	releaseAlreadyAddedClassifier func(error) bool
 }
 
 // NewUseCase wires the regrab orchestrator. logger=nil → slog.Default().
@@ -141,21 +147,22 @@ func NewUseCase(
 		logger = slog.Default()
 	}
 	return &UseCase{
-		settings:              settings,
-		instances:             instances,
-		qbitFac:               qbitFac,
-		detectorFac:           detectorFac,
-		grabs:                 grabs,
-		cooldowns:             cooldowns,
-		blacklist:             blacklist,
-		counter:               counter,
-		evaluate:              evaluator,
-		grabExec:              grabExec,
-		metrics:               nullMetrics{},
-		state:                 NewRuntimeStateStore(),
-		logger:                logger,
-		now:                   func() time.Time { return time.Now().UTC() },
-		releaseGoneClassifier: sonarr.IsReleaseGone,
+		settings:                      settings,
+		instances:                     instances,
+		qbitFac:                       qbitFac,
+		detectorFac:                   detectorFac,
+		grabs:                         grabs,
+		cooldowns:                     cooldowns,
+		blacklist:                     blacklist,
+		counter:                       counter,
+		evaluate:                      evaluator,
+		grabExec:                      grabExec,
+		metrics:                       nullMetrics{},
+		state:                         NewRuntimeStateStore(),
+		logger:                        logger,
+		now:                           func() time.Time { return time.Now().UTC() },
+		releaseGoneClassifier:         sonarr.IsReleaseGone,
+		releaseAlreadyAddedClassifier: sonarr.IsReleaseAlreadyAdded,
 	}
 }
 
@@ -194,6 +201,18 @@ func (u *UseCase) WithReleaseGoneClassifier(fn func(error) bool) *UseCase {
 		fn = sonarr.IsReleaseGone
 	}
 	u.releaseGoneClassifier = fn
+	return u
+}
+
+// WithReleaseAlreadyAddedClassifier swaps the Sonarr 500+qBit-409
+// detector — tests only. Nil restores the production
+// sonarr.IsReleaseAlreadyAdded adapter so a caller can reset the hook
+// without having to know the default.
+func (u *UseCase) WithReleaseAlreadyAddedClassifier(fn func(error) bool) *UseCase {
+	if fn == nil {
+		fn = sonarr.IsReleaseAlreadyAdded
+	}
+	u.releaseAlreadyAddedClassifier = fn
 	return u
 }
 
@@ -432,11 +451,25 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			res.ErrorCount++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeError))
 			u.activateCooldown(ctx, cdKey, sett.RegrabCooldown)
-			u.logger.WarnContext(ctx, "regrab_evaluate_failed",
-				slog.String("instance", instanceName),
-				slog.Int("series_id", origGrab.SeriesID),
-				slog.Int("season", origGrab.SeasonNumber),
-				slog.String("error", evalErr.Error()))
+			if decisionRow.ID == uuid.Nil {
+				// Pre-117 audit-trail behaviour: no decision row was
+				// written, so the slog WARN IS the audit trail.
+				u.logger.WarnContext(ctx, "regrab_evaluate_failed",
+					slog.String("instance", instanceName),
+					slog.Int("series_id", origGrab.SeriesID),
+					slog.Int("season", origGrab.SeasonNumber),
+					slog.String("error", evalErr.Error()))
+			} else {
+				// 117: decision row WAS written by the replay path.
+				// Emit a lower-volume INFO referencing the decision
+				// so operators can correlate logs ↔ Activity Feed.
+				u.logger.InfoContext(ctx, "regrab_replay_error_persisted",
+					slog.String("instance", instanceName),
+					slog.Int("series_id", origGrab.SeriesID),
+					slog.Int("season", origGrab.SeasonNumber),
+					slog.String("decision_id", decisionRow.ID.String()),
+					slog.String("error", evalErr.Error()))
+			}
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_evaluated",
@@ -547,24 +580,33 @@ func (u *UseCase) runEvaluator(
 	// only when we have both GUID + IndexerID to re-POST.
 	if verdict.Unregistered && origGrab.ReleaseGUID != "" && origGrab.IndexerID > 0 {
 		outcome, d, err := u.tryReplayByGUID(ctx, inst, origGrab)
-		if err == nil {
+		switch {
+		case err == nil:
 			return outcome, d, nil
-		}
-		if !u.releaseGoneClassifier(err) {
+		case u.releaseGoneClassifier(err):
+			// 404 / 410 — topic gone from the indexer. Fall through
+			// to the existing evaluator search path. Emit one INFO so
+			// the transition is visible in logs without ratcheting up
+			// volume.
+			u.logger.InfoContext(ctx, "regrab_replay_falls_through",
+				slog.String("instance", origGrab.InstanceName),
+				slog.String("guid", origGrab.ReleaseGUID),
+				slog.Int("indexer_id", origGrab.IndexerID),
+				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("season", origGrab.SeasonNumber),
+				slog.String("reason", "release_gone_on_indexer"))
+		default:
 			// Real error (5xx, network, ctx-cancel, 4xx other than
-			// 404/410). Caller activates cooldown + counts an error.
-			return OutcomeError, decision.Decision{}, err
+			// 404/410). tryReplayByGUID has persisted a SKIP decision
+			// row (when u.decisions is wired) with a non-zero ID;
+			// surface the error so the caller activates the cooldown
+			// but reuses the existing decision row as the audit
+			// trail. When u.decisions is nil the Decision is the
+			// zero value — the caller's legacy
+			// `regrab_evaluate_failed` log path stays the audit
+			// trail (back-compat).
+			return OutcomeError, d, err
 		}
-		// 404 / 410 — topic gone from the indexer. Fall through to the
-		// existing evaluator search path. Emit one INFO so the
-		// transition is visible in logs without ratcheting up volume.
-		u.logger.InfoContext(ctx, "regrab_replay_falls_through",
-			slog.String("instance", origGrab.InstanceName),
-			slog.String("guid", origGrab.ReleaseGUID),
-			slog.Int("indexer_id", origGrab.IndexerID),
-			slog.Int("series_id", origGrab.SeriesID),
-			slog.Int("season", origGrab.SeasonNumber),
-			slog.String("reason", "release_gone_on_indexer"))
 	}
 
 	// Path 2 — evaluator search. Byte-identical to the pre-114 body.
@@ -700,19 +742,118 @@ func (u *UseCase) tryReplayByGUID(
 	// Sonarr POST /api/v3/release with the same GUID. ForceGrab returns
 	// downloadClientID (or "") on 2xx; we ignore the value because
 	// runGrab calls ForceGrab again inside grab.UseCase.Execute on the
-	// new row. Calling it twice is the same shape as the manual
-	// "Override and add" UI button — Sonarr accepts duplicates because
-	// the existing grab record will receive an `import_failed`
-	// outcome from qbit-manage / detector cleanup; the new grab row
-	// supersedes it.
-	if _, err := inst.Client.ForceGrab(ctx, origGrab.ReleaseGUID, origGrab.IndexerID); err != nil {
-		// Caller decides 404/410 vs surface.
-		return OutcomeError, decision.Decision{}, err
-	}
+	// new row.
+	_, forceErr := inst.Client.ForceGrab(ctx, origGrab.ReleaseGUID, origGrab.IndexerID)
 
-	// Synthesise the Selected release from the original grab so runGrab
-	// has a payload. ReleaseGUID + IndexerID carry the replay intent;
-	// the rest is metadata for slog / decision audit.
+	switch {
+	case forceErr == nil:
+		// Path A — clean 2xx. Existing success behaviour.
+		d := u.buildReplayDecision(origGrab,
+			decision.ChosenBecauseWatchdogReplayUnregistered,
+			fmt.Sprintf(
+				"Watchdog re-grab of grab_%s via same GUID (tracker said unregistered)",
+				origGrab.ID.String()),
+			decision.OutcomeGrab,
+			decision.ReasonGrabSelected,
+		)
+		if u.decisions != nil {
+			if err := u.decisions.Save(runCtx, d); err != nil {
+				return OutcomeError, decision.Decision{}, fmt.Errorf("persist replay decision: %w", err)
+			}
+		}
+		u.logger.InfoContext(ctx, "regrab_replay_succeeded",
+			slog.String("instance", origGrab.InstanceName),
+			slog.String("guid", origGrab.ReleaseGUID),
+			slog.Int("indexer_id", origGrab.IndexerID),
+			slog.String("decision_id", d.ID.String()),
+			slog.String("original_grab_id", origGrab.ID.String()))
+		return OutcomeGrabbed, d, nil
+
+	case u.releaseAlreadyAddedClassifier(forceErr):
+		// Path B — Sonarr 500 wrapping qBit 409. The hash is already
+		// in qBit; the replay's intent (have the file in qBit) is
+		// realised. Treat as OutcomeGrabbed with a distinct Intent
+		// so the operator can tell it apart in the UI.
+		d := u.buildReplayDecision(origGrab,
+			decision.ChosenBecauseWatchdogReplayAlreadyAdded,
+			fmt.Sprintf(
+				"Watchdog re-grab of grab_%s: qBit already had the hash (Sonarr 500 wrapping qBit 409)",
+				origGrab.ID.String()),
+			decision.OutcomeGrab,
+			decision.ReasonGrabSelected,
+		)
+		if u.decisions != nil {
+			if err := u.decisions.Save(runCtx, d); err != nil {
+				return OutcomeError, decision.Decision{}, fmt.Errorf("persist replay decision: %w", err)
+			}
+		}
+		u.logger.InfoContext(ctx, "regrab_replay_already_added",
+			slog.String("instance", origGrab.InstanceName),
+			slog.String("guid", origGrab.ReleaseGUID),
+			slog.Int("indexer_id", origGrab.IndexerID),
+			slog.String("decision_id", d.ID.String()),
+			slog.String("original_grab_id", origGrab.ID.String()))
+		return OutcomeGrabbed, d, nil
+
+	case u.releaseGoneClassifier(forceErr):
+		// Path C — 404/410 release gone. Fall through to evaluator
+		// via empty decision (caller branches on releaseGoneClassifier
+		// + empty Decision.ID).
+		return OutcomeError, decision.Decision{}, forceErr
+
+	default:
+		// Path D — any other error. Persist a SKIP decision row so
+		// the operator has an audit trail; surface OutcomeError so
+		// the caller activates cooldown + counts an error, but the
+		// caller MUST detect the populated decision and skip its
+		// own `regrab_evaluate_failed` log (avoid double-audit).
+		// When the DecisionRepository is unwired (u.decisions == nil)
+		// we cannot persist anything, so return an empty Decision and
+		// let the caller fall back to the legacy WARN audit trail.
+		if u.decisions == nil {
+			return OutcomeError, decision.Decision{}, forceErr
+		}
+		d := u.buildReplayDecision(origGrab,
+			decision.ChosenBecauseWatchdogReplayError,
+			fmt.Sprintf(
+				"Watchdog re-grab of grab_%s failed: %s",
+				origGrab.ID.String(), forceErr.Error()),
+			decision.OutcomeSkip,
+			decision.ReasonReplayError,
+		)
+		d.ErrorDetail = forceErr.Error()
+		if perr := u.decisions.Save(runCtx, d); perr != nil {
+			// Best-effort: the decision write failed. Surface the
+			// original ForceGrab error with an empty Decision so
+			// the caller falls back to the legacy
+			// regrab_evaluate_failed log path.
+			u.logger.WarnContext(ctx, "regrab_replay_error_persist_failed",
+				slog.String("instance", origGrab.InstanceName),
+				slog.String("error", perr.Error()))
+			return OutcomeError, decision.Decision{}, forceErr
+		}
+		u.logger.WarnContext(ctx, "regrab_replay_error",
+			slog.String("instance", origGrab.InstanceName),
+			slog.String("guid", origGrab.ReleaseGUID),
+			slog.Int("indexer_id", origGrab.IndexerID),
+			slog.String("decision_id", d.ID.String()),
+			slog.String("original_grab_id", origGrab.ID.String()),
+			slog.String("error", forceErr.Error()))
+		return OutcomeError, d, forceErr
+	}
+}
+
+// buildReplayDecision is the common synthetic-decision constructor
+// shared by tryReplayByGUID's success / already-added / error branches.
+// Reduces three near-identical decision.Decision literals to one helper
+// + per-call (intent, outcome, reason) tuples.
+func (u *UseCase) buildReplayDecision(
+	origGrab domaingrab.Record,
+	because decision.ChosenBecause,
+	detail string,
+	outcome decision.Outcome,
+	reason decision.Reason,
+) decision.Decision {
 	synthetic := release.Scored{
 		Release: release.Release{
 			GUID:        origGrab.ReleaseGUID,
@@ -720,57 +861,23 @@ func (u *UseCase) tryReplayByGUID(
 			IndexerID:   origGrab.IndexerID,
 			IndexerName: origGrab.IndexerName,
 			QualityName: origGrab.Quality,
-			// CustomFormatScore intentionally left at zero — we have
-			// no fresh score on a same-GUID replay; the runGrab path
-			// does NOT use it for routing decisions.
 		},
 	}
-
-	intent := decision.NewIntent(
-		nil, // TargetEpisodes — same-GUID replay has no per-episode target diff
-		nil, // HadEpisodes — likewise irrelevant
-		decision.ChosenBecauseWatchdogReplayUnregistered,
-		fmt.Sprintf(
-			"Watchdog re-grab of grab_%s via same GUID (tracker said unregistered)",
-			origGrab.ID.String(),
-		),
-	)
-
-	d := decision.Decision{
+	intent := decision.NewIntent(nil, nil, because, detail)
+	return decision.Decision{
 		ID:              uuid.New(),
 		ScanRunID:       uuid.New(), // synthetic — replay has no parent scan
 		InstanceName:    origGrab.InstanceName,
 		SeriesID:        origGrab.SeriesID,
 		SeriesTitle:     origGrab.SeriesTitle,
 		SeasonNumber:    origGrab.SeasonNumber,
-		Outcome:         decision.OutcomeGrab,
-		Reason:          decision.ReasonGrabSelected,
+		Outcome:         outcome,
+		Reason:          reason,
 		Selected:        &synthetic,
 		DryRunWouldGrab: false,
 		Intent:          &intent,
 		CreatedAt:       u.now(),
 	}
-
-	// Persist the decision row best-effort. A missed write here would
-	// leave the operator without an audit trail for the replay but is
-	// NOT a reason to abort the grab — runGrab still writes the new
-	// grab_records row and stamps SetReplayOfID against the original.
-	// Mirror the evaluator's behaviour (Save error surfaces as
-	// OutcomeError) so cooldown still fires when the DB is broken.
-	if u.decisions != nil {
-		if err := u.decisions.Save(runCtx, d); err != nil {
-			return OutcomeError, decision.Decision{}, fmt.Errorf("persist replay decision: %w", err)
-		}
-	}
-
-	u.logger.InfoContext(ctx, "regrab_replay_succeeded",
-		slog.String("instance", origGrab.InstanceName),
-		slog.String("guid", origGrab.ReleaseGUID),
-		slog.Int("indexer_id", origGrab.IndexerID),
-		slog.String("decision_id", d.ID.String()),
-		slog.String("original_grab_id", origGrab.ID.String()))
-
-	return OutcomeGrabbed, d, nil
 }
 
 // refineWatchdogIntent inspects the just-decided Decision against

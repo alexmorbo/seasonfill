@@ -33,4 +33,9 @@ const (
 	// category classifier groups them under `all_complete` / `sonarr_handles`.
 	ReasonAllComplete   Reason = "skip_all_complete"
 	ReasonSonarrHandles Reason = "skip_sonarr_handles"
+	// ReasonReplayError — Watchdog replay path persisted a decision
+	// for an error outcome that is NOT release-gone (story 117).
+	// Used so the operator's Activity Feed surfaces "replay failed"
+	// with a stable wire string instead of leaving a hole.
+	ReasonReplayError Reason = "replay_error"
 )

@@ -840,6 +840,8 @@ export const ru: Translations = {
         watchdogBetterDub: 'Watchdog: лучшая дорожка',
         watchdogBetterOther: 'Watchdog: улучшение',
         watchdogReplayUnregistered: 'Watchdog: re-grab (трекер сказал «не зарегистрирован»)',
+        watchdogReplayAlreadyAdded: 'Watchdog: re-grab (уже в qBit)',
+        watchdogReplayError: 'Watchdog: re-grab (ошибка)',
         manualSelection: 'Выбрано вручную',
       },
     },

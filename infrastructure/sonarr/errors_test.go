@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,6 +180,60 @@ func TestIsReleaseGone(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, IsReleaseGone(tc.err))
+		})
+	}
+}
+
+func TestIsReleaseAlreadyAdded(t *testing.T) {
+	t.Parallel()
+	conflictBody := "Failed to connect to qBittorrent at http://qbit.local:8080 " +
+		"[409:Conflict] [POST] /api/v2/torrents/add"
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{
+			name: "500 with full conflict body",
+			err:  &StatusError{Endpoint: "/api/v3/release", Status: 500, Body: conflictBody},
+			want: true,
+		},
+		{
+			name: "500 with mixed-case markers still matches",
+			err:  &StatusError{Endpoint: "/api/v3/release", Status: 500, Body: strings.ToUpper(conflictBody)},
+			want: true,
+		},
+		{
+			name: "500 wrapped via fmt.Errorf still classifies",
+			err: fmt.Errorf("call: %w",
+				&StatusError{Endpoint: "/api/v3/release", Status: 500, Body: conflictBody}),
+			want: true,
+		},
+		{
+			name: "500 with unrelated body (no qbit markers)",
+			err:  &StatusError{Endpoint: "/api/v3/release", Status: 500, Body: "NullReferenceException at NzbDrone.Core..."},
+			want: false,
+		},
+		{
+			name: "500 with [409:Conflict] but no qBit marker",
+			err:  &StatusError{Endpoint: "/api/v3/release", Status: 500, Body: "[409:Conflict] something else"},
+			want: false,
+		},
+		{
+			name: "503 with conflict body (wrong status)",
+			err:  &StatusError{Status: 503, Body: conflictBody},
+			want: false,
+		},
+		{name: "404 release gone", err: &StatusError{Status: 404, Body: ""}, want: false},
+		{name: "200 (not an error in production but defensive)", err: &StatusError{Status: 200}, want: false},
+		{name: "plain error", err: errors.New("dial sonarr: refused"), want: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, IsReleaseAlreadyAdded(tc.err))
 		})
 	}
 }

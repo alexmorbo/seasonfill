@@ -170,7 +170,7 @@ type Decision struct {
 type DecisionIntent struct {
 	TargetEpisodes     []int  `json:"target_episodes"             example:"10,11"`
 	HadEpisodes        []int  `json:"had_episodes"                example:"1,2,3,4,5,6,7,8,9"`
-	ChosenBecause      string `json:"chosen_because"              example:"highest_score" enums:"only_candidate,highest_score,first_pass_quality,watchdog_better_quality,watchdog_better_dub,watchdog_better_other,watchdog_replay_unregistered,manual_selection"`
+	ChosenBecause      string `json:"chosen_because"              example:"highest_score" enums:"only_candidate,highest_score,first_pass_quality,watchdog_better_quality,watchdog_better_dub,watchdog_better_other,watchdog_replay_unregistered,watchdog_replay_already_added,watchdog_replay_error,manual_selection"`
 	ChosenReasonDetail string `json:"chosen_reason_detail"        example:"score 88 vs alternates 64, 71"`
 }
 

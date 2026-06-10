@@ -122,4 +122,37 @@ describe('<GrabIntentSection />', () => {
       /same GUID/,
     );
   });
+
+  it('renders the watchdog_replay_already_added chip with the i18n label', () => {
+    const intent: DecisionIntent = {
+      target_episodes: [],
+      had_episodes: [],
+      chosen_because: 'watchdog_replay_already_added',
+      chosen_reason_detail:
+        'Watchdog re-grab of grab_abc: qBit already had the hash',
+    } as unknown as DecisionIntent;
+    render(wrap(<GrabIntentSection intent={intent} />));
+    expect(screen.getByTestId('drawer-intent-reason')).toHaveTextContent(
+      /already in qBit|уже в qBit/i,
+    );
+    expect(screen.getByTestId('drawer-intent-reason-detail')).toHaveTextContent(
+      /already had the hash/,
+    );
+  });
+
+  it('renders the watchdog_replay_error chip with the i18n label', () => {
+    const intent: DecisionIntent = {
+      target_episodes: [],
+      had_episodes: [],
+      chosen_because: 'watchdog_replay_error',
+      chosen_reason_detail: 'Watchdog re-grab of grab_abc failed: sonarr 503',
+    } as unknown as DecisionIntent;
+    render(wrap(<GrabIntentSection intent={intent} />));
+    expect(screen.getByTestId('drawer-intent-reason')).toHaveTextContent(
+      /re-grab.*error|re-grab.*ошибка/i,
+    );
+    expect(screen.getByTestId('drawer-intent-reason-detail')).toHaveTextContent(
+      /sonarr 503/,
+    );
+  });
 });

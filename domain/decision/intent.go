@@ -41,6 +41,20 @@ const (
 	// ChosenBecauseWatchdogBetterOther so the operator can tell at a
 	// glance that this re-grab is a same-GUID retry, not an upgrade.
 	ChosenBecauseWatchdogReplayUnregistered ChosenBecause = "watchdog_replay_unregistered"
+	// ChosenBecauseWatchdogReplayAlreadyAdded — replay path where
+	// Sonarr POST /api/v3/release returned 500 wrapping qBittorrent
+	// 409 Conflict (hash already present in qBit). The replay intent
+	// (have the file in qBit) is already realised, so we persist the
+	// row with OutcomeGrab + this Intent value rather than as an
+	// error. Operator can tell at a glance that this re-grab was a
+	// no-op because the file was already in the download client.
+	ChosenBecauseWatchdogReplayAlreadyAdded ChosenBecause = "watchdog_replay_already_added"
+	// ChosenBecauseWatchdogReplayError — replay path where ForceGrab
+	// returned an error that is neither success-equivalent nor a
+	// fall-through (release-gone). The decision row is persisted with
+	// OutcomeSkip + ReasonReplayError so the operator has an audit
+	// trail; the surrounding cooldown still fires.
+	ChosenBecauseWatchdogReplayError ChosenBecause = "watchdog_replay_error"
 	// ChosenBecauseManualSelection — operator-initiated pick via the
 	// manual-mode handler. Bypasses scoring entirely.
 	ChosenBecauseManualSelection ChosenBecause = "manual_selection"
@@ -59,6 +73,8 @@ func (c ChosenBecause) IsValid() bool {
 		ChosenBecauseWatchdogBetterDub,
 		ChosenBecauseWatchdogBetterOther,
 		ChosenBecauseWatchdogReplayUnregistered,
+		ChosenBecauseWatchdogReplayAlreadyAdded,
+		ChosenBecauseWatchdogReplayError,
 		ChosenBecauseManualSelection:
 		return true
 	}
