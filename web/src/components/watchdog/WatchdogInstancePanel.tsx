@@ -4,7 +4,6 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Sparkline } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';
 import { useQbitSettings } from '@/api/qbit';
 import { useWatchdogToggle } from '@/lib/api/watchdogToggle';
@@ -12,13 +11,11 @@ import type { WatchdogRollup } from '@/lib/api/watchdogRollups';
 
 export interface WatchdogInstancePanelProps {
   rollup: WatchdogRollup;
-  sparkline?: number[];
   onOpenInstanceForm?: (instance: string) => void;
 }
 
 export function WatchdogInstancePanel({
   rollup,
-  sparkline = [],
   onOpenInstanceForm,
 }: WatchdogInstancePanelProps) {
   const { t } = useTranslation();
@@ -115,16 +112,6 @@ export function WatchdogInstancePanel({
             <Badge variant="solid" mono>
               {t('watchdog.config.chips.noBetterMax', { n: rollup.no_better_max })}
             </Badge>
-          </div>
-          <div className="flex items-end gap-2">
-            <Sparkline
-              data={sparkline}
-              ariaLabel={`regrab-sparkline-${rollup.instance_name}`}
-              className="h-[30px] flex-1"
-            />
-            <span className="text-[10px] uppercase tracking-wide text-tx-faint">
-              {t('watchdog.config.sparkline.label', { n: rollup.regrabs_7d })}
-            </span>
           </div>
         </>
       )}
