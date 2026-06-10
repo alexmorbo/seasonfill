@@ -668,6 +668,35 @@ func (u *UseCase) tryReplayByGUID(
 		slog.Int("season", origGrab.SeasonNumber),
 		slog.String("original_grab_id", origGrab.ID.String()))
 
+	// Warm Sonarr's release cache for this (series, season) so the
+	// GUID is recognised by POST /api/v3/release. Sonarr's release
+	// cache is per-process and cold after a Sonarr restart; without
+	// the warm GET the same-GUID ForceGrab returns 404 "Couldn't
+	// find requested release in cache" and the caller would
+	// false-positive into release_gone_on_indexer (errors.go:115-124
+	// classifies any 404/410 as gone). The warm call's result is
+	// discarded — the cache population is the side effect we want;
+	// the choice of GUID is already locked in by origGrab.
+	warmed, warmErr := inst.Client.SearchReleases(ctx, origGrab.SeriesID, origGrab.SeasonNumber)
+	if warmErr != nil {
+		// Non-fatal: another path (manual UI search, prior poll, fresh
+		// scan) may already have warmed the cache. Proceed to
+		// ForceGrab; if the cache is still cold the existing 404
+		// fall-through catches it.
+		u.logger.WarnContext(ctx, "regrab_replay_warm_failed",
+			slog.String("instance", origGrab.InstanceName),
+			slog.String("guid", origGrab.ReleaseGUID),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber),
+			slog.String("error", warmErr.Error()))
+	} else {
+		u.logger.DebugContext(ctx, "regrab_replay_warmed",
+			slog.String("instance", origGrab.InstanceName),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber),
+			slog.Int("releases", len(warmed)))
+	}
+
 	// Sonarr POST /api/v3/release with the same GUID. ForceGrab returns
 	// downloadClientID (or "") on 2xx; we ignore the value because
 	// runGrab calls ForceGrab again inside grab.UseCase.Execute on the

@@ -942,11 +942,204 @@ func TestRunInstance_ReplayByGUID_NoIndexerID_SkipsReplayPath(t *testing.T) {
 	assert.Equal(t, 0, forceGrabCalls, "missing IndexerID must skip the replay path entirely")
 }
 
-// replayingSonarr wraps fakeSonarr with a hook on ForceGrab so the
-// replay tests can both inspect call args and inject errors.
+// TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab — happy path.
+// SearchReleases MUST run before ForceGrab, with the same (seriesID,
+// seasonNumber) as the original grab. ForceGrab succeeds → OutcomeGrabbed.
+func TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, gx, mt := makeUC(t, ctrl)
+	decisionsRepo := mocks.NewMockDecisionRepository(ctrl)
+	uc.WithDecisions(decisionsRepo)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	// Record the call ORDER — warm MUST happen before ForceGrab.
+	var calls []string
+	var warmSeries, warmSeason int
+	sonarrStub := replayingSonarr{
+		searchReleases: func(_ context.Context, seriesID, seasonNumber int) ([]release.Release, error) {
+			calls = append(calls, "search")
+			warmSeries = seriesID
+			warmSeason = seasonNumber
+			return nil, nil
+		},
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			calls = append(calls, "grab")
+			return "", nil
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+	newID := uuid.New()
+	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
+		Record:   domaingrab.Record{ID: newID, InstanceName: testInstance, SeriesID: testSeries, SeasonNumber: testSeason},
+		Attempts: 1,
+	})
+	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.RegrabbedCount)
+	assert.Equal(t, []string{"search", "grab"}, calls,
+		"SearchReleases MUST be called before ForceGrab to warm Sonarr's release cache")
+	assert.Equal(t, orig.SeriesID, warmSeries, "warm call must use the original grab's seriesID")
+	assert.Equal(t, orig.SeasonNumber, warmSeason, "warm call must use the original grab's seasonNumber")
+}
+
+// TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab — if the
+// warm GET fails (network / 5xx / ctx-cancel), the replay must
+// proceed to ForceGrab anyway. Reasoning: another path may have
+// already populated the cache; the existing 404 fall-through covers
+// the cold case.
+func TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, gx, mt := makeUC(t, ctrl)
+	decisionsRepo := mocks.NewMockDecisionRepository(ctrl)
+	uc.WithDecisions(decisionsRepo)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	forceGrabCalls := 0
+	sonarrStub := replayingSonarr{
+		searchReleases: func(_ context.Context, _, _ int) ([]release.Release, error) {
+			return nil, errors.New("dial sonarr: connection refused")
+		},
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			forceGrabCalls++
+			return "", nil
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+	newID := uuid.New()
+	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
+		Record:   domaingrab.Record{ID: newID, InstanceName: testInstance, SeriesID: testSeries, SeasonNumber: testSeason},
+		Attempts: 1,
+	})
+	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.RegrabbedCount, "warm failure must not block the replay")
+	assert.Equal(t, 1, forceGrabCalls, "ForceGrab must still run when SearchReleases errors")
+}
+
+// TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone — warm
+// succeeds but ForceGrab still returns 404. The replay must
+// fall through to the evaluator path — warming does not change the
+// 404 → release_gone classification.
+func TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	warmCalls, forceGrabCalls := 0, 0
+	sonarrStub := replayingSonarr{
+		searchReleases: func(_ context.Context, _, _ int) ([]release.Release, error) {
+			warmCalls++
+			return nil, nil
+		},
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			forceGrabCalls++
+			return "", &sonarrStatusError404{}
+		},
+	}
+	uc.WithReleaseGoneClassifier(func(err error) bool {
+		var target *sonarrStatusError404
+		return errors.As(err, &target)
+	})
+
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	// Evaluator runs as fall-through and returns nothing-better.
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
+	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, warmCalls, "warm call still happens before ForceGrab")
+	assert.Equal(t, 1, forceGrabCalls, "ForceGrab runs after warm")
+	assert.Equal(t, 1, res.NothingBetterCount,
+		"warm-then-404 still falls through; evaluator's verdict drives the outcome")
+}
+
+// replayingSonarr wraps fakeSonarr with hooks on SearchReleases and
+// ForceGrab so the replay tests can both inspect call args and inject
+// errors. The default (nil hook) returns the fakeSonarr zero-value
+// answer — empty slice / nil error / nil grab id.
 type replayingSonarr struct {
 	fakeSonarr
-	forceGrab func(ctx context.Context, guid string, indexerID int) (string, error)
+	searchReleases func(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error)
+	forceGrab      func(ctx context.Context, guid string, indexerID int) (string, error)
+}
+
+func (r replayingSonarr) SearchReleases(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error) {
+	if r.searchReleases == nil {
+		return r.fakeSonarr.SearchReleases(ctx, seriesID, seasonNumber)
+	}
+	return r.searchReleases(ctx, seriesID, seasonNumber)
 }
 
 func (r replayingSonarr) ForceGrab(ctx context.Context, guid string, indexerID int) (string, error) {
