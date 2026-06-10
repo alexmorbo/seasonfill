@@ -522,11 +522,15 @@ type RecentDecisionRow struct {
 
 // RecentGrabRow is the read-only projection driving the per-season
 // recent_grabs trailer. Capped at 20 most-recent-first by the repo.
+// TorrentHash is the qBit infohash from grab_records.torrent_hash and is
+// nil for rows created before Phase 10 (the column was added in 039c
+// without backfill).
 type RecentGrabRow struct {
 	ID           string
 	ReleaseTitle string
 	Status       string
 	ReplayOfID   *string
+	TorrentHash  *string
 	CreatedAt    time.Time
 }
 
@@ -587,12 +591,13 @@ func (r *WatchdogSeasonsRepository) RecentGrabsBySeason(
 		ReleaseTitle string    `gorm:"column:release_title"`
 		Status       string    `gorm:"column:status"`
 		ReplayOfID   *string   `gorm:"column:replay_of_id"`
+		TorrentHash  *string   `gorm:"column:torrent_hash"`
 		CreatedAt    time.Time `gorm:"column:created_at"`
 	}
 	var rows []row
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	if err := db.Table("grab_records").
-		Select("id, season_number, release_title, status, replay_of_id, created_at").
+		Select("id, season_number, release_title, status, replay_of_id, torrent_hash, created_at").
 		Where("instance_name = ? AND series_id = ?", instance, seriesID).
 		Order("created_at DESC, id DESC").
 		Find(&rows).Error; err != nil {
@@ -609,6 +614,7 @@ func (r *WatchdogSeasonsRepository) RecentGrabsBySeason(
 			ReleaseTitle: r.ReleaseTitle,
 			Status:       r.Status,
 			ReplayOfID:   r.ReplayOfID,
+			TorrentHash:  r.TorrentHash,
 			CreatedAt:    r.CreatedAt,
 		})
 	}

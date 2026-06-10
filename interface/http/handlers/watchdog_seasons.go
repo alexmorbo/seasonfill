@@ -221,6 +221,7 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 
 	noBetterMax := h.noBetterMaxFor(ctx, instance)
 	for _, row := range rows {
+		seasonGrabs := grabsBySeason[row.SeasonNumber]
 		season := dto.WatchdogSeriesSeason{
 			SeasonNumber:    row.SeasonNumber,
 			Origin:          originDTO(row),
@@ -228,7 +229,10 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 			NoBetterCounter: noBetterDTO(row, noBetterMax),
 			Blacklist:       blacklistDTO(row),
 			RecentDecisions: toRecentDecisionDTOs(decisionsBySeason[row.SeasonNumber]),
-			RecentGrabs:     toRecentGrabDTOs(grabsBySeason[row.SeasonNumber]),
+			RecentGrabs:     toRecentGrabDTOs(seasonGrabs),
+		}
+		if season.Origin != nil {
+			season.Origin.TorrentHash = firstNonEmptyHash(seasonGrabs)
 		}
 		if s, ok := stats[row.SeasonNumber]; ok {
 			missing := s.AiredEpisodes - s.ExistingEpisodes
@@ -358,6 +362,18 @@ func toRecentGrabDTOs(rows []repositories.RecentGrabRow) []dto.WatchdogSeriesRec
 		})
 	}
 	return out
+}
+
+// firstNonEmptyHash returns the torrent_hash of the most recent grab row
+// that has one. Returns "" when no row has a non-nil hash. Rows are
+// already sorted most-recent-first by RecentGrabsBySeason.
+func firstNonEmptyHash(rows []repositories.RecentGrabRow) string {
+	for _, r := range rows {
+		if r.TorrentHash != nil && *r.TorrentHash != "" {
+			return *r.TorrentHash
+		}
+	}
+	return ""
 }
 
 // parseSeasonsLimit mirrors parseLimit but with the seasons-specific

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
   Ban,
+  Copy,
   ExternalLink,
   GitBranch,
   ShieldCheck,
@@ -10,6 +11,7 @@ import {
   Timer,
   TriangleAlert,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Sheet,
   SheetContent,
@@ -242,6 +244,7 @@ function SeasonOrigin({ season }: { season: WatchdogSeriesSeason }) {
     o?.guid && isTrackerUrl(applyGuidRewrites(o.guid, rules))
       ? applyGuidRewrites(o.guid, rules)
       : null;
+  const torrentHash = (o?.torrent_hash ?? '').trim();
   return (
     <section className="flex flex-col gap-1.5" data-testid="drawer-section-origin">
       <SectionLabel>{t('watchdog.drawer.origin.title')}</SectionLabel>
@@ -257,6 +260,9 @@ function SeasonOrigin({ season }: { season: WatchdogSeriesSeason }) {
           <span className="text-tx-faint">
             {t('watchdog.drawer.origin.lastUsed')}: {relativeTime(o.last_used_at ?? o.last_seen_at)}
           </span>
+          {torrentHash !== '' && (
+            <OriginTorrentHashRow hash={torrentHash} />
+          )}
           {trackerHref && (
             <a
               href={trackerHref}
@@ -275,6 +281,56 @@ function SeasonOrigin({ season }: { season: WatchdogSeriesSeason }) {
       )}
     </section>
   );
+}
+
+function OriginTorrentHashRow({ hash }: { hash: string }) {
+  const { t } = useTranslation();
+  const onCopy = async () => {
+    if (!navigator.clipboard?.writeText) {
+      toast.error(t('watchdog.drawer.origin.clipboardUnavailable'));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(hash);
+      toast.success(t('watchdog.drawer.origin.hashCopied'));
+    } catch {
+      toast.error(t('watchdog.drawer.origin.copyFailed'));
+    }
+  };
+  return (
+    <span
+      data-testid="drawer-origin-torrent-hash"
+      className="inline-flex items-center gap-1.5 mt-0.5 min-w-0"
+    >
+      <span className="text-tx-faint shrink-0">
+        {t('watchdog.drawer.origin.infoHash')}:
+      </span>
+      <span
+        className="font-mono text-tx-primary truncate min-w-0"
+        title={hash}
+        data-testid="drawer-origin-torrent-hash-value"
+      >
+        {truncateHash(hash)}
+      </span>
+      <button
+        type="button"
+        onClick={onCopy}
+        data-testid="drawer-origin-torrent-hash-copy"
+        aria-label={t('watchdog.drawer.origin.copyHash')}
+        className={cn(
+          'shrink-0 inline-flex items-center text-tx-muted',
+          'hover:text-tx-primary transition-colors',
+        )}
+      >
+        <Copy className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
+
+function truncateHash(hash: string): string {
+  if (hash.length <= 12) return hash;
+  return `${hash.slice(0, 8)}…${hash.slice(-4)}`;
 }
 
 function SeasonStats({ season }: { season: WatchdogSeriesSeason }) {

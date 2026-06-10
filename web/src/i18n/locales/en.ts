@@ -1574,6 +1574,11 @@ export const en = {
         firstSeen: 'first seen',
         lastUsed: 'last used',
         openTracker: 'Open on tracker',
+        infoHash: 'info hash',
+        copyHash: 'Copy info hash',
+        hashCopied: 'Info hash copied to clipboard',
+        copyFailed: 'Could not copy info hash',
+        clipboardUnavailable: 'Clipboard not available',
       },
       cooldown: {
         title: 'Cooldown',

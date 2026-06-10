@@ -4037,6 +4037,8 @@ export type components = {
             readonly indexer?: string;
             readonly last_seen_at?: string;
             readonly last_used_at?: string;
+            /** @example a1b2c3d4e5f60718293a4b5c6d7e8f9001122334 */
+            readonly torrent_hash?: string;
         };
         readonly "dto.WatchdogSeasonsList": {
             readonly items?: readonly components["schemas"]["dto.WatchdogSeason"][];

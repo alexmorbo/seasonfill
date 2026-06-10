@@ -284,3 +284,82 @@ func TestWatchdogSeasons_Series_RejectsInvalidID(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	hash := "a1b2c3d4e5f60718293a4b5c6d7e8f9001122334"
+	row := repositories.WatchdogSeasonRow{
+		InstanceID:        1,
+		InstanceName:      "homelab",
+		SeriesID:          169,
+		SeriesTitle:       "Friends",
+		Monitored:         true,
+		SeasonNumber:      2,
+		OriginGUID:        "g1",
+		OriginIndexerName: "Prowlarr",
+		OriginFirstSeenAt: now.Add(-time.Hour),
+		OriginLastSeenAt:  now,
+	}
+	series := &stubSeriesLister{
+		rows: []repositories.WatchdogSeasonRow{row},
+		grabs: map[int][]repositories.RecentGrabRow{
+			2: {
+				{ID: "newer", ReleaseTitle: "Title", Status: "imported", TorrentHash: &hash, CreatedAt: now},
+				{ID: "older", ReleaseTitle: "Old", Status: "import_failed", CreatedAt: now.Add(-time.Hour)},
+			},
+		},
+	}
+	h := NewWatchdogSeasonsHandler(&stubSeasonsLister{}, series, stubSettingsLookup{}, nil)
+	r := newSeasonsRouter(h)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/watchdog/series/homelab/169", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var got dto.WatchdogSeriesDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Seasons, 1)
+	require.NotNil(t, got.Seasons[0].Origin)
+	assert.Equal(t, hash, got.Seasons[0].Origin.TorrentHash)
+}
+
+func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	row := repositories.WatchdogSeasonRow{
+		InstanceID:        1,
+		InstanceName:      "homelab",
+		SeriesID:          169,
+		SeriesTitle:       "Friends",
+		Monitored:         true,
+		SeasonNumber:      2,
+		OriginGUID:        "g1",
+		OriginIndexerName: "Prowlarr",
+		OriginFirstSeenAt: now.Add(-time.Hour),
+		OriginLastSeenAt:  now,
+	}
+	series := &stubSeriesLister{
+		rows: []repositories.WatchdogSeasonRow{row},
+		grabs: map[int][]repositories.RecentGrabRow{
+			2: {{ID: "no-hash", ReleaseTitle: "Title", Status: "imported", CreatedAt: now}},
+		},
+	}
+	h := NewWatchdogSeasonsHandler(&stubSeasonsLister{}, series, stubSettingsLookup{}, nil)
+	r := newSeasonsRouter(h)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/watchdog/series/homelab/169", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	// Confirm the JSON omits torrent_hash entirely (omitempty).
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	seasons := raw["seasons"].([]any)
+	require.Len(t, seasons, 1)
+	origin := seasons[0].(map[string]any)["origin"].(map[string]any)
+	_, hasHash := origin["torrent_hash"]
+	assert.False(t, hasHash, "torrent_hash key omitted when no grab has a hash")
+}

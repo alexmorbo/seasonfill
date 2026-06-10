@@ -1572,6 +1572,11 @@ export const ru: Translations = {
         firstSeen: 'first seen',
         lastUsed: 'last used',
         openTracker: 'Открыть на трекере',
+        infoHash: 'хеш',
+        copyHash: 'Скопировать info-хеш',
+        hashCopied: 'Info-хеш скопирован в буфер',
+        copyFailed: 'Не удалось скопировать info-хеш',
+        clipboardUnavailable: 'Буфер обмена недоступен',
       },
       cooldown: {
         title: 'Cooldown',

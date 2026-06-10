@@ -1614,6 +1614,9 @@ components:
           type: string
         last_used_at:
           type: string
+        torrent_hash:
+          example: a1b2c3d4e5f60718293a4b5c6d7e8f9001122334
+          type: string
       type: object
     dto.WatchdogSeasonsList:
       properties:

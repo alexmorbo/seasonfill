@@ -16,6 +16,13 @@ vi.mock('@/lib/api', async () => {
   return { ...actual, api: vi.fn() };
 });
 
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 import { api } from '@/lib/api';
 
 function makeClient() {
@@ -258,5 +265,79 @@ describe('<WatchdogSeriesDrawer />', () => {
       expect(screen.getByTestId('probe-series-id').textContent).toBe('');
       expect(screen.getByTestId('probe-instance').textContent).toBe('');
     });
+  });
+
+  it('renders the torrent hash row when origin.torrent_hash is present', async () => {
+    const hash = 'a1b2c3d4e5f60718293a4b5c6d7e8f9001122334';
+    const baseSeason = fullPayload.seasons[0]!;
+    const payload = {
+      ...fullPayload,
+      seasons: [
+        {
+          ...baseSeason,
+          origin: {
+            ...baseSeason.origin,
+            torrent_hash: hash,
+          },
+        },
+      ],
+    };
+    vi.mocked(api).mockResolvedValueOnce(payload);
+    render(<Harness initialEntry="/watchdog?series_id=169&instance=homelab" />);
+
+    const node = await screen.findByTestId('drawer-origin-torrent-hash-value');
+    expect(node).toBeInTheDocument();
+    // Truncated, not full hash, in the visible text.
+    expect(node.textContent).not.toBe(hash);
+    expect(node.textContent).toMatch(/^a1b2c3d4…/);
+    // Full hash preserved in the title attribute for tooltip + a11y.
+    expect(node.getAttribute('title')).toBe(hash);
+    // The copy affordance is present.
+    expect(
+      screen.getByTestId('drawer-origin-torrent-hash-copy'),
+    ).toBeInTheDocument();
+  });
+
+  it('copies the full hash to clipboard on copy click', async () => {
+    const hash = 'deadbeefcafe11223344556677889900aabbccdd';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const baseSeason = fullPayload.seasons[0]!;
+    const payload = {
+      ...fullPayload,
+      seasons: [
+        {
+          ...baseSeason,
+          origin: {
+            ...baseSeason.origin,
+            torrent_hash: hash,
+          },
+        },
+      ],
+    };
+    vi.mocked(api).mockResolvedValueOnce(payload);
+    render(<Harness initialEntry="/watchdog?series_id=169&instance=homelab" />);
+
+    const btn = await screen.findByTestId('drawer-origin-torrent-hash-copy');
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(hash);
+    });
+  });
+
+  it('omits the torrent hash row when origin.torrent_hash is absent', async () => {
+    // fullPayload.seasons[*].origin already has no torrent_hash field.
+    vi.mocked(api).mockResolvedValueOnce(fullPayload);
+    render(<Harness initialEntry="/watchdog?series_id=169&instance=homelab" />);
+
+    expect(
+      await screen.findByTestId('drawer-section-origin'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('drawer-origin-torrent-hash'),
+    ).not.toBeInTheDocument();
   });
 });
