@@ -22,16 +22,21 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/alexmorbo/seasonfill/internal/config"
+	applogger "github.com/alexmorbo/seasonfill/internal/logger"
 )
 
 var ErrUnknownDriver = errors.New("unknown database driver")
 
 func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	gormCfg := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		Logger: applogger.NewGormLogger(nil, applogger.GormConfig{
+			SlowThreshold:             applogger.DefaultSlowThreshold,
+			IgnoreRecordNotFoundError: true,
+			LogLevel:                  gormlogger.Warn,
+		}),
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
