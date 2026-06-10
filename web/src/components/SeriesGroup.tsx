@@ -40,34 +40,36 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
             return (
               <li
                 key={d.id}
-                className={'flex items-center gap-2 text-[12px] font-mono px-2 py-1.5 rounded bg-surface' +
+                className={'grid grid-cols-[46px_170px_88px_1fr_auto_auto] gap-3 items-center text-[12px] font-mono px-2 py-1.5 rounded bg-surface' +
                   (d.superseded_by_id ? ' line-through opacity-60' : '')}
                 data-testid={d.superseded_by_id ? 'series-row-superseded' : 'series-row'}
               >
-                <span className="text-faint shrink-0 w-10">S{String(row.seasonNumber).padStart(2, '0')}</span>
-                <CategoryChip value={d.category} variant="compact" />
-                {d.category === 'error' && d.error_detail && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t('seriesGroup.errorTooltipAria', { message: d.error_detail })}
-                        data-testid="series-row-error-icon"
-                        className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-hidden focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
-                      >
-                        <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-md whitespace-pre-wrap font-mono text-[11px]">
-                      {d.error_detail}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
+                <span className="text-faint">S{String(row.seasonNumber).padStart(2, '0')}</span>
+                <span className="inline-flex items-center gap-1.5 min-w-0">
+                  <CategoryChip value={d.category} variant="compact" />
+                  {d.category === 'error' && d.error_detail && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t('seriesGroup.errorTooltipAria', { message: d.error_detail })}
+                          data-testid="series-row-error-icon"
+                          className="inline-flex items-center text-status-danger shrink-0 cursor-help focus:outline-hidden focus-visible:ring-1 focus-visible:ring-status-danger rounded-sm"
+                        >
+                          <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-md whitespace-pre-wrap font-mono text-[11px]">
+                        {d.error_detail}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </span>
                 <StatusBadge value={d.decision} mode="outcome" />
-                <span className="text-muted truncate flex-1">
+                <span className="text-muted truncate">
                   {resolveReasonLabel(d.reason, t)}
                 </span>
-                {guidShort && <span className="text-faint">{guidShort}…</span>}
+                <span className="text-faint">{guidShort ? `${guidShort}…` : ''}</span>
                 <button type="button"
                   className="ml-1 p-1 rounded text-muted hover:text-foreground hover:bg-surface-2"
                   aria-label={t('seriesGroup.openDecisionAria', { title: group.seriesTitle, season: row.seasonNumber })}
