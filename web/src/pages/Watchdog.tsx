@@ -88,34 +88,16 @@ export function Watchdog() {
         <WatchdogNotConfiguredEmpty />
       ) : (
         <>
-          <WatchdogAggregateStrip
-            rollups={rollups.data}
-            isLoading={rollups.isLoading}
-            totals={totals.data}
-          />
-
           <div
             className="mb-5 grid gap-5 items-start [grid-template-columns:minmax(0,1fr)_320px] max-[1080px]:[grid-template-columns:minmax(0,1fr)]"
             data-testid="watchdog-grid"
           >
             <div className="flex min-w-0 flex-col gap-3.5">
-              {primary ? (
-                <WatchdogActivityFeed
-                  instance={primary.instance_name}
-                  maxNoBetter={primary.no_better_max}
-                />
-              ) : (
-                <Skeleton className="h-[400px] w-full" />
-              )}
-
-              <section data-testid="watchdog-seasons-section">
-                <SeasonsFilters
-                  filters={filters}
-                  instances={instanceNames}
-                  onChange={setFilters}
-                />
-                <WatchdogSeasonsTable filters={filters} />
-              </section>
+              <WatchdogAggregateStrip
+                rollups={rollups.data}
+                isLoading={rollups.isLoading}
+                totals={totals.data}
+              />
             </div>
             <div className="flex flex-col gap-3.5">
               {rollups.isLoading
@@ -130,6 +112,26 @@ export function Watchdog() {
                     />
                   ))}
             </div>
+          </div>
+
+          <div className="mb-5 flex flex-col gap-3.5">
+            {primary ? (
+              <WatchdogActivityFeed
+                instance={primary.instance_name}
+                maxNoBetter={primary.no_better_max}
+              />
+            ) : (
+              <Skeleton className="h-[400px] w-full" />
+            )}
+
+            <section data-testid="watchdog-seasons-section">
+              <SeasonsFilters
+                filters={filters}
+                instances={instanceNames}
+                onChange={setFilters}
+              />
+              <WatchdogSeasonsTable filters={filters} />
+            </section>
           </div>
 
           <div className="flex flex-col gap-3.5" data-testid="watchdog-blacklist-slot">
