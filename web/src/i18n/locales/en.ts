@@ -234,7 +234,7 @@ export const en = {
     },
     recentImports: {
       title: 'Recent imports',
-      subtitle: 'last 24 hours · {{count}} series',
+      subtitle: '{{count}} series',
       allLink: 'All imports',
       loadFailed: 'failed to load',
     },

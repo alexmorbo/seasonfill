@@ -236,7 +236,7 @@ export const ru: Translations = {
     },
     recentImports: {
       title: 'Недавние импорты',
-      subtitle: 'за 24 часа · {{count}} сериалов',
+      subtitle: '{{count}} сериалов',
       allLink: 'Все импорты',
       loadFailed: 'загрузка не удалась',
     },
