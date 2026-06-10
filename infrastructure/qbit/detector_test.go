@@ -80,7 +80,7 @@ func TestDetector_Detect(t *testing.T) {
 			wantTrackMsg: "Torrent not found",
 		},
 		{
-			name: "all not-working with tracker-down msg → TrackerDown (precedence)",
+			name: "all not-working with tracker-down msg → TrackerDown",
 			trackers: []Tracker{
 				{URL: "http://tr1/announce", Status: 4, Msg: "Service Unavailable"},
 			},
@@ -89,14 +89,14 @@ func TestDetector_Detect(t *testing.T) {
 			wantTrackMsg: "Service Unavailable",
 		},
 		{
-			name: "mixed not-working: tracker-down first wins over unregistered",
+			name: "mixed not-working: unregistered wins over tracker-down (inter-tracker)",
 			trackers: []Tracker{
 				{URL: "http://tr1/announce", Status: 4, Msg: "Torrent not found"},
 				{URL: "http://tr2/announce", Status: 4, Msg: "Tracker is down"},
 			},
-			wantDown:     true,
-			wantTrkURL:   "http://tr2/announce",
-			wantTrackMsg: "Tracker is down",
+			wantUnreg:    true,
+			wantTrkURL:   "http://tr1/announce",
+			wantTrackMsg: "Torrent not found",
 		},
 		{
 			name: "all not-working unknown msg → neutral",
@@ -308,5 +308,140 @@ func TestIsSyntheticTracker(t *testing.T) {
 				t.Fatalf("isSyntheticTracker(%q) = %v, want %v", tc.url, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestDetect_UnregisteredWinsOverTrackerDownAcrossTrackers is the exact
+// live Y.F.A.N. S02 (hash 10b5dcf4…) repro: rutracker has 4 mirror
+// announces. One mirror (bt2) returns "520 (unknown HTTP error)" which
+// matches IsTrackerDown via the "(unknown http error)" substring; the
+// other three (bt, bt3, bt4) return the definite "Torrent not
+// registered" rejection. Semantically rutracker is ONE tracker — any
+// single mirror confirming the rejection is authoritative regardless
+// of another mirror being transiently down. After the inter-tracker
+// precedence flip, Unregistered wins and TrackerURL points at the
+// first unregistered tracker in list order (bt).
+func TestDetect_UnregisteredWinsOverTrackerDownAcrossTrackers(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "http://bt.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
+			{URL: "http://bt2.t-ru.org/ann?magnet", Status: 4, Msg: "520 (unknown HTTP error)"},
+			{URL: "http://bt3.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
+			{URL: "http://bt4.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if !res.Unregistered {
+		t.Fatalf("want Unregistered=true (any clean unreg mirror is authoritative), got %+v", res)
+	}
+	if res.TrackerDown {
+		t.Fatalf("want TrackerDown=false (unregistered wins inter-tracker), got %+v", res)
+	}
+	if res.TrackerURL != "http://bt.t-ru.org/ann?magnet" {
+		t.Fatalf("want first unregistered mirror URL, got %q", res.TrackerURL)
+	}
+	if res.TrackerMsg != "Torrent not registered" {
+		t.Fatalf("want unregistered msg, got %q", res.TrackerMsg)
+	}
+}
+
+// TestDetect_TrackerDownStillWinsWhenNoUnregistered confirms that with
+// the precedence flip, TrackerDown still fires as the verdict when no
+// tracker matches IsUnregistered. All four trackers carry distinct
+// tracker-down patterns; none match the unregistered list. Pass 1 is
+// empty-handed → Pass 2 returns TrackerDown on the first matching
+// tracker in list order.
+func TestDetect_TrackerDownStillWinsWhenNoUnregistered(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "http://tr1/announce", Status: 4, Msg: "Service Unavailable"},
+			{URL: "http://tr2/announce", Status: 4, Msg: "Tracker is down"},
+			{URL: "http://tr3/announce", Status: 4, Msg: "Connection timeout"},
+			{URL: "http://tr4/announce", Status: 4, Msg: "Bad Gateway"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if res.Unregistered {
+		t.Fatalf("want Unregistered=false (no unreg pattern matched), got %+v", res)
+	}
+	if !res.TrackerDown {
+		t.Fatalf("want TrackerDown=true (all trackers down), got %+v", res)
+	}
+	if res.TrackerURL != "http://tr1/announce" {
+		t.Fatalf("want first tracker URL, got %q", res.TrackerURL)
+	}
+	if res.TrackerMsg != "Service Unavailable" {
+		t.Fatalf("want first tracker msg, got %q", res.TrackerMsg)
+	}
+}
+
+// TestDetect_SingleAmbiguousMessageStillNotUnregistered validates that
+// the intra-message precedence guard inside IsUnregistered
+// (patterns.go:114-116) is unchanged. A single tracker carries a
+// message that contains BOTH a tracker-down substring ("internal
+// server error") and an unregistered substring ("uploaded"). The
+// guard makes IsUnregistered return false → Pass 1 is empty-handed →
+// Pass 2 returns TrackerDown. This confirms the inter-tracker flip
+// does not break per-message resolution.
+func TestDetect_SingleAmbiguousMessageStillNotUnregistered(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "http://tr1/announce", Status: 4, Msg: "Internal Server Error: uploaded body too large"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if res.Unregistered {
+		t.Fatalf("want Unregistered=false (intra-message guard), got %+v", res)
+	}
+	if !res.TrackerDown {
+		t.Fatalf("want TrackerDown=true (intra-message guard resolves to down), got %+v", res)
+	}
+	if res.TrackerURL != "http://tr1/announce" {
+		t.Fatalf("want tr1 URL, got %q", res.TrackerURL)
+	}
+}
+
+// TestDetect_TwoTrackerDownOneAmbiguous confirms Pass 1 is correctly
+// empty-handed when no tracker carries a clean unregistered message —
+// even when one message is ambiguous (contains an unregistered
+// substring guarded by intra-message precedence). All three messages
+// resolve to tracker-down via IsTrackerDown; none match IsUnregistered.
+// Pass 2 fires and returns TrackerDown on the first matching tracker.
+func TestDetect_TwoTrackerDownOneAmbiguous(t *testing.T) {
+	fc := &fakeClient{trackersByHash: map[string][]Tracker{
+		"H": {
+			{URL: "http://tr1/announce", Status: 4, Msg: "Tracker is down"},
+			{URL: "http://tr2/announce", Status: 4, Msg: "Internal Server Error: uploaded body too large"},
+			{URL: "http://tr3/announce", Status: 4, Msg: "Connection refused"},
+		},
+	}}
+	d := NewDetector(fc, nil)
+	res, err := d.Detect(context.Background(), "H")
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if res.Unregistered {
+		t.Fatalf("want Unregistered=false (no clean unreg in any tracker), got %+v", res)
+	}
+	if !res.TrackerDown {
+		t.Fatalf("want TrackerDown=true (pass 2 fires after empty pass 1), got %+v", res)
+	}
+	if res.TrackerURL != "http://tr1/announce" {
+		t.Fatalf("want first matching tracker URL, got %q", res.TrackerURL)
+	}
+	if res.TrackerMsg != "Tracker is down" {
+		t.Fatalf("want first matching tracker msg, got %q", res.TrackerMsg)
 	}
 }

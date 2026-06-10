@@ -39,8 +39,12 @@ func isSyntheticTracker(url string) bool {
 }
 
 // DetectionResult is the per-hash verdict returned by Detect. Both
-// Unregistered and TrackerDown can be false (unknown error or all-disabled
-// list); they are never both true (precedence rule in IsUnregistered).
+// Unregistered and TrackerDown can be false (unknown error or
+// all-disabled list); they are never both true. Inter-tracker
+// precedence inside Detect resolves the mix: any tracker matching
+// IsUnregistered wins over any tracker matching IsTrackerDown, because
+// a definite rejection from one mirror is authoritative while another
+// mirror being transiently down is a negative signal.
 type DetectionResult struct {
 	Hash         string
 	Unregistered bool
@@ -82,15 +86,25 @@ func NewDetector(c Client, customUnregMsgs []string) *Detector {
 //     Return all-false (Unregistered=false, TrackerDown=false). This is
 //     parent invariant C-4 — multi-tracker torrents are NEVER flagged
 //     unregistered on partial-tracker death.
-//  3. Else, iterate the remaining trackers. trackerDown takes precedence
-//     over unregistered: if any tracker matches IsTrackerDown → return
-//     TrackerDown=true. Else if any tracker matches IsUnregistered (with
-//     the custom list extending defaults) → return Unregistered=true.
+//  3. Else, iterate the remaining trackers. Unregistered takes
+//     precedence over trackerDown across trackers: if any tracker
+//     matches IsUnregistered (with the custom list extending defaults)
+//     → return Unregistered=true. Else if any tracker matches
+//     IsTrackerDown → return TrackerDown=true. A definite "not
+//     registered" reply from one mirror beats another mirror being
+//     transiently unreachable — rutracker / similar pools all share one
+//     backend, so one clean rejection is authoritative.
 //  4. Else → return all-false (unknown error class — neutral, no re-grab).
 //
 // On the Unregistered / TrackerDown branches, TrackerMsg + TrackerURL
 // carry the first tracker that produced the verdict (deterministic by
 // list order — the order qBit returns trackers in).
+//
+// Note: intra-message precedence inside IsUnregistered is unchanged —
+// a single message that matches both lists (e.g. "internal server
+// error… uploaded") still resolves to TrackerDown via the guard at
+// patterns.go:114-116. Only the inter-tracker precedence (this loop
+// order) was flipped.
 func (d *Detector) Detect(ctx context.Context, hash string) (DetectionResult, error) {
 	if hash == "" {
 		return DetectionResult{}, fmt.Errorf("%w: empty hash", ErrTorrentNotFound)
@@ -124,18 +138,20 @@ func (d *Detector) Detect(ctx context.Context, hash string) (DetectionResult, er
 		}
 	}
 
-	// Precedence: tracker-down first, then unregistered.
+	// Inter-tracker precedence: unregistered wins over trackerDown.
+	// A definite "not registered" reply from any mirror is authoritative;
+	// other mirrors being transiently unreachable does not negate it.
 	for _, t := range active {
-		if IsTrackerDown(t.Msg) {
-			res.TrackerDown = true
+		if IsUnregistered(t.Msg, d.customUnregMsgs) {
+			res.Unregistered = true
 			res.TrackerMsg = t.Msg
 			res.TrackerURL = t.URL
 			return res, nil
 		}
 	}
 	for _, t := range active {
-		if IsUnregistered(t.Msg, d.customUnregMsgs) {
-			res.Unregistered = true
+		if IsTrackerDown(t.Msg) {
+			res.TrackerDown = true
 			res.TrackerMsg = t.Msg
 			res.TrackerURL = t.URL
 			return res, nil
