@@ -839,6 +839,7 @@ export const ru: Translations = {
         watchdogBetterQuality: 'Watchdog: лучше качество',
         watchdogBetterDub: 'Watchdog: лучшая дорожка',
         watchdogBetterOther: 'Watchdog: улучшение',
+        watchdogReplayUnregistered: 'Watchdog: re-grab (трекер сказал «не зарегистрирован»)',
         manualSelection: 'Выбрано вручную',
       },
     },

@@ -15,6 +15,7 @@ const REASON_KEY: Record<string, string> = {
   watchdog_better_quality: 'reason.watchdogBetterQuality',
   watchdog_better_dub: 'reason.watchdogBetterDub',
   watchdog_better_other: 'reason.watchdogBetterOther',
+  watchdog_replay_unregistered: 'reason.watchdogReplayUnregistered',
   manual_selection: 'reason.manualSelection',
 };
 
@@ -29,6 +30,7 @@ const REASON_VARIANT: Record<
   watchdog_better_quality: 'info',
   watchdog_better_dub: 'warn',
   watchdog_better_other: 'accent',
+  watchdog_replay_unregistered: 'warn',
   manual_selection: 'accent',
 };
 

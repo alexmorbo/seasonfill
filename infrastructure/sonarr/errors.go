@@ -103,6 +103,26 @@ func IsAuth(err error) bool {
 	return false
 }
 
+// IsReleaseGone reports whether the error carries a 404 or 410 HTTP
+// status — Sonarr's signal that POST /api/v3/release could not find
+// the requested release on the indexer (forum topic deleted / topic
+// id retired). 404 is the common case; 410 covers indexers that
+// explicitly tombstone removed releases. Other 4xx codes (400, 401,
+// 403) stay false — the caller distinguishes "release gone" from
+// "auth broken / bad payload" because the right reaction differs:
+// release-gone falls through to the evaluator search path, auth/bad
+// payload surfaces as a real error.
+func IsReleaseGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Status == 404 || se.Status == 410
+	}
+	return false
+}
+
 // Classifier is a struct-shaped adapter implementing application/grab.classifier.
 type Classifier struct{}
 

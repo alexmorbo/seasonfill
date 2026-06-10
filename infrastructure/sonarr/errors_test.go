@@ -3,6 +3,7 @@ package sonarr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -153,4 +154,31 @@ func TestClassifier_AdapterMethods(t *testing.T) {
 	assert.True(t, c.IsAuth(&StatusError{Status: 401}))
 	assert.True(t, c.IsAuth(&StatusError{Status: 403}))
 	assert.False(t, c.IsAuth(&StatusError{Status: 404}))
+}
+
+func TestIsReleaseGone(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "404", err: &StatusError{Endpoint: "/api/v3/release", Status: 404, Body: ""}, want: true},
+		{name: "410", err: &StatusError{Endpoint: "/api/v3/release", Status: 410, Body: ""}, want: true},
+		{name: "400", err: &StatusError{Status: 400}, want: false},
+		{name: "401", err: &StatusError{Status: 401}, want: false},
+		{name: "403", err: &StatusError{Status: 403}, want: false},
+		{name: "500", err: &StatusError{Status: 500}, want: false},
+		{name: "503", err: &StatusError{Status: 503}, want: false},
+		{name: "wrapped 404", err: fmt.Errorf("call: %w", &StatusError{Status: 404}), want: true},
+		{name: "non-status", err: errors.New("generic"), want: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, IsReleaseGone(tc.err))
+		})
+	}
 }

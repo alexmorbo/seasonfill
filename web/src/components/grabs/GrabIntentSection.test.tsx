@@ -104,4 +104,22 @@ describe('<GrabIntentSection />', () => {
     render(wrap(<GrabIntentSection intent={intent} />));
     expect(screen.queryByTestId('drawer-intent-had-overflow')).toBeNull();
   });
+
+  it('renders the watchdog_replay_unregistered chip with the i18n label', () => {
+    const intent: DecisionIntent = {
+      target_episodes: [],
+      had_episodes: [],
+      chosen_because: 'watchdog_replay_unregistered',
+      chosen_reason_detail:
+        'Watchdog re-grab of grab_abc via same GUID (tracker said unregistered)',
+    } as unknown as DecisionIntent;
+    render(wrap(<GrabIntentSection intent={intent} />));
+    // i18n test setup falls back to the en bundle.
+    expect(screen.getByTestId('drawer-intent-reason')).toHaveTextContent(
+      /re-grab/i,
+    );
+    expect(screen.getByTestId('drawer-intent-reason-detail')).toHaveTextContent(
+      /same GUID/,
+    );
+  });
 });

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 )
 
@@ -404,8 +406,10 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber))
 
-		// Step 8 — evaluate.
-		outcome, decisionRow, evalErr := u.runEvaluator(ctx, inst, origGrab)
+		// Step 8 — evaluate. Pass the qBit verdict in so the
+		// unregistered branch can try a same-GUID replay before
+		// falling into the full evaluator search (114).
+		outcome, decisionRow, evalErr := u.runEvaluator(ctx, inst, origGrab, verdict)
 		if evalErr != nil {
 			res.ErrorCount++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeError))
@@ -493,13 +497,59 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 	return res, nil
 }
 
-// runEvaluator is the per-triple evaluator invocation. Resolves the
-// Series row via the Sonarr client, builds the evaluate.Input the same
-// way the rescan use case does (D60 pattern), and translates the
-// evaluator's decision.Outcome into the regrab use case's OutcomeReason
-// enum.
-func (u *UseCase) runEvaluator(ctx context.Context, inst scan.Instance, origGrab domaingrab.Record) (OutcomeReason, decision.Decision, error) {
-	// Sonarr-side reads — same shape as rescan.runDetached.
+// runEvaluator is the per-triple evaluator invocation.
+//
+// Two paths live here:
+//
+//  1. UNREGISTERED short-circuit — the qBit verdict said the tracker
+//     rejected the existing torrent. Before searching anew, we try
+//     POSTing the same GUID + IndexerID back to Sonarr. Forum-style
+//     indexers (rutracker, etc.) often update the .torrent in-place,
+//     so the same topic URL returns refreshed content. On 2xx we
+//     persist a synthetic Decision row stamped
+//     ChosenBecauseWatchdogReplayUnregistered and return
+//     OutcomeGrabbed; the caller's existing grab branch fires
+//     runGrab → SetReplayOfID untouched.
+//
+//  2. EVALUATOR search — the default path. Resolves Series via Sonarr,
+//     builds the evaluate.Input the way rescan does (D60 pattern), and
+//     classifies the decision into a regrab OutcomeReason.
+//
+// Error classification on path 1 follows operator decision: 404/410
+// → fall through to path 2 (the topic is gone, search elsewhere);
+// every other error surfaces as OutcomeError so the caller activates
+// the cooldown and does NOT silently search.
+func (u *UseCase) runEvaluator(
+	ctx context.Context,
+	inst scan.Instance,
+	origGrab domaingrab.Record,
+	verdict qbit.DetectionResult,
+) (OutcomeReason, decision.Decision, error) {
+	// Path 1 — same-GUID replay. Only on the unregistered verdict and
+	// only when we have both GUID + IndexerID to re-POST.
+	if verdict.Unregistered && origGrab.ReleaseGUID != "" && origGrab.IndexerID > 0 {
+		outcome, d, err := u.tryReplayByGUID(ctx, inst, origGrab)
+		if err == nil {
+			return outcome, d, nil
+		}
+		if !callSonarrIsReleaseGone(err) {
+			// Real error (5xx, network, ctx-cancel, 4xx other than
+			// 404/410). Caller activates cooldown + counts an error.
+			return OutcomeError, decision.Decision{}, err
+		}
+		// 404 / 410 — topic gone from the indexer. Fall through to the
+		// existing evaluator search path. Emit one INFO so the
+		// transition is visible in logs without ratcheting up volume.
+		u.logger.InfoContext(ctx, "regrab_replay_falls_through",
+			slog.String("instance", origGrab.InstanceName),
+			slog.String("guid", origGrab.ReleaseGUID),
+			slog.Int("indexer_id", origGrab.IndexerID),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber),
+			slog.String("reason", "release_gone_on_indexer"))
+	}
+
+	// Path 2 — evaluator search. Byte-identical to the pre-114 body.
 	seriesRow, err := inst.Client.GetSeries(ctx, origGrab.SeriesID)
 	if err != nil {
 		return OutcomeError, decision.Decision{}, fmt.Errorf("get series: %w", err)
@@ -527,24 +577,11 @@ func (u *UseCase) runEvaluator(ctx context.Context, inst scan.Instance, origGrab
 		Episodes:  episodes,
 	}
 
-	// 091a / F-P2-2: stamp the watchdog intent on the persisted
-	// Decision row. We pre-seed ChosenBecauseWatchdogBetterOther so
-	// the row is never devoid of context — the post-Execute refine
-	// step below replaces it with ChosenBecauseWatchdogBetterQuality
-	// when the selected release's quality is plainly higher than the
-	// original's. Dub axis is left to the frontend's at-read-time
-	// derivation (DeriveReplayKind on the grab pair) because both
-	// sides need Parsed data which isn't on the candidate yet.
-	// Detail carries the parent grab id so an operator drilling into
-	// the Decision can hop straight to the parent in audit.
 	intentDetail := fmt.Sprintf("Watchdog re-grab of grab_%s", origGrab.ID.String())
 
-	// Detached writeCtx for the evaluator persist path — D60 pattern.
-	// The request ctx may be cancelled mid-iteration; the evaluator's
-	// decision row MUST still land.
 	runCtx := logger.WithTraceID(context.Background(), origGrab.ID.String())
 	d, err := u.evaluate.Execute(runCtx, evaluate.Input{
-		ScanRunID:             uuid.New(), // synthetic — re-grab has no parent scan
+		ScanRunID:             uuid.New(),
 		Instance:              origGrab.InstanceName,
 		Sonarr:                inst.Client,
 		Series:                seriesRow,
@@ -565,13 +602,6 @@ func (u *UseCase) runEvaluator(ctx context.Context, inst scan.Instance, origGrab
 		return OutcomeError, d, err
 	}
 
-	// 091a / F-P2-2: post-Execute refinement. When the evaluator
-	// picked a release whose Quality string outranks the original
-	// grab's, promote ChosenBecauseWatchdogBetterOther →
-	// ChosenBecauseWatchdogBetterQuality and rewrite the intent row.
-	// The original placeholder stays on rows where the comparison
-	// can't be made (no Selected, equal/unknown quality, no original
-	// Quality on file). u.decisions is optional — no-op when unwired.
 	if u.decisions != nil {
 		if refined, ok := refineWatchdogIntent(d, origGrab); ok {
 			if uerr := u.decisions.UpdateIntent(runCtx, d.ID, refined); uerr != nil {
@@ -585,6 +615,147 @@ func (u *UseCase) runEvaluator(ctx context.Context, inst scan.Instance, origGrab
 	}
 
 	return classifyOutcome(d), d, nil
+}
+
+// tryReplayByGUID POSTs the original grab's GUID + IndexerID back to
+// Sonarr. On 2xx, persists a synthetic Decision row stamped
+// ChosenBecauseWatchdogReplayUnregistered and returns OutcomeGrabbed
+// — the caller's existing grab branch then fires runGrab +
+// SetReplayOfID as if the evaluator had picked a fresh candidate.
+//
+// We synthesise a `release.Scored` from the original grab record so
+// `runGrab` has a Selected to feed `grab.UseCase.Execute`. The release
+// only needs (GUID, IndexerID) — those are what Sonarr's downstream
+// ForceGrab call inside grab.UseCase will reuse. Title / quality
+// fields carry the original values for the slog audit trail; the
+// actual quality of the replayed torrent comes back on the next
+// OnGrab webhook and is captured on the new grab row by the webhook
+// handler.
+//
+// Returns the raw sonarr error on non-2xx so the caller can classify
+// 404/410 (fall through) vs other (surface). The error path does NOT
+// persist a decision row — the fall-through path's evaluator will.
+func (u *UseCase) tryReplayByGUID(
+	ctx context.Context,
+	inst scan.Instance,
+	origGrab domaingrab.Record,
+) (OutcomeReason, decision.Decision, error) {
+	runCtx := logger.WithTraceID(context.Background(), origGrab.ID.String())
+
+	u.logger.InfoContext(ctx, "regrab_replay_attempt",
+		slog.String("instance", origGrab.InstanceName),
+		slog.String("guid", origGrab.ReleaseGUID),
+		slog.Int("indexer_id", origGrab.IndexerID),
+		slog.Int("series_id", origGrab.SeriesID),
+		slog.Int("season", origGrab.SeasonNumber),
+		slog.String("original_grab_id", origGrab.ID.String()))
+
+	// Sonarr POST /api/v3/release with the same GUID. ForceGrab returns
+	// downloadClientID (or "") on 2xx; we ignore the value because
+	// runGrab calls ForceGrab again inside grab.UseCase.Execute on the
+	// new row. Calling it twice is the same shape as the manual
+	// "Override and add" UI button — Sonarr accepts duplicates because
+	// the existing grab record will receive an `import_failed`
+	// outcome from qbit-manage / detector cleanup; the new grab row
+	// supersedes it.
+	if _, err := inst.Client.ForceGrab(ctx, origGrab.ReleaseGUID, origGrab.IndexerID); err != nil {
+		// Caller decides 404/410 vs surface.
+		return OutcomeError, decision.Decision{}, err
+	}
+
+	// Synthesise the Selected release from the original grab so runGrab
+	// has a payload. ReleaseGUID + IndexerID carry the replay intent;
+	// the rest is metadata for slog / decision audit.
+	synthetic := release.Scored{
+		Release: release.Release{
+			GUID:        origGrab.ReleaseGUID,
+			Title:       origGrab.ReleaseTitle,
+			IndexerID:   origGrab.IndexerID,
+			IndexerName: origGrab.IndexerName,
+			QualityName: origGrab.Quality,
+			// CustomFormatScore intentionally left at zero — we have
+			// no fresh score on a same-GUID replay; the runGrab path
+			// does NOT use it for routing decisions.
+		},
+	}
+
+	intent := decision.NewIntent(
+		nil, // TargetEpisodes — same-GUID replay has no per-episode target diff
+		nil, // HadEpisodes — likewise irrelevant
+		decision.ChosenBecauseWatchdogReplayUnregistered,
+		fmt.Sprintf(
+			"Watchdog re-grab of grab_%s via same GUID (tracker said unregistered)",
+			origGrab.ID.String(),
+		),
+	)
+
+	d := decision.Decision{
+		ID:              uuid.New(),
+		ScanRunID:       uuid.New(), // synthetic — replay has no parent scan
+		InstanceName:    origGrab.InstanceName,
+		SeriesID:        origGrab.SeriesID,
+		SeriesTitle:     origGrab.SeriesTitle,
+		SeasonNumber:    origGrab.SeasonNumber,
+		Outcome:         decision.OutcomeGrab,
+		Reason:          decision.ReasonGrabSelected,
+		Selected:        &synthetic,
+		DryRunWouldGrab: false,
+		Intent:          &intent,
+		CreatedAt:       u.now(),
+	}
+
+	// Persist the decision row best-effort. A missed write here would
+	// leave the operator without an audit trail for the replay but is
+	// NOT a reason to abort the grab — runGrab still writes the new
+	// grab_records row and stamps SetReplayOfID against the original.
+	// Mirror the evaluator's behaviour (Save error surfaces as
+	// OutcomeError) so cooldown still fires when the DB is broken.
+	if u.decisions != nil {
+		if err := u.decisions.Save(runCtx, d); err != nil {
+			return OutcomeError, decision.Decision{}, fmt.Errorf("persist replay decision: %w", err)
+		}
+	}
+
+	u.logger.InfoContext(ctx, "regrab_replay_succeeded",
+		slog.String("instance", origGrab.InstanceName),
+		slog.String("guid", origGrab.ReleaseGUID),
+		slog.Int("indexer_id", origGrab.IndexerID),
+		slog.String("decision_id", d.ID.String()),
+		slog.String("original_grab_id", origGrab.ID.String()))
+
+	return OutcomeGrabbed, d, nil
+}
+
+// sonarrIsReleaseGone is a tiny adapter so the use case package
+// doesn't reach into infrastructure/sonarr directly in the hot loop.
+// Swapped in tests via the package-private OverrideReleaseGoneClassifier
+// hook (see replay_test_export.go). Guarded by sonarrIsReleaseGoneMu so
+// the swap is race-free when parallel tests are in flight.
+var (
+	sonarrIsReleaseGoneMu sync.RWMutex
+	sonarrIsReleaseGone   = sonarrReleaseGoneAdapter
+)
+
+func sonarrReleaseGoneAdapter(err error) bool {
+	return sonarrIsReleaseGoneImpl(err)
+}
+
+// callSonarrIsReleaseGone reads the current classifier under the RW
+// mutex. Hot path: production reads complete in O(few ns); the mutex
+// only serialises against the rare test swap.
+func callSonarrIsReleaseGone(err error) bool {
+	sonarrIsReleaseGoneMu.RLock()
+	fn := sonarrIsReleaseGone
+	sonarrIsReleaseGoneMu.RUnlock()
+	return fn(err)
+}
+
+// sonarrIsReleaseGoneImpl is the production implementation — checks
+// the Sonarr StatusError 404/410 sentinels. Wrapped in a package-level
+// var (sonarrIsReleaseGone above) so tests can stub it without
+// importing infrastructure/sonarr or fabricating StatusError values.
+func sonarrIsReleaseGoneImpl(err error) bool {
+	return sonarr.IsReleaseGone(err)
 }
 
 // refineWatchdogIntent inspects the just-decided Decision against

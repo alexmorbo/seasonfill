@@ -63,13 +63,16 @@ func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
 	res1, err := h.uc.RunInstance(ctx, testInstanceName)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res1.UnregisteredCount, "qBit returned one unregistered torrent")
-	assert.Equal(t, 1, res1.RegrabbedCount, "evaluator picked a candidate, grab succeeded")
+	assert.Equal(t, 1, res1.RegrabbedCount, "replay path succeeded, grab fired")
 	assert.Equal(t, 0, res1.SkippedCooldown, "first call: no cooldown yet")
 	assert.Equal(t, 0, res1.ErrorCount, "no error branches")
 
-	// Sonarr POST /release counter should be exactly 1.
-	require.EqualValues(t, 1, h.sonarrPOSTs.Load(),
-		"first RunInstance should fire one Sonarr grab POST")
+	// Sonarr POST /release counter should be exactly 2: once from the
+	// 114 same-GUID replay path, once from runGrab's grab.UseCase.Execute.
+	// Sonarr accepts the duplicate — same shape as the manual "Override
+	// and add" UI button (story 114).
+	require.EqualValues(t, 2, h.sonarrPOSTs.Load(),
+		"first RunInstance should fire two Sonarr grab POSTs (replay + runGrab)")
 
 	// Assert a new grab record landed with replay_of_id = original.
 	checkReplayPointer(t, h)
@@ -84,7 +87,7 @@ func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
 	assert.Equal(t, 1, res2.UnregisteredCount, "detector still flags unregistered")
 	assert.Equal(t, 0, res2.RegrabbedCount, "cooldown gate blocked second grab")
 	assert.Equal(t, 1, res2.SkippedCooldown, "skip_cooldown branch was taken")
-	require.EqualValues(t, 1, h.sonarrPOSTs.Load(),
+	require.EqualValues(t, 2, h.sonarrPOSTs.Load(),
 		"second RunInstance should NOT fire another Sonarr POST")
 }
 

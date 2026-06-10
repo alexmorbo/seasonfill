@@ -76,3 +76,12 @@ func TestNewIntent_AcceptsUnknownChosenBecause(t *testing.T) {
 	in := NewIntent([]int{1}, []int{}, ChosenBecause("future_axis"), "experimental")
 	assert.Equal(t, ChosenBecause("future_axis"), in.ChosenBecause)
 }
+
+func TestChosenBecause_IsValid_ReplayUnregistered(t *testing.T) {
+	t.Parallel()
+	assert.True(t, ChosenBecauseWatchdogReplayUnregistered.IsValid(),
+		"watchdog_replay_unregistered must be IsValid()=true")
+	assert.Equal(t, "watchdog_replay_unregistered",
+		string(ChosenBecauseWatchdogReplayUnregistered),
+		"wire string is frozen — the SPA reason map keys on it")
+}

@@ -834,6 +834,7 @@ export const en = {
         watchdogBetterQuality: 'Watchdog: better quality',
         watchdogBetterDub: 'Watchdog: better dub',
         watchdogBetterOther: 'Watchdog: upgrade',
+        watchdogReplayUnregistered: 'Watchdog: re-grab (tracker said unregistered)',
         manualSelection: 'Manually selected',
       },
     },

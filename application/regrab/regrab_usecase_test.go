@@ -366,6 +366,7 @@ func TestRunInstance_EvaluateGrab_HappyPath(t *testing.T) {
 	uc.WithClock(func() time.Time { return fixedNow })
 	s := enabledSettings()
 	orig := successGrab()
+	orig.ReleaseGUID = "" // skip 114 replay path — exercise evaluator branch
 	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
 	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
 	qclient.EXPECT().Login(gomock.Any()).Return(nil)
@@ -414,6 +415,7 @@ func TestRunInstance_NothingBetter_IncrementsCounterAndMaybeBlacklists(t *testin
 	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
 	s := enabledSettings()
 	orig := successGrab()
+	orig.ReleaseGUID = "" // skip 114 replay path — exercise evaluator branch
 	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
 	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
 	qclient.EXPECT().Login(gomock.Any()).Return(nil)
@@ -458,6 +460,7 @@ func TestRunInstance_DualTorrentSameTriple_EvaluatesOnce(t *testing.T) {
 	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
 	s := enabledSettings()
 	orig := successGrab()
+	orig.ReleaseGUID = "" // skip 114 replay path — exercise evaluator branch
 	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
 	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
 	qclient.EXPECT().Login(gomock.Any()).Return(nil)
@@ -498,6 +501,7 @@ func TestRunInstance_EvaluateError_CountsErrorActivatesCooldown(t *testing.T) {
 	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, _, ev, _, mt := makeUC(t, ctrl)
 	s := enabledSettings()
 	orig := successGrab()
+	orig.ReleaseGUID = "" // skip 114 replay path — exercise evaluator branch
 	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
 	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
 	qclient.EXPECT().Login(gomock.Any()).Return(nil)
@@ -575,6 +579,7 @@ func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
 
 	s := enabledSettings()
 	orig := successGrab()
+	orig.ReleaseGUID = "" // skip 114 replay path — exercise evaluator branch
 
 	// Two torrents: one we own + one orphan. The orphan covers the
 	// grab_lookup_miss path; the owned one covers the rest. Both also
@@ -658,3 +663,307 @@ func collectLogMsgs(t *testing.T, buf []byte) map[string]struct{} {
 // Reuse evaluate.Input type in test imports — keeps the import alive
 // in case mockgen output drops the indirect dep.
 var _ = evaluate.Input{}
+
+// TestRunInstance_ReplayByGUID_Success — unregistered verdict with a
+// valid GUID + IndexerID. ForceGrab succeeds. The use case must skip
+// the evaluator entirely, persist a synthetic Decision row, and run
+// the existing grab branch (which produces a new grab_records row +
+// SetReplayOfID).
+func TestRunInstance_ReplayByGUID_Success(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, gx, mt := makeUC(t, ctrl)
+	decisionsRepo := mocks.NewMockDecisionRepository(ctrl)
+	uc.WithDecisions(decisionsRepo)
+
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	// Wire a Sonarr stub whose ForceGrab succeeds and records the call.
+	var gotGUID string
+	var gotIndexerID int
+	forceGrabCalls := 0
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, guid string, indexerID int) (string, error) {
+			forceGrabCalls++
+			gotGUID = guid
+			gotIndexerID = indexerID
+			return "", nil
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	// Replay path persists a synthetic decision row — capture it.
+	var saved decision.Decision
+	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d decision.Decision) error {
+		saved = d
+		return nil
+	})
+
+	// Evaluator must NOT be called on the replay-success path.
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+
+	// Grab executor runs as if a fresh candidate was picked.
+	newID := uuid.New()
+	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
+		Record: domaingrab.Record{ID: newID, InstanceName: testInstance,
+			SeriesID: testSeries, SeasonNumber: testSeason},
+		Attempts: 1,
+	})
+	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.RegrabbedCount, "replay success counts as a regular regrab")
+	assert.Equal(t, 1, forceGrabCalls, "ForceGrab MUST be called exactly once")
+	assert.Equal(t, orig.ReleaseGUID, gotGUID)
+	assert.Equal(t, orig.IndexerID, gotIndexerID)
+
+	require.NotNil(t, saved.Intent, "synthetic decision row MUST carry an Intent")
+	assert.Equal(t,
+		decision.ChosenBecauseWatchdogReplayUnregistered,
+		saved.Intent.ChosenBecause,
+		"intent.chosen_because must mark the replay path")
+	assert.Contains(t, saved.Intent.ChosenReasonDetail, orig.ID.String(),
+		"intent detail must mention the parent grab id for audit")
+	require.NotNil(t, saved.Selected, "synthetic decision must carry a Selected so runGrab works")
+	assert.Equal(t, orig.ReleaseGUID, saved.Selected.Release.GUID,
+		"synthetic Selected must reuse the original GUID")
+	assert.Equal(t, decision.OutcomeGrab, saved.Outcome)
+}
+
+// TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator —
+// ForceGrab returns 404. The use case must call the evaluator as if
+// no replay step existed.
+func TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	// ForceGrab → 404 release gone.
+	forceGrabCalls := 0
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			forceGrabCalls++
+			return "", &sonarrStatusError404{}
+		},
+	}
+	// Override the package-level adapter so the use case classifies our
+	// stub error as "release gone" without importing the real sonarr
+	// package types into the test. See regrab/replay_test_export.go.
+	restore := regrab.OverrideReleaseGoneClassifier(func(err error) bool {
+		var target *sonarrStatusError404
+		return errors.As(err, &target)
+	})
+	defer restore()
+
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	// Evaluator runs (fall-through). Return nothing-better → counter
+	// path + cooldown set.
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
+	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, forceGrabCalls, "ForceGrab must be tried before fall-through")
+	assert.Equal(t, 1, res.NothingBetterCount,
+		"after 404 fall-through, evaluator's verdict drives the outcome")
+}
+
+// TestRunInstance_ReplayByGUID_TransientError_SurfacesAsError —
+// ForceGrab returns 503. The use case must NOT fall through; it
+// surfaces OutcomeError and the cooldown fires.
+func TestRunInstance_ReplayByGUID_TransientError_SurfacesAsError(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, _, ev, _, mt := makeUC(t, ctrl)
+	s := enabledSettings()
+	orig := successGrab()
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			return "", errors.New("sonarr 503 service unavailable")
+		},
+	}
+	// Default classifier returns false for plain errors → surface.
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+
+	// Evaluator MUST NOT be called.
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
+
+	mt.EXPECT().IncRegrabResult(testInstance, "error")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	res, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.ErrorCount, "transient ForceGrab error counts as error, not replay miss")
+}
+
+// TestRunInstance_ReplayByGUID_NoGUID_SkipsReplayPath — grab row has
+// empty ReleaseGUID. Replay step is skipped; evaluator runs.
+func TestRunInstance_ReplayByGUID_NoGUID_SkipsReplayPath(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
+	s := enabledSettings()
+	orig := successGrab()
+	orig.ReleaseGUID = "" // <- no GUID, replay path must be skipped
+
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	forceGrabCalls := 0
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			forceGrabCalls++
+			return "", nil
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
+	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	_, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 0, forceGrabCalls, "empty GUID must skip the replay path entirely")
+}
+
+// TestRunInstance_ReplayByGUID_NoIndexerID_SkipsReplayPath — grab row
+// has IndexerID == 0. Replay step is skipped; evaluator runs.
+func TestRunInstance_ReplayByGUID_NoIndexerID_SkipsReplayPath(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	uc, settings, instances, qbitFac, detFac, det, qclient, grabs, cooldowns, bl, cnt, ev, _, mt := makeUC(t, ctrl)
+	s := enabledSettings()
+	orig := successGrab()
+	orig.IndexerID = 0 // <- no IndexerID, replay path must be skipped
+
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+
+	forceGrabCalls := 0
+	sonarrStub := replayingSonarr{
+		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
+			forceGrabCalls++
+			return "", nil
+		},
+	}
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
+	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	_, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+	assert.Equal(t, 0, forceGrabCalls, "missing IndexerID must skip the replay path entirely")
+}
+
+// replayingSonarr wraps fakeSonarr with a hook on ForceGrab so the
+// replay tests can both inspect call args and inject errors.
+type replayingSonarr struct {
+	fakeSonarr
+	forceGrab func(ctx context.Context, guid string, indexerID int) (string, error)
+}
+
+func (r replayingSonarr) ForceGrab(ctx context.Context, guid string, indexerID int) (string, error) {
+	if r.forceGrab == nil {
+		return "", nil
+	}
+	return r.forceGrab(ctx, guid, indexerID)
+}
+
+// sonarrStatusError404 is a tiny stand-in for the real Sonarr
+// StatusError{Status:404}. We can't construct the real type from a
+// _test.go file without an import cycle, so the test overrides the
+// release-gone classifier with one that matches THIS type. The use
+// case behaviour under test (fall-through vs surface) is what
+// matters; the classifier itself is exercised by the unit test on
+// IsReleaseGone in infrastructure/sonarr.
+type sonarrStatusError404 struct{}
+
+func (sonarrStatusError404) Error() string { return "stub: 404 release gone" }

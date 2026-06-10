@@ -32,6 +32,15 @@ const (
 	// data). The row IS a replay but the improvement reason is
 	// implicit.
 	ChosenBecauseWatchdogBetterOther ChosenBecause = "watchdog_better_other"
+	// ChosenBecauseWatchdogReplayUnregistered — replay path triggered
+	// because the tracker said "torrent not registered". The use case
+	// re-grabbed the SAME GUID (forum topic) under the assumption the
+	// uploader replaced the .torrent in-place. No quality comparison —
+	// the row IS a replay and the trigger was the unregistered verdict,
+	// not a quality/dub upgrade signal. Distinct from
+	// ChosenBecauseWatchdogBetterOther so the operator can tell at a
+	// glance that this re-grab is a same-GUID retry, not an upgrade.
+	ChosenBecauseWatchdogReplayUnregistered ChosenBecause = "watchdog_replay_unregistered"
 	// ChosenBecauseManualSelection — operator-initiated pick via the
 	// manual-mode handler. Bypasses scoring entirely.
 	ChosenBecauseManualSelection ChosenBecause = "manual_selection"
@@ -49,6 +58,7 @@ func (c ChosenBecause) IsValid() bool {
 		ChosenBecauseWatchdogBetterQuality,
 		ChosenBecauseWatchdogBetterDub,
 		ChosenBecauseWatchdogBetterOther,
+		ChosenBecauseWatchdogReplayUnregistered,
 		ChosenBecauseManualSelection:
 		return true
 	}
