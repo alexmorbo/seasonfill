@@ -5,6 +5,7 @@ import { CategoryChip } from '@/components/CategoryChip';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SeriesGroup as SeriesGroupModel } from '@/lib/decision-grouping';
+import { resolveReasonLabel } from '@/lib/reason-label';
 
 export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
   group: SeriesGroupModel;
@@ -64,7 +65,7 @@ export function SeriesGroup({ group, expanded, onToggle, onOpenDecision }: {
                 )}
                 <StatusBadge value={d.decision} mode="outcome" />
                 <span className="text-muted truncate flex-1">
-                  {d.reason ? t(`reasons.${d.reason}`, { defaultValue: d.reason }) : ''}
+                  {resolveReasonLabel(d.reason, t)}
                 </span>
                 {guidShort && <span className="text-faint">{guidShort}…</span>}
                 <button type="button"

@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { CategoryChip } from '@/components/CategoryChip';
 import { cn } from '@/lib/utils';
 import type { Decision } from '@/lib/api/decisions';
+import { resolveReasonLabel } from '@/lib/reason-label';
 
 export interface DecisionsSeasonRowProps {
   readonly decision: Decision;
@@ -47,9 +48,7 @@ export function DecisionsSeasonRow({
         </span>
       </span>
       <span className="text-[12.5px] text-tx-muted truncate">
-        {decision.reason
-          ? t(`reasons.${decision.reason}`, { defaultValue: decision.reason })
-          : '—'}
+        {resolveReasonLabel(decision.reason, t)}
       </span>
       <span className="font-mono text-[11px] text-tx-faint inline-flex items-center gap-1.5">
         <span className="text-tx-muted">
