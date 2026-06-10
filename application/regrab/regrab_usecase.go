@@ -76,6 +76,11 @@ type InstanceRegistry interface {
 	Get(name string) (scan.Instance, bool)
 }
 
+// regrabDebugHashSample bounds the per-cycle "first N hashes" sample
+// emitted at debug level by the regrab_torrents_listed checkpoint. Kept
+// small so debug output remains readable on a 100+ torrent client.
+const regrabDebugHashSample = 3
+
 // ErrUnknownInstance — instance name lookup miss in the registry.
 // Used by tests to assert the error path.
 var ErrUnknownInstance = errors.New("regrab: unknown instance")
@@ -239,6 +244,22 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 	}
 	res.TorrentsSeen = len(torrents)
 
+	if u.logger.Enabled(ctx, slog.LevelDebug) {
+		sampleN := regrabDebugHashSample
+		if len(torrents) < sampleN {
+			sampleN = len(torrents)
+		}
+		sampleHashes := make([]string, 0, sampleN)
+		for i := 0; i < sampleN; i++ {
+			sampleHashes = append(sampleHashes, torrents[i].Hash)
+		}
+		u.logger.DebugContext(ctx, "regrab_torrents_listed",
+			slog.String("instance", instanceName),
+			slog.Int("count", len(torrents)),
+			slog.String("category_filter", sett.Category),
+			slog.Any("sample_hashes", sampleHashes))
+	}
+
 	// Watched = post-category-filter torrent count. Computed before the
 	// outer loop so the value is stable across the iteration and ready
 	// for the success-path Stamp call below.
@@ -274,10 +295,21 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			continue
 		}
 
+		u.logger.DebugContext(ctx, "regrab_iter_torrent",
+			slog.String("instance", instanceName),
+			slog.String("hash", t.Hash),
+			slog.String("category", t.Category),
+			slog.String("state", t.State))
+
 		// Step 4 — map qBit hash → grab row.
 		origGrab, err := u.grabs.FindLatestSuccessByHash(ctx, strings.ToLower(t.Hash))
 		if err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
+				u.logger.DebugContext(ctx, "regrab_grab_lookup_miss",
+					slog.String("instance", instanceName),
+					slog.String("hash", t.Hash),
+					slog.String("category", t.Category),
+					slog.String("name", t.Name))
 				continue // D63: untracked torrent, not ours
 			}
 			u.logger.WarnContext(ctx, "regrab_lookup_grab_failed",
@@ -286,6 +318,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				slog.String("error", err.Error()))
 			continue
 		}
+		u.logger.DebugContext(ctx, "regrab_grab_lookup_hit",
+			slog.String("instance", instanceName),
+			slog.String("hash", t.Hash),
+			slog.String("grab_id", origGrab.ID.String()),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber),
+			slog.String("status", string(origGrab.Status)))
 
 		// Step 5 — detect.
 		verdict, err := det.Detect(ctx, t.Hash)
@@ -296,6 +335,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				slog.String("error", err.Error()))
 			continue
 		}
+		u.logger.DebugContext(ctx, "regrab_verdict",
+			slog.String("instance", instanceName),
+			slog.String("hash", t.Hash),
+			slog.Bool("unregistered", verdict.Unregistered),
+			slog.Bool("tracker_down", verdict.TrackerDown),
+			slog.String("tracker_msg", verdict.TrackerMsg),
+			slog.String("tracker_url", verdict.TrackerURL))
 		if verdict.TrackerDown {
 			res.TrackerDownCount++
 			continue
@@ -322,13 +368,27 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				slog.String("error", err.Error()))
 			continue
 		} else if active {
+			u.logger.DebugContext(ctx, "regrab_cooldown_skipped",
+				slog.String("instance", instanceName),
+				slog.String("key", cdKey),
+				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("season", origGrab.SeasonNumber))
 			res.SkippedCooldown++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeSkipCooldown))
 			continue
 		}
+		u.logger.DebugContext(ctx, "regrab_cooldown_passed",
+			slog.String("instance", instanceName),
+			slog.String("key", cdKey),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber))
 
 		// Step 7 — blacklist gate.
 		if _, err := u.blacklist.Find(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber); err == nil {
+			u.logger.DebugContext(ctx, "regrab_blacklist_skipped",
+				slog.String("instance", instanceName),
+				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("season", origGrab.SeasonNumber))
 			res.SkippedBlacklist++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeSkipBlacklist))
 			continue
@@ -339,6 +399,10 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				slog.String("error", err.Error()))
 			continue
 		}
+		u.logger.DebugContext(ctx, "regrab_blacklist_passed",
+			slog.String("instance", instanceName),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber))
 
 		// Step 8 — evaluate.
 		outcome, decisionRow, evalErr := u.runEvaluator(ctx, inst, origGrab)
@@ -353,6 +417,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				slog.String("error", evalErr.Error()))
 			continue
 		}
+		u.logger.DebugContext(ctx, "regrab_evaluated",
+			slog.String("instance", instanceName),
+			slog.String("hash", t.Hash),
+			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("season", origGrab.SeasonNumber),
+			slog.String("outcome", string(outcome)),
+			slog.String("decision_id", decisionRow.ID.String()))
 
 		// Step 9 — process outcome.
 		switch outcome {

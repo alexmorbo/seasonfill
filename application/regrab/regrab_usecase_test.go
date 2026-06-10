@@ -1,8 +1,11 @@
 package regrab_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -538,6 +541,118 @@ func TestRunInstance_InstanceNotInRegistry_ReturnsError(t *testing.T) {
 	_, err := uc.RunInstance(context.Background(), testInstance)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, regrab.ErrUnknownInstance)
+}
+
+// TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints replays the
+// happy-path scenario (one unregistered torrent → grab outcome) under a
+// debug-level slog.JSONHandler and asserts every one of the 7 checkpoint
+// keys appears in the captured output. This guards against silent drift
+// of the debug instrumentation as the pipeline evolves.
+func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	buf := &bytes.Buffer{}
+	debugLogger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	settings := mocks.NewMockSettingsLookup(ctrl)
+	instances := mocks.NewMockInstanceRegistry(ctrl)
+	qbitFac := mocks.NewMockQbitClientFactory(ctrl)
+	detFac := mocks.NewMockDetectorFactory(ctrl)
+	det := mocks.NewMockDetector(ctrl)
+	qclient := mocks.NewMockClient(ctrl)
+	grabs := mocks.NewMockGrabRepository(ctrl)
+	cooldowns := mocks.NewMockCooldownRepository(ctrl)
+	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
+	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	ev := mocks.NewMockEvaluateExecutor(ctrl)
+	gx := mocks.NewMockGrabExecutor(ctrl)
+	mt := mocks.NewMockMetrics(ctrl)
+
+	uc := regrab.NewUseCase(settings, instances, qbitFac, detFac,
+		grabs, cooldowns, bl, cnt, ev, gx, debugLogger).WithMetrics(mt)
+
+	s := enabledSettings()
+	orig := successGrab()
+
+	// Two torrents: one we own + one orphan. The orphan covers the
+	// grab_lookup_miss path; the owned one covers the rest. Both also
+	// land in the bounded sample_hashes slice.
+	orphanHash := "1111111111111111111111111111111111111111"
+
+	settings.EXPECT().Lookup(gomock.Any(), testInstance).Return(s, nil)
+	qbitFac.EXPECT().NewClient(s).Return(qclient, nil)
+	qclient.EXPECT().Login(gomock.Any()).Return(nil)
+	qclient.EXPECT().ListTorrents(gomock.Any()).Return([]qbit.Torrent{
+		{Hash: testHash, Category: "sonarr", State: "stalledDL", Name: "Owned.Torrent"},
+		{Hash: orphanHash, Category: "sonarr", State: "downloading", Name: "Orphan.Torrent"},
+	}, nil)
+	qclient.EXPECT().Close().Return(nil)
+	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
+	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+
+	// Owned torrent → HIT, unregistered, passes both gates, evaluator grabs.
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
+	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
+	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
+	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
+	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(successDecision(), nil)
+	newID := uuid.New()
+	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
+		Record: domaingrab.Record{ID: newID, InstanceName: testInstance,
+			SeriesID: testSeries, SeasonNumber: testSeason},
+		Attempts: 1,
+	})
+	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
+	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+
+	// Orphan torrent → MISS, loop continues.
+	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), orphanHash).Return(domaingrab.Record{}, ports.ErrNotFound)
+
+	mt.EXPECT().IncPollResult(testInstance, "ok")
+
+	_, err := uc.RunInstance(context.Background(), testInstance)
+	require.NoError(t, err)
+
+	// Decode the JSON log stream and collect every "msg" key emitted.
+	msgs := collectLogMsgs(t, buf.Bytes())
+
+	wantKeys := []string{
+		"regrab_torrents_listed",
+		"regrab_iter_torrent",
+		"regrab_grab_lookup_hit",
+		"regrab_grab_lookup_miss",
+		"regrab_verdict",
+		"regrab_cooldown_passed",
+		"regrab_blacklist_passed",
+		"regrab_evaluated",
+	}
+	for _, key := range wantKeys {
+		assert.Contains(t, msgs, key, "expected debug key %q in log stream", key)
+	}
+}
+
+// collectLogMsgs decodes a buffer of newline-delimited JSON log records
+// and returns the set of msg values seen. Used by the debug-checkpoint
+// test above.
+func collectLogMsgs(t *testing.T, buf []byte) map[string]struct{} {
+	t.Helper()
+	msgs := map[string]struct{}{}
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			t.Fatalf("decode log entry: %v", err)
+		}
+		if m, ok := entry["msg"].(string); ok {
+			msgs[m] = struct{}{}
+		}
+	}
+	return msgs
 }
 
 // Reuse evaluate.Input type in test imports — keeps the import alive
