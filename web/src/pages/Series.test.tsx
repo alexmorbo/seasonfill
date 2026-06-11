@@ -33,6 +33,7 @@ interface InfiniteFixture {
   hasNextPage: boolean;
   refetch: () => void;
   fetchNextPage: () => void;
+  error?: unknown;
 }
 
 let infiniteFixture: InfiniteFixture;
@@ -221,5 +222,31 @@ describe('<Series /> integration', () => {
     await waitFor(() => {
       expect(hookCalls.some((c) => c.q.search === 'severance')).toBe(true);
     });
+  });
+
+  it('renders an inline error alert when the list query fails', async () => {
+    resetInfinite({
+      isError: true,
+      isSuccess: false,
+      error: new Error('boom'),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-list-error')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('series-list-error')).toHaveTextContent(/Failed to load series|boom/i);
+  });
+
+  it('hides the grid when the list query fails', async () => {
+    resetInfinite({
+      isError: true,
+      isSuccess: false,
+      error: new Error('boom'),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-list-error')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('series-grid')).not.toBeInTheDocument();
   });
 });

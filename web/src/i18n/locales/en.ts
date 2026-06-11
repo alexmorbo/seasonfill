@@ -1672,6 +1672,10 @@ export const en = {
       step3: 'Come back to browse posters and missing episodes.',
       cta: 'Add instance',
     },
+    errors: {
+      listFailedTitle: 'Failed to load series',
+      listFailedDescription: 'The series list could not be loaded. Try refreshing or check the instance configuration.',
+    },
   },
 };
 

@@ -56,9 +56,17 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 			intentJSON = []byte(errtext.Clamp(string(intentJSON)))
 		}
 	}
+	// Story 121b §B: replay decisions have no parent scan_run; persist
+	// uuid.Nil as NULL so the UI's `d.scan_run_id && <Link>` guard
+	// hides the dead link.
+	var scanRunID *string
+	if d.ScanRunID != uuid.Nil {
+		s := d.ScanRunID.String()
+		scanRunID = &s
+	}
 	model := database.DecisionModel{
 		ID:               d.ID.String(),
-		ScanRunID:        d.ScanRunID.String(),
+		ScanRunID:        scanRunID,
 		InstanceName:     d.InstanceName,
 		SeriesID:         d.SeriesID,
 		SeriesTitle:      d.SeriesTitle,
@@ -217,9 +225,15 @@ func toDecision(m database.DecisionModel) (decision.Decision, error) {
 	if err != nil {
 		return decision.Decision{}, fmt.Errorf("parse decision id: %w", err)
 	}
-	scanRunID, err := uuid.Parse(m.ScanRunID)
-	if err != nil {
-		return decision.Decision{}, fmt.Errorf("parse scan_run_id: %w", err)
+	// Story 121b §B: ScanRunID is a nullable *string in the model;
+	// NULL maps back to uuid.Nil so the read-side matches the
+	// write-side semantic ("no parent scan_run").
+	var scanRunID uuid.UUID
+	if m.ScanRunID != nil && *m.ScanRunID != "" {
+		scanRunID, err = uuid.Parse(*m.ScanRunID)
+		if err != nil {
+			return decision.Decision{}, fmt.Errorf("parse scan_run_id: %w", err)
+		}
 	}
 	var filtered []decision.FilteredCandidate
 	if len(m.FilteredOut) > 0 {

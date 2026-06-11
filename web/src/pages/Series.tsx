@@ -16,6 +16,8 @@ import { SeriesGrid } from '@/components/series/SeriesGrid';
 import { SeriesFiltersBar, type SeriesFiltersValue } from '@/components/series/SeriesFiltersBar';
 import { SeriesEmptyState } from '@/components/series/SeriesEmptyState';
 import { SeriesFirstRunState } from '@/components/series/SeriesFirstRunState';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertTriangle } from 'lucide-react';
 
 const DEFAULT_FILTERS: SeriesFiltersValue = {
   search: '',
@@ -196,10 +198,27 @@ export function Series() {
         </div>
       )}
 
+      {/* Story 121b §I: surface list-fetch failures inline. Mirrors
+          Decisions.tsx:171, Scans.tsx:90, Grabs.tsx:167. */}
+      {list.isError && (
+        <Alert
+          variant="destructive"
+          data-testid="series-list-error"
+        >
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>{t('series.errors.listFailedTitle')}</AlertTitle>
+          <AlertDescription>
+            {list.error instanceof Error
+              ? list.error.message
+              : t('series.errors.listFailedDescription')}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {showEmptyServer && <SeriesEmptyState variant="server" />}
       {showEmptyFiltered && <SeriesEmptyState variant="filtered" onClearFilters={onClear} />}
 
-      {!showEmptyServer && !showEmptyFiltered && (
+      {!showEmptyServer && !showEmptyFiltered && !list.isError && (
         <SeriesGrid
           items={filtered}
           isLoading={list.isPending}

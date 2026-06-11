@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -50,7 +51,15 @@ func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
 // @Router      /scan [post]
 func (h *ScanHandler) Trigger(c *gin.Context) {
 	var req dto.ScanTriggerRequest
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		// Story 121b §E: empty body (io.EOF) is the documented
+		// "scan all instances" path and must not 400. Any other parse
+		// failure — malformed JSON, type mismatch on an optional
+		// field — surfaces as 400 so the operator sees the typo
+		// instead of silently triggering a full-instance scan.
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid JSON body: " + err.Error()})
+		return
+	}
 
 	if req.Instance != "" {
 		res, err := h.useCase.StartInstanceWithDryRun(c.Request.Context(), req.Instance, scan.TriggerManual, req.DryRun, req.SeriesIDs...)

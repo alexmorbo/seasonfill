@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -96,6 +97,43 @@ func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
 	d.Reason = decision.ReasonSkipNoMissing
 	err = repo.Save(context.Background(), d)
 	require.Error(t, err)
+}
+
+// TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL — Story
+// 121b §B: a decision.Decision with ScanRunID = uuid.Nil must
+// round-trip as NULL through the repo (not the all-zero UUID string).
+// The frontend guards on `d.scan_run_id && <Link>` and the all-zero
+// UUID is truthy, so persisting it as text would re-introduce the
+// dead-link bug.
+func TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewDecisionRepository(db)
+	ctx := context.Background()
+
+	d := decision.Decision{
+		ID:           uuid.New(),
+		ScanRunID:    uuid.Nil,
+		InstanceName: "homelab",
+		SeriesID:     42,
+		SeasonNumber: 1,
+		Outcome:      decision.OutcomeGrab,
+		Reason:       decision.ReasonGrabSelected,
+		CreatedAt:    time.Now().UTC(),
+	}
+	require.NoError(t, repo.Save(ctx, d))
+
+	var raw sql.NullString
+	require.NoError(t,
+		db.Raw("SELECT scan_run_id FROM decisions WHERE id = ?", d.ID.String()).
+			Scan(&raw).Error)
+	assert.False(t, raw.Valid,
+		"scan_run_id column must be SQL NULL, got %q", raw.String)
+
+	// Round-trip — GetByID returns uuid.Nil, not the all-zero string.
+	got, err := repo.GetByID(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, uuid.Nil, got.ScanRunID)
 }
 
 // E-1: GetByID

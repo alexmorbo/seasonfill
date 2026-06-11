@@ -748,6 +748,8 @@ func TestRunInstance_ReplayByGUID_Success(t *testing.T) {
 	assert.Equal(t, orig.ReleaseGUID, saved.Selected.Release.GUID,
 		"synthetic Selected must reuse the original GUID")
 	assert.Equal(t, decision.OutcomeGrab, saved.Outcome)
+	assert.Equal(t, uuid.Nil, saved.ScanRunID,
+		"121b §B: replay path persists NULL scan_run_id")
 }
 
 // TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator —
@@ -1200,6 +1202,8 @@ func TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed(t *testing.T) {
 	assert.Equal(t, decision.OutcomeGrab, saved.Outcome,
 		"already-added persists as OutcomeGrab so runGrab fires")
 	require.NotNil(t, saved.Selected, "Selected must be populated for runGrab")
+	assert.Equal(t, uuid.Nil, saved.ScanRunID,
+		"121b §B: replay path persists NULL scan_run_id")
 }
 
 // TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision — Sonarr
@@ -1287,6 +1291,8 @@ func TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision(t *testing.T) {
 	assert.Equal(t, decision.ReasonReplayError, saved.Reason)
 	assert.Equal(t, bootErr.Error(), saved.ErrorDetail,
 		"original error string must land in ErrorDetail")
+	assert.Equal(t, uuid.Nil, saved.ScanRunID,
+		"121b §B: replay path persists NULL scan_run_id")
 
 	msgs := collectLogMsgs(t, buf.Bytes())
 	_, hasLegacy := msgs["regrab_evaluate_failed"]

@@ -187,6 +187,45 @@ func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, w.Code)
 }
 
+// TestScanHandler_Trigger_EmptyBody_StillScans — Story 121b §E:
+// empty body MUST keep the "scan all instances" contract. The
+// io.EOF branch is the documented shape used by `curl -X POST`
+// without a body and the cron-trigger scheduler.
+func TestScanHandler_Trigger_EmptyBody_StillScans(t *testing.T) {
+	r := setupScanRouter(newScanUseCase())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusAccepted, w.Code,
+		"empty body must trigger scan-all, not 400")
+}
+
+// TestScanHandler_Trigger_MalformedJSON_Returns400 — Story 121b §E:
+// malformed JSON body must 400, not silently degrade to scan-all.
+func TestScanHandler_Trigger_MalformedJSON_Returns400(t *testing.T) {
+	r := setupScanRouter(newScanUseCase())
+	body := bytes.NewReader([]byte(`{"instance": "homelab"`)) // missing }
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid JSON body")
+}
+
+// TestScanHandler_Trigger_TypeMismatchOnOptionalField_Returns400 —
+// Story 121b §E: type-mismatch (e.g. instance=42 instead of string)
+// MUST 400 not silently degrade.
+func TestScanHandler_Trigger_TypeMismatchOnOptionalField_Returns400(t *testing.T) {
+	r := setupScanRouter(newScanUseCase())
+	body := bytes.NewReader([]byte(`{"instance": 42}`))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 // TestScanHandler_Trigger_DryRunOverride_NilOmitted — when the JSON
 // body omits dry_run, the use case receives nil and the persisted
 // ScanRecord follows the instance default. This pins the

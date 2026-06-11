@@ -28,11 +28,15 @@ type ScanRunModel struct {
 func (ScanRunModel) TableName() string { return "scan_runs" }
 
 type DecisionModel struct {
-	ID              string `gorm:"primaryKey;size:36;index:idx_decisions_created_at_id,priority:2"`
-	ScanRunID       string `gorm:"size:36;index"`
-	InstanceName    string `gorm:"size:128;index"`
-	SeriesID        int    `gorm:"index"`
-	SeriesTitle     string `gorm:"size:512"`
+	ID string `gorm:"primaryKey;size:36;index:idx_decisions_created_at_id,priority:2"`
+	// ScanRunID is *string so a uuid.Nil sentinel persists as SQL NULL.
+	// Story 121b §B: watchdog replay decision rows have no parent
+	// scan_run; persisting the all-zero UUID string as text was making
+	// the UI's `d.scan_run_id && <Link>` guard render dead links.
+	ScanRunID       *string `gorm:"size:36;index"`
+	InstanceName    string  `gorm:"size:128;index"`
+	SeriesID        int     `gorm:"index"`
+	SeriesTitle     string  `gorm:"size:512"`
 	SeasonNumber    int
 	Decision        string `gorm:"size:32"`
 	Reason          string `gorm:"size:128"`

@@ -866,7 +866,7 @@ func (u *UseCase) buildReplayDecision(
 	intent := decision.NewIntent(nil, nil, because, detail)
 	return decision.Decision{
 		ID:              uuid.New(),
-		ScanRunID:       uuid.New(), // synthetic — replay has no parent scan
+		ScanRunID:       uuid.Nil, // 121b §B — persist as NULL; replay has no parent scan
 		InstanceName:    origGrab.InstanceName,
 		SeriesID:        origGrab.SeriesID,
 		SeriesTitle:     origGrab.SeriesTitle,
