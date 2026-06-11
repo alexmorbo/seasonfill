@@ -73,6 +73,10 @@ export interface SeriesCacheInfiniteQuery {
   readonly state?: SeriesCacheStatus;
   readonly sort?: SeriesCacheSort;
   readonly limit?: number;
+  // Story 120: case-insensitive substring server-side over title /
+  // title_slug. Empty / undefined ⇒ no filter. The repo edge
+  // trims the value and escapes LIKE wildcards.
+  readonly search?: string;
 }
 
 function buildInfinitePath(
@@ -84,6 +88,7 @@ function buildInfinitePath(
   if (q.state) p.set('state', q.state);
   if (q.sort) p.set('sort', q.sort);
   if (q.limit !== undefined) p.set('limit', String(q.limit));
+  if (q.search && q.search.trim() !== '') p.set('q', q.search.trim());
   if (cursor) p.set('cursor', cursor);
   const qs = p.toString();
   return `/instances/${encodeURIComponent(instance)}/series-cache${qs ? `?${qs}` : ''}`;

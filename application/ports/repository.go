@@ -461,10 +461,17 @@ func (s SeriesCacheSort) IsValid() bool {
 }
 
 // SeriesCacheFilter aggregates the optional narrowing predicates for
-// ListByFilter. Only State drives the WHERE today; the struct is the
-// extension point for later (q-prefix, monitored, year-range).
+// ListByFilter. Empty fields mean "no narrowing".
 type SeriesCacheFilter struct {
+	// State narrows by derived membership (imported / missing / all).
 	State SeriesCacheState
+	// Search is a case-insensitive substring matched against `title`
+	// OR `title_slug`. Story 120: the /series page can't reach
+	// off-page rows with client-side filtering on top of cursor
+	// pagination, so the search predicate moves to the repo edge.
+	// Empty string ⇒ no filter. SQL wildcard chars (`%`, `_`, `\`)
+	// in the input are escaped before substring match.
+	Search string
 }
 
 // LastGrabInfo holds the aggregated grab data for the list endpoint.

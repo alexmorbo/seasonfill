@@ -630,23 +630,32 @@ const (
 	// seriesCacheMaxLimit — hard ceiling. F11 paginates beyond this;
 	// 100 keeps a single response well under the 20 KB lean budget.
 	seriesCacheMaxLimit = 100
+	// seriesCacheMaxSearchLen — hard cap on the `q` query value. The
+	// UI's debounced search input has no length limit; cap server-side
+	// to keep `%LIKE%` predicates from blowing up the query plan and
+	// to bound the log line size. Anything beyond ~120 chars is a
+	// pasted URL or accidental keystroke, not a legitimate title.
+	seriesCacheMaxSearchLen = 200
 )
 
 // ListSeriesCache returns the per-instance cached series list with
-// filter (state), sort, and keyset pagination. Powers F1 dashboard
+// filter (state, q), sort, and keyset pagination. Powers F1 dashboard
 // poster tiles, F5 queue, and F11 series page.
 //
 // @Summary     List cached series for an instance
 // @Description Returns the persisted series_cache rows for an instance,
-// @Description filtered by state (all | imported | missing), sorted
-// @Description (updated_desc | title_asc), keyset-paginated. Enriched
-// @Description with last_grab_at + last_imported_episode aggregated
-// @Description from grab_records.
+// @Description filtered by state (all | imported | missing) and an
+// @Description optional case-insensitive substring `q` over title /
+// @Description title_slug, sorted (updated_desc | title_asc |
+// @Description air_date_desc), keyset-paginated. Enriched with
+// @Description last_grab_at + last_imported_episode aggregated from
+// @Description grab_records.
 // @Tags        instances
 // @Produce     json
 // @Param       name    path   string  true   "Instance name"
 // @Param       state   query  string  false  "all | imported | missing (default all)" Enums(all,imported,missing)
 // @Param       status  query  string  false  "deprecated alias for state"
+// @Param       q       query  string  false  "Case-insensitive substring over title / title_slug"
 // @Param       sort    query  string  false  "updated_desc | title_asc | air_date_desc (default updated_desc)" Enums(updated_desc,title_asc,air_date_desc)
 // @Param       limit   query  int     false  "1..100 (default 24)"
 // @Param       cursor  query  string  false  "Opaque next_cursor from prior page"
@@ -694,11 +703,16 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid cursor"})
 		return
 	}
+	q, err := parseSeriesCacheSearch(c.Query("q"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
 
 	ctx := c.Request.Context()
 	entries, total, hasMore, next, lErr := lister.ListByFilter(
 		ctx, name,
-		ports.SeriesCacheFilter{State: state},
+		ports.SeriesCacheFilter{State: state, Search: q},
 		sortKey,
 		ports.Pagination{Limit: limit, Cursor: cursor},
 	)
@@ -706,6 +720,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 		h.logger.ErrorContext(ctx, "series_cache_list_failed",
 			slog.String("instance", name),
 			slog.String("state", string(state)),
+			slog.String("q", q),
 			slog.String("error", lErr.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "list failed"})
 		return
@@ -803,6 +818,21 @@ func parseSeriesCacheLimit(raw string) (int, error) {
 		return 0, errors.New("limit must be between 1 and 100")
 	}
 	return n, nil
+}
+
+// parseSeriesCacheSearch trims and length-caps the `q` query param.
+// Empty after trim ⇒ "" (no filter). Over-length ⇒ 400; we don't
+// silently truncate because that would surprise the user with phantom
+// matches on a clipped prefix.
+func parseSeriesCacheSearch(raw string) (string, error) {
+	q := strings.TrimSpace(raw)
+	if q == "" {
+		return "", nil
+	}
+	if len(q) > seriesCacheMaxSearchLen {
+		return "", errors.New("q must be at most 200 characters")
+	}
+	return q, nil
 }
 
 // toSeriesCacheItem maps the domain CacheEntry + the aggregated grab

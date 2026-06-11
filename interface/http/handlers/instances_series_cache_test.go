@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,4 +276,55 @@ func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
 	assert.Equal(t, 1, body.Items[1].SonarrSeriesID, "older aired second")
 	assert.Equal(t, 3, body.Items[2].SonarrSeriesID, "nil aired last")
 	assert.Nil(t, body.Items[2].LastAiredAt)
+}
+
+func TestInstancesHandler_ListSeriesCache_QFiltersByTitle(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)
+	f.seed(t, "homelab", 2, "Severance", 0, now)
+	f.seed(t, "homelab", 3, "For All Mankind", 0, now)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?q=rick")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, body.Total, "total reflects post-q count, not the pre-filter set")
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, 1, body.Items[0].SonarrSeriesID)
+}
+
+func TestInstancesHandler_ListSeriesCache_QCombinedWithState(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)   // not missing
+	f.seed(t, "homelab", 2, "Rick and Friends", 5, now) // missing
+	f.seed(t, "homelab", 3, "Severance", 7, now)        // missing
+
+	// q="rick" + state=missing must intersect to a single row.
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?q=rick&state=missing")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, body.Total)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, 2, body.Items[0].SonarrSeriesID)
+}
+
+func TestInstancesHandler_ListSeriesCache_QEmptyMeansNoFilter(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Alpha", 0, now)
+	f.seed(t, "homelab", 2, "Beta", 0, now)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?q=")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 2, body.Total)
+}
+
+func TestInstancesHandler_ListSeriesCache_QOverLong400(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	long := strings.Repeat("x", 201)
+	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?q="+long)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

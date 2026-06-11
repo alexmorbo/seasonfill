@@ -1768,10 +1768,12 @@ export type paths = {
         /**
          * List cached series for an instance
          * @description Returns the persisted series_cache rows for an instance,
-         *     filtered by state (all | imported | missing), sorted
-         *     (updated_desc | title_asc), keyset-paginated. Enriched
-         *     with last_grab_at + last_imported_episode aggregated
-         *     from grab_records.
+         *     filtered by state (all | imported | missing) and an
+         *     optional case-insensitive substring `q` over title /
+         *     title_slug, sorted (updated_desc | title_asc |
+         *     air_date_desc), keyset-paginated. Enriched with
+         *     last_grab_at + last_imported_episode aggregated from
+         *     grab_records.
          */
         readonly get: {
             readonly parameters: {
@@ -1780,6 +1782,8 @@ export type paths = {
                     readonly state?: PathsInstancesNameSeriesCacheGetParametersQueryState;
                     /** @description deprecated alias for state */
                     readonly status?: string;
+                    /** @description Case-insensitive substring over title / title_slug */
+                    readonly q?: string;
                     /** @description updated_desc | title_asc | air_date_desc (default updated_desc) */
                     readonly sort?: PathsInstancesNameSeriesCacheGetParametersQuerySort;
                     /** @description 1..100 (default 24) */

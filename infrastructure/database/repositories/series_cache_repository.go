@@ -129,7 +129,9 @@ func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instan
 // ListByFilter implements the B3 list endpoint backing query. The
 // `imported` state filter is an EXISTS subquery against grab_records.
 // The `missing` state filter is missing_count > 0. The `all` state is
-// the unnarrowed active set. Keyset pagination over the chosen sort key.
+// the unnarrowed active set. Story 120: `filter.Search`, when set,
+// adds a case-insensitive substring predicate over (title, title_slug).
+// Keyset pagination over the chosen sort key.
 func (r *SeriesCacheRepository) ListByFilter(
 	ctx context.Context,
 	instanceName string,
@@ -157,6 +159,7 @@ func (r *SeriesCacheRepository) ListByFilter(
 	base := db.Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND deleted_at IS NULL", instanceName)
 	base = applyStateFilter(base, filter.State)
+	base = applySearchFilter(base, filter.Search)
 
 	var total int64
 	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -214,6 +217,40 @@ func applyStateFilter(q *gorm.DB, state ports.SeriesCacheState) *gorm.DB {
 	default:
 		return q
 	}
+}
+
+// applySearchFilter adds a case-insensitive substring predicate over
+// (title, title_slug) when q is non-empty. Story 120: uses
+// `LOWER(col) LIKE LOWER(?)` rather than Postgres ILIKE so the same
+// expression runs on SQLite (tests) and Postgres (prod) without a
+// dialect branch. The pattern is wrapped in `%…%` after wildcard
+// escaping so user input cannot smuggle SQL wildcards. An empty
+// trimmed q ⇒ no-op (returns the unmodified query).
+func applySearchFilter(q *gorm.DB, search string) *gorm.DB {
+	trimmed := strings.TrimSpace(search)
+	if trimmed == "" {
+		return q
+	}
+	pat := "%" + escapeLikePattern(trimmed) + "%"
+	return q.Where(
+		"(LOWER(title) LIKE LOWER(?) ESCAPE '\\' "+
+			"OR LOWER(title_slug) LIKE LOWER(?) ESCAPE '\\')",
+		pat, pat,
+	)
+}
+
+// escapeLikePattern doubles every LIKE meta-character (`%`, `_`, `\`)
+// so the value matches literally inside a wrapped `%…%` pattern. The
+// ESCAPE '\' clause is paired in the query so the escape works on both
+// SQLite and Postgres. Order matters: `\` must be replaced first to
+// avoid double-escaping the `\` introduced by the other two.
+func escapeLikePattern(in string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	)
+	return r.Replace(in)
 }
 
 // applyCursor adds the keyset predicate for the chosen sort key.

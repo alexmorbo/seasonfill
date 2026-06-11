@@ -356,6 +356,134 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 	assert.Len(t, seen, 30)
 }
 
+func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	cases := []struct {
+		id    int
+		title string
+		slug  string
+	}{
+		{1, "Rick and Morty", "rick-and-morty"},
+		{2, "Severance", "severance"},
+		{3, "For All Mankind", "for-all-mankind"},
+		{4, "Foundation", "foundation"},
+	}
+	for _, c := range cases {
+		entry := sampleEntry("main", c.id)
+		entry.Title = c.title
+		entry.TitleSlug = c.slug
+		require.NoError(t, repo.Upsert(ctx, entry))
+	}
+
+	queries := []struct {
+		q       string
+		wantIDs []int
+	}{
+		{"rick", []int{1}},
+		{"RICK", []int{1}},
+		{"Rick and Morty", []int{1}},
+		{"and", []int{1}},
+		{"foundation", []int{4}},
+		{"  Severance  ", []int{2}}, // trimmed
+		{"nope", []int{}},
+		{"", []int{1, 2, 3, 4}}, // empty ⇒ no filter
+	}
+	for _, tc := range queries {
+		tc := tc
+		t.Run(fmt.Sprintf("q=%q", tc.q), func(t *testing.T) {
+			items, total, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{
+					State:  ports.SeriesCacheStateAll,
+					Search: tc.q,
+				},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 50})
+			require.NoError(t, err)
+			assert.Equal(t, len(tc.wantIDs), total, "total reflects post-q count")
+			gotIDs := make([]int, 0, len(items))
+			for _, it := range items {
+				gotIDs = append(gotIDs, it.SonarrSeriesID)
+			}
+			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
+		})
+	}
+}
+
+func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	// Title doesn't contain the term; slug does.
+	entry := sampleEntry("main", 1)
+	entry.Title = "Severance"
+	entry.TitleSlug = "severance-2022"
+	require.NoError(t, repo.Upsert(ctx, entry))
+
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{
+			State:  ports.SeriesCacheStateAll,
+			Search: "2022",
+		},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+}
+
+func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	// One row with a literal `%` and `_` in the title; one without.
+	a := sampleEntry("main", 1)
+	a.Title = "100% Wolf"
+	a.TitleSlug = "100-percent-wolf"
+	require.NoError(t, repo.Upsert(ctx, a))
+
+	b := sampleEntry("main", 2)
+	b.Title = "Severance"
+	b.TitleSlug = "severance"
+	require.NoError(t, repo.Upsert(ctx, b))
+
+	// `%` in user input must match the literal `%` row only — NOT
+	// degenerate to "match anything" (which is what unescaped LIKE does).
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{
+			State:  ports.SeriesCacheStateAll,
+			Search: "%",
+		},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total, "%% must be escaped — only the literal-%% row matches")
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+
+	// `_` in user input — same story; LIKE-meaningful underscore must NOT
+	// match every single-char row. Re-use the `100%_Wolf` row by searching
+	// for the literal `% ` substring of its title.
+	items, total, _, _, err = repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{
+			State:  ports.SeriesCacheStateAll,
+			Search: "% W",
+		},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+}
+
 func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

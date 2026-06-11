@@ -65,12 +65,7 @@ function applyClientFilters(
   items: readonly SeriesCacheItem[],
   v: SeriesFiltersValue,
 ): readonly SeriesCacheItem[] {
-  const q = v.search.trim().toLowerCase();
   return items.filter((it) => {
-    if (q) {
-      const hay = `${it.title} ${it.title_slug}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
     if (v.monitoredOnly && !it.monitored) return false;
     if (v.networks.size > 0) {
       const n = it.network ?? '';
@@ -102,7 +97,12 @@ export function Series() {
 
   const list = useSeriesCacheInfinite(
     current,
-    { state: filters.state, sort: filters.sort, limit: 24 },
+    {
+      state: filters.state,
+      sort: filters.sort,
+      limit: 24,
+      search: filters.search,
+    },
   );
 
   const rawItems = useMemo(

@@ -36,7 +36,18 @@ interface InfiniteFixture {
 }
 
 let infiniteFixture: InfiniteFixture;
-const hookCalls: Array<{ instance: string | null | undefined; q: { state: string; sort: string; limit: number } }> = [];
+
+interface InfiniteHookCall {
+  instance: string | null | undefined;
+  q: {
+    state: string;
+    sort: string;
+    limit: number;
+    search?: string;
+  };
+}
+
+const hookCalls: InfiniteHookCall[] = [];
 
 const refetch = vi.fn();
 const fetchNextPage = vi.fn();
@@ -68,7 +79,10 @@ vi.mock('@/lib/api/seriesCache', async () => {
   );
   return {
     ...real,
-    useSeriesCacheInfinite: (instance: string | null | undefined, q: { state: string; sort: string; limit: number }) => {
+    useSeriesCacheInfinite: (
+      instance: string | null | undefined,
+      q: InfiniteHookCall['q'],
+    ) => {
       hookCalls.push({ instance, q });
       return infiniteFixture;
     },
@@ -185,5 +199,27 @@ describe('<Series /> integration', () => {
       expect(hookCalls.length).toBeGreaterThan(0);
     });
     expect(hookCalls[hookCalls.length - 1]!.q.sort).toBe('air_date_desc');
+  });
+
+  it('propagates ?q= from the URL into the hook search param', async () => {
+    hookCalls.length = 0;
+    renderPage('/series?q=rick');
+    await waitFor(() => {
+      expect(hookCalls.length).toBeGreaterThan(0);
+    });
+    expect(hookCalls[hookCalls.length - 1]!.q.search).toBe('rick');
+  });
+
+  it('typing in the search box updates the hook search param', async () => {
+    resetInfinite({
+      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+    });
+    renderPage();
+    hookCalls.length = 0;
+    const input = screen.getByTestId('series-filters-search');
+    fireEvent.change(input, { target: { value: 'severance' } });
+    await waitFor(() => {
+      expect(hookCalls.some((c) => c.q.search === 'severance')).toBe(true);
+    });
   });
 });
