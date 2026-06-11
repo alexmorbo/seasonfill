@@ -1,6 +1,8 @@
 package cooldown
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,4 +63,55 @@ func TestSeriesKey_ReusableForRegrabRetry(t *testing.T) {
 	b := Cooldown{Scope: ScopeRegrabRetry, Key: key}
 	assert.NotEqual(t, a.Scope, b.Scope)
 	assert.Equal(t, a.Key, b.Key)
+}
+
+func TestClampReason(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		in        string
+		wantLen   int
+		wantTrunc bool
+	}{
+		{
+			name:    "empty unchanged",
+			in:      "",
+			wantLen: 0,
+		},
+		{
+			name:    "short literal unchanged",
+			in:      "guid_after_failed_grab",
+			wantLen: len("guid_after_failed_grab"),
+		},
+		{
+			name:    "exactly at cap unchanged",
+			in:      strings.Repeat("a", ReasonMaxBytes),
+			wantLen: ReasonMaxBytes,
+		},
+		{
+			name:      "one byte over the cap is truncated",
+			in:        strings.Repeat("a", ReasonMaxBytes+1),
+			wantLen:   ReasonMaxBytes + len("…(truncated 1 bytes)"),
+			wantTrunc: true,
+		},
+		{
+			name:      "realistic 4KiB sonarr body is truncated",
+			in:        strings.Repeat("x", 4096),
+			wantLen:   ReasonMaxBytes + len(fmt.Sprintf("…(truncated %d bytes)", 4096-ReasonMaxBytes)),
+			wantTrunc: true,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ClampReason(tc.in)
+			assert.Equal(t, tc.wantLen, len(got), "len mismatch for %q", tc.name)
+			if tc.wantTrunc {
+				assert.Contains(t, got, "…(truncated", "truncated output must carry the marker")
+			} else {
+				assert.Equal(t, tc.in, got, "below-cap input must pass through verbatim")
+			}
+		})
+	}
 }

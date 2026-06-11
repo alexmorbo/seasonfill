@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,39 @@ func TestCooldownRepository_Set_UpdatesOnConflict(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "second", c.Reason)
 	assert.True(t, c.ExpiresAt.Equal(exp2) || c.ExpiresAt.After(exp1))
+}
+
+// TestCooldownRepository_Set_ClampsLongReason — story 118 belt-and-
+// braces. A caller that passes a >ReasonMaxBytes reason (legacy
+// callers, future regressions) must still succeed and the persisted
+// value must be the clamped form. SQLite has no length affinity, so
+// without the clamp this would silently store the full body — that's
+// fine for sqlite but masks the postgres failure mode, hence the
+// explicit length assertion below.
+func TestCooldownRepository_Set_ClampsLongReason(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewCooldownRepository(db)
+	ctx := context.Background()
+
+	exp := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	longReason := strings.Repeat("y", 4096)
+	require.NoError(t, repo.Set(ctx, cooldown.Cooldown{
+		Scope:     cooldown.ScopeGUID,
+		Key:       "long-reason-key",
+		ExpiresAt: exp,
+		Reason:    longReason,
+	}))
+
+	c, ok, err := repo.Get(ctx, cooldown.ScopeGUID, "long-reason-key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.LessOrEqual(t, len(c.Reason), cooldown.ReasonMaxBytes+64,
+		"persisted reason must be clamped at the repository boundary")
+	assert.True(t, strings.HasPrefix(c.Reason, strings.Repeat("y", 100)),
+		"clamp must preserve leading bytes verbatim")
+	assert.Contains(t, c.Reason, "…(truncated",
+		"clamp suffix must be present on over-cap input")
 }
 
 func TestCooldownRepository_FilterActive(t *testing.T) {

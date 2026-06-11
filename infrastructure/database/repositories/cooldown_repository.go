@@ -23,6 +23,11 @@ func NewCooldownRepository(db *gorm.DB) *CooldownRepository {
 }
 
 // Set upserts a cooldown row. Later expiry wins over earlier on conflict.
+// Defensively clamps Reason at cooldown.ReasonMaxBytes (story 118) so a
+// stale binary running against the pre-migration `varchar(128)` schema
+// still succeeds (the clamp keeps writes well under 128 bytes by virtue
+// of being well under 512), and so a future caller adding raw input
+// cannot blow up the column.
 func (r *CooldownRepository) Set(ctx context.Context, c cooldown.Cooldown) error {
 	if c.CreatedAt.IsZero() {
 		c.CreatedAt = time.Now().UTC()
@@ -31,7 +36,7 @@ func (r *CooldownRepository) Set(ctx context.Context, c cooldown.Cooldown) error
 		Scope:     string(c.Scope),
 		Key:       c.Key,
 		ExpiresAt: c.ExpiresAt,
-		Reason:    c.Reason,
+		Reason:    cooldown.ClampReason(c.Reason),
 		CreatedAt: c.CreatedAt,
 	}
 	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{

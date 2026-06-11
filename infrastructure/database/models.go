@@ -149,7 +149,7 @@ type CooldownModel struct {
 	Scope     string    `gorm:"primaryKey;size:16"`
 	Key       string    `gorm:"primaryKey;size:512"`
 	ExpiresAt time.Time `gorm:"index"`
-	Reason    string    `gorm:"size:128"`
+	Reason    string    `gorm:"type:text"`
 	CreatedAt time.Time
 }
 

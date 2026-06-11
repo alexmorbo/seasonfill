@@ -298,6 +298,14 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 	if reason == "" {
 		reason = "guid_after_failed_grab"
 	}
+	// Story 118: the caller passes rec.ErrorMessage (already capped at
+	// 4 KiB by errtext.Clamp), which routinely exceeds the historical
+	// 128-byte cooldowns.reason column. Migration 23 widens the column
+	// to text, but we still clamp at ReasonMaxBytes (512) so the
+	// operator-facing field stays a one-liner — the full upstream body
+	// remains accessible via grab_records.error_message and the
+	// decisions.error_detail audit trail.
+	reason = cooldown.ClampReason(reason)
 	cd := cooldown.Cooldown{
 		Scope:     cooldown.ScopeGUID,
 		Key:       cooldown.GUIDKey(in.Selected.Release.GUID),

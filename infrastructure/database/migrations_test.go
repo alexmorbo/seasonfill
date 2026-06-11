@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 107: latest migration is 000022_runtime_config_guid_rewrites.
-	assert.Equal(t, 22, version)
+	// 118: latest migration is 000023_cooldowns_reason_widen.
+	assert.Equal(t, 23, version)
 	assert.False(t, dirty)
 }
 
@@ -230,6 +230,40 @@ func TestMigrate_V21_AddsIntentColumn(t *testing.T) {
 		"v21 must add the intent column to decisions")
 }
 
+// TestMigrate_V23_WidensCooldownReason asserts the 118 migration
+// keeps the `reason` column on `cooldowns` readable as text-typed
+// storage. On SQLite the baseline already stored TEXT, so this test
+// is a smoke check that the migration applied without error and the
+// column is still writable. The dialect-specific type assertion runs
+// in TestMigrate_PostgresIntegration below.
+func TestMigrate_V23_WidensCooldownReason(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, Migrate(db))
+
+	assert.True(t, db.Migrator().HasColumn(&CooldownModel{}, "reason"),
+		"v23 must keep the reason column on cooldowns")
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	ctx := context.Background()
+	bigReason := strings.Repeat("z", 2048)
+	_, err = sqlDB.ExecContext(ctx,
+		`INSERT INTO cooldowns (scope, key, expires_at, reason, created_at)
+		 VALUES ('guid', 'k', datetime('now','+1 hour'), ?, datetime('now'))`,
+		bigReason)
+	require.NoError(t, err, "v23 must allow >128-byte reason writes")
+	var got string
+	require.NoError(t, sqlDB.QueryRowContext(ctx,
+		`SELECT reason FROM cooldowns WHERE scope='guid' AND key='k'`).Scan(&got))
+	assert.Equal(t, bigReason, got, "sqlite has no length affinity — full body persists")
+}
+
 // TestMigrate_V22_AddsGUIDRewritesColumn asserts the 107 migration adds
 // the `guid_rewrites` column to runtime_config and that the default
 // value is the literal JSON `[]`.
@@ -294,8 +328,8 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 039f-1: latest migration is 000008_regrab_no_better_counter.
-	assert.Equal(t, 8, version)
+	// 118: latest migration is 000023_cooldowns_reason_widen.
+	assert.Equal(t, 23, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
@@ -312,4 +346,12 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	assert.True(t, db.Migrator().HasIndex("grab_records", "idx_grab_records_replay_of_id"))
 	assert.True(t, db.Migrator().HasTable("regrab_no_better_counter"))
 	assert.True(t, db.Migrator().HasIndex("regrab_no_better_counter", "idx_regrab_no_better_counter_triple"))
+
+	// 118: cooldowns.reason must be `text` after migration 23.
+	var dataType string
+	require.NoError(t, sqlDB.QueryRowContext(ctx,
+		`SELECT data_type FROM information_schema.columns
+		   WHERE table_name='cooldowns' AND column_name='reason'`).Scan(&dataType))
+	assert.Equal(t, "text", dataType,
+		"v23 must widen cooldowns.reason to text on Postgres")
 }

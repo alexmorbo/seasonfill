@@ -3,8 +3,10 @@ package grab
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -328,6 +330,37 @@ func TestExecute_4xxNoRetry(t *testing.T) {
 	require.Len(t, gr.recs, 1)
 	require.Len(t, cr.cs, 1)
 	assert.Equal(t, cooldown.ScopeGUID, cr.cs[0].Scope)
+}
+
+// TestExecute_4xxLongErrorMessage_CooldownReasonClamped — regression
+// for story 118. A 4xx Sonarr error whose Error() string exceeds the
+// historical 128-byte cooldowns.reason limit must NOT drop the
+// cooldown write; the reason field is clamped to ReasonMaxBytes
+// before reaching the repository.
+func TestExecute_4xxLongErrorMessage_CooldownReasonClamped(t *testing.T) {
+	t.Parallel()
+	uc, _, cr, _ := newUC(t)
+
+	// Simulate a real Sonarr 500 wrapping qBit 409 body — the literal
+	// rutracker URL in the prod incident pushed the total past 130
+	// bytes. Pad to ~700 bytes so the clamp is exercised, not just
+	// the column overflow. Wrap err4xx so the package's classifier
+	// (errors.Is-based) recognises this as a permanent failure.
+	longBody := "call /api/v3/release got 500: Failed to connect to qBittorrent at " +
+		"http://qbit.local:8080 [409:Conflict] [POST] /api/v2/torrents/add — " +
+		"hash already present — " + strings.Repeat("x", 600)
+	longErr := fmt.Errorf("%s: %w", longBody, err4xx)
+
+	sonarr := &fakeSonarrGrab{errors: []error{longErr}}
+	out := uc.Execute(context.Background(), newInput(sonarr))
+
+	require.Error(t, out.Err)
+	require.Len(t, cr.cs, 1, "guid cooldown must still be written")
+	assert.Equal(t, cooldown.ScopeGUID, cr.cs[0].Scope)
+	assert.LessOrEqual(t, len(cr.cs[0].Reason), cooldown.ReasonMaxBytes+64,
+		"reason must be clamped (cap + truncation suffix)")
+	assert.Contains(t, cr.cs[0].Reason, "[409:Conflict]",
+		"clamp must preserve the leading bytes for operator-facing recognition")
 }
 
 func TestExecute_UnclassifiedNoRetry(t *testing.T) {
