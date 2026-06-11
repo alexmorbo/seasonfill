@@ -211,17 +211,25 @@ describe('<Series /> integration', () => {
     expect(hookCalls[hookCalls.length - 1]!.q.search).toBe('rick');
   });
 
-  it('typing in the search box updates the hook search param', async () => {
-    resetInfinite({
-      data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
-    });
-    renderPage();
-    hookCalls.length = 0;
-    const input = screen.getByTestId('series-filters-search');
-    fireEvent.change(input, { target: { value: 'severance' } });
-    await waitFor(() => {
+  it('typing in the search box updates the hook search param (debounced 250ms)', () => {
+    vi.useFakeTimers();
+    try {
+      resetInfinite({
+        data: { pages: [{ items: [itemFixture], total: 1, has_more: false }], pageParams: [''] },
+      });
+      renderPage();
+      hookCalls.length = 0;
+      const input = screen.getByTestId('series-filters-search');
+      fireEvent.change(input, { target: { value: 'severance' } });
+      // Parent's onChange (URL update) only fires after 250ms.
+      expect(hookCalls.some((c) => c.q.search === 'severance')).toBe(false);
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
       expect(hookCalls.some((c) => c.q.search === 'severance')).toBe(true);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders an inline error alert when the list query fails', async () => {

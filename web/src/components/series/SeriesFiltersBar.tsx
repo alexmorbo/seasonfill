@@ -1,6 +1,70 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, X, ChevronDown, ArrowUpDown, RotateCcw, Check } from 'lucide-react';
+
+// useDebouncedSearch — Story 121c §C. Local state for the visible
+// input value + a debounced commit to the parent. Sync effect pulls
+// external `external` updates (browser back/forward, clear-filters
+// button) into local state without firing the parent again.
+//
+// Caller pattern:
+//   const [local, onLocalChange, flush] = useDebouncedSearch(value.search, 250, (s) => {
+//     onChange({ ...value, search: s });
+//   });
+//
+// `local` is what the <input> renders.
+// `onLocalChange(next)` fires from the input's onChange.
+// `flush()` is called on Enter / blur for immediate commit.
+function useDebouncedSearch(
+  external: string,
+  delayMs: number,
+  commit: (next: string) => void,
+): readonly [string, (next: string) => void, () => void] {
+  const [local, setLocal] = useState(external);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCommittedRef = useRef(external);
+  const pendingRef = useRef(external);
+
+  // Sync external → local when the URL/query state changes from a
+  // non-input source. We track the last value we committed so the
+  // round-trip (input → commit → external) doesn't bounce back and
+  // overwrite typing-in-progress.
+  useEffect(() => {
+    if (external !== lastCommittedRef.current) {
+      lastCommittedRef.current = external;
+      pendingRef.current = external;
+      setLocal(external);
+    }
+  }, [external]);
+
+  // Cleanup on unmount.
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  const onLocalChange = (next: string) => {
+    setLocal(next);
+    pendingRef.current = next;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      lastCommittedRef.current = next;
+      commit(next);
+    }, delayMs);
+  };
+
+  const flush = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (pendingRef.current !== lastCommittedRef.current) {
+      lastCommittedRef.current = pendingRef.current;
+      commit(pendingRef.current);
+    }
+  };
+
+  return [local, onLocalChange, flush] as const;
+}
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,6 +136,26 @@ export function SeriesFiltersBar({
     [value.networks],
   );
 
+  // Story 121c §C — local state + 250ms debounce. Keeps the
+  // visible input perfectly responsive even when the parent does
+  // URL writes + query refetches on every committed value.
+  const [searchLocal, onSearchLocal, flushSearch] = useDebouncedSearch(
+    value.search,
+    250,
+    (next) => onChange({ ...value, search: next }),
+  );
+
+  const onSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      flushSearch();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onSearchLocal('');
+      flushSearch();
+    }
+  };
+
   return (
     <div
       data-testid="series-filters-bar"
@@ -86,8 +170,10 @@ export function SeriesFiltersBar({
           type="search"
           aria-label={t('series.filters.search.aria')}
           placeholder={t('series.filters.search.placeholder')}
-          value={value.search}
-          onChange={(e) => onChange({ ...value, search: e.target.value })}
+          value={searchLocal}
+          onChange={(e) => onSearchLocal(e.target.value)}
+          onKeyDown={onSearchKeyDown}
+          onBlur={flushSearch}
           className="pl-7 h-8 text-[12.5px]"
           data-testid="series-filters-search"
         />

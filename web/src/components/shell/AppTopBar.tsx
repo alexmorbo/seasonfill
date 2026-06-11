@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { Search } from "lucide-react"
 
 import { usePageActions, usePageTitle } from "./page-title-context"
+import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 
 export function AppTopBar() {
   const { t } = useTranslation()
@@ -22,6 +23,9 @@ export function AppTopBar() {
           {t("shell.cmdk.hint")}
         </span>
       </div>
+      {/* Story 121c §G — mount the LanguageSwitcher so operators can
+          flip locales from the UI instead of poking localStorage. */}
+      <LanguageSwitcher />
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </header>
   )

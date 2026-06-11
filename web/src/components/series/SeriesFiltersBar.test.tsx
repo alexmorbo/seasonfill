@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
@@ -98,14 +99,22 @@ describe('<SeriesFiltersBar />', () => {
     expect(screen.getByTestId('series-filters-clear')).toBeInTheDocument();
   });
 
-  it('typing in search calls onChange with new search value', () => {
-    const { onChange } = renderBar();
-    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'mankind' } });
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'mankind' }),
-    );
+  it('typing in search calls onChange with new search value (after debounce)', () => {
+    vi.useFakeTimers();
+    try {
+      const { onChange } = renderBar();
+      const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'mankind' } });
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ search: 'mankind' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clicking the reset button invokes onClear', () => {
@@ -209,5 +218,139 @@ describe('<SeriesFiltersBar />', () => {
     await user.type(search, 'zzz-nothing');
     expect(screen.queryByTestId('series-filters-networks-item-HBO')).toBeNull();
     expect(screen.queryByTestId('series-filters-networks-item-Netflix')).toBeNull();
+  });
+});
+
+describe('SeriesFiltersBar — debounced search (121c §C)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders all typed characters in the input immediately', () => {
+    const onChange = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: '' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+    // Fast typing — five sequential keystrokes inside a single sync
+    // tick (no advancement of fake timers between events).
+    for (const ch of 'Sugar') {
+      fireEvent.change(input, { target: { value: input.value + ch } });
+    }
+    expect(input.value).toBe('Sugar');
+    // Parent must NOT have been called yet (still inside the debounce window).
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('fires onChange exactly once after the debounce window', () => {
+    const onChange = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: '' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+    for (const ch of 'Sugar') {
+      fireEvent.change(input, { target: { value: input.value + ch } });
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: 'Sugar' }),
+    );
+  });
+
+  it('flushes immediately on Enter', () => {
+    const onChange = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: '' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'rick' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: 'rick' }),
+    );
+  });
+
+  it('clears local + parent state on Escape', () => {
+    const onChange = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: 'rick' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.value).toBe('');
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: '' }),
+    );
+  });
+
+  it('syncs external prop updates back into the input (browser back/forward)', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: 'rick' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByTestId('series-filters-search') as HTMLInputElement;
+    expect(input.value).toBe('rick');
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <SeriesFiltersBar
+          value={{ ...DEFAULTS, search: 'severance' }}
+          availableNetworks={[]}
+          defaults={DEFAULTS}
+          onChange={onChange}
+          onClear={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(input.value).toBe('severance');
+    // Sync from external must NOT call back into the parent.
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

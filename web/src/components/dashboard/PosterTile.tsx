@@ -118,7 +118,7 @@ export function PosterTile({ item }: PosterTileProps) {
         {variant === 'imported' && <Check className="w-2.5 h-2.5" aria-hidden="true" />}
         {variant === 'failed' && <TriangleAlert className="w-2.5 h-2.5" aria-hidden="true" />}
         {variant === 'regrab' && <RotateCw className="w-2.5 h-2.5" aria-hidden="true" />}
-        {variant === 'imported' && 'imported'}
+        {variant === 'imported' && t('dashboard.poster.importedChip')}
         {variant === 'failed' && t('dashboard.poster.failChip')}
         {variant === 'regrab' && t('dashboard.poster.regrabChip', { n: 1 })}
       </span>

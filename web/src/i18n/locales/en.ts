@@ -264,6 +264,7 @@ export const en = {
         season: 'S{{season}}',
       },
       newcount: '+{{count}}',
+      importedChip: 'imported',
       failChip: 'import_failed',
       regrabChip: 're-grab #{{n}}',
       posterAria: '{{label}} — open',
@@ -367,6 +368,7 @@ export const en = {
       chips: {
         missing_one: '{{count}} missing episode',
         missing_few: '{{count}} missing episodes',
+        missing_many: '{{count}} missing episodes',
         missing_other: '{{count}} missing episodes',
         missingAria: 'Open queue of {{count}} missing episodes',
         watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
@@ -381,6 +383,7 @@ export const en = {
       degradation: {
         flips_one: '{{count}} flip',
         flips_few: '{{count}} flips',
+        flips_many: '{{count}} flips',
         flips_other: '{{count}} flips',
         lastError: '{{error}}',
       },

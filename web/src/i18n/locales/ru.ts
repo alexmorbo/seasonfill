@@ -266,6 +266,7 @@ export const ru: Translations = {
         season: 'S{{season}}',
       },
       newcount: '+{{count}}',
+      importedChip: 'импортирован',
       failChip: 'import_failed',
       regrabChip: 're-grab #{{n}}',
       posterAria: '{{label}} — открыть',
@@ -369,7 +370,8 @@ export const ru: Translations = {
       chips: {
         missing_one: '{{count}} эпизод missing',
         missing_few: '{{count}} эпизода missing',
-        missing_other: '{{count}} эпизодов missing',
+        missing_many: '{{count}} эпизодов missing',
+        missing_other: '{{count}} эпизода missing',
         missingAria: 'Открыть очередь {{count}} пропущенных эпизодов',
         watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
         regrabPerWeek: '{{count}} re-grab / нед',
@@ -383,6 +385,7 @@ export const ru: Translations = {
       degradation: {
         flips_one: '{{count}} flip',
         flips_few: '{{count}} flips',
+        flips_many: '{{count}} flips',
         flips_other: '{{count}} flips',
         lastError: '{{error}}',
       },

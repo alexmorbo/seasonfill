@@ -168,4 +168,22 @@ describe('<PosterTile />', () => {
     renderTile({ ...fixture, last_grab_at: oneHourAgo });
     expect(screen.getByText(/hr\./i)).toBeInTheDocument();
   });
+
+  it('renders the imported chip via i18n (story 121c §H)', () => {
+    renderTile(fixture);
+    // The fixture renders in EN — the chip must read 'imported' from
+    // the i18n key, not the hardcoded literal (functionally identical
+    // in EN, but the test contract is that t() is consulted).
+    expect(screen.getByText('imported')).toBeInTheDocument();
+  });
+
+  it('renders the imported chip in Russian when i18n is set to RU (story 121c §H)', async () => {
+    await i18n.changeLanguage('ru');
+    try {
+      renderTile(fixture);
+      expect(screen.getByText('импортирован')).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
 });

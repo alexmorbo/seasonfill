@@ -100,4 +100,10 @@ describe("<AppShell />", () => {
     const innerH1 = main.querySelectorAll("h1")
     expect(innerH1.length).toBe(0)
   })
+
+  it("mounts the LanguageSwitcher in the top bar", async () => {
+    renderWithProviders(ui)
+    // LanguageSwitcher's trigger is an aria-labelled button.
+    expect(await screen.findByLabelText(/Language|Язык/i)).toBeInTheDocument()
+  })
 })
