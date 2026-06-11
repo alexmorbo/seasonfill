@@ -137,30 +137,30 @@ describe('<PosterTile />', () => {
     expect(networks.length).toBe(0);
   });
 
-  it('navigates to /series?q=title on click', async () => {
+  it('navigates to /series?q=title&state=all on click', async () => {
     const user = userEvent.setup();
     renderTile(fixture);
     const tile = screen.getByTestId('poster-tile');
     await user.click(tile);
-    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad');
+    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad&state=all');
   });
 
-  it('navigates to /series?q=title on Enter key', async () => {
+  it('navigates to /series?q=title&state=all on Enter key', async () => {
     const user = userEvent.setup();
     renderTile(fixture);
     const tile = screen.getByTestId('poster-tile');
     tile.focus();
     await user.keyboard('{Enter}');
-    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad');
+    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad&state=all');
   });
 
-  it('navigates to /series?q=title on Space key', async () => {
+  it('navigates to /series?q=title&state=all on Space key', async () => {
     const user = userEvent.setup();
     renderTile(fixture);
     const tile = screen.getByTestId('poster-tile');
     tile.focus();
     await user.keyboard(' ');
-    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad');
+    expect(mockNavigate).toHaveBeenCalledWith('/series?q=Breaking%20Bad&state=all');
   });
 
   it('renders relative time (last_grab_at fallback to updated_at)', () => {
