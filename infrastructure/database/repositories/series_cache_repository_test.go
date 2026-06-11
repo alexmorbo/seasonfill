@@ -586,6 +586,198 @@ func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
 	assert.True(t, got.LastAiredAt.Equal(aired))
 }
 
+// TestSeriesCacheRepository_ListByFilter_MonitoredOnly — Story 121a §A
+func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	m := sampleEntry("main", 1)
+	m.Title = "Rick and Morty"
+	m.Monitored = true
+	require.NoError(t, repo.Upsert(ctx, m))
+
+	u := sampleEntry("main", 2)
+	u.Title = "Severance"
+	u.Monitored = false
+	require.NoError(t, repo.Upsert(ctx, u))
+
+	tru := true
+	fal := false
+	cases := []struct {
+		name    string
+		ptr     *bool
+		wantIDs []int
+	}{
+		{"nil = any", nil, []int{1, 2}},
+		{"true = monitored only", &tru, []int{1}},
+		{"false = unmonitored only", &fal, []int{2}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			items, total, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, MonitoredOnly: tc.ptr},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 50})
+			require.NoError(t, err)
+			assert.Equal(t, len(tc.wantIDs), total)
+			gotIDs := make([]int, 0, len(items))
+			for _, it := range items {
+				gotIDs = append(gotIDs, it.SonarrSeriesID)
+			}
+			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
+		})
+	}
+}
+
+// TestSeriesCacheRepository_ListByFilter_Networks — Story 121a §A
+func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	seed := []struct {
+		id      int
+		title   string
+		network string
+	}{
+		{1, "Show A", "HBO"},
+		{2, "Show B", "Apple TV+"},
+		{3, "Show C", "Apple TV+"},
+		{4, "Show D", ""},
+		{5, "Show E", "Netflix"},
+	}
+	for _, s := range seed {
+		e := sampleEntry("main", s.id)
+		e.Title = s.title
+		if s.network == "" {
+			e.Network = nil
+		} else {
+			e.Network = ptrString(s.network)
+		}
+		require.NoError(t, repo.Upsert(ctx, e))
+	}
+
+	cases := []struct {
+		name    string
+		nets    []string
+		wantIDs []int
+	}{
+		{"empty = no filter", nil, []int{1, 2, 3, 4, 5}},
+		{"single = HBO", []string{"HBO"}, []int{1}},
+		{"set = HBO + Netflix", []string{"HBO", "Netflix"}, []int{1, 5}},
+		{"unknown = none", []string{"NopeTV"}, nil},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			items, total, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Networks: tc.nets},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 50})
+			require.NoError(t, err)
+			assert.Equal(t, len(tc.wantIDs), total)
+			gotIDs := make([]int, 0, len(items))
+			for _, it := range items {
+				gotIDs = append(gotIDs, it.SonarrSeriesID)
+			}
+			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
+		})
+	}
+}
+
+// TestSeriesCacheRepository_ListByFilter_CombinedFilters — Story 121a §A
+// Tests that state + search + monitored + networks intersect correctly.
+func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	seed := []struct {
+		id        int
+		title     string
+		network   string
+		monitored bool
+		missing   int
+	}{
+		// matches: missing + monitored + Apple TV+ + "for"
+		{1, "For All Mankind", "Apple TV+", true, 3},
+		// wrong state (no missing)
+		{2, "Foundation", "Apple TV+", true, 0},
+		// wrong network
+		{3, "For The Crown", "Netflix", true, 5},
+		// wrong monitored
+		{4, "For the Win", "Apple TV+", false, 7},
+		// wrong search
+		{5, "Severance", "Apple TV+", true, 2},
+	}
+	for _, s := range seed {
+		e := sampleEntry("main", s.id)
+		e.Title = s.title
+		e.Network = ptrString(s.network)
+		e.Monitored = s.monitored
+		e.MissingCount = s.missing
+		require.NoError(t, repo.Upsert(ctx, e))
+	}
+
+	tru := true
+	items, total, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{
+			State:         ports.SeriesCacheStateMissing,
+			Search:        "for",
+			MonitoredOnly: &tru,
+			Networks:      []string{"Apple TV+"},
+		},
+		ports.SeriesCacheSortTitleAsc,
+		ports.Pagination{Limit: 50})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].SonarrSeriesID)
+}
+
+// TestSeriesCacheRepository_ListDistinctNetworks — Story 121a §A
+func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db)
+	ctx := context.Background()
+
+	seed := []struct {
+		id      int
+		network string
+	}{
+		{1, "HBO"},
+		{2, "Apple TV+"},
+		{3, "Apple TV+"},
+		{4, ""}, // empty → dropped
+		{5, "Netflix"},
+	}
+	for _, s := range seed {
+		e := sampleEntry("main", s.id)
+		if s.network == "" {
+			e.Network = nil
+		} else {
+			e.Network = ptrString(s.network)
+		}
+		require.NoError(t, repo.Upsert(ctx, e))
+	}
+
+	got, err := repo.ListDistinctNetworks(ctx, "main")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Apple TV+", "HBO", "Netflix"}, got,
+		"result must be distinct, non-empty, alphabetically sorted")
+
+	// Wrong instance → empty result, not error.
+	got, err = repo.ListDistinctNetworks(ctx, "other")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

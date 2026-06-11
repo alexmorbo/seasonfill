@@ -934,6 +934,9 @@ func (s *stubSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.Seri
 func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
+func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
 

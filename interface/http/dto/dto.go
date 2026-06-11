@@ -703,6 +703,12 @@ type SeriesCacheList struct {
 	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
+// SeriesCacheNetworksList is the response shape for
+// GET /api/v1/instances/{name}/series-cache/networks. Story 121a §A.
+type SeriesCacheNetworksList struct {
+	Networks []string `json:"networks"`
+} // @name SeriesCacheNetworksList
+
 // --- Watchdog rollups (047a) -------------------------------------------------
 
 // WatchdogRollup is the per-instance F4 dashboard projection. Pointer

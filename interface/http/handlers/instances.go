@@ -636,6 +636,18 @@ const (
 	// to bound the log line size. Anything beyond ~120 chars is a
 	// pasted URL or accidental keystroke, not a legitimate title.
 	seriesCacheMaxSearchLen = 200
+	// seriesCacheMaxNetworksParam — hard cap on the count of network
+	// names in the `?networks=` filter. The /series UI's facet panel
+	// surfaces all distinct networks; if a future degenerate dataset
+	// pushes the cap up, this is where to raise it. Bound chosen so
+	// the resulting SQL `IN (?, ?, ..., ?)` stays under
+	// Postgres's bind-var limit by a wide margin.
+	seriesCacheMaxNetworksParam = 32
+	// seriesCacheMaxNetworkNameLen — per-name length cap. Caps
+	// payload size on the WHERE clause and bounds log line size for
+	// observability. Sonarr network names are short ("HBO", "Apple TV+");
+	// anything longer is suspect.
+	seriesCacheMaxNetworkNameLen = 128
 )
 
 // ListSeriesCache returns the per-instance cached series list with
@@ -659,6 +671,8 @@ const (
 // @Param       sort    query  string  false  "updated_desc | title_asc | air_date_desc (default updated_desc)" Enums(updated_desc,title_asc,air_date_desc)
 // @Param       limit   query  int     false  "1..100 (default 24)"
 // @Param       cursor  query  string  false  "Opaque next_cursor from prior page"
+// @Param       monitored  query  string  false  "1 = monitored only, 0 = unmonitored only" Enums(1,0,true,false)
+// @Param       networks   query  string  false  "Pipe-separated broadcast network names (e.g. HBO|Netflix). Max 32."
 // @Success     200  {object}  dto.SeriesCacheList
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     401  {object}  dto.ErrorResponse
@@ -708,11 +722,26 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
 		return
 	}
+	monitored, err := parseSeriesCacheMonitored(c.Query("monitored"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	networks, err := parseSeriesCacheNetworks(c.Query("networks"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
 
 	ctx := c.Request.Context()
 	entries, total, hasMore, next, lErr := lister.ListByFilter(
 		ctx, name,
-		ports.SeriesCacheFilter{State: state, Search: q},
+		ports.SeriesCacheFilter{
+			State:         state,
+			Search:        q,
+			MonitoredOnly: monitored,
+			Networks:      networks,
+		},
 		sortKey,
 		ports.Pagination{Limit: limit, Cursor: cursor},
 	)
@@ -721,6 +750,8 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 			slog.String("instance", name),
 			slog.String("state", string(state)),
 			slog.String("q", q),
+			slog.Any("monitored", monitored),
+			slog.Int("networks_count", len(networks)),
 			slog.String("error", lErr.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "list failed"})
 		return
@@ -833,6 +864,119 @@ func parseSeriesCacheSearch(raw string) (string, error) {
 		return "", errors.New("q must be at most 200 characters")
 	}
 	return q, nil
+}
+
+// parseSeriesCacheMonitored decodes the tri-state `?monitored=`
+// query param. Empty / absent ⇒ nil (no filter). `1` / `true` ⇒
+// monitored only. `0` / `false` ⇒ unmonitored only. Anything else
+// ⇒ 400. Story 121a §A.
+func parseSeriesCacheMonitored(raw string) (*bool, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+	switch strings.ToLower(s) {
+	case "1", "true":
+		v := true
+		return &v, nil
+	case "0", "false":
+		v := false
+		return &v, nil
+	}
+	return nil, errors.New("monitored must be one of: 1, 0, true, false")
+}
+
+// parseSeriesCacheNetworks splits the `?networks=` pipe-separated
+// value into a slice. Each segment is URL-decoded by Gin already; we
+// only trim + dedupe + length-check. Empty / absent ⇒ nil. Hardened
+// against degenerate inputs: caps at seriesCacheMaxNetworksParam
+// names and seriesCacheMaxNetworkNameLen per name. Story 121a §A.
+func parseSeriesCacheNetworks(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, "|")
+	if len(parts) > seriesCacheMaxNetworksParam {
+		return nil, errors.New("too many networks (max 32)")
+	}
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if len(p) > seriesCacheMaxNetworkNameLen {
+			return nil, errors.New("network name too long")
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// ListSeriesCacheNetworks returns the distinct broadcast network
+// strings present in the instance's active series_cache rows. Powers
+// the /series networks facet panel. Story 121a §A: the panel
+// previously read networks from the loaded pages, which meant rows
+// past page 1 were missing from the dropdown.
+//
+// @Summary     List distinct networks for an instance's series cache
+// @Description Returns the alphabetically-sorted, distinct set of
+// @Description broadcast network strings for an instance's active
+// @Description series_cache rows. Used by the /series facet panel to
+// @Description render every available checkbox regardless of which
+// @Description page of the paginated series list is loaded.
+// @Tags        instances
+// @Produce     json
+// @Param       name  path  string  true  "Instance name"
+// @Success     200  {object}  dto.SeriesCacheNetworksList
+// @Failure     401  {object}  dto.ErrorResponse
+// @Failure     404  {object}  dto.ErrorResponse
+// @Failure     500  {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /instances/{name}/series-cache/networks [get]
+func (h *InstancesHandler) ListSeriesCacheNetworks(c *gin.Context) {
+	name := c.Param("name")
+	if _, ok := h.reg.snapshot()[name]; !ok {
+		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
+		return
+	}
+	if h.seriesCache == nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "series cache not wired"})
+		return
+	}
+	lister, ok := h.seriesCache.(seriesCacheDistinctNetworksLister)
+	if !ok {
+		c.JSON(http.StatusInternalServerError,
+			dto.ErrorResponse{Error: "series cache backend missing distinct-networks capability"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	nets, err := lister.ListDistinctNetworks(ctx, name)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "series_cache_networks_failed",
+			slog.String("instance", name),
+			slog.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "list failed"})
+		return
+	}
+	c.JSON(http.StatusOK, dto.SeriesCacheNetworksList{Networks: nets})
+}
+
+// seriesCacheDistinctNetworksLister narrows the port to the new
+// distinct-networks capability. The production repository satisfies
+// it; tests can supply a focused fake.
+type seriesCacheDistinctNetworksLister interface {
+	ListDistinctNetworks(ctx context.Context, instanceName string) ([]string, error)
 }
 
 // toSeriesCacheItem maps the domain CacheEntry + the aggregated grab

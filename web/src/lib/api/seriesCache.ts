@@ -77,6 +77,13 @@ export interface SeriesCacheInfiniteQuery {
   // title_slug. Empty / undefined ⇒ no filter. The repo edge
   // trims the value and escapes LIKE wildcards.
   readonly search?: string;
+  // Story 121a §A: tri-state monitored predicate. undefined ⇒ no
+  // filter. true ⇒ monitored only. false ⇒ unmonitored only.
+  readonly monitoredOnly?: boolean;
+  // Story 121a §A: set of broadcast network names. Empty / undefined
+  // ⇒ no filter. Pipe-separated server-side; we sort here so the
+  // queryKey is stable across reorderings.
+  readonly networks?: readonly string[];
 }
 
 function buildInfinitePath(
@@ -89,15 +96,30 @@ function buildInfinitePath(
   if (q.sort) p.set('sort', q.sort);
   if (q.limit !== undefined) p.set('limit', String(q.limit));
   if (q.search && q.search.trim() !== '') p.set('q', q.search.trim());
+  if (q.monitoredOnly !== undefined) {
+    p.set('monitored', q.monitoredOnly ? '1' : '0');
+  }
+  if (q.networks && q.networks.length > 0) {
+    p.set('networks', [...q.networks].sort().join('|'));
+  }
   if (cursor) p.set('cursor', cursor);
   const qs = p.toString();
   return `/instances/${encodeURIComponent(instance)}/series-cache${qs ? `?${qs}` : ''}`;
 }
 
+// seriesCacheInfiniteKey already passes the entire `q` into the key
+// — adding fields auto-propagates. We add a deterministic networks
+// sort in the key as well, otherwise toggling network order would
+// blow the cache.
 export const seriesCacheInfiniteKey = (
   instance: string | null | undefined,
   q: SeriesCacheInfiniteQuery,
-) => ['series-cache', 'infinite', instance ?? '', q] as const;
+) => {
+  const normalized: SeriesCacheInfiniteQuery = q.networks
+    ? { ...q, networks: [...q.networks].sort() }
+    : q;
+  return ['series-cache', 'infinite', instance ?? '', normalized] as const;
+};
 
 export function useSeriesCacheInfinite(
   instance: string | null | undefined,
@@ -128,4 +150,31 @@ export function flattenSeriesCachePages(
   pages: readonly SeriesCacheList[] | undefined,
 ): readonly SeriesCacheItem[] {
   return pages ? pages.flatMap((p) => p.items ?? []) : [];
+}
+
+// === Story 121a §A — facet networks endpoint ===
+
+interface SeriesCacheNetworksResponse {
+  readonly networks: readonly string[];
+}
+
+export function useSeriesCacheNetworks(
+  instance: string | null | undefined,
+  opts: { enabled?: boolean } = {},
+): UseQueryResult<readonly string[], ApiError> {
+  const enabled = (opts.enabled ?? true) && !!instance;
+  return useQuery<readonly string[], ApiError>({
+    queryKey: ['series-cache', 'networks', instance ?? ''] as const,
+    queryFn: async () => {
+      const res = await api<SeriesCacheNetworksResponse>(
+        `/instances/${encodeURIComponent(instance ?? '')}/series-cache/networks`,
+      );
+      return res.networks;
+    },
+    enabled,
+    // Distinct network list is stable; the underlying series_cache
+    // doesn't churn fast enough to need a tight refetch interval.
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
 }

@@ -412,7 +412,26 @@ type SeriesCacheRepository interface {
 	FetchLastGrabInfo(
 		ctx context.Context, instanceName string, seriesIDs []int,
 	) (map[int]LastGrabInfo, error)
+
+	// ListDistinctNetworks returns the sorted, distinct, non-empty
+	// network strings present in the instance's active (non-soft-deleted)
+	// series_cache rows. Story 121a: the /series networks facet panel
+	// needs the full set regardless of which page is loaded. Result is
+	// always alphabetically sorted; empty strings and NULLs are dropped.
+	// Cap output at MaxDistinctNetworks (hard cap to bound JSON size +
+	// dropdown render perf).
+	ListDistinctNetworks(
+		ctx context.Context,
+		instanceName string,
+	) ([]string, error)
 }
+
+// MaxDistinctNetworks bounds the distinct-network result so a
+// degenerate dataset (thousands of unique network strings) can't
+// blow up the facet-panel render or the JSON payload. A typical
+// Sonarr instance has 5..30 distinct networks; the cap is set well
+// above that with room for outliers.
+const MaxDistinctNetworks = 256
 
 // SeriesCacheState narrows the series_cache list by derived membership.
 // Imported = the series received an "imported" grab_records row in the
@@ -472,6 +491,19 @@ type SeriesCacheFilter struct {
 	// Empty string ⇒ no filter. SQL wildcard chars (`%`, `_`, `\`)
 	// in the input are escaped before substring match.
 	Search string
+	// MonitoredOnly is a tri-state narrowing predicate (story 121a).
+	// nil ⇒ no filter (any value). non-nil pointer to true ⇒
+	// monitored=true rows only. non-nil pointer to false ⇒
+	// monitored=false rows only. The pointer encoding distinguishes
+	// "operator did not toggle" from "operator explicitly chose
+	// unmonitored", which a `bool` cannot.
+	MonitoredOnly *bool
+	// Networks narrows to the union of named broadcast networks.
+	// Empty slice / nil ⇒ no filter. Hardened against `IN ()` SQL —
+	// the repo edge skips the WHERE clause when len == 0. Values are
+	// matched verbatim (case-sensitive) against series_cache.network;
+	// the network strings come from Sonarr and are stable.
+	Networks []string
 }
 
 // LastGrabInfo holds the aggregated grab data for the list endpoint.

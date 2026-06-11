@@ -1467,6 +1467,9 @@ func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.Seri
 func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
+func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
 

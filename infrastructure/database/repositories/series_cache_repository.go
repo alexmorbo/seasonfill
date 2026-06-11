@@ -160,6 +160,8 @@ func (r *SeriesCacheRepository) ListByFilter(
 		Where("instance_name = ? AND deleted_at IS NULL", instanceName)
 	base = applyStateFilter(base, filter.State)
 	base = applySearchFilter(base, filter.Search)
+	base = applyMonitoredFilter(base, filter.MonitoredOnly)
+	base = applyNetworksFilter(base, filter.Networks)
 
 	var total int64
 	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -237,6 +239,29 @@ func applySearchFilter(q *gorm.DB, search string) *gorm.DB {
 			"OR LOWER(title_slug) LIKE LOWER(?) ESCAPE '\\')",
 		pat, pat,
 	)
+}
+
+// applyMonitoredFilter narrows the query to monitored=true or
+// monitored=false rows when the tri-state pointer is set. nil ⇒
+// no-op. Story 121a: needed for keyset-paginated /series filtering
+// because client-side `monitoredOnly` couldn't see rows past page 1.
+func applyMonitoredFilter(q *gorm.DB, only *bool) *gorm.DB {
+	if only == nil {
+		return q
+	}
+	return q.Where("monitored = ?", *only)
+}
+
+// applyNetworksFilter narrows the query to rows whose `network`
+// column matches any of the supplied names. Empty slice ⇒ no-op
+// (the repo edge MUST refuse to emit `IN ()` which Postgres rejects).
+// Story 121a: the /series facet panel needs server-side narrowing
+// because the panel itself reads from a separate distinct endpoint.
+func applyNetworksFilter(q *gorm.DB, networks []string) *gorm.DB {
+	if len(networks) == 0 {
+		return q
+	}
+	return q.Where("network IN ?", networks)
 }
 
 // escapeLikePattern doubles every LIKE meta-character (`%`, `_`, `\`)
@@ -388,6 +413,30 @@ func (r *SeriesCacheRepository) FetchLastGrabInfo(
 		}
 	}
 	return out, nil
+}
+
+// ListDistinctNetworks returns the sorted, distinct, non-empty
+// network strings for the instance's active rows. Story 121a §A.
+func (r *SeriesCacheRepository) ListDistinctNetworks(
+	ctx context.Context,
+	instanceName string,
+) ([]string, error) {
+	if instanceName == "" {
+		return nil, fmt.Errorf("list distinct networks: instance_name must be non-empty")
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	var rows []string
+	err := db.Model(&database.SeriesCacheModel{}).
+		Where("instance_name = ? AND deleted_at IS NULL", instanceName).
+		Where("network IS NOT NULL AND network != ''").
+		Distinct("network").
+		Order("network ASC").
+		Limit(ports.MaxDistinctNetworks).
+		Pluck("network", &rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list distinct networks: %w", err)
+	}
+	return rows, nil
 }
 
 func formatSeasonTag(season int) string {

@@ -1790,6 +1790,10 @@ export type paths = {
                     readonly limit?: number;
                     /** @description Opaque next_cursor from prior page */
                     readonly cursor?: string;
+                    /** @description 1 = monitored only, 0 = unmonitored only */
+                    readonly monitored?: PathsInstancesNameSeriesCacheGetParametersQueryMonitored;
+                    /** @description Pipe-separated broadcast network names (e.g. HBO|Netflix). Max 32. */
+                    readonly networks?: string;
                 };
                 readonly header?: never;
                 readonly path: {
@@ -1816,6 +1820,79 @@ export type paths = {
                     };
                     content: {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}/series-cache/networks": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List distinct networks for an instance's series cache
+         * @description Returns the alphabetically-sorted, distinct set of
+         *     broadcast network strings for an instance's active
+         *     series_cache rows. Used by the /series facet panel to
+         *     render every available checkbox regardless of which
+         *     page of the paginated series list is loaded.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesCacheNetworksList"];
                     };
                 };
                 /** @description Unauthorized */
@@ -3925,6 +4002,9 @@ export type components = {
             /** @example 42 */
             readonly total?: number;
         };
+        readonly "dto.SeriesCacheNetworksList": {
+            readonly networks?: readonly string[];
+        };
         readonly "dto.SeriesSearchItem": {
             /** @example 8 */
             readonly missing_aired_count?: number;
@@ -4203,6 +4283,12 @@ export enum PathsInstancesNameSeriesCacheGetParametersQuerySort {
     updated_desc = "updated_desc",
     title_asc = "title_asc",
     air_date_desc = "air_date_desc"
+}
+export enum PathsInstancesNameSeriesCacheGetParametersQueryMonitored {
+    Value1 = "1",
+    Value0 = "0",
+    true = "true",
+    false = "false"
 }
 export enum PathsScansGetParametersQueryStatus {
     running = "running",

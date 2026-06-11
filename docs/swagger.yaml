@@ -1419,6 +1419,14 @@ components:
           example: 42
           type: integer
       type: object
+    dto.SeriesCacheNetworksList:
+      properties:
+        networks:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
     dto.SeriesSearchItem:
       properties:
         missing_aired_count:
@@ -3053,6 +3061,22 @@ paths:
         name: cursor
         schema:
           type: string
+      - description: 1 = monitored only, 0 = unmonitored only
+        in: query
+        name: monitored
+        schema:
+          enum:
+          - "1"
+          - "0"
+          - "true"
+          - "false"
+          type: string
+      - description: Pipe-separated broadcast network names (e.g. HBO|Netflix). Max
+          32.
+        in: query
+        name: networks
+        schema:
+          type: string
       responses:
         "200":
           content:
@@ -3088,6 +3112,52 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: List cached series for an instance
+      tags:
+      - instances
+  /instances/{name}/series-cache/networks:
+    get:
+      description: |-
+        Returns the alphabetically-sorted, distinct set of
+        broadcast network strings for an instance's active
+        series_cache rows. Used by the /series facet panel to
+        render every available checkbox regardless of which
+        page of the paginated series list is loaded.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCacheNetworksList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List distinct networks for an instance's series cache
       tags:
       - instances
   /instances/{name}/series/{id}/poster:

@@ -150,6 +150,7 @@ func NewServer(
 		countersHandler := handlers.NewCountersHandler(instanceReg, counterRepo, logger)
 		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
+		guarded.GET("/instances/:name/series-cache/networks", instancesHandler.ListSeriesCacheNetworks)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
 		// Singleton poster cache. Lives for the life of the process
 		// — there's no reload path because the cap + TTL are

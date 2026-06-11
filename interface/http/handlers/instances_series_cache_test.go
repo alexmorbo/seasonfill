@@ -56,8 +56,43 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	r := gin.New()
 	api := r.Group("/api/v1")
 	api.GET("/instances/:name/series-cache", h.ListSeriesCache)
+	api.GET("/instances/:name/series-cache/networks", h.ListSeriesCacheNetworks)
 
 	return &seriesCacheFixture{db: db, repo: repo, grabs: grabs, router: r}
+}
+
+// seedWith — Story 121a: lets a test seed a row and then mutate
+// additional fields (Monitored, Network) before Upsert.
+func (f *seriesCacheFixture) seedWith(
+	t *testing.T,
+	instance string,
+	id int,
+	title string,
+	missing int,
+	ts time.Time,
+	mutate func(*series.CacheEntry),
+) {
+	t.Helper()
+	year := 2024
+	poster := "/MediaCover/" + title + "/poster.jpg"
+	e := series.CacheEntry{
+		InstanceName:   instance,
+		SonarrSeriesID: id,
+		Title:          title,
+		TitleSlug:      strings.ToLower(strings.ReplaceAll(title, " ", "-")),
+		Year:           &year,
+		PosterPath:     &poster,
+		Monitored:      true,
+		MissingCount:   missing,
+		UpdatedAt:      ts,
+	}
+	if mutate != nil {
+		mutate(&e)
+	}
+	require.NoError(t, f.repo.Upsert(context.Background(), e))
+	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
+		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
+		Update("updated_at", ts).Error)
 }
 
 func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title string, missing int, updatedAt time.Time) {
@@ -327,4 +362,121 @@ func TestInstancesHandler_ListSeriesCache_QOverLong400(t *testing.T) {
 	long := strings.Repeat("x", 201)
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?q="+long)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestInstancesHandler_ListSeriesCache_MonitoredFilter — Story 121a §A
+func TestInstancesHandler_ListSeriesCache_MonitoredFilter(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seedWith(t, "homelab", 1, "Rick and Morty", 0, now, func(e *series.CacheEntry) {
+		e.Monitored = true
+	})
+	f.seedWith(t, "homelab", 2, "Severance", 0, now, func(e *series.CacheEntry) {
+		e.Monitored = false
+	})
+
+	cases := []struct {
+		url     string
+		wantIDs []int
+	}{
+		{"/api/v1/instances/homelab/series-cache?monitored=1", []int{1}},
+		{"/api/v1/instances/homelab/series-cache?monitored=true", []int{1}},
+		{"/api/v1/instances/homelab/series-cache?monitored=0", []int{2}},
+		{"/api/v1/instances/homelab/series-cache?monitored=false", []int{2}},
+		{"/api/v1/instances/homelab/series-cache", []int{1, 2}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.url, func(t *testing.T) {
+			rec, body := f.do(t, tc.url)
+			require.Equal(t, http.StatusOK, rec.Code)
+			gotIDs := make([]int, 0, len(body.Items))
+			for _, it := range body.Items {
+				gotIDs = append(gotIDs, it.SonarrSeriesID)
+			}
+			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
+		})
+	}
+}
+
+func TestInstancesHandler_ListSeriesCache_MonitoredInvalid400(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?monitored=maybe")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestInstancesHandler_ListSeriesCache_NetworksFilter — Story 121a §A
+func TestInstancesHandler_ListSeriesCache_NetworksFilter(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seedWith(t, "homelab", 1, "A", 0, now, func(e *series.CacheEntry) {
+		n := "HBO"
+		e.Network = &n
+	})
+	f.seedWith(t, "homelab", 2, "B", 0, now, func(e *series.CacheEntry) {
+		n := "Apple TV+"
+		e.Network = &n
+	})
+	f.seedWith(t, "homelab", 3, "C", 0, now, func(e *series.CacheEntry) {
+		n := "Netflix"
+		e.Network = &n
+	})
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?networks=HBO|Netflix")
+	require.Equal(t, http.StatusOK, rec.Code)
+	gotIDs := make([]int, 0, len(body.Items))
+	for _, it := range body.Items {
+		gotIDs = append(gotIDs, it.SonarrSeriesID)
+	}
+	assert.ElementsMatch(t, []int{1, 3}, gotIDs)
+}
+
+func TestInstancesHandler_ListSeriesCache_NetworksTooMany400(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	long := strings.Repeat("X|", 33)
+	long = long[:len(long)-1] // trim trailing pipe
+	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?networks="+long)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestInstancesHandler_ListSeriesCacheNetworks_HappyPath — Story 121a §A
+func TestInstancesHandler_ListSeriesCacheNetworks_HappyPath(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seedWith(t, "homelab", 1, "A", 0, now, func(e *series.CacheEntry) {
+		n := "HBO"
+		e.Network = &n
+	})
+	f.seedWith(t, "homelab", 2, "B", 0, now, func(e *series.CacheEntry) {
+		n := "Apple TV+"
+		e.Network = &n
+	})
+	f.seedWith(t, "homelab", 3, "C", 0, now, func(e *series.CacheEntry) {
+		n := "HBO"
+		e.Network = &n
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/instances/homelab/series-cache/networks", nil)
+	f.router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body dto.SeriesCacheNetworksList
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, []string{"Apple TV+", "HBO"}, body.Networks)
+}
+
+func TestInstancesHandler_ListSeriesCacheNetworks_UnknownInstance404(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/instances/nope/series-cache/networks", nil)
+	f.router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
@@ -45,8 +46,17 @@ interface InfiniteHookCall {
     sort: string;
     limit: number;
     search?: string;
+    monitoredOnly?: boolean;
+    networks?: readonly string[];
   };
 }
+
+// New mock for the networks-list query (story 121a §A).
+const networksFixture = {
+  data: ['Apple TV+', 'HBO', 'Netflix'],
+  isPending: false,
+  isError: false,
+};
 
 const hookCalls: InfiniteHookCall[] = [];
 
@@ -87,6 +97,7 @@ vi.mock('@/lib/api/seriesCache', async () => {
       hookCalls.push({ instance, q });
       return infiniteFixture;
     },
+    useSeriesCacheNetworks: () => networksFixture,
     flattenSeriesCachePages: (pages: Array<{ items: unknown[] }> | undefined) =>
       pages ? pages.flatMap((p) => p.items ?? []) : [],
   };
@@ -256,5 +267,42 @@ describe('<Series /> integration', () => {
       expect(screen.getByTestId('series-list-error')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('series-grid')).not.toBeInTheDocument();
+  });
+
+  it('passes monitoredOnly=true into the hook when the default toggle is on', async () => {
+    hookCalls.length = 0;
+    renderPage('/series');
+    await waitFor(() => expect(hookCalls.length).toBeGreaterThan(0));
+    expect(hookCalls[hookCalls.length - 1]!.q.monitoredOnly).toBe(true);
+  });
+
+  it('omits monitoredOnly when the URL says monitored=0', async () => {
+    hookCalls.length = 0;
+    renderPage('/series?monitored=0');
+    await waitFor(() => expect(hookCalls.length).toBeGreaterThan(0));
+    expect(hookCalls[hookCalls.length - 1]!.q.monitoredOnly).toBeUndefined();
+  });
+
+  it('passes the networks set into the hook', async () => {
+    hookCalls.length = 0;
+    renderPage('/series?networks=HBO|Netflix');
+    await waitFor(() => expect(hookCalls.length).toBeGreaterThan(0));
+    expect(hookCalls[hookCalls.length - 1]!.q.networks).toEqual(['HBO', 'Netflix']);
+  });
+
+  it('renders the full distinct network list in the facet panel', async () => {
+    const user = userEvent.setup();
+    renderPage('/series');
+    // The mocked useSeriesCacheNetworks returns three; the panel must
+    // surface all three regardless of which page is loaded.
+    await waitFor(() => {
+      expect(screen.getByTestId('series-filters-networks')).toBeInTheDocument();
+    });
+    // Open the Radix DropdownMenu — userEvent emits the pointer events
+    // Radix needs; fireEvent.click alone does not open the portal.
+    await user.click(screen.getByTestId('series-filters-networks'));
+    expect(await screen.findByTestId('series-filters-networks-item-Apple TV+')).toBeInTheDocument();
+    expect(screen.getByTestId('series-filters-networks-item-HBO')).toBeInTheDocument();
+    expect(screen.getByTestId('series-filters-networks-item-Netflix')).toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import {
   useSeriesCacheInfinite,
+  useSeriesCacheNetworks,
   flattenSeriesCachePages,
   type SeriesCacheStatus,
   type SeriesCacheSort,
@@ -63,26 +64,15 @@ function writeFiltersToParams(v: SeriesFiltersValue): URLSearchParams {
   return p;
 }
 
+// applyClientFilters is now a pass-through. Kept as a hook point in
+// case a future story adds a client-side overlay (e.g. last-watched
+// flagging). Story 121a §A: monitoredOnly + networks moved to the
+// repo edge to make them work past page 1.
 function applyClientFilters(
   items: readonly SeriesCacheItem[],
-  v: SeriesFiltersValue,
+  _v: SeriesFiltersValue,
 ): readonly SeriesCacheItem[] {
-  return items.filter((it) => {
-    if (v.monitoredOnly && !it.monitored) return false;
-    if (v.networks.size > 0) {
-      const n = it.network ?? '';
-      if (!v.networks.has(n)) return false;
-    }
-    return true;
-  });
-}
-
-function uniqueNetworks(items: readonly SeriesCacheItem[]): readonly string[] {
-  const set = new Set<string>();
-  for (const it of items) {
-    if (it.network && it.network.length > 0) set.add(it.network);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b));
+  return items;
 }
 
 export function Series() {
@@ -104,6 +94,10 @@ export function Series() {
       sort: filters.sort,
       limit: 24,
       search: filters.search,
+      // Story 121a §A. Conditional-spread under exactOptionalPropertyTypes:
+      // toggle on → send monitored=1; toggle off → omit (any).
+      ...(filters.monitoredOnly ? { monitoredOnly: true as const } : {}),
+      ...(filters.networks.size > 0 ? { networks: [...filters.networks] } : {}),
     },
   );
 
@@ -112,7 +106,10 @@ export function Series() {
     [list.data?.pages],
   );
   const filtered = useMemo(() => applyClientFilters(rawItems, filters), [rawItems, filters]);
-  const networks = useMemo(() => uniqueNetworks(rawItems), [rawItems]);
+  // Story 121a §A: facet panel reads the full distinct set from the
+  // sibling endpoint instead of deriving it from loaded pages.
+  const networksQuery = useSeriesCacheNetworks(current);
+  const networks = networksQuery.data ?? [];
   const total = list.data?.pages?.[0]?.total ?? 0;
 
   // One-shot auto-fallback: bare-URL initial mount with state=missing
