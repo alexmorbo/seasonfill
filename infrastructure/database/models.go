@@ -718,3 +718,116 @@ type SeriesKeywordModel struct {
 }
 
 func (SeriesKeywordModel) TableName() string { return "series_keywords" }
+
+// VideoModel — TMDB-sourced video row (PRD §5.3 row "videos",
+// migration 000029). Natural key tmdb_video_id has a partial unique
+// index where not NULL so operator-curated rows (rare) can coexist
+// without a TMDB id — mirrors the series/people/taxonomy partial-unique
+// pattern from 203/204/205.
+type VideoModel struct {
+	ID          int64      `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID    int64      `gorm:"column:series_id;not null"`
+	TMDBVideoID *string    `gorm:"column:tmdb_video_id;type:text"`
+	Name        string     `gorm:"column:name;type:text;not null"`
+	Site        *string    `gorm:"column:site;type:text"`
+	Key         *string    `gorm:"column:key;type:text"`
+	Type        *string    `gorm:"column:type;type:text"`
+	Official    bool       `gorm:"column:official;not null;default:false"`
+	Language    *string    `gorm:"column:language;type:text"`
+	PublishedAt *time.Time `gorm:"column:published_at"`
+	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (VideoModel) TableName() string { return "videos" }
+
+// ContentRatingModel — per-country age rating row (PRD §5.3 row
+// "content_ratings", migration 000029). Composite PK (series_id,
+// country_code).
+type ContentRatingModel struct {
+	SeriesID    int64     `gorm:"primaryKey;column:series_id"`
+	CountryCode string    `gorm:"primaryKey;column:country_code;type:text"`
+	Rating      string    `gorm:"column:rating;type:text;not null"`
+	UpdatedAt   time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (ContentRatingModel) TableName() string { return "content_ratings" }
+
+// ExternalIDModel — polymorphic cross-provider id row (PRD §5.3 row
+// "external_ids", migration 000029). Composite PK
+// (entity_type, entity_id, provider). entity_type domain
+// (series|person|episode) is enforced at the domain layer via the
+// typed enrichment.EntityType enum, NOT by DB constraint — keeps the
+// table schema-portable.
+type ExternalIDModel struct {
+	EntityType string    `gorm:"primaryKey;column:entity_type;type:text"`
+	EntityID   int64     `gorm:"primaryKey;column:entity_id"`
+	Provider   string    `gorm:"primaryKey;column:provider;type:text"`
+	Value      string    `gorm:"column:value;type:text;not null"`
+	UpdatedAt  time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (ExternalIDModel) TableName() string { return "external_ids" }
+
+// SeriesRecommendationModel — TMDB-sourced "you might also like" join
+// row (PRD §5.3 row "series_recommendations", migration 000029). Self-
+// joining on series — recommended_series_id references series.id
+// (typically a stub row hydrated by series_enrichment_worker when an
+// unknown title first surfaces).
+type SeriesRecommendationModel struct {
+	SeriesID            int64     `gorm:"primaryKey;column:series_id"`
+	RecommendedSeriesID int64     `gorm:"primaryKey;column:recommended_series_id"`
+	Position            *int      `gorm:"column:position"`
+	UpdatedAt           time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (SeriesRecommendationModel) TableName() string { return "series_recommendations" }
+
+// PersonCreditModel — materialised filmography row (PRD §5.3 row
+// "person_credits", migration 000030). Natural key
+// (person_id, tmdb_credit_id) — idempotent re-ingest of TMDB
+// /person/{id}/tv_credits + /movie_credits. PosterPath is an upstream
+// TMDB image path string in v1; the media downloader picks it up
+// lazily on person-page open. Conversion to a media_assets.hash
+// reference is deferred to a later media-prewarm story.
+type PersonCreditModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	PersonID      int64     `gorm:"column:person_id;not null"`
+	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
+	MediaType     string    `gorm:"column:media_type;type:text;not null"`
+	TMDBMediaID   int       `gorm:"column:tmdb_media_id;not null"`
+	Title         string    `gorm:"column:title;type:text;not null"`
+	Year          *int      `gorm:"column:year"`
+	CharacterName *string   `gorm:"column:character_name;type:text"`
+	Kind          string    `gorm:"column:kind;type:text;not null"`
+	Job           *string   `gorm:"column:job;type:text"`
+	PosterPath    *string   `gorm:"column:poster_path;type:text"`
+	VoteAverage   *float64  `gorm:"column:vote_average"`
+	EpisodeCount  *int      `gorm:"column:episode_count"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (PersonCreditModel) TableName() string { return "person_credits" }
+
+// SyncLogModel — per-(entity, source) hydration journal row (PRD §5.5,
+// §7.1, migration 000031). PK (entity_type, entity_id, source) —
+// natural key, exactly one row per (canon entity, source). Workers
+// write one row per fetch attempt; the composer reads Outcome +
+// SyncedAt to decide degraded[]; the dispatcher reads NextAttemptAt +
+// Attempts for retry scheduling.
+type SyncLogModel struct {
+	EntityType    string     `gorm:"primaryKey;column:entity_type;type:text"`
+	EntityID      int64      `gorm:"primaryKey;column:entity_id"`
+	Source        string     `gorm:"primaryKey;column:source;type:text"`
+	SyncedAt      *time.Time `gorm:"column:synced_at"`
+	Outcome       string     `gorm:"column:outcome;type:text;not null;default:'pending'"`
+	ErrorDetail   *string    `gorm:"column:error_detail;type:text"`
+	ETag          *string    `gorm:"column:etag;type:text"`
+	Attempts      int        `gorm:"column:attempts;not null;default:0"`
+	NextAttemptAt *time.Time `gorm:"column:next_attempt_at"`
+	DurationMs    *int       `gorm:"column:duration_ms"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (SyncLogModel) TableName() string { return "sync_log" }
