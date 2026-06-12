@@ -589,3 +589,132 @@ type EpisodePersonModel struct {
 }
 
 func (EpisodePersonModel) TableName() string { return "episode_people" }
+
+// NetworkModel — canonical network dictionary row (PRD §5.3,
+// migration 000028). name stays on the entity — brand names are not
+// meaningfully translated. tmdb_id has a partial unique index where
+// not NULL so a Sonarr-string fallback (PRD §5.4 row
+// "series_networks") can create a row without a TMDB id.
+type NetworkModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID        *int      `gorm:"column:tmdb_id"`
+	Name          string    `gorm:"column:name;type:text;not null"`
+	LogoAsset     *string   `gorm:"column:logo_asset;type:text"`
+	OriginCountry *string   `gorm:"column:origin_country;type:text"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (NetworkModel) TableName() string { return "networks" }
+
+// ProductionCompanyModel — canonical production company dictionary
+// row (PRD §5.3, migration 000028). Same shape as NetworkModel.
+type ProductionCompanyModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID        *int      `gorm:"column:tmdb_id"`
+	Name          string    `gorm:"column:name;type:text;not null"`
+	LogoAsset     *string   `gorm:"column:logo_asset;type:text"`
+	OriginCountry *string   `gorm:"column:origin_country;type:text"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (ProductionCompanyModel) TableName() string { return "production_companies" }
+
+// GenreModel — canonical genre dictionary row (PRD §5.3, migration
+// 000028). The name lives in GenreI18nModel (one row per language) —
+// the entity carries only the natural-key id + audit columns. tmdb_id
+// has a partial unique index where not NULL so the Sonarr-string
+// fallback (PRD §5.4 row "series_genres") can hypothetically create
+// rows without a TMDB id (in practice every TMDB TV genre has an id;
+// the partial unique mirrors networks for shape uniformity).
+type GenreModel struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID    *int      `gorm:"column:tmdb_id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (GenreModel) TableName() string { return "genres" }
+
+// GenreI18nModel — one localised name row per (genre_id, language).
+// Read via the shared repositories.pickLanguageFallback helper from
+// story 203. The (language, name) index on this table is what makes
+// the PRD §5.4 Sonarr-genre fallback efficient — resolve a "Drama"
+// string to a canonical genres.id by querying
+// WHERE language='en-US' AND name='Drama'.
+type GenreI18nModel struct {
+	GenreID   int64     `gorm:"primaryKey;column:genre_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Name      string    `gorm:"column:name;type:text;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (GenreI18nModel) TableName() string { return "genres_i18n" }
+
+// KeywordModel — canonical keyword dictionary row (PRD §5.3, migration
+// 000028). v1 keywords are en-only (TMDB does not localise the
+// /tv/{id}/keywords payload). The same partial-unique-on-tmdb_id
+// + sibling i18n shape is preserved for forward-compat — a future
+// RU / de keyword source adds rows to keywords_i18n with no
+// migration.
+type KeywordModel struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID    *int      `gorm:"column:tmdb_id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (KeywordModel) TableName() string { return "keywords" }
+
+// KeywordI18nModel — one localised name row per (keyword_id, language).
+// Same shape as GenreI18nModel — read via the shared §5.6 helper.
+type KeywordI18nModel struct {
+	KeywordID int64     `gorm:"primaryKey;column:keyword_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Name      string    `gorm:"column:name;type:text;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (KeywordI18nModel) TableName() string { return "keywords_i18n" }
+
+// SeriesNetworkModel — join row (PRD §5.3 row "series_networks").
+// Composite PK (series_id, network_id); idempotent re-upsert.
+// Position is the TMDB ordering on `networks[]`; Set() writes
+// position deterministically by input order (i = position).
+type SeriesNetworkModel struct {
+	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
+	NetworkID int64 `gorm:"primaryKey;column:network_id"`
+	Position  *int  `gorm:"column:position"`
+}
+
+func (SeriesNetworkModel) TableName() string { return "series_networks" }
+
+// SeriesCompanyModel — join row (PRD §5.3 row "series_companies").
+// Same shape as SeriesNetworkModel.
+type SeriesCompanyModel struct {
+	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
+	CompanyID int64 `gorm:"primaryKey;column:company_id"`
+	Position  *int  `gorm:"column:position"`
+}
+
+func (SeriesCompanyModel) TableName() string { return "series_companies" }
+
+// SeriesGenreModel — join row (PRD §5.3 row "series_genres"). Same
+// shape; position preserves the TMDB-emitted order when present.
+type SeriesGenreModel struct {
+	SeriesID int64 `gorm:"primaryKey;column:series_id"`
+	GenreID  int64 `gorm:"primaryKey;column:genre_id"`
+	Position *int  `gorm:"column:position"`
+}
+
+func (SeriesGenreModel) TableName() string { return "series_genres" }
+
+// SeriesKeywordModel — join row (PRD §5.3 row "series_keywords").
+// Keywords are unordered per PRD; no position column.
+type SeriesKeywordModel struct {
+	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
+	KeywordID int64 `gorm:"primaryKey;column:keyword_id"`
+}
+
+func (SeriesKeywordModel) TableName() string { return "series_keywords" }
