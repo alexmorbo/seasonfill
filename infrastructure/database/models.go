@@ -355,6 +355,13 @@ type SeriesCacheModel struct {
 	LastAiredAt    *time.Time `gorm:"column:last_aired_at"`
 	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
 	DeletedAt      *time.Time `gorm:"column:deleted_at"`
+	// SeriesID is the FK to the canonical `series` table introduced by
+	// migration 000026 (story 203 / B-1a). Nullable on purpose:
+	// existing rows are NULL until the cutover (story 208 / B-1b)
+	// backfills via SQL. The repository keeps it untouched on Upsert
+	// unless explicitly set — the resurrect path MUST NOT clobber a
+	// backfilled FK back to NULL.
+	SeriesID *int64 `gorm:"column:series_id;index:series_cache_series_id"`
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
@@ -381,3 +388,120 @@ type ExternalServiceSettingsModel struct {
 }
 
 func (ExternalServiceSettingsModel) TableName() string { return "external_service_settings" }
+
+// SeriesModel — canonical local entity (PRD §5, migration 000026).
+// One row per real series; tmdb_id has a partial unique index where
+// not NULL so Sonarr orphans without a TMDB match still fit. Hydration
+// is text(stub|full); defaults to 'stub' on insert.
+type SeriesModel struct {
+	ID               int64      `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID           *int       `gorm:"column:tmdb_id"`
+	TVDBID           *int       `gorm:"column:tvdb_id;index:series_tvdb_id"`
+	IMDBID           *string    `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
+	Hydration        string     `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	Title            string     `gorm:"column:title;type:text;not null"`
+	OriginalTitle    *string    `gorm:"column:original_title;type:text"`
+	Status           *string    `gorm:"column:status;type:text"`
+	FirstAirDate     *time.Time `gorm:"column:first_air_date"`
+	LastAirDate      *time.Time `gorm:"column:last_air_date"`
+	NextAirDate      *time.Time `gorm:"column:next_air_date"`
+	Year             *int       `gorm:"column:year"`
+	RuntimeMinutes   *int       `gorm:"column:runtime_minutes"`
+	Homepage         *string    `gorm:"column:homepage;type:text"`
+	OriginalLanguage *string    `gorm:"column:original_language;type:text"`
+	OriginCountry    *string    `gorm:"column:origin_country;type:text"`
+	Popularity       *float64   `gorm:"column:popularity"`
+	InProduction     bool       `gorm:"column:in_production;not null;default:false"`
+	PosterAsset      *string    `gorm:"column:poster_asset;type:text"`
+	BackdropAsset    *string    `gorm:"column:backdrop_asset;type:text"`
+	TMDBRating       *float64   `gorm:"column:tmdb_rating"`
+	TMDBVotes        *int       `gorm:"column:tmdb_votes"`
+	IMDBRating       *float64   `gorm:"column:imdb_rating"`
+	IMDBVotes        *int       `gorm:"column:imdb_votes"`
+	OMDBRated        *string    `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards       *string    `gorm:"column:omdb_awards;type:text"`
+	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (SeriesModel) TableName() string { return "series" }
+
+// SeriesTextModel — one localised text row per (series_id, language).
+// The §5.6 fallback helper reads against this table.
+type SeriesTextModel struct {
+	SeriesID  int64     `gorm:"primaryKey;column:series_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Title     *string   `gorm:"column:title;type:text"`
+	Overview  *string   `gorm:"column:overview;type:text"`
+	Tagline   *string   `gorm:"column:tagline;type:text"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (SeriesTextModel) TableName() string { return "series_texts" }
+
+// SeasonModel — one row per (series_id, season_number).
+type SeasonModel struct {
+	ID           int64      `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID     int64      `gorm:"column:series_id;not null"`
+	SeasonNumber int        `gorm:"column:season_number;not null"`
+	TMDBSeasonID *int       `gorm:"column:tmdb_season_id"`
+	Name         *string    `gorm:"column:name;type:text"`
+	Overview     *string    `gorm:"column:overview;type:text"`
+	AirDate      *time.Time `gorm:"column:air_date"`
+	EpisodeCount *int       `gorm:"column:episode_count"`
+	PosterAsset  *string    `gorm:"column:poster_asset;type:text"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (SeasonModel) TableName() string { return "seasons" }
+
+// EpisodeModel — canonical episode row, unique on
+// (series_id, season_number, episode_number).
+type EpisodeModel struct {
+	ID                int64      `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID          int64      `gorm:"column:series_id;not null"`
+	SeasonID          *int64     `gorm:"column:season_id"`
+	SeasonNumber      int        `gorm:"column:season_number;not null"`
+	EpisodeNumber     int        `gorm:"column:episode_number;not null"`
+	TMDBEpisodeNumber *int       `gorm:"column:tmdb_episode_number"`
+	TMDBEpisodeID     *int       `gorm:"column:tmdb_episode_id"`
+	SonarrEpisodeID   *int       `gorm:"column:sonarr_episode_id"`
+	AbsoluteNumber    *int       `gorm:"column:absolute_number"`
+	AirDate           *time.Time `gorm:"column:air_date"`
+	RuntimeMinutes    *int       `gorm:"column:runtime_minutes"`
+	FinaleType        *string    `gorm:"column:finale_type;type:text"`
+	StillAsset        *string    `gorm:"column:still_asset;type:text"`
+	TMDBRating        *float64   `gorm:"column:tmdb_rating"`
+	TMDBVotes         *int       `gorm:"column:tmdb_votes"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (EpisodeModel) TableName() string { return "episodes" }
+
+// EpisodeTextModel — one localised text row per (episode_id, language).
+type EpisodeTextModel struct {
+	EpisodeID int64     `gorm:"primaryKey;column:episode_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Title     *string   `gorm:"column:title;type:text"`
+	Overview  *string   `gorm:"column:overview;type:text"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (EpisodeTextModel) TableName() string { return "episode_texts" }
+
+// EpisodeStateModel — per-instance file state. PK
+// (instance_name, episode_id) — file state is instance-scoped (§5.11).
+type EpisodeStateModel struct {
+	InstanceName  string    `gorm:"primaryKey;column:instance_name;type:text"`
+	EpisodeID     int64     `gorm:"primaryKey;column:episode_id"`
+	Monitored     bool      `gorm:"column:monitored;not null;default:false"`
+	HasFile       bool      `gorm:"column:has_file;not null;default:false"`
+	EpisodeFileID *int      `gorm:"column:episode_file_id"`
+	Quality       *string   `gorm:"column:quality;type:text"`
+	SizeBytes     *int64    `gorm:"column:size_bytes"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (EpisodeStateModel) TableName() string { return "episode_states" }

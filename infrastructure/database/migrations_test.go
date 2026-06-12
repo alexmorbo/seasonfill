@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 202 (S-2): latest migration is 000025_external_service_settings.
-	assert.Equal(t, 25, version)
+	// 203 (B-1a): latest migration is 000026_entity_core.
+	assert.Equal(t, 26, version)
 	assert.False(t, dirty)
 }
 
@@ -328,8 +328,8 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 202 (S-2): latest migration is 000025_external_service_settings.
-	assert.Equal(t, 25, version)
+	// 203 (B-1a): latest migration is 000026_entity_core.
+	assert.Equal(t, 26, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
