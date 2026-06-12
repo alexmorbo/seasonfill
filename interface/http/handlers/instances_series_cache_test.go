@@ -17,10 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
@@ -99,11 +101,10 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title s
 	t.Helper()
 	year := 2024
 	poster := "/MediaCover/" + title + "/poster.jpg"
-	network := "Apple TV+"
 	entry := series.CacheEntry{
 		InstanceName: instance, SonarrSeriesID: id,
 		Title: title, TitleSlug: title,
-		Year: &year, Network: &network, PosterPath: &poster,
+		Year: &year, PosterPath: &poster,
 		Monitored:    true,
 		MissingCount: missing,
 	}
@@ -117,11 +118,10 @@ func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, ti
 	t.Helper()
 	year := 2024
 	poster := "/MediaCover/" + title + "/poster.jpg"
-	network := "Apple TV+"
 	entry := series.CacheEntry{
 		InstanceName: instance, SonarrSeriesID: id,
 		Title: title, TitleSlug: title,
-		Year: &year, Network: &network, PosterPath: &poster,
+		Year: &year, PosterPath: &poster,
 		Monitored:   true,
 		LastAiredAt: lastAired,
 	}
@@ -129,6 +129,36 @@ func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, ti
 	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
 		Update("updated_at", updatedAt).Error)
+}
+
+// seedNetworkForSeries writes a (networks, series_networks) row for the
+// given series_cache (instance, sonarr_id). E-1: post-cutover the
+// network filter reads from the series_networks join; tests must seed
+// the join directly because CacheEntry no longer carries Network.
+func (f *seriesCacheFixture) seedNetworkForSeries(t *testing.T, instance string, sonarrID int, name string) {
+	t.Helper()
+	if name == "" {
+		return
+	}
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must have a resolved series_id")
+	netRepo := repositories.NewNetworksRepository(f.db)
+	id, err := netRepo.ResolveByName(context.Background(), name)
+	if err != nil {
+		id, err = netRepo.Upsert(context.Background(), taxonomy.Network{Name: name})
+		require.NoError(t, err)
+	}
+	require.NoError(t, f.db.Clauses(clauseOnConflictDoNothing()).Create(&database.SeriesNetworkModel{
+		SeriesID:  *sc.SeriesID,
+		NetworkID: id,
+	}).Error)
+}
+
+func clauseOnConflictDoNothing() clause.OnConflict {
+	return clause.OnConflict{DoNothing: true}
 }
 
 func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance string, seriesID, season int, createdAt time.Time) {
@@ -407,23 +437,19 @@ func TestInstancesHandler_ListSeriesCache_MonitoredInvalid400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestInstancesHandler_ListSeriesCache_NetworksFilter — Story 121a §A
+// TestInstancesHandler_ListSeriesCache_NetworksFilter — Story 121a §A,
+// updated for E-1 (Story 210): network membership lives in
+// series_networks, not on series.network; tests seed the join.
 func TestInstancesHandler_ListSeriesCache_NetworksFilter(t *testing.T) {
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
-	f.seedWith(t, "homelab", 1, "A", 0, now, func(e *series.CacheEntry) {
-		n := "HBO"
-		e.Network = &n
-	})
-	f.seedWith(t, "homelab", 2, "B", 0, now, func(e *series.CacheEntry) {
-		n := "Apple TV+"
-		e.Network = &n
-	})
-	f.seedWith(t, "homelab", 3, "C", 0, now, func(e *series.CacheEntry) {
-		n := "Netflix"
-		e.Network = &n
-	})
+	f.seedWith(t, "homelab", 1, "A", 0, now, nil)
+	f.seedWith(t, "homelab", 2, "B", 0, now, nil)
+	f.seedWith(t, "homelab", 3, "C", 0, now, nil)
+	f.seedNetworkForSeries(t, "homelab", 1, "HBO")
+	f.seedNetworkForSeries(t, "homelab", 2, "Apple TV+")
+	f.seedNetworkForSeries(t, "homelab", 3, "Netflix")
 
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?networks=HBO|Netflix")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -448,18 +474,12 @@ func TestInstancesHandler_ListSeriesCacheNetworks_HappyPath(t *testing.T) {
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
-	f.seedWith(t, "homelab", 1, "A", 0, now, func(e *series.CacheEntry) {
-		n := "HBO"
-		e.Network = &n
-	})
-	f.seedWith(t, "homelab", 2, "B", 0, now, func(e *series.CacheEntry) {
-		n := "Apple TV+"
-		e.Network = &n
-	})
-	f.seedWith(t, "homelab", 3, "C", 0, now, func(e *series.CacheEntry) {
-		n := "HBO"
-		e.Network = &n
-	})
+	f.seedWith(t, "homelab", 1, "A", 0, now, nil)
+	f.seedWith(t, "homelab", 2, "B", 0, now, nil)
+	f.seedWith(t, "homelab", 3, "C", 0, now, nil)
+	f.seedNetworkForSeries(t, "homelab", 1, "HBO")
+	f.seedNetworkForSeries(t, "homelab", 2, "Apple TV+")
+	f.seedNetworkForSeries(t, "homelab", 3, "HBO")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,

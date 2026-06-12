@@ -29,6 +29,13 @@ import (
 // our config.
 type GuidCooldownLookup func(instance string) time.Duration
 
+// SeriesSyncer is the E-1 (Story 210) hook: when non-nil it overrides
+// the thin CacheEntry path on SeriesAdd with a full Sonarr API sync
+// (PRD §5.5 sonarr_sync worker trigger — new series_cache from webhook).
+type SeriesSyncer interface {
+	SyncFromSonarrAPI(ctx context.Context, instanceName string, sonarrSeriesID int) error
+}
+
 // UseCase processes a Sonarr webhook event end-to-end: it looks up the
 // matching grab_records row, transitions its status, and (on
 // import_failed) adds a guid-scope cooldown. Status update and cooldown
@@ -43,6 +50,10 @@ type UseCase struct {
 	now                func() time.Time
 	sonarrClientFor    func(name string) (ports.SonarrClient, bool)
 	instanceFor        func(name string) (runtime.InstanceSnapshot, bool)
+	// seriesSyncer is the E-1 hook; when non-nil OnSeriesAdd runs the
+	// full Sonarr API sync instead of the thin CacheEntry path. Nil-OK
+	// (pre-E-1 wiring runs unchanged).
+	seriesSyncer SeriesSyncer
 }
 
 // Deps groups constructor parameters.
@@ -60,6 +71,9 @@ type Deps struct {
 	// InstanceFor returns the live snapshot for an instance — used to
 	// read ParseOnGrabEnabled. Nil-OK with the same semantics.
 	InstanceFor func(name string) (runtime.InstanceSnapshot, bool)
+	// SeriesSyncer is the E-1 hook. Nil-OK; pre-E-1 thin CacheEntry
+	// path runs unchanged when nil.
+	SeriesSyncer SeriesSyncer
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
@@ -92,6 +106,7 @@ func New(d Deps) *UseCase {
 		now:                func() time.Time { return time.Now().UTC() },
 		sonarrClientFor:    clientFor,
 		instanceFor:        instFor,
+		seriesSyncer:       d.SeriesSyncer,
 	}
 }
 
@@ -341,14 +356,31 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 // the cache is a best-effort sidecar (D-2.5). Nil seriesCache returns
 // immediately (feature off). Missing series.id is a silent skip.
 func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error {
-	if u.seriesCache == nil {
-		return nil
-	}
 	if evt.SeriesID == 0 {
 		u.logger.DebugContext(ctx, "webhook_series_add_missing_id",
 			slog.String("instance", evt.InstanceName),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
+		return nil
+	}
+	// E-1 priority path: full Sonarr API sync when wired.
+	if u.seriesSyncer != nil {
+		if err := u.seriesSyncer.SyncFromSonarrAPI(ctx, evt.InstanceName, evt.SeriesID); err != nil {
+			u.logger.WarnContext(ctx, "webhook_series_add_full_sync_failed",
+				slog.String("instance", evt.InstanceName),
+				slog.Int("series_id", evt.SeriesID),
+				slog.String("error", err.Error()),
+			)
+			// Fall through to the thin path as a safety net.
+		} else {
+			u.logger.InfoContext(ctx, "webhook_series_add_synced",
+				slog.String("instance", evt.InstanceName),
+				slog.Int("series_id", evt.SeriesID),
+			)
+			return nil
+		}
+	}
+	if u.seriesCache == nil {
 		return nil
 	}
 	entry := webhookSeriesToCacheEntry(evt)

@@ -11,10 +11,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
 
@@ -37,7 +40,6 @@ func sampleEntry(instance string, id int) series.CacheEntry {
 		IMDBID:         ptrString(fmt.Sprintf("tt%07d", 9000000+id)),
 		TMDBID:         &tmdb,
 		Status:         ptrString("continuing"),
-		Network:        ptrString("HBO"),
 		Genres:         []string{"Drama", "Comedy"},
 		RuntimeMinutes: ptrInt(60),
 		Monitored:      true,
@@ -46,6 +48,34 @@ func sampleEntry(instance string, id int) series.CacheEntry {
 		FanartPath:     ptrString("/MediaCover/12/fanart.jpg"),
 		BannerPath:     ptrString("/MediaCover/12/banner.jpg"),
 	}
+}
+
+// seedNetworkJoinForCache wires (networks, series_networks) for the
+// series_cache row resolved by (instance, sonarrID). E-1: post-cutover
+// network membership lives in series_networks; this helper is the
+// minimal-invasive bridge for tests that previously seeded via
+// CacheEntry.Network. Empty `name` is a no-op (clears nothing — just
+// skips so the row stays without a network join).
+func seedNetworkJoinForCache(t *testing.T, db *gorm.DB, instance string, sonarrID int, name string) {
+	t.Helper()
+	if name == "" {
+		return
+	}
+	var sc database.SeriesCacheModel
+	require.NoError(t, db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must have a resolved series_id")
+	repo := NewNetworksRepository(db)
+	id, err := repo.ResolveByName(context.Background(), name)
+	if err != nil {
+		id, err = repo.Upsert(context.Background(), taxonomy.Network{Name: name})
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Clauses(clause.OnConflict{DoNothing: true}).Create(&database.SeriesNetworkModel{
+		SeriesID:  *sc.SeriesID,
+		NetworkID: id,
+	}).Error)
 }
 
 func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
@@ -199,7 +229,7 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, "Minimal", got.Title)
 	for _, p := range []interface{}{
 		got.Year, got.TVDBID, got.IMDBID, got.TMDBID,
-		got.Status, got.Network, got.Genres,
+		got.Status, got.Genres,
 		got.RuntimeMinutes, got.Overview,
 		got.PosterPath, got.FanartPath, got.BannerPath,
 	} {
@@ -637,7 +667,9 @@ func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 	}
 }
 
-// TestSeriesCacheRepository_ListByFilter_Networks — Story 121a §A
+// TestSeriesCacheRepository_ListByFilter_Networks — Story 121a §A,
+// updated for E-1 (Story 210): network membership lives in
+// series_networks; tests seed the join via seedNetworkJoinForCache.
 func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
@@ -658,12 +690,8 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 	for _, s := range seed {
 		e := sampleEntry("main", s.id)
 		e.Title = s.title
-		if s.network == "" {
-			e.Network = nil
-		} else {
-			e.Network = ptrString(s.network)
-		}
 		require.NoError(t, repo.Upsert(ctx, e))
+		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
 	}
 
 	cases := []struct {
@@ -723,10 +751,10 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 	for _, s := range seed {
 		e := sampleEntry("main", s.id)
 		e.Title = s.title
-		e.Network = ptrString(s.network)
 		e.Monitored = s.monitored
 		e.MissingCount = s.missing
 		require.NoError(t, repo.Upsert(ctx, e))
+		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
 	}
 
 	tru := true
@@ -764,12 +792,8 @@ func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 	}
 	for _, s := range seed {
 		e := sampleEntry("main", s.id)
-		if s.network == "" {
-			e.Network = nil
-		} else {
-			e.Network = ptrString(s.network)
-		}
 		require.NoError(t, repo.Upsert(ctx, e))
+		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
 	}
 
 	got, err := repo.ListDistinctNetworks(ctx, "main")

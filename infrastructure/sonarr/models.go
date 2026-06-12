@@ -10,6 +10,7 @@ type systemStatusDTO struct {
 type seriesDTO struct {
 	ID             int            `json:"id"`
 	Title          string         `json:"title"`
+	SortTitle      string         `json:"sortTitle,omitempty"`
 	TitleSlug      string         `json:"titleSlug"`
 	Year           int            `json:"year"`
 	SeriesType     string         `json:"seriesType"`
@@ -30,7 +31,19 @@ type seriesDTO struct {
 	// PreviousAiring is the datetime of the most recently aired
 	// episode (Sonarr `previousAiring`). Pointer — Sonarr omits the
 	// field for upcoming series with no aired episodes yet.
-	PreviousAiring *time.Time `json:"previousAiring,omitempty"`
+	PreviousAiring *time.Time  `json:"previousAiring,omitempty"`
+	NextAiring     *time.Time  `json:"nextAiring,omitempty"`
+	FirstAired     *time.Time  `json:"firstAired,omitempty"`
+	LastAired      *time.Time  `json:"lastAired,omitempty"`
+	Ratings        *ratingsDTO `json:"ratings,omitempty"`
+}
+
+// ratingsDTO is Sonarr's nested ratings block on /api/v3/series.
+// Populated from TVDB/TVMaze sources; the E-1 sync ignores ratings
+// because TMDB has authority. Kept for forward-compat decoding.
+type ratingsDTO struct {
+	Votes int     `json:"votes,omitempty"`
+	Value float64 `json:"value,omitempty"`
 }
 
 // imageDTO is one entry in Sonarr series.images[]. URL is either a
@@ -64,22 +77,29 @@ type statisticsDTO struct {
 }
 
 type episodeDTO struct {
-	ID            int       `json:"id"`
-	EpisodeNumber int       `json:"episodeNumber"`
-	SeasonNumber  int       `json:"seasonNumber"`
-	Title         string    `json:"title"`
-	Monitored     bool      `json:"monitored"`
-	HasFile       bool      `json:"hasFile"`
-	AirDateUtc    time.Time `json:"airDateUtc"`
-	EpisodeFileID int       `json:"episodeFileId"`
+	ID                    int       `json:"id"`
+	EpisodeNumber         int       `json:"episodeNumber"`
+	SeasonNumber          int       `json:"seasonNumber"`
+	Title                 string    `json:"title"`
+	Overview              string    `json:"overview,omitempty"`
+	Monitored             bool      `json:"monitored"`
+	HasFile               bool      `json:"hasFile"`
+	AirDateUtc            time.Time `json:"airDateUtc"`
+	Runtime               int       `json:"runtime,omitempty"`
+	FinaleType            string    `json:"finaleType,omitempty"`
+	AbsoluteEpisodeNumber *int      `json:"absoluteEpisodeNumber,omitempty"`
+	EpisodeFileID         int       `json:"episodeFileId"`
 }
 
 type episodeFileDTO struct {
 	ID           int        `json:"id"`
 	SeriesID     int        `json:"seriesId"`
 	SeasonNumber int        `json:"seasonNumber"`
+	EpisodeIDs   []int      `json:"episodeIds,omitempty"`
+	Path         string     `json:"path,omitempty"`
 	RelativePath string     `json:"relativePath"`
 	Size         int64      `json:"size"`
+	ReleaseGroup string     `json:"releaseGroup,omitempty"`
 	Quality      qualityRef `json:"quality"`
 }
 

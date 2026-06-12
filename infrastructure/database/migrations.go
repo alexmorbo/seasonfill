@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 32
+	latestVersion   = 33
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -260,6 +260,16 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV31 && !hasTitle {
 		version = 32
+	}
+	// 210 (E-1): Detect v33 by checking that series.network is GONE
+	// (E-1 drops the temporary canon column added in 208 as a B-1b
+	// unblock). Same column-absence pattern as v32 (208).
+	hasNetwork, err := columnExists(ctx, sqlDB, dialect, "series", "network")
+	if err != nil {
+		return err
+	}
+	if version == 32 && !hasNetwork {
+		version = 33
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {

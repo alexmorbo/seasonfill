@@ -994,7 +994,6 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		Title:               e.Title,
 		TitleSlug:           e.TitleSlug,
 		Year:                e.Year,
-		Network:             e.Network,
 		Status:              e.Status,
 		PosterPath:          e.PosterPath,
 		Monitored:           e.Monitored,

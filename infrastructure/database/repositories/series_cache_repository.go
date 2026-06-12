@@ -47,13 +47,15 @@ type cacheRow struct {
 	UpdatedAt      time.Time  `gorm:"column:updated_at"`
 	DeletedAt      *time.Time `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
-	Title          string     `gorm:"column:s_title"`
-	Year           *int       `gorm:"column:s_year"`
-	TVDBID         *int       `gorm:"column:s_tvdb_id"`
-	IMDBID         *string    `gorm:"column:s_imdb_id"`
-	TMDBID         *int       `gorm:"column:s_tmdb_id"`
-	Status         *string    `gorm:"column:s_status"`
-	Network        *string    `gorm:"column:s_network"`
+	Title  string  `gorm:"column:s_title"`
+	Year   *int    `gorm:"column:s_year"`
+	TVDBID *int    `gorm:"column:s_tvdb_id"`
+	IMDBID *string `gorm:"column:s_imdb_id"`
+	TMDBID *int    `gorm:"column:s_tmdb_id"`
+	Status *string `gorm:"column:s_status"`
+	// Network FIELD REMOVED in E-1 — sourced via series_networks
+	// subquery for ListDistinctNetworks; per-row network on detail
+	// card lands in a future story.
 	RuntimeMinutes *int       `gorm:"column:s_runtime_minutes"`
 	LastAiredAt    *time.Time `gorm:"column:s_last_air_date"`
 	PosterPath     *string    `gorm:"column:s_poster_asset"`
@@ -84,7 +86,6 @@ const (
 		s.imdb_id                       AS s_imdb_id,
 		s.tmdb_id                       AS s_tmdb_id,
 		s.status                        AS s_status,
-		s.network                       AS s_network,
 		s.runtime_minutes               AS s_runtime_minutes,
 		s.last_air_date                 AS s_last_air_date,
 		s.poster_asset                  AS s_poster_asset
@@ -181,7 +182,6 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		Title:          e.Title,
 		Year:           e.Year,
 		Status:         e.Status,
-		Network:        e.Network,
 		RuntimeMinutes: e.RuntimeMinutes,
 		LastAirDate:    e.LastAiredAt,
 		Hydration:      series.HydrationStub,
@@ -368,16 +368,24 @@ func applyMonitoredFilter(q *gorm.DB, only *bool) *gorm.DB {
 	return q.Where("series_cache.monitored = ?", *only)
 }
 
-// applyNetworksFilter narrows the query to rows whose canon `network`
-// column matches any of the supplied names. Empty slice ⇒ no-op
-// (the repo edge MUST refuse to emit `IN ()` which Postgres rejects).
-// Story 121a: the /series facet panel needs server-side narrowing
-// because the panel itself reads from a separate distinct endpoint.
+// applyNetworksFilter narrows the query to rows whose canon network
+// membership (via series_networks join) matches any of the supplied
+// names. Empty slice ⇒ no-op. Story 121a /series facet panel needs
+// server-side narrowing.
+//
+// Post-E-1: network membership lives in series_networks; the predicate
+// is an EXISTS subquery against series_networks JOIN networks.
 func applyNetworksFilter(q *gorm.DB, networks []string) *gorm.DB {
 	if len(networks) == 0 {
 		return q
 	}
-	return q.Where("s.network IN ?", networks)
+	return q.Where(
+		"EXISTS (SELECT 1 FROM series_networks sn "+
+			"JOIN networks n ON n.id = sn.network_id "+
+			"WHERE sn.series_id = series_cache.series_id "+
+			"AND n.name IN ?)",
+		networks,
+	)
 }
 
 // escapeLikePattern doubles every LIKE meta-character (`%`, `_`, `\`)
@@ -532,9 +540,9 @@ func (r *SeriesCacheRepository) FetchLastGrabInfo(
 }
 
 // ListDistinctNetworks returns the sorted, distinct, non-empty
-// network strings for the instance's active rows. Post-cutover the
-// network lives on canon (`series.network`); we JOIN cache→series and
-// scope by `series_cache.instance_name`.
+// network names for the instance's active rows. Post-E-1 networks
+// live in series_networks; we JOIN cache → series → series_networks
+// → networks and project networks.name.
 func (r *SeriesCacheRepository) ListDistinctNetworks(
 	ctx context.Context,
 	instanceName string,
@@ -546,12 +554,14 @@ func (r *SeriesCacheRepository) ListDistinctNetworks(
 	var rows []string
 	err := db.Table("series_cache").
 		Joins(seriesCacheJoin).
+		Joins("INNER JOIN series_networks sn ON sn.series_id = s.id").
+		Joins("INNER JOIN networks n ON n.id = sn.network_id").
 		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", instanceName).
-		Where("s.network IS NOT NULL AND s.network != ''").
-		Distinct("s.network").
-		Order("s.network ASC").
+		Where("n.name IS NOT NULL AND n.name <> ''").
+		Distinct("n.name").
+		Order("n.name ASC").
 		Limit(ports.MaxDistinctNetworks).
-		Pluck("s.network", &rows).Error
+		Pluck("n.name", &rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("list distinct networks: %w", err)
 	}
@@ -584,7 +594,6 @@ func rowToCacheEntry(r cacheRow) series.CacheEntry {
 		IMDBID:         r.IMDBID,
 		TMDBID:         r.TMDBID,
 		Status:         r.Status,
-		Network:        r.Network,
 		Genres:         nil,
 		RuntimeMinutes: r.RuntimeMinutes,
 		Monitored:      r.Monitored,

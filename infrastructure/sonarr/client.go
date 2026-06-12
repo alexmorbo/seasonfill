@@ -342,10 +342,8 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		v := d.Status
 		entry.Status = &v
 	}
-	if d.Network != "" {
-		v := d.Network
-		entry.Network = &v
-	}
+	// Network REMOVED (E-1, Story 210): network membership lives in
+	// series_networks; the SyncSeriesFromSonarr writer owns the join.
 	if d.Runtime > 0 {
 		v := d.Runtime
 		entry.RuntimeMinutes = &v

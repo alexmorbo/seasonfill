@@ -54,17 +54,18 @@ type Canon struct {
 	OriginCountry    *string
 	Popularity       *float64
 	InProduction     bool
-	Network          *string
-	PosterAsset      *string
-	BackdropAsset    *string
-	TMDBRating       *float64
-	TMDBVotes        *int
-	IMDBRating       *float64
-	IMDBVotes        *int
-	OMDBRated        *string
-	OMDBAwards       *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Network REMOVED in E-1 (000033). Use SeriesNetworksRepository
+	// to read/write network membership.
+	PosterAsset   *string
+	BackdropAsset *string
+	TMDBRating    *float64
+	TMDBVotes     *int
+	IMDBRating    *float64
+	IMDBVotes     *int
+	OMDBRated     *string
+	OMDBAwards    *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference

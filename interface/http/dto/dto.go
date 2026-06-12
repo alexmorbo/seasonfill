@@ -673,12 +673,14 @@ type EpisodeFileList struct {
 // grab_records (imported status, latest created_at per series). Empty
 // means "no imported grab on file".
 type SeriesCacheItem struct {
-	SonarrSeriesID      int        `json:"sonarr_series_id"        example:"122"`
-	InstanceName        string     `json:"instance_name"           example:"homelab"`
-	Title               string     `json:"title"                   example:"For All Mankind"`
-	TitleSlug           string     `json:"title_slug"              example:"for-all-mankind"`
-	Year                *int       `json:"year,omitempty"          example:"2019"`
-	Network             *string    `json:"network,omitempty"       example:"Apple TV+"`
+	SonarrSeriesID int    `json:"sonarr_series_id"        example:"122"`
+	InstanceName   string `json:"instance_name"           example:"homelab"`
+	Title          string `json:"title"                   example:"For All Mankind"`
+	TitleSlug      string `json:"title_slug"              example:"for-all-mankind"`
+	Year           *int   `json:"year,omitempty"          example:"2019"`
+	// Network field REMOVED in E-1 (Story 210). Network membership lives
+	// in series_networks join; the catalog tile omits the network line
+	// until the detail-card endpoint (future story) projects per-row.
 	Status              *string    `json:"status,omitempty"        example:"continuing" enums:"continuing,ended,upcoming"`
 	PosterPath          *string    `json:"poster_path,omitempty"   example:"/MediaCover/122/poster.jpg"`
 	Monitored           bool       `json:"monitored"               example:"true"`

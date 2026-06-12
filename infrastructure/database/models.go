@@ -399,17 +399,18 @@ type SeriesModel struct {
 	OriginCountry    *string    `gorm:"column:origin_country;type:text"`
 	Popularity       *float64   `gorm:"column:popularity"`
 	InProduction     bool       `gorm:"column:in_production;not null;default:false"`
-	Network          *string    `gorm:"column:network;type:text"`
-	PosterAsset      *string    `gorm:"column:poster_asset;type:text"`
-	BackdropAsset    *string    `gorm:"column:backdrop_asset;type:text"`
-	TMDBRating       *float64   `gorm:"column:tmdb_rating"`
-	TMDBVotes        *int       `gorm:"column:tmdb_votes"`
-	IMDBRating       *float64   `gorm:"column:imdb_rating"`
-	IMDBVotes        *int       `gorm:"column:imdb_votes"`
-	OMDBRated        *string    `gorm:"column:omdb_rated;type:text"`
-	OMDBAwards       *string    `gorm:"column:omdb_awards;type:text"`
-	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
+	// Network field REMOVED in E-1 (000033). Network membership lives
+	// in series_networks join, resolved via NetworksRepository.
+	PosterAsset   *string   `gorm:"column:poster_asset;type:text"`
+	BackdropAsset *string   `gorm:"column:backdrop_asset;type:text"`
+	TMDBRating    *float64  `gorm:"column:tmdb_rating"`
+	TMDBVotes     *int      `gorm:"column:tmdb_votes"`
+	IMDBRating    *float64  `gorm:"column:imdb_rating"`
+	IMDBVotes     *int      `gorm:"column:imdb_votes"`
+	OMDBRated     *string   `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards    *string   `gorm:"column:omdb_awards;type:text"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }

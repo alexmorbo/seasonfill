@@ -40,6 +40,28 @@ func (r *NetworksRepository) Get(ctx context.Context, id int64) (taxonomy.Networ
 	return toNetwork(m), nil
 }
 
+// ResolveByName resolves the canonical networks.id by name. networks
+// has no UQ on name (only partial UQ on tmdb_id) — the helper picks
+// the lowest id when duplicates exist (deterministic). Returns
+// ports.ErrNotFound on miss.
+func (r *NetworksRepository) ResolveByName(ctx context.Context, name string) (int64, error) {
+	if name == "" {
+		return 0, fmt.Errorf("resolve network by name: name must be non-empty")
+	}
+	var m database.NetworkModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("name = ?", name).
+		Order("id ASC").
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ports.ErrNotFound
+		}
+		return 0, fmt.Errorf("resolve network by name: %w", err)
+	}
+	return m.ID, nil
+}
+
 // GetByTMDBID looks up the row by TMDB id. The partial unique index
 // guarantees at most one row. Returns ports.ErrNotFound on miss.
 func (r *NetworksRepository) GetByTMDBID(ctx context.Context, tmdbID int) (taxonomy.Network, error) {

@@ -24,7 +24,9 @@ type CacheEntry struct {
 	IMDBID         *string
 	TMDBID         *int
 	Status         *string
-	Network        *string
+	// Network REMOVED in E-1 (Story 210). Network membership lives in
+	// series_networks join, read via SeriesCacheRepository.ListDistinctNetworks
+	// or per-series resolved through NetworksRepository.ListBySeries.
 	Genres         []string
 	RuntimeMinutes *int
 	Monitored      bool
