@@ -78,3 +78,38 @@ type EpisodeCredit struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
+
+// PersonCredit is the cross-reference filmography row (PRD §5.3 row
+// "person_credits", schema shipped by story 206). Natural key
+// (person_id, tmdb_credit_id) — idempotent re-ingest of TMDB's
+// /person/{id}/tv_credits + /movie_credits. The row references TMDB
+// media ids directly (TMDBMediaID + MediaType ∈ {tv, movie}); no
+// `series` stub is created for non-library TV titles or for movies.
+// The Kind reuses SeriesCreditKind ("cast" / "crew") because the
+// TMDB credit shape is unified across media types.
+//
+// Domain type sits alongside the database model (PersonCreditModel)
+// — the mapper layer emits this canonical shape; the C-3 worker /
+// repository handles the model conversion. *string / *int fields
+// follow the nil-vs-zero merge-policy convention used elsewhere in
+// the people domain.
+type PersonCredit struct {
+	ID            int64
+	PersonID      int64
+	MediaType     string
+	TMDBMediaID   int64
+	TMDBCreditID  string
+	Kind          SeriesCreditKind
+	Title         string
+	OriginalTitle *string
+	CharacterName *string
+	Department    *string
+	Job           *string
+	EpisodeCount  *int
+	ReleaseDate   *time.Time
+	PosterAsset   *string
+	TMDBRating    *float64
+	TMDBVotes     *int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}

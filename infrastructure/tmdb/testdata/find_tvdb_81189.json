@@ -1,0 +1,19 @@
+{
+  "movie_results": [],
+  "tv_results": [
+    {
+      "id": 1396,
+      "name": "Breaking Bad",
+      "original_name": "Breaking Bad",
+      "first_air_date": "2008-01-20",
+      "origin_country": ["US"],
+      "poster_path": "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+      "backdrop_path": "/tsRy63Mu5cu8etL1X7ColLt7747.jpg",
+      "vote_average": 8.9,
+      "vote_count": 12000
+    }
+  ],
+  "person_results": [],
+  "tv_episode_results": [],
+  "tv_season_results": []
+}

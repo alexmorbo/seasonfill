@@ -1,0 +1,117 @@
+{
+  "id": 17419,
+  "name": "Bryan Cranston",
+  "original_name": "Bryan Cranston",
+  "also_known_as": ["Брайан Крэнстон"],
+  "biography": "Bryan Lee Cranston is an American actor, voice actor, writer, and director. He is best known for playing Walter White in the AMC crime drama series Breaking Bad and Hal in the Fox comedy series Malcolm in the Middle.",
+  "birthday": "1956-03-07",
+  "deathday": "",
+  "gender": 2,
+  "place_of_birth": "Hollywood, California, USA",
+  "known_for_department": "Acting",
+  "popularity": 17.5,
+  "profile_path": "/7Jahy5LZX2Fo8fGJltMreAI49hC.jpg",
+  "imdb_id": "nm0186505",
+  "homepage": "",
+  "tv_credits": {
+    "cast": [
+      {
+        "id": 1396,
+        "credit_id": "52542273760ee31328001a7b",
+        "name": "Breaking Bad",
+        "original_name": "Breaking Bad",
+        "character": "Walter White",
+        "department": "",
+        "job": "",
+        "episode_count": 62,
+        "first_air_date": "2008-01-20",
+        "poster_path": "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+        "vote_average": 8.9,
+        "vote_count": 12000
+      },
+      {
+        "id": 2691,
+        "credit_id": "525421ff760ee31328000147",
+        "name": "Malcolm in the Middle",
+        "original_name": "Malcolm in the Middle",
+        "character": "Hal",
+        "department": "",
+        "job": "",
+        "episode_count": 151,
+        "first_air_date": "2000-01-09",
+        "poster_path": "/aERG2tCNJVCNlxTkPM2WkmsRn5o.jpg",
+        "vote_average": 7.7,
+        "vote_count": 1500
+      }
+    ],
+    "crew": [
+      {
+        "id": 1396,
+        "credit_id": "545d7e0e0e0a262b3a000031",
+        "name": "Breaking Bad",
+        "original_name": "Breaking Bad",
+        "character": "",
+        "department": "Production",
+        "job": "Executive Producer",
+        "episode_count": 16,
+        "first_air_date": "2008-01-20",
+        "poster_path": "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+        "vote_average": 8.9,
+        "vote_count": 12000
+      }
+    ]
+  },
+  "movie_credits": {
+    "cast": [
+      {
+        "id": 2024,
+        "credit_id": "52fe43d39251416c75017fc1",
+        "title": "Drive",
+        "original_title": "Drive",
+        "character": "Shannon",
+        "department": "",
+        "job": "",
+        "release_date": "2011-09-16",
+        "poster_path": "/602vevIURmpDfzbnv5Ubi6wIkQm.jpg",
+        "vote_average": 7.7,
+        "vote_count": 14000
+      },
+      {
+        "id": 68718,
+        "credit_id": "5a8ed0bb0e0a26701c00d7d1",
+        "title": "Argo",
+        "original_title": "Argo",
+        "character": "Jack O'Donnell",
+        "department": "",
+        "job": "",
+        "release_date": "2012-10-12",
+        "poster_path": "/8tFcrvKhuTqDvffmlR6e7eyseEZ.jpg",
+        "vote_average": 7.5,
+        "vote_count": 8000
+      }
+    ],
+    "crew": [
+      {
+        "id": 459003,
+        "credit_id": "5b6e5cea0e0a262cd5005f6e",
+        "title": "All the Way",
+        "original_title": "All the Way",
+        "character": "",
+        "department": "Production",
+        "job": "Producer",
+        "release_date": "2016-05-21",
+        "poster_path": "/dpToVQ8ALJUiu6OXfO9N9D5l2eW.jpg",
+        "vote_average": 6.7,
+        "vote_count": 150
+      }
+    ]
+  },
+  "external_ids": {
+    "imdb_id": "nm0186505",
+    "facebook_id": "BryanCranston",
+    "instagram_id": "bryancranston",
+    "twitter_id": "BryanCranston",
+    "wikidata_id": "Q272270",
+    "tvdb_id": 253935
+  }
+}

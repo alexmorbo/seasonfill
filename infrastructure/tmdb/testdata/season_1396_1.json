@@ -1,0 +1,91 @@
+{
+  "id": 3572,
+  "name": "Season 1",
+  "overview": "High school chemistry teacher Walter White's life is suddenly transformed by a dire medical diagnosis.",
+  "air_date": "2008-01-20",
+  "season_number": 1,
+  "poster_path": "/1BP4xYv9ZG4ZVHkL7ocOziBbSYH.jpg",
+  "episodes": [
+    {
+      "id": 62085,
+      "name": "Pilot",
+      "overview": "When an unassuming high school chemistry teacher discovers he has a rare form of lung cancer, he decides to team up with a former student and create a top of the line crystal meth in a used RV.",
+      "air_date": "2008-01-20",
+      "episode_number": 1,
+      "season_number": 1,
+      "runtime": 58,
+      "episode_type": "standard",
+      "vote_average": 8.3,
+      "vote_count": 220,
+      "still_path": "/ydlY3iPfeOAvu8gVqrxPoMvzNCn.jpg",
+      "guest_stars": [
+        {
+          "id": 145480,
+          "name": "John Koyama",
+          "original_name": "John Koyama",
+          "gender": 2,
+          "known_for_department": "Acting",
+          "popularity": 1.2,
+          "profile_path": null,
+          "credit_id": "525333fc760ee3776a3b48a3",
+          "character": "Emilio Koyama",
+          "order": 0
+        }
+      ],
+      "crew": [
+        {
+          "id": 66633,
+          "name": "Vince Gilligan",
+          "original_name": "Vince Gilligan",
+          "gender": 2,
+          "known_for_department": "Writing",
+          "popularity": 5.7,
+          "profile_path": "/zwSGwxr5uJUebSpvFc7QwI3X9Sm.jpg",
+          "credit_id": "525333fc760ee3776a3b4900",
+          "department": "Writing",
+          "job": "Writer"
+        },
+        {
+          "id": 66633,
+          "name": "Vince Gilligan",
+          "original_name": "Vince Gilligan",
+          "gender": 2,
+          "known_for_department": "Writing",
+          "popularity": 5.7,
+          "profile_path": "/zwSGwxr5uJUebSpvFc7QwI3X9Sm.jpg",
+          "credit_id": "525333fc760ee3776a3b4901",
+          "department": "Directing",
+          "job": "Director"
+        }
+      ]
+    },
+    {
+      "id": 62086,
+      "name": "Cat's in the Bag...",
+      "overview": "Walt and Jesse attempt to dispose of the bodies of two rivals.",
+      "air_date": "2008-01-27",
+      "episode_number": 2,
+      "season_number": 1,
+      "runtime": 48,
+      "episode_type": "standard",
+      "vote_average": 8.1,
+      "vote_count": 180,
+      "still_path": "/tjDNvbokPLtEnpFyFPVidwlJxDX.jpg",
+      "guest_stars": [],
+      "crew": [
+        {
+          "id": 1223795,
+          "name": "Adam Bernstein",
+          "original_name": "Adam Bernstein",
+          "gender": 2,
+          "known_for_department": "Directing",
+          "popularity": 1.5,
+          "profile_path": null,
+          "credit_id": "525333fc760ee3776a3b4910",
+          "department": "Directing",
+          "job": "Director"
+        }
+      ]
+    }
+  ]
+}
