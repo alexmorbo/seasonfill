@@ -52,6 +52,7 @@ func NewServer(
 	instanceProbe *handlers.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
+	externalServices *handlers.ExternalServicesHandler,
 	oidcUC *auth.OIDCLoginUseCase,
 	webhookReconciler *webhookinstall.Reconciler,
 	webhookStatusCache *webhookinstall.StatusCache,
@@ -178,6 +179,11 @@ func NewServer(
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)
 			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)
 			guarded.DELETE("/instances/:name/qbit/settings", qbitSettings.Delete)
+		}
+		if externalServices != nil {
+			guarded.GET("/external-services", externalServices.List)
+			guarded.PUT("/external-services/:service", externalServices.Upsert)
+			guarded.POST("/external-services/:service/test", externalServices.Test)
 		}
 		guarded.GET("/instances/:name/watchdog/rollups", watchdogRollupHandler.One)
 		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)

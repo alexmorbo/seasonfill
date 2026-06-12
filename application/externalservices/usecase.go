@@ -156,6 +156,12 @@ type TestResult struct {
 	LatencyMS int64
 }
 
+// testTimeout caps every Test() upstream call. PRD §10.4.7 prescribes
+// 5–10s; 5s keeps the UI snappy — operator hits "Test" and expects a
+// verdict before alt-tabbing away. Applied at the use case boundary
+// so the realTester probe and any future probe inherit the same cap.
+const testTimeout = 5 * time.Second
+
 // Test performs a real upstream call against the merged settings,
 // classifies the outcome, and persists it. Returns the result for
 // immediate UI feedback even when persistence fails (the operator
@@ -165,7 +171,9 @@ func (uc *UseCase) Test(ctx context.Context, svc infra.Service) (TestResult, err
 	if !svc.Valid() {
 		return TestResult{}, infra.ErrInvalidService
 	}
-	db, err := uc.repo.Get(ctx, svc)
+	tctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+	db, err := uc.repo.Get(tctx, svc)
 	rowExists := err == nil
 	if err != nil && !errors.Is(err, apports.ErrNotFound) {
 		return TestResult{}, err
@@ -174,14 +182,16 @@ func (uc *UseCase) Test(ctx context.Context, svc infra.Service) (TestResult, err
 	if merged.APIKey == "" {
 		return TestResult{Outcome: infra.OutcomeAuthFailed, Message: "no api key configured"}, nil
 	}
-	outcome, message, latency := uc.tester.Test(ctx, merged)
-	uc.logger.InfoContext(ctx, "external_services.test",
+	outcome, message, latency := uc.tester.Test(tctx, merged)
+	uc.logger.InfoContext(tctx, "external_services.test",
 		slog.String("service", string(svc)),
 		slog.String("outcome", string(outcome)),
 		slog.String("proxy_scheme", schemeOf(merged.ProxyURL)),
 		slog.Int64("duration_ms", latency.Milliseconds()),
 	)
 	if rowExists {
+		// Persistence uses the parent ctx — even when tctx has expired
+		// from the upstream call we still want the verdict row written.
 		if err := uc.repo.MarkTest(ctx, svc, uc.now(), outcome, message); err != nil {
 			uc.logger.ErrorContext(ctx, "external_services.test.persist_failed",
 				slog.String("service", string(svc)), slog.Any("err", err))

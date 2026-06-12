@@ -14,9 +14,10 @@ import (
 )
 
 // defaultTimeout is the *http.Client.Timeout HttpClientFor stamps on
-// every returned client. Phase C/D callers MAY override by setting
-// .Timeout on the returned value before issuing requests. The test
-// runner uses 5s; downstream clients typically pick 10–30s per call.
+// every returned client. 10s default; downstream clients pick their
+// own per-call timeout by overriding .Timeout on the returned value
+// before issuing requests. The Test runner clamps to 5s via a
+// context.WithTimeout in application/externalservices.Test().
 const defaultTimeout = 10 * time.Second
 
 // ErrProxyConfig wraps any proxy-construction failure. The test

@@ -255,7 +255,7 @@ func buildServer(t *testing.T) *Server {
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
 		handlers.InstanceRegistry{},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		lg)
@@ -308,7 +308,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		handlers.InstanceRegistry{Load: func() map[string]scan.Instance {
 			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 		}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		lg)
@@ -475,7 +475,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
 		handlers.InstanceRegistry{},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, oidcUC, webhookReconciler, webhookStatusCache
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		lg)

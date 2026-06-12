@@ -11,6 +11,7 @@ import { Decisions } from '@/pages/Decisions';
 import { Grabs } from '@/pages/Grabs';
 import { Watchdog } from '@/pages/Watchdog';
 import { Settings } from '@/pages/Settings';
+import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 
 export const router = createBrowserRouter([
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       { path: '/settings',  element: <Settings /> },
+      { path: '/settings/external-services', element: <SettingsExternalServices /> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

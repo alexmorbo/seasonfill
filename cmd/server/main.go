@@ -17,6 +17,7 @@ import (
 	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
+	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -28,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
@@ -471,13 +473,26 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		return out
 	})
 
+	// Story 202 (S-2) — external services runtime config. The subscriber
+	// is built first with a nil use case so it can be injected as the
+	// use case's Publisher; the use case is then constructed and back-
+	// wired via SetUseCase before Start is called below. Plaintext keys
+	// never leave the subscriber/use case pair — the HTTP handler emits
+	// the masked DTO only.
+	extRepo := infraextsvc.NewRepository(db, cipher)
+	extSub := NewExternalServicesSubscriber(bus, log)
+	extUC := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
+		appextsvc.NewRealTester(), extSub, log)
+	extSub.SetUseCase(extUC)
+	externalServicesHandler := handlers.NewExternalServicesHandler(extUC, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
 		instanceReg,
 		cooldownRepo, grabUC, rescanUC,
 		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
-		qbitSettingsHandler, oidcUC,
+		qbitSettingsHandler, externalServicesHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler, log)
@@ -551,6 +566,14 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	oidcProviderSub := reload.NewOIDCProviderSubscriber(oidcCache, log)
 	go oidcProviderSub.Run(rootCtx, bus, func() {})
+
+	// Story 202 (S-2) — external services subscriber. Primes its cache
+	// eagerly so the first Phase C/D client.Get() works before any bus
+	// publish. No new barrier channel is added to startSubscribers
+	// because downstream consumers (Phase C/D) don't exist yet; the
+	// boot publish below still flows through the subscriber's bus
+	// channel and triggers a second apply.
+	extSub.Start(rootCtx, nil)
 
 	// Re-publish the boot snapshot now that subscribers are alive
 	// — they all apply it once and increment their success metric.

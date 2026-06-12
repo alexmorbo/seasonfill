@@ -19,6 +19,32 @@ type Snapshot struct {
 	// controlled priority): applied left-to-right via repeated
 	// strings.Replace(s, rule.From, rule.To, -1).
 	GUIDRewrites []GUIDRewriteRule
+	// ExternalServices carries the merged (env > DB) plaintext settings
+	// for the three enrichment sources (TMDB, OMDb, TVDB). Populated by
+	// the reload subscriber on every publish; consumed by Phase C/D
+	// clients via constructor injection. Plaintext keys/proxy creds live
+	// here — never serialised to the wire (the masked DTO in
+	// interface/http/dto is the operator-facing surface).
+	ExternalServices ExternalServicesSnapshot
+}
+
+// ExternalServicesSnapshot mirrors the three rows of
+// external_service_settings as a flat struct so downstream clients
+// can pull by field. The zero value is the correct default (every
+// service disabled, no proxy).
+type ExternalServicesSnapshot struct {
+	TMDB ExternalServiceEntry
+	OMDB ExternalServiceEntry
+	TVDB ExternalServiceEntry
+}
+
+// ExternalServiceEntry is one decrypted, env-merged row.
+type ExternalServiceEntry struct {
+	Enabled       bool
+	APIKey        string
+	ProxyURL      string
+	ProxyUsername string
+	ProxyPassword string
 }
 
 // GUIDRewriteRule is one operator-curated substring replacement.

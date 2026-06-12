@@ -66,11 +66,53 @@ type Auth struct {
 // fields) lives in the DB and is loaded into internal/runtime.Snapshot
 // at startup.
 type Bootstrap struct {
-	Log        LogConfig
-	HTTP       HTTPConfig
-	Database   DatabaseConfig
-	Auth       AuthBootstrap
-	MediaStore MediaStoreConfig
+	Log              LogConfig
+	HTTP             HTTPConfig
+	Database         DatabaseConfig
+	Auth             AuthBootstrap
+	MediaStore       MediaStoreConfig
+	ExternalServices ExternalServicesEnv
+}
+
+// ExternalServicesEnv carries the env-only overrides for the three
+// enrichment sources (PRD §10.4.4: env > DB per field). All fields
+// default to "" — empty means "use whatever the DB row supplies".
+// The use case consumes these via an EnvLookup; production wires
+// os.Getenv, tests inject a fixture.
+type ExternalServicesEnv struct {
+	TMDBToken     string
+	TMDBProxyURL  string
+	TMDBProxyUser string
+	TMDBProxyPass string
+	OMDBToken     string
+	OMDBProxyURL  string
+	OMDBProxyUser string
+	OMDBProxyPass string
+	TVDBToken     string
+	TVDBProxyURL  string
+	TVDBProxyUser string
+	TVDBProxyPass string
+}
+
+// Lookup returns an EnvLookup-shaped closure over the ExternalServicesEnv
+// block, so the application package never directly imports os.Getenv at
+// runtime — tests can inject a fixture, production wires this method.
+func (e ExternalServicesEnv) Lookup() func(string) string {
+	m := map[string]string{
+		"SEASONFILL_TMDB_TOKEN":      e.TMDBToken,
+		"SEASONFILL_TMDB_PROXY_URL":  e.TMDBProxyURL,
+		"SEASONFILL_TMDB_PROXY_USER": e.TMDBProxyUser,
+		"SEASONFILL_TMDB_PROXY_PASS": e.TMDBProxyPass,
+		"SEASONFILL_OMDB_TOKEN":      e.OMDBToken,
+		"SEASONFILL_OMDB_PROXY_URL":  e.OMDBProxyURL,
+		"SEASONFILL_OMDB_PROXY_USER": e.OMDBProxyUser,
+		"SEASONFILL_OMDB_PROXY_PASS": e.OMDBProxyPass,
+		"SEASONFILL_TVDB_TOKEN":      e.TVDBToken,
+		"SEASONFILL_TVDB_PROXY_URL":  e.TVDBProxyURL,
+		"SEASONFILL_TVDB_PROXY_USER": e.TVDBProxyUser,
+		"SEASONFILL_TVDB_PROXY_PASS": e.TVDBProxyPass,
+	}
+	return func(name string) string { return m[name] }
 }
 
 type LogConfig struct {
@@ -191,6 +233,20 @@ func FromEnv() (*Bootstrap, error) {
 				UseSSL:    getenvBool("SEASONFILL_S3_USE_SSL", true),
 			},
 			FSPath: getenvAllowEmpty("SEASONFILL_MEDIA_FS_PATH", "/data/media"),
+		},
+		ExternalServices: ExternalServicesEnv{
+			TMDBToken:     os.Getenv("SEASONFILL_TMDB_TOKEN"),
+			TMDBProxyURL:  os.Getenv("SEASONFILL_TMDB_PROXY_URL"),
+			TMDBProxyUser: os.Getenv("SEASONFILL_TMDB_PROXY_USER"),
+			TMDBProxyPass: os.Getenv("SEASONFILL_TMDB_PROXY_PASS"),
+			OMDBToken:     os.Getenv("SEASONFILL_OMDB_TOKEN"),
+			OMDBProxyURL:  os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
+			OMDBProxyUser: os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
+			OMDBProxyPass: os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
+			TVDBToken:     os.Getenv("SEASONFILL_TVDB_TOKEN"),
+			TVDBProxyURL:  os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
+			TVDBProxyUser: os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
+			TVDBProxyPass: os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
 		},
 	}
 	if err := cfg.Validate(); err != nil {
