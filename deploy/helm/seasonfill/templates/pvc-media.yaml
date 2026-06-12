@@ -1,0 +1,35 @@
+{{- /*
+PersistentVolumeClaim for media-store fs mode. Rendered only when
+both flags are on:
+  - .Values.mediaStore.mode == "fs"
+  - .Values.mediaStore.fs.persistence.enabled
+
+Unlike the SQLite PVC (pvc.yaml), this volume is opt-in by mode AND
+by persistence flag — fs mode with persistence disabled falls back to
+an emptyDir (lost on pod restart, acceptable for ephemeral dev).
+*/ -}}
+{{- if and (eq .Values.mediaStore.mode "fs") .Values.mediaStore.fs.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "seasonfill.fullname" . }}-media
+  labels:
+    {{- include "seasonfill.labels" . | nindent 4 }}
+  {{- with .Values.mediaStore.fs.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.mediaStore.fs.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.mediaStore.fs.persistence.size | quote }}
+  {{- with .Values.mediaStore.fs.persistence.storageClass }}
+  {{- if (eq "-" .) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

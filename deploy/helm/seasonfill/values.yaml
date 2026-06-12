@@ -160,6 +160,31 @@ tests:
     tag: "1.36"
     pullPolicy: IfNotPresent
 
+# Local media store (PRD v4 §6). Default mode "off" preserves legacy
+# hotlink behaviour; opt into "s3" (recommended for production
+# behind SeaweedFS) or "fs" (local development / single-replica) to
+# enable the store-backed media path.
+mediaStore:
+  mode: "off"                      # off|s3|fs
+  s3:
+    endpoint: ""                   # e.g. https://s3.morbo.dev
+    bucket: "seasonfill-media"
+    region: "us-east-1"            # SeaweedFS ignores; minio-go signs with it
+    useSSL: true
+    existingSecret: ""             # keys: access-key, secret-key (see secretKeys)
+    secretKeys:
+      accessKey: "access-key"
+      secretKey: "secret-key"
+  fs:
+    path: "/data/media"
+    persistence:
+      enabled: false
+      accessModes:
+        - ReadWriteOnce
+      size: "10Gi"
+      storageClass: ""
+      annotations: {}
+
 web:
   replicaCount: 1
   image:

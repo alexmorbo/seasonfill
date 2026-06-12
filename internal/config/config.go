@@ -66,10 +66,11 @@ type Auth struct {
 // fields) lives in the DB and is loaded into internal/runtime.Snapshot
 // at startup.
 type Bootstrap struct {
-	Log      LogConfig
-	HTTP     HTTPConfig
-	Database DatabaseConfig
-	Auth     AuthBootstrap
+	Log        LogConfig
+	HTTP       HTTPConfig
+	Database   DatabaseConfig
+	Auth       AuthBootstrap
+	MediaStore MediaStoreConfig
 }
 
 type LogConfig struct {
@@ -114,11 +115,36 @@ type AuthBootstrap struct {
 	OIDCClientSecret string
 }
 
+// MediaStoreConfig is the bootstrap-only block for the local media
+// store (PRD v4 §6, §10.1). Mode "off" disables the store entirely
+// (legacy hotlink behaviour) and is the default; "s3" reads S3.*; "fs"
+// reads FSPath.
+type MediaStoreConfig struct {
+	Mode   string
+	S3     MediaStoreS3Config
+	FSPath string
+}
+
+// MediaStoreS3Config carries the SeaweedFS (or any S3-compatible)
+// connection parameters. Region defaults to "us-east-1" — SeaweedFS
+// ignores it but minio-go signs requests with it.
+type MediaStoreS3Config struct {
+	Endpoint  string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	Region    string
+	UseSSL    bool
+}
+
 var (
-	ErrUnknownDriver = errors.New("SEASONFILL_DATABASE_DRIVER must be sqlite or postgres")
-	ErrSQLitePath    = errors.New("SEASONFILL_DATABASE_SQLITE_PATH is required when driver=sqlite")
-	ErrPostgresDSN   = errors.New("SEASONFILL_DATABASE_POSTGRES_DSN is required when driver=postgres")
-	ErrPasswordMutex = errors.New("SEASONFILL_WEB_PASSWORD and SEASONFILL_WEB_PASSWORD_HASH are mutually exclusive")
+	ErrUnknownDriver       = errors.New("SEASONFILL_DATABASE_DRIVER must be sqlite or postgres")
+	ErrSQLitePath          = errors.New("SEASONFILL_DATABASE_SQLITE_PATH is required when driver=sqlite")
+	ErrPostgresDSN         = errors.New("SEASONFILL_DATABASE_POSTGRES_DSN is required when driver=postgres")
+	ErrPasswordMutex       = errors.New("SEASONFILL_WEB_PASSWORD and SEASONFILL_WEB_PASSWORD_HASH are mutually exclusive")
+	ErrMediaStoreMode      = errors.New("SEASONFILL_MEDIA_STORE_MODE must be one of off|s3|fs")
+	ErrMediaStoreS3Missing = errors.New("SEASONFILL_S3_ENDPOINT, _BUCKET, _ACCESS_KEY and _SECRET_KEY are required when SEASONFILL_MEDIA_STORE_MODE=s3")
+	ErrMediaStoreFSMissing = errors.New("SEASONFILL_MEDIA_FS_PATH is required when SEASONFILL_MEDIA_STORE_MODE=fs")
 )
 
 // FromEnv reads the Bootstrap from process environment.
@@ -154,6 +180,18 @@ func FromEnv() (*Bootstrap, error) {
 			WebPasswordHash:  os.Getenv("SEASONFILL_WEB_PASSWORD_HASH"),
 			OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		},
+		MediaStore: MediaStoreConfig{
+			Mode: getenv("SEASONFILL_MEDIA_STORE_MODE", "off"),
+			S3: MediaStoreS3Config{
+				Endpoint:  os.Getenv("SEASONFILL_S3_ENDPOINT"),
+				Bucket:    getenv("SEASONFILL_S3_BUCKET", "seasonfill-media"),
+				AccessKey: os.Getenv("SEASONFILL_S3_ACCESS_KEY"),
+				SecretKey: os.Getenv("SEASONFILL_S3_SECRET_KEY"),
+				Region:    getenv("SEASONFILL_S3_REGION", "us-east-1"),
+				UseSSL:    getenvBool("SEASONFILL_S3_USE_SSL", true),
+			},
+			FSPath: getenvAllowEmpty("SEASONFILL_MEDIA_FS_PATH", "/data/media"),
+		},
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -178,6 +216,32 @@ func getenvInt(name string, def int) int {
 		return def
 	}
 	return n
+}
+
+func getenvBool(name string, def bool) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "TRUE", "True", "yes", "YES":
+		return true
+	case "0", "false", "FALSE", "False", "no", "NO":
+		return false
+	default:
+		return def
+	}
+}
+
+// getenvAllowEmpty returns the value of name if it is explicitly set
+// (including the empty string), or def when it is unset. This lets
+// MediaStore fs-mode validation surface "explicitly cleared" paths
+// instead of silently falling back to the default.
+func getenvAllowEmpty(name, def string) string {
+	if v, ok := os.LookupEnv(name); ok {
+		return v
+	}
+	return def
 }
 
 // (Validate lives in validate.go — see §3.)

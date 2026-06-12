@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 23
+	latestVersion   = 24
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -179,6 +179,18 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV22 {
 		version = 22
+	}
+	// 201 (S-1): Detect v24 by checking for the media_assets table.
+	// v23 (cooldowns.reason widen) is a type change that leaves the column
+	// name unchanged, so columnExists cannot detect it; the v22 stamp
+	// covers both v22 and v23 — v23 will be reapplied as a no-op widen
+	// on legacy DBs, which is intentional.
+	hasV24, err := tableExists(ctx, sqlDB, dialect, "media_assets")
+	if err != nil {
+		return err
+	}
+	if hasV24 {
+		version = 24
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {
