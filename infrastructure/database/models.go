@@ -358,3 +358,26 @@ type SeriesCacheModel struct {
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
+
+// ExternalServiceSettingsModel is the runtime config row for one
+// enrichment service (tmdb|omdb|tvdb). All *_enc columns are AES-GCM
+// ciphertext produced by internal/runtime/crypto.Cipher.Seal; the
+// repo treats them as opaque bytes. api_key_last4 is the last 4
+// characters of plaintext, captured before encryption for the masked
+// UI display so list-calls don't need to decrypt.
+type ExternalServiceSettingsModel struct {
+	Service          string  `gorm:"primaryKey;type:text"`
+	Enabled          bool    `gorm:"not null;default:false"`
+	APIKeyEnc        []byte  `gorm:"column:api_key_enc"`
+	APIKeyLast4      *string `gorm:"column:api_key_last4;type:text"`
+	ProxyURLEnc      []byte  `gorm:"column:proxy_url_enc"`
+	ProxyUsernameEnc []byte  `gorm:"column:proxy_username_enc"`
+	ProxyPasswordEnc []byte  `gorm:"column:proxy_password_enc"`
+	LastTestAt       *time.Time
+	LastTestOutcome  *string `gorm:"type:text"`
+	LastTestMessage  *string `gorm:"type:text"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+func (ExternalServiceSettingsModel) TableName() string { return "external_service_settings" }
