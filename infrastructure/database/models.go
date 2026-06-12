@@ -505,3 +505,87 @@ type EpisodeStateModel struct {
 }
 
 func (EpisodeStateModel) TableName() string { return "episode_states" }
+
+// PeopleModel — canonical local person entity (PRD §5.3, migration
+// 000027). One row per real person; tmdb_id has a partial unique
+// index where not NULL so non-TMDB stubs (rare — should only happen
+// if a future TVDB-sourced credit lands without a TMDB id) still
+// fit. Hydration is text(stub|full); defaults to 'stub' on insert.
+//
+// Name + OriginalName intentionally stay on this entity (no
+// people_names i18n table) — TMDB does not localise person names
+// reliably. This is the only canon i18n exception in the schema —
+// see PRD §5.3 row "people" + §5.4 row "people.*". A future
+// contributor MUST NOT add a people_names table without first
+// re-evaluating that decision; the value would be three write paths
+// feeding columns that are 99% identical.
+type PeopleModel struct {
+	ID                 int64      `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID             *int       `gorm:"column:tmdb_id"`
+	IMDBID             *string    `gorm:"column:imdb_id;type:text;index:people_imdb_id"`
+	Hydration          string     `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	Name               string     `gorm:"column:name;type:text;not null"`
+	OriginalName       *string    `gorm:"column:original_name;type:text"`
+	Gender             *int       `gorm:"column:gender"`
+	Birthday           *time.Time `gorm:"column:birthday"`
+	Deathday           *time.Time `gorm:"column:deathday"`
+	PlaceOfBirth       *string    `gorm:"column:place_of_birth;type:text"`
+	KnownForDepartment *string    `gorm:"column:known_for_department;type:text"`
+	Popularity         *float64   `gorm:"column:popularity"`
+	ProfileAsset       *string    `gorm:"column:profile_asset;type:text"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (PeopleModel) TableName() string { return "people" }
+
+// PersonBiographyModel — one localised biography row per
+// (person_id, language). Read via the shared
+// repositories.pickLanguageFallback helper introduced in story 203;
+// no per-table fallback code lives in PersonBiographiesRepository.
+type PersonBiographyModel struct {
+	PersonID  int64     `gorm:"primaryKey;column:person_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Biography *string   `gorm:"column:biography;type:text"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (PersonBiographyModel) TableName() string { return "person_biographies" }
+
+// SeriesPersonModel — one series-level credit row (PRD §5.3
+// "series_people"). Natural key (series_id, tmdb_credit_id) makes
+// re-ingest of TMDB aggregate_credits idempotent.
+type SeriesPersonModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID      int64     `gorm:"column:series_id;not null"`
+	PersonID      int64     `gorm:"column:person_id;not null"`
+	Kind          string    `gorm:"column:kind;type:text;not null"`
+	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
+	CharacterName *string   `gorm:"column:character_name;type:text"`
+	Department    *string   `gorm:"column:department;type:text"`
+	Job           *string   `gorm:"column:job;type:text"`
+	CreditOrder   *int      `gorm:"column:credit_order"`
+	EpisodeCount  *int      `gorm:"column:episode_count"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (SeriesPersonModel) TableName() string { return "series_people" }
+
+// EpisodePersonModel — one per-episode credit row (PRD §5.3
+// "episode_people"). Natural key (episode_id, tmdb_credit_id).
+type EpisodePersonModel struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	EpisodeID     int64     `gorm:"column:episode_id;not null"`
+	PersonID      int64     `gorm:"column:person_id;not null"`
+	Kind          string    `gorm:"column:kind;type:text;not null"`
+	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
+	CharacterName *string   `gorm:"column:character_name;type:text"`
+	Department    *string   `gorm:"column:department;type:text"`
+	Job           *string   `gorm:"column:job;type:text"`
+	CreditOrder   *int      `gorm:"column:credit_order"`
+	CreatedAt     time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (EpisodePersonModel) TableName() string { return "episode_people" }
