@@ -128,19 +128,20 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 			o.first_seen_at AS first_seen_at,
 			o.last_seen_at AS last_seen_at,
 			o.last_used_at AS last_used_at,
-			sc.title AS title,
+			s.title AS title,
 			sc.monitored AS monitored,
 			sc.missing_count AS missing_count,
-			sc.last_aired_at AS last_aired_at,
+			s.last_air_date AS last_aired_at,
 			si.id AS instance_id`).
-		Joins("JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id AND sc.deleted_at IS NULL AND sc.title <> ''").
+		Joins("JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id AND sc.deleted_at IS NULL").
+		Joins("JOIN series s ON s.id = sc.series_id AND s.title <> ''").
 		Joins("JOIN sonarr_instance si ON si.name = o.instance_name")
 
 	if f.Instance != "" {
 		q = q.Where("o.instance_name = ?", f.Instance)
 	}
 	if f.Q != "" {
-		q = q.Where("sc.title LIKE ?", "%"+f.Q+"%")
+		q = q.Where("s.title LIKE ?", "%"+f.Q+"%")
 	}
 	if cur != nil {
 		q = q.Where("(o.instance_name, o.series_id, o.season_number) > (?, ?, ?)",
@@ -394,14 +395,30 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 		return nil, fmt.Errorf("load decision seasons: %w", err)
 	}
 
-	// Series cache row — supplies title / monitored / aired metadata.
-	var sc database.SeriesCacheModel
+	// Series cache + canon row — supplies title / monitored / aired
+	// metadata. Post B-1b cutover title and last_air_date come from
+	// canon via JOIN. Empty-title means INNER-JOIN miss (no canon row
+	// resolved — treated like a missing series_cache row).
+	var sc struct {
+		Title        string     `gorm:"column:title"`
+		Monitored    bool       `gorm:"column:monitored"`
+		MissingCount int        `gorm:"column:missing_count"`
+		LastAiredAt  *time.Time `gorm:"column:last_aired_at"`
+	}
 	scFound := true
-	if err := db.Where("instance_name = ? AND sonarr_series_id = ?", instance, seriesID).
-		First(&sc).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("load series_cache: %w", err)
-		}
+	err := db.Table("series_cache").
+		Select(`s.title AS title,
+			series_cache.monitored AS monitored,
+			series_cache.missing_count AS missing_count,
+			s.last_air_date AS last_aired_at`).
+		Joins("INNER JOIN series s ON s.id = series_cache.series_id").
+		Where("series_cache.instance_name = ? AND series_cache.sonarr_series_id = ?", instance, seriesID).
+		Limit(1).
+		Scan(&sc).Error
+	if err != nil {
+		return nil, fmt.Errorf("load series_cache: %w", err)
+	}
+	if sc.Title == "" {
 		scFound = false
 	}
 

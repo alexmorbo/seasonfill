@@ -281,7 +281,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db)
+	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
 	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).

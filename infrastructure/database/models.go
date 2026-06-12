@@ -327,41 +327,28 @@ type WatchdogBlacklistModel struct {
 
 func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }
 
-// SeriesCacheModel — per-instance Sonarr series metadata (D66).
-// Primary key is (instance_name, sonarr_series_id). Soft-deleted via
-// DeletedAt so grab_records that reference removed series stay readable.
-// Genres is a JSON-encoded string slice; the repo serialises on write
-// and parses on read. No DB-level FK on instance_name (consistent with
-// the rest of the schema) — cascade happens application-side.
+// SeriesCacheModel — thin per-instance Sonarr projection after the
+// 000032 cutover (PRD v4 §5.11). All canon columns (title / year /
+// tvdb_id / imdb_id / tmdb_id / status / network / genres /
+// runtime_minutes / overview / last_aired_at / poster_path /
+// fanart_path / banner_path) moved to `series` and are JOIN-read via
+// SeriesID. SeriesID is non-nullable post-cutover because every
+// active row has a canon row; the *int64 type is preserved (vs.
+// switching to int64) so legacy GORM serialisers that emit NULL on
+// the wire don't break in mid-deploy windows.
+//
+// Soft-deleted via DeletedAt so grab_records that reference removed
+// series stay readable. No DB-level FK on instance_name (consistent
+// with the rest of the schema).
 type SeriesCacheModel struct {
 	InstanceName   string     `gorm:"primaryKey;size:128;column:instance_name"`
 	SonarrSeriesID int        `gorm:"primaryKey;column:sonarr_series_id"`
-	Title          string     `gorm:"type:text;not null"`
+	SeriesID       *int64     `gorm:"column:series_id;index:series_cache_series_id;not null"`
 	TitleSlug      string     `gorm:"type:text;not null;column:title_slug"`
-	Year           *int       `gorm:"column:year"`
-	TVDBID         *int       `gorm:"column:tvdb_id"`
-	IMDBID         *string    `gorm:"column:imdb_id;type:text"`
-	TMDBID         *int       `gorm:"column:tmdb_id"`
-	Status         *string    `gorm:"column:status;type:text"`
-	Network        *string    `gorm:"column:network;type:text"`
-	Genres         *string    `gorm:"column:genres;type:text"`
-	RuntimeMinutes *int       `gorm:"column:runtime_minutes"`
 	Monitored      bool       `gorm:"column:monitored;not null;default:false"`
-	Overview       *string    `gorm:"column:overview;type:text"`
-	PosterPath     *string    `gorm:"column:poster_path;type:text"`
-	FanartPath     *string    `gorm:"column:fanart_path;type:text"`
-	BannerPath     *string    `gorm:"column:banner_path;type:text"`
 	MissingCount   int        `gorm:"column:missing_count;not null;default:0"`
-	LastAiredAt    *time.Time `gorm:"column:last_aired_at"`
 	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
 	DeletedAt      *time.Time `gorm:"column:deleted_at"`
-	// SeriesID is the FK to the canonical `series` table introduced by
-	// migration 000026 (story 203 / B-1a). Nullable on purpose:
-	// existing rows are NULL until the cutover (story 208 / B-1b)
-	// backfills via SQL. The repository keeps it untouched on Upsert
-	// unless explicitly set — the resurrect path MUST NOT clobber a
-	// backfilled FK back to NULL.
-	SeriesID *int64 `gorm:"column:series_id;index:series_cache_series_id"`
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
@@ -412,6 +399,7 @@ type SeriesModel struct {
 	OriginCountry    *string    `gorm:"column:origin_country;type:text"`
 	Popularity       *float64   `gorm:"column:popularity"`
 	InProduction     bool       `gorm:"column:in_production;not null;default:false"`
+	Network          *string    `gorm:"column:network;type:text"`
 	PosterAsset      *string    `gorm:"column:poster_asset;type:text"`
 	BackdropAsset    *string    `gorm:"column:backdrop_asset;type:text"`
 	TMDBRating       *float64   `gorm:"column:tmdb_rating"`

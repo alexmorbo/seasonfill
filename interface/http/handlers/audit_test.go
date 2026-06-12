@@ -48,7 +48,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	scans := repositories.NewScanRepository(db)
 	decs := repositories.NewDecisionRepository(db)
 	grabs := repositories.NewGrabRepository(db)
-	seriesCache := repositories.NewSeriesCacheRepository(db)
+	seriesCache := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Note: WithSeriesCache is wired here so the per-test slug
 	// fixture works. Tests that don't seed series_cache still see

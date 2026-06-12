@@ -19,15 +19,23 @@ import (
 )
 
 func sampleEntry(instance string, id int) series.CacheEntry {
+	// Post B-1b cutover: every cache row resolves to a distinct canon
+	// row via natural-key dedup (TMDB > TVDB > IMDB). To preserve
+	// per-(instance, sonarr_id) test isolation we derive unique
+	// external ids from the sonarr id so two test rows never collapse
+	// into one canon row by accident. Tests that need shared canon
+	// (cutover dedup scenarios) override TMDBID/TVDBID explicitly.
+	tvdb := 12345 + id
+	tmdb := 54321 + id
 	return series.CacheEntry{
 		InstanceName:   instance,
 		SonarrSeriesID: id,
 		Title:          "Test Series",
 		TitleSlug:      "test-series",
 		Year:           ptrInt(2024),
-		TVDBID:         ptrInt(12345),
-		IMDBID:         ptrString("tt9999999"),
-		TMDBID:         ptrInt(54321),
+		TVDBID:         &tvdb,
+		IMDBID:         ptrString(fmt.Sprintf("tt%07d", 9000000+id)),
+		TMDBID:         &tmdb,
 		Status:         ptrString("continuing"),
 		Network:        ptrString("HBO"),
 		Genres:         []string{"Drama", "Comedy"},
@@ -43,7 +51,7 @@ func sampleEntry(instance string, id int) series.CacheEntry {
 func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
@@ -55,10 +63,15 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	assert.Equal(t, "test-series", got.TitleSlug)
 	require.NotNil(t, got.Year)
 	assert.Equal(t, 2024, *got.Year)
-	assert.Equal(t, []string{"Drama", "Comedy"}, got.Genres)
+	// Post B-1b cutover: genres / overview / fanart / banner project nil
+	// from the repo; canon stores them in joined tables (series_genres,
+	// series_texts, media_assets). Production DTO already drops them.
+	assert.Nil(t, got.Genres)
 	assert.True(t, got.Monitored)
-	require.NotNil(t, got.PosterPath)
-	assert.Equal(t, "/MediaCover/12/poster.jpg?lastWrite=999", *got.PosterPath)
+	// Post B-1b cutover: PosterPath projects from canon.poster_asset,
+	// which is NULL until F-1 media-prewarm lands. Sonarr URLs are NOT
+	// written into canon (F-1 invariant: poster_asset is a media-store hash).
+	assert.Nil(t, got.PosterPath)
 	assert.False(t, got.UpdatedAt.IsZero())
 	assert.Nil(t, got.DeletedAt)
 	assert.True(t, got.IsActive())
@@ -67,7 +80,7 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	_, err := repo.Get(context.Background(), "main", 999)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
 }
@@ -75,7 +88,7 @@ func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
 func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
@@ -90,7 +103,9 @@ func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed", got.Title)
 	assert.False(t, got.Monitored)
-	assert.Equal(t, []string{"Thriller"}, got.Genres)
+	// Post B-1b: Genres not persisted on the thin cache row; canon has
+	// the series_genres join (deferred to E-1). Repo returns nil.
+	assert.Nil(t, got.Genres)
 
 	// Resurrect: soft-delete then upsert clears deleted_at.
 	require.NoError(t, repo.SoftDelete(ctx, "main", 12))
@@ -109,7 +124,7 @@ func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
 func TestSeriesCacheRepository_SoftDelete_Idempotent_AndMissing(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	// Missing row → nil (webhook out-of-order safety).
@@ -128,7 +143,7 @@ func TestSeriesCacheRepository_SoftDelete_Idempotent_AndMissing(t *testing.T) {
 func TestSeriesCacheRepository_ListActiveByInstance(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 1)))
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 2)))
@@ -152,38 +167,28 @@ func TestSeriesCacheRepository_ListActiveByInstance(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-func TestSeriesCacheRepository_GenresRoundTrip(t *testing.T) {
+// Post B-1b cutover: Genres no longer round-trip via series_cache —
+// canon stores them in the series_genres join (deferred to E-1).
+// Whatever the caller writes is dropped at the repo edge and the read
+// path always returns nil. This regression-locks that contract.
+func TestSeriesCacheRepository_GenresAlwaysNilPostCutover(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
-	tests := []struct {
-		name string
-		in   []string
-		want []string
-	}{
-		{"nil", nil, nil},
-		{"empty maps to nil", []string{}, nil},
-		{"single", []string{"Drama"}, []string{"Drama"}},
-		{"multi", []string{"Drama", "Sci-Fi"}, []string{"Drama", "Sci-Fi"}},
-		{"unicode", []string{"Документальный"}, []string{"Документальный"}},
-	}
-	for i, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			entry := sampleEntry("main", 100+i)
-			entry.Genres = tc.in
-			require.NoError(t, repo.Upsert(ctx, entry))
-			got, err := repo.Get(ctx, "main", 100+i)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got.Genres)
-		})
-	}
+	entry := sampleEntry("main", 100)
+	entry.Genres = []string{"Drama", "Sci-Fi"}
+	require.NoError(t, repo.Upsert(ctx, entry))
+	got, err := repo.Get(ctx, "main", 100)
+	require.NoError(t, err)
+	assert.Nil(t, got.Genres,
+		"post B-1b cutover: genres are not stored on series_cache; canon's series_genres join is the source")
 }
 
 func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 	require.NoError(t, repo.Upsert(ctx, series.CacheEntry{
 		InstanceName: "main", SonarrSeriesID: 7,
@@ -205,7 +210,7 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 func TestSeriesCacheRepository_Upsert_RejectsZeroPK(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 	require.Error(t, repo.Upsert(ctx, sampleEntry("", 1)))
 	require.Error(t, repo.Upsert(ctx, sampleEntry("main", 0)))
@@ -214,7 +219,7 @@ func TestSeriesCacheRepository_Upsert_RejectsZeroPK(t *testing.T) {
 func TestSeriesCacheRepository_Upsert_StampsUpdatedAt(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
 	first, err := repo.Get(ctx, "main", 12)
@@ -229,7 +234,7 @@ func TestSeriesCacheRepository_Upsert_StampsUpdatedAt(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	now := time.Now().UTC()
@@ -258,7 +263,7 @@ func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
@@ -284,7 +289,7 @@ func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	grabs := NewGrabRepository(db)
 	ctx := context.Background()
 
@@ -322,7 +327,7 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	now := time.Now().UTC()
@@ -359,7 +364,7 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	cases := []struct {
@@ -416,7 +421,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	// Title doesn't contain the term; slug does.
@@ -441,7 +446,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	// One row with a literal `%` and `_` in the title; one without.
@@ -487,7 +492,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T
 func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	titles := []string{"Zulu", "Alpha", "Mike", "bravo", "charlie"}
@@ -513,7 +518,7 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_InvalidState(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	_, _, _, _, err := repo.ListByFilter(context.Background(), "main",
 		ports.SeriesCacheFilter{State: ports.SeriesCacheState("bogus")},
 		ports.SeriesCacheSortUpdatedDesc,
@@ -524,7 +529,7 @@ func TestSeriesCacheRepository_ListByFilter_InvalidState(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 1)))
@@ -544,7 +549,7 @@ func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
 func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	grabs := NewGrabRepository(db)
 	ctx := context.Background()
 
@@ -572,7 +577,7 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	aired := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
@@ -590,7 +595,7 @@ func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	m := sampleEntry("main", 1)
@@ -636,7 +641,7 @@ func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	seed := []struct {
@@ -694,7 +699,7 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	seed := []struct {
@@ -744,7 +749,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	seed := []struct {
@@ -781,7 +786,7 @@ func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
-	repo := NewSeriesCacheRepository(db)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

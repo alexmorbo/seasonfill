@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -17,40 +16,113 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
 
-// SeriesCacheRepository persists per-instance Sonarr series metadata
-// (D66). Upsert resurrects soft-deleted rows by clearing deleted_at —
-// the scan and queue handlers see Sonarr "ground truth" again whenever
-// the series re-appears in /api/v3/series, while the row's identity
-// (and any grab_records FK references) is preserved.
+// SeriesCacheRepository persists the thin per-instance Sonarr projection
+// (PRD v4 §5.11) post the 000032 cutover. The canon attributes
+// (title / year / external ids / status / network / runtime / last_air)
+// live on `series` and are JOIN-read via `series_cache.series_id`.
+// Upsert resolves-or-creates the canon row through SeriesRepository
+// before writing the thin row. Soft-deleted via deleted_at to preserve
+// grab_records FK references.
 type SeriesCacheRepository struct {
-	db *gorm.DB
+	db     *gorm.DB
+	series *SeriesRepository
 }
 
-func NewSeriesCacheRepository(db *gorm.DB) *SeriesCacheRepository {
-	return &SeriesCacheRepository{db: db}
+func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCacheRepository {
+	return &SeriesCacheRepository{db: db, series: series}
 }
+
+// cacheRow is the internal row shape returned by every read path —
+// the cache columns plus the canon columns JOINed from `series`.
+// rowToCacheEntry projects it back onto the public series.CacheEntry
+// shape so callers see no change.
+type cacheRow struct {
+	// series_cache columns
+	InstanceName   string     `gorm:"column:instance_name"`
+	SonarrSeriesID int        `gorm:"column:sonarr_series_id"`
+	SeriesID       *int64     `gorm:"column:series_id"`
+	TitleSlug      string     `gorm:"column:title_slug"`
+	Monitored      bool       `gorm:"column:monitored"`
+	MissingCount   int        `gorm:"column:missing_count"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at"`
+	// canon columns — JOINed from series (s.*).
+	Title          string     `gorm:"column:s_title"`
+	Year           *int       `gorm:"column:s_year"`
+	TVDBID         *int       `gorm:"column:s_tvdb_id"`
+	IMDBID         *string    `gorm:"column:s_imdb_id"`
+	TMDBID         *int       `gorm:"column:s_tmdb_id"`
+	Status         *string    `gorm:"column:s_status"`
+	Network        *string    `gorm:"column:s_network"`
+	RuntimeMinutes *int       `gorm:"column:s_runtime_minutes"`
+	LastAiredAt    *time.Time `gorm:"column:s_last_air_date"`
+	PosterPath     *string    `gorm:"column:s_poster_asset"`
+	// Genres / Overview / FanartPath / BannerPath: post-cutover canon
+	// does not store these in the same form as the old series_cache
+	// (genres → series_genres join; overview → series_texts; fanart/
+	// banner → media_assets with hash). rowToCacheEntry returns nil
+	// for them. The DTO already drops these fields per the lean-shape
+	// comment in dto.go.
+}
+
+const (
+	// seriesCacheSelect projects every joined column with the s_*
+	// prefix to avoid name collisions with series_cache.*. Used as
+	// the SELECT list on every read path.
+	seriesCacheSelect = `
+		series_cache.instance_name      AS instance_name,
+		series_cache.sonarr_series_id   AS sonarr_series_id,
+		series_cache.series_id          AS series_id,
+		series_cache.title_slug         AS title_slug,
+		series_cache.monitored          AS monitored,
+		series_cache.missing_count      AS missing_count,
+		series_cache.updated_at         AS updated_at,
+		series_cache.deleted_at         AS deleted_at,
+		s.title                         AS s_title,
+		s.year                          AS s_year,
+		s.tvdb_id                       AS s_tvdb_id,
+		s.imdb_id                       AS s_imdb_id,
+		s.tmdb_id                       AS s_tmdb_id,
+		s.status                        AS s_status,
+		s.network                       AS s_network,
+		s.runtime_minutes               AS s_runtime_minutes,
+		s.last_air_date                 AS s_last_air_date,
+		s.poster_asset                  AS s_poster_asset
+	`
+	// seriesCacheJoin: INNER JOIN — every cache row has a canon row
+	// post-cutover. INNER (not LEFT) catches stale data fast.
+	seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
+)
 
 func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error) {
-	var m database.SeriesCacheModel
+	var row cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Where("instance_name = ? AND sonarr_series_id = ?", instanceName, sonarrSeriesID).
-		First(&m).Error
+		Table("series_cache").
+		Select(seriesCacheSelect).
+		Joins(seriesCacheJoin).
+		Where("series_cache.instance_name = ? AND series_cache.sonarr_series_id = ?",
+			instanceName, sonarrSeriesID).
+		First(&row).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return series.CacheEntry{}, ports.ErrNotFound
 		}
 		return series.CacheEntry{}, fmt.Errorf("get series_cache: %w", err)
 	}
-	entry, cErr := toCacheEntry(m)
-	if cErr != nil {
-		return series.CacheEntry{}, fmt.Errorf("decode series_cache: %w", cErr)
-	}
-	return entry, nil
+	return rowToCacheEntry(row), nil
 }
 
-// Upsert writes/replaces the row keyed on composite PK. The conflict
-// path always sets deleted_at = NULL. Callers wanting soft-delete use
-// SoftDelete, not Upsert with DeletedAt set.
+// Upsert writes/replaces the per-instance cache row keyed on
+// (instance_name, sonarr_series_id). The new responsibility post-B-1b
+// is to resolve-or-create the canonical `series` row first via
+// SeriesRepository (TMDB > TVDB > IMDB > orphan-by-fingerprint
+// priority) and write the resolved series_id onto the cache row.
+//
+// The canon write is "last-write-wins" by §5.8 (multiple Sonarr
+// instances writing identical metadata for the same show is normal;
+// E-1 will replace this with the merge-policy writer). The cache
+// path always sets deleted_at = NULL — callers wanting soft-delete
+// use SoftDelete.
 func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEntry) error {
 	if entry.InstanceName == "" {
 		return fmt.Errorf("upsert series_cache: instance_name must be non-empty")
@@ -62,23 +134,28 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 	entry.UpdatedAt = now
 	entry.DeletedAt = nil
 
-	m, mErr := cacheEntryToModel(entry)
-	if mErr != nil {
-		return fmt.Errorf("encode series_cache: %w", mErr)
+	canonID, err := r.resolveOrCreateCanon(ctx, entry)
+	if err != nil {
+		return fmt.Errorf("upsert series_cache: resolve canon: %w", err)
 	}
 
+	m := database.SeriesCacheModel{
+		InstanceName:   entry.InstanceName,
+		SonarrSeriesID: entry.SonarrSeriesID,
+		SeriesID:       &canonID,
+		TitleSlug:      entry.TitleSlug,
+		Monitored:      entry.Monitored,
+		MissingCount:   entry.MissingCount,
+		UpdatedAt:      entry.UpdatedAt,
+		DeletedAt:      nil,
+	}
 	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "instance_name"},
 			{Name: "sonarr_series_id"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"title", "title_slug", "year",
-			"tvdb_id", "imdb_id", "tmdb_id",
-			"status", "network", "genres",
-			"runtime_minutes", "monitored", "overview",
-			"poster_path", "fanart_path", "banner_path",
-			"missing_count", "last_aired_at",
+			"series_id", "title_slug", "monitored", "missing_count",
 			"updated_at", "deleted_at",
 		}),
 	}).Create(&m)
@@ -86,6 +163,47 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 		return fmt.Errorf("upsert series_cache: %w", res.Error)
 	}
 	return nil
+}
+
+// resolveOrCreateCanon picks an existing series row by natural key
+// (TMDB > TVDB > IMDB) or creates one for orphans. For B-1b this is
+// last-write-wins on every canon column except id/created_at; E-1
+// replaces this with merge-policy ordering. Returns the resolved id.
+//
+// Hydration is always 'stub' here — workers later flip to 'full'.
+// PosterAsset stays nil — Sonarr URLs are not canon-shaped (canon
+// stores hashes from F-1 media-prewarm).
+func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e series.CacheEntry) (int64, error) {
+	canon := series.Canon{
+		TMDBID:         e.TMDBID,
+		TVDBID:         e.TVDBID,
+		IMDBID:         e.IMDBID,
+		Title:          e.Title,
+		Year:           e.Year,
+		Status:         e.Status,
+		Network:        e.Network,
+		RuntimeMinutes: e.RuntimeMinutes,
+		LastAirDate:    e.LastAiredAt,
+		Hydration:      series.HydrationStub,
+		InProduction:   false,
+	}
+	if canon.Title == "" {
+		// SeriesRepository.Upsert requires a non-empty title; orphan
+		// rows that never had a title get a placeholder so the cache
+		// row still resolves.
+		canon.Title = e.TitleSlug
+		if canon.Title == "" {
+			canon.Title = fmt.Sprintf("sonarr:%s:%d", e.InstanceName, e.SonarrSeriesID)
+		}
+	}
+	existing, err := r.series.FindByExternalIDs(ctx, e.TMDBID, e.TVDBID, e.IMDBID)
+	if err == nil {
+		canon.ID = existing.ID
+		canon.CreatedAt = existing.CreatedAt
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return 0, fmt.Errorf("find canon: %w", err)
+	}
+	return r.series.Upsert(ctx, canon)
 }
 
 // SoftDelete stamps deleted_at = now. Idempotent — missing row OR
@@ -108,20 +226,19 @@ func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName str
 }
 
 func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
-	var models []database.SeriesCacheModel
+	var rows []cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Where("instance_name = ? AND deleted_at IS NULL", instanceName).
-		Find(&models).Error
+		Table("series_cache").
+		Select(seriesCacheSelect).
+		Joins(seriesCacheJoin).
+		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", instanceName).
+		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("list active series_cache: %w", err)
 	}
-	out := make([]series.CacheEntry, 0, len(models))
-	for _, m := range models {
-		entry, cErr := toCacheEntry(m)
-		if cErr != nil {
-			return nil, fmt.Errorf("decode series_cache: %w", cErr)
-		}
-		out = append(out, entry)
+	out := make([]series.CacheEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToCacheEntry(row))
 	}
 	return out, nil
 }
@@ -130,8 +247,10 @@ func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instan
 // `imported` state filter is an EXISTS subquery against grab_records.
 // The `missing` state filter is missing_count > 0. The `all` state is
 // the unnarrowed active set. Story 120: `filter.Search`, when set,
-// adds a case-insensitive substring predicate over (title, title_slug).
-// Keyset pagination over the chosen sort key.
+// adds a case-insensitive substring predicate over (s.title, title_slug).
+// Keyset pagination over the chosen sort key. Post-cutover every
+// predicate that referenced a canon column qualifies with s.* and the
+// query runs over the JOIN.
 func (r *SeriesCacheRepository) ListByFilter(
 	ctx context.Context,
 	instanceName string,
@@ -156,8 +275,9 @@ func (r *SeriesCacheRepository) ListByFilter(
 	}
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	base := db.Model(&database.SeriesCacheModel{}).
-		Where("instance_name = ? AND deleted_at IS NULL", instanceName)
+	base := db.Table("series_cache").
+		Joins(seriesCacheJoin).
+		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", instanceName)
 	base = applyStateFilter(base, filter.State)
 	base = applySearchFilter(base, filter.Search)
 	base = applyMonitoredFilter(base, filter.MonitoredOnly)
@@ -168,31 +288,27 @@ func (r *SeriesCacheRepository) ListByFilter(
 		return nil, 0, false, nil, fmt.Errorf("count series_cache: %w", err)
 	}
 
-	q := base.Session(&gorm.Session{})
+	q := base.Session(&gorm.Session{}).Select(seriesCacheSelect)
 	q = applyCursor(q, sort, page.Cursor)
 	q = applyOrder(q, sort)
 
-	var models []database.SeriesCacheModel
-	if err := q.Limit(page.Limit + 1).Find(&models).Error; err != nil {
+	var rows []cacheRow
+	if err := q.Limit(page.Limit + 1).Find(&rows).Error; err != nil {
 		return nil, 0, false, nil, fmt.Errorf("list series_cache: %w", err)
 	}
 
 	hasMore := false
 	var next *ports.Cursor
-	if len(models) > page.Limit {
+	if len(rows) > page.Limit {
 		hasMore = true
-		last := models[page.Limit-1]
-		next = cursorFromModel(last, sort)
-		models = models[:page.Limit]
+		last := rows[page.Limit-1]
+		next = cursorFromRow(last, sort)
+		rows = rows[:page.Limit]
 	}
 
-	out := make([]series.CacheEntry, 0, len(models))
-	for _, m := range models {
-		entry, cErr := toCacheEntry(m)
-		if cErr != nil {
-			return nil, 0, false, nil, fmt.Errorf("decode series_cache: %w", cErr)
-		}
-		out = append(out, entry)
+	out := make([]series.CacheEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToCacheEntry(row))
 	}
 	return out, int(total), hasMore, next, nil
 }
@@ -215,14 +331,14 @@ func applyStateFilter(q *gorm.DB, state ports.SeriesCacheState) *gorm.DB {
 			"imported", cutoff,
 		)
 	case ports.SeriesCacheStateMissing:
-		return q.Where("missing_count > 0")
+		return q.Where("series_cache.missing_count > 0")
 	default:
 		return q
 	}
 }
 
 // applySearchFilter adds a case-insensitive substring predicate over
-// (title, title_slug) when q is non-empty. Story 120: uses
+// (s.title, title_slug) when q is non-empty. Story 120: uses
 // `LOWER(col) LIKE LOWER(?)` rather than Postgres ILIKE so the same
 // expression runs on SQLite (tests) and Postgres (prod) without a
 // dialect branch. The pattern is wrapped in `%…%` after wildcard
@@ -235,8 +351,8 @@ func applySearchFilter(q *gorm.DB, search string) *gorm.DB {
 	}
 	pat := "%" + escapeLikePattern(trimmed) + "%"
 	return q.Where(
-		"(LOWER(title) LIKE LOWER(?) ESCAPE '\\' "+
-			"OR LOWER(title_slug) LIKE LOWER(?) ESCAPE '\\')",
+		"(LOWER(s.title) LIKE LOWER(?) ESCAPE '\\' "+
+			"OR LOWER(series_cache.title_slug) LIKE LOWER(?) ESCAPE '\\')",
 		pat, pat,
 	)
 }
@@ -249,10 +365,10 @@ func applyMonitoredFilter(q *gorm.DB, only *bool) *gorm.DB {
 	if only == nil {
 		return q
 	}
-	return q.Where("monitored = ?", *only)
+	return q.Where("series_cache.monitored = ?", *only)
 }
 
-// applyNetworksFilter narrows the query to rows whose `network`
+// applyNetworksFilter narrows the query to rows whose canon `network`
 // column matches any of the supplied names. Empty slice ⇒ no-op
 // (the repo edge MUST refuse to emit `IN ()` which Postgres rejects).
 // Story 121a: the /series facet panel needs server-side narrowing
@@ -261,7 +377,7 @@ func applyNetworksFilter(q *gorm.DB, networks []string) *gorm.DB {
 	if len(networks) == 0 {
 		return q
 	}
-	return q.Where("network IN ?", networks)
+	return q.Where("s.network IN ?", networks)
 }
 
 // escapeLikePattern doubles every LIKE meta-character (`%`, `_`, `\`)
@@ -280,14 +396,14 @@ func escapeLikePattern(in string) string {
 
 // applyCursor adds the keyset predicate for the chosen sort key.
 // updated_desc:    WHERE (updated_at, sonarr_series_id) < (ts, id)
-// title_asc:       WHERE (LOWER(title), sonarr_series_id) > (title, id)
+// title_asc:       WHERE (LOWER(s.title), sonarr_series_id) > (title, id)
 // air_date_desc:   nil-aware:
 //
-//	WHEN cursor row had non-NULL last_aired_at:
-//	  WHERE (last_aired_at, sonarr_series_id) < (ts, id)
-//	  OR last_aired_at IS NULL
-//	WHEN cursor row had NULL last_aired_at:
-//	  WHERE last_aired_at IS NULL AND sonarr_series_id < id
+//	WHEN cursor row had non-NULL last_air_date:
+//	  WHERE (last_air_date, sonarr_series_id) < (ts, id)
+//	  OR last_air_date IS NULL
+//	WHEN cursor row had NULL last_air_date:
+//	  WHERE last_air_date IS NULL AND sonarr_series_id < id
 //
 // nil cursor = first page (no predicate).
 func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gorm.DB {
@@ -297,66 +413,66 @@ func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gor
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
 		title, sid := splitTitleCursorID(cur.ID)
-		return q.Where("(LOWER(title), sonarr_series_id) > (?, ?)", title, sid)
+		return q.Where("(LOWER(s.title), series_cache.sonarr_series_id) > (?, ?)", title, sid)
 	case ports.SeriesCacheSortAirDateDesc:
 		sid, _ := strconv.Atoi(cur.ID)
 		if cur.Timestamp.IsZero() {
 			// Previous page ended on a NULL-air row: stay in the NULL
 			// tail and walk down by id only.
-			return q.Where("last_aired_at IS NULL AND sonarr_series_id < ?", sid)
+			return q.Where("s.last_air_date IS NULL AND series_cache.sonarr_series_id < ?", sid)
 		}
 		return q.Where(
-			"(last_aired_at IS NOT NULL AND (last_aired_at, sonarr_series_id) < (?, ?)) OR last_aired_at IS NULL",
+			"(s.last_air_date IS NOT NULL AND (s.last_air_date, series_cache.sonarr_series_id) < (?, ?)) OR s.last_air_date IS NULL",
 			cur.Timestamp, sid,
 		)
 	default:
 		sid, _ := strconv.Atoi(cur.ID)
-		return q.Where("(updated_at, sonarr_series_id) < (?, ?)", cur.Timestamp, sid)
+		return q.Where("(series_cache.updated_at, series_cache.sonarr_series_id) < (?, ?)", cur.Timestamp, sid)
 	}
 }
 
 // applyOrder is the ORDER BY half of the sort. For air_date_desc we
-// emit `last_aired_at IS NULL ASC` as the first key so non-NULL rows
+// emit `last_air_date IS NULL ASC` as the first key so non-NULL rows
 // sort BEFORE NULL rows (NULLS LAST semantics) on both Postgres and
 // SQLite — both engines treat `IS NULL` as a 0/1 expression and
 // accept ASC ordering on it.
 func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort) *gorm.DB {
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
-		return q.Order("LOWER(title) ASC, sonarr_series_id ASC")
+		return q.Order("LOWER(s.title) ASC, series_cache.sonarr_series_id ASC")
 	case ports.SeriesCacheSortAirDateDesc:
-		return q.Order("last_aired_at IS NULL ASC, last_aired_at DESC, sonarr_series_id DESC")
+		return q.Order("s.last_air_date IS NULL ASC, s.last_air_date DESC, series_cache.sonarr_series_id DESC")
 	default:
-		return q.Order("updated_at DESC, sonarr_series_id DESC")
+		return q.Order("series_cache.updated_at DESC, series_cache.sonarr_series_id DESC")
 	}
 }
 
-// cursorFromModel produces the next-page cursor. For updated_desc:
+// cursorFromRow produces the next-page cursor. For updated_desc:
 // Timestamp=UpdatedAt + ID=decimal(series_id). For title_asc:
 // Timestamp=zero + ID="lower(title)|series_id" packed string. For
 // air_date_desc: Timestamp=LastAiredAt (zero when nil) + ID=decimal
 // series_id; applyCursor reads the zero-Timestamp signal as "we are
 // in the NULL tail".
-func cursorFromModel(m database.SeriesCacheModel, sort ports.SeriesCacheSort) *ports.Cursor {
+func cursorFromRow(row cacheRow, sort ports.SeriesCacheSort) *ports.Cursor {
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
 		return &ports.Cursor{
 			Timestamp: time.Time{},
-			ID:        strings.ToLower(m.Title) + "|" + strconv.Itoa(m.SonarrSeriesID),
+			ID:        strings.ToLower(row.Title) + "|" + strconv.Itoa(row.SonarrSeriesID),
 		}
 	case ports.SeriesCacheSortAirDateDesc:
 		var ts time.Time
-		if m.LastAiredAt != nil {
-			ts = m.LastAiredAt.UTC()
+		if row.LastAiredAt != nil {
+			ts = row.LastAiredAt.UTC()
 		}
 		return &ports.Cursor{
 			Timestamp: ts,
-			ID:        strconv.Itoa(m.SonarrSeriesID),
+			ID:        strconv.Itoa(row.SonarrSeriesID),
 		}
 	default:
 		return &ports.Cursor{
-			Timestamp: m.UpdatedAt.UTC(),
-			ID:        strconv.Itoa(m.SonarrSeriesID),
+			Timestamp: row.UpdatedAt.UTC(),
+			ID:        strconv.Itoa(row.SonarrSeriesID),
 		}
 	}
 }
@@ -416,7 +532,9 @@ func (r *SeriesCacheRepository) FetchLastGrabInfo(
 }
 
 // ListDistinctNetworks returns the sorted, distinct, non-empty
-// network strings for the instance's active rows. Story 121a §A.
+// network strings for the instance's active rows. Post-cutover the
+// network lives on canon (`series.network`); we JOIN cache→series and
+// scope by `series_cache.instance_name`.
 func (r *SeriesCacheRepository) ListDistinctNetworks(
 	ctx context.Context,
 	instanceName string,
@@ -426,13 +544,14 @@ func (r *SeriesCacheRepository) ListDistinctNetworks(
 	}
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	var rows []string
-	err := db.Model(&database.SeriesCacheModel{}).
-		Where("instance_name = ? AND deleted_at IS NULL", instanceName).
-		Where("network IS NOT NULL AND network != ''").
-		Distinct("network").
-		Order("network ASC").
+	err := db.Table("series_cache").
+		Joins(seriesCacheJoin).
+		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", instanceName).
+		Where("s.network IS NOT NULL AND s.network != ''").
+		Distinct("s.network").
+		Order("s.network ASC").
 		Limit(ports.MaxDistinctNetworks).
-		Pluck("network", &rows).Error
+		Pluck("s.network", &rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("list distinct networks: %w", err)
 	}
@@ -449,73 +568,35 @@ func formatSeasonTag(season int) string {
 	return "S" + strconv.Itoa(season)
 }
 
-// toCacheEntry maps DB model → domain. Genres JSON-decoded.
-func toCacheEntry(m database.SeriesCacheModel) (series.CacheEntry, error) {
-	var genres []string
-	if m.Genres != nil && *m.Genres != "" {
-		if err := json.Unmarshal([]byte(*m.Genres), &genres); err != nil {
-			return series.CacheEntry{}, fmt.Errorf("unmarshal genres: %w", err)
-		}
-	}
+// rowToCacheEntry projects the internal joined row onto the public
+// series.CacheEntry shape. Genres / Overview / FanartPath / BannerPath
+// stay nil — canon stores those differently (series_genres /
+// series_texts / media_assets) and the lean wire DTO already drops
+// them. Production reads never hit these fields.
+func rowToCacheEntry(r cacheRow) series.CacheEntry {
 	return series.CacheEntry{
-		InstanceName:   m.InstanceName,
-		SonarrSeriesID: m.SonarrSeriesID,
-		Title:          m.Title,
-		TitleSlug:      m.TitleSlug,
-		Year:           m.Year,
-		TVDBID:         m.TVDBID,
-		IMDBID:         m.IMDBID,
-		TMDBID:         m.TMDBID,
-		Status:         m.Status,
-		Network:        m.Network,
-		Genres:         genres,
-		RuntimeMinutes: m.RuntimeMinutes,
-		Monitored:      m.Monitored,
-		Overview:       m.Overview,
-		PosterPath:     m.PosterPath,
-		FanartPath:     m.FanartPath,
-		BannerPath:     m.BannerPath,
-		MissingCount:   m.MissingCount,
-		LastAiredAt:    m.LastAiredAt,
-		UpdatedAt:      m.UpdatedAt,
-		DeletedAt:      m.DeletedAt,
-	}, nil
-}
-
-// cacheEntryToModel: inverse of toCacheEntry. Genres JSON-encoded.
-func cacheEntryToModel(e series.CacheEntry) (database.SeriesCacheModel, error) {
-	var genresPtr *string
-	if len(e.Genres) > 0 {
-		raw, err := json.Marshal(e.Genres)
-		if err != nil {
-			return database.SeriesCacheModel{}, fmt.Errorf("marshal genres: %w", err)
-		}
-		s := string(raw)
-		genresPtr = &s
+		InstanceName:   r.InstanceName,
+		SonarrSeriesID: r.SonarrSeriesID,
+		Title:          r.Title,
+		TitleSlug:      r.TitleSlug,
+		Year:           r.Year,
+		TVDBID:         r.TVDBID,
+		IMDBID:         r.IMDBID,
+		TMDBID:         r.TMDBID,
+		Status:         r.Status,
+		Network:        r.Network,
+		Genres:         nil,
+		RuntimeMinutes: r.RuntimeMinutes,
+		Monitored:      r.Monitored,
+		Overview:       nil,
+		PosterPath:     r.PosterPath,
+		FanartPath:     nil,
+		BannerPath:     nil,
+		MissingCount:   r.MissingCount,
+		LastAiredAt:    r.LastAiredAt,
+		UpdatedAt:      r.UpdatedAt,
+		DeletedAt:      r.DeletedAt,
 	}
-	return database.SeriesCacheModel{
-		InstanceName:   e.InstanceName,
-		SonarrSeriesID: e.SonarrSeriesID,
-		Title:          e.Title,
-		TitleSlug:      e.TitleSlug,
-		Year:           e.Year,
-		TVDBID:         e.TVDBID,
-		IMDBID:         e.IMDBID,
-		TMDBID:         e.TMDBID,
-		Status:         e.Status,
-		Network:        e.Network,
-		Genres:         genresPtr,
-		RuntimeMinutes: e.RuntimeMinutes,
-		Monitored:      e.Monitored,
-		Overview:       e.Overview,
-		PosterPath:     e.PosterPath,
-		FanartPath:     e.FanartPath,
-		BannerPath:     e.BannerPath,
-		MissingCount:   e.MissingCount,
-		LastAiredAt:    e.LastAiredAt,
-		UpdatedAt:      e.UpdatedAt,
-		DeletedAt:      e.DeletedAt,
-	}, nil
 }
 
 var _ ports.SeriesCacheRepository = (*SeriesCacheRepository)(nil)

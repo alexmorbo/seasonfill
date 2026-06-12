@@ -54,6 +54,7 @@ type Canon struct {
 	OriginCountry    *string
 	Popularity       *float64
 	InProduction     bool
+	Network          *string
 	PosterAsset      *string
 	BackdropAsset    *string
 	TMDBRating       *float64

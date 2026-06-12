@@ -75,7 +75,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
@@ -108,7 +108,7 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	now := time.Now().UTC().Truncate(time.Second)
 
 	// Configured instance + its series + its origin row.
@@ -137,7 +137,7 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
@@ -158,7 +158,7 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	cdRepo := NewCooldownRepository(db)
 	nbRepo := NewNoBetterCounterRepository(db)
 	blRepo := NewWatchdogBlacklistRepository(db)
@@ -205,7 +205,7 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	cdRepo := NewCooldownRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -235,7 +235,7 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
@@ -256,7 +256,7 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	now := time.Now().UTC().Truncate(time.Second)
 
 	seedInstance(t, db, "homelab")
@@ -285,7 +285,7 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	originRepo := NewOriginReleaseRepository(db)
-	scRepo := NewSeriesCacheRepository(db)
+	scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	decRepo := NewDecisionRepository(db)
 	now := time.Now().UTC().Truncate(time.Second)
 

@@ -41,7 +41,7 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	require.NoError(t, err)
 	require.NoError(t, database.Migrate(db))
 
-	repo := repositories.NewSeriesCacheRepository(db)
+	repo := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
 	grabs := repositories.NewGrabRepository(db)
 
 	instMap := map[string]scan.Instance{}

@@ -685,7 +685,7 @@ func TestSonarrInstanceRepository_Delete_PurgesSeriesCache(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	instRepo := NewSonarrInstanceRepository(db)
-	cacheRepo := NewSeriesCacheRepository(db)
+	cacheRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	cipher, err := crypto.New("test-master-key-12345")

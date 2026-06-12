@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 31
+	latestVersion   = 32
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -247,6 +247,19 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV31 {
 		version = 31
+	}
+	// 208 (B-1b): Detect v32 by checking that series_cache.title
+	// is GONE — the cutover's hallmark. Unusual probe direction
+	// because v32 is a DROP, not an ADD. The `hasV31 && !hasTitle`
+	// guard is critical: a fresh DB at boot (before ANY migration
+	// runs) also lacks `series_cache.title`, but hasV31 will be
+	// false too — so we stamp baseline correctly.
+	hasTitle, err := columnExists(ctx, sqlDB, dialect, "series_cache", "title")
+	if err != nil {
+		return err
+	}
+	if hasV31 && !hasTitle {
+		version = 32
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {
