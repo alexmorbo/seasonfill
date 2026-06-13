@@ -15,6 +15,7 @@ import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
 import { SeriesCast } from '@/pages/SeriesCast';
+import { Person } from '@/pages/Person';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: '/series',    element: <Series /> },
       { path: '/series/:instance/:id', element: <SeriesDetail /> },
       { path: '/series/:instance/:id/cast', element: <SeriesCast /> },
+      { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
