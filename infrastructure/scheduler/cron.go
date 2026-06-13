@@ -68,7 +68,7 @@ func NewWithLocation(schedule string, jitter time.Duration, logger *slog.Logger,
 	}
 	c := cron.New(
 		cron.WithParser(cron.NewParser(
-			cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+			cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor,
 		)),
 		cron.WithLocation(loc),
 	)

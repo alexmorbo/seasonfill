@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 219 (A-1): latest migration is 000035_torrent_inventory.
-	assert.Equal(t, 35, version)
+	// 301 (FIX-001): latest migration is 000036_app_settings.
+	assert.Equal(t, 36, version)
 	assert.False(t, dirty)
 }
 
@@ -328,8 +328,8 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 219 (A-1): latest migration is 000035_torrent_inventory.
-	assert.Equal(t, 35, version)
+	// 301 (FIX-001): latest migration is 000036_app_settings.
+	assert.Equal(t, 36, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))
