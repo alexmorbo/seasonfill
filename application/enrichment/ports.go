@@ -65,11 +65,17 @@ type EntityKind string
 const (
 	EntitySeries EntityKind = "series"
 	EntityPerson EntityKind = "person"
+	// 213 (D-1): OMDb enrichment runs against canonical series rows
+	// with imdb_id present, but lives in its own dispatcher kind so
+	// its goroutine + retry budget don't compete with the TMDB
+	// series workers. The job's EntityID is a series.id (NOT a
+	// series_cache.id).
+	EntityOMDb EntityKind = "omdb"
 )
 
 // IsValid reports whether k is one of the known kinds.
 func (k EntityKind) IsValid() bool {
-	return k == EntitySeries || k == EntityPerson
+	return k == EntitySeries || k == EntityPerson || k == EntityOMDb
 }
 
 // Job is one dispatch unit. EntityID maps to `series.id` for

@@ -28,6 +28,10 @@ type DispatcherImpl struct {
 type Workers struct {
 	SeriesHandler func(ctx context.Context, id int64) error
 	PersonHandler func(ctx context.Context, id int64) error
+	// 213 (D-1). OMDb handler; nil-OK — when nil the goroutine
+	// still spawns but every dequeue logs "handler_nil" and
+	// releases the dedup slot (matches the 211 person-nil pattern).
+	OMDbHandler func(ctx context.Context, id int64) error
 }
 
 // NewDispatcher constructs a not-yet-running dispatcher. Start binds
@@ -74,9 +78,20 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 		defer d.wg.Done()
 		d.loop(ctx, EntityPerson, 0, d.workers.PersonHandler)
 	}()
+	// 213 (D-1): one OMDb goroutine. The shared queue's cross-kind
+	// drain in loop() guarantees an OMDb goroutine waking on a
+	// series job re-enqueues it. With 2× series + 1× person + 1×
+	// OMDb goroutines and 3 EntityKinds the cross-kind spin remains
+	// the known caveat documented in 211 §10.
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.loop(ctx, EntityOMDb, 0, d.workers.OMDbHandler)
+	}()
 	d.logger.InfoContext(ctx, "enrichment.dispatcher.started",
 		slog.Int("series_workers", 2),
 		slog.Int("person_workers", 1),
+		slog.Int("omdb_workers", 1),
 	)
 }
 

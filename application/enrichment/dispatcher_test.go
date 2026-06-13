@@ -46,6 +46,33 @@ func TestDispatcher_SeriesHandlerCalledForSeriesJob(t *testing.T) {
 	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&seen) == 42 })
 }
 
+func TestDispatcher_OMDbHandlerCalledForOMDbJob(t *testing.T) {
+	t.Parallel()
+	var seriesSeen, personSeen, omdbSeen int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(_ context.Context, id int64) error {
+			atomic.StoreInt64(&seriesSeen, id)
+			return nil
+		},
+		PersonHandler: func(_ context.Context, id int64) error {
+			atomic.StoreInt64(&personSeen, id)
+			return nil
+		},
+		OMDbHandler: func(_ context.Context, id int64) error {
+			atomic.StoreInt64(&omdbSeen, id)
+			return nil
+		},
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntityOMDb, 77, PriorityHot)
+	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&omdbSeen) == 77 })
+	assert.Zero(t, atomic.LoadInt64(&seriesSeen))
+	assert.Zero(t, atomic.LoadInt64(&personSeen))
+}
+
 func TestDispatcher_DedupPreventsSimultaneousCalls(t *testing.T) {
 	t.Parallel()
 	var calls int64

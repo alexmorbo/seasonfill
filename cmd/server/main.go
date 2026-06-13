@@ -616,6 +616,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		PersonBiographies: personBiographiesRepo,
 		PersonCredits:     personCreditsRepoAdapter{inner: personCreditsRepo},
 		ColdStartScanner:  coldStartScanner,
+		LibraryWithIMDB:   NewOMDbBatchScannerAdapter(seriesRepo),
 	}
 	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
 	if err != nil {
@@ -629,6 +630,26 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		if err := bootScheduler.Register("enrichment-nightly", "0 4 * * *",
 			enrichBundle.Nightly); err != nil {
 			return nil, fmt.Errorf("register nightly enrichment: %w", err)
+		}
+	}
+
+	// Story 213 (D-1) — OMDb daily batch + budget reset.
+	// 04:00 — reset the in-process budget counter (must precede the
+	// 04:30 batch so the batch runs against a fresh budget).
+	// 04:30 — fan out library series with stale OMDb sync into the
+	// enrichment dispatcher at PriorityCold.
+	if bootScheduler != nil && enrichBundle != nil {
+		if enrichBundle.OMDbBudgetReset != nil {
+			if err := bootScheduler.Register("omdb-budget-reset", "0 4 * * *",
+				enrichBundle.OMDbBudgetReset); err != nil {
+				return nil, fmt.Errorf("register omdb budget reset: %w", err)
+			}
+		}
+		if enrichBundle.OMDbDailyBatch != nil {
+			if err := bootScheduler.Register("omdb-daily-batch", "30 4 * * *",
+				enrichBundle.OMDbDailyBatch); err != nil {
+				return nil, fmt.Errorf("register omdb daily batch: %w", err)
+			}
 		}
 	}
 

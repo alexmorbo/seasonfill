@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	enrichmentpkg "github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
@@ -181,6 +182,55 @@ func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string
 		Pluck("s.id", &ids).Error
 	if err != nil {
 		return nil, fmt.Errorf("list series missing sync_log(%s): %w", source, err)
+	}
+	return ids, nil
+}
+
+// ListLibraryWithIMDBStale returns series.id rows that:
+//   - have a non-NULL imdb_id, AND
+//   - have AT LEAST ONE live (not soft-deleted) series_cache reference
+//     (excludes recommendation stubs that never entered the library), AND
+//   - either have no sync_log(omdb) row OR the last sync_log row is
+//     older than `ttl` AND its outcome is NOT 'not_found' (terminal).
+//
+// Used by the Story 213 OMDb daily batch (cron 04:30).
+// The series_cache INNER JOIN is the library filter — series_cache rows
+// land on Sonarr import / webhook; stub-only series (recommendation
+// tiles, anime hold-overs) NEVER have a series_cache reference. The
+// `series_cache.deleted_at IS NULL` guard preserves the soft-delete
+// contract: a series whose only instance reference was deleted no
+// longer "lives" in the library, so OMDb stops refreshing it
+// (matches the PRD §5.4 grain decision).
+//
+// `GROUP BY` on `s.id, s.imdb_id` dedups when a series has multiple
+// instance refs (typical: 1080p + 4K Sonarr). Postgres + sqlite
+// both accept this shape (the SELECT list is a subset of the
+// GROUP BY list — no `ANY_VALUE` needed).
+func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 900
+	}
+	cutoff := time.Now().UTC().Add(-ttl)
+	var ids []int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series AS s").
+		Select("s.id").
+		Joins(`INNER JOIN series_cache sc
+		       ON sc.series_id = s.id
+		      AND sc.deleted_at IS NULL`).
+		Joins(`LEFT JOIN sync_log sl
+		       ON sl.entity_type = 'series'
+		      AND sl.entity_id   = s.id
+		      AND sl.source      = ?`, string(enrichmentpkg.SourceOMDb)).
+		Where("s.imdb_id IS NOT NULL").
+		Where("s.imdb_id != ''").
+		Where("(sl.outcome IS NULL OR sl.outcome != ?)", string(enrichmentpkg.OutcomeNotFound)).
+		Where("(sl.synced_at IS NULL OR sl.synced_at < ?)", cutoff).
+		Group("s.id, s.imdb_id").
+		Limit(limit).
+		Pluck("s.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list library with imdb stale: %w", err)
 	}
 	return ids, nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 )
 
@@ -24,6 +26,9 @@ type EnrichmentBundle struct {
 	// rows that lack a sync_log(tmdb_series) entry are enqueued at
 	// PriorityCold. nil when enrichment is disabled.
 	ColdStart func(context.Context)
+	// 213 additions: nil when OMDb disabled / unconfigured.
+	OMDbDailyBatch  func(context.Context)
+	OMDbBudgetReset func(context.Context)
 }
 
 // wireEnrichment builds the dispatcher + nightly stale scan closure.
@@ -115,11 +120,93 @@ func wireEnrichment(
 		return nil, err
 	}
 
+	// 213 (D-1) — OMDb client + budget + worker. Best-effort: when
+	// OMDb is disabled / unconfigured we leave omdbHolder nil and
+	// the cron closure short-circuits. The dispatcher's EntityOMDb
+	// goroutine STILL spawns (so a manual enqueue is not silently
+	// dropped) but every dequeue logs "handler_nil" because
+	// OMDbHandler is wired only when the holder is non-nil.
+	var (
+		omdbHolder       *omdbClientHolder
+		omdbBudget       *appenrich.OMDbBudgetGuard
+		omdbWorkerHandle func(context.Context, int64) error
+		omdbDailyBatch   func(context.Context)
+		omdbBudgetReset  func(context.Context)
+	)
+	omdbSettings := extSub.Get(infraextsvc.ServiceOMDB)
+	if omdbSettings.Enabled && omdbSettings.APIKey != "" {
+		omdbHTTPClient, err := infraextsvc.HttpClientFor(omdbSettings)
+		if err != nil {
+			return nil, fmt.Errorf("omdb http client: %w", err)
+		}
+		omdbClient, err := infraomdb.New(infraomdb.Config{
+			APIKey:     omdbSettings.APIKey,
+			HTTPClient: omdbHTTPClient,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("omdb client: %w", err)
+		}
+		omdbHolder = &omdbClientHolder{inner: omdbClient}
+		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
+
+		omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
+			Client:  omdbHolder.get,
+			Budget:  omdbBudget,
+			Tx:      tx,
+			Series:  repos.Series,
+			SyncLog: repos.SyncLog,
+			Logger:  log,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("new omdb worker: %w", err)
+		}
+		omdbWorkerHandle = omdbWorker.Handle
+	} else {
+		log.InfoContext(rootCtx, "enrichment.omdb.disabled",
+			slog.Bool("enabled", omdbSettings.Enabled),
+			slog.Bool("api_key", omdbSettings.APIKey != ""))
+	}
+
 	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
 		SeriesHandler: worker.Handle,
 		PersonHandler: personWorker.Handle,
+		OMDbHandler:   omdbWorkerHandle, // nil-OK
 	}, log)
 	holder.set(dispatcher)
+
+	// 213: Daily-batch + budget-reset closures (cron 04:30 / 04:00).
+	// Constructed AFTER dispatcher exists so the batch closure can
+	// reference dispatcher.Enqueue. omdbBudget may be nil (OMDb
+	// disabled) — closures stay nil and main.go skips Register.
+	if omdbBudget != nil {
+		omdbDailyBatch = func(ctx context.Context) {
+			if repos.LibraryWithIMDB == nil {
+				log.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
+				return
+			}
+			const batchLimit = 900
+			ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
+			ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, ttl, batchLimit)
+			if err != nil {
+				log.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
+					slog.String("error", err.Error()))
+				return
+			}
+			for _, id := range ids {
+				dispatcher.Enqueue(appenrich.EntityOMDb, id, appenrich.PriorityCold)
+			}
+			log.InfoContext(ctx, "enrichment.omdb.daily_batch.enqueued",
+				slog.Int("series_count", len(ids)),
+				slog.Int("quota_remaining", omdbBudget.Remaining()))
+		}
+		omdbBudgetReset = func(ctx context.Context) {
+			before := omdbBudget.Remaining()
+			omdbBudget.Reset()
+			log.InfoContext(ctx, "enrichment.omdb.budget.reset",
+				slog.Int("before", before),
+				slog.Int("after", omdbBudget.Remaining()))
+		}
+	}
 
 	nightly := func(ctx context.Context) {
 		now := time.Now().UTC()
@@ -190,9 +277,11 @@ func wireEnrichment(
 
 	dispatcher.Start(rootCtx)
 	return &EnrichmentBundle{
-		Dispatcher: dispatcher,
-		Nightly:    nightly,
-		ColdStart:  coldStart,
+		Dispatcher:      dispatcher,
+		Nightly:         nightly,
+		ColdStart:       coldStart,
+		OMDbDailyBatch:  omdbDailyBatch,
+		OMDbBudgetReset: omdbBudgetReset,
 	}, nil
 }
 
@@ -248,6 +337,56 @@ type enrichmentRepoBundle struct {
 	PersonBiographies appenrich.PersonBiographiesPort
 	PersonCredits     appenrich.PersonCreditsPort
 	ColdStartScanner  appenrich.ColdStartScanner
+	// 213: ListLibraryWithIMDBStale source for the OMDb daily batch.
+	// Production impl wraps *SeriesRepository. Nil-OK — when nil the
+	// OMDb daily-batch closure logs and short-circuits.
+	LibraryWithIMDB OMDbBatchScanner
+}
+
+// OMDbBatchScanner is the application-layer surface for the
+// "library series with imdb_id whose OMDb sync is stale" query.
+// Production impl wraps *SeriesRepository.
+type OMDbBatchScanner interface {
+	ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error)
+}
+
+// omdbClientHolder is the late-binding holder satisfying the
+// appenrich.OMDbWorker getter contract. It exists so the wiring
+// layer can swap the underlying *omdb.Client on a future S-2
+// reload subscriber without rebuilding the worker. Story 213 only
+// constructs the holder once at boot; the reload subscriber lands
+// in a follow-up.
+type omdbClientHolder struct {
+	inner *infraomdb.Client
+}
+
+func (h *omdbClientHolder) get() appenrich.OMDbClient {
+	if h == nil || h.inner == nil {
+		return nil
+	}
+	return h.inner
+}
+
+// set swaps the underlying client. Reserved for the future S-2 reload
+// subscriber per Story 213 §10 — not wired in this story.
+//
+//nolint:unused // wire-up lands with the OMDb reload subscriber follow-up
+func (h *omdbClientHolder) set(c *infraomdb.Client) { h.inner = c }
+
+// omdbBatchScannerAdapter wraps *SeriesRepository to satisfy
+// OMDbBatchScanner. Out-of-application boundary, no
+// imports of infrastructure/database from app.
+type omdbBatchScannerAdapter struct {
+	inner *repositories.SeriesRepository
+}
+
+// NewOMDbBatchScannerAdapter returns the wrapper for main.go's wiring.
+func NewOMDbBatchScannerAdapter(s *repositories.SeriesRepository) OMDbBatchScanner {
+	return omdbBatchScannerAdapter{inner: s}
+}
+
+func (a omdbBatchScannerAdapter) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
+	return a.inner.ListLibraryWithIMDBStale(ctx, ttl, limit)
 }
 
 // peopleRepoCombined is the intersection interface main.go's

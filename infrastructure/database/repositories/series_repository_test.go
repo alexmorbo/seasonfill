@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
 
 func sampleCanon(title string) series.Canon {
@@ -227,4 +230,175 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ids, 1, "different-source rows must not cover the join")
 	assert.Equal(t, idC, ids[0])
+}
+
+// seedSeriesCacheRow inserts a series_cache row pointing at seriesID.
+// Used by the OMDb library-filter tests to mark a series as "in the
+// library" (vs. a stub recommendation row).
+func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID int64, instance string, sonarrID int, deleted bool) {
+	t.Helper()
+	row := database.SeriesCacheModel{
+		InstanceName:   instance,
+		SonarrSeriesID: sonarrID,
+		SeriesID:       &seriesID,
+		TitleSlug:      "x",
+		UpdatedAt:      time.Now().UTC(),
+	}
+	if deleted {
+		d := time.Now().UTC()
+		row.DeletedAt = &d
+	}
+	require.NoError(t, db.Create(&row).Error)
+}
+
+// TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath — Story 213
+// acceptance criterion: stub series (no series_cache reference) and
+// terminal not_found rows are NEVER returned by the daily-batch scan.
+func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	syncLogRepo := NewSyncLogRepository(db)
+	ctx := context.Background()
+
+	// 3 library series (each with a series_cache row).
+	a := sampleCanon("A")
+	a.TMDBID = ptrInt(2001)
+	a.IMDBID = ptrString("tt0000001")
+	idA, err := repo.Upsert(ctx, a)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, idA, "main", 1, false)
+
+	b := sampleCanon("B")
+	b.TMDBID = ptrInt(2002)
+	b.IMDBID = ptrString("tt0000002")
+	idB, err := repo.Upsert(ctx, b)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, idB, "main", 2, false)
+
+	c := sampleCanon("C")
+	c.TMDBID = ptrInt(2003)
+	c.IMDBID = ptrString("tt0000003")
+	idC, err := repo.Upsert(ctx, c)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, idC, "main", 3, false)
+
+	// 1 stub series — has imdb_id but NO series_cache row.
+	stub := sampleCanon("Stub")
+	stub.TMDBID = ptrInt(2004)
+	stub.IMDBID = ptrString("tt0000004")
+	_, err = repo.Upsert(ctx, stub)
+	require.NoError(t, err)
+
+	// 1 series with terminal not_found sync_log.
+	d := sampleCanon("D")
+	d.TMDBID = ptrInt(2005)
+	d.IMDBID = ptrString("tt0000005")
+	idD, err := repo.Upsert(ctx, d)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, idD, "main", 5, false)
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   idD,
+		Source:     enrichment.SourceOMDb,
+		Outcome:    enrichment.OutcomeNotFound,
+	}))
+
+	ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+	require.NoError(t, err)
+	got := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		got[id] = true
+	}
+	assert.True(t, got[idA], "library series A returned")
+	assert.True(t, got[idB], "library series B returned")
+	assert.True(t, got[idC], "library series C returned")
+	assert.False(t, got[idD], "terminal not_found excluded")
+	assert.Equal(t, 3, len(ids), "stub series excluded; not_found excluded")
+}
+
+// TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered —
+// a series with outcome=ok + synced_at within TTL is excluded.
+func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	syncLogRepo := NewSyncLogRepository(db)
+	ctx := context.Background()
+
+	s := sampleCanon("Fresh")
+	s.TMDBID = ptrInt(3001)
+	s.IMDBID = ptrString("tt0000010")
+	id, err := repo.Upsert(ctx, s)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, id, "main", 10, false)
+
+	now := time.Now().UTC()
+	fresh := now.Add(-30 * time.Minute)
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   id,
+		Source:     enrichment.SourceOMDb,
+		Outcome:    enrichment.OutcomeOK,
+		SyncedAt:   &fresh,
+	}))
+
+	ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+	require.NoError(t, err)
+	assert.NotContains(t, ids, id, "fresh sync (within TTL) excluded")
+
+	// Now mark synced_at as 25h ago (past TTL) → series returns.
+	stale := now.Add(-25 * time.Hour)
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   id,
+		Source:     enrichment.SourceOMDb,
+		Outcome:    enrichment.OutcomeOK,
+		SyncedAt:   &stale,
+	}))
+	ids, err = repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+	require.NoError(t, err)
+	assert.Contains(t, ids, id, "stale sync past TTL returned")
+}
+
+// TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin —
+// directly verifies the SQL INNER JOIN excludes stubs at query level
+// (Critical Decision #2). A series with imdb_id but ZERO series_cache
+// rows is invisible to this query regardless of sync_log state.
+func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	stub := sampleCanon("Stub Only")
+	stub.TMDBID = ptrInt(4001)
+	stub.IMDBID = ptrString("tt0000020")
+	_, err := repo.Upsert(ctx, stub)
+	require.NoError(t, err)
+
+	ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+	require.NoError(t, err)
+	assert.Empty(t, ids, "stub series without series_cache row never appears")
+}
+
+// TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExcluded —
+// a series whose only series_cache row is soft-deleted is no longer
+// "in the library" (PRD §5.4 grain).
+func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExcluded(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	s := sampleCanon("Deleted")
+	s.TMDBID = ptrInt(5001)
+	s.IMDBID = ptrString("tt0000030")
+	id, err := repo.Upsert(ctx, s)
+	require.NoError(t, err)
+	seedSeriesCacheRow(t, db, id, "main", 30, true) // deleted_at set
+
+	ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+	require.NoError(t, err)
+	assert.NotContains(t, ids, id)
 }
