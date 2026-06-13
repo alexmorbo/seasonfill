@@ -86,5 +86,33 @@ func (r *TorrentSeriesMapRepository) upsert(ctx context.Context, row torrentsync
 	return nil
 }
 
+// HashesForSeries is the story 222 read-side accessor — returns
+// every torrent_hash mapped to (instance, sonarr_series_id)
+// regardless of source. Empty result on no rows. Implements
+// application/torrentsync.LookupRepo.
+func (r *TorrentSeriesMapRepository) HashesForSeries(ctx context.Context, instance string, sonarrSeriesID int) ([]string, error) {
+	var rows []database.TorrentSeriesMapModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("torrent_hash").
+		Where("instance_name = ? AND series_id = ?", instance, sonarrSeriesID).
+		Find(&rows).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("hashes for series: %w", err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, m := range rows {
+		if m.TorrentHash != "" {
+			out = append(out, m.TorrentHash)
+		}
+	}
+	return out, nil
+}
+
 // Compile-time port check.
 var _ torrentsync.MapRepo = (*TorrentSeriesMapRepository)(nil)
+
+// Compile-time check for the read surface added in story 222.
+var _ torrentsync.LookupRepo = (*TorrentSeriesMapRepository)(nil)

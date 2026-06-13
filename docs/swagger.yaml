@@ -2242,6 +2242,60 @@ components:
           example: 142
           type: integer
       type: object
+    dto.SeriesTorrentsResponse:
+      properties:
+        instance:
+          description: Instance is the Sonarr instance the request hit.
+          example: alpha
+          type: string
+        live_count:
+          description: |-
+            LiveCount is the number of rows where live=true. UI uses
+            it to decide whether the "stale fallback" banner shows.
+          example: 3
+          type: integer
+        series_id:
+          description: |-
+            SeriesID is the resolved canonical series.id, echoed for
+            parity with the composite series-detail document.
+          example: 42
+          type: integer
+        sonarr_series_id:
+          description: |-
+            SonarrSeriesID echoes the URL parameter for clients that
+            disambiguate cross-instance state.
+          example: 123
+          type: integer
+        sync_age_seconds:
+          description: |-
+            SyncAgeSeconds is `now - synced_at` rounded to seconds at
+            the moment of composition. Always 0 in steady state;
+            non-zero only in tests that pin the clock.
+          example: 0
+          type: integer
+        synced_at:
+          description: |-
+            SyncedAt is the server-side wall-clock at which the
+            response was composed. The frontend feeds it into the
+            "synced Xs ago" microcopy.
+          type: string
+        torrents:
+          description: |-
+            Torrents is the merged list of live + DB-fallback rows,
+            sorted by added_on DESC with synced_at DESC as tiebreaker.
+            Always present (empty slice when no torrents map to the
+            series — UI treats empty as "no torrents yet").
+          items:
+            $ref: '#/components/schemas/dto.TorrentRow'
+          type: array
+          uniqueItems: false
+        total_count:
+          description: |-
+            TotalCount is len(Torrents). Echoed so naive clients
+            can show the row count without iterating.
+          example: 4
+          type: integer
+      type: object
     dto.SessionResponse:
       properties:
         auto_generated:
@@ -2278,6 +2332,132 @@ components:
         name:
           example: Drama
           type: string
+      type: object
+    dto.TorrentRow:
+      properties:
+        added_on:
+          description: |-
+            AddedOn / CompletionOn — lifecycle timestamps. AddedOn
+            drives the default sort.
+          type: string
+        category:
+          description: |-
+            Category, Tags, TrackerHost, SavePath, ContentPath —
+            optional descriptors carried verbatim from qBit / DB.
+          type: string
+        completion_on:
+          type: string
+        content_path:
+          type: string
+        dl_speed_bps:
+          description: |-
+            Live cells — ZERO when Live=false (PRD §4.6: live
+            telemetry is NOT persisted, so the DB fallback rows
+            cannot carry it).
+          example: 0
+          type: integer
+        downloaded_bytes:
+          example: 4294967296
+          type: integer
+        eta_seconds:
+          example: 0
+          type: integer
+        hash:
+          description: |-
+            Hash is the normalised v1 infohash (lowercase hex). PK
+            for the row in the store and in qbit_torrents.
+          example: abcdef1234567890abcdef1234567890abcdef12
+          type: string
+        last_activity:
+          type: string
+        live:
+          description: |-
+            Live discriminator. true → pulled from the in-memory
+            store on the latest Refresh; false → pulled from the
+            qbit_torrents persistence table because the hash is not
+            (currently) in the store.
+          example: true
+          type: boolean
+        name:
+          description: |-
+            Name is the qBit-reported torrent name (release filename
+            in most cases).
+          type: string
+        num_leechs:
+          example: 3
+          type: integer
+        num_seeds:
+          example: 12
+          type: integer
+        popularity:
+          example: 1.2
+          type: number
+        present:
+          description: |-
+            Present mirrors the persistence column. true → row is
+            still in qBit OR was just synced; false → row was marked
+            absent on a previous tick (DB-only deleted-but-known).
+          example: true
+          type: boolean
+        progress:
+          example: 1
+          type: number
+        ratio:
+          description: |-
+            Ratio / Popularity / TimeActive / SeedingTime /
+            LastActivity — seeding counters; persisted columns. Are
+            non-zero on both live and DB-fallback rows.
+          example: 2.5
+          type: number
+        save_path:
+          type: string
+        seeding_time_seconds:
+          example: 3600
+          type: integer
+        size_bytes:
+          description: |-
+            SizeBytes / TotalSize / Downloaded / Uploaded — volume
+            counters. SizeBytes is the SELECTED file subset, TotalSize
+            the full archive (qBit semantics).
+          example: 4294967296
+          type: integer
+        state_group:
+          description: |-
+            StateGroup is the 8-bucket projection — UI chip colour.
+            One of: downloading, seeding, stalled, queued, paused,
+            checking, error, unknown.
+          example: seeding
+          type: string
+        state_raw:
+          description: |-
+            StateRaw is the verbatim qBit state token (22 values —
+            see PRD §4.3); UI tooltip uses this.
+          example: uploading
+          type: string
+        synced_at:
+          description: |-
+            SyncedAt is the wall-clock of the Refresh that produced
+            this row (for live=true) or the last persisted update
+            (for live=false). Echoed per-row so clients that show
+            per-row freshness do not need to derive it.
+          type: string
+        tags:
+          type: string
+        time_active_seconds:
+          example: 7200
+          type: integer
+        total_size_bytes:
+          example: 4294967296
+          type: integer
+        tracker_host:
+          example: tracker.example.com
+          type: string
+        up_speed_bps:
+          example: 4194304
+          type: integer
+        uploaded_bytes:
+          example: 8589934592
+          type: integer
       type: object
     dto.TorrentsHint:
       description: |-
@@ -4502,6 +4682,74 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: List episodes of one season with on-disk state
+      tags:
+      - instances
+  /instances/{name}/series/{id}/torrents:
+    get:
+      description: |-
+        Returns the merged torrent inventory for a single
+        series — live data from the in-memory torrentsync
+        store overlaid with a durable qbit_torrents
+        fallback for hashes that have disappeared from
+        qBit (e.g. deleted, qBit unreachable). Each row
+        carries the full qBit column set plus a `live`
+        discriminator the UI uses to grey out live cells
+        on DB-only rows. Default sort is `added_on DESC`.
+
+        The endpoint short-circuits via `If-None-Match`:
+        ETag is `sha256(synced_at_unix + len(torrents))`
+        rendered as a quoted hex string. Granularity is
+        per-second — enough for the SPA's 3-second poll.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series id (per-instance)
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesTorrentsResponse'
+          description: OK
+        "304":
+          description: not modified — If-None-Match matched the current ETag
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Per-series torrent inventory
       tags:
       - instances
   /instances/{name}/watchdog/blacklist:

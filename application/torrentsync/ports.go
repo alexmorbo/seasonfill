@@ -46,6 +46,26 @@ type TorrentsRepo interface {
 	// live fields (DlSpeed/UpSpeed/ETA/NumSeeds/NumLeechs/
 	// Progress) are zero — never persisted in the first place.
 	List(ctx context.Context, instance string) ([]Entry, error)
+
+	// FindByHashes returns one Entry per matching
+	// (instance, hash) tuple — including rows with present=false
+	// (DB-only deleted-but-known). Added in story 222 for the
+	// read endpoint's DB fallback path. Empty input returns
+	// nil, nil (no round-trip). Live fields on the returned
+	// Entries are zero; the schema does not persist them.
+	FindByHashes(ctx context.Context, instance string, hashes []string) ([]Entry, error)
+}
+
+// LookupRepo is the narrow read-only surface story 222 exercises
+// against torrent_series_map. Story 221 (A-3) writes the rows;
+// story 222 reads them to discover hashes that ever mapped to a
+// series (even those evicted from the in-memory store between
+// pod restarts).
+//
+// Implemented in production by
+// repositories.TorrentSeriesMapRepository.HashesForSeries.
+type LookupRepo interface {
+	HashesForSeries(ctx context.Context, instance string, sonarrSeriesID int) ([]string, error)
 }
 
 // EventsRepo is the append-only surface for state-transition and

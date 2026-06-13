@@ -29,5 +29,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (215 G-1) + seriesCastHandler (216 H-1)
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
+		nil, // seriesTorrentsHandler (Story 222 A-4)
 		logger)
 }

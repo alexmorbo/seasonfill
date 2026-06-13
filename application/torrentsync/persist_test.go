@@ -60,6 +60,14 @@ func (f *fakeTorrentsRepo) List(_ context.Context, _ string) ([]Entry, error) {
 	return f.listResp, f.listErr
 }
 
+// FindByHashes — story 222 surface. The persist suite does not
+// exercise this path; default to nil to keep the stub minimal.
+// Tests that need it (query_test.go) embed fakeTorrentsRepo and
+// override the method.
+func (f *fakeTorrentsRepo) FindByHashes(_ context.Context, _ string, _ []string) ([]Entry, error) {
+	return nil, nil
+}
+
 type fakeEventsRepo struct {
 	mu     sync.Mutex
 	events []EventRow

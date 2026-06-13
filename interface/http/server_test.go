@@ -262,6 +262,7 @@ func buildServer(t *testing.T) *Server {
 		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
+		nil, // seriesTorrentsHandler (Story 222 A-4)
 		lg)
 }
 
@@ -319,6 +320,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
+		nil, // seriesTorrentsHandler (Story 222 A-4)
 		lg)
 }
 
@@ -490,6 +492,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
+		nil, // seriesTorrentsHandler (Story 222 A-4)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

@@ -2639,6 +2639,105 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}/torrents": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Per-series torrent inventory
+         * @description Returns the merged torrent inventory for a single
+         *     series — live data from the in-memory torrentsync
+         *     store overlaid with a durable qbit_torrents
+         *     fallback for hashes that have disappeared from
+         *     qBit (e.g. deleted, qBit unreachable). Each row
+         *     carries the full qBit column set plus a `live`
+         *     discriminator the UI uses to grey out live cells
+         *     on DB-only rows. Default sort is `added_on DESC`.
+         *
+         *     The endpoint short-circuits via `If-None-Match`:
+         *     ETag is `sha256(synced_at_unix + len(torrents))`
+         *     rendered as a quoted hex string. Granularity is
+         *     per-second — enough for the SPA's 3-second poll.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series id (per-instance) */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesTorrentsResponse"];
+                    };
+                };
+                /** @description not modified — If-None-Match matched the current ETag */
+                readonly 304: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/watchdog/blacklist": {
         readonly parameters: {
             readonly query?: never;
@@ -5278,6 +5377,57 @@ export type components = {
             /** @example 142 */
             readonly total?: number;
         };
+        readonly "dto.SeriesTorrentsResponse": {
+            /**
+             * @description Instance is the Sonarr instance the request hit.
+             * @example alpha
+             */
+            readonly instance?: string;
+            /**
+             * @description LiveCount is the number of rows where live=true. UI uses
+             *     it to decide whether the "stale fallback" banner shows.
+             * @example 3
+             */
+            readonly live_count?: number;
+            /**
+             * @description SeriesID is the resolved canonical series.id, echoed for
+             *     parity with the composite series-detail document.
+             * @example 42
+             */
+            readonly series_id?: number;
+            /**
+             * @description SonarrSeriesID echoes the URL parameter for clients that
+             *     disambiguate cross-instance state.
+             * @example 123
+             */
+            readonly sonarr_series_id?: number;
+            /**
+             * @description SyncAgeSeconds is `now - synced_at` rounded to seconds at
+             *     the moment of composition. Always 0 in steady state;
+             *     non-zero only in tests that pin the clock.
+             * @example 0
+             */
+            readonly sync_age_seconds?: number;
+            /**
+             * @description SyncedAt is the server-side wall-clock at which the
+             *     response was composed. The frontend feeds it into the
+             *     "synced Xs ago" microcopy.
+             */
+            readonly synced_at?: string;
+            /**
+             * @description Torrents is the merged list of live + DB-fallback rows,
+             *     sorted by added_on DESC with synced_at DESC as tiebreaker.
+             *     Always present (empty slice when no torrents map to the
+             *     series — UI treats empty as "no torrents yet").
+             */
+            readonly torrents?: readonly components["schemas"]["dto.TorrentRow"][];
+            /**
+             * @description TotalCount is len(Torrents). Echoed so naive clients
+             *     can show the row count without iterating.
+             * @example 4
+             */
+            readonly total_count?: number;
+        };
         readonly "dto.SessionResponse": {
             /** @example false */
             readonly auto_generated?: boolean;
@@ -5304,6 +5454,114 @@ export type components = {
             readonly language?: string;
             /** @example Drama */
             readonly name?: string;
+        };
+        readonly "dto.TorrentRow": {
+            /**
+             * @description AddedOn / CompletionOn — lifecycle timestamps. AddedOn
+             *     drives the default sort.
+             */
+            readonly added_on?: string;
+            /**
+             * @description Category, Tags, TrackerHost, SavePath, ContentPath —
+             *     optional descriptors carried verbatim from qBit / DB.
+             */
+            readonly category?: string;
+            readonly completion_on?: string;
+            readonly content_path?: string;
+            /**
+             * @description Live cells — ZERO when Live=false (PRD §4.6: live
+             *     telemetry is NOT persisted, so the DB fallback rows
+             *     cannot carry it).
+             * @example 0
+             */
+            readonly dl_speed_bps?: number;
+            /** @example 4294967296 */
+            readonly downloaded_bytes?: number;
+            /** @example 0 */
+            readonly eta_seconds?: number;
+            /**
+             * @description Hash is the normalised v1 infohash (lowercase hex). PK
+             *     for the row in the store and in qbit_torrents.
+             * @example abcdef1234567890abcdef1234567890abcdef12
+             */
+            readonly hash?: string;
+            readonly last_activity?: string;
+            /**
+             * @description Live discriminator. true → pulled from the in-memory
+             *     store on the latest Refresh; false → pulled from the
+             *     qbit_torrents persistence table because the hash is not
+             *     (currently) in the store.
+             * @example true
+             */
+            readonly live?: boolean;
+            /**
+             * @description Name is the qBit-reported torrent name (release filename
+             *     in most cases).
+             */
+            readonly name?: string;
+            /** @example 3 */
+            readonly num_leechs?: number;
+            /** @example 12 */
+            readonly num_seeds?: number;
+            /** @example 1.2 */
+            readonly popularity?: number;
+            /**
+             * @description Present mirrors the persistence column. true → row is
+             *     still in qBit OR was just synced; false → row was marked
+             *     absent on a previous tick (DB-only deleted-but-known).
+             * @example true
+             */
+            readonly present?: boolean;
+            /** @example 1 */
+            readonly progress?: number;
+            /**
+             * @description Ratio / Popularity / TimeActive / SeedingTime /
+             *     LastActivity — seeding counters; persisted columns. Are
+             *     non-zero on both live and DB-fallback rows.
+             * @example 2.5
+             */
+            readonly ratio?: number;
+            readonly save_path?: string;
+            /** @example 3600 */
+            readonly seeding_time_seconds?: number;
+            /**
+             * @description SizeBytes / TotalSize / Downloaded / Uploaded — volume
+             *     counters. SizeBytes is the SELECTED file subset, TotalSize
+             *     the full archive (qBit semantics).
+             * @example 4294967296
+             */
+            readonly size_bytes?: number;
+            /**
+             * @description StateGroup is the 8-bucket projection — UI chip colour.
+             *     One of: downloading, seeding, stalled, queued, paused,
+             *     checking, error, unknown.
+             * @example seeding
+             */
+            readonly state_group?: string;
+            /**
+             * @description StateRaw is the verbatim qBit state token (22 values —
+             *     see PRD §4.3); UI tooltip uses this.
+             * @example uploading
+             */
+            readonly state_raw?: string;
+            /**
+             * @description SyncedAt is the wall-clock of the Refresh that produced
+             *     this row (for live=true) or the last persisted update
+             *     (for live=false). Echoed per-row so clients that show
+             *     per-row freshness do not need to derive it.
+             */
+            readonly synced_at?: string;
+            readonly tags?: string;
+            /** @example 7200 */
+            readonly time_active_seconds?: number;
+            /** @example 4294967296 */
+            readonly total_size_bytes?: number;
+            /** @example tracker.example.com */
+            readonly tracker_host?: string;
+            /** @example 4194304 */
+            readonly up_speed_bps?: number;
+            /** @example 8589934592 */
+            readonly uploaded_bytes?: number;
         };
         /**
          * @description Torrents is the torrent inventory section (design brief §4).

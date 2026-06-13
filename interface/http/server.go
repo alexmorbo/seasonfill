@@ -68,6 +68,7 @@ func NewServer(
 	seriesCastHandler *handlers.SeriesCastHandler,
 	peopleHandler *handlers.PeopleHandler,
 	seriesRefreshHandler *handlers.SeriesRefreshHandler,
+	seriesTorrentsHandler *handlers.SeriesTorrentsHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -189,6 +190,11 @@ func NewServer(
 		// series detail handler pattern.
 		if seriesCastHandler != nil {
 			guarded.GET("/instances/:name/series/:id/cast", seriesCastHandler.Get)
+		}
+		// Story 222 (A-4) — per-series torrents endpoint. Nil-OK
+		// mirrors the cast handler pattern.
+		if seriesTorrentsHandler != nil {
+			guarded.GET("/instances/:name/series/:id/torrents", seriesTorrentsHandler.Get)
 		}
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches

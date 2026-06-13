@@ -132,6 +132,36 @@ func (r *QbitTorrentsRepository) List(ctx context.Context, instance string) ([]t
 	return out, nil
 }
 
+// FindByHashes returns the qbit_torrents rows matching every
+// (instance, hash) tuple in `hashes`. Unlike List it includes
+// present=false rows — the read endpoint (story 222) MUST
+// surface deleted-but-known torrents so the UI can render
+// historical inventory when qBit is unreachable.
+//
+// Empty input returns nil, nil (no round-trip). The returned
+// Entry's live fields are zero by construction — the schema
+// does not persist them.
+func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance string, hashes []string) ([]torrentsync.Entry, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	var models []database.QbitTorrentModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("instance_name = ? AND hash IN ?", instance, hashes).
+		Find(&models).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find qbit_torrents by hashes: %w", err)
+	}
+	out := make([]torrentsync.Entry, 0, len(models))
+	for _, m := range models {
+		out = append(out, entryFromModel(m))
+	}
+	return out, nil
+}
+
 // modelFromEntry projects a torrentsync.Entry into the GORM
 // model. Live fields are NOT carried over — they have no column.
 func modelFromEntry(instance string, e torrentsync.Entry, updatedAt time.Time) database.QbitTorrentModel {

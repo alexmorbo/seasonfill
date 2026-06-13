@@ -148,6 +148,41 @@ func TestTorrentSeriesMapRepository_CrossInstanceIsolation(t *testing.T) {
 	assert.Equal(t, int64(2), count)
 }
 
+func TestTorrentSeriesMapRepository_HashesForSeries(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	r := NewTorrentSeriesMapRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, r.Upsert(ctx, torrentsync.MapRow{
+		Instance: "alpha", Hash: "aaaa", SeriesID: 42,
+		Source: torrentsync.MapSourceWebhook,
+	}))
+	require.NoError(t, r.Upsert(ctx, torrentsync.MapRow{
+		Instance: "alpha", Hash: "bbbb", SeriesID: 42,
+		Source: torrentsync.MapSourceQueue,
+	}))
+	require.NoError(t, r.Upsert(ctx, torrentsync.MapRow{
+		Instance: "alpha", Hash: "cccc", SeriesID: 99,
+		Source: torrentsync.MapSourceHistory,
+	}))
+
+	got, err := r.HashesForSeries(ctx, "alpha", 42)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"aaaa", "bbbb"}, got)
+}
+
+func TestTorrentSeriesMapRepository_HashesForSeries_Empty(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	r := NewTorrentSeriesMapRepository(db)
+	ctx := context.Background()
+
+	got, err := r.HashesForSeries(ctx, "alpha", 1234)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 func TestGrabRepository_FindSeriesByTorrentHashes(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

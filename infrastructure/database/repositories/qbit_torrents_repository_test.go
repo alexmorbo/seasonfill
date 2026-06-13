@@ -63,3 +63,34 @@ func TestQbitTorrentsRepository_BatchUpsertSingleTx(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, rows, 3)
 }
+
+func TestQbitTorrentsRepository_FindByHashes(t *testing.T) {
+	db := setupTestDB(t)
+	r := NewQbitTorrentsRepository(db)
+	ctx := context.Background()
+
+	// Seed three rows — two stay present, one marked absent.
+	for _, e := range []torrentsync.Entry{
+		mkEntry("aaaa", "a", qbit.StateGroupSeeding),
+		mkEntry("bbbb", "b", qbit.StateGroupSeeding),
+		mkEntry("cccc", "c", qbit.StateGroupSeeding),
+	} {
+		require.NoError(t, r.Upsert(ctx, "alpha", e))
+	}
+	require.NoError(t, r.MarkAbsent(ctx, "alpha", "cccc", time.Now().UTC()))
+
+	// FindByHashes must surface present=false rows too — that is
+	// the point of the story 222 read fallback.
+	got, err := r.FindByHashes(ctx, "alpha", []string{"aaaa", "bbbb", "cccc", "zzzz"})
+	require.NoError(t, err)
+	require.Len(t, got, 3, "absent row must still be returned by FindByHashes")
+}
+
+func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
+	db := setupTestDB(t)
+	r := NewQbitTorrentsRepository(db)
+	ctx := context.Background()
+	got, err := r.FindByHashes(ctx, "alpha", nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

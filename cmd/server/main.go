@@ -702,6 +702,17 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 	seriesRefreshHandler := handlers.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
+	// Story 222 (A-4) — per-series torrents endpoint. Reuses the
+	// torrentsync store + qbit_torrents repo wired by 220/221.
+	// torrentSeriesMapRepo is already constructed for the
+	// reconciler in 221; we pass the same value as LookupRepo.
+	torrentsyncQuery := torrentsync.NewQuery(
+		torrentsyncStore, qbitTorrentsRepo, torrentSeriesMapRepo,
+	)
+	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(
+		torrentsyncQuery, seriesCacheRepo, sdSeriesRepo, log,
+	)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -713,7 +724,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
 		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler,
-		peopleHandler, seriesRefreshHandler, log)
+		peopleHandler, seriesRefreshHandler,
+		seriesTorrentsHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
