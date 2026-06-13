@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -59,6 +60,13 @@ type UseCase struct {
 	// the SeriesDelete cascade only soft-deletes the cache row (pre-E-2
 	// behaviour preserved). Production wiring passes the live repo.
 	episodeStates scan.EpisodeStatesSoftDeleter
+	// torrentSeriesMap is the narrow port the reconciler also writes
+	// through. Webhook captures invoke UpsertTx inside the same tx as
+	// the grab_records.torrent_hash update so a rollback of either
+	// rolls both back. Nil-OK — pre-Story-221 wiring runs unchanged
+	// (the map row is then populated later by the reconciler's
+	// grab_record source).
+	torrentSeriesMap torrentsync.MapRepo
 }
 
 // Deps groups constructor parameters.
@@ -81,6 +89,11 @@ type Deps struct {
 	SeriesSyncer SeriesSyncer
 	// EpisodeStates is the E-2 SeriesDelete cascade hook. Nil-OK.
 	EpisodeStates scan.EpisodeStatesSoftDeleter
+	// TorrentSeriesMap is the torrentsync bridge port — webhook
+	// grab captures invoke UpsertTx in the same tx as
+	// UpdateTorrentHash so a rollback of either rolls both back.
+	// Nil-OK: pre-Story-221 wiring runs unchanged.
+	TorrentSeriesMap torrentsync.MapRepo
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
@@ -115,6 +128,7 @@ func New(d Deps) *UseCase {
 		instanceFor:        instFor,
 		seriesSyncer:       d.SeriesSyncer,
 		episodeStates:      d.EpisodeStates,
+		torrentSeriesMap:   d.TorrentSeriesMap,
 	}
 }
 
@@ -317,19 +331,51 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 			u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
 				slog.String("instance", evt.InstanceName),
 				slog.String("grab_id", rec.ID.String()))
-		} else if err := u.grabs.UpdateTorrentHash(ctx, rec.ID, *parsed); err != nil {
-			if errors.Is(err, ports.ErrNotFound) {
-				u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
-					slog.String("instance", evt.InstanceName),
-					slog.String("grab_id", rec.ID.String()))
+		} else {
+			hash := strings.ToLower(*parsed)
+			work := func(txCtx context.Context) error {
+				if err := u.grabs.UpdateTorrentHash(txCtx, rec.ID, hash); err != nil {
+					return fmt.Errorf("update torrent_hash: %w", err)
+				}
+				if u.torrentSeriesMap != nil && rec.SeriesID > 0 {
+					row := torrentsync.MapRow{
+						Instance:     evt.InstanceName,
+						Hash:         hash,
+						SeriesID:     rec.SeriesID,
+						SeasonNumber: rec.SeasonNumber,
+						Source:       torrentsync.MapSourceWebhook,
+						CreatedAt:    u.now(),
+					}
+					if err := u.torrentSeriesMap.UpsertTx(txCtx, row); err != nil {
+						return fmt.Errorf("upsert torrent_series_map (webhook): %w", err)
+					}
+				}
 				return nil
 			}
-			return fmt.Errorf("update torrent_hash: %w: %w", ports.ErrDBUnavailable, err)
-		} else {
+			var txErr error
+			if u.tx != nil {
+				txErr = u.tx.Transaction(ctx, work)
+			} else {
+				txErr = work(ctx)
+			}
+			if txErr != nil {
+				if errors.Is(txErr, ports.ErrNotFound) {
+					u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
+						slog.String("instance", evt.InstanceName),
+						slog.String("grab_id", rec.ID.String()))
+					return nil
+				}
+				return fmt.Errorf("webhook grab hash+map: %w: %w", ports.ErrDBUnavailable, txErr)
+			}
 			u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
 				slog.String("instance", evt.InstanceName),
 				slog.String("grab_id", rec.ID.String()),
-				slog.String("download_id", evt.DownloadID))
+				slog.String("download_id", evt.DownloadID),
+				slog.String("hash", hash),
+				slog.Int("series_id", rec.SeriesID),
+				slog.Int("season_number", rec.SeasonNumber),
+				slog.String("source", string(torrentsync.MapSourceWebhook)),
+			)
 		}
 	}
 

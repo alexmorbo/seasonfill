@@ -312,12 +312,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// episode_states under the deleted series. Repo is constructed
 	// here so the cascade port is wired at boot.
 	webhookEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
+	// 221 (A-3) — torrent_series_map repo wired here so the webhook
+	// path can write the bridge row in the same tx as the
+	// grab_records.torrent_hash update. Repo also feeds the
+	// torrentsync reconciler constructed below.
+	torrentSeriesMapRepo := repositories.NewTorrentSeriesMapRepository(db)
 	webhookUC := webhookuc.New(webhookuc.Deps{
-		Grabs:         grabRepo,
-		Cooldowns:     cooldownRepo,
-		SeriesCache:   seriesCacheRepo,
-		Tx:            txr,
-		EpisodeStates: webhookEpisodeStatesRepo,
+		Grabs:            grabRepo,
+		Cooldowns:        cooldownRepo,
+		SeriesCache:      seriesCacheRepo,
+		Tx:               txr,
+		EpisodeStates:    webhookEpisodeStatesRepo,
+		TorrentSeriesMap: torrentSeriesMapRepo,
 		GUIDCooldownLookup: func(name string) time.Duration {
 			inst, ok := holder.load()[name]
 			if !ok {
@@ -422,10 +428,37 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		factory: infraregrab.QbitClientFactoryFunc{},
 		lookup:  qbitSettingsUC,
 	}
+	// 221 (A-3) — reconciler (torrentSeriesMapRepo already
+	// constructed above for the webhook same-tx write).
+	// sonarrFor wires the per-instance Sonarr client lookup the
+	// reconciler needs for sources 3 + 4. Production wiring reuses
+	// the instance holder; the concrete *sonarr.Client satisfies
+	// torrentsync.SonarrReconciler (its QueueAll + GrabHistoryPaged
+	// are exactly the two methods in the port).
+	sonarrFor := func(instance string) (torrentsync.SonarrReconciler, bool) {
+		h := holder.load()
+		inst, ok := h[instance]
+		if !ok || inst.Client == nil {
+			return nil, false
+		}
+		client, ok := inst.Client.(*sonarr.Client)
+		if !ok {
+			return nil, false
+		}
+		return client, true
+	}
+	reconciler := torrentsync.NewReconciler(
+		torrentsyncStore,
+		torrentSeriesMapRepo,
+		grabRepo,
+		sonarrFor,
+		observability.TorrentsyncMetricsAdapter{},
+		log,
+	)
 	torrentsyncUC := torrentsync.NewUseCase(
 		torrentsyncStore, torrentsyncPolicy,
 		torrentsyncFactory, qbitTorrentsRepo, log,
-	)
+	).WithReconciler(reconciler)
 	torrentsyncLoopVal := newTorrentsyncLoop(
 		productionTorrentsyncRunner{uc: torrentsyncUC, logger: log},
 		&bgWG, log,

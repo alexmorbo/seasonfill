@@ -8,8 +8,10 @@ package sonarr
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -231,6 +233,117 @@ func (c *Client) ListEpisodeFilesForSync(ctx context.Context, seriesID int) ([]E
 	out := make([]EpisodeFilePayload, 0, len(dtos))
 	for _, d := range dtos {
 		out = append(out, episodeFilePayloadFromDTO(d))
+	}
+	return out, nil
+}
+
+// QueueAll calls GET /api/v3/queue without a seriesId filter. The
+// torrentsync reconciler (PRD §4.5 source 3) does ONE upstream call
+// per tick and matches against the in-memory unmapped-hashes set
+// locally; per-series fan-out would multiply API load by the number
+// of unmapped series and starve the global rate limiter.
+//
+// pageSize=1000 is Sonarr's effective ceiling — production fleets
+// never have more than a few hundred active downloads at once.
+func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
+	q := url.Values{}
+	q.Set("includeSeries", "false")
+	q.Set("includeEpisode", "false")
+	q.Set("pageSize", "1000")
+	var dto queueDTO
+	if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
+		return QueuePayload{}, fmt.Errorf("queue all: %w", err)
+	}
+	out := QueuePayload{
+		TotalRecords: dto.TotalRecords,
+		Records:      make([]QueueRecord, 0, len(dto.Records)),
+	}
+	for _, r := range dto.Records {
+		out.Records = append(out.Records, QueueRecord{
+			ID:           r.ID,
+			SeriesID:     r.SeriesID,
+			EpisodeID:    r.EpisodeID,
+			SeasonNumber: r.SeasonNumber,
+			Title:        r.Title,
+			Status:       r.Status,
+			DownloadID:   r.DownloadID,
+			Protocol:     r.Protocol,
+		})
+	}
+	return out, nil
+}
+
+// HistoryPage is one page of paginated grab history. The reconciler
+// (PRD §4.5 source 4) walks pages oldest-cursor-first until either
+// the per-tick cap (10) is hit or Sonarr returns fewer than pageSize
+// records — the latter signals end-of-data and resets the cursor.
+type HistoryPage struct {
+	Page         int
+	PageSize     int
+	TotalRecords int
+	Records      []HistoryGrab
+}
+
+// HistoryGrab is the per-record projection the reconciler reads.
+// Kept distinct from ports.HistoryEvent (which feeds the regrab
+// audit path) because the reconciler needs `DownloadID` and
+// nothing else — bringing GUID/indexer along would force ports/sonarr
+// to grow a hash field it does not need.
+type HistoryGrab struct {
+	DownloadID   string
+	SeriesID     int
+	SeasonNumber int
+}
+
+// GrabHistoryPaged returns one page of /api/v3/history?eventType=1
+// for ALL series. Used by the torrentsync reconciler — the per-
+// series GrabHistory is kept intact for Story 210's regrab audit.
+//
+// page is 1-indexed (Sonarr convention). pageSize MUST be the same
+// across reconciler calls — otherwise the cursor walks the wrong
+// offsets. The reconciler uses 50 (Sonarr's default).
+func (c *Client) GrabHistoryPaged(ctx context.Context, page, pageSize int) (HistoryPage, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	q := url.Values{}
+	q.Set("eventType", "1")
+	q.Set("page", strconv.Itoa(page))
+	q.Set("pageSize", strconv.Itoa(pageSize))
+	q.Set("sortKey", "date")
+	q.Set("sortDirection", "descending")
+	var resp historyPagedResponse
+	if err := c.get(ctx, "/api/v3/history", q, &resp); err != nil {
+		return HistoryPage{}, fmt.Errorf("history page %d: %w", page, err)
+	}
+	out := HistoryPage{
+		Page:         resp.Page,
+		PageSize:     resp.PageSize,
+		TotalRecords: resp.TotalRecords,
+		Records:      make([]HistoryGrab, 0, len(resp.Records)),
+	}
+	for _, r := range resp.Records {
+		if r.DownloadID == "" {
+			// Usenet grabs have no torrent hash; the reconciler
+			// only maps torrents. Skip silently.
+			continue
+		}
+		series := 0
+		if r.SeriesID != 0 {
+			series = r.SeriesID
+		}
+		season := 0
+		if r.Episode != nil {
+			season = r.Episode.SeasonNumber
+		}
+		out.Records = append(out.Records, HistoryGrab{
+			DownloadID:   strings.ToLower(r.DownloadID),
+			SeriesID:     series,
+			SeasonNumber: season,
+		})
 	}
 	return out, nil
 }

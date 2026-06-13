@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
@@ -641,5 +642,44 @@ func nilIfZeroInt(n int) any {
 	return n
 }
 
+// FindSeriesByTorrentHashes is the reconciler's source-2 batch
+// lookup (PRD §4.5). Returns one GrabHashRow per matching
+// (instance_name, torrent_hash) — the same hash on a different
+// instance is intentionally separate. Empty input returns nil, nil
+// (no DB round-trip).
+//
+// Excludes status='grab_failed' rows because those carry the
+// hash from a failed grab attempt; they don't correspond to a
+// torrent the qBit instance actually holds, and using them would
+// race the reconciler against the (much later) successful grab
+// for the same release.
+func (r *GrabRepository) FindSeriesByTorrentHashes(ctx context.Context, instance string, hashes []string) ([]torrentsync.GrabHashRow, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	var models []database.GrabRecordModel
+	err := db.Model(&database.GrabRecordModel{}).
+		Select("id", "instance_name", "series_id", "season_number", "torrent_hash", "status").
+		Where("instance_name = ? AND torrent_hash IN ? AND status <> ?", instance, hashes, string(grab.StatusGrabFailed)).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("find grab records by hashes: %w", err)
+	}
+	out := make([]torrentsync.GrabHashRow, 0, len(models))
+	for _, m := range models {
+		if m.TorrentHash == nil || *m.TorrentHash == "" {
+			continue
+		}
+		out = append(out, torrentsync.GrabHashRow{
+			Hash:         *m.TorrentHash,
+			SeriesID:     m.SeriesID,
+			SeasonNumber: m.SeasonNumber,
+		})
+	}
+	return out, nil
+}
+
 // Ensure interface compliance at compile time.
 var _ ports.GrabRepository = (*GrabRepository)(nil)
+var _ torrentsync.GrabHashLookup = (*GrabRepository)(nil)

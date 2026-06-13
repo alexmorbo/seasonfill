@@ -38,6 +38,10 @@ type UseCase struct {
 	// memory store populated from `qbit_torrents`. Restart
 	// recovery runs exactly once per instance lifetime.
 	hydrated map[string]bool
+	// reconciler runs the 4-source torrent->series mapping pass
+	// every 10th tick (PRD §4.5). Nil-OK: pre-Story-221 wiring
+	// runs the qBit refresh without the bridge.
+	reconciler *Reconciler
 }
 
 // NewUseCase wires the dependencies. Construction never touches
@@ -57,6 +61,16 @@ func NewUseCase(store *Store, policy *PersistPolicy, sessions SyncSessionFactory
 		pending:           make(map[string]map[string]Entry),
 		hydrated:          make(map[string]bool),
 	}
+}
+
+// WithReconciler installs the reconciler invoked on every 10th
+// RunInstance tick (PRD §4.5). Returning *UseCase keeps the
+// fluent constructor pattern used elsewhere in the package.
+// Passing nil is a no-op — the use case still runs the qBit
+// refresh without the bridge.
+func (u *UseCase) WithReconciler(r *Reconciler) *UseCase {
+	u.reconciler = r
+	return u
 }
 
 // Hydrate loads `qbit_torrents WHERE present=true` for the named
@@ -196,6 +210,17 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 				e.LastFlushedCounters = CountersFrom(e.Info)
 				u.store.Put(instance, e)
 			}
+		}
+	}
+	if u.reconciler != nil {
+		if err := u.reconciler.MaybeRun(ctx, instance); err != nil {
+			// Reconciler errors are best-effort — never propagate
+			// past the loop. MaybeRun already logged WARN per
+			// failing source.
+			u.logger.WarnContext(ctx, "torrentsync_reconciler_pass_failed",
+				slog.String("instance_name", instance),
+				slog.String("outcome", "reconciler_error"),
+				slog.String("error", err.Error()))
 		}
 	}
 	return nil

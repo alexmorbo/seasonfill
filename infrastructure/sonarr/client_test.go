@@ -661,6 +661,114 @@ func TestClient_ListEpisodeFilesBySeason_FiltersCrossSeason(t *testing.T) {
 	assert.ElementsMatch(t, []int{4, 5, 6}, ids)
 }
 
+// TestClient_QueueAll asserts QueueAll calls /api/v3/queue without
+// the seriesId filter and decodes downloadId verbatim.
+func TestClient_QueueAll(t *testing.T) {
+	t.Parallel()
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{
+			"page": 1, "pageSize": 1000, "totalRecords": 2,
+			"records": [
+				{"id": 1, "seriesId": 11, "downloadId": "ABCDEF",
+				 "title": "Show.S01.PACK", "status": "downloading",
+				 "protocol": "torrent", "seasonNumber": 1, "episodeId": 100},
+				{"id": 2, "seriesId": 22, "downloadId": "abcabc",
+				 "title": "Other", "status": "queued",
+				 "protocol": "torrent", "seasonNumber": 2, "episodeId": 200}
+			]
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	payload, err := c.QueueAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, payload.Records, 2)
+	assert.NotContains(t, gotQuery, "seriesId", "QueueAll must NOT send seriesId filter")
+	assert.Contains(t, gotQuery, "pageSize=1000")
+	assert.Contains(t, gotQuery, "includeSeries=false")
+	assert.Contains(t, gotQuery, "includeEpisode=false")
+	assert.Equal(t, "ABCDEF", payload.Records[0].DownloadID, "queue returns downloadId verbatim")
+	assert.Equal(t, 11, payload.Records[0].SeriesID)
+	assert.Equal(t, 22, payload.Records[1].SeriesID)
+	assert.Equal(t, 2, payload.TotalRecords)
+}
+
+// TestClient_GrabHistoryPaged_PageNumbersAndCap asserts the query
+// string the client emits.
+func TestClient_GrabHistoryPaged_PageNumbersAndCap(t *testing.T) {
+	t.Parallel()
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{
+			"page": 7, "pageSize": 50, "totalRecords": 1000,
+			"records": [{"eventType": "grabbed", "downloadId": "deadbeef",
+				"seriesId": 12, "episode": {"seasonNumber": 5}}]
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	hp, err := c.GrabHistoryPaged(context.Background(), 7, 50)
+	require.NoError(t, err)
+	assert.Contains(t, gotQuery, "page=7")
+	assert.Contains(t, gotQuery, "pageSize=50")
+	assert.Contains(t, gotQuery, "eventType=1")
+	assert.Contains(t, gotQuery, "sortKey=date")
+	assert.Contains(t, gotQuery, "sortDirection=descending")
+	require.Len(t, hp.Records, 1)
+	assert.Equal(t, "deadbeef", hp.Records[0].DownloadID, "downloadId stays lowercase")
+	assert.Equal(t, 12, hp.Records[0].SeriesID)
+	assert.Equal(t, 5, hp.Records[0].SeasonNumber)
+	assert.Equal(t, 7, hp.Page)
+	assert.Equal(t, 50, hp.PageSize)
+	assert.Equal(t, 1000, hp.TotalRecords)
+}
+
+// TestClient_GrabHistoryPaged_SkipsUsenetGrabs asserts records with
+// empty downloadId are filtered out.
+func TestClient_GrabHistoryPaged_SkipsUsenetGrabs(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"page": 1, "pageSize": 50, "totalRecords": 3,
+			"records": [
+				{"eventType": "grabbed", "downloadId": "AAAA", "seriesId": 1},
+				{"eventType": "grabbed", "downloadId": "", "seriesId": 2},
+				{"eventType": "grabbed", "downloadId": "BBBB", "seriesId": 3}
+			]
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	hp, err := c.GrabHistoryPaged(context.Background(), 1, 50)
+	require.NoError(t, err)
+	require.Len(t, hp.Records, 2, "usenet (empty downloadId) rows dropped")
+	assert.Equal(t, "aaaa", hp.Records[0].DownloadID)
+	assert.Equal(t, "bbbb", hp.Records[1].DownloadID)
+}
+
+// TestClient_GrabHistoryPaged_DefaultsForZeroArgs asserts the client
+// coerces page<=0 to 1 and pageSize<=0 to 50.
+func TestClient_GrabHistoryPaged_DefaultsForZeroArgs(t *testing.T) {
+	t.Parallel()
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"page":1,"pageSize":50,"totalRecords":0,"records":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.GrabHistoryPaged(context.Background(), 0, 0)
+	require.NoError(t, err)
+	assert.Contains(t, gotQuery, "page=1")
+	assert.Contains(t, gotQuery, "pageSize=50")
+}
+
 func TestSeriesDTOToCacheEntry_CapturesPreviousAiring(t *testing.T) {
 	t.Parallel()
 	aired := time.Date(2026, 5, 1, 18, 0, 0, 0, time.UTC)

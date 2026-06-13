@@ -155,15 +155,30 @@ type tagDTO struct {
 	Label string `json:"label"`
 }
 
+// historyResponse is the legacy un-paginated shape consumed by
+// GrabHistory (E-1 regrab audit). Kept for back-compat — the
+// reconciler's GrabHistoryPaged uses historyPagedResponse.
 type historyResponse struct {
 	Records []historyRecord `json:"records"`
 }
 
 type historyRecord struct {
-	EventType string                 `json:"eventType"`
-	Indexer   string                 `json:"indexer,omitempty"`
-	Episode   *episodeDTO            `json:"episode,omitempty"`
-	Data      map[string]interface{} `json:"data"`
+	EventType  string                 `json:"eventType"`
+	Indexer    string                 `json:"indexer,omitempty"`
+	Episode    *episodeDTO            `json:"episode,omitempty"`
+	Data       map[string]interface{} `json:"data"`
+	SeriesID   int                    `json:"seriesId,omitempty"`
+	DownloadID string                 `json:"downloadId,omitempty"`
+}
+
+// historyPagedResponse is the cursor-aware shape consumed by
+// GrabHistoryPaged (torrentsync reconciler PRD §4.5 source 4).
+// Page numbers are 1-indexed (Sonarr convention).
+type historyPagedResponse struct {
+	Page         int             `json:"page"`
+	PageSize     int             `json:"pageSize"`
+	TotalRecords int             `json:"totalRecords"`
+	Records      []historyRecord `json:"records"`
 }
 
 type forceGrabRequest struct {

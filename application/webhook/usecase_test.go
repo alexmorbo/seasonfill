@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -900,4 +901,147 @@ func TestProcess_Grabbed_SizeBytes_ZeroPayload_NoUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), repo.lastUpdatedSize)
+}
+
+// fakeTorrentSeriesMap records every UpsertTx call.
+type fakeTorrentSeriesMap struct {
+	mu   sync.Mutex
+	rows []torrentsync.MapRow
+	err  error
+}
+
+func (f *fakeTorrentSeriesMap) Upsert(_ context.Context, row torrentsync.MapRow) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.rows = append(f.rows, row)
+	return nil
+}
+func (f *fakeTorrentSeriesMap) UpsertTx(ctx context.Context, row torrentsync.MapRow) error {
+	return f.Upsert(ctx, row)
+}
+
+func TestProcess_Grabbed_WritesTorrentSeriesMapInSameTx(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SeriesID = 122
+	rec.SeasonNumber = 2
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   hash,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, g.hashUpdateCall)
+	assert.Equal(t, 1, tx.called, "hash + map write must run in a single tx")
+	assert.True(t, tx.committed)
+	require.Len(t, tsm.rows, 1)
+	got := tsm.rows[0]
+	assert.Equal(t, "main", got.Instance)
+	assert.Equal(t, hash, got.Hash)
+	assert.Equal(t, 122, got.SeriesID)
+	assert.Equal(t, 2, got.SeasonNumber)
+	assert.Equal(t, torrentsync.MapSourceWebhook, got.Source)
+}
+
+func TestProcess_Grabbed_MapWriteFailureRollsBackHashUpdate(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SeriesID = 122
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{err: errors.New("db down")}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   hash,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrDBUnavailable)
+	assert.Equal(t, 1, tx.called)
+	assert.False(t, tx.committed, "tx must NOT commit when map write fails")
+}
+
+func TestProcess_Grabbed_NoMapWriteWhenSeriesIDZero(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SeriesID = 0 // unknown
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   hash,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, g.hashUpdateCall)
+	assert.Empty(t, tsm.rows, "missing series_id → no map row")
+}
+
+func TestProcess_Grabbed_HashAlreadySet_NoTxNoMapWrite(t *testing.T) {
+	t.Parallel()
+	existing := "0123456789abcdef0123456789abcdef01234567"
+	rec := sampleRecord()
+	rec.TorrentHash = &existing
+	rec.SeriesID = 1
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   "fedcba9876543210fedcba9876543210fedcba98",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, g.hashUpdateCall)
+	assert.Equal(t, 0, tx.called, "no tx when hash already set")
+	assert.Empty(t, tsm.rows)
 }

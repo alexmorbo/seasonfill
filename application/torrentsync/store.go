@@ -191,6 +191,26 @@ func (s *Store) HashesFor(instance string, seriesID int) []string {
 	return out
 }
 
+// SeriesForHash returns the sonarr series id mapped to the supplied
+// hash, or 0 when no mapping exists. The reconciler uses this to
+// decide whether a given hash is still "unmapped". Reverse-index
+// over bySeries — O(seriesCount) per lookup, acceptable at <= 500
+// series per instance.
+func (s *Store) SeriesForHash(instance, hash string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	idx, ok := s.bySeries[instance]
+	if !ok {
+		return 0
+	}
+	for seriesID, set := range idx {
+		if _, ok := set[hash]; ok {
+			return seriesID
+		}
+	}
+	return 0
+}
+
 // SetSeriesMapping is the future hook for story 221's reconciler.
 // Exposed here so the store shape is locked in 220. In 220 it is
 // not called from any production path; the unit test in
