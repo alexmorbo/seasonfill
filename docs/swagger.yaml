@@ -2198,6 +2198,21 @@ components:
           example: 2008
           type: integer
       type: object
+    dto.SeriesRefreshResponse:
+      properties:
+        omdb_queued:
+          example: true
+          type: boolean
+        persons_queued:
+          example: 10
+          type: integer
+        series_id:
+          example: 42
+          type: integer
+        series_queued:
+          example: true
+          type: boolean
+      type: object
     dto.SeriesSearchItem:
       properties:
         missing_aired_count:
@@ -4298,6 +4313,63 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Stream a Sonarr series poster
+      tags:
+      - instances
+  /instances/{name}/series/{id}/refresh:
+    post:
+      description: |-
+        Re-enqueues the series, its top-10 cast persons, and
+        (when imdb_id is set) the OMDb rating refresh at
+        PriorityHot. Returns 202 immediately; the work happens
+        on the enrichment dispatcher.
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesRefreshResponse'
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Re-enrich a series
       tags:
       - instances
   /instances/{name}/series/{id}/season/{n}:

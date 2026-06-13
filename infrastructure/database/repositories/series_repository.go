@@ -235,6 +235,88 @@ func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl tim
 	return ids, nil
 }
 
+// ListOrphanCandidates returns series.id rows older than cutoff that
+// have no live series_cache reference AND no series_recommendations
+// reference. Story 218 (E-2).
+func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	var ids []int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series AS s").
+		Select("s.id").
+		Where("s.created_at < ?", cutoff).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM series_cache sc
+		     WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)`).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM series_recommendations sr
+		     WHERE sr.recommended_series_id = s.id)`).
+		Limit(limit).
+		Pluck("s.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list orphan series candidates: %w", err)
+	}
+	return ids, nil
+}
+
+// DropSeriesCascade hard-deletes the canon series row + every
+// dependent entity-model row in a single transaction. Story 218
+// (E-2). Idempotent: DELETEs of zero rows are fine.
+//
+// The deletion order follows the dependency direction so a re-run
+// after a crash is safe: dependent rows first, then the canon row.
+func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64) error {
+	if seriesID == 0 {
+		return errors.New("drop series cascade: series_id must be non-zero")
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	return db.Transaction(func(tx *gorm.DB) error {
+		stmts := []struct {
+			name string
+			sql  string
+			args []interface{}
+		}{
+			{"episode_people",
+				`DELETE FROM episode_people
+				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
+				[]interface{}{seriesID}},
+			{"episode_texts",
+				`DELETE FROM episode_texts
+				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
+				[]interface{}{seriesID}},
+			{"episode_states",
+				`DELETE FROM episode_states
+				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
+				[]interface{}{seriesID}},
+			{"episodes", `DELETE FROM episodes WHERE series_id = ?`, []interface{}{seriesID}},
+			{"seasons", `DELETE FROM seasons WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_people", `DELETE FROM series_people WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_genres", `DELETE FROM series_genres WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_networks", `DELETE FROM series_networks WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_companies", `DELETE FROM series_companies WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_keywords", `DELETE FROM series_keywords WHERE series_id = ?`, []interface{}{seriesID}},
+			{"videos", `DELETE FROM videos WHERE series_id = ?`, []interface{}{seriesID}},
+			{"content_ratings", `DELETE FROM content_ratings WHERE series_id = ?`, []interface{}{seriesID}},
+			{"external_ids",
+				`DELETE FROM external_ids WHERE entity_type = 'series' AND entity_id = ?`,
+				[]interface{}{seriesID}},
+			{"series_texts", `DELETE FROM series_texts WHERE series_id = ?`, []interface{}{seriesID}},
+			{"series_recommendations",
+				`DELETE FROM series_recommendations WHERE series_id = ? OR recommended_series_id = ?`,
+				[]interface{}{seriesID, seriesID}},
+			{"series", `DELETE FROM series WHERE id = ?`, []interface{}{seriesID}},
+		}
+		for _, s := range stmts {
+			if err := tx.Exec(s.sql, s.args...).Error; err != nil {
+				return fmt.Errorf("drop series cascade (%s): %w", s.name, err)
+			}
+		}
+		return nil
+	})
+}
+
 // seriesUpdateCols lists the columns updated on a conflict. id /
 // created_at are deliberately excluded so the row's identity and
 // insertion timestamp survive the upsert path.

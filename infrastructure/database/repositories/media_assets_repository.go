@@ -110,6 +110,77 @@ func (r *MediaAssetsRepository) Upsert(ctx context.Context, a media.Asset) error
 	return nil
 }
 
+// IterateColdAssets walks media_assets rows whose last_access_at is
+// older than cutoff (or never accessed). Page-by-page via id-less
+// keyset on hash — the table is keyed on hash. fn is called with the
+// row's (hash, source_url, content_type) tuple. Returning a non-nil
+// error from fn aborts the iteration.
+//
+// Story 218 (E-2). The store key isn't a column on media_assets;
+// callers derive it via mediastore.Key(source_url, ext).
+func (r *MediaAssetsRepository) IterateColdAssets(
+	ctx context.Context,
+	lastAccessCutoff time.Time,
+	pageSize int,
+	fn func(hash, sourceURL, contentType string) error,
+) error {
+	if pageSize <= 0 {
+		pageSize = 1000
+	}
+	type row struct {
+		Hash        string  `gorm:"column:hash"`
+		SourceURL   string  `gorm:"column:source_url"`
+		ContentType *string `gorm:"column:content_type"`
+	}
+	lastHash := ""
+	for {
+		var batch []row
+		err := dbFromContext(ctx, r.db).WithContext(ctx).
+			Table("media_assets").
+			Select("hash, source_url, content_type").
+			Where("hash > ?", lastHash).
+			Where("(last_access_at IS NULL OR last_access_at < ?)", lastAccessCutoff).
+			Order("hash ASC").
+			Limit(pageSize).
+			Find(&batch).Error
+		if err != nil {
+			return fmt.Errorf("iterate cold assets: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		for _, b := range batch {
+			ct := ""
+			if b.ContentType != nil {
+				ct = *b.ContentType
+			}
+			if cerr := fn(b.Hash, b.SourceURL, ct); cerr != nil {
+				return cerr
+			}
+			lastHash = b.Hash
+		}
+		if len(batch) < pageSize {
+			return nil
+		}
+	}
+}
+
+// DeleteByHash hard-deletes one media_assets row. Story 218 (E-2).
+// Empty hash returns an error so a programming bug surfaces during
+// development; a missing row is silently a no-op (idempotent).
+func (r *MediaAssetsRepository) DeleteByHash(ctx context.Context, hash string) error {
+	if hash == "" {
+		return fmt.Errorf("delete media_asset: empty hash")
+	}
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("hash = ?", hash).
+		Delete(&database.MediaAssetModel{})
+	if res.Error != nil {
+		return fmt.Errorf("delete media_asset: %w", res.Error)
+	}
+	return nil
+}
+
 // TouchLastAccess updates last_access_at to the current clock value.
 // Called by the handler on a cache miss to keep GC liveness signals
 // fresh. The PRD recommends a once-per-day debounce; F-1 ships the

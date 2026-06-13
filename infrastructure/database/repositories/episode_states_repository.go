@@ -28,7 +28,7 @@ func NewEpisodeStatesRepository(db *gorm.DB) *EpisodeStatesRepository {
 func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName string, episodeID int64) (series.EpisodeState, error) {
 	var m database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Where("instance_name = ? AND episode_id = ?", instanceName, episodeID).
+		Where("instance_name = ? AND episode_id = ? AND deleted_at IS NULL", instanceName, episodeID).
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -48,7 +48,7 @@ func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.EpisodeStateModel{}).
 		Joins("JOIN episodes ON episodes.id = episode_states.episode_id").
-		Where("episode_states.instance_name = ? AND episodes.series_id = ?", instanceName, seriesID).
+		Where("episode_states.instance_name = ? AND episodes.series_id = ? AND episode_states.deleted_at IS NULL", instanceName, seriesID).
 		Find(&models).Error
 	if err != nil {
 		return nil, fmt.Errorf("list episode_states by series: %w", err)
@@ -85,6 +85,39 @@ func (r *EpisodeStatesRepository) Upsert(ctx context.Context, s series.EpisodeSt
 		return fmt.Errorf("upsert episode_state: %w", err)
 	}
 	return nil
+}
+
+// SoftDeleteBySeries sets deleted_at on every episode_states row for
+// the (instance_name, series_id) pair, scoped via the episodes JOIN —
+// the per-instance state table doesn't carry series_id natively
+// (PK is (instance_name, episode_id)). Returns the affected-row count.
+//
+// Story 218 (E-2). episode_states.deleted_at is added by migration
+// 000034 (paired with this story).
+func (r *EpisodeStatesRepository) SoftDeleteBySeries(
+	ctx context.Context, instanceName string, sonarrSeriesID int,
+) (int, error) {
+	if instanceName == "" {
+		return 0, fmt.Errorf("soft delete episode_states by series: instance_name must be non-empty")
+	}
+	now := time.Now().UTC()
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("episode_states").
+		Where(`instance_name = ?
+		   AND episode_id IN (
+		       SELECT e.id FROM episodes e
+		       JOIN series_cache sc ON sc.series_id = e.series_id
+		       WHERE sc.instance_name = ? AND sc.sonarr_series_id = ?
+		   )`,
+			instanceName, instanceName, sonarrSeriesID).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return 0, fmt.Errorf("soft delete episode_states by series: %w", res.Error)
+	}
+	return int(res.RowsAffected), nil
 }
 
 func toEpisodeState(m database.EpisodeStateModel) series.EpisodeState {

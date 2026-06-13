@@ -2382,6 +2382,89 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}/refresh": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Re-enrich a series
+         * @description Re-enqueues the series, its top-10 cast persons, and
+         *     (when imdb_id is set) the OMDb rating refresh at
+         *     PriorityHot. Returns 202 immediately; the work happens
+         *     on the enrichment dispatcher.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description Accepted */
+                readonly 202: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesRefreshResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/series/{id}/season/{n}": {
         readonly parameters: {
             readonly query?: never;
@@ -5167,6 +5250,16 @@ export type components = {
             readonly year_end?: number;
             /** @example 2008 */
             readonly year_start?: number;
+        };
+        readonly "dto.SeriesRefreshResponse": {
+            /** @example true */
+            readonly omdb_queued?: boolean;
+            /** @example 10 */
+            readonly persons_queued?: number;
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example true */
+            readonly series_queued?: boolean;
         };
         readonly "dto.SeriesSearchItem": {
             /** @example 8 */

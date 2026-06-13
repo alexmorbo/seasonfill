@@ -67,6 +67,7 @@ func NewServer(
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	seriesCastHandler *handlers.SeriesCastHandler,
 	peopleHandler *handlers.PeopleHandler,
+	seriesRefreshHandler *handlers.SeriesRefreshHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -175,6 +176,11 @@ func NewServer(
 		// omitted, NOT 5xx-stubbed.
 		if seriesDetailHandler != nil {
 			guarded.GET("/instances/:name/series/:id", seriesDetailHandler.Get)
+		}
+		// Story 218 (E-2) — refresh trigger. Nil-OK mirrors the
+		// detail handler pattern (test/minimal-boot omits the route).
+		if seriesRefreshHandler != nil {
+			guarded.POST("/instances/:name/series/:id/refresh", seriesRefreshHandler.Refresh)
 		}
 		if seriesSeasonHandler != nil {
 			guarded.GET("/instances/:name/series/:id/season/:n", seriesSeasonHandler.Get)

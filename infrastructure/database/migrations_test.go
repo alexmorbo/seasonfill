@@ -121,9 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 210 (E-1): latest migration is 000033_series_networks_cutover
-	// (drops series.network text column, routes membership through join).
-	assert.Equal(t, 33, version)
+	// 218 (E-2): latest migration is 000034_episode_states_deleted_at.
+	assert.Equal(t, 34, version)
 	assert.False(t, dirty)
 }
 
@@ -329,8 +328,8 @@ func TestMigrate_PostgresIntegration(t *testing.T) {
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 210 (E-1): latest migration is 000033_series_networks_cutover.
-	assert.Equal(t, 33, version)
+	// 218 (E-2): latest migration is 000034_episode_states_deleted_at.
+	assert.Equal(t, 34, version)
 	assert.False(t, dirty)
 
 	assert.True(t, db.Migrator().HasTable("scan_runs"))

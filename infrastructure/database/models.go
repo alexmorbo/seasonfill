@@ -491,6 +491,9 @@ type EpisodeStateModel struct {
 	Quality       *string   `gorm:"column:quality;type:text"`
 	SizeBytes     *int64    `gorm:"column:size_bytes"`
 	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	// DeletedAt is set by the SeriesDelete webhook cascade
+	// (story 218 E-2). Production readers filter by IS NULL.
+	DeletedAt *time.Time `gorm:"column:deleted_at"`
 }
 
 func (EpisodeStateModel) TableName() string { return "episode_states" }

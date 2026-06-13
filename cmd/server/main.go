@@ -19,6 +19,7 @@ import (
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
+	"github.com/alexmorbo/seasonfill/application/gc"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
@@ -28,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
+	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
@@ -305,11 +307,16 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// holder map on every publish; this closure reflects whichever
 	// snapshot is current at call time. Unknown instances → 0 (same
 	// behaviour as pre-032e: log + skip the cooldown write).
+	// Story 218 (E-2): webhook SeriesDelete cascade soft-deletes
+	// episode_states under the deleted series. Repo is constructed
+	// here so the cascade port is wired at boot.
+	webhookEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
 	webhookUC := webhookuc.New(webhookuc.Deps{
-		Grabs:       grabRepo,
-		Cooldowns:   cooldownRepo,
-		SeriesCache: seriesCacheRepo,
-		Tx:          txr,
+		Grabs:         grabRepo,
+		Cooldowns:     cooldownRepo,
+		SeriesCache:   seriesCacheRepo,
+		Tx:            txr,
+		EpisodeStates: webhookEpisodeStatesRepo,
 		GUIDCooldownLookup: func(name string) time.Duration {
 			inst, ok := holder.load()[name]
 			if !ok {
@@ -623,6 +630,21 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	})
 	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)
 
+	// Story 218 (E-2) — series refresh trigger. Reuses the
+	// peopleEnqueuerHolder so the same late-binding dispatcher
+	// satisfies both the H-2 use case AND the refresh path.
+	seriesRefreshUC, err := seriesrefresh.New(seriesrefresh.Deps{
+		SeriesCache:  seriesCacheRepo,
+		Series:       seriesRefreshSeriesAdapter{r: seriesRepo},
+		SeriesPeople: seriesRefreshCastAdapter{r: sdSeriesPeopleRepo},
+		Dispatcher:   peopleEnqueuerHolder,
+		Logger:       log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
+	}
+	seriesRefreshHandler := handlers.NewSeriesRefreshHandler(seriesRefreshUC, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -634,7 +656,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
 		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler,
-		peopleHandler, log)
+		peopleHandler, seriesRefreshHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -799,6 +821,36 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 				enrichBundle.OMDbDailyBatch); err != nil {
 				return nil, fmt.Errorf("register omdb daily batch: %w", err)
 			}
+		}
+	}
+
+	// Story 218 (E-2) — weekly GC at Sunday 05:00. Best-effort
+	// sub-tasks: orphan canon series sweep (90d grace) → media
+	// asset sweep (30d cooldown vs live-hash set) → qbit event
+	// prune (skipped until A-3 lands the table). Registered
+	// unconditionally — the scheduler decides whether to fire it
+	// based on cfg.Cron.Enabled.
+	if bootScheduler != nil {
+		liveAssetsRepo := repositories.NewLiveAssetsRepository(db)
+		weeklyJob := gc.WeeklyJob{
+			OrphanSeries: gc.OrphanSeriesDeps{
+				Repo:   seriesRepo,
+				Logger: log,
+			}.Build(),
+			MediaSweep: gc.MediaSweepDeps{
+				LiveSet: liveAssetsRepo,
+				Assets:  mediaAssetsRepo,
+				Store:   mediaStoreImpl,
+				Logger:  log,
+			}.Build(),
+			EventPrune: gc.EventPruneDeps{
+				DB:     db,
+				Logger: log,
+			}.Build(),
+			Logger: log,
+		}
+		if err := bootScheduler.Register("weekly-gc", "0 5 * * 0", weeklyJob.Run); err != nil {
+			return nil, fmt.Errorf("register weekly-gc: %w", err)
 		}
 	}
 
@@ -1048,4 +1100,47 @@ func (h *personEnqueuerHolder) Enqueue(kind appenrich.EntityKind, id int64, p ap
 		return
 	}
 	h.inner.Enqueue(kind, id, p)
+}
+
+// Close satisfies appenrich.Dispatcher so the same holder serves
+// both PersonEnqueuer (Enqueue-only) and seriesrefresh.Deps.Dispatcher
+// (Enqueue + Close). The dispatcher's actual Close runs via
+// enrichBundle.Dispatcher.Close() at shutdown, so this holder no-ops.
+func (h *personEnqueuerHolder) Close() {}
+
+// seriesRefreshSeriesAdapter projects SeriesRepository.Get onto the
+// thin seriesrefresh.CanonView shape so the use case stays free of
+// the domain/series import. Story 218 (E-2).
+type seriesRefreshSeriesAdapter struct {
+	r *repositories.SeriesRepository
+}
+
+func (a seriesRefreshSeriesAdapter) Get(ctx context.Context, id int64) (seriesrefresh.CanonView, error) {
+	c, err := a.r.Get(ctx, id)
+	if err != nil {
+		return seriesrefresh.CanonView{}, err
+	}
+	return seriesrefresh.CanonView{ID: c.ID, IMDBID: c.IMDBID}, nil
+}
+
+// seriesRefreshCastAdapter implements seriesrefresh.TopCastReader by
+// calling SeriesPeopleRepository.ListBySeries (the composer's existing
+// path) and slicing the first N person ids. Story 218 (E-2).
+type seriesRefreshCastAdapter struct {
+	r *repositories.SeriesPeopleRepository
+}
+
+func (a seriesRefreshCastAdapter) TopCastPersonIDs(ctx context.Context, seriesID int64, limit int) ([]int64, error) {
+	credits, err := a.r.ListBySeries(ctx, seriesID, dompeople.SeriesCreditCast)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > len(credits) {
+		limit = len(credits)
+	}
+	out := make([]int64, 0, limit)
+	for i := 0; i < limit; i++ {
+		out = append(out, credits[i].PersonID)
+	}
+	return out, nil
 }

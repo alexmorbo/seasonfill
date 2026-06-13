@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -54,6 +55,10 @@ type UseCase struct {
 	// full Sonarr API sync instead of the thin CacheEntry path. Nil-OK
 	// (pre-E-1 wiring runs unchanged).
 	seriesSyncer SeriesSyncer
+	// episodeStates is the E-2 cascade hook. Nil-OK: when not supplied
+	// the SeriesDelete cascade only soft-deletes the cache row (pre-E-2
+	// behaviour preserved). Production wiring passes the live repo.
+	episodeStates scan.EpisodeStatesSoftDeleter
 }
 
 // Deps groups constructor parameters.
@@ -74,6 +79,8 @@ type Deps struct {
 	// SeriesSyncer is the E-1 hook. Nil-OK; pre-E-1 thin CacheEntry
 	// path runs unchanged when nil.
 	SeriesSyncer SeriesSyncer
+	// EpisodeStates is the E-2 SeriesDelete cascade hook. Nil-OK.
+	EpisodeStates scan.EpisodeStatesSoftDeleter
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
@@ -107,6 +114,7 @@ func New(d Deps) *UseCase {
 		sonarrClientFor:    clientFor,
 		instanceFor:        instFor,
 		seriesSyncer:       d.SeriesSyncer,
+		episodeStates:      d.EpisodeStates,
 	}
 }
 
@@ -400,10 +408,11 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 	return nil
 }
 
-// handleSeriesDelete soft-deletes the series_cache row matching the
-// SeriesDelete webhook. Errors WARN-logged and swallowed (same
-// rationale). Missing series.id is a silent skip. Soft-delete is
-// idempotent at the repo layer — re-deliveries are harmless.
+// handleSeriesDelete soft-deletes the series_cache row + (when the
+// E-2 cascade port is wired) every episode_states row for the same
+// (instance, series_id) pair. Errors WARN-logged and swallowed —
+// SeriesDelete is fire-and-forget. Soft-delete is idempotent at the
+// repo layer; re-deliveries are harmless.
 func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) error {
 	if u.seriesCache == nil {
 		return nil
@@ -415,17 +424,29 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 		)
 		return nil
 	}
-	if err := u.seriesCache.SoftDelete(ctx, evt.InstanceName, evt.SeriesID); err != nil {
-		u.logger.WarnContext(ctx, "webhook_series_delete_soft_delete_failed",
+	cacheDeleted, episodeRows, err := scan.CascadeSeriesDelete(
+		ctx,
+		scan.CascadeDeleteDeps{
+			SeriesCache:   u.seriesCache,
+			EpisodeStates: u.episodeStates,
+			Tx:            u.tx,
+			Logger:        u.logger,
+		},
+		evt.InstanceName, evt.SeriesID,
+	)
+	if err != nil {
+		u.logger.WarnContext(ctx, "webhook_series_delete_cascade_failed",
 			slog.String("instance", evt.InstanceName),
 			slog.Int("series_id", evt.SeriesID),
 			slog.String("error", err.Error()),
 		)
 		return nil
 	}
-	u.logger.InfoContext(ctx, "webhook_series_deleted_cache_purged",
+	u.logger.InfoContext(ctx, "webhook_series_deleted_cascade_ok",
 		slog.String("instance", evt.InstanceName),
 		slog.Int("series_id", evt.SeriesID),
+		slog.Bool("cache_deleted", cacheDeleted),
+		slog.Int("episode_states_deleted", episodeRows),
 	)
 	return nil
 }
