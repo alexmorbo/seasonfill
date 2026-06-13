@@ -44,7 +44,7 @@ const fullFixture = {
   library_credits: [
     { series_id: 42, title: 'The Last of Us', year: 2023,
       role_label: 'Joel Miller · 9 ep.', kind: 'cast',
-      instances: ['alpha'], poster_asset: 'pp1' },
+      instances: [{ instance: 'alpha', sonarr_series_id: 7001 }], poster_asset: 'pp1' },
   ],
   other_credits: [
     { tmdb_media_id: 999, title: 'Strange Way of Life', year: 2023,

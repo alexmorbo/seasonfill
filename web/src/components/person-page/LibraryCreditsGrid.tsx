@@ -40,11 +40,17 @@ export function LibraryCreditsGrid({
       >
         {credits.map((c) => {
           const src = mediaUrl(c.poster_asset);
-          const instance = (c.instances ?? [])[0];
-          const seriesId = c.series_id;
+          // Each credit can surface in multiple instances (cross-instance
+          // series, e.g. homelab + 4k). For the deep-link we pick the
+          // first — instances are already sorted alphabetically by the
+          // backend, so the choice is stable across renders.
+          const primary = (c.instances ?? [])[0];
+          const instance = primary?.instance;
+          const sonarrId = primary?.sonarr_series_id;
+          const canonSeriesId = c.series_id;
           const role = c.role_label ?? c.character_name ?? '';
           const titleYear = c.year ? `${c.title ?? ''} · ${c.year}` : (c.title ?? '');
-          const key = `${seriesId ?? 'x'}-${instance ?? 'noinst'}`;
+          const key = `${canonSeriesId ?? 'x'}-${instance ?? 'noinst'}`;
 
           const inner = (
             <div className="flex flex-col gap-1.5 p-2 rounded-lg border border-border-subtle bg-bg-surface hover:border-accent/40 transition-colors h-full">
@@ -76,19 +82,26 @@ export function LibraryCreditsGrid({
             </div>
           );
 
-          return instance && seriesId ? (
+          return instance && sonarrId ? (
             <Link
               key={key}
-              to={`/series/${encodeURIComponent(instance)}/${seriesId}`}
+              to={`/series/${encodeURIComponent(instance)}/${sonarrId}`}
               data-testid="person-library-card"
               data-instance={instance}
-              data-series-id={seriesId}
+              data-sonarr-id={sonarrId}
+              data-series-id={canonSeriesId}
               className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
             >
               {inner}
             </Link>
           ) : (
-            <div key={key} data-testid="person-library-card" data-instance="" data-series-id="">
+            <div
+              key={key}
+              data-testid="person-library-card"
+              data-instance=""
+              data-sonarr-id=""
+              data-series-id=""
+            >
               {inner}
             </div>
           );

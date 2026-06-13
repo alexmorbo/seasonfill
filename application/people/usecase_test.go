@@ -136,8 +136,20 @@ func mkCanon(id int64, tmdbID int, title string, year int, lastAir time.Time) se
 
 func mkCacheRow(instanceName string, seriesID int64) series.CacheEntry {
 	return series.CacheEntry{
-		InstanceName: instanceName,
-		SeriesID:     &seriesID,
+		InstanceName:   instanceName,
+		SeriesID:       &seriesID,
+		SonarrSeriesID: int(seriesID),
+	}
+}
+
+// mkCacheRowFull builds a CacheEntry with explicit canon series id
+// and explicit Sonarr series id. Used by the dedup + sonarr id tests
+// that need the two to differ.
+func mkCacheRowFull(instanceName string, canonID int64, sonarrID int) series.CacheEntry {
+	return series.CacheEntry{
+		InstanceName:   instanceName,
+		SeriesID:       &canonID,
+		SonarrSeriesID: sonarrID,
 	}
 }
 
@@ -450,15 +462,16 @@ func TestUseCase_CanonLookupHiccupNonFatal(t *testing.T) {
 func TestUseCase_InstanceDedup(t *testing.T) {
 	t.Parallel()
 	deps := happyFixture(t)
-	// Duplicate cache rows under same instance — adapter must dedup.
+	// Duplicate cache rows under same instance — adapter must dedup,
+	// keeping the first SonarrSeriesID seen per instance.
 	deps.SeriesCache = &fakeSeriesCache{
 		rows: map[int64][]series.CacheEntry{
 			42: {
-				mkCacheRow("alpha", 42),
-				mkCacheRow("alpha", 42), // duplicate
-				mkCacheRow("4k", 42),
+				mkCacheRowFull("alpha", 42, 7001),
+				mkCacheRowFull("alpha", 42, 7002), // duplicate instance, different sonarr id
+				mkCacheRowFull("4k", 42, 9001),
 			},
-			43: {mkCacheRow("alpha", 43)},
+			43: {mkCacheRowFull("alpha", 43, 7050)},
 		},
 	}
 	uc := NewUseCase(deps)
@@ -473,9 +486,51 @@ func TestUseCase_InstanceDedup(t *testing.T) {
 		}
 	}
 	require.NotNil(t, louEntry)
-	assert.Equal(t, []string{"4k", "alpha"}, louEntry.Instances, "deduped and sorted")
-	// Verify the sort.Strings invariant: instances must be sorted.
-	require.True(t, sort.StringsAreSorted(louEntry.Instances))
+	require.Len(t, louEntry.Instances, 2, "deduped to one row per instance name")
+	assert.Equal(t, "4k", louEntry.Instances[0].InstanceName, "sorted alphabetically")
+	assert.Equal(t, 9001, louEntry.Instances[0].SonarrSeriesID)
+	assert.Equal(t, "alpha", louEntry.Instances[1].InstanceName)
+	assert.Equal(t, 7001, louEntry.Instances[1].SonarrSeriesID, "first row per instance wins")
+	// Verify the sort invariant: instances must be sorted by name.
+	require.True(t, sort.SliceIsSorted(louEntry.Instances, func(i, j int) bool {
+		return louEntry.Instances[i].InstanceName < louEntry.Instances[j].InstanceName
+	}))
+}
+
+func TestUseCase_InstanceCarriesSonarrSeriesID(t *testing.T) {
+	t.Parallel()
+	// The Person page uses sonarr_series_id (NOT canon series.id) to
+	// deep-link into /series/:instance/:id. This test guards that the
+	// use case projects the SonarrSeriesID from each series_cache row
+	// onto LibraryCredit.Instances.
+	deps := happyFixture(t)
+	deps.SeriesCache = &fakeSeriesCache{
+		rows: map[int64][]series.CacheEntry{
+			// canon 42 (LoU): two instances, distinct sonarr ids
+			42: {
+				mkCacheRowFull("alpha", 42, 1234),
+				mkCacheRowFull("4k", 42, 9876),
+			},
+			// canon 43 (GoT): one instance
+			43: {mkCacheRowFull("alpha", 43, 5678)},
+		},
+	}
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "", "title")
+	require.NoError(t, err)
+	require.Len(t, out.LibraryCredits, 2)
+
+	got := map[string]map[string]int{} // title → instance → sonarr id
+	for _, lc := range out.LibraryCredits {
+		m := map[string]int{}
+		for _, inst := range lc.Instances {
+			m[inst.InstanceName] = inst.SonarrSeriesID
+		}
+		got[lc.Canon.Title] = m
+	}
+	assert.Equal(t, 1234, got["The Last of Us"]["alpha"])
+	assert.Equal(t, 9876, got["The Last of Us"]["4k"])
+	assert.Equal(t, 5678, got["Game of Thrones"]["alpha"])
 }
 
 func TestUseCase_SortRecent_NilsLast(t *testing.T) {

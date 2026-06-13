@@ -57,7 +57,19 @@ type PersonDetail struct {
 type LibraryCredit struct {
 	Credit    dompeople.PersonCredit
 	Canon     series.Canon
-	Instances []string
+	Instances []LibraryInstance
+}
+
+// LibraryInstance is one row of `LibraryCredit.Instances`: the
+// Sonarr instance name plus the per-instance Sonarr series id. The
+// frontend uses (InstanceName, SonarrSeriesID) to deep-link into
+// the Series Detail route — the canon `series.id` is NOT a valid
+// URL parameter there (the route loads
+// `/api/v1/instances/:name/series/:sonarrId` which keys on the
+// per-instance integer, not the canon row id).
+type LibraryInstance struct {
+	InstanceName   string
+	SonarrSeriesID int
 }
 
 // OtherCredit is one TMDB-only credit — either the canon series
@@ -196,7 +208,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 
 // classifyCredit returns (isLibrary, canon, instances) for one
 // person_credits row.
-func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit) (bool, series.Canon, []string) {
+func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit) (bool, series.Canon, []LibraryInstance) {
 	if pc.MediaType != "tv" {
 		return false, series.Canon{}, nil
 	}
@@ -219,16 +231,30 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 	if len(caches) == 0 {
 		return false, series.Canon{}, nil
 	}
-	instances := make([]string, 0, len(caches))
+	instances := make([]LibraryInstance, 0, len(caches))
 	seen := map[string]bool{}
 	for _, ce := range caches {
 		if seen[ce.InstanceName] {
+			// First cache row per instance wins. Duplicate rows
+			// happen when a series is re-added to the same Sonarr
+			// instance under a different sonarr_series_id (rare —
+			// only after the operator deleted+re-added). We pick
+			// the first row deterministically because
+			// SeriesCacheRepository.ListBySeriesID returns rows
+			// ordered by (instance_name ASC, sonarr_series_id ASC)
+			// and the user-facing link must remain stable across
+			// page loads.
 			continue
 		}
 		seen[ce.InstanceName] = true
-		instances = append(instances, ce.InstanceName)
+		instances = append(instances, LibraryInstance{
+			InstanceName:   ce.InstanceName,
+			SonarrSeriesID: ce.SonarrSeriesID,
+		})
 	}
-	sort.Strings(instances)
+	sort.SliceStable(instances, func(i, j int) bool {
+		return instances[i].InstanceName < instances[j].InstanceName
+	})
 	return true, canon, instances
 }
 

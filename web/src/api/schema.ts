@@ -4728,7 +4728,7 @@ export type components = {
             readonly character_name?: string;
             /** @example 9 */
             readonly episode_count?: number;
-            readonly instances?: readonly string[];
+            readonly instances?: readonly components["schemas"]["dto.LibraryCreditInstance"][];
             /** @example cast */
             readonly kind?: string;
             readonly poster_asset?: string;
@@ -4742,6 +4742,12 @@ export type components = {
             readonly tmdb_id?: number;
             /** @example 2023 */
             readonly year?: number;
+        };
+        readonly "dto.LibraryCreditInstance": {
+            /** @example alpha */
+            readonly instance?: string;
+            /** @example 42 */
+            readonly sonarr_series_id?: number;
         };
         /**
          * @description Library is the Sonarr-derived "what's on disk" tile. Always

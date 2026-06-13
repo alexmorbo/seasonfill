@@ -1123,7 +1123,7 @@ components:
           type: integer
         instances:
           items:
-            type: string
+            $ref: '#/components/schemas/dto.LibraryCreditInstance'
           type: array
           uniqueItems: false
         kind:
@@ -1145,6 +1145,15 @@ components:
           type: integer
         year:
           example: 2023
+          type: integer
+      type: object
+    dto.LibraryCreditInstance:
+      properties:
+        instance:
+          example: alpha
+          type: string
+        sonarr_series_id:
+          example: 42
           type: integer
       type: object
     dto.LibraryStrip:

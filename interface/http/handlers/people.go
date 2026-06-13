@@ -140,6 +140,13 @@ func mapSyncInfo(log *domenrich.SyncLog) *dto.SyncInfo {
 }
 
 func mapLibraryCredit(lc apppeople.LibraryCredit) dto.LibraryCreditEntry {
+	instances := make([]dto.LibraryCreditInstance, 0, len(lc.Instances))
+	for _, inst := range lc.Instances {
+		instances = append(instances, dto.LibraryCreditInstance{
+			Instance:       inst.InstanceName,
+			SonarrSeriesID: inst.SonarrSeriesID,
+		})
+	}
 	return dto.LibraryCreditEntry{
 		SeriesID:      lc.Canon.ID,
 		TMDBID:        lc.Canon.TMDBID,
@@ -150,7 +157,7 @@ func mapLibraryCredit(lc apppeople.LibraryCredit) dto.LibraryCreditEntry {
 		Kind:          string(lc.Credit.Kind),
 		RoleLabel:     deriveRoleLabel(lc.Credit),
 		PosterAsset:   lc.Canon.PosterAsset,
-		Instances:     lc.Instances,
+		Instances:     instances,
 	}
 }
 

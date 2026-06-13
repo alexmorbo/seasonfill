@@ -66,16 +66,28 @@ type SyncInfo struct {
 // person_credits whose tmdb_media_id resolves to a canon `series`
 // row that has at least one live `series_cache` reference.
 type LibraryCreditEntry struct {
-	SeriesID      int64    `json:"series_id" example:"42"`
-	TMDBID        *int     `json:"tmdb_id,omitempty" example:"100"`
-	Title         string   `json:"title" example:"The Last of Us"`
-	Year          *int     `json:"year,omitempty" example:"2023"`
-	CharacterName *string  `json:"character_name,omitempty"`
-	EpisodeCount  *int     `json:"episode_count,omitempty" example:"9"`
-	Kind          string   `json:"kind" example:"cast"`
-	RoleLabel     string   `json:"role_label" example:"Joel Miller"`
-	PosterAsset   *string  `json:"poster_asset,omitempty"`
-	Instances     []string `json:"instances"`
+	SeriesID      int64                   `json:"series_id" example:"42"`
+	TMDBID        *int                    `json:"tmdb_id,omitempty" example:"100"`
+	Title         string                  `json:"title" example:"The Last of Us"`
+	Year          *int                    `json:"year,omitempty" example:"2023"`
+	CharacterName *string                 `json:"character_name,omitempty"`
+	EpisodeCount  *int                    `json:"episode_count,omitempty" example:"9"`
+	Kind          string                  `json:"kind" example:"cast"`
+	RoleLabel     string                  `json:"role_label" example:"Joel Miller"`
+	PosterAsset   *string                 `json:"poster_asset,omitempty"`
+	Instances     []LibraryCreditInstance `json:"instances"`
+}
+
+// LibraryCreditInstance is one entry of
+// LibraryCreditEntry.Instances — the per-instance Sonarr
+// coordinates the Person page needs to deep-link into a Series
+// Detail page. The frontend uses `instance` + `sonarr_series_id`
+// to build the href; the canon `series_id` on the parent entry is
+// kept for client-side keys and analytics but is NOT a valid URL
+// parameter for /series/:instance/:id.
+type LibraryCreditInstance struct {
+	Instance       string `json:"instance" example:"alpha"`
+	SonarrSeriesID int    `json:"sonarr_series_id" example:"42"`
 }
 
 // OtherCreditEntry is one TMDB-only credit (no canon series row

@@ -15,9 +15,16 @@ function r(node: React.ReactElement) {
 
 const sample = [
   { series_id: 42, title: 'The Last of Us', year: 2023, role_label: 'Joel Miller · 9 ep.',
-    kind: 'cast', instances: ['alpha', '4k'], poster_asset: 'aaa' },
+    kind: 'cast',
+    instances: [
+      { instance: 'alpha', sonarr_series_id: 7001 },
+      { instance: '4k', sonarr_series_id: 9001 },
+    ],
+    poster_asset: 'aaa' },
   { series_id: 43, title: 'Game of Thrones', year: 2011, role_label: 'Oberyn Martell · 7 ep.',
-    kind: 'cast', instances: ['alpha'], poster_asset: 'bbb' },
+    kind: 'cast',
+    instances: [{ instance: 'alpha', sonarr_series_id: 7050 }],
+    poster_asset: 'bbb' },
 ];
 
 describe('<LibraryCreditsGrid />', () => {
@@ -28,12 +35,17 @@ describe('<LibraryCreditsGrid />', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders one card per credit with correct href', () => {
+  it('renders one card per credit with href built from sonarr_series_id (NOT canon series_id)', () => {
     r(<LibraryCreditsGrid credits={sample} sort="recent" onSortChange={() => {}} />);
     const cards = screen.getAllByTestId('person-library-card');
     expect(cards).toHaveLength(2);
-    expect(cards[0]?.getAttribute('href')).toBe('/series/alpha/42');
-    expect(cards[1]?.getAttribute('href')).toBe('/series/alpha/43');
+    // First card: instances[0] = alpha / sonarr 7001 — note that canon
+    // series_id=42 must NOT appear in the URL.
+    expect(cards[0]?.getAttribute('href')).toBe('/series/alpha/7001');
+    expect(cards[0]?.getAttribute('data-sonarr-id')).toBe('7001');
+    expect(cards[0]?.getAttribute('href')).not.toContain('/42');
+    // Second card: alpha / sonarr 7050
+    expect(cards[1]?.getAttribute('href')).toBe('/series/alpha/7050');
   });
 
   it('renders title with year and the role label', () => {

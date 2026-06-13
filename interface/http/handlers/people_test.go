@@ -143,7 +143,7 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 		},
 		SeriesCache: peopleHandlerFakeSeriesCache{
 			rows: map[int64][]series.CacheEntry{
-				42: {{InstanceName: "alpha"}},
+				42: {{InstanceName: "alpha", SonarrSeriesID: 7777}},
 			},
 		},
 		SyncLog: peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
@@ -167,7 +167,9 @@ func TestPeopleHandler_Get_200(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, int64(1), body.Person.ID)
 	require.Len(t, body.LibraryCredits, 1)
-	assert.Equal(t, []string{"alpha"}, body.LibraryCredits[0].Instances)
+	require.Len(t, body.LibraryCredits[0].Instances, 1)
+	assert.Equal(t, "alpha", body.LibraryCredits[0].Instances[0].Instance)
+	assert.Equal(t, 7777, body.LibraryCredits[0].Instances[0].SonarrSeriesID)
 	require.Len(t, body.OtherCredits, 1)
 	assert.Equal(t, "tv", body.OtherCredits[0].MediaType)
 }
