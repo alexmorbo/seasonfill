@@ -531,20 +531,12 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}()
 
 	// Build the boot scheduler (if cron is enabled) so the
-	// subscriber starts in the same state as the snapshot.
+	// subscriber starts in the same state as the snapshot. Note:
+	// Start is deferred so Story 211 can Register the nightly
+	// enrichment job after extSub.Start primes TMDB settings.
 	var bootScheduler *scheduler.Scheduler
 	if cfg.Cron.Enabled {
 		bootScheduler = scheduler.New(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
-		if err := bootScheduler.Start(rootCtx, scanUC); err != nil {
-			return nil, fmt.Errorf("start scheduler: %w", err)
-		}
-		if cfg.Cron.OnStart {
-			go func() {
-				if _, err := scanUC.Run(rootCtx, scan.TriggerStartup); err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
-					log.ErrorContext(rootCtx, "startup scan failed", slog.String("error", err.Error()))
-				}
-			}()
-		}
 	}
 
 	// Pull the AuthRuntime pointer out of the http server's auth
@@ -575,6 +567,79 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// boot publish below still flows through the subscriber's bus
 	// channel and triggers a second apply.
 	extSub.Start(rootCtx, nil)
+
+	// Story 211 (C-2) repositories — used by the enrichment dispatcher
+	// + nightly stale scan. seriesRepo already exists above.
+	seriesTextsRepo := repositories.NewSeriesTextsRepository(db)
+	seasonsRepo := repositories.NewSeasonsRepository(db)
+	episodesRepo := repositories.NewEpisodesRepository(db)
+	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
+	peopleRepo := repositories.NewPeopleRepository(db)
+	seriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
+	genresRepo := repositories.NewGenresRepository(db)
+	genresI18nRepo := repositories.NewGenresI18nRepository(db)
+	keywordsRepo := repositories.NewKeywordsRepository(db)
+	keywordsI18nRepo := repositories.NewKeywordsI18nRepository(db)
+	networksRepo := repositories.NewNetworksRepository(db)
+	companiesRepo := repositories.NewCompaniesRepository(db)
+	videosRepo := repositories.NewVideosRepository(db)
+	contentRatingsRepo := repositories.NewContentRatingsRepository(db)
+	externalIDsRepo := repositories.NewExternalIDsRepository(db)
+	recommendationsRepo := repositories.NewRecommendationsRepository(db)
+	syncLogRepo := repositories.NewSyncLogRepository(db)
+
+	// Story 211 (C-2) — wire enrichment dispatcher. extSub is primed,
+	// so TMDB settings are available. wireEnrichment returns a nil
+	// dispatcher when TMDB is disabled / unconfigured (boot stays
+	// green on a fresh install).
+	enrichRepos := enrichmentRepoBundle{
+		Series:          seriesRepo,
+		SeriesTexts:     seriesTextsRepo,
+		Seasons:         seasonsRepo,
+		Episodes:        episodesRepo,
+		EpisodeTexts:    episodeTextsRepo,
+		People:          peopleRepo,
+		SeriesPeople:    seriesPeopleRepo,
+		Genres:          genresRepoAdapter{main: genresRepo, i18n: genresI18nRepo},
+		Keywords:        keywordsRepoAdapter{main: keywordsRepo, i18n: keywordsI18nRepo},
+		Networks:        networksRepo,
+		Companies:       companiesRepo,
+		Videos:          videosRepoAdapter{inner: videosRepo},
+		ContentRatings:  contentRatingsRepoAdapter{inner: contentRatingsRepo},
+		ExternalIDs:     externalIDsRepoAdapter{inner: externalIDsRepo},
+		Recommendations: recommendationsRepo,
+		SyncLog:         syncLogRepo,
+	}
+	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
+	if err != nil {
+		return nil, fmt.Errorf("wire enrichment: %w", err)
+	}
+
+	// Register the nightly stale scan into the boot scheduler if cron
+	// is enabled. Done BEFORE Start (now StartRegistered via the
+	// legacy wrapper) so the registry is build-once.
+	if bootScheduler != nil && enrichBundle != nil && enrichBundle.Nightly != nil {
+		if err := bootScheduler.Register("enrichment-nightly", "0 4 * * *",
+			enrichBundle.Nightly); err != nil {
+			return nil, fmt.Errorf("register nightly enrichment: %w", err)
+		}
+	}
+
+	// Start the boot scheduler now that all jobs are registered. The
+	// legacy Start(ctx, scanUC) wrapper internally Register(ScanJobName)
+	// + StartRegistered.
+	if bootScheduler != nil {
+		if err := bootScheduler.Start(rootCtx, scanUC); err != nil {
+			return nil, fmt.Errorf("start scheduler: %w", err)
+		}
+		if cfg.Cron.OnStart {
+			go func() {
+				if _, err := scanUC.Run(rootCtx, scan.TriggerStartup); err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
+					log.ErrorContext(rootCtx, "startup scan failed", slog.String("error", err.Error()))
+				}
+			}()
+		}
+	}
 
 	// Re-publish the boot snapshot now that subscribers are alive
 	// — they all apply it once and increment their success metric.
@@ -609,6 +674,12 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Error("http shutdown error", slog.String("error", err.Error()))
+	}
+
+	// Story 211 — stop enrichment dispatcher BEFORE the scheduler so
+	// the in-flight series worker drains before the cron tears down.
+	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
+		enrichBundle.Dispatcher.Close()
 	}
 
 	if cur := subSched.Current(); cur != nil {

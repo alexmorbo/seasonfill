@@ -133,3 +133,52 @@ func drainStop(t *testing.T, s *Scheduler) {
 		t.Log("warning: drainStop timeout; cron may still be running")
 	}
 }
+
+// Story 211: named-job registry tests.
+
+func TestScheduler_Register_DuplicateRejected(t *testing.T) {
+	t.Parallel()
+	s := New("", 0, quietLogger())
+	require.NoError(t, s.Register("foo", "@every 1s", func(context.Context) {}))
+	err := s.Register("foo", "@every 1s", func(context.Context) {})
+	assert.Error(t, err, "duplicate name must be rejected")
+}
+
+func TestScheduler_RegisterAfterStart_Rejected(t *testing.T) {
+	t.Parallel()
+	s := New("@every 1s", 0, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
+	defer drainStop(t, s)
+	err := s.Register("late", "@every 1s", func(context.Context) {})
+	assert.Error(t, err, "Register after Start must fail")
+}
+
+func TestScheduler_EntryByName_ScanJob(t *testing.T) {
+	t.Parallel()
+	s := New("*/5 * * * *", 0, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
+	defer drainStop(t, s)
+	assert.Equal(t, "*/5 * * * *", s.EntryByName(ScanJobName))
+}
+
+func TestScheduler_RegisterPlusStartRegistered_Runs(t *testing.T) {
+	t.Parallel()
+	s := New("", 0, quietLogger())
+	var ran int32
+	require.NoError(t, s.Register("oneoff", "@every 50ms", func(context.Context) {
+		atomic.AddInt32(&ran, 1)
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, s.StartRegistered(ctx))
+	defer drainStop(t, s)
+	// Drive the cron job synchronously by invoking the entry's Run.
+	entries := s.cron.Entries()
+	require.Len(t, entries, 1)
+	entries[0].Job.Run()
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&ran), int32(1))
+}

@@ -22,7 +22,12 @@ import (
 )
 
 // SyncDeps is the dependency set for SyncSeriesFromSonarr. All ports
-// are required.
+// are required (Logger may be nil — defaults to slog.Default).
+// PostSync is OPTIONAL: when non-nil, SyncSeriesFromSonarr invokes
+// it after the canonical series row is persisted with the resolved
+// canon series.id. Story 211 (C-2) uses this hook to enqueue the
+// freshly-synced series for TMDB enrichment without dragging the
+// dispatcher's enqueue API into the scan layer.
 type SyncDeps struct {
 	Series        SeriesCanonRepository
 	SeriesCache   SyncSeriesCacheRepository
@@ -32,6 +37,7 @@ type SyncDeps struct {
 	Genres        GenresPort
 	Networks      NetworksPort
 	Logger        *slog.Logger
+	PostSync      func(ctx context.Context, seriesID int64)
 }
 
 // SonarrPayloadBundle groups the three Sonarr fetches the sync needs.
@@ -101,6 +107,10 @@ func SyncSeriesFromSonarr(
 		if err := syncEpisodes(ctx, deps, canonID, instanceName, bundle, log); err != nil {
 			return canonID, fmt.Errorf("sync sonarr series: episodes: %w", err)
 		}
+	}
+
+	if deps.PostSync != nil {
+		deps.PostSync(ctx, canonID)
 	}
 
 	log.InfoContext(ctx, "sync_sonarr_series_ok",

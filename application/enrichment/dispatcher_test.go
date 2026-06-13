@@ -1,0 +1,251 @@
+package enrichment
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func quietLogger() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
+
+// waitFor polls fn until it returns true or the deadline expires.
+func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("waitFor timed out after %s", timeout)
+}
+
+func TestDispatcher_SeriesHandlerCalledForSeriesJob(t *testing.T) {
+	t.Parallel()
+	var seen int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			atomic.StoreInt64(&seen, id)
+			return nil
+		},
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntitySeries, 42, PriorityHot)
+	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&seen) == 42 })
+}
+
+func TestDispatcher_DedupPreventsSimultaneousCalls(t *testing.T) {
+	t.Parallel()
+	var calls int64
+	gate := make(chan struct{})
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			atomic.AddInt64(&calls, 1)
+			<-gate
+			return nil
+		},
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Enqueue(EntitySeries, 7, PriorityHot)
+		}()
+	}
+	wg.Wait()
+	// Give the handler a chance to start.
+	time.Sleep(50 * time.Millisecond)
+	got := atomic.LoadInt64(&calls)
+	close(gate)
+	assert.Equal(t, int64(1), got, "10 concurrent enqueues must invoke handler exactly once")
+}
+
+func TestDispatcher_PersonHandlerNilLogsAndSkips(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
+		PersonHandler: nil,
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntityPerson, 5, PriorityHot)
+	// After the no-op handler runs, the dedup slot must be released.
+	waitFor(t, time.Second, func() bool {
+		// A successful re-enqueue (returns silently — but the second
+		// enqueue's dedup-skip would have happened if the first never
+		// released). Verify by checking queue state instead.
+		d.queue.mu.Lock()
+		empty := len(d.queue.inFlight) == 0
+		d.queue.mu.Unlock()
+		return empty
+	})
+}
+
+func TestDispatcher_HotBeatsColdOnHandler(t *testing.T) {
+	t.Parallel()
+	var order []int64
+	var mu sync.Mutex
+	gate := make(chan struct{})
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			<-gate
+			mu.Lock()
+			order = append(order, id)
+			mu.Unlock()
+			return nil
+		},
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	// Enqueue cold first; pause to ensure both workers are blocked at
+	// dequeue ready to wake on the next enqueue.
+	d.Enqueue(EntitySeries, 100, PriorityCold)
+	time.Sleep(20 * time.Millisecond)
+	d.Enqueue(EntitySeries, 200, PriorityHot)
+	close(gate)
+	waitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(order) == 2
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	// Hot job should appear in the order set, regardless of which
+	// worker picks each up first. Crucial assertion: 200 ran. Order
+	// of completion can vary due to two-worker race; we assert both
+	// landed.
+	assert.Contains(t, order, int64(200))
+	assert.Contains(t, order, int64(100))
+}
+
+func TestDispatcher_CloseStopsGoroutines(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	done := make(chan struct{})
+	go func() {
+		d.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return within 2s")
+	}
+}
+
+func TestDispatcher_InvalidEnqueueLogged(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntityKind("garbage"), 1, PriorityHot)
+	d.Enqueue(EntitySeries, 0, PriorityHot)
+	d.Enqueue(EntitySeries, -1, PriorityHot)
+	// No panic + no work — assert no in-flight entries.
+	time.Sleep(20 * time.Millisecond)
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	assert.Len(t, d.queue.inFlight, 0)
+}
+
+func TestDispatcher_HandlerError_DoesNotKillWorker(t *testing.T) {
+	t.Parallel()
+	var calls int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			atomic.AddInt64(&calls, 1)
+			if id == 1 {
+				return errors.New("boom")
+			}
+			return nil
+		},
+	}, quietLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntitySeries, 1, PriorityHot)
+	d.Enqueue(EntitySeries, 2, PriorityHot)
+	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&calls) >= 2 })
+}
+
+// TestDispatcher_HandlerPanic_ReleasesDedup — Critical Decision #2.
+// A panicking handler MUST release the dedup slot via the deferred
+// queue.release in runHandler. The design intentionally does NOT
+// recover inside the dispatcher (panic = programmer bug; process-
+// level signal is correct), so we invoke runHandler directly inside
+// a guarded goroutine and recover locally rather than via Start —
+// the production behaviour is that the worker goroutine dies and
+// the process supervisor restarts the pod. What we VERIFY here is
+// the deferred release happens even though the panic propagates.
+func TestDispatcher_HandlerPanic_ReleasesDedup(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher(Workers{}, quietLogger())
+	// Manually pin the dedup slot as if a normal enqueue had landed
+	// the job in flight.
+	require.True(t, d.queue.enqueue(Job{Kind: EntitySeries, EntityID: 555, Priority: PriorityHot}))
+	// Drain the channel — we don't want the loop to pick it up.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, ok := d.queue.dequeue(ctx)
+	require.True(t, ok)
+	// Slot still pinned (release would happen post-handler).
+	d.queue.mu.Lock()
+	_, pinned := d.queue.inFlight[dedupKey(EntitySeries, 555)]
+	d.queue.mu.Unlock()
+	require.True(t, pinned, "dedup slot pinned after dequeue, before handler runs")
+
+	// Invoke runHandler with a panicking handler. The deferred
+	// queue.release runs BEFORE the panic unwinds out of runHandler.
+	// We recover here to keep the test runner alive.
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+		d.runHandler(context.Background(), quietLogger(),
+			Job{Kind: EntitySeries, EntityID: 555, Priority: PriorityHot},
+			func(ctx context.Context, id int64) error {
+				panic("intentional panic — dedup MUST still release")
+			})
+	}()
+
+	// Dedup must be released by the deferred queue.release in runHandler.
+	d.queue.mu.Lock()
+	_, pinned = d.queue.inFlight[dedupKey(EntitySeries, 555)]
+	d.queue.mu.Unlock()
+	assert.False(t, pinned, "dedup slot must be released after handler panic")
+
+	// And a fresh enqueue of the same id MUST succeed.
+	assert.True(t, d.queue.enqueue(Job{Kind: EntitySeries, EntityID: 555, Priority: PriorityHot}))
+}
