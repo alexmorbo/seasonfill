@@ -104,6 +104,14 @@ type regrabSwapper interface {
 	SwapSettings(map[string]regrab.Settings)
 }
 
+// torrentsyncSwapper is the narrow contract buildOnAppliedFanout needs
+// from the torrentsync loop. Identical SwapSettings shape as regrab
+// — both loops consume the same qbit-settings projection from the
+// reload-bus snapshot.
+type torrentsyncSwapper interface {
+	SwapSettings(map[string]regrab.Settings)
+}
+
 // qbitSettingsLoader is the narrow contract buildOnAppliedFanout needs
 // to project the qbit-settings repo into a map keyed by instance name.
 // In production it's a closure over QbitSettingsRepository.List +
@@ -121,7 +129,7 @@ type qbitSettingsLoader interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
+func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -159,9 +167,18 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 		// without a separate subscriber. The lookup runs under the
 		// SonarrClientsSubscriber lock (we're inside its fanout closure)
 		// so concurrent SwapSettings calls cannot interleave.
-		if regrabLoop != nil && qbitLoader != nil {
+		//
+		// Story 220 (A-2) — torrentsync loop consumes the same projection;
+		// we reuse the qbitMap we already fetched rather than calling
+		// qbitLoader.Load a second time per publish.
+		if (regrabLoop != nil || torrentsyncLoop != nil) && qbitLoader != nil {
 			qbitMap := qbitLoader.Load(rootCtx)
-			regrabLoop.SwapSettings(qbitMap)
+			if regrabLoop != nil {
+				regrabLoop.SwapSettings(qbitMap)
+			}
+			if torrentsyncLoop != nil {
+				torrentsyncLoop.SwapSettings(qbitMap)
+			}
 		}
 
 		go checker.Preflight(rootCtx)
@@ -193,6 +210,7 @@ func startSubscribers(
 	holder *instanceMapHolder,
 	sweeper sweepIntervalSetter,
 	regrabLoop regrabSwapper,
+	torrentsyncLoop torrentsyncSwapper,
 	qbitLoader qbitSettingsLoader,
 	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
 	bootGlobalRateLimit runtime.RateLimitSnapshot,
@@ -205,7 +223,7 @@ func startSubscribers(
 		reload.SchedulerFactory(scheduler.New), log)
 	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
 		WithWaitGroup(bgWG).
-		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, regrabLoop, qbitLoader, log))
+		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, regrabLoop, torrentsyncLoop, qbitLoader, log))
 
 	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)

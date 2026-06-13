@@ -30,6 +30,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
+	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
@@ -408,6 +409,29 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	regrabLoopVal := newRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
 	regrabLoopVal.Start(rootCtx)
 
+	// 220 (A-2) — torrentsync loop. Reuses the same qbitLoader as
+	// regrabLoop for reload publishes (one fetch of qbit settings
+	// per applied snapshot is shared between the two loop owners).
+	qbitTorrentsRepo := repositories.NewQbitTorrentsRepository(db)
+	qbitTorrentEventsRepo := repositories.NewQbitTorrentEventsRepository(db)
+	torrentsyncStore := torrentsync.NewStore()
+	torrentsyncPolicy := torrentsync.NewPersistPolicy(
+		qbitTorrentsRepo, qbitTorrentEventsRepo, log,
+	)
+	torrentsyncFactory := torrentsyncSessionFactoryAdapter{
+		factory: infraregrab.QbitClientFactoryFunc{},
+		lookup:  qbitSettingsUC,
+	}
+	torrentsyncUC := torrentsync.NewUseCase(
+		torrentsyncStore, torrentsyncPolicy,
+		torrentsyncFactory, qbitTorrentsRepo, log,
+	)
+	torrentsyncLoopVal := newTorrentsyncLoop(
+		productionTorrentsyncRunner{uc: torrentsyncUC, logger: log},
+		&bgWG, log,
+	)
+	torrentsyncLoopVal.Start(rootCtx)
+
 	// 047a — watchdog rollup handler wiring.
 	watchdogInstanceAdapter := watchdogInstanceLister{repo: instanceRepo, cipher: cipher}
 	watchdogRollupHandler := handlers.NewWatchdogRollupHandler(
@@ -710,7 +734,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
 		bootScheduler, scanUC, sonarrClientsByName,
 		clientFactory, checker, wd, holder, sweeper,
-		regrabLoopVal, qbitLoader,
+		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
 		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
 	if err != nil {
