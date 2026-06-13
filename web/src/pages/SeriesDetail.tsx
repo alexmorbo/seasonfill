@@ -17,6 +17,7 @@ import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
 import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
 import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
 import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
+import { TorrentsSection } from '@/components/torrents/TorrentsSection';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
@@ -141,10 +142,7 @@ export function SeriesDetail() {
             {...(data.recent ? { recent: data.recent } : {})}
           />
 
-          {/* Torrents — still a placeholder (K-1). */}
-          <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border-faint bg-bg-surface/30 px-4 py-3 text-[12px] text-tx-faint">
-            <span data-testid="placeholder-torrents">{t('seriesDetail.placeholders.torrents')}</span>
-          </div>
+          <TorrentsSection instance={instance} seriesId={seriesId} />
 
           <SeasonsAccordion
             instance={instance}

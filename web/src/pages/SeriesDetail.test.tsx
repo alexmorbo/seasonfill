@@ -113,8 +113,8 @@ describe('<SeriesDetail />', () => {
     expect(screen.queryByTestId('placeholder-seasons')).not.toBeInTheDocument();
     expect(screen.queryByTestId('placeholder-cast')).not.toBeInTheDocument();
     expect(screen.queryByTestId('placeholder-recommendations')).not.toBeInTheDocument();
-    // Torrents placeholder still there until K-1:
-    expect(screen.getByTestId('placeholder-torrents')).toBeInTheDocument();
+    // Torrents placeholder is gone — K-1 mounts the real TorrentsSection.
+    expect(screen.queryByTestId('placeholder-torrents')).not.toBeInTheDocument();
   });
 
   it('renders the Sonarr-only state with no TMDB blocks', async () => {
