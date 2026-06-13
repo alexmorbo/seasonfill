@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 )
 
 // EnrichmentBundle groups the dispatcher + the nightly job closure
@@ -43,6 +44,11 @@ type EnrichmentBundle struct {
 	// HTTP MediaHandler in main.go uses the SAME proxy for its
 	// lost-object refetch path.
 	MediaHTTP *http.Client
+	// 305: true when the OMDb budget guard is backed by the DB
+	// QuotaCounter. main.go uses this to decide whether to register
+	// the legacy `omdb-budget-reset` cron (in-process path) or
+	// the daily `quota-counter-gc` cron (DB-backed path).
+	UsesQuotaCounter bool
 }
 
 // wireEnrichment builds the dispatcher + nightly stale scan closure.
@@ -54,6 +60,7 @@ func wireEnrichment(
 	extSub *ExternalServicesSubscriber,
 	repos enrichmentRepoBundle,
 	tx appenrich.Transactor,
+	quotaCounter quota.QuotaCounter,
 	log *slog.Logger,
 ) (*EnrichmentBundle, error) {
 	settings := extSub.Get(infraextsvc.ServiceTMDB)
@@ -186,7 +193,16 @@ func wireEnrichment(
 			return nil, fmt.Errorf("omdb client: %w", err)
 		}
 		omdbHolder = &omdbClientHolder{inner: omdbClient}
-		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
+		// 305: Story 305 — DB-backed quota counter when available;
+		// fall back to in-process for backward-compat (and as a
+		// degrade path when the DB row is unreadable). quotaCounter
+		// is nil when main.go fails to construct the repo (defensive).
+		if quotaCounter != nil {
+			omdbBudget = appenrich.NewOMDbBudgetGuardDB(
+				appenrich.DefaultOMDbBudget, quotaCounter, log, nil)
+		} else {
+			omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
+		}
 
 		omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
 			Client:  omdbHolder.get,
@@ -323,14 +339,15 @@ func wireEnrichment(
 		mediaDownloader.Start(rootCtx)
 	}
 	return &EnrichmentBundle{
-		Dispatcher:      dispatcher,
-		Nightly:         nightly,
-		ColdStart:       coldStart,
-		OMDbDailyBatch:  omdbDailyBatch,
-		OMDbBudgetReset: omdbBudgetReset,
-		MediaEnqueuer:   mediaEnqueuer,
-		MediaDownloader: mediaDownloader,
-		MediaHTTP:       httpClient,
+		Dispatcher:       dispatcher,
+		Nightly:          nightly,
+		ColdStart:        coldStart,
+		OMDbDailyBatch:   omdbDailyBatch,
+		OMDbBudgetReset:  omdbBudgetReset,
+		MediaEnqueuer:    mediaEnqueuer,
+		MediaDownloader:  mediaDownloader,
+		MediaHTTP:        httpClient,
+		UsesQuotaCounter: quotaCounter != nil && omdbBudget != nil,
 	}, nil
 }
 

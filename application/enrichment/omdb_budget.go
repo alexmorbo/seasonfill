@@ -1,81 +1,229 @@
 // Package enrichment — Story 213 OMDb budget guard.
 //
-// OMDbBudgetGuard is a process-global counter capping OMDb calls per
-// day. Initial budget is configurable; default 900 (PRD §5.5). The
-// counter resets to the initial value via Reset(); the wiring layer
-// schedules Reset() at 04:00 local time via the cron registry.
+// OMDbBudgetGuard caps OMDb calls per day. Story 305 made the
+// underlying counter DB-backed via the quota.QuotaCounter port so
+// pod restarts no longer reset the count — the upstream's daily
+// reset boundary (UTC midnight) is the single source of truth.
 //
-// Concurrency: Reserve() is lock-free (atomic CAS); Reset() is a
-// Store under the same field. The metric callback reads via Load,
-// also lock-free.
+// Window: daily UTC. OMDb itself resets at UTC midnight, so the
+// guard mirrors that — see internal/runtime/quota.Daily(t, time.UTC).
 //
-// Restart caveat: the counter is in-process only. A pod restart
-// zeroes the counter (re-initialises to the configured budget) while
-// the upstream OMDb daily-cap keeps accruing. Worst case after a
-// restart-storm: the upstream returns "Daily limit reached!" and the
-// worker journals outcome=auth_failed. This is documented in the
-// story risk section; the budget guard is best-effort.
+// Backwards compat: the legacy in-process Reserve/Remaining/Reset
+// contract is preserved so the OMDb worker (which depends on the
+// OMDbBudget interface in omdb_worker.go) does not need changes.
+//
+// Concurrency: Reserve and Remaining call into the DB on every
+// hit. OMDb is rate-limited to ≤900 calls/day so the QPS is ≤1/m
+// at peak — the DB round-trip is invisible vs. the OMDb HTTP call
+// it guards.
+//
+// Restart behaviour (the bug Story 305 fixes): after pod restart
+// the counter is rehydrated from the DB row for the current UTC
+// day. No more "300 free calls after every restart" loophole.
 
 package enrichment
 
 import (
+	"context"
+	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/VictoriaMetrics/metrics"
+
+	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 )
 
 // DefaultOMDbBudget is the per-day cap PRD §5.5 prescribes. 900 with
 // 100 calls of headroom under the upstream 1000/day limit.
 const DefaultOMDbBudget = 900
 
+// OMDbServiceName is the canonical service identifier used in the
+// quota_state table and the `service` metric label. Exported so the
+// metrics exporter goroutine + the GC sweeper can name it without
+// stringly-coupling.
+const OMDbServiceName = "omdb"
+
+// quotaClock is package-injectable for tests.
+type quotaClock func() time.Time
+
 // OMDbBudgetGuard is the production OMDbBudget impl. Construct via
-// NewOMDbBudgetGuard; call Reset() at 04:00 daily.
+// NewOMDbBudgetGuard (in-process fallback) or NewOMDbBudgetGuardDB
+// (DB-backed, the production wiring).
 type OMDbBudgetGuard struct {
 	initial int64
-	current atomic.Int64
+	// fallback is consulted when counter is nil (the OMDbBudgetGuard
+	// constructed by the legacy in-process constructor). When counter
+	// is set, fallback is unused.
+	fallback atomic.Int64
+	counter  quota.QuotaCounter
+	clock    quotaClock
+	logger   *slog.Logger
 }
 
-// NewOMDbBudgetGuard constructs a budget seeded at initial. initial
-// ≤0 falls back to DefaultOMDbBudget. The metric
-// `seasonfill_omdb_quota_remaining_guess` is registered on first
-// call; subsequent constructors reuse it (GetOrCreateGauge is
-// idempotent on label-set).
+// NewOMDbBudgetGuard preserves the legacy in-process constructor so
+// existing call sites (and the unit tests in omdb_budget_test.go)
+// continue to work. Storage is in-process atomic; the counter is
+// NOT DB-backed by this constructor.
 func NewOMDbBudgetGuard(initial int) *OMDbBudgetGuard {
 	if initial <= 0 {
 		initial = DefaultOMDbBudget
 	}
-	g := &OMDbBudgetGuard{initial: int64(initial)}
-	g.current.Store(int64(initial))
+	g := &OMDbBudgetGuard{
+		initial: int64(initial),
+		clock:   func() time.Time { return time.Now().UTC() },
+		logger:  slog.Default(),
+	}
+	g.fallback.Store(int64(initial))
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
-		return float64(g.current.Load())
+		return float64(g.Remaining())
 	})
 	return g
 }
 
-// Reserve atomically decrements when the counter is >0. Returns true
-// on success, false when the counter is zero (caller should skip
-// without error). Lock-free CAS loop.
+// NewOMDbBudgetGuardDB constructs the production guard backed by a
+// DB-persisted QuotaCounter. `initial` is the per-day cap (defaults
+// to DefaultOMDbBudget when ≤0); `counter` is the durable store.
+// Pass clock=nil to use time.Now().UTC().
+//
+// Registers BOTH the legacy gauge (`seasonfill_omdb_quota_remaining_guess`,
+// preserved for dashboard back-compat) and the generic gauge
+// (`seasonfill_external_service_quota_used{service="omdb"}`).
+func NewOMDbBudgetGuardDB(initial int, counter quota.QuotaCounter, logger *slog.Logger, clock func() time.Time) *OMDbBudgetGuard {
+	if initial <= 0 {
+		initial = DefaultOMDbBudget
+	}
+	if clock == nil {
+		clock = func() time.Time { return time.Now().UTC() }
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	g := &OMDbBudgetGuard{
+		initial: int64(initial),
+		counter: counter,
+		clock:   clock,
+		logger:  logger,
+	}
+	// Legacy gauge — guarded by metrics.GetOrCreateGauge's
+	// idempotency on (name,labelset). Returns "estimated remaining"
+	// based on a single Get; lag-tolerant (the exporter goroutine in
+	// main.go publishes a periodic snapshot).
+	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
+		return float64(g.Remaining())
+	})
+	// Generic gauge — used count (not remaining). Labelled by service.
+	metrics.GetOrCreateGauge(`seasonfill_external_service_quota_used{service="omdb"}`, func() float64 {
+		used, _ := g.UsedAndCap()
+		return float64(used)
+	})
+	return g
+}
+
+// currentWindow returns the daily UTC window for the current clock.
+// OMDb's reset boundary is UTC midnight so the call is parameterless.
+func (g *OMDbBudgetGuard) currentWindow() time.Time {
+	return quota.Daily(g.clock(), time.UTC)
+}
+
+// Reserve atomically consumes one slot from the daily budget when
+// available. Returns true on success, false when the daily cap has
+// been hit. The OMDbWorker treats false as a no-error skip (logs +
+// no journal write); see omdb_worker.go.
+//
+// DB-backed path: Increment is "INSERT ... ON CONFLICT DO UPDATE"
+// which returns the post-update count. The cap comparison happens
+// AFTER the bump — this means one "phantom" call past the cap can
+// occur in a multi-pod race (pod A bumps to 900, pod B bumps to
+// 901 in parallel). Worst case: the OMDb upstream returns
+// "Daily limit reached!" once per restart, which Story 213's
+// auth_failed dispatch already handles gracefully.
 func (g *OMDbBudgetGuard) Reserve() bool {
-	for {
-		cur := g.current.Load()
-		if cur <= 0 {
-			return false
-		}
-		if g.current.CompareAndSwap(cur, cur-1) {
-			return true
+	if g.counter == nil {
+		// Legacy in-process path — Reserve via CAS loop on fallback.
+		for {
+			cur := g.fallback.Load()
+			if cur <= 0 {
+				return false
+			}
+			if g.fallback.CompareAndSwap(cur, cur-1) {
+				return true
+			}
 		}
 	}
+
+	w := g.currentWindow()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	n, err := g.counter.Increment(ctx, OMDbServiceName, w)
+	if err != nil {
+		// DB transient — degrade open. The next Reserve will retry;
+		// the auth_failed sync_log entry is the upstream-enforced
+		// failsafe.
+		g.logger.WarnContext(ctx, "enrichment.omdb.budget.increment_failed",
+			slog.String("error", err.Error()))
+		return true
+	}
+	return int64(n) <= g.initial
 }
 
-// Remaining returns the current counter — log / observability surface.
+// Remaining estimates the current remaining headroom for the daily
+// window. Used by log + the legacy gauge. Returns DefaultOMDbBudget
+// when the DB read fails (degrade open — better to under-report
+// pressure than to spuriously trip the OMDbDailyBatch logging).
 func (g *OMDbBudgetGuard) Remaining() int {
-	return int(g.current.Load())
+	if g.counter == nil {
+		return int(g.fallback.Load())
+	}
+	w := g.currentWindow()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	used, err := g.counter.Get(ctx, OMDbServiceName, w)
+	if err != nil {
+		g.logger.WarnContext(ctx, "enrichment.omdb.budget.get_failed",
+			slog.String("error", err.Error()))
+		return int(g.initial)
+	}
+	r := int(g.initial) - used
+	if r < 0 {
+		return 0
+	}
+	return r
 }
 
-// Reset restores the counter to its initial value. Called by the
-// 04:00 cron job. Logging is the caller's responsibility (the
-// scheduler closure logs before calling Reset so the line carries
-// the "what reset" context).
+// UsedAndCap returns (used, cap) for the current window. Used by
+// the generic metric exporter so the gauge value reflects calls
+// CONSUMED, not "remaining headroom".
+func (g *OMDbBudgetGuard) UsedAndCap() (int, int) {
+	if g.counter == nil {
+		used := int(g.initial) - int(g.fallback.Load())
+		if used < 0 {
+			used = 0
+		}
+		return used, int(g.initial)
+	}
+	w := g.currentWindow()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	used, err := g.counter.Get(ctx, OMDbServiceName, w)
+	if err != nil {
+		return 0, int(g.initial)
+	}
+	return used, int(g.initial)
+}
+
+// Reset is the no-op compatibility shim for the legacy `omdb-budget-reset`
+// cron job. The DB-backed guard does not need explicit reset — the
+// daily window key rotates at UTC midnight and a fresh row is
+// auto-created on the next Increment. main.go REMOVES the cron
+// registration; this method exists so the OMDbBudgetReset closure
+// in enrichment_wiring.go keeps compiling if (future-proofing) a
+// caller still needs the symbol. In-process path delegates to
+// fallback.Store(initial) for back-compat.
 func (g *OMDbBudgetGuard) Reset() {
-	g.current.Store(g.initial)
+	if g.counter == nil {
+		g.fallback.Store(g.initial)
+		return
+	}
+	// DB path: no-op. The window rotates naturally.
 }

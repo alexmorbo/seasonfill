@@ -164,6 +164,13 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		slog.String("source", string(tzResolver.Source())))
 	timezoneHandler := handlers.NewTimezoneHandler(tzResolver, log)
 
+	// Story 305: generic DB-backed rate-limit counter. Currently
+	// consumed by the OMDb budget guard (replaces the in-process
+	// counter that zeroed on every pod restart). Other external-
+	// service clients can opt in by injecting `quotaCounter` and
+	// switching their guard to the QuotaCounter port.
+	quotaCounter := repositories.NewQuotaCounterRepository(db)
+
 	// Seed runtime_config from Defaults() on a truly-fresh install.
 	row, err := runtimeRepo.Get(bgCtx)
 	switch {
@@ -921,7 +928,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,
 	}
-	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
+	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, quotaCounter, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}
@@ -951,7 +958,12 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// 04:30 — fan out library series with stale OMDb sync into the
 	// enrichment dispatcher at PriorityCold.
 	if bootScheduler != nil && enrichBundle != nil {
-		if enrichBundle.OMDbBudgetReset != nil {
+		// 305: in the DB-backed path the budget guard rotates at UTC
+		// midnight implicitly — no explicit Reset needed. Only the
+		// in-process fallback (no QuotaCounter) keeps the daily reset
+		// cron, because its atomic counter must be Store(initial) at
+		// midnight to refill.
+		if !enrichBundle.UsesQuotaCounter && enrichBundle.OMDbBudgetReset != nil {
 			if err := bootScheduler.Register("omdb-budget-reset", "0 4 * * *",
 				enrichBundle.OMDbBudgetReset); err != nil {
 				return nil, fmt.Errorf("register omdb budget reset: %w", err)
@@ -962,6 +974,26 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 				enrichBundle.OMDbDailyBatch); err != nil {
 				return nil, fmt.Errorf("register omdb daily batch: %w", err)
 			}
+		}
+		// 305: daily GC sweep for the external_service_quota_state
+		// table. Deletes windows older than 7 days so the table stays
+		// bounded at #services × 7 rows at steady state. Runs at
+		// 04:15 — between budget-reset (which is skipped in DB-mode)
+		// and omdb-daily-batch (which runs at 04:30).
+		if err := bootScheduler.Register("quota-counter-gc", "15 4 * * *",
+			func(ctx context.Context) {
+				cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+				deleted, err := quotaCounter.Reset(ctx, cutoff)
+				if err != nil {
+					log.WarnContext(ctx, "quota.counter.gc.failed",
+						slog.String("error", err.Error()))
+					return
+				}
+				log.InfoContext(ctx, "quota.counter.gc.swept",
+					slog.Time("cutoff", cutoff),
+					slog.Int64("deleted_rows", deleted))
+			}); err != nil {
+			return nil, fmt.Errorf("register quota-counter-gc: %w", err)
 		}
 	}
 

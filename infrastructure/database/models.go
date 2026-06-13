@@ -225,6 +225,20 @@ type AppSettingsModel struct {
 
 func (AppSettingsModel) TableName() string { return "app_settings" }
 
+// QuotaStateModel — generic external-service rate-limit counter state.
+// One row per (service_name, window_start) pair; rows are upserted on
+// every Increment via clause.OnConflict. GC sweep deletes rows where
+// window_start < (now - retention). See internal/runtime/quota for the
+// window-derivation helpers and the port contract.
+type QuotaStateModel struct {
+	ServiceName string    `gorm:"primaryKey;size:64;column:service_name"`
+	WindowStart time.Time `gorm:"primaryKey;column:window_start"`
+	Count       int       `gorm:"not null;default:0;column:count"`
+	UpdatedAt   time.Time `gorm:"column:updated_at"`
+}
+
+func (QuotaStateModel) TableName() string { return "external_service_quota_state" }
+
 // SonarrInstanceModel — one row per Sonarr instance. Secret api_key
 // is held in instance_secret to keep this row free of PII.
 type SonarrInstanceModel struct {
