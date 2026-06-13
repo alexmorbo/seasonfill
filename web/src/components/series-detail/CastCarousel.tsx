@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
@@ -12,6 +13,9 @@ export interface CastCarouselProps {
   readonly seriesId: number;
   readonly cast: readonly CastMember[] | undefined;
   readonly className?: string | undefined;
+  // Optional badge rendered inline with the section heading
+  // (used for per-section StaleBadge wire-up from SeriesDetail).
+  readonly staleBadge?: ReactNode;
 }
 
 function initials(name: string | undefined): string {
@@ -20,7 +24,7 @@ function initials(name: string | undefined): string {
   return parts.map((p) => p.charAt(0).toUpperCase()).join('') || '?';
 }
 
-export function CastCarousel({ instance, seriesId, cast, className }: CastCarouselProps) {
+export function CastCarousel({ instance, seriesId, cast, className, staleBadge }: CastCarouselProps) {
   const { t } = useTranslation();
   const items = (cast ?? []).slice(0, 10);
   if (items.length === 0) return null;
@@ -34,9 +38,10 @@ export function CastCarousel({ instance, seriesId, cast, className }: CastCarous
       <div className="flex items-center justify-between gap-3">
         <h2
           id="cast-carousel-heading"
-          className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint"
+          className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint"
         >
           {t('seriesDetail.cast.label')}
+          {staleBadge}
         </h2>
         <Link
           to={`/series/${encodeURIComponent(instance)}/${seriesId}/cast`}

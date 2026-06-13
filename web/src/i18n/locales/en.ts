@@ -1716,6 +1716,12 @@ export const en = {
       trailer: 'Trailer',
       monitored: 'Monitored',
     },
+    trailer: {
+      fallbackTitle: 'Trailer',
+    },
+    awards: {
+      label: 'Awards',
+    },
     status: {
       continuing: 'Continuing',
       ended: 'Ended',

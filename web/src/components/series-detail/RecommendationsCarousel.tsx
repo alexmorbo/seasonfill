@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Plus, Star } from 'lucide-react';
@@ -11,6 +12,9 @@ export interface RecommendationsCarouselProps {
   readonly recommendations: readonly Recommendation[] | undefined;
   readonly limit?: number;
   readonly className?: string | undefined;
+  // Optional badge rendered inline with the section heading
+  // (used for per-section StaleBadge wire-up from SeriesDetail).
+  readonly staleBadge?: ReactNode;
 }
 
 interface RecCardProps {
@@ -101,7 +105,7 @@ function RecCard({ rec }: RecCardProps) {
 }
 
 export function RecommendationsCarousel({
-  recommendations, limit = 8, className,
+  recommendations, limit = 8, className, staleBadge,
 }: RecommendationsCarouselProps) {
   const { t } = useTranslation();
   const items = (recommendations ?? []).slice(0, limit);
@@ -114,9 +118,10 @@ export function RecommendationsCarousel({
     >
       <h2
         id="recommendations-heading"
-        className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint"
+        className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint"
       >
         {t('seriesDetail.recommendations.label')}
+        {staleBadge}
       </h2>
       <div
         className={cn(

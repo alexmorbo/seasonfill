@@ -1714,6 +1714,12 @@ export const ru: Translations = {
       trailer: 'Трейлер',
       monitored: 'Отслеживается',
     },
+    trailer: {
+      fallbackTitle: 'Трейлер',
+    },
+    awards: {
+      label: 'Награды',
+    },
     status: {
       continuing: 'В эфире',
       ended: 'Завершён',

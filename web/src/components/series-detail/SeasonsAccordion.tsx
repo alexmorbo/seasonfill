@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
@@ -20,6 +21,9 @@ export interface SeasonsAccordionProps {
   readonly seasons: readonly Season[] | undefined;
   readonly lang?: string | undefined;
   readonly className?: string | undefined;
+  // Optional badge rendered inline with the section heading
+  // (used for per-section StaleBadge wire-up from SeriesDetail).
+  readonly staleBadge?: ReactNode;
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
@@ -119,7 +123,7 @@ function SeasonAccordionItem({
 }
 
 export function SeasonsAccordion({
-  instance, seriesId, seasons, lang, className,
+  instance, seriesId, seasons, lang, className, staleBadge,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
@@ -133,9 +137,10 @@ export function SeasonsAccordion({
     >
       <h2
         id="seasons-accordion-heading"
-        className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint px-1"
+        className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint px-1"
       >
         {t('seriesDetail.seasons.label')}
+        {staleBadge}
       </h2>
       {sorted.length === 0 ? (
         <div className="text-[12px] text-tx-faint px-1 py-2">{t('seriesDetail.seasons.none')}</div>

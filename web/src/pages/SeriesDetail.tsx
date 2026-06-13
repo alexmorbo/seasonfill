@@ -15,6 +15,8 @@ import { KeywordChips } from '@/components/series-detail/KeywordChips';
 import { CastCarousel } from '@/components/series-detail/CastCarousel';
 import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
 import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
+import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
+import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
@@ -36,6 +38,7 @@ export function SeriesDetail() {
   const omdbDegraded = isDegraded(data, 'omdb');
   const tmdbStaleAt = tmdbDegraded ? data?.synced_at : undefined;
   const imdbStaleAt = omdbDegraded ? data?.synced_at : undefined;
+  const syncedAt = data?.synced_at;
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
@@ -50,6 +53,13 @@ export function SeriesDetail() {
       </div>
     );
   }
+
+  // Per-section TMDB stale affordance — passed into each carousel/accordion
+  // via the `staleBadge` slot so it renders inline with the existing
+  // section heading instead of double-wrapping with a second header row.
+  const tmdbStaleSlot = tmdbDegraded && syncedAt
+    ? <StaleBadge asOf={syncedAt} source="tmdb" />
+    : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -90,16 +100,11 @@ export function SeriesDetail() {
             <div className="flex flex-col gap-3 min-w-0">
               <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
                 {t('seriesDetail.overview.label')}
-                {data.overview?.language && data.overview.language !== (lang ?? 'en')
-                  && data.overview.language.toLowerCase().startsWith('en')
-                  && (lang ?? 'en').toLowerCase().startsWith('ru') && (
-                  <span
-                    className="rounded border border-border-subtle text-tx-muted px-1.5 py-0 text-[9.5px] font-semibold"
-                    data-testid="overview-lang-fallback"
-                  >
-                    EN
-                  </span>
-                )}
+                <LanguageFallbackTag
+                  contentLang={data.overview?.language}
+                  {...(lang ? { requestedLang: lang } : {})}
+                  testid="overview-lang-fallback"
+                />
               </div>
               <p data-testid="overview-text" className="text-[13.5px] leading-relaxed text-tx-secondary whitespace-pre-line">
                 {data.overview?.overview || t('seriesDetail.overview.empty')}
@@ -122,14 +127,11 @@ export function SeriesDetail() {
                   <KeywordChips chips={data.overview.keywords} />
                 </div>
               )}
-              {!omdbDegraded && data.overview?.awards && (
-                <div
-                  data-testid="overview-awards"
-                  className="flex items-center gap-2 rounded-lg border border-border-faint bg-bg-surface/60 px-4 py-3 text-[12.5px] text-tx-secondary"
-                >
-                  {data.overview.awards}
-                </div>
-              )}
+              <AwardsBlock
+                awards={data.overview?.awards}
+                omdbDegraded={omdbDegraded}
+                {...(syncedAt ? { syncedAt } : {})}
+              />
             </aside>
           </div>
 
@@ -149,23 +151,28 @@ export function SeriesDetail() {
             seriesId={seriesId}
             seasons={data.seasons}
             {...(lang ? { lang } : {})}
+            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
           />
 
           <CastCarousel
             instance={instance}
             seriesId={seriesId}
             cast={data.cast}
+            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
           />
 
-          <RecommendationsCarousel recommendations={data.recommendations} />
+          <RecommendationsCarousel
+            recommendations={data.recommendations}
+            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
+          />
 
           <ExternalLinksFooter {...(data.external_links ? { links: data.external_links } : {})} />
 
-          {data.synced_at && (
+          {syncedAt && (
             <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">
-              <span>{t('seriesDetail.synced', { time: new Date(data.synced_at).toLocaleString(lang) })}</span>
-              {tmdbDegraded && <StaleBadge asOf={data.synced_at} source="tmdb" />}
-              {omdbDegraded && <StaleBadge asOf={data.synced_at} source="omdb" />}
+              <span>{t('seriesDetail.synced', { time: new Date(syncedAt).toLocaleString(lang) })}</span>
+              {tmdbDegraded && <StaleBadge asOf={syncedAt} source="tmdb" />}
+              {omdbDegraded && <StaleBadge asOf={syncedAt} source="omdb" />}
             </div>
           )}
         </>

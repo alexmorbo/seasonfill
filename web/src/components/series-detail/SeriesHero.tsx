@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, Play, BookmarkCheck, Ellipsis } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,7 @@ import { mediaUrl, parseStatus, isSonarrOnly, type SeriesHero as HeroDTO } from 
 import { StatusPill } from './StatusPill';
 import { RatingDuo } from './RatingDuo';
 import { StaleBadge } from './StaleBadge';
+import { TrailerModal } from './TrailerModal';
 
 export interface SeriesHeroProps {
   readonly instance: string;
@@ -43,13 +44,24 @@ export function SeriesHero({
   const contentRating = hero?.content_rating;
   const backdropSrc = mediaUrl(hero?.backdrop_asset);
   const posterSrc = mediaUrl(hero?.poster_asset);
-  const trailerKey = hero?.trailer?.key;
-  const showTrailer = Boolean(trailerKey) && !sonarrOnly;
+  const trailer = hero?.trailer;
+  const trailerKey = trailer?.key;
+  const trailerSite = trailer?.site;
+  // Hide the button when:
+  //  - no key, OR
+  //  - site is set and is not YouTube (composer only emits YouTube in
+  //    v1 per design brief §2.1, but the type allows other strings —
+  //    guard defensively against future video sources we can't embed).
+  const showTrailer = Boolean(trailerKey)
+    && !sonarrOnly
+    && (!trailerSite || trailerSite.toLowerCase() === 'youtube');
   const sonarrHref = sonarrPublic
     ? buildSonarrSeriesHref(sonarrPublic, titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title))
     : undefined;
   const monogram = (title.charAt(0) || '?').toUpperCase();
   const showRatings = !sonarrOnly && (hero?.tmdb_rating || hero?.imdb_rating);
+
+  const [trailerOpen, setTrailerOpen] = useState(false);
 
   return (
     <section
@@ -186,16 +198,14 @@ export function SeriesHero({
                 </a>
               </Button>
             )}
-            {showTrailer && (
-              <Button asChild size="sm" data-testid="hero-action-trailer">
-                <a
-                  href={`https://www.youtube.com/watch?v=${trailerKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                  {t('seriesDetail.hero.trailer')}
-                </a>
+            {showTrailer && trailerKey && (
+              <Button
+                size="sm"
+                data-testid="hero-action-trailer"
+                onClick={() => setTrailerOpen(true)}
+              >
+                <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                {t('seriesDetail.hero.trailer')}
               </Button>
             )}
             <Button variant="outline" size="sm" data-testid="hero-action-monitored" disabled>
@@ -208,6 +218,15 @@ export function SeriesHero({
           </div>
         </div>
       </div>
+
+      {showTrailer && trailerKey && (
+        <TrailerModal
+          open={trailerOpen}
+          onOpenChange={setTrailerOpen}
+          youtubeKey={trailerKey}
+          {...(trailer?.name ? { name: trailer.name } : {})}
+        />
+      )}
     </section>
   );
 }
