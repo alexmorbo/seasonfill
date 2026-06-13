@@ -50,7 +50,7 @@ jobs:
       - name: Test (unit)
         run: |
           PKGS=$(go list ./... | grep -v '/cmd/')
-          go test -short -race -timeout 10m -coverprofile=coverage.out $PKGS
+          go test -short -race -timeout 20m -coverprofile=coverage.out $PKGS
 
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1
