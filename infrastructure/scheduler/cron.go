@@ -45,14 +45,33 @@ type registeredEntry struct {
 	entryID  cron.EntryID
 }
 
-// New constructs a Scheduler. The schedule + jitter arguments are
-// retained for backwards-compat with the existing call site (they
-// configure the scan job when Start(ctx, scanUC) is called). New
-// callers can pass empty strings and use Register/StartRegistered.
+// New constructs a Scheduler bound to UTC. The schedule + jitter
+// arguments are retained for backwards-compat with the existing
+// call site (they configure the scan job when Start(ctx, scanUC)
+// is called). New callers can pass empty strings and use
+// Register/StartRegistered.
+//
+// Prefer NewWithLocation when the timezone resolver is available —
+// this entrypoint is kept only because reload tests + the legacy
+// SchedulerFactory shape still depend on the 3-arg signature.
 func New(schedule string, jitter time.Duration, logger *slog.Logger) *Scheduler {
-	c := cron.New(cron.WithParser(cron.NewParser(
-		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
-	)))
+	return NewWithLocation(schedule, jitter, logger, time.UTC)
+}
+
+// NewWithLocation is the timezone-aware constructor. loc is passed
+// to cron.WithLocation so every registered job's schedule is
+// interpreted in that timezone. loc must be non-nil; callers
+// should defer to tz.Resolver.Get() which guarantees non-nil.
+func NewWithLocation(schedule string, jitter time.Duration, logger *slog.Logger, loc *time.Location) *Scheduler {
+	if loc == nil {
+		loc = time.UTC
+	}
+	c := cron.New(
+		cron.WithParser(cron.NewParser(
+			cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+		)),
+		cron.WithLocation(loc),
+	)
 	return &Scheduler{
 		cron:     c,
 		logger:   logger,

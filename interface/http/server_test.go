@@ -263,6 +263,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
+		nil, // timezoneHandler (Story 301)
 		lg)
 }
 
@@ -321,6 +322,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
+		nil, // timezoneHandler (Story 301)
 		lg)
 }
 
@@ -493,6 +495,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
+		nil, // timezoneHandler (Story 301)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

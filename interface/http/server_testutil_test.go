@@ -30,5 +30,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
+		nil, // timezoneHandler (Story 301)
 		logger)
 }

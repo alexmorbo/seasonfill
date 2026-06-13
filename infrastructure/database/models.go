@@ -213,6 +213,18 @@ type RuntimeConfigModel struct {
 
 func (RuntimeConfigModel) TableName() string { return "runtime_config" }
 
+// AppSettingsModel — singleton (id=1) row holding cross-cutting
+// app-level settings. Today: only timezone. Future: locale,
+// theme. Kept separate from RuntimeConfigModel so the watchdog +
+// reload-bus surface there stays untouched.
+type AppSettingsModel struct {
+	ID        uint    `gorm:"primaryKey;default:1"`
+	Timezone  *string `gorm:"size:64"` // NULL = use env / UTC fallback
+	UpdatedAt time.Time
+}
+
+func (AppSettingsModel) TableName() string { return "app_settings" }
+
 // SonarrInstanceModel — one row per Sonarr instance. Secret api_key
 // is held in instance_secret to keep this row free of PII.
 type SonarrInstanceModel struct {

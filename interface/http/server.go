@@ -69,6 +69,7 @@ func NewServer(
 	peopleHandler *handlers.PeopleHandler,
 	seriesRefreshHandler *handlers.SeriesRefreshHandler,
 	seriesTorrentsHandler *handlers.SeriesTorrentsHandler,
+	timezoneHandler *handlers.TimezoneHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -256,6 +257,10 @@ func NewServer(
 		guarded.POST("/scans/:id/cancel", scanHandler.Cancel)
 		guarded.GET("/config/runtime", runtimeConfigHandler.Get)
 		guarded.PUT("/config/runtime", runtimeConfigHandler.Update)
+		if timezoneHandler != nil {
+			guarded.GET("/settings/timezone", timezoneHandler.Get)
+			guarded.PATCH("/settings/timezone", timezoneHandler.Patch)
+		}
 
 		oidcTestHandler := handlers.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
 		guarded.POST("/auth/oidc/test", oidcTestHandler.Test)

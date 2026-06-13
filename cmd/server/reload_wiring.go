@@ -202,6 +202,7 @@ func startSubscribers(
 	log *slog.Logger,
 
 	bootScheduler *scheduler.Scheduler,
+	schedulerFactory reload.SchedulerFactory,
 	scanUC *scan.UseCase,
 	bootClients map[string]ports.SonarrClient,
 	clientFactory reload.SonarrClientFactory,
@@ -220,7 +221,7 @@ func startSubscribers(
 	clientSecretEnv string,
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
 	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
-		reload.SchedulerFactory(scheduler.New), log)
+		schedulerFactory, log)
 	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
 		WithWaitGroup(bgWG).
 		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, regrabLoop, torrentsyncLoop, qbitLoader, log))

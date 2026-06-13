@@ -54,6 +54,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
 )
 
 func main() {
@@ -150,6 +151,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		return nil, fmt.Errorf("derive cipher: %w", err)
 	}
 	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
+
+	// Story 301: app-level settings (id=1) — currently only the
+	// operator-selected timezone. Built early so the scheduler
+	// factory and the HTTP handler share the same Resolver. The
+	// store is the GORM-backed app_settings repo; the v36 seed
+	// guarantees a singleton row exists.
+	appSettingsRepo := repositories.NewAppSettingsRepository(db)
+	tzResolver := tz.New(bgCtx, appSettingsRepo, log)
+	log.Info("timezone resolver",
+		slog.String("name", tzResolver.Name()),
+		slog.String("source", string(tzResolver.Source())))
+	timezoneHandler := handlers.NewTimezoneHandler(tzResolver, log)
 
 	// Seed runtime_config from Defaults() on a truly-fresh install.
 	row, err := runtimeRepo.Get(bgCtx)
@@ -775,7 +788,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
 		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler,
 		peopleHandler, seriesRefreshHandler,
-		seriesTorrentsHandler, log)
+		seriesTorrentsHandler, timezoneHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -813,9 +826,17 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// subscriber starts in the same state as the snapshot. Note:
 	// Start is deferred so Story 211 can Register the nightly
 	// enrichment job after extSub.Start primes TMDB settings.
+	// Story 301: closure factory captures the resolver's current
+	// location at construction time. Built fresh on each scheduler
+	// rebuild (boot + reload) so a pod restart picks up the
+	// PATCH'd value. Already-running jobs do NOT pick up live
+	// PATCHes — see story known_limitations.
+	schedulerFactory := func(schedule string, jitter time.Duration, logger *slog.Logger) *scheduler.Scheduler {
+		return scheduler.NewWithLocation(schedule, jitter, logger, tzResolver.Get())
+	}
 	var bootScheduler *scheduler.Scheduler
 	if cfg.Cron.Enabled {
-		bootScheduler = scheduler.New(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
+		bootScheduler = schedulerFactory(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
 	}
 
 	// Pull the AuthRuntime pointer out of the http server's auth
@@ -827,7 +848,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	}
 
 	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
-		bootScheduler, scanUC, sonarrClientsByName,
+		bootScheduler, reload.SchedulerFactory(schedulerFactory),
+		scanUC, sonarrClientsByName,
 		clientFactory, checker, wd, holder, sweeper,
 		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
 		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
