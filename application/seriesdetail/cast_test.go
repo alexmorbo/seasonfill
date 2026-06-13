@@ -337,3 +337,85 @@ func TestCastComposer_PersonRowMissing_SkippedGracefully(t *testing.T) {
 	require.Equal(t, 1, len(d.Cast), "missing person row → that entry skipped")
 	require.Equal(t, int64(1), d.Cast[0].Person.ID)
 }
+
+func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
+	deps, _, canon, _, _, _, _ := castBaseDeps(t)
+	// Replace the default canon row with a richer one so we can
+	// assert every summary field individually.
+	posterHash := "poster-asset-hash"
+	status := "Returning Series"
+	lastAir := time.Date(2025, 4, 13, 0, 0, 0, 0, time.UTC)
+	year := 2023
+	canon.rows[42] = series.Canon{
+		ID:           42,
+		Title:        "The Last of Us",
+		TMDBID:       intPtr(100),
+		PosterAsset:  &posterHash,
+		Status:       &status,
+		Year:         &year,
+		LastAirDate:  &lastAir,
+		InProduction: false,
+	}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Equal(t, "The Last of Us", d.Summary.Title)
+	require.NotNil(t, d.Summary.PosterAsset)
+	require.Equal(t, "poster-asset-hash", *d.Summary.PosterAsset)
+	require.Equal(t, "continuing", d.Summary.Status, "Returning Series → continuing")
+	require.NotNil(t, d.Summary.FirstAiredYear)
+	require.Equal(t, 2023, *d.Summary.FirstAiredYear)
+	require.NotNil(t, d.Summary.LastAiredYear)
+	require.Equal(t, 2025, *d.Summary.LastAiredYear)
+}
+
+func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
+	// Walk the mapStatusToken switch arms to lock the contract.
+	cases := []struct {
+		name         string
+		raw          *string
+		inProduction bool
+		want         string
+	}{
+		{"ended", strPtr("Ended"), false, "ended"},
+		{"canceled", strPtr("Canceled"), false, "canceled"},
+		{"upcoming", strPtr("Upcoming"), false, "upcoming"},
+		{"planned", strPtr("Planned"), false, "upcoming"},
+		{"continuing", strPtr("Continuing"), false, "continuing"},
+		{"in_production", strPtr("In Production"), false, "in_production"},
+		{"post_production_excluded", strPtr("Post Production"), false, "unknown"},
+		{"inProduction_only", nil, true, "in_production"},
+		{"empty", nil, false, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps, _, canon, _, _, _, _ := castBaseDeps(t)
+			canon.rows[42] = series.Canon{
+				ID:           42,
+				Title:        "X",
+				Status:       tc.raw,
+				InProduction: tc.inProduction,
+			}
+			c := NewCastComposer(deps)
+			d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, d.Summary.Status)
+		})
+	}
+}
+
+func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
+	deps, _, canon, _, _, _, _ := castBaseDeps(t)
+	canon.rows[42] = series.Canon{
+		ID:    42,
+		Title: "Stub series",
+	}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Nil(t, d.Summary.FirstAiredYear)
+	require.Nil(t, d.Summary.LastAiredYear)
+	require.Nil(t, d.Summary.PosterAsset)
+	require.Equal(t, "Stub series", d.Summary.Title)
+	require.Equal(t, "unknown", d.Summary.Status)
+}

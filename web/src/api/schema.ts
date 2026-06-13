@@ -2211,6 +2211,11 @@ export type paths = {
          *     the frontend uses to derive Main / Recurring /
          *     Guest badges from `episode_count /
          *     total_episode_count` (design-handoff Q3).
+         *
+         *     `series_summary` carries the lightweight title +
+         *     poster + status + year-range block the cast page
+         *     hero renders — keeps the page to a single API call
+         *     (story 303).
          */
         readonly get: {
             readonly parameters: {
@@ -3632,6 +3637,94 @@ export type paths = {
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/settings/timezone": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Get current timezone setting */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.TimezoneResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /** Update timezone setting */
+        readonly patch: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Timezone */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.TimezonePatchRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.TimezoneResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
         readonly trace?: never;
     };
     readonly "/watchdog/rollups": {
@@ -5211,6 +5304,7 @@ export type components = {
              * @example 42
              */
             readonly series_id?: number;
+            readonly series_summary?: components["schemas"]["dto.SeriesSummary"];
             /**
              * @description SonarrSeriesID is the Sonarr-side id from the URL.
              * @example 1
@@ -5377,6 +5471,52 @@ export type components = {
             /** @example 142 */
             readonly total?: number;
         };
+        /**
+         * @description SeriesSummary is the lightweight series-meta block the cast
+         *     page hero consumes (title + poster + status pill + year range)
+         *     without a second round-trip to the series-detail endpoint
+         *     (story 303). Always present when the response is 200 — the
+         *     canonical series row is loaded before this struct is built;
+         *     a missing canon row yields a 404, not a degraded summary.
+         */
+        readonly "dto.SeriesSummary": {
+            /**
+             * @description FirstAiredYear is the year the series first aired. nil when
+             *     neither Canon.Year nor a derived first-air date is known.
+             * @example 2023
+             */
+            readonly first_aired_year?: number;
+            /**
+             * @description LastAiredYear is the year of the most recent aired episode.
+             *     nil when the series has no LastAirDate (continuing series
+             *     with no released episodes yet, or stub canon).
+             * @example 2025
+             */
+            readonly last_aired_year?: number;
+            /**
+             * @description PosterURL is the media_assets hash for the series poster.
+             *     Wire name kept as `poster_url` per the design brief; value is
+             *     the content-addressed hash (frontend wraps with `mediaUrl()`).
+             *     nil when no poster has been hydrated yet.
+             */
+            readonly poster_url?: string;
+            /**
+             * @description Status is one of "continuing", "ended", "canceled",
+             *     "in_production", "upcoming", "unknown" — same token set
+             *     the series-detail hero emits, so the frontend's parseStatus()
+             *     helper accepts both.
+             * @example continuing
+             */
+            readonly status?: string;
+            /**
+             * @description Title is the canonical series title (no i18n on this surface —
+             *     the cast page hero matches the series detail hero's locale
+             *     only when the detail page already mounted its own SeriesText
+             *     fetch; the cast page uses the canonical title for simplicity).
+             * @example The Last of Us
+             */
+            readonly title?: string;
+        };
         readonly "dto.SeriesTorrentsResponse": {
             /**
              * @description Instance is the Sonarr instance the request hit.
@@ -5454,6 +5594,18 @@ export type components = {
             readonly language?: string;
             /** @example Drama */
             readonly name?: string;
+        };
+        readonly "dto.TimezonePatchRequest": {
+            /** @example Europe/Moscow */
+            readonly timezone?: string;
+        };
+        readonly "dto.TimezoneResponse": {
+            /** @example false */
+            readonly requires_restart?: boolean;
+            /** @example db */
+            readonly source?: string;
+            /** @example Europe/Moscow */
+            readonly timezone?: string;
         };
         readonly "dto.TorrentRow": {
             /**

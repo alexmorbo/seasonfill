@@ -92,8 +92,19 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 	persons := map[int64]people.Person{
 		1: {ID: 1, Name: "Pedro Pascal", TMDBID: &tmdbID},
 	}
+	poster := "poster-hash"
+	status := "Returning Series"
+	year := 2023
+	lastAir := time.Date(2025, 4, 13, 0, 0, 0, 0, time.UTC)
 	composer := newCastComposerForHandlerTest(
-		series.Canon{ID: 42, Title: "The Last of Us"},
+		series.Canon{
+			ID:          42,
+			Title:       "The Last of Us",
+			PosterAsset: &poster,
+			Status:      &status,
+			Year:        &year,
+			LastAirDate: &lastAir,
+		},
 		map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42)},
 		},
@@ -121,6 +132,16 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 	require.False(t, body.Cast[0].InLibrary)
 	// in_library boolean must surface even when false (not omitted).
 	require.Contains(t, rec.Body.String(), `"in_library":false`)
+
+	// series_summary projection — story 303.
+	require.Equal(t, "The Last of Us", body.SeriesSummary.Title)
+	require.NotNil(t, body.SeriesSummary.PosterURL)
+	require.Equal(t, "poster-hash", *body.SeriesSummary.PosterURL)
+	require.Equal(t, "continuing", body.SeriesSummary.Status, "Returning Series → continuing")
+	require.NotNil(t, body.SeriesSummary.FirstAiredYear)
+	require.Equal(t, 2023, *body.SeriesSummary.FirstAiredYear)
+	require.NotNil(t, body.SeriesSummary.LastAiredYear)
+	require.Equal(t, 2025, *body.SeriesSummary.LastAiredYear)
 }
 
 func TestSeriesCastHandler_Get_400_BadID(t *testing.T) {

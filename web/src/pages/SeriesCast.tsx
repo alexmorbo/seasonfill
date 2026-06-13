@@ -105,11 +105,11 @@ export function SeriesCast() {
       {result.isSuccess && (
         <>
           <CompactHero
-            title={undefined}
-            posterAsset={undefined}
-            status={undefined}
-            yearStart={undefined}
-            yearEnd={undefined}
+            title={data?.series_summary?.title}
+            posterAsset={data?.series_summary?.poster_url ?? undefined}
+            status={data?.series_summary?.status}
+            yearStart={data?.series_summary?.first_aired_year ?? undefined}
+            yearEnd={data?.series_summary?.last_aired_year ?? undefined}
             castCount={cast.length}
             crewCount={crew.length}
           />

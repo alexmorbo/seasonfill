@@ -24,6 +24,13 @@ type SeriesCastResponse struct {
 	// forward compatibility (H-2 person page localises Biography);
 	// the cast list itself has no per-language fields in v1.
 	Lang string `json:"lang" example:"en-US"`
+	// SeriesSummary is the lightweight series-meta block the cast
+	// page hero consumes (title + poster + status pill + year range)
+	// without a second round-trip to the series-detail endpoint
+	// (story 303). Always present when the response is 200 — the
+	// canonical series row is loaded before this struct is built;
+	// a missing canon row yields a 404, not a degraded summary.
+	SeriesSummary SeriesSummary `json:"series_summary"`
 	// TotalEpisodeCount is the count of episode rows for the
 	// resolved series_id. Used by the frontend as the divisor for
 	// Main / Recurring / Guest badges:
@@ -109,4 +116,32 @@ type CrewPageMember struct {
 	// (per-(person, job) aggregate count).
 	EpisodeCount *int `json:"episode_count,omitempty"`
 	InLibrary    bool `json:"in_library"`
+}
+
+// SeriesSummary is the lightweight series-meta block the cast page
+// hero consumes — title + poster + status token + year range. Keeps
+// the cast page to a single API call (story 303).
+type SeriesSummary struct {
+	// Title is the canonical series title (no i18n on this surface —
+	// the cast page hero matches the series detail hero's locale
+	// only when the detail page already mounted its own SeriesText
+	// fetch; the cast page uses the canonical title for simplicity).
+	Title string `json:"title" example:"The Last of Us"`
+	// PosterURL is the media_assets hash for the series poster.
+	// Wire name kept as `poster_url` per the design brief; value is
+	// the content-addressed hash (frontend wraps with `mediaUrl()`).
+	// nil when no poster has been hydrated yet.
+	PosterURL *string `json:"poster_url,omitempty"`
+	// Status is one of "continuing", "ended", "canceled",
+	// "in_production", "upcoming", "unknown" — same token set
+	// the series-detail hero emits, so the frontend's parseStatus()
+	// helper accepts both.
+	Status string `json:"status" example:"continuing"`
+	// FirstAiredYear is the year the series first aired. nil when
+	// neither Canon.Year nor a derived first-air date is known.
+	FirstAiredYear *int `json:"first_aired_year,omitempty" example:"2023"`
+	// LastAiredYear is the year of the most recent aired episode.
+	// nil when the series has no LastAirDate (continuing series
+	// with no released episodes yet, or stub canon).
+	LastAiredYear *int `json:"last_aired_year,omitempty" example:"2025"`
 }

@@ -2019,6 +2019,8 @@ components:
           description: SeriesID is the resolved canonical series.id.
           example: 42
           type: integer
+        series_summary:
+          $ref: '#/components/schemas/dto.SeriesSummary'
         sonarr_series_id:
           description: SonarrSeriesID is the Sonarr-side id from the URL.
           example: 1
@@ -2242,6 +2244,52 @@ components:
           example: 142
           type: integer
       type: object
+    dto.SeriesSummary:
+      description: |-
+        SeriesSummary is the lightweight series-meta block the cast
+        page hero consumes (title + poster + status pill + year range)
+        without a second round-trip to the series-detail endpoint
+        (story 303). Always present when the response is 200 — the
+        canonical series row is loaded before this struct is built;
+        a missing canon row yields a 404, not a degraded summary.
+      properties:
+        first_aired_year:
+          description: |-
+            FirstAiredYear is the year the series first aired. nil when
+            neither Canon.Year nor a derived first-air date is known.
+          example: 2023
+          type: integer
+        last_aired_year:
+          description: |-
+            LastAiredYear is the year of the most recent aired episode.
+            nil when the series has no LastAirDate (continuing series
+            with no released episodes yet, or stub canon).
+          example: 2025
+          type: integer
+        poster_url:
+          description: |-
+            PosterURL is the media_assets hash for the series poster.
+            Wire name kept as `poster_url` per the design brief; value is
+            the content-addressed hash (frontend wraps with `mediaUrl()`).
+            nil when no poster has been hydrated yet.
+          type: string
+        status:
+          description: |-
+            Status is one of "continuing", "ended", "canceled",
+            "in_production", "upcoming", "unknown" — same token set
+            the series-detail hero emits, so the frontend's parseStatus()
+            helper accepts both.
+          example: continuing
+          type: string
+        title:
+          description: |-
+            Title is the canonical series title (no i18n on this surface —
+            the cast page hero matches the series detail hero's locale
+            only when the detail page already mounted its own SeriesText
+            fetch; the cast page uses the canonical title for simplicity).
+          example: The Last of Us
+          type: string
+      type: object
     dto.SeriesTorrentsResponse:
       properties:
         instance:
@@ -2331,6 +2379,24 @@ components:
           type: string
         name:
           example: Drama
+          type: string
+      type: object
+    dto.TimezonePatchRequest:
+      properties:
+        timezone:
+          example: Europe/Moscow
+          type: string
+      type: object
+    dto.TimezoneResponse:
+      properties:
+        requires_restart:
+          example: false
+          type: boolean
+        source:
+          example: db
+          type: string
+        timezone:
+          example: Europe/Moscow
           type: string
       type: object
     dto.TorrentRow:
@@ -4367,6 +4433,11 @@ paths:
         the frontend uses to derive Main / Recurring /
         Guest badges from `episode_count /
         total_episode_count` (design-handoff Q3).
+
+        `series_summary` carries the lightweight title +
+        poster + status + year-range block the cast page
+        hero renders — keeps the page to a single API call
+        (story 303).
       parameters:
       - description: Instance name
         in: path
@@ -5336,6 +5407,60 @@ paths:
       summary: Cancel a running scan
       tags:
       - scans
+  /settings/timezone:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.TimezoneResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get current timezone setting
+      tags:
+      - settings
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.TimezonePatchRequest'
+        description: Timezone
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.TimezoneResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Update timezone setting
+      tags:
+      - settings
   /watchdog/rollups:
     get:
       responses:

@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
+	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
 // CastPage is the composer's domain object for the H-1 page —
@@ -25,10 +27,23 @@ type CastPage struct {
 	SonarrSeriesID    int
 	SeriesID          int64
 	Lang              string
+	Summary           SeriesSummary
 	TotalEpisodeCount int
 	Cast              []CastEntry
 	Crew              []CrewEntry
 	SyncedAt          time.Time
+}
+
+// SeriesSummary is the lightweight series-meta projection the cast
+// page hero consumes. Carries enough for title + poster + status
+// pill + year range without a second round-trip to the series
+// detail endpoint.
+type SeriesSummary struct {
+	Title          string
+	PosterAsset    *string
+	Status         string
+	FirstAiredYear *int
+	LastAiredYear  *int
 }
 
 // CastEntry is one cast row with the person + credit + in_library
@@ -100,8 +115,12 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 	}
 	seriesID := *cache.SeriesID
 
-	// Step 2 — confirm canon row exists. Missing canon → 404.
-	if _, gerr := c.d.Series.Get(ctx, seriesID); gerr != nil {
+	// Step 2 — load canon row. Missing canon → 404. Row drives the
+	// hero summary so the cast page renders title + poster + status
+	// + year range without a second round-trip to the series-detail
+	// endpoint (story 303).
+	canon, gerr := c.d.Series.Get(ctx, seriesID)
+	if gerr != nil {
 		return nil, fmt.Errorf("series canon load: %w", gerr)
 	}
 
@@ -110,6 +129,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 		SonarrSeriesID: sonarrSeriesID,
 		SeriesID:       seriesID,
 		Lang:           lang,
+		Summary:        buildSeriesSummary(canon),
 	}
 
 	// Step 3 — total_episode_count. One indexed count query.
@@ -317,4 +337,54 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// buildSeriesSummary projects a canon row onto the cast-page hero
+// shape. Mirrors handlers.mapStatusPill for the status token and
+// handlers.mapHero for the year extraction — kept composer-side
+// so the DTO mapping stays a pure projection.
+func buildSeriesSummary(c series.Canon) SeriesSummary {
+	s := SeriesSummary{
+		Title:       c.Title,
+		PosterAsset: c.PosterAsset,
+		Status:      mapStatusToken(c.Status, c.InProduction),
+	}
+	if c.Year != nil {
+		ys := *c.Year
+		s.FirstAiredYear = &ys
+	}
+	if c.LastAirDate != nil {
+		ye := c.LastAirDate.Year()
+		s.LastAiredYear = &ye
+	}
+	return s
+}
+
+// mapStatusToken normalises upstream status strings + InProduction
+// onto the design-brief's status token set
+// (continuing / ended / canceled / in_production / upcoming /
+// unknown). Identical mapping to handlers.mapStatusPill — kept here
+// so the cast composer doesn't depend on the HTTP layer.
+func mapStatusToken(status *string, inProduction bool) string {
+	raw := ""
+	if status != nil {
+		raw = strings.ToLower(strings.TrimSpace(*status))
+	}
+	switch {
+	case strings.Contains(raw, "cancel"):
+		return "canceled"
+	case strings.Contains(raw, "ended"):
+		return "ended"
+	case strings.Contains(raw, "upcoming") || strings.Contains(raw, "planned"):
+		return "upcoming"
+	case strings.Contains(raw, "production") && !strings.Contains(raw, "post"):
+		return "in_production"
+	case strings.Contains(raw, "continu") || strings.Contains(raw, "ongoing") || strings.Contains(raw, "returning"):
+		return "continuing"
+	case inProduction:
+		return "in_production"
+	case raw == "":
+		return "unknown"
+	}
+	return "unknown"
 }

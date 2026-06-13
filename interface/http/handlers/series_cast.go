@@ -48,6 +48,11 @@ func NewSeriesCastHandler(composer *seriesdetail.CastComposer, logger *slog.Logg
 // @Description the frontend uses to derive Main / Recurring /
 // @Description Guest badges from `episode_count /
 // @Description total_episode_count` (design-handoff Q3).
+// @Description
+// @Description `series_summary` carries the lightweight title +
+// @Description poster + status + year-range block the cast page
+// @Description hero renders — keeps the page to a single API call
+// @Description (story 303).
 // @Tags        instances
 // @Produce     json
 // @Param       name  path      string  true   "Instance name"
@@ -90,10 +95,17 @@ func (h *SeriesCastHandler) Get(c *gin.Context) {
 // the wire DTO. No DB / network calls here — pure mapping.
 func toSeriesCastResponse(d *seriesdetail.CastPage) dto.SeriesCastResponse {
 	resp := dto.SeriesCastResponse{
-		Instance:          d.Instance,
-		SonarrSeriesID:    d.SonarrSeriesID,
-		SeriesID:          d.SeriesID,
-		Lang:              d.Lang,
+		Instance:       d.Instance,
+		SonarrSeriesID: d.SonarrSeriesID,
+		SeriesID:       d.SeriesID,
+		Lang:           d.Lang,
+		SeriesSummary: dto.SeriesSummary{
+			Title:          d.Summary.Title,
+			PosterURL:      d.Summary.PosterAsset,
+			Status:         d.Summary.Status,
+			FirstAiredYear: d.Summary.FirstAiredYear,
+			LastAiredYear:  d.Summary.LastAiredYear,
+		},
 		TotalEpisodeCount: d.TotalEpisodeCount,
 		Cast:              make([]dto.CastPageMember, 0, len(d.Cast)),
 		Crew:              make([]dto.CrewPageMember, 0, len(d.Crew)),

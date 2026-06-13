@@ -39,6 +39,13 @@ const fullFixture = {
   sonarr_series_id: 1,
   synced_at: new Date().toISOString(),
   total_episode_count: 62,
+  series_summary: {
+    title: 'The Last of Us',
+    poster_url: 'poster-hash',
+    status: 'continuing',
+    first_aired_year: 2023,
+    last_aired_year: 2025,
+  },
   cast: [
     { person_id: 1, tmdb_id: 100, name: 'Pedro Pascal', character_name: 'Joel Miller', episode_count: 30, credit_order: 0 },
     { person_id: 2, tmdb_id: 200, name: 'Bella Ramsey', character_name: 'Ellie', episode_count: 30, credit_order: 1 },
@@ -105,5 +112,15 @@ describe('<SeriesCast />', () => {
   it('renders an invalid-params error when the URL is malformed', () => {
     renderRoute('/series/alpha/not-a-number/cast');
     expect(screen.getByText(/Invalid series link/i)).toBeInTheDocument();
+  });
+
+  it('renders the hero with title + year range from series_summary', async () => {
+    mockApi.mockResolvedValueOnce(fullFixture);
+    renderRoute('/series/alpha/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-tabs-list')).toBeInTheDocument());
+    expect(screen.getByTestId('cast-page-title')).toHaveTextContent('The Last of Us');
+    // Year-range text contains the en-dash (formatYearRange in CompactHero).
+    expect(screen.getByTestId('cast-compact-hero')).toHaveTextContent('2023');
+    expect(screen.getByTestId('cast-compact-hero')).toHaveTextContent('2025');
   });
 });
