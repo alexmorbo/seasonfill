@@ -99,6 +99,21 @@ func (mr *MockClientMockRecorder) Login(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Login", reflect.TypeOf((*MockClient)(nil).Login), ctx)
 }
 
+// NewSyncSession mocks base method.
+func (m *MockClient) NewSyncSession(ctx context.Context) (qbit.SyncSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewSyncSession", ctx)
+	ret0, _ := ret[0].(qbit.SyncSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewSyncSession indicates an expected call of NewSyncSession.
+func (mr *MockClientMockRecorder) NewSyncSession(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSyncSession", reflect.TypeOf((*MockClient)(nil).NewSyncSession), ctx)
+}
+
 // Ping mocks base method.
 func (m *MockClient) Ping(ctx context.Context) error {
 	m.ctrl.T.Helper()

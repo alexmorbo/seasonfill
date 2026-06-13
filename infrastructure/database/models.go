@@ -845,3 +845,94 @@ type MediaAssetModel struct {
 }
 
 func (MediaAssetModel) TableName() string { return "media_assets" }
+
+// QbitTorrentModel — per-(instance_name, hash) snapshot of the last
+// known qBit state (PRD v4 §7.3, migration 000035). Story 219 (A-1)
+// adds the table; story 220 (A-2) adds the repository and the
+// torrentsync loop that writes upsert + state-transition events.
+//
+// Hash is the v1 infohash in lowercase hex when non-empty, otherwise
+// the v2 hash — see `infrastructure/qbit.NormaliseHash`. The
+// `present` boolean + `deleted_at` timestamp implement the soft-
+// delete pattern PRD §4.6 calls for: a torrent that disappears
+// from qBit gets `present=false, deleted_at=now` but the row stays
+// forever (history of "what we ever downloaded for this series").
+//
+// Live telemetry (dlspeed, upspeed, eta, num_seeds, num_leechs,
+// progress) is intentionally absent — those fields live in the
+// in-memory store (story 220) only. Mutable counters that DO
+// persist (ratio, uploaded, time_active_s, popularity,
+// last_activity) flush in 5-minute batches to keep write
+// amplification low.
+type QbitTorrentModel struct {
+	InstanceName string     `gorm:"primaryKey;column:instance_name;type:text"`
+	Hash         string     `gorm:"primaryKey;column:hash;type:text"`
+	InfohashV2   *string    `gorm:"column:infohash_v2;type:text"`
+	Name         string     `gorm:"column:name;type:text;not null"`
+	Category     *string    `gorm:"column:category;type:text"`
+	Tags         *string    `gorm:"column:tags;type:text"`
+	TrackerHost  *string    `gorm:"column:tracker_host;type:text"`
+	SavePath     *string    `gorm:"column:save_path;type:text"`
+	ContentPath  *string    `gorm:"column:content_path;type:text"`
+	StateRaw     string     `gorm:"column:state_raw;type:text;not null"`
+	StateGroup   string     `gorm:"column:state_group;type:text;not null"`
+	SizeBytes    int64      `gorm:"column:size_bytes;not null;default:0"`
+	TotalSize    int64      `gorm:"column:total_size;not null;default:0"`
+	Downloaded   int64      `gorm:"column:downloaded;not null;default:0"`
+	Uploaded     int64      `gorm:"column:uploaded;not null;default:0"`
+	Ratio        float64    `gorm:"column:ratio;not null;default:0"`
+	Popularity   float64    `gorm:"column:popularity;not null;default:0"`
+	TimeActiveS  int64      `gorm:"column:time_active_s;not null;default:0"`
+	SeedingTimeS int64      `gorm:"column:seeding_time_s;not null;default:0"`
+	AddedOn      *time.Time `gorm:"column:added_on"`
+	CompletionOn *time.Time `gorm:"column:completion_on"`
+	LastActivity *time.Time `gorm:"column:last_activity"`
+	Present      bool       `gorm:"column:present;not null;default:true"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at"`
+	FirstSeenAt  time.Time  `gorm:"column:first_seen_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (QbitTorrentModel) TableName() string { return "qbit_torrents" }
+
+// TorrentSeriesMapModel — bridge from a qBit torrent hash to a
+// Sonarr series_id (PRD v4 §4.5, §7.3, migration 000035). One row
+// per (instance_name, torrent_hash). Populated by three sources in
+// priority order: webhook capture (story 220), reconciler lookup in
+// `grab_records.torrent_hash` (story 221), Sonarr `/queue` and
+// `/history?eventType=1` fallbacks (story 221). The `source` column
+// records which path won.
+//
+// `season_number` is nullable because cross-series packs do not
+// exist in Sonarr's release model (one release = one series), but
+// individual-episode releases inside a season may bridge without an
+// authoritative season number until reconciliation completes —
+// nullable lets the row land without lying.
+type TorrentSeriesMapModel struct {
+	InstanceName string    `gorm:"primaryKey;column:instance_name;type:text"`
+	TorrentHash  string    `gorm:"primaryKey;column:torrent_hash;type:text"`
+	SeriesID     int       `gorm:"column:series_id;not null"`
+	SeasonNumber *int      `gorm:"column:season_number"`
+	Source       string    `gorm:"column:source;type:text;not null"`
+	CreatedAt    time.Time `gorm:"column:created_at;not null"`
+}
+
+func (TorrentSeriesMapModel) TableName() string { return "torrent_series_map" }
+
+// QbitTorrentEventModel — append-only log of state_group transitions
+// and synthetic added / completed / deleted events (PRD v4 §4.6,
+// §7.3, migration 000035). State_group (not state_raw) intentional:
+// raw-state churn (stalled↔downloading flapping) would dominate the
+// table; PRD §4.6 calls for grain at the group level. Pruned by the
+// weekly GC introduced in 218 (E-2) — 180-day retention.
+type QbitTorrentEventModel struct {
+	ID           int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	InstanceName string    `gorm:"column:instance_name;type:text;not null"`
+	TorrentHash  string    `gorm:"column:torrent_hash;type:text;not null"`
+	Event        string    `gorm:"column:event;type:text;not null"`
+	FromGroup    *string   `gorm:"column:from_group;type:text"`
+	ToGroup      *string   `gorm:"column:to_group;type:text"`
+	OccurredAt   time.Time `gorm:"column:occurred_at;not null"`
+}
+
+func (QbitTorrentEventModel) TableName() string { return "qbit_torrent_events" }

@@ -54,6 +54,7 @@ type Client interface {
 	ListTorrents(ctx context.Context) ([]Torrent, error)
 	GetTrackers(ctx context.Context, hash string) ([]Tracker, error)
 	Ping(ctx context.Context) error
+	NewSyncSession(ctx context.Context) (SyncSession, error)
 	Close() error
 }
 
@@ -218,6 +219,19 @@ func (c *client) Ping(ctx context.Context) error {
 		return fmt.Errorf("qbit ping: %w", errors.Join(err, domain.ErrInstanceNetwork))
 	}
 	return nil
+}
+
+// NewSyncSession returns a per-instance qBit /sync/maindata cursor.
+// The session is NOT safe for concurrent use — the torrentsync loop
+// (story 220) owns exactly one session per qBit instance and calls
+// Refresh from a single goroutine.
+//
+// Login is performed eagerly (no-op for anonymous deployments,
+// D61); the first Refresh will reuse the established session
+// cookie. Subsequent re-logins on 403 are handled by autobrr's
+// internal retry — we do not need to thread them.
+func (c *client) NewSyncSession(ctx context.Context) (SyncSession, error) {
+	return newSyncSession(ctx, c)
 }
 
 // Close marks the client as closed. The upstream qbt.Client uses

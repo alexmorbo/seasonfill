@@ -27,7 +27,10 @@ func (f *fakeClient) GetTrackers(ctx context.Context, hash string) ([]Tracker, e
 	return trk, nil
 }
 func (f *fakeClient) Ping(ctx context.Context) error { return nil }
-func (f *fakeClient) Close() error                   { return nil }
+func (f *fakeClient) NewSyncSession(ctx context.Context) (SyncSession, error) {
+	return nil, errors.New("fakeClient: NewSyncSession not implemented")
+}
+func (f *fakeClient) Close() error { return nil }
 
 func TestDetector_Detect(t *testing.T) {
 	cases := []struct {

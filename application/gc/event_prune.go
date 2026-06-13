@@ -1,12 +1,10 @@
 // event_prune.go — story 218 E-2.
 //
 // Prunes qbit_torrent_events older than 180d (PRD §6.7). The table
-// is added by the A-* branch (story 219+) and does NOT exist as of
-// 218 deployment. We ship the scaffolding so 218 closes E-2 cleanly,
-// and the orchestrator skips the sub-task with a structured log
-// line when the table is absent. Once 219 lands and creates the
-// table, no code change is needed — the existence probe flips to
-// true.
+// is added by the A-* branch (story 219+); the existence probe lets
+// 218 ship before 219 lands and the prune become a no-op skip in
+// that window. As of 219 the schema uses `occurred_at` as the row
+// timestamp (PRD §7.3).
 
 package gc
 
@@ -53,7 +51,7 @@ func (d EventPruneDeps) Build() func(ctx context.Context) (EventPruneResult, err
 		}
 		cutoff := clock().Add(-retention)
 		res := d.DB.WithContext(ctx).
-			Exec(`DELETE FROM qbit_torrent_events WHERE created_at < ?`, cutoff)
+			Exec(`DELETE FROM qbit_torrent_events WHERE occurred_at < ?`, cutoff)
 		if res.Error != nil {
 			return EventPruneResult{}, fmt.Errorf("prune qbit_torrent_events: %w", res.Error)
 		}
