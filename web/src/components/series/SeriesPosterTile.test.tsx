@@ -52,7 +52,7 @@ function renderTile(item: SeriesCacheItem) {
           <MemoryRouter initialEntries={['/']}>
             <Routes>
               <Route path="/" element={<SeriesPosterTile item={item} />} />
-              <Route path="/grabs" element={<LocationProbe />} />
+              <Route path="/series/:instance/:id" element={<LocationProbe />} />
             </Routes>
           </MemoryRouter>
         </TooltipProvider>
@@ -99,11 +99,11 @@ describe('<SeriesPosterTile />', () => {
     expect(screen.getByTestId('series-tile-missing-chip')).toBeInTheDocument();
   });
 
-  it('navigates to /grabs?series=<sonarr_series_id> on click', () => {
+  it('navigates to /series/:instance/:id on click', () => {
     renderTile(makeItem());
     fireEvent.click(screen.getByTestId('series-poster-tile'));
     expect(screen.getByTestId('probe-location').textContent).toBe(
-      '/grabs?series=122',
+      '/series/homelab/122',
     );
   });
 
@@ -112,7 +112,7 @@ describe('<SeriesPosterTile />', () => {
     const tile = screen.getByTestId('series-poster-tile');
     fireEvent.keyDown(tile, { key: 'Enter' });
     expect(screen.getByTestId('probe-location').textContent).toBe(
-      '/grabs?series=122',
+      '/series/homelab/122',
     );
   });
 });

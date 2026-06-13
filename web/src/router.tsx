@@ -13,6 +13,7 @@ import { Watchdog } from '@/pages/Watchdog';
 import { Settings } from '@/pages/Settings';
 import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
+import { SeriesDetail } from '@/pages/SeriesDetail';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: '/decisions', element: <Decisions /> },
       { path: '/grabs',     element: <Grabs /> },
       { path: '/series',    element: <Series /> },
+      { path: '/series/:instance/:id', element: <SeriesDetail /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },

@@ -1707,6 +1707,83 @@ export const en = {
       listFailedDescription: 'The series list could not be loaded. Try refreshing or check the instance configuration.',
     },
   },
+  seriesDetail: {
+    title: 'Series',
+    back: 'Series',
+    synced: 'Synced {{time}}',
+    hero: {
+      runtime: '{{mins}} min/ep',
+      trailer: 'Trailer',
+      monitored: 'Monitored',
+    },
+    status: {
+      continuing: 'Continuing',
+      ended: 'Ended',
+      canceled: 'Canceled',
+      in_production: 'In Production',
+      upcoming: 'Upcoming',
+      unknown: 'Unknown',
+    },
+    ratings: {
+      tmdb: 'TMDB',
+      imdb: 'IMDb',
+    },
+    stale: {
+      asOf: 'as of {{time}}',
+      source: {
+        tmdb: 'TMDB metadata is stale — showing cached values',
+        omdb: 'OMDb metadata is stale — showing cached values',
+        sonarr_queue: 'Sonarr queue is stale — showing cached values',
+        torrents: 'qBittorrent is stale — showing last known state',
+      },
+    },
+    next: {
+      label: 'Next episode',
+      ended: 'Ended',
+      endedYear: 'Ended in {{year}}',
+      endedUnknown: 'Last aired date unknown',
+      production: 'In Production',
+      productionBody: 'Schedule not yet announced',
+      unscheduled: 'Not yet scheduled',
+    },
+    library: {
+      label: 'Library',
+      onDiskCounts: '{{on}} of {{total}} on disk',
+      missing: '{{count}} missing',
+      nothingOnDisk: 'Nothing on disk yet',
+      downloadingFallback: 'Downloading…',
+      recent: 'Recent',
+      event: {
+        imported: 'Imported',
+        grabbed: 'Grabbed',
+        failed: 'Failed',
+        unknown: 'Event',
+      },
+    },
+    overview: {
+      label: 'Overview',
+      empty: 'No overview available.',
+      keywords: 'Keywords',
+    },
+    links: {
+      imdb: 'IMDb',
+      tmdb: 'TMDB',
+      tvdb: 'TheTVDB',
+      homepage: 'Homepage',
+    },
+    placeholders: {
+      seasons: 'Seasons accordion — coming in I-2.',
+      cast: 'Cast carousel — coming in I-2.',
+      torrents: 'Torrents section — coming in A-*.',
+      recommendations: 'Recommendations — coming in I-2.',
+    },
+    errors: {
+      invalidParams: 'Invalid series link',
+      invalidParamsBody: 'The URL does not match a known instance / series id.',
+      loadFailedTitle: 'Failed to load series',
+      loadFailedBody: 'The series detail could not be loaded. Try refreshing or check the instance configuration.',
+    },
+  },
 };
 
 export type Translations = typeof en;

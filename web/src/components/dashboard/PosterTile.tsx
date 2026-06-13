@@ -57,7 +57,8 @@ export function PosterTile({ item }: PosterTileProps) {
   const newcount = last !== undefined && first !== undefined ? last - first + 1 : undefined;
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
 
-  const handleOpen = () => navigate(`/series?q=${encodeURIComponent(item.title)}&state=all`);
+  const handleOpen = () =>
+    navigate(`/series/${encodeURIComponent(item.instance_name)}/${item.sonarr_series_id}`);
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
