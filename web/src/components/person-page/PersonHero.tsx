@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/seriesDetail';
+import { useFormatDate } from '@/lib/timezone';
 import type { PersonInfo } from '@/api/person';
 
 export interface PersonHeroProps {
@@ -13,17 +14,6 @@ function initials(name: string | undefined): string {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p.charAt(0).toUpperCase()).join('') || '?';
-}
-
-function formatDate(iso: string | undefined): string {
-  if (!iso) return '';
-  // TMDB dates are ISO 'YYYY-MM-DD'. We format with Intl in the
-  // active locale; fallback to the raw string when parsing fails.
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-  }).format(d);
 }
 
 function computeAge(birthday: string | undefined, deathday: string | undefined): number | null {
@@ -55,6 +45,9 @@ function buildLinks(person: PersonInfo | undefined): readonly ExternalLinkSpec[]
 
 export function PersonHero({ person, className }: PersonHeroProps) {
   const { t } = useTranslation();
+  const fmt = useFormatDate();
+  const fmtBirth = (iso: string | undefined): string =>
+    iso ? fmt(iso, 'mediumDate', { fallback: iso }) : '';
   const name = person?.name ?? '';
   const photo = mediaUrl(person?.profile_asset);
   const known = person?.known_for_department;
@@ -66,8 +59,8 @@ export function PersonHero({ person, className }: PersonHeroProps) {
 
   const bornLine = birthday
     ? (place
-        ? t('person.bornIn', { date: formatDate(birthday), place })
-        : t('person.bornOn', { date: formatDate(birthday) }))
+        ? t('person.bornIn', { date: fmtBirth(birthday), place })
+        : t('person.bornOn', { date: fmtBirth(birthday) }))
     : '';
 
   return (
@@ -129,7 +122,7 @@ export function PersonHero({ person, className }: PersonHeroProps) {
               <>
                 <span aria-hidden="true">·</span>
                 <span data-testid="person-died" className="text-rose-500">
-                  {t('person.diedOn', { date: formatDate(deathday) })}
+                  {t('person.diedOn', { date: fmtBirth(deathday) })}
                 </span>
               </>
             )}

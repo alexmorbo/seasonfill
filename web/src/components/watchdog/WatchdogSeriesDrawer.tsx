@@ -31,6 +31,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
+import { useFormatDate } from '@/lib/timezone';
 import {
   useWatchdogSeriesDetail,
   type WatchdogSeriesDetail,
@@ -391,18 +392,14 @@ function StatTile({
 
 function SeasonCooldown({ season }: { season: WatchdogSeriesSeason }) {
   const { t } = useTranslation();
+  const fmt = useFormatDate();
   const cd = season.cooldown;
   let display = t('watchdog.drawer.cooldown.none');
   if (cd?.expires_at) {
     const ms = Date.parse(cd.expires_at);
     if (!Number.isNaN(ms)) {
-      const d = new Date(ms);
-      const dd = String(d.getDate()).padStart(2, '0');
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mi = String(d.getMinutes()).padStart(2, '0');
       display = t('watchdog.drawer.cooldown.until', {
-        ts: `${dd}.${mm} ${hh}:${mi}`,
+        ts: fmt(ms, 'shortDateTime'),
       });
     }
   }

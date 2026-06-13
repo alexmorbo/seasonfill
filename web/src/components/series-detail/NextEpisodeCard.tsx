@@ -1,6 +1,7 @@
 import { CalendarClock, CircleCheck, Wrench } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { useFormatDate } from '@/lib/timezone';
 import { type NextEpisode, type StatusToken } from '@/api/seriesDetail';
 
 export interface NextEpisodeCardProps {
@@ -10,19 +11,13 @@ export interface NextEpisodeCardProps {
   readonly className?: string | undefined;
 }
 
-function formatAirDate(iso: string, lng: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat(lng, { month: 'short', day: 'numeric' }).format(d);
-}
-
 function pad(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
 export function NextEpisodeCard({ nextEpisode, status, yearEnd, className }: NextEpisodeCardProps) {
-  const { t, i18n } = useTranslation();
-  const lng = i18n.resolvedLanguage ?? 'en';
+  const { t } = useTranslation();
+  const fmt = useFormatDate();
 
   if (nextEpisode && nextEpisode.air_date && nextEpisode.season_number !== undefined) {
     const code = `S${pad(nextEpisode.season_number)}E${pad(nextEpisode.episode_number ?? 0)}`;
@@ -42,7 +37,7 @@ export function NextEpisodeCard({ nextEpisode, status, yearEnd, className }: Nex
         <div className="text-[13.5px] text-tx-primary">
           <span className="mono font-semibold">{code}</span>
           {nextEpisode.title && <span className="text-tx-secondary"> · {nextEpisode.title}</span>}
-          <span className="text-tx-muted"> · {formatAirDate(nextEpisode.air_date, lng)}</span>
+          <span className="text-tx-muted"> · {fmt(nextEpisode.air_date, 'monthDay')}</span>
         </div>
       </div>
     );

@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next';
+import { currentHourIn, useTimezone } from '@/lib/timezone';
 
 type Phase = 'morning' | 'afternoon' | 'evening';
 
-function phaseFor(date: Date): Phase {
-  const h = date.getHours();
-  if (h < 12) return 'morning';
-  if (h < 18) return 'afternoon';
+function phaseFor(hour: number): Phase {
+  if (hour < 5) return 'evening';
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
   return 'evening';
 }
 
@@ -28,7 +29,8 @@ export interface HeroGreetingProps {
 
 export function HeroGreeting({ now, grabs, imports, fails, avg7d, quietLastImport }: HeroGreetingProps) {
   const { t } = useTranslation();
-  const greet = t(`dashboard.greet.${phaseFor(now ?? new Date())}`);
+  const tz = useTimezone();
+  const greet = t(`dashboard.greet.${phaseFor(currentHourIn(tz, now ?? new Date()))}`);
 
   if (quietLastImport !== undefined) {
     return (

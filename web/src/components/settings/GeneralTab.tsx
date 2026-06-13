@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
 } from '@/lib/runtime-config';
+import { TimezoneSection } from '@/components/settings/TimezoneSection';
 
 // Go duration regex / parser — unchanged from previous impl.
 const goDurRE = /^(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$/;
@@ -310,6 +311,9 @@ export function GeneralTab() {
           }
         />
       </Block>
+
+      {/* Block 3 — timezone (story 302) */}
+      <TimezoneSection />
 
       <div className="flex items-center gap-3 pt-4 border-t border-border-faint">
         {isDirty && (

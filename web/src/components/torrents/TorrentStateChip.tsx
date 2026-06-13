@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Ban, CircleAlert, CircleDashed, Loader2, Pause, Tra
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useFormatDate } from '@/lib/timezone';
 import type { StateGroup } from '@/api/seriesTorrents';
 
 export interface TorrentStateChipProps {
@@ -37,11 +38,10 @@ function normalize(g: string | undefined): StateGroup {
 }
 
 export function TorrentStateChip({ group, rawState, deleted, deletedAt, className }: TorrentStateChipProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const fmt = useFormatDate();
   if (deleted) {
-    const when = deletedAt
-      ? new Date(deletedAt).toLocaleDateString(i18n.resolvedLanguage, { month: 'short', day: 'numeric' })
-      : '';
+    const when = deletedAt ? fmt(deletedAt, 'monthDay') : '';
     return (
       <span
         data-testid="torrent-state-chip"

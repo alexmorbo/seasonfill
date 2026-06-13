@@ -4,6 +4,7 @@ import { Award } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/seriesDetail';
 import { relativeTime } from '@/lib/format';
+import { useFormatDate } from '@/lib/timezone';
 import type { components } from '@/api/schema';
 
 type Episode = components['schemas']['dto.Episode'];
@@ -16,6 +17,18 @@ export interface EpisodeRowProps {
 
 function pad(n: number): string { return n.toString().padStart(2, '0'); }
 
+type FmtFn = ReturnType<typeof useFormatDate>;
+
+function airLabel(iso: string | undefined, fmt: FmtFn): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const ageMs = Date.now() - d.getTime();
+  const THIRTY_DAYS = 30 * 86_400_000;
+  if (Math.abs(ageMs) < THIRTY_DAYS) return relativeTime(iso);
+  return fmt(iso, 'mediumDate');
+}
+
 function diskDot(ep: Episode): { color: string; testId: string } {
   if (ep.has_file) return { color: 'bg-ok', testId: 'episode-dot-have' };
   // Missing + monitored + aired = red. Otherwise muted.
@@ -24,19 +37,9 @@ function diskDot(ep: Episode): { color: string; testId: string } {
   return { color: 'bg-tx-faint', testId: 'episode-dot-unmonitored' };
 }
 
-function airLabel(iso: string | undefined, lng: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const ageMs = Date.now() - d.getTime();
-  const THIRTY_DAYS = 30 * 86_400_000;
-  if (Math.abs(ageMs) < THIRTY_DAYS) return relativeTime(iso);
-  return new Intl.DateTimeFormat(lng, { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
-}
-
 export function EpisodeRow({ episode, seasonNumber, className }: EpisodeRowProps) {
-  const { t, i18n } = useTranslation();
-  const lng = i18n.resolvedLanguage ?? 'en';
+  const { t } = useTranslation();
+  const fmt = useFormatDate();
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -92,7 +95,7 @@ export function EpisodeRow({ episode, seasonNumber, className }: EpisodeRowProps
             <span className="text-tx-secondary truncate">{episode.title}</span>
           )}
           {episode.air_date && (
-            <span className="text-tx-muted">· {airLabel(episode.air_date, lng)}</span>
+            <span className="text-tx-muted">· {airLabel(episode.air_date, fmt)}</span>
           )}
           {episode.runtime_minutes && episode.runtime_minutes > 0 && (
             <span className="text-tx-faint tabular-nums">· {t('seriesDetail.seasons.runtime', { mins: episode.runtime_minutes })}</span>

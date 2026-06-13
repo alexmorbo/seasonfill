@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { TimezoneProvider } from '@/lib/timezone';
 import { queryClient } from '@/lib/query-client';
 import { router } from '@/router';
 import '@/i18n';
@@ -18,10 +19,12 @@ if (!rootEl) throw new Error('root element missing');
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider delayDuration={150}>
-        <RouterProvider router={router} />
-        <Toaster richColors closeButton position="bottom-right" />
-      </TooltipProvider>
+      <TimezoneProvider>
+        <TooltipProvider delayDuration={150}>
+          <RouterProvider router={router} />
+          <Toaster richColors closeButton position="bottom-right" />
+        </TooltipProvider>
+      </TimezoneProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

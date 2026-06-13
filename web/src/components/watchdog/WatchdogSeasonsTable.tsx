@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
+import { useFormatDate } from '@/lib/timezone';
 import {
   flattenSeasons,
   useWatchdogSeasons,
@@ -85,6 +86,7 @@ function NoBetterCell({ row }: { row: WatchdogSeason }) {
 
 function CooldownCell({ row }: { row: WatchdogSeason }) {
   const { t } = useTranslation();
+  const fmt = useFormatDate();
   if (!row.cooldown?.expires_at) {
     return <span className="text-tx-faint">—</span>;
   }
@@ -92,14 +94,9 @@ function CooldownCell({ row }: { row: WatchdogSeason }) {
   if (Number.isNaN(expiresMs)) {
     return <span className="text-tx-faint">—</span>;
   }
-  const d = new Date(expiresMs);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
   return (
     <Badge variant="warn" mono className="px-1.5 py-0.5 text-[11px]">
-      {t('watchdog.table.cooldownUntil', { ts: `${dd}.${mm} ${hh}:${mi}` })}
+      {t('watchdog.table.cooldownUntil', { ts: fmt(expiresMs, 'shortDateTime') })}
     </Badge>
   );
 }

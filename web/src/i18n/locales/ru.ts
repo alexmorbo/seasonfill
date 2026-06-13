@@ -5,6 +5,7 @@ export const ru: Translations = {
     save: 'Сохранить',
     saving: 'Сохраняем…',
     cancel: 'Отмена',
+    dismiss: 'Скрыть',
     discard: 'Сбросить',
     delete: 'Удалить',
     edit: 'Изменить',
@@ -911,6 +912,25 @@ export const ru: Translations = {
         rpmMax: 'Должно быть ≤ 10000',
       },
     },
+    timezone: {
+      title: 'Часовой пояс',
+      description:
+        'Используется для cron-планировщиков, журналов событий и всех дат в интерфейсе.',
+      fieldLabel: 'IANA-зона',
+      sourceLabel: 'Источник',
+      source: {
+        db: 'Сохранённое значение',
+        env: 'Переменная TZ',
+        default: 'По умолчанию (UTC)',
+        fallback: 'Зона браузера',
+      },
+      save: 'Сохранить пояс',
+      restart: {
+        title: 'Требуется перезапуск',
+        body:
+          'Cron-задачи, созданные при старте, продолжат использовать прежний пояс до перезапуска пода. Новые даты в UI уже отображаются в выбранной зоне.',
+      },
+    },
     security: {
       authCard: { title: 'Режим аутентификации' },
       modePill: {
@@ -1499,6 +1519,7 @@ export const ru: Translations = {
     activity: {
       title: 'Активность · {{instance}}',
       label: 'ПОСЛЕДНИЕ СОБЫТИЯ',
+      yesterday: 'вчера',
       empty: 'Событий нет',
       placeholder: 'События будут здесь, как только Watchdog запустит первый цикл',
       event: {

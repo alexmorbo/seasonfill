@@ -2,6 +2,7 @@ import { Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
+import { useFormatDate } from '@/lib/timezone';
 import { TorrentStateChip } from './TorrentStateChip';
 import { SpeedCell } from './SpeedCell';
 import { ETAChip } from './ETAChip';
@@ -24,13 +25,10 @@ function fmtBytes(n: number | undefined): string {
   return `${v.toFixed(prec)} ${units[i]}`;
 }
 
-function fmtAdded(iso: string | undefined, lang: string | undefined): string {
-  if (!iso) return '—';
+function ageDays(iso: string): number {
   const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return '—';
-  const ageDays = (Date.now() - ts) / 86_400_000;
-  if (ageDays < 7) return relativeTime(iso);
-  return new Date(iso).toLocaleDateString(lang, { month: 'short', day: 'numeric', year: 'numeric' });
+  if (Number.isNaN(ts)) return NaN;
+  return (Date.now() - ts) / 86_400_000;
 }
 
 function seasonLabel(n: number | null | undefined): string | undefined {
@@ -38,9 +36,19 @@ function seasonLabel(n: number | null | undefined): string | undefined {
   return `S${String(n).padStart(2, '0')}`;
 }
 
+type FmtFn = ReturnType<typeof useFormatDate>;
+
+function fmtAdded(iso: string | undefined, fmt: FmtFn): string {
+  if (!iso) return '—';
+  const age = ageDays(iso);
+  if (Number.isNaN(age)) return '—';
+  if (age < 7) return relativeTime(iso);
+  return fmt(iso, 'mediumDate');
+}
+
 export function TorrentRow({ row, className }: TorrentRowProps) {
-  const { t, i18n } = useTranslation();
-  const lang = i18n.resolvedLanguage;
+  const { t } = useTranslation();
+  const fmt = useFormatDate();
   const deleted = row.present === false;
   // Mute live cells when the row is either DB-only (live=false) or
   // explicitly deleted. The backend already zeroes live cells for
@@ -82,7 +90,7 @@ export function TorrentRow({ row, className }: TorrentRowProps) {
 
       {/* Added On */}
       <div className="text-[11.5px] tabular-nums text-tx-muted whitespace-nowrap">
-        {fmtAdded(row.added_on, lang)}
+        {fmtAdded(row.added_on, fmt)}
       </div>
 
       {/* Size */}

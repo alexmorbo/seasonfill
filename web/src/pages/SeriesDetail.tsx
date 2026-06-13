@@ -18,12 +18,14 @@ import { RecommendationsCarousel } from '@/components/series-detail/Recommendati
 import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
 import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
 import { TorrentsSection } from '@/components/torrents/TorrentsSection';
+import { useFormatDate } from '@/lib/timezone';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
   const { instance, id } = useParams<{ instance: string; id: string }>();
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
+  const fmt = useFormatDate();
 
   const detail = useSeriesDetail({
     instance,
@@ -168,7 +170,7 @@ export function SeriesDetail() {
 
           {syncedAt && (
             <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">
-              <span>{t('seriesDetail.synced', { time: new Date(syncedAt).toLocaleString(lang) })}</span>
+              <span>{t('seriesDetail.synced', { time: fmt(syncedAt, 'datetime') })}</span>
               {tmdbDegraded && <StaleBadge asOf={syncedAt} source="tmdb" />}
               {omdbDegraded && <StaleBadge asOf={syncedAt} source="omdb" />}
             </div>

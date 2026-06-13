@@ -17,11 +17,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useFormatDate } from '@/lib/timezone';
 import {
   useWatchdogActivity,
   type WatchdogActivityEvent,
   type WatchdogActivityType,
 } from '@/lib/api/watchdogActivity';
+
+type FmtFn = ReturnType<typeof useFormatDate>;
 
 const TYPE_ICON: Record<WatchdogActivityType, LucideIcon> = {
   unregistered: Unplug,
@@ -46,23 +49,24 @@ const TYPE_VARIANT: Record<
   decision: 'neutral',
 };
 
-function formatRowTime(iso: string): string {
+function isSameTzDay(a: Date, b: Date, fmt: FmtFn): boolean {
+  // Compare yyyy-mm-dd in the configured zone, NOT the browser zone.
+  return fmt(a, 'date') === fmt(b, 'date');
+}
+
+function formatRowTime(iso: string, fmt: FmtFn, yesterdayLabel: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const sameDay =
-    d.toDateString() === new Date().toDateString()
-      ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-      : null;
-  if (sameDay) return sameDay;
-  const y = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  if (d.toDateString() === y.toDateString()) {
-    return `вчера ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
-  }
-  return d.toLocaleDateString();
+  const now = new Date();
+  if (isSameTzDay(d, now, fmt)) return fmt(d, 'time');
+  const y = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  if (isSameTzDay(d, y, fmt)) return `${yesterdayLabel} ${fmt(d, 'time')}`;
+  return fmt(d, 'date');
 }
 
 function EventRow({ ev }: { ev: WatchdogActivityEvent }) {
   const { t } = useTranslation();
+  const fmt = useFormatDate();
   const Icon = TYPE_ICON[ev.type];
   const isErrorDecision =
     ev.type === 'decision' &&
@@ -116,7 +120,7 @@ function EventRow({ ev }: { ev: WatchdogActivityEvent }) {
       className="flex items-start gap-3 border-b border-border-faint px-4 py-3 last:border-b-0"
     >
       <span className="mono w-[80px] flex-none pt-0.5 text-[11px] text-tx-faint">
-        {formatRowTime(ev.at)}
+        {formatRowTime(ev.at, fmt, t('watchdog.activity.yesterday'))}
       </span>
       <Badge variant={variant} className="flex-none gap-1 px-2 py-0.5 text-[11px]">
         <DisplayIcon className="h-3 w-3" />

@@ -56,14 +56,14 @@ describe('<GeneralTab />', () => {
     await userEvent.tab(); // trigger onBlur validation
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
     });
   });
 
   it('Save is enabled when cron expression is corrected', async () => {
     mockFetchConfig('bad-cron');
     renderWithProviders(<GeneralTab />);
-    await screen.findByRole('button', { name: /save/i });
+    await screen.findByRole('button', { name: /^save$/i });
 
     const schedInput = screen.getByPlaceholderText(/0 \*\/6/i);
     await userEvent.clear(schedInput);
@@ -71,7 +71,7 @@ describe('<GeneralTab />', () => {
     await userEvent.tab();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /^save$/i })).not.toBeDisabled();
     });
   });
 
@@ -108,7 +108,7 @@ describe('<GeneralTab />', () => {
     const schedInput = screen.getByPlaceholderText(/0 \*\/6/i);
     await userEvent.clear(schedInput);
     await userEvent.type(schedInput, '0 */4 * * *');
-    const save = screen.getByRole('button', { name: /save/i });
+    const save = screen.getByRole('button', { name: /^save$/i });
     await waitFor(() => expect(save).not.toBeDisabled());
     await userEvent.click(save);
 
@@ -181,13 +181,13 @@ describe('<GeneralTab />', () => {
 
     const dryRun = screen.getByRole('switch', { name: /dry/i });
     await userEvent.click(dryRun);
-    const save = screen.getByRole('button', { name: /save/i });
+    const save = screen.getByRole('button', { name: /^save$/i });
     await waitFor(() => expect(save).not.toBeDisabled());
     await userEvent.click(save);
 
     // Post-save reset clears dirty → Save disabled again, switch stays ON.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
     });
     expect(dryRun).toHaveAttribute('aria-checked', 'true');
   });

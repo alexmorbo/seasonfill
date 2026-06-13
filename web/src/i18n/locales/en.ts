@@ -3,6 +3,7 @@ export const en = {
     save: 'Save',
     saving: 'Saving…',
     cancel: 'Cancel',
+    dismiss: 'Dismiss',
     discard: 'Discard',
     delete: 'Delete',
     edit: 'Edit',
@@ -906,6 +907,25 @@ export const en = {
         rpmMax: 'Must be ≤ 10000',
       },
     },
+    timezone: {
+      title: 'Timezone',
+      description:
+        'Used for cron schedulers, audit log timestamps, and every date rendered in the UI.',
+      fieldLabel: 'IANA timezone',
+      sourceLabel: 'Source',
+      source: {
+        db: 'Saved override',
+        env: 'TZ env variable',
+        default: 'Default (UTC)',
+        fallback: 'Browser fallback',
+      },
+      save: 'Save timezone',
+      restart: {
+        title: 'Restart required',
+        body:
+          'Cron schedulers built at boot will continue using the previous timezone until the pod restarts. New date renders in the UI already use the new zone.',
+      },
+    },
     security: {
       authCard: { title: 'Authentication mode' },
       modePill: {
@@ -1501,6 +1521,7 @@ export const en = {
     activity: {
       title: 'Activity · {{instance}}',
       label: 'LATEST EVENTS',
+      yesterday: 'yesterday',
       empty: 'No events',
       placeholder: 'Events will appear here once Watchdog runs its first cycle',
       event: {
