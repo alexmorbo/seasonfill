@@ -1,12 +1,15 @@
 package enrichment
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
 func TestQueue_Dedup_TwoEnqueuesOneSlot(t *testing.T) {
@@ -95,4 +98,47 @@ func TestQueue_CloseIsIdempotent(t *testing.T) {
 	q := newPriorityQueue()
 	q.close()
 	q.close()
+}
+
+// 306 — verify per-kind depth gauge ticks on enqueue/release.
+// Reads VictoriaMetrics via observability.WritePrometheus rather than
+// inspecting the queue's internal counter so the test mirrors what
+// the operator's Grafana panel will read.
+func TestQueue_DepthGauge_TicksOnEnqueueAndRelease(t *testing.T) {
+	q := newPriorityQueue()
+	// Initial state — gauge is published as zero from newPriorityQueue,
+	// so /metrics already has the entry.
+	body := readMetrics(t)
+	require.Contains(t, body, `enrichment_queue_depth{worker="series"}`)
+
+	require.True(t, q.enqueue(Job{Kind: EntitySeries, EntityID: 1, Priority: PriorityHot}))
+	require.True(t, q.enqueue(Job{Kind: EntitySeries, EntityID: 2, Priority: PriorityCold}))
+
+	// After 2 enqueues the series gauge is 2.
+	body = readMetrics(t)
+	require.Contains(t, body, `enrichment_queue_depth{worker="series"} 2`)
+
+	q.release(EntitySeries, 1)
+	body = readMetrics(t)
+	require.Contains(t, body, `enrichment_queue_depth{worker="series"} 1`)
+
+	q.release(EntitySeries, 2)
+	body = readMetrics(t)
+	require.Contains(t, body, `enrichment_queue_depth{worker="series"} 0`)
+}
+
+// Defensive: a stray release for a key not in inFlight must not push
+// the gauge negative.
+func TestQueue_Release_UnknownKey_DoesNotGoNegative(t *testing.T) {
+	q := newPriorityQueue()
+	q.release(EntitySeries, 999)
+	body := readMetrics(t)
+	require.Contains(t, body, `enrichment_queue_depth{worker="series"} 0`)
+}
+
+func readMetrics(t *testing.T) string {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	return buf.String()
 }

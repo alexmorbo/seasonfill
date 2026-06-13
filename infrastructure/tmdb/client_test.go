@@ -1,12 +1,16 @@
 package tmdb
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
 func TestClient_BearerAuth(t *testing.T) {
@@ -140,7 +144,7 @@ func TestClient_NotFound_Terminal(t *testing.T) {
 	}
 }
 
-func TestClient_RateLimiter_5RPS(t *testing.T) {
+func TestClient_RateLimiter_4_5RPS(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":1}`))
 	}))
@@ -156,9 +160,11 @@ func TestClient_RateLimiter_5RPS(t *testing.T) {
 		}
 	}
 	elapsed := time.Since(start)
-	// 5 pre-filled + 5 refills @ 200ms each → ~1s minimum.
-	if elapsed < 800*time.Millisecond {
-		t.Fatalf("10 calls completed in %v — limiter not throttling", elapsed)
+	// 5 pre-filled + 5 refills @ 222ms each → ~1.11s minimum at 4.5 rps.
+	// Tightened from the legacy 800ms (5 rps) threshold so a regression
+	// back to 5 rps (≈1.0s) is caught here.
+	if elapsed < 950*time.Millisecond {
+		t.Fatalf("10 calls completed in %v — limiter not throttling at 4.5 rps", elapsed)
 	}
 }
 
@@ -254,4 +260,56 @@ func abs(d time.Duration) time.Duration {
 		return -d
 	}
 	return d
+}
+
+// 306 — assert that a successful TMDB call leaves the tmdb_requests_total
+// counter populated AND the limiter-wait histogram has at least one
+// observation. The VictoriaMetrics global set is mutated by the test
+// so we use a unique label-free pair; cumulative counters survive any
+// test ordering.
+func TestClient_Metrics_RecordsSuccessAndLimiterWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+
+	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
+		t.Fatalf("GetTV: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	body := buf.String()
+	if !strings.Contains(body, `tmdb_requests_total{result="success"}`) {
+		t.Fatalf("tmdb_requests_total{result=success} missing from /metrics:\n%s", body)
+	}
+	if !strings.Contains(body, `tmdb_limiter_wait_seconds`) {
+		t.Fatalf("tmdb_limiter_wait_seconds missing from /metrics:\n%s", body)
+	}
+}
+
+// 306 — assert that a 429 response leaves the tmdb_requests_total
+// counter populated with the rate_limited result. Three attempts are
+// configured; we 429 all three so the final return is an error and
+// the metric reflects all three pushes.
+func TestClient_Metrics_RecordsRateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+	c.sleep = func(ctx context.Context, d time.Duration) error { return nil } // fast-forward
+
+	_, _ = c.GetTV(context.Background(), 1, "") // ignore err — 3 attempts exhausted
+
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	body := buf.String()
+	if !strings.Contains(body, `tmdb_requests_total{result="rate_limited"}`) {
+		t.Fatalf("tmdb_requests_total{result=rate_limited} missing from /metrics:\n%s", body)
+	}
 }

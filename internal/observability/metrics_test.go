@@ -196,6 +196,37 @@ func TestIncScanSkipped_RegistersAndIncrements(t *testing.T) {
 	assert.Contains(t, body, `instance="obs_test_skip_b"`)
 }
 
+func TestIncTMDBRequest_RegistersAndIncrements(t *testing.T) {
+	IncTMDBRequest("success")
+	IncTMDBRequest("rate_limited")
+	IncTMDBRequest("error")
+	body := writeAndRead(t)
+	assert.Contains(t, body, `tmdb_requests_total{result="success"}`)
+	assert.Contains(t, body, `tmdb_requests_total{result="rate_limited"}`)
+	assert.Contains(t, body, `tmdb_requests_total{result="error"}`)
+}
+
+func TestObserveTMDBLimiterWait_Registers(t *testing.T) {
+	ObserveTMDBLimiterWait(0)
+	ObserveTMDBLimiterWait(0.222)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "tmdb_limiter_wait_seconds")
+}
+
+func TestSetEnrichmentQueueDepth_Registers(t *testing.T) {
+	SetEnrichmentQueueDepth("series", 3)
+	SetEnrichmentQueueDepth("person", 0)
+	body := writeAndRead(t)
+	assert.Contains(t, body, `enrichment_queue_depth{worker="series"}`)
+	assert.Contains(t, body, `enrichment_queue_depth{worker="person"}`)
+}
+
+func TestSetEnrichmentColdStartRemaining_Registers(t *testing.T) {
+	SetEnrichmentColdStartRemaining(42)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "enrichment_cold_start_remaining")
+}
+
 func TestMetricConstants_AreNotEmpty(t *testing.T) {
 	t.Parallel()
 	consts := []string{

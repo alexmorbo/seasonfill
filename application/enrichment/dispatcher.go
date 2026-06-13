@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,10 @@ type DispatcherImpl struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
+	// 306 — guard for late registration of OnSeriesComplete by the
+	// cold-start path. Read by runHandler from goroutines; the atomic
+	// pointer makes the publication race-free without widening mu.
+	onSeriesComplete atomic.Pointer[func(int64)]
 }
 
 // Workers is the dependency bundle. SeriesHandler is required; the
@@ -32,6 +37,11 @@ type Workers struct {
 	// still spawns but every dequeue logs "handler_nil" and
 	// releases the dedup slot (matches the 211 person-nil pattern).
 	OMDbHandler func(ctx context.Context, id int64) error
+	// 306. Optional per-series completion hook. Fired AFTER the
+	// queue release for EntitySeries jobs only — success OR error.
+	// Nil-OK (production-only feature for the cold-start gauge;
+	// tests that don't care leave it nil).
+	OnSeriesComplete func(id int64)
 }
 
 // NewDispatcher constructs a not-yet-running dispatcher. Start binds
@@ -171,7 +181,25 @@ func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, han
 // panic surfaces (we re-panic after release) without trapping the
 // (kind, id) slot in the in-flight map.
 func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job, handler func(context.Context, int64) error) {
-	defer d.queue.release(j.Kind, j.EntityID)
+	defer func() {
+		d.queue.release(j.Kind, j.EntityID)
+		// 306 — cold-start gauge tick. Fires AFTER release so the
+		// depth gauge has already dropped. Only EntitySeries jobs
+		// participate (person/omdb handlers must not impact the
+		// cold-start counter). Two registration paths:
+		//   - Workers.OnSeriesComplete: set at NewDispatcher time
+		//   - SetOnSeriesComplete: late binding from BackfillSeries
+		// Both run if both are set.
+		if j.Kind != EntitySeries {
+			return
+		}
+		if d.workers.OnSeriesComplete != nil {
+			d.workers.OnSeriesComplete(j.EntityID)
+		}
+		if cb := d.onSeriesComplete.Load(); cb != nil {
+			(*cb)(j.EntityID)
+		}
+	}()
 	start := time.Now()
 	if handler == nil {
 		log.WarnContext(ctx, "enrichment.dispatcher.handler_nil",
@@ -201,4 +229,17 @@ func priorityLabel(p Priority) string {
 		return "hot"
 	}
 	return "cold"
+}
+
+// SetOnSeriesComplete registers (or clears, when fn==nil) the late-bound
+// per-series completion hook used by the cold-start backfill (Story 306).
+// Safe to call concurrently with the worker goroutines — uses an atomic
+// pointer for the publication race. The hook is invoked AFTER the queue
+// release for EntitySeries jobs only.
+func (d *DispatcherImpl) SetOnSeriesComplete(fn func(id int64)) {
+	if fn == nil {
+		d.onSeriesComplete.Store(nil)
+		return
+	}
+	d.onSeriesComplete.Store(&fn)
 }

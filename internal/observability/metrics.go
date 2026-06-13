@@ -33,6 +33,30 @@ const (
 	// reason matches the CATEGORY name (not the typed Reason string) so
 	// Grafana queries align with PRD §3 B4 wording.
 	MetricScanSkippedSeasonsTotal = `seasonfill_scan_skipped_seasons_total`
+
+	// Story 306 — TMDB observability for the cold-start backfill.
+	// `tmdb_requests_total` is incremented exactly once per call to
+	// (*tmdb.Client).do() with `result` set from the dispatch verdict:
+	//   - success: 2xx
+	//   - rate_limited: 429 (counted on the FIRST 429; retries that
+	//     also 429 increment again — see story 306 §B notes)
+	//   - error: every other terminal path (5xx exhausted, network,
+	//     terminal 4xx, JSON parse)
+	// `tmdb_limiter_wait_seconds` records wall-clock seconds spent
+	// inside tokenBucket.Wait() per call — graphs "how saturated is
+	// the bucket". Histogram, no labels (single global bucket).
+	MetricTMDBRequestsTotal      = `tmdb_requests_total`
+	MetricTMDBLimiterWaitSeconds = `tmdb_limiter_wait_seconds`
+
+	// Story 306 — enrichment dispatcher observability.
+	// `enrichment_queue_depth{worker}` is gauge of pending + in-flight
+	// jobs per EntityKind. The dispatcher reads `worker` from the
+	// EntityKind string ("series" / "person" / "omdb").
+	// `enrichment_cold_start_remaining` is a single global gauge
+	// initialised to the count of unjournalled series at BackfillSeries
+	// entry and decremented to zero as each series job completes.
+	MetricEnrichmentQueueDepth         = `enrichment_queue_depth`
+	MetricEnrichmentColdStartRemaining = `enrichment_cold_start_remaining`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -175,4 +199,34 @@ func IncScanSkipped(instance, reason string) {
 
 func WritePrometheus(w io.Writer) {
 	metrics.WritePrometheus(w, true)
+}
+
+// IncTMDBRequest bumps the per-result TMDB request counter. result
+// ∈ {"success","rate_limited","error"} — kept as a closed set so
+// Grafana queries are stable.
+func IncTMDBRequest(result string) {
+	metrics.GetOrCreateCounter(`tmdb_requests_total{result="` + result + `"}`).Inc()
+}
+
+// ObserveTMDBLimiterWait records wall-clock seconds a TMDB call
+// spent waiting on the shared 4.5-rps token bucket. Zero-wait
+// calls (the bucket had a pre-filled token) are recorded as 0.
+func ObserveTMDBLimiterWait(seconds float64) {
+	metrics.GetOrCreateHistogram(`tmdb_limiter_wait_seconds`).Update(seconds)
+}
+
+// SetEnrichmentQueueDepth publishes the per-kind queue depth.
+// worker is the EntityKind string ("series" / "person" / "omdb").
+// Called from inside priorityQueue under its mutex — single writer
+// per (worker) label, no atomic needed at the call site.
+func SetEnrichmentQueueDepth(worker string, depth int) {
+	metrics.GetOrCreateGauge(`enrichment_queue_depth{worker="`+worker+`"}`, nil).Set(float64(depth))
+}
+
+// SetEnrichmentColdStartRemaining publishes the count of unjournalled
+// series still pending the cold-start backfill. Initialised to
+// len(ids) at BackfillSeries entry; decremented to zero as each
+// series job completes.
+func SetEnrichmentColdStartRemaining(n int) {
+	metrics.GetOrCreateGauge(`enrichment_cold_start_remaining`, nil).Set(float64(n))
 }

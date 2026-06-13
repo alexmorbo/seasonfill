@@ -35,6 +35,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
 // DefaultBaseURL is TMDB v3 production endpoint. Override only in
@@ -47,11 +49,19 @@ const DefaultBaseURL = "https://api.themoviedb.org/3"
 // stable when an operator's UI is in any language.
 const DefaultLanguage = "en-US"
 
-// rateLimitRPS is the self-cap mandated by PRD §5.5. TMDB's real
-// limit is ~40 rps but we share a single bucket across every
-// enrichment worker process to stay polite, leaving headroom for
-// future expansion (e.g. cold-start backfill).
-const rateLimitRPS = 5
+// rateLimitInterval is the refill cadence of the shared TMDB token
+// bucket. PRD §5.5 caps the enrichment process at 90% of TMDB's
+// free-tier 50 rps ceiling — i.e. 4.5 rps. Encoded as a duration so
+// the bucket can refill at sub-second cadence (1s / 4.5 ≈ 222ms).
+// Story 306 dropped the cap from 5 rps to leave headroom for the
+// 211/212 cold-start backfill burst at boot.
+const rateLimitInterval = 222 * time.Millisecond
+
+// rateLimitBurst is the bucket's capacity — how many calls can land
+// back-to-back without waiting. Matches the historical "5 calls
+// pre-filled" behaviour so the very first burst of enrichment
+// requests at boot doesn't immediately wait.
+const rateLimitBurst = 5
 
 // maxAttempts is the total request count (1 initial + 2 retries).
 // Matches the story scope.
@@ -115,7 +125,7 @@ func New(cfg Config) (*Client, error) {
 		token:      cfg.Token,
 		lang:       lang,
 		httpClient: cfg.HTTPClient,
-		limiter:    newTokenBucket(rateLimitRPS),
+		limiter:    newTokenBucket(rateLimitInterval, rateLimitBurst),
 		clock:      time.Now,
 		sleep:      ctxSleep,
 	}
@@ -134,13 +144,31 @@ func (c *Client) Close() { c.limiter.Close() }
 // payload.
 func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Story 306 — observe wall-clock limiter wait. Always Update,
+		// even on a pre-filled (zero-wait) token; the histogram's p0
+		// then captures "how often did we breeze through".
+		waitStart := c.clock()
 		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, err
 		}
+		observability.ObserveTMDBLimiterWait(c.clock().Sub(waitStart).Seconds())
+
 		body, retryWait, err := c.doOnce(ctx, path, query)
 		if err == nil {
+			observability.IncTMDBRequest("success")
 			return body, nil
 		}
+		// Classify the attempt's outcome for tmdb_requests_total. 429
+		// (rate_limited) is counted per attempt — a 429 → 429 → 200
+		// sequence yields {rate_limited:2, success:1}, which is the
+		// "upstream pushed back" signal the operator wants. 5xx +
+		// network + terminal 4xx all collapse to "error".
+		if isRateLimitedErr(err) {
+			observability.IncTMDBRequest("rate_limited")
+		} else {
+			observability.IncTMDBRequest("error")
+		}
+
 		// retryWait > 0 → caller signalled "wait this long then retry".
 		// Honoured both for 429 (Retry-After) and 5xx (expo backoff).
 		// A terminal error (4xx other than 429, JSON parse, ctx cancel)
@@ -154,6 +182,17 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 	}
 	// Unreachable — the loop above always returns inside.
 	return nil, errors.New("tmdb: retry loop exited without verdict")
+}
+
+// isRateLimitedErr unwraps to *APIError and reports whether the
+// status was 429. Used only by metric classification in do() — does
+// NOT alter the retry verdict.
+func isRateLimitedErr(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Status == http.StatusTooManyRequests
+	}
+	return false
 }
 
 // doOnce performs a single HTTP request. Returns (body, 0, nil) on
@@ -295,21 +334,27 @@ type tokenBucket struct {
 	once   sync.Once
 }
 
-func newTokenBucket(rps int) *tokenBucket {
+func newTokenBucket(interval time.Duration, capacity int) *tokenBucket {
+	if capacity < 1 {
+		capacity = 1
+	}
+	if interval <= 0 {
+		interval = time.Second
+	}
 	tb := &tokenBucket{
-		tokens: make(chan struct{}, rps),
+		tokens: make(chan struct{}, capacity),
 		stop:   make(chan struct{}),
 	}
-	// Pre-fill so the first rps calls don't block.
-	for i := 0; i < rps; i++ {
+	// Pre-fill so the first `capacity` calls don't block.
+	for i := 0; i < capacity; i++ {
 		tb.tokens <- struct{}{}
 	}
-	go tb.refill(rps)
+	go tb.refill(interval)
 	return tb
 }
 
-func (tb *tokenBucket) refill(rps int) {
-	t := time.NewTicker(time.Second / time.Duration(rps))
+func (tb *tokenBucket) refill(interval time.Duration) {
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {

@@ -3,6 +3,7 @@ package enrichment
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -78,4 +79,117 @@ func TestBackfillSeries_EmptyIDs_NoEnqueue(t *testing.T) {
 	d := &recordingDispatcher{}
 	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
 	assert.Empty(t, d.calls)
+}
+
+// 306 — recordingHookableDispatcher captures Enqueue calls AND lets a
+// test invoke the registered OnSeriesComplete to simulate the
+// dispatcher's runHandler defer firing.
+type recordingHookableDispatcher struct {
+	calls   []recordedCall
+	onDone  func(id int64)
+	closeMu sync.Mutex
+}
+
+func (r *recordingHookableDispatcher) Enqueue(k EntityKind, id int64, p Priority) {
+	r.calls = append(r.calls, recordedCall{Kind: k, ID: id, Priority: p})
+}
+
+func (r *recordingHookableDispatcher) Close() {}
+
+func (r *recordingHookableDispatcher) SetOnSeriesComplete(fn func(id int64)) {
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	r.onDone = fn
+}
+
+func (r *recordingHookableDispatcher) fire(id int64) {
+	r.closeMu.Lock()
+	cb := r.onDone
+	r.closeMu.Unlock()
+	if cb != nil {
+		cb(id)
+	}
+}
+
+func TestBackfillSeries_ColdStartGauge_InitAndDecrement(t *testing.T) {
+	// Override the gauge setter so this test is self-contained (we
+	// inspect the captured value instead of /metrics — avoids races
+	// with parallel tests mutating the global VictoriaMetrics set).
+	var (
+		mu       sync.Mutex
+		captured []int
+	)
+	SetColdStartGaugeForTest(func(n int) {
+		mu.Lock()
+		captured = append(captured, n)
+		mu.Unlock()
+	})
+	t.Cleanup(func() { SetColdStartGaugeForTest(nil) })
+
+	scanner := &fakeScanner{ids: []int64{10, 20, 30}}
+	d := &recordingHookableDispatcher{}
+	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
+
+	// Initial publish: gauge set to 3 BEFORE the enqueue loop.
+	mu.Lock()
+	require.NotEmpty(t, captured, "gauge must be set at least once")
+	assert.Equal(t, 3, captured[0], "initial value = len(ids)")
+	mu.Unlock()
+	require.Len(t, d.calls, 3)
+
+	// Simulate the three jobs completing — gauge ticks 2, 1, 0.
+	d.fire(10)
+	d.fire(20)
+	d.fire(30)
+
+	mu.Lock()
+	defer mu.Unlock()
+	// captured ⊇ [3, 2, 1, 0]; intermediate ticks may include the
+	// initial publication so we check the last 4 entries.
+	require.GreaterOrEqual(t, len(captured), 4)
+	last := captured[len(captured)-4:]
+	assert.Equal(t, []int{3, 2, 1, 0}, last)
+}
+
+func TestBackfillSeries_ColdStartGauge_EmptyIDs_PublishesZero(t *testing.T) {
+	var captured []int
+	SetColdStartGaugeForTest(func(n int) { captured = append(captured, n) })
+	t.Cleanup(func() { SetColdStartGaugeForTest(nil) })
+
+	scanner := &fakeScanner{ids: nil}
+	d := &recordingHookableDispatcher{}
+	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
+	assert.Equal(t, []int{0}, captured)
+	assert.Empty(t, d.calls)
+}
+
+func TestBackfillSeries_ColdStartGauge_UnknownIDFire_NoDecrement(t *testing.T) {
+	var captured []int
+	SetColdStartGaugeForTest(func(n int) { captured = append(captured, n) })
+	t.Cleanup(func() { SetColdStartGaugeForTest(nil) })
+
+	scanner := &fakeScanner{ids: []int64{1, 2}}
+	d := &recordingHookableDispatcher{}
+	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
+
+	// Fire for an id NOT owned by cold-start. Must not push the gauge
+	// below the current value (which is 2).
+	d.fire(999)
+	// captured: [2, ...] — the trailing entries must not include a -1.
+	for _, v := range captured {
+		assert.GreaterOrEqual(t, v, 0)
+	}
+	// Last captured value is still 2 (no decrement happened).
+	assert.Equal(t, 2, captured[len(captured)-1])
+}
+
+func TestBackfillSeries_LegacyRecordingDispatcher_StillWorks(t *testing.T) {
+	// Regression guard: the original Dispatcher-only fake still
+	// satisfies the production BackfillSeries call. Hook is skipped
+	// (no SetOnSeriesComplete on this fake) — the function returns
+	// nil and the call list is correct.
+	scanner := &fakeScanner{ids: []int64{1, 2}}
+	d := &recordingDispatcher{}
+	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
+	require.Len(t, d.calls, 2)
 }
