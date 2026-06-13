@@ -66,6 +66,7 @@ func NewServer(
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	seriesCastHandler *handlers.SeriesCastHandler,
+	peopleHandler *handlers.PeopleHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -182,6 +183,12 @@ func NewServer(
 		// series detail handler pattern.
 		if seriesCastHandler != nil {
 			guarded.GET("/instances/:name/series/:id/cast", seriesCastHandler.Get)
+		}
+		// Story 217 (H-2) — person detail page. Top-level resource —
+		// `/people` is instance-independent. Nil-OK pattern matches
+		// seriesCastHandler.
+		if peopleHandler != nil {
+			guarded.GET("/people/:tmdbId", peopleHandler.Get)
 		}
 		// F-1 (Story 214): content-addressed media proxy. Serves the
 		// canonical TMDB image variants pre-warmed by the series

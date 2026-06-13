@@ -16,10 +16,12 @@ import (
 
 	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
+	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/instance"
+	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/rescan"
@@ -28,6 +30,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
+	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
@@ -599,6 +602,27 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	})
 	seriesCastHandler := handlers.NewSeriesCastHandler(castComposer, log)
 
+	// Story 217 (H-2) — person detail use case. Adapter wraps
+	// PeopleRepository so the application port distinguishes the
+	// bio-skipping GetByTMDBID path (hot, used for the tmdb→id
+	// resolution) from the bio-resolving GetWithBio path (cold,
+	// used after id is known) — same repository, two narrow
+	// methods. The Enqueuer is a late-binding holder; the real
+	// dispatcher is wired in after wireEnrichment returns (the
+	// holder's inner is nil-OK and the use case logs a warn line
+	// when stub persons land before the dispatcher is up).
+	peopleEnqueuerHolder := &personEnqueuerHolder{}
+	peopleUC := apppeople.NewUseCase(apppeople.Deps{
+		People:        peopleReaderAdapter{r: sdPeopleRepo},
+		PersonCredits: personCreditsReaderAdapter{r: sdPersonCreditsRepo},
+		SeriesByTMDB:  sdSeriesRepo,
+		SeriesCache:   seriesCacheRepo,
+		SyncLog:       sdSyncLogRepo,
+		Enqueuer:      peopleEnqueuerHolder,
+		Logger:        log,
+	})
+	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -609,7 +633,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
-		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler, log)
+		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler,
+		peopleHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -736,6 +761,15 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
+	}
+
+	// Story 217 (H-2) — late-bind the dispatcher into the people use
+	// case's enqueuer holder. enrichBundle.Dispatcher is nil when
+	// enrichment is disabled (cold boot / dev mode); the holder
+	// no-ops on nil so the use case continues to return 200 +
+	// degraded for stub persons.
+	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
+		peopleEnqueuerHolder.set(enrichBundle.Dispatcher)
 	}
 
 	// Register the nightly stale scan into the boot scheduler if cron
@@ -926,4 +960,92 @@ func (a personCreditsAdapter) ListByPerson(ctx context.Context, personID int64) 
 		})
 	}
 	return out, nil
+}
+
+// peopleReaderAdapter projects PeopleRepository onto the H-2
+// PeopleReader port — GetByTMDBID for the hot resolution path,
+// GetWithBio (renamed from repo's Get) for the bio-resolving
+// path. The renaming is local; the production repository's
+// method is `Get(ctx, id, language)`.
+type peopleReaderAdapter struct {
+	r *repositories.PeopleRepository
+}
+
+func (a peopleReaderAdapter) GetByTMDBID(ctx context.Context, tmdbID int) (dompeople.Person, error) {
+	return a.r.GetByTMDBID(ctx, tmdbID)
+}
+
+func (a peopleReaderAdapter) GetWithBio(ctx context.Context, id int64, language string) (dompeople.Person, error) {
+	return a.r.Get(ctx, id, language)
+}
+
+// personCreditsReaderAdapter projects PersonCreditsRepository
+// onto the H-2 PersonCreditsReader port. The repository's
+// ListByPerson returns []PersonCreditModel; the adapter converts
+// to []dompeople.PersonCredit row by row.
+type personCreditsReaderAdapter struct {
+	r *repositories.PersonCreditsRepository
+}
+
+func (a personCreditsReaderAdapter) ListByPerson(ctx context.Context, personID int64) ([]dompeople.PersonCredit, error) {
+	rows, err := a.r.ListByPerson(ctx, personID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dompeople.PersonCredit, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, modelToPersonCredit(m))
+	}
+	return out, nil
+}
+
+// modelToPersonCredit maps PersonCreditModel → domain
+// PersonCredit. Year passes through as the synthetic date
+// (year, 1, 1) so downstream code that reads Year from
+// ReleaseDate works; PosterPath is mapped to PosterAsset (the
+// v1 H-2 layer treats both as pass-through strings, formal asset
+// migration deferred).
+func modelToPersonCredit(m database.PersonCreditModel) dompeople.PersonCredit {
+	var rel *time.Time
+	if m.Year != nil {
+		t := time.Date(*m.Year, 1, 1, 0, 0, 0, 0, time.UTC)
+		rel = &t
+	}
+	return dompeople.PersonCredit{
+		ID:            m.ID,
+		PersonID:      m.PersonID,
+		MediaType:     m.MediaType,
+		TMDBMediaID:   int64(m.TMDBMediaID),
+		TMDBCreditID:  m.TMDBCreditID,
+		Kind:          dompeople.SeriesCreditKind(m.Kind),
+		Title:         m.Title,
+		CharacterName: m.CharacterName,
+		Job:           m.Job,
+		EpisodeCount:  m.EpisodeCount,
+		ReleaseDate:   rel,
+		PosterAsset:   m.PosterPath,
+		TMDBRating:    m.VoteAverage,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+}
+
+// personEnqueuerHolder late-binds the enrichment dispatcher into
+// the H-2 people use case. The dispatcher is constructed inside
+// wireEnrichment, but the people use case is built earlier (so it
+// can be passed to httpserver.NewServer). The holder is wired
+// after enrichBundle is assembled; until then Enqueue no-ops
+// (nil-OK by contract — the use case still returns 200 + degraded
+// for stub persons on cold boot / disabled enrichment).
+type personEnqueuerHolder struct {
+	inner appenrich.Dispatcher
+}
+
+func (h *personEnqueuerHolder) set(d appenrich.Dispatcher) { h.inner = d }
+
+func (h *personEnqueuerHolder) Enqueue(kind appenrich.EntityKind, id int64, p appenrich.Priority) {
+	if h.inner == nil {
+		return
+	}
+	h.inner.Enqueue(kind, id, p)
 }

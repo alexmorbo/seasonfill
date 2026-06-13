@@ -3017,6 +3017,108 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/people/{tmdbId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Person detail page
+         * @description Returns the canonical person row, biography
+         *     (resolved via the `(person_id, language)` fallback
+         *     helper), and the per-person filmography
+         *     partitioned into `library_credits[]` (rows whose
+         *     `tmdb_media_id` resolves to a canon `series` row
+         *     with at least one live `series_cache` reference)
+         *     and `other_credits[]` (TMDB-only — movies, TMDB
+         *     titles we don't carry, canon stubs without
+         *     library references).
+         *
+         *     `sort` controls `library_credits[]` ordering: `recent`
+         *     (default, `series.last_aired_at DESC`), `episodes`
+         *     (`person_credits.episode_count DESC`), `title`
+         *     (`series.title ASC`).
+         *
+         *     Stub-person handling: when `people.hydration='stub'`
+         *     the endpoint enqueues a `PriorityHot` enrichment
+         *     job AND returns 200 with `degraded: ["tmdb_person"]`.
+         *     The frontend re-polls; this story does NOT block
+         *     for hydration.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (default en-US) */
+                    readonly lang?: string;
+                    /** @description library_credits sort: recent|episodes|title (default recent) */
+                    readonly sort?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB person id */
+                    readonly tmdbId: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.PersonDetailResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/readyz": {
         readonly parameters: {
             readonly query?: never;
@@ -4347,6 +4449,25 @@ export type components = {
              */
             readonly webhook_url_override?: string;
         };
+        readonly "dto.LibraryCreditEntry": {
+            readonly character_name?: string;
+            /** @example 9 */
+            readonly episode_count?: number;
+            readonly instances?: readonly string[];
+            /** @example cast */
+            readonly kind?: string;
+            readonly poster_asset?: string;
+            /** @example Joel Miller */
+            readonly role_label?: string;
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example The Last of Us */
+            readonly title?: string;
+            /** @example 100 */
+            readonly tmdb_id?: number;
+            /** @example 2023 */
+            readonly year?: number;
+        };
         /**
          * @description Library is the Sonarr-derived "what's on disk" tile. Always
          *     present — Sonarr is the system of record per design brief §2.4.
@@ -4422,6 +4543,20 @@ export type components = {
             /** @example true */
             readonly ok?: boolean;
         };
+        readonly "dto.OtherCreditEntry": {
+            readonly character_name?: string;
+            /** @example cast */
+            readonly kind?: string;
+            /** @example tv */
+            readonly media_type?: string;
+            readonly poster_path?: string;
+            readonly role_label?: string;
+            readonly title?: string;
+            /** @example 999 */
+            readonly tmdb_media_id?: number;
+            readonly vote_average?: number;
+            readonly year?: number;
+        };
         /**
          * @description Overview is the localised description block. nil when no
          *     series_texts row exists in any language (rare — cold series
@@ -4448,6 +4583,56 @@ export type components = {
             readonly current?: string;
             /** @example NewSecretLongEnough */
             readonly new?: string;
+        };
+        readonly "dto.PersonDetailResponse": {
+            /** @example en-US */
+            readonly bio_language?: string;
+            /**
+             * @description Biography is the resolved free-form biography prose; empty
+             *     when no person_biographies row exists for any language.
+             *     BioLanguage echoes the language of the resolved row so the
+             *     frontend can render an `EN` chip when fallback fired.
+             */
+            readonly biography?: string;
+            /**
+             * @description Degraded carries any source that's never-synced / errored /
+             *     stale per PRD §5.6 rules. The H-2 page only journals
+             *     tmdb_person; degraded[] is either `[]` or
+             *     `["tmdb_person"]`.
+             */
+            readonly degraded?: readonly string[];
+            /**
+             * @description LibraryCredits is the JOIN of person_credits × canon series
+             *     × live series_cache. Sorted per the `sort` query param
+             *     (default "recent" = series.last_aired_at DESC).
+             */
+            readonly library_credits?: readonly components["schemas"]["dto.LibraryCreditEntry"][];
+            /**
+             * @description OtherCredits is every person_credits row NOT resolved to a
+             *     library series — TMDB-only metadata. Sorted by
+             *     (year DESC, title ASC) — the repository's default ordering.
+             */
+            readonly other_credits?: readonly components["schemas"]["dto.OtherCreditEntry"][];
+            readonly person?: components["schemas"]["dto.PersonInfo"];
+            readonly sync?: components["schemas"]["dto.SyncInfo"];
+        };
+        /** @description Person is the canonical person row — hero metadata. */
+        readonly "dto.PersonInfo": {
+            /** @example 1975-04-02 */
+            readonly birthday?: string;
+            readonly deathday?: string;
+            /** @example 7 */
+            readonly id?: number;
+            readonly known_for_department?: string;
+            /** @example Pedro Pascal */
+            readonly name?: string;
+            readonly original_name?: string;
+            /** @example Santiago, Chile */
+            readonly place_of_birth?: string;
+            readonly popularity?: number;
+            readonly profile_asset?: string;
+            /** @example 4495 */
+            readonly tmdb_id?: number;
         };
         readonly "dto.QbitDiscoverDTO": {
             readonly category?: string;
@@ -5007,6 +5192,18 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        /**
+         * @description Sync is the per-source hydration timestamp drawn from
+         *     sync_log(entity_type=person, source=tmdb_person). Omitted
+         *     when no row exists — `degraded[]` then carries
+         *     `"tmdb_person"`.
+         */
+        readonly "dto.SyncInfo": {
+            /** @example tmdb_person */
+            readonly source?: string;
+            /** @example 2026-06-10T03:14:00Z */
+            readonly synced_at?: string;
         };
         readonly "dto.TaxonomyChip": {
             readonly id?: number;

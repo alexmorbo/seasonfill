@@ -1114,6 +1114,39 @@ components:
           example: https://seasonfill.example.com
           type: string
       type: object
+    dto.LibraryCreditEntry:
+      properties:
+        character_name:
+          type: string
+        episode_count:
+          example: 9
+          type: integer
+        instances:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        kind:
+          example: cast
+          type: string
+        poster_asset:
+          type: string
+        role_label:
+          example: Joel Miller
+          type: string
+        series_id:
+          example: 42
+          type: integer
+        title:
+          example: The Last of Us
+          type: string
+        tmdb_id:
+          example: 100
+          type: integer
+        year:
+          example: 2023
+          type: integer
+      type: object
     dto.LibraryStrip:
       description: |-
         Library is the Sonarr-derived "what's on disk" tile. Always
@@ -1232,6 +1265,30 @@ components:
           example: true
           type: boolean
       type: object
+    dto.OtherCreditEntry:
+      properties:
+        character_name:
+          type: string
+        kind:
+          example: cast
+          type: string
+        media_type:
+          example: tv
+          type: string
+        poster_path:
+          type: string
+        role_label:
+          type: string
+        title:
+          type: string
+        tmdb_media_id:
+          example: 999
+          type: integer
+        vote_average:
+          type: number
+        year:
+          type: integer
+      type: object
     dto.OverviewAside:
       description: |-
         Overview is the localised description block. nil when no
@@ -1266,6 +1323,80 @@ components:
         new:
           example: NewSecretLongEnough
           type: string
+      type: object
+    dto.PersonDetailResponse:
+      properties:
+        bio_language:
+          example: en-US
+          type: string
+        biography:
+          description: |-
+            Biography is the resolved free-form biography prose; empty
+            when no person_biographies row exists for any language.
+            BioLanguage echoes the language of the resolved row so the
+            frontend can render an `EN` chip when fallback fired.
+          type: string
+        degraded:
+          description: |-
+            Degraded carries any source that's never-synced / errored /
+            stale per PRD §5.6 rules. The H-2 page only journals
+            tmdb_person; degraded[] is either `[]` or
+            `["tmdb_person"]`.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        library_credits:
+          description: |-
+            LibraryCredits is the JOIN of person_credits × canon series
+            × live series_cache. Sorted per the `sort` query param
+            (default "recent" = series.last_aired_at DESC).
+          items:
+            $ref: '#/components/schemas/dto.LibraryCreditEntry'
+          type: array
+          uniqueItems: false
+        other_credits:
+          description: |-
+            OtherCredits is every person_credits row NOT resolved to a
+            library series — TMDB-only metadata. Sorted by
+            (year DESC, title ASC) — the repository's default ordering.
+          items:
+            $ref: '#/components/schemas/dto.OtherCreditEntry'
+          type: array
+          uniqueItems: false
+        person:
+          $ref: '#/components/schemas/dto.PersonInfo'
+        sync:
+          $ref: '#/components/schemas/dto.SyncInfo'
+      type: object
+    dto.PersonInfo:
+      description: Person is the canonical person row — hero metadata.
+      properties:
+        birthday:
+          example: "1975-04-02"
+          type: string
+        deathday:
+          type: string
+        id:
+          example: 7
+          type: integer
+        known_for_department:
+          type: string
+        name:
+          example: Pedro Pascal
+          type: string
+        original_name:
+          type: string
+        place_of_birth:
+          example: Santiago, Chile
+          type: string
+        popularity:
+          type: number
+        profile_asset:
+          type: string
+        tmdb_id:
+          example: 4495
+          type: integer
       type: object
     dto.QbitDiscoverDTO:
       properties:
@@ -2106,6 +2237,20 @@ components:
           type: boolean
         username:
           example: admin
+          type: string
+      type: object
+    dto.SyncInfo:
+      description: |-
+        Sync is the per-source hydration timestamp drawn from
+        sync_log(entity_type=person, source=tmdb_person). Omitted
+        when no row exists — `degraded[]` then carries
+        `"tmdb_person"`.
+      properties:
+        source:
+          example: tmdb_person
+          type: string
+        synced_at:
+          example: "2026-06-10T03:14:00Z"
           type: string
       type: object
     dto.TaxonomyChip:
@@ -4576,6 +4721,83 @@ paths:
       summary: Stream a stored media asset
       tags:
       - media
+  /people/{tmdbId}:
+    get:
+      description: |-
+        Returns the canonical person row, biography
+        (resolved via the `(person_id, language)` fallback
+        helper), and the per-person filmography
+        partitioned into `library_credits[]` (rows whose
+        `tmdb_media_id` resolves to a canon `series` row
+        with at least one live `series_cache` reference)
+        and `other_credits[]` (TMDB-only — movies, TMDB
+        titles we don't carry, canon stubs without
+        library references).
+
+        `sort` controls `library_credits[]` ordering: `recent`
+        (default, `series.last_aired_at DESC`), `episodes`
+        (`person_credits.episode_count DESC`), `title`
+        (`series.title ASC`).
+
+        Stub-person handling: when `people.hydration='stub'`
+        the endpoint enqueues a `PriorityHot` enrichment
+        job AND returns 200 with `degraded: ["tmdb_person"]`.
+        The frontend re-polls; this story does NOT block
+        for hydration.
+      parameters:
+      - description: TMDB person id
+        in: path
+        name: tmdbId
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (default en-US)
+        in: query
+        name: lang
+        schema:
+          type: string
+      - description: 'library_credits sort: recent|episodes|title (default recent)'
+        in: query
+        name: sort
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.PersonDetailResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Person detail page
+      tags:
+      - people
   /readyz:
     get:
       description: |-
