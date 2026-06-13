@@ -857,6 +857,170 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/external-services": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List external service configurations (masked) */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ExternalServiceListResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/external-services/{service}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        /** Upsert external service configuration */
+        readonly put: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Service (tmdb|omdb|tvdb) */
+                    readonly service: string;
+                };
+                readonly cookie?: never;
+            };
+            /** @description Settings */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.ExternalServiceUpsertRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ExternalServiceDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/external-services/{service}/test": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Test external service connectivity */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Service (tmdb|omdb|tvdb) */
+                    readonly service: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ExternalServiceTestResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/grabs": {
         readonly parameters: {
             readonly query?: never;
@@ -1932,6 +2096,97 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Composite series detail document
+         * @description Returns the full Series Detail Page payload — series
+         *     hero, library tile, seasons accordion, cast, recommendations,
+         *     taxonomy, external links — composed from the local entity
+         *     tables in one call. Each section is independently degradable:
+         *     a failed enrichment source surfaces as a `degraded[]` entry
+         *     with the affected section's data falling back to nil/empty
+         *     (NEVER 5xx). The single live call is the local Sonarr /queue
+         *     for the in-flight download chip — unreachable Sonarr also
+         *     surfaces via `degraded[]`.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (default en-US) */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series id (per-instance) */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesDetailResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/series/{id}/poster": {
         readonly parameters: {
             readonly query?: never;
@@ -2013,6 +2268,95 @@ export type paths = {
                 };
                 /** @description Bad Gateway */
                 readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/instances/{name}/series/{id}/season/{n}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Series season detail (single-season subset)
+         * @description Returns the seasons-accordion subset of the composite
+         *     read for one season. Cheaper than the full series detail
+         *     endpoint — exists for the SPA's polling path when a
+         *     specific season is expanded and needs fresher per-instance
+         *     state without re-fetching the whole series document.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (default en-US) */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series id */
+                    readonly id: number;
+                    /** @description Season number (0 = Specials) */
+                    readonly n: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeasonDetailResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
@@ -2500,6 +2844,76 @@ export type paths = {
                 };
             };
         };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/media/{hash}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Stream a stored media asset
+         * @description Streams the content-addressed asset bytes. Cache-Control
+         *     is one year immutable (hash-based URLs are stable);
+         *     ETag is the hash itself so If-None-Match always 304s.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description sha256 hex of the upstream URL */
+                    readonly hash: string;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description asset bytes */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": string;
+                        readonly "image/jpeg": string;
+                    };
+                };
+                /** @description not modified */
+                readonly 304: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description pending / failed / unknown hash */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -3109,6 +3523,26 @@ export type components = {
              */
             readonly oidc_ready?: boolean;
         };
+        readonly "dto.CastMember": {
+            readonly character_name?: string;
+            readonly credit_order?: number;
+            readonly episode_count?: number;
+            readonly name?: string;
+            readonly person_id?: number;
+            readonly profile_asset?: string;
+            readonly tmdb_person_id?: number;
+        };
+        /**
+         * @description ContentRating is the displayed age-rating badge. nil when no
+         *     content_ratings row matches the user locale OR en-US OR US
+         *     fallback.
+         */
+        readonly "dto.ContentRatingBadge": {
+            /** @example US */
+            readonly country_code?: string;
+            /** @example TV-MA */
+            readonly rating?: string;
+        };
         readonly "dto.CounterBucketDTO": {
             readonly date?: string;
             readonly fails?: number;
@@ -3209,6 +3643,38 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.Decision"][];
             readonly next_cursor?: string;
         };
+        /**
+         * @description Download is the single active in-flight Sonarr queue item, if
+         *     any. nil when the queue is empty OR Sonarr is unreachable
+         *     (then degraded[] includes "sonarr").
+         */
+        readonly "dto.DownloadChip": {
+            readonly download_id?: string;
+            readonly episode_id?: number;
+            /** @example torrent */
+            readonly protocol?: string;
+            readonly queue_id?: number;
+            readonly season_number?: number;
+            /** @example downloading */
+            readonly status?: string;
+            readonly title?: string;
+        };
+        readonly "dto.Episode": {
+            readonly air_date?: string;
+            readonly episode_number?: number;
+            readonly finale_type?: string;
+            readonly has_file?: boolean;
+            readonly monitored?: boolean;
+            readonly overview?: string;
+            readonly overview_language?: string;
+            readonly quality?: string;
+            readonly runtime_minutes?: number;
+            readonly size_bytes?: number;
+            readonly sonarr_episode_id?: number;
+            readonly still_asset?: string;
+            readonly title?: string;
+            readonly title_language?: string;
+        };
         readonly "dto.EpisodeFileDetail": {
             /**
              * @example [
@@ -3236,6 +3702,54 @@ export type components = {
             readonly code?: string;
             /** @example unauthorized */
             readonly error?: string;
+        };
+        /**
+         * @description ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row.
+         *     Always present (struct is never nil); inner fields are
+         *     individually nil when the corresponding id is missing.
+         */
+        readonly "dto.ExternalLinks": {
+            readonly homepage?: string;
+            /** @example tt0903747 */
+            readonly imdb_id?: string;
+            /** @example 1396 */
+            readonly tmdb_id?: number;
+            /** @example 81189 */
+            readonly tvdb_id?: number;
+        };
+        readonly "dto.ExternalServiceDTO": {
+            readonly api_key_configured?: boolean;
+            /** @example ****abcd */
+            readonly api_key_masked?: string;
+            readonly enabled?: boolean;
+            readonly last_test_at?: string;
+            readonly last_test_message?: string;
+            /** @example ok */
+            readonly last_test_outcome?: string;
+            readonly proxy_auth_set?: boolean;
+            /** @example proxy.example.com:1080 */
+            readonly proxy_host?: string;
+            /** @example socks5 */
+            readonly proxy_scheme?: string;
+            readonly proxy_url_set?: boolean;
+            /** @example tmdb */
+            readonly service?: string;
+        };
+        readonly "dto.ExternalServiceListResponse": {
+            readonly services?: readonly components["schemas"]["dto.ExternalServiceDTO"][];
+        };
+        readonly "dto.ExternalServiceTestResponse": {
+            readonly latency_ms?: number;
+            readonly message?: string;
+            /** @example ok */
+            readonly outcome?: string;
+        };
+        readonly "dto.ExternalServiceUpsertRequest": {
+            readonly api_key?: string;
+            readonly enabled?: boolean;
+            readonly proxy_password?: string;
+            readonly proxy_url?: string;
+            readonly proxy_username?: string;
         };
         readonly "dto.GUIDRewriteDTO": {
             /** @example http://rutracker-proxy.servarr.svc.cluster.local */
@@ -3656,6 +4170,28 @@ export type components = {
              */
             readonly webhook_url_override?: string;
         };
+        /**
+         * @description Library is the Sonarr-derived "what's on disk" tile. Always
+         *     present — Sonarr is the system of record per design brief §2.4.
+         *     Counts come from series_cache.missing_count + episode_states.
+         */
+        readonly "dto.LibraryStrip": {
+            /**
+             * @description DominantQuality is the most common quality string across
+             *     on-disk episode_states rows (e.g., "WEB-DL 1080p"). Empty
+             *     when nothing on disk.
+             */
+            readonly dominant_quality?: string;
+            readonly episodes_on_disk?: number;
+            readonly episodes_total?: number;
+            readonly missing_count?: number;
+            readonly monitored?: boolean;
+            /**
+             * @description SizeOnDiskBytes is the sum of episode_states.size_bytes for
+             *     this series + instance. 0 when nothing on disk yet.
+             */
+            readonly size_on_disk_bytes?: number;
+        };
         readonly "dto.LoginRequest": {
             /** @example hunter2 */
             readonly password?: string;
@@ -3688,9 +4224,47 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.MissingSeries"][];
             readonly total?: number;
         };
+        readonly "dto.NetworkChip": {
+            readonly id?: number;
+            readonly logo_asset?: string;
+            /** @example AMC */
+            readonly name?: string;
+        };
+        /**
+         * @description NextEpisode is the "Next Episode" card data when available;
+         *     nil collapses the card to text-only states ("not yet
+         *     scheduled" / "ended" / "in production").
+         */
+        readonly "dto.NextEpisode": {
+            readonly air_date?: string;
+            readonly episode_number?: number;
+            readonly season_number?: number;
+            readonly title?: string;
+        };
         readonly "dto.OKResponse": {
             /** @example true */
             readonly ok?: boolean;
+        };
+        /**
+         * @description Overview is the localised description block. nil when no
+         *     series_texts row exists in any language (rare — cold series
+         *     before TMDB sync).
+         */
+        readonly "dto.OverviewAside": {
+            /**
+             * @description Awards is the OMDb awards line ("Won 16 Emmys..."). nil when
+             *     no OMDb sync ran or awards = "N/A".
+             */
+            readonly awards?: string;
+            /** @description Keywords are the small tag chips below the overview. */
+            readonly keywords?: readonly components["schemas"]["dto.TaxonomyChip"][];
+            /**
+             * @description Language is the BCP-47 language the Overview was served in.
+             *     Empty only when no row was found in any language (rare).
+             * @example ru-RU
+             */
+            readonly language?: string;
+            readonly overview?: string;
         };
         readonly "dto.PasswordChangeRequest": {
             /** @example hunter22 */
@@ -3754,6 +4328,17 @@ export type components = {
             /** @example admin */
             readonly username?: string;
         };
+        /**
+         * @description Ratings — TMDB and IMDb sides; nil when the source has no
+         *     score for this series. Two-rating row is the design brief's
+         *     RatingDuo component.
+         */
+        readonly "dto.RatingScore": {
+            /** @example 8.7 */
+            readonly score?: number;
+            /** @example 2031 */
+            readonly votes?: number;
+        };
         readonly "dto.ReadyStatus": {
             /** @example true */
             readonly database?: boolean;
@@ -3762,6 +4347,29 @@ export type components = {
              * @enum {string}
              */
             readonly status?: DtoReadyStatusStatus;
+        };
+        readonly "dto.RecentEvent": {
+            readonly at?: string;
+            /** @example imported */
+            readonly event_type?: string;
+            /** @description Subject is a one-line human description ("S05E03"). */
+            readonly subject?: string;
+        };
+        readonly "dto.Recommendation": {
+            readonly in_library?: boolean;
+            /**
+             * @description InstanceName + SonarrSeriesID identify which instance the
+             *     recommendation lives on (when InLibrary=true). Empty
+             *     otherwise. Used for the in-library click-through link.
+             */
+            readonly instance_name?: string;
+            readonly poster_asset?: string;
+            readonly series_id?: number;
+            readonly sonarr_series_id?: number;
+            readonly title?: string;
+            readonly tmdb_rating?: number;
+            readonly tmdb_series_id?: number;
+            readonly year?: number;
         };
         readonly "dto.RuntimeAuthDTO": {
             /** @description LocalBypass enables the local-address bypass middleware (036c). */
@@ -3929,6 +4537,27 @@ export type components = {
             readonly instance?: string;
             readonly series_ids?: readonly number[];
         };
+        readonly "dto.Season": {
+            readonly air_date?: string;
+            readonly episode_count?: number;
+            readonly episodes?: readonly components["schemas"]["dto.Episode"][];
+            readonly missing_count?: number;
+            readonly monitored?: boolean;
+            readonly name?: string;
+            readonly on_disk_count?: number;
+            readonly overview?: string;
+            readonly poster_asset?: string;
+            readonly season_number?: number;
+        };
+        readonly "dto.SeasonDetailResponse": {
+            readonly degraded?: readonly string[];
+            readonly instance?: string;
+            readonly lang?: string;
+            readonly season?: components["schemas"]["dto.Season"];
+            readonly series_id?: number;
+            readonly sonarr_series_id?: number;
+            readonly synced_at?: string;
+        };
         readonly "dto.SeasonEpisodeItem": {
             readonly air_date_utc?: string;
             /** @example true */
@@ -3975,13 +4604,14 @@ export type components = {
             readonly missing_count?: number;
             /** @example true */
             readonly monitored?: boolean;
-            /** @example Apple TV+ */
-            readonly network?: string;
             /** @example /MediaCover/122/poster.jpg */
             readonly poster_path?: string;
             /** @example 122 */
             readonly sonarr_series_id?: number;
             /**
+             * @description Network field REMOVED in E-1 (Story 210). Network membership lives
+             *     in series_networks join; the catalog tile omits the network line
+             *     until the detail-card endpoint (future story) projects per-row.
              * @example continuing
              * @enum {string}
              */
@@ -4004,6 +4634,121 @@ export type components = {
         };
         readonly "dto.SeriesCacheNetworksList": {
             readonly networks?: readonly string[];
+        };
+        readonly "dto.SeriesDetailResponse": {
+            /**
+             * @description Cast is the top-10 cast carousel. Empty slice when no
+             *     series_people rows exist (cold series or TMDB stub).
+             */
+            readonly cast?: readonly components["schemas"]["dto.CastMember"][];
+            /**
+             * @description Degraded is the list of sources that produced stale or absent
+             *     data. UI renders a stale affordance per source. Empty slice
+             *     when every source is fresh.
+             */
+            readonly degraded?: readonly string[];
+            readonly download?: components["schemas"]["dto.DownloadChip"];
+            readonly external_links?: components["schemas"]["dto.ExternalLinks"];
+            readonly hero?: components["schemas"]["dto.SeriesHero"];
+            /**
+             * @description Instance is the Sonarr instance the request hit.
+             *     Echoed for clients that need to disambiguate cross-instance
+             *     state (a series can exist on multiple instances).
+             * @example alpha
+             */
+            readonly instance?: string;
+            /**
+             * @description Lang is the BCP-47 language code the response was rendered
+             *     in. Echoes the request when present; defaults to "en-US"
+             *     when the request omitted ?lang= or sent an invalid value.
+             * @example ru-RU
+             */
+            readonly lang?: string;
+            readonly library?: components["schemas"]["dto.LibraryStrip"];
+            readonly overview?: components["schemas"]["dto.OverviewAside"];
+            /**
+             * @description Recent is the last-5 activity events for the Library tile.
+             *     EMPTY in this story (recent_activity_deferred — see §9 note);
+             *     frontend treats empty as "no recent activity yet".
+             */
+            readonly recent?: readonly components["schemas"]["dto.RecentEvent"][];
+            /**
+             * @description Recommendations is the "you might also like" carousel. Empty
+             *     when no rows in series_recommendations (cold series, or TMDB
+             *     returned no recommendations).
+             */
+            readonly recommendations?: readonly components["schemas"]["dto.Recommendation"][];
+            /**
+             * @description Seasons is the seasons-accordion data — one entry per season,
+             *     episodes included (lazy-load avoided per PRD §5.5: TMDB sync
+             *     pulls all seasons eagerly on first pass, so reading them all
+             *     here is cheap).
+             */
+            readonly seasons?: readonly components["schemas"]["dto.Season"][];
+            /**
+             * @description SeriesID is the resolved canonical series.id. Useful to
+             *     frontend for sibling endpoints (cast, person) that key on
+             *     canonical id rather than Sonarr id.
+             * @example 42
+             */
+            readonly series_id?: number;
+            /**
+             * @description SonarrSeriesID is the Sonarr-side id from the URL.
+             * @example 123
+             */
+            readonly sonarr_series_id?: number;
+            /**
+             * @description SyncedAt is the request timestamp (server-side now()); the
+             *     frontend uses it for the "synced Xs ago" microcopy.
+             */
+            readonly synced_at?: string;
+            readonly torrents?: components["schemas"]["dto.TorrentsHint"];
+        };
+        /**
+         * @description Hero is the page header (backdrop + poster + title + meta).
+         *     Always present (the canon row always exists post-208 cutover).
+         */
+        readonly "dto.SeriesHero": {
+            readonly backdrop_asset?: string;
+            readonly content_rating?: components["schemas"]["dto.ContentRatingBadge"];
+            /**
+             * @description Genres are localised chips (max 5 rendered, the composer
+             *     returns all available — frontend caps display).
+             */
+            readonly genres?: readonly components["schemas"]["dto.TaxonomyChip"][];
+            readonly imdb_rating?: components["schemas"]["dto.RatingScore"];
+            /** @description Networks are the network-logo strip (max 3 displayed). */
+            readonly networks?: readonly components["schemas"]["dto.NetworkChip"][];
+            readonly next_episode?: components["schemas"]["dto.NextEpisode"];
+            readonly original_title?: string;
+            readonly poster_asset?: string;
+            /** @example 45 */
+            readonly runtime_minutes?: number;
+            /**
+             * @description Status is one of "continuing", "ended", "canceled",
+             *     "in_production", "upcoming", or "unknown". Mapping from
+             *     TMDB / Sonarr → these tokens lives in the composer; frontend
+             *     renders the pill colour from this enum, NOT from the raw
+             *     upstream string.
+             * @example ended
+             */
+            readonly status?: string;
+            readonly tagline?: string;
+            /** @example Breaking Bad */
+            readonly title?: string;
+            /**
+             * @description TitleLanguage is the BCP-47 language the Title was served in.
+             *     Empty when no series_texts row was found and the canon row's
+             *     own title was used.
+             * @example ru-RU
+             */
+            readonly title_language?: string;
+            readonly tmdb_rating?: components["schemas"]["dto.RatingScore"];
+            readonly trailer?: components["schemas"]["dto.Trailer"];
+            /** @example 2013 */
+            readonly year_end?: number;
+            /** @example 2008 */
+            readonly year_start?: number;
         };
         readonly "dto.SeriesSearchItem": {
             /** @example 8 */
@@ -4029,6 +4774,42 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        readonly "dto.TaxonomyChip": {
+            readonly id?: number;
+            /** @example en-US */
+            readonly language?: string;
+            /** @example Drama */
+            readonly name?: string;
+        };
+        /**
+         * @description Torrents is the torrent inventory section (design brief §4).
+         *     In this story it is always SyncPending=true + Items=[] — full
+         *     implementation comes from stories A-1..A-4 (219..222).
+         */
+        readonly "dto.TorrentsHint": {
+            /** @description Count is the number of known torrents; 0 in this story. */
+            readonly count?: number;
+            /**
+             * @description SyncPending=true means "torrent inventory not yet available
+             *     for this series". UI hides the section or shows a quiet
+             *     skeleton — design brief §4.5 covers the empty-state shapes.
+             */
+            readonly sync_pending?: boolean;
+            /** @description TotalSizeBytes — aggregate size; 0 in this story. */
+            readonly total_size_bytes?: number;
+        };
+        /**
+         * @description Trailer is the single best official YouTube trailer. nil when
+         *     no videos row matches (no trailer hidden by design brief §2.1).
+         */
+        readonly "dto.Trailer": {
+            /** @example X9F1jh5jc-Y */
+            readonly key?: string;
+            readonly name?: string;
+            readonly published_at?: string;
+            /** @example YouTube */
+            readonly site?: string;
         };
         readonly "dto.WatchdogBlacklistItem": {
             /** @example 3 */

@@ -17,13 +17,20 @@ import "time"
 type CacheEntry struct {
 	InstanceName   string
 	SonarrSeriesID int
-	Title          string
-	TitleSlug      string
-	Year           *int
-	TVDBID         *int
-	IMDBID         *string
-	TMDBID         *int
-	Status         *string
+	// SeriesID is the resolved canon series.id (set post-cutover
+	// when the cache row's INNER JOIN to `series` succeeds). nil
+	// only on a broken row (pre-cutover legacy data); the
+	// composer treats nil as the 404 path. Read-only on the
+	// domain shape; writes go through SeriesCacheRepository.Upsert
+	// which resolves-or-creates the canon row.
+	SeriesID  *int64
+	Title     string
+	TitleSlug string
+	Year      *int
+	TVDBID    *int
+	IMDBID    *string
+	TMDBID    *int
+	Status    *string
 	// Network REMOVED in E-1 (Story 210). Network membership lives in
 	// series_networks join, read via SeriesCacheRepository.ListDistinctNetworks
 	// or per-series resolved through NetworksRepository.ListBySeries.

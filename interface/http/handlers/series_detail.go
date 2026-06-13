@@ -1,0 +1,432 @@
+package handlers
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/seriesdetail"
+	"github.com/alexmorbo/seasonfill/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
+)
+
+// SeriesDetailHandler serves the composite series-detail document
+// powering the SPA's series page (PRD §5.6, story 215).
+//
+// GET /api/v1/instances/:name/series/:id?lang=
+type SeriesDetailHandler struct {
+	composer *seriesdetail.Composer
+	logger   *slog.Logger
+}
+
+func NewSeriesDetailHandler(composer *seriesdetail.Composer, logger *slog.Logger) *SeriesDetailHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &SeriesDetailHandler{composer: composer, logger: logger}
+}
+
+// Get handles GET /api/v1/instances/:name/series/:id.
+//
+// @Summary     Composite series detail document
+// @Description Returns the full Series Detail Page payload — series
+// @Description hero, library tile, seasons accordion, cast, recommendations,
+// @Description taxonomy, external links — composed from the local entity
+// @Description tables in one call. Each section is independently degradable:
+// @Description a failed enrichment source surfaces as a `degraded[]` entry
+// @Description with the affected section's data falling back to nil/empty
+// @Description (NEVER 5xx). The single live call is the local Sonarr /queue
+// @Description for the in-flight download chip — unreachable Sonarr also
+// @Description surfaces via `degraded[]`.
+// @Tags        instances
+// @Produce     json
+// @Param       name  path      string  true   "Instance name"
+// @Param       id    path      int     true   "Sonarr series id (per-instance)"
+// @Param       lang  query     string  false  "BCP-47 language tag (default en-US)"
+// @Success     200   {object}  dto.SeriesDetailResponse
+// @Failure     400   {object}  dto.ErrorResponse
+// @Failure     401   {object}  dto.ErrorResponse
+// @Failure     404   {object}  dto.ErrorResponse
+// @Failure     500   {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /instances/{name}/series/{id} [get]
+func (h *SeriesDetailHandler) Get(c *gin.Context) {
+	name := c.Param("name")
+	idStr := c.Param("id")
+	sonarrID, err := strconv.Atoi(idStr)
+	if err != nil || sonarrID <= 0 {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
+		return
+	}
+	lang := strings.TrimSpace(c.Query("lang"))
+
+	ctx := c.Request.Context()
+	detail, err := h.composer.Get(ctx, name, sonarrID, lang)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})
+			return
+		}
+		writeInternalError(c, h.logger, "series_detail_compose_failed", err,
+			slog.String("instance_name", name),
+			slog.Int("sonarr_series_id", sonarrID))
+		return
+	}
+	c.JSON(http.StatusOK, toSeriesDetailResponse(detail))
+}
+
+// toSeriesDetailResponse maps the composer's domain object onto
+// the locked-down DTO. No DB / network calls here — pure projection.
+func toSeriesDetailResponse(d *seriesdetail.Detail) dto.SeriesDetailResponse {
+	resp := dto.SeriesDetailResponse{
+		Instance:        d.Instance,
+		SonarrSeriesID:  d.SonarrSeriesID,
+		SeriesID:        d.SeriesID,
+		Lang:            d.Lang,
+		Hero:            mapHero(d),
+		Library:         mapLibrary(d),
+		Download:        mapDownload(d),
+		Overview:        mapOverview(d),
+		Recent:          mapRecent(d.Recent),
+		Torrents:        dto.TorrentsHint{SyncPending: d.Torrents.SyncPending, Count: d.Torrents.Count, TotalSizeBytes: d.Torrents.TotalSizeBytes},
+		Seasons:         mapSeasons(d.Seasons),
+		Cast:            mapCast(d.Cast),
+		Recommendations: mapRecommendations(d.Recommendations),
+		ExternalLinks:   mapExternalLinks(d.ExternalIDs, d.Canon),
+		Degraded:        sourceStringSlice(d.Degraded),
+		SyncedAt:        d.SyncedAt,
+	}
+	return resp
+}
+
+func mapHero(d *seriesdetail.Detail) dto.SeriesHero {
+	h := dto.SeriesHero{
+		Title:          d.Canon.Title,
+		OriginalTitle:  d.Canon.OriginalTitle,
+		Status:         mapStatusPill(d.Canon.Status, d.Canon.InProduction),
+		RuntimeMinutes: d.Canon.RuntimeMinutes,
+		PosterAsset:    d.Canon.PosterAsset,
+		BackdropAsset:  d.Canon.BackdropAsset,
+		Genres:         []dto.TaxonomyChip{},
+		Networks:       []dto.NetworkChip{},
+	}
+	if d.Canon.Year != nil {
+		ys := *d.Canon.Year
+		h.YearStart = &ys
+	}
+	if d.Canon.LastAirDate != nil {
+		ye := d.Canon.LastAirDate.Year()
+		h.YearEnd = &ye
+	}
+	if d.Text != nil {
+		if d.Text.Title != nil && *d.Text.Title != "" {
+			h.Title = *d.Text.Title
+			h.TitleLanguage = d.Text.Language
+		}
+		h.Tagline = d.Text.Tagline
+	}
+	if d.Canon.TMDBRating != nil {
+		votes := 0
+		if d.Canon.TMDBVotes != nil {
+			votes = *d.Canon.TMDBVotes
+		}
+		h.TMDBRating = &dto.RatingScore{Score: *d.Canon.TMDBRating, Votes: votes}
+	}
+	if d.Canon.IMDBRating != nil {
+		votes := 0
+		if d.Canon.IMDBVotes != nil {
+			votes = *d.Canon.IMDBVotes
+		}
+		h.IMDbRating = &dto.RatingScore{Score: *d.Canon.IMDBRating, Votes: votes}
+	}
+	for _, g := range d.Genres {
+		h.Genres = append(h.Genres, dto.TaxonomyChip{ID: g.ID, Name: g.Name, Language: g.Language})
+	}
+	for _, n := range d.Networks {
+		h.Networks = append(h.Networks, dto.NetworkChip{ID: n.ID, Name: n.Name, LogoAsset: n.LogoAsset})
+	}
+	if d.ContentRating != nil {
+		h.ContentRating = &dto.ContentRatingBadge{CountryCode: d.ContentRating.CountryCode, Rating: d.ContentRating.Rating}
+	}
+	if d.Trailer != nil {
+		var site, key, name string
+		if d.Trailer.Site != nil {
+			site = *d.Trailer.Site
+		}
+		if d.Trailer.Key != nil {
+			key = *d.Trailer.Key
+		}
+		name = d.Trailer.Name
+		h.Trailer = &dto.Trailer{Site: site, Key: key, Name: name, PublishedAt: d.Trailer.PublishedAt}
+	}
+	if d.Canon.NextAirDate != nil {
+		// Best-effort: the canon row carries the next air datetime
+		// but not the season/episode tuple. Set a minimal NextEpisode
+		// when the date is known; richer fields land in a follow-up.
+		h.NextEpisode = &dto.NextEpisode{AirDate: d.Canon.NextAirDate}
+	}
+	return h
+}
+
+// mapStatusPill projects upstream status strings + the InProduction
+// flag onto the design-brief's status enum. Frontend renders the
+// pill colour from this token.
+func mapStatusPill(status *string, inProduction bool) string {
+	raw := ""
+	if status != nil {
+		raw = strings.ToLower(strings.TrimSpace(*status))
+	}
+	switch {
+	case strings.Contains(raw, "cancel"):
+		return "canceled"
+	case strings.Contains(raw, "ended"):
+		return "ended"
+	case strings.Contains(raw, "upcoming") || strings.Contains(raw, "planned"):
+		return "upcoming"
+	case strings.Contains(raw, "production") && !strings.Contains(raw, "post"):
+		return "in_production"
+	case strings.Contains(raw, "continu") || strings.Contains(raw, "ongoing") || strings.Contains(raw, "returning"):
+		return "continuing"
+	case inProduction:
+		return "in_production"
+	case raw == "":
+		return "unknown"
+	}
+	return "unknown"
+}
+
+func mapLibrary(d *seriesdetail.Detail) dto.LibraryStrip {
+	lib := dto.LibraryStrip{
+		Monitored:    d.CacheEntry.Monitored,
+		MissingCount: d.CacheEntry.MissingCount,
+	}
+	// Counts derived from the seasons/episodes branch; this is best-
+	// effort and graceful when the branch degraded (zero-fill).
+	var onDisk, total int
+	var sizeBytes int64
+	qualityCount := map[string]int{}
+	for _, s := range d.Seasons {
+		for _, e := range s.Episodes {
+			total++
+			if e.State != nil && e.State.HasFile {
+				onDisk++
+				if e.State.SizeBytes != nil {
+					sizeBytes += *e.State.SizeBytes
+				}
+				if e.State.Quality != nil && *e.State.Quality != "" {
+					qualityCount[*e.State.Quality]++
+				}
+			}
+		}
+	}
+	lib.EpisodesTotal = total
+	lib.EpisodesOnDisk = onDisk
+	lib.SizeOnDiskBytes = sizeBytes
+	// Dominant quality = the quality with the highest count.
+	var dominant string
+	highest := 0
+	for q, n := range qualityCount {
+		if n > highest {
+			highest = n
+			dominant = q
+		}
+	}
+	lib.DominantQuality = dominant
+	return lib
+}
+
+func mapDownload(d *seriesdetail.Detail) *dto.DownloadChip {
+	if d.Queue == nil {
+		return nil
+	}
+	return &dto.DownloadChip{
+		QueueID:      d.Queue.QueueID,
+		EpisodeID:    d.Queue.EpisodeID,
+		SeasonNumber: d.Queue.SeasonNumber,
+		Title:        d.Queue.Title,
+		Status:       d.Queue.Status,
+		Protocol:     d.Queue.Protocol,
+		DownloadID:   d.Queue.DownloadID,
+	}
+}
+
+func mapOverview(d *seriesdetail.Detail) *dto.OverviewAside {
+	overview := ""
+	language := ""
+	if d.Text != nil && d.Text.Overview != nil {
+		overview = *d.Text.Overview
+		language = d.Text.Language
+	}
+	keywords := []dto.TaxonomyChip{}
+	for _, k := range d.Keywords {
+		keywords = append(keywords, dto.TaxonomyChip{ID: k.ID, Name: k.Name, Language: k.Language})
+	}
+	var awards *string
+	if d.Canon.OMDBAwards != nil && *d.Canon.OMDBAwards != "" && *d.Canon.OMDBAwards != "N/A" {
+		v := *d.Canon.OMDBAwards
+		awards = &v
+	}
+	// Suppress when truly empty.
+	if overview == "" && len(keywords) == 0 && awards == nil {
+		return nil
+	}
+	return &dto.OverviewAside{
+		Overview: overview,
+		Language: language,
+		Keywords: keywords,
+		Awards:   awards,
+	}
+}
+
+func mapRecent(items []seriesdetail.RecentItem) []dto.RecentEvent {
+	out := make([]dto.RecentEvent, 0, len(items))
+	for _, it := range items {
+		out = append(out, dto.RecentEvent{EventType: it.EventType, Subject: it.Subject, At: it.At})
+	}
+	return out
+}
+
+func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
+	out := make([]dto.Season, 0, len(seasons))
+	for _, s := range seasons {
+		ds := dto.Season{
+			SeasonNumber: s.Canon.SeasonNumber,
+			Name:         s.Canon.Name,
+			Overview:     s.Canon.Overview,
+			AirDate:      s.Canon.AirDate,
+			PosterAsset:  s.Canon.PosterAsset,
+			EpisodeCount: 0,
+			Episodes:     make([]dto.Episode, 0, len(s.Episodes)),
+		}
+		if s.Canon.EpisodeCount != nil {
+			ds.EpisodeCount = *s.Canon.EpisodeCount
+		}
+		var onDisk, missing int
+		for _, e := range s.Episodes {
+			ep := dto.Episode{
+				EpisodeNumber:  e.Canon.EpisodeNumber,
+				AirDate:        e.Canon.AirDate,
+				RuntimeMinutes: e.Canon.RuntimeMinutes,
+				FinaleType:     e.Canon.FinaleType,
+				StillAsset:     e.Canon.StillAsset,
+			}
+			if e.Canon.SonarrEpisodeID != nil {
+				v := *e.Canon.SonarrEpisodeID
+				ep.SonarrEpisodeID = &v
+			}
+			if e.Text != nil {
+				ep.Title = e.Text.Title
+				ep.TitleLanguage = e.Text.Language
+				ep.Overview = e.Text.Overview
+				ep.OverviewLanguage = e.Text.Language
+			}
+			if e.State != nil {
+				ep.Monitored = e.State.Monitored
+				ep.HasFile = e.State.HasFile
+				ep.Quality = e.State.Quality
+				ep.SizeBytes = e.State.SizeBytes
+				if e.State.HasFile {
+					onDisk++
+				} else {
+					missing++
+				}
+			} else {
+				missing++
+			}
+			ds.Episodes = append(ds.Episodes, ep)
+		}
+		ds.OnDiskCount = onDisk
+		ds.MissingCount = missing
+		// EpisodeCount fallback to actual count when canon is nil.
+		if ds.EpisodeCount == 0 {
+			ds.EpisodeCount = len(s.Episodes)
+		}
+		out = append(out, ds)
+	}
+	return out
+}
+
+func mapCast(cast []seriesdetail.CastDetail) []dto.CastMember {
+	out := make([]dto.CastMember, 0, len(cast))
+	for _, c := range cast {
+		m := dto.CastMember{
+			PersonID:      c.Person.ID,
+			TMDBPersonID:  c.Person.TMDBID,
+			Name:          c.Person.Name,
+			CharacterName: c.Credit.CharacterName,
+			EpisodeCount:  c.Credit.EpisodeCount,
+			ProfileAsset:  c.Person.ProfileAsset,
+			CreditOrder:   c.Credit.CreditOrder,
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func mapRecommendations(recs []seriesdetail.RecommendationDetail) []dto.Recommendation {
+	out := make([]dto.Recommendation, 0, len(recs))
+	for _, r := range recs {
+		m := dto.Recommendation{
+			SeriesID:       r.Series.ID,
+			TMDBSeriesID:   r.Series.TMDBID,
+			Title:          r.Series.Title,
+			Year:           r.Series.Year,
+			PosterAsset:    r.Series.PosterAsset,
+			TMDBRating:     r.Series.TMDBRating,
+			InLibrary:      r.InLibrary,
+			InstanceName:   r.InstanceName,
+			SonarrSeriesID: r.SonarrSeriesID,
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func mapExternalLinks(xids map[string]string, canon series.Canon) dto.ExternalLinks {
+	out := dto.ExternalLinks{
+		Homepage: canon.Homepage,
+	}
+	// Prefer canon-projected ids; external_ids row dump fills any
+	// gaps. The two paths should agree post-cutover.
+	if canon.IMDBID != nil {
+		v := *canon.IMDBID
+		out.IMDbID = &v
+	} else if v, ok := xids["imdb"]; ok && v != "" {
+		s := v
+		out.IMDbID = &s
+	}
+	if canon.TMDBID != nil {
+		v := *canon.TMDBID
+		out.TMDBID = &v
+	} else if v, ok := xids["tmdb"]; ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			out.TMDBID = &n
+		}
+	}
+	if canon.TVDBID != nil {
+		v := *canon.TVDBID
+		out.TVDBID = &v
+	} else if v, ok := xids["tvdb"]; ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			out.TVDBID = &n
+		}
+	}
+	return out
+}
+
+// sourceStringSlice projects []enrichment.Source → []string for
+// the wire.
+func sourceStringSlice(s []enrichment.Source) []string {
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		out = append(out, string(v))
+	}
+	return out
+}

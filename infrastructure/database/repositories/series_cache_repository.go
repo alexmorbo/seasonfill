@@ -225,6 +225,30 @@ func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName str
 	return nil
 }
 
+// ListBySeriesID returns every active cache row pointing at the
+// given canon series.id. Used by the seriesdetail composer's
+// recommendations branch to compute the per-recommendation
+// in_library flag (PRD §5.6 recommendations bullet). Soft-deleted
+// rows excluded — recommendations refer to current library state
+// only.
+func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID int64) ([]series.CacheEntry, error) {
+	var rows []cacheRow
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series_cache").
+		Select(seriesCacheSelect).
+		Joins(seriesCacheJoin).
+		Where("series_cache.series_id = ? AND series_cache.deleted_at IS NULL", seriesID).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series_cache by series_id: %w", err)
+	}
+	out := make([]series.CacheEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToCacheEntry(row))
+	}
+	return out, nil
+}
+
 func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
 	var rows []cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -587,6 +611,7 @@ func rowToCacheEntry(r cacheRow) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   r.InstanceName,
 		SonarrSeriesID: r.SonarrSeriesID,
+		SeriesID:       r.SeriesID,
 		Title:          r.Title,
 		TitleSlug:      r.TitleSlug,
 		Year:           r.Year,

@@ -1,0 +1,319 @@
+// Package dto — series detail DTO file (Story 215 / PRD v4 §9 row 1
+// and §5.6 composite read path). The shape is the locked-down
+// frontend contract: stories I-1 / I-2 / I-3 consume it. Every
+// field below documents its zero-value semantics — nil vs empty vs
+// absent — because the frontend renders the page from this one
+// JSON document.
+package dto
+
+import "time"
+
+// SeriesDetailResponse — the composite document returned by
+// GET /api/v1/instances/:name/series/:id?lang=. Every nested
+// struct corresponds to a UI section in the design brief §2; field
+// ordering mirrors the visual top-down order so reviewers can map
+// JSON → page at a glance.
+type SeriesDetailResponse struct {
+	// Instance is the Sonarr instance the request hit.
+	// Echoed for clients that need to disambiguate cross-instance
+	// state (a series can exist on multiple instances).
+	Instance string `json:"instance" example:"alpha"`
+	// SonarrSeriesID is the Sonarr-side id from the URL.
+	SonarrSeriesID int `json:"sonarr_series_id" example:"123"`
+	// SeriesID is the resolved canonical series.id. Useful to
+	// frontend for sibling endpoints (cast, person) that key on
+	// canonical id rather than Sonarr id.
+	SeriesID int64 `json:"series_id" example:"42"`
+	// Lang is the BCP-47 language code the response was rendered
+	// in. Echoes the request when present; defaults to "en-US"
+	// when the request omitted ?lang= or sent an invalid value.
+	Lang string `json:"lang" example:"ru-RU"`
+
+	// Hero is the page header (backdrop + poster + title + meta).
+	// Always present (the canon row always exists post-208 cutover).
+	Hero SeriesHero `json:"hero"`
+	// Library is the Sonarr-derived "what's on disk" tile. Always
+	// present — Sonarr is the system of record per design brief §2.4.
+	// Counts come from series_cache.missing_count + episode_states.
+	Library LibraryStrip `json:"library"`
+	// Download is the single active in-flight Sonarr queue item, if
+	// any. nil when the queue is empty OR Sonarr is unreachable
+	// (then degraded[] includes "sonarr").
+	Download *DownloadChip `json:"download,omitempty"`
+	// Overview is the localised description block. nil when no
+	// series_texts row exists in any language (rare — cold series
+	// before TMDB sync).
+	Overview *OverviewAside `json:"overview,omitempty"`
+	// Recent is the last-5 activity events for the Library tile.
+	// EMPTY in this story (recent_activity_deferred — see §9 note);
+	// frontend treats empty as "no recent activity yet".
+	Recent []RecentEvent `json:"recent"`
+	// Torrents is the torrent inventory section (design brief §4).
+	// In this story it is always SyncPending=true + Items=[] — full
+	// implementation comes from stories A-1..A-4 (219..222).
+	Torrents TorrentsHint `json:"torrents"`
+	// Seasons is the seasons-accordion data — one entry per season,
+	// episodes included (lazy-load avoided per PRD §5.5: TMDB sync
+	// pulls all seasons eagerly on first pass, so reading them all
+	// here is cheap).
+	Seasons []Season `json:"seasons"`
+	// Cast is the top-10 cast carousel. Empty slice when no
+	// series_people rows exist (cold series or TMDB stub).
+	Cast []CastMember `json:"cast"`
+	// Recommendations is the "you might also like" carousel. Empty
+	// when no rows in series_recommendations (cold series, or TMDB
+	// returned no recommendations).
+	Recommendations []Recommendation `json:"recommendations"`
+	// ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row.
+	// Always present (struct is never nil); inner fields are
+	// individually nil when the corresponding id is missing.
+	ExternalLinks ExternalLinks `json:"external_links"`
+	// Degraded is the list of sources that produced stale or absent
+	// data. UI renders a stale affordance per source. Empty slice
+	// when every source is fresh.
+	Degraded []string `json:"degraded"`
+	// SyncedAt is the request timestamp (server-side now()); the
+	// frontend uses it for the "synced Xs ago" microcopy.
+	SyncedAt time.Time `json:"synced_at"`
+}
+
+// SeriesHero — backdrop + poster + meta block (design brief §2.1).
+type SeriesHero struct {
+	Title         string  `json:"title" example:"Breaking Bad"`
+	OriginalTitle *string `json:"original_title,omitempty"`
+	Tagline       *string `json:"tagline,omitempty"`
+	YearStart     *int    `json:"year_start,omitempty" example:"2008"`
+	YearEnd       *int    `json:"year_end,omitempty" example:"2013"`
+	// Status is one of "continuing", "ended", "canceled",
+	// "in_production", "upcoming", or "unknown". Mapping from
+	// TMDB / Sonarr → these tokens lives in the composer; frontend
+	// renders the pill colour from this enum, NOT from the raw
+	// upstream string.
+	Status         string  `json:"status" example:"ended"`
+	RuntimeMinutes *int    `json:"runtime_minutes,omitempty" example:"45"`
+	PosterAsset    *string `json:"poster_asset,omitempty"`
+	BackdropAsset  *string `json:"backdrop_asset,omitempty"`
+	// TitleLanguage is the BCP-47 language the Title was served in.
+	// Empty when no series_texts row was found and the canon row's
+	// own title was used.
+	TitleLanguage string `json:"title_language,omitempty" example:"ru-RU"`
+	// Ratings — TMDB and IMDb sides; nil when the source has no
+	// score for this series. Two-rating row is the design brief's
+	// RatingDuo component.
+	TMDBRating *RatingScore `json:"tmdb_rating,omitempty"`
+	IMDbRating *RatingScore `json:"imdb_rating,omitempty"`
+	// Genres are localised chips (max 5 rendered, the composer
+	// returns all available — frontend caps display).
+	Genres []TaxonomyChip `json:"genres"`
+	// Networks are the network-logo strip (max 3 displayed).
+	Networks []NetworkChip `json:"networks"`
+	// ContentRating is the displayed age-rating badge. nil when no
+	// content_ratings row matches the user locale OR en-US OR US
+	// fallback.
+	ContentRating *ContentRatingBadge `json:"content_rating,omitempty"`
+	// Trailer is the single best official YouTube trailer. nil when
+	// no videos row matches (no trailer hidden by design brief §2.1).
+	Trailer *Trailer `json:"trailer,omitempty"`
+	// NextEpisode is the "Next Episode" card data when available;
+	// nil collapses the card to text-only states ("not yet
+	// scheduled" / "ended" / "in production").
+	NextEpisode *NextEpisode `json:"next_episode,omitempty"`
+}
+
+// RatingScore — two-source rating row entry.
+type RatingScore struct {
+	Score float64 `json:"score" example:"8.7"`
+	Votes int     `json:"votes" example:"2031"`
+}
+
+// TaxonomyChip — localised name + canonical id for genres/keywords.
+type TaxonomyChip struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name" example:"Drama"`
+	Language string `json:"language" example:"en-US"`
+}
+
+// NetworkChip — network logo strip entry.
+type NetworkChip struct {
+	ID        int64   `json:"id"`
+	Name      string  `json:"name" example:"AMC"`
+	LogoAsset *string `json:"logo_asset,omitempty"`
+}
+
+// ContentRatingBadge — single displayed age-rating badge after
+// locale-fallback resolution (user locale → en-US → US).
+type ContentRatingBadge struct {
+	CountryCode string `json:"country_code" example:"US"`
+	Rating      string `json:"rating" example:"TV-MA"`
+}
+
+// Trailer — single best official YouTube trailer.
+type Trailer struct {
+	Site        string     `json:"site" example:"YouTube"`
+	Key         string     `json:"key" example:"X9F1jh5jc-Y"`
+	Name        string     `json:"name"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+}
+
+// NextEpisode — what's-next card data.
+type NextEpisode struct {
+	SeasonNumber  int        `json:"season_number"`
+	EpisodeNumber int        `json:"episode_number"`
+	Title         *string    `json:"title,omitempty"`
+	AirDate       *time.Time `json:"air_date,omitempty"`
+}
+
+// LibraryStrip — Sonarr-derived "what's on disk" tile (design
+// brief §2.4). The progress bar + count line are derived from
+// these fields on the client.
+type LibraryStrip struct {
+	Monitored      bool `json:"monitored"`
+	EpisodesTotal  int  `json:"episodes_total"`
+	EpisodesOnDisk int  `json:"episodes_on_disk"`
+	MissingCount   int  `json:"missing_count"`
+	// SizeOnDiskBytes is the sum of episode_states.size_bytes for
+	// this series + instance. 0 when nothing on disk yet.
+	SizeOnDiskBytes int64 `json:"size_on_disk_bytes"`
+	// DominantQuality is the most common quality string across
+	// on-disk episode_states rows (e.g., "WEB-DL 1080p"). Empty
+	// when nothing on disk.
+	DominantQuality string `json:"dominant_quality"`
+}
+
+// DownloadChip — single in-flight Sonarr queue item (design brief
+// §2.4 — overlaps conceptually with Torrents but stays here for
+// the Library tile's one-line summary).
+type DownloadChip struct {
+	QueueID      int    `json:"queue_id"`
+	EpisodeID    int    `json:"episode_id,omitempty"`
+	SeasonNumber int    `json:"season_number,omitempty"`
+	Title        string `json:"title"`
+	Status       string `json:"status" example:"downloading"`
+	Protocol     string `json:"protocol,omitempty" example:"torrent"`
+	DownloadID   string `json:"download_id,omitempty"`
+}
+
+// OverviewAside — localised description block (design brief §2.2).
+type OverviewAside struct {
+	Overview string `json:"overview"`
+	// Language is the BCP-47 language the Overview was served in.
+	// Empty only when no row was found in any language (rare).
+	Language string `json:"language" example:"ru-RU"`
+	// Keywords are the small tag chips below the overview.
+	Keywords []TaxonomyChip `json:"keywords"`
+	// Awards is the OMDb awards line ("Won 16 Emmys..."). nil when
+	// no OMDb sync ran or awards = "N/A".
+	Awards *string `json:"awards,omitempty"`
+}
+
+// RecentEvent — one row of the last-5 activity strip. Empty in
+// this story (recent_activity_deferred — §9 note); the type stays
+// in the DTO so frontend can iterate the (always present) slice.
+type RecentEvent struct {
+	EventType string `json:"event_type" example:"imported"`
+	// Subject is a one-line human description ("S05E03").
+	Subject string    `json:"subject"`
+	At      time.Time `json:"at"`
+}
+
+// TorrentsHint — torrents section placeholder. In this story
+// SyncPending is always true and Items is always nil — A-*
+// branch fills both. The shape stays here so the DTO contract is
+// stable when A-* lands.
+type TorrentsHint struct {
+	// SyncPending=true means "torrent inventory not yet available
+	// for this series". UI hides the section or shows a quiet
+	// skeleton — design brief §4.5 covers the empty-state shapes.
+	SyncPending bool `json:"sync_pending"`
+	// Count is the number of known torrents; 0 in this story.
+	Count int `json:"count"`
+	// TotalSizeBytes — aggregate size; 0 in this story.
+	TotalSizeBytes int64 `json:"total_size_bytes"`
+}
+
+// Season — one seasons-accordion entry (design brief §2.8). The
+// Episodes slice is always present (frontend lazy-render decisions
+// are local).
+type Season struct {
+	SeasonNumber int        `json:"season_number"`
+	Name         *string    `json:"name,omitempty"`
+	Overview     *string    `json:"overview,omitempty"`
+	AirDate      *time.Time `json:"air_date,omitempty"`
+	PosterAsset  *string    `json:"poster_asset,omitempty"`
+	Monitored    bool       `json:"monitored"`
+	EpisodeCount int        `json:"episode_count"`
+	OnDiskCount  int        `json:"on_disk_count"`
+	MissingCount int        `json:"missing_count"`
+	Episodes     []Episode  `json:"episodes"`
+}
+
+// Episode — one row of a season's expanded episode list. Quality /
+// SizeBytes / EpisodeFileID nil when not on disk.
+type Episode struct {
+	EpisodeNumber    int        `json:"episode_number"`
+	SonarrEpisodeID  *int       `json:"sonarr_episode_id,omitempty"`
+	Title            *string    `json:"title,omitempty"`
+	TitleLanguage    string     `json:"title_language,omitempty"`
+	Overview         *string    `json:"overview,omitempty"`
+	OverviewLanguage string     `json:"overview_language,omitempty"`
+	AirDate          *time.Time `json:"air_date,omitempty"`
+	RuntimeMinutes   *int       `json:"runtime_minutes,omitempty"`
+	FinaleType       *string    `json:"finale_type,omitempty"`
+	StillAsset       *string    `json:"still_asset,omitempty"`
+	Monitored        bool       `json:"monitored"`
+	HasFile          bool       `json:"has_file"`
+	Quality          *string    `json:"quality,omitempty"`
+	SizeBytes        *int64     `json:"size_bytes,omitempty"`
+}
+
+// CastMember — one row of the cast carousel (design brief §2.6).
+// PersonID + TMDBID enable navigation to the person page.
+type CastMember struct {
+	PersonID      int64   `json:"person_id"`
+	TMDBPersonID  *int    `json:"tmdb_person_id,omitempty"`
+	Name          string  `json:"name"`
+	CharacterName *string `json:"character_name,omitempty"`
+	EpisodeCount  *int    `json:"episode_count,omitempty"`
+	ProfileAsset  *string `json:"profile_asset,omitempty"`
+	CreditOrder   *int    `json:"credit_order,omitempty"`
+}
+
+// Recommendation — one tile of the "you might also like" carousel
+// (design brief §2.9). InLibrary=true → click navigates to that
+// series's detail page; false → "Add to Sonarr" overlay (inert v1).
+type Recommendation struct {
+	SeriesID     int64    `json:"series_id"`
+	TMDBSeriesID *int     `json:"tmdb_series_id,omitempty"`
+	Title        string   `json:"title"`
+	Year         *int     `json:"year,omitempty"`
+	PosterAsset  *string  `json:"poster_asset,omitempty"`
+	TMDBRating   *float64 `json:"tmdb_rating,omitempty"`
+	InLibrary    bool     `json:"in_library"`
+	// InstanceName + SonarrSeriesID identify which instance the
+	// recommendation lives on (when InLibrary=true). Empty
+	// otherwise. Used for the in-library click-through link.
+	InstanceName   string `json:"instance_name,omitempty"`
+	SonarrSeriesID int    `json:"sonarr_series_id,omitempty"`
+}
+
+// ExternalLinks — IMDb / TMDB / TVDB / homepage footer row
+// (design brief §2.9). Each link rendered only when its id exists.
+type ExternalLinks struct {
+	IMDbID   *string `json:"imdb_id,omitempty" example:"tt0903747"`
+	TMDBID   *int    `json:"tmdb_id,omitempty" example:"1396"`
+	TVDBID   *int    `json:"tvdb_id,omitempty" example:"81189"`
+	Homepage *string `json:"homepage,omitempty"`
+}
+
+// SeasonDetailResponse — single-season subset returned by
+// GET /api/v1/instances/:name/series/:id/season/:n. Reuses Season
+// + adds the parent series id for the SPA's polling code path.
+type SeasonDetailResponse struct {
+	Instance       string    `json:"instance"`
+	SonarrSeriesID int       `json:"sonarr_series_id"`
+	SeriesID       int64     `json:"series_id"`
+	Lang           string    `json:"lang"`
+	Season         Season    `json:"season"`
+	Degraded       []string  `json:"degraded"`
+	SyncedAt       time.Time `json:"synced_at"`
+}

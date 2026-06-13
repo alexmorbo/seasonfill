@@ -1,0 +1,782 @@
+// Package seriesdetail — see ports.go header.
+package seriesdetail
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/domain/people"
+	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+)
+
+// Detail is the composer's domain object — the handler maps it
+// onto dto.SeriesDetailResponse without further DB queries.
+type Detail struct {
+	Instance       string
+	SonarrSeriesID int
+	SeriesID       int64
+	Lang           string
+
+	Canon           series.Canon
+	CacheEntry      series.CacheEntry
+	Text            *series.SeriesText
+	Seasons         []SeasonDetail
+	Cast            []CastDetail
+	Trailer         *repositories.Video
+	ContentRating   *repositories.ContentRating
+	ExternalIDs     map[string]string
+	Recommendations []RecommendationDetail
+	Genres          []taxonomy.Genre
+	Keywords        []taxonomy.Keyword
+	Networks        []taxonomy.Network
+	Companies       []taxonomy.ProductionCompany
+	Queue           *QueueRecordDetail
+	Torrents        TorrentsPlaceholder
+	Recent          []RecentItem
+	Degraded        []enrichment.Source
+	SyncedAt        time.Time
+}
+
+// QueueRecordDetail mirrors the Sonarr queue fields the DTO needs.
+// Kept local so the domain object stays independent of the live
+// client struct (helps tests).
+type QueueRecordDetail struct {
+	QueueID      int
+	EpisodeID    int
+	SeasonNumber int
+	Title        string
+	Status       string
+	DownloadID   string
+	Protocol     string
+}
+
+// SeasonDetail — one season + episodes + per-instance states +
+// localised texts, fully composed.
+type SeasonDetail struct {
+	Canon    series.CanonSeason
+	Episodes []EpisodeDetail
+}
+
+// EpisodeDetail — canon episode + state + localised text bundle.
+type EpisodeDetail struct {
+	Canon series.CanonEpisode
+	State *series.EpisodeState
+	Text  *series.EpisodeText
+}
+
+// CastDetail — one cast credit + the resolved person row.
+type CastDetail struct {
+	Credit people.SeriesCredit
+	Person people.Person
+}
+
+// RecommendationDetail — recommended canon row + in-library scope.
+type RecommendationDetail struct {
+	Series         series.Canon
+	InLibrary      bool
+	InstanceName   string
+	SonarrSeriesID int
+}
+
+// TorrentsPlaceholder — A-* branch placeholder.
+type TorrentsPlaceholder struct {
+	SyncPending    bool
+	Count          int
+	TotalSizeBytes int64
+}
+
+// RecentItem — placeholder for the recent-activity strip.
+// Always empty in this story; see §9 implementation note.
+type RecentItem struct {
+	EventType string
+	Subject   string
+	At        time.Time
+}
+
+// Deps groups the ports — constructor takes one struct so the
+// wiring site stays one block of named fields, not a 19-positional
+// argument call.
+type Deps struct {
+	SeriesCache       SeriesCachePort
+	SeriesCacheLookup SeriesCacheLookupPort
+	Series            SeriesPort
+	SeriesTexts       SeriesTextsPort
+	Seasons           SeasonsPort
+	Episodes          EpisodesPort
+	EpisodeStates     EpisodeStatesPort
+	EpisodeTexts      EpisodeTextsPort
+	SeriesPeople      SeriesPeoplePort
+	People            PeoplePort
+	Genres            GenresPort
+	Keywords          KeywordsPort
+	Networks          NetworksPort
+	Companies         CompaniesPort
+	Videos            VideosPort
+	ContentRatings    ContentRatingsPort
+	ExternalIDs       ExternalIDsPort
+	Recommendations   RecommendationsPort
+	SyncLog           SyncLogPort
+	SonarrFor         func(instanceName string) (SonarrQueueLister, bool)
+	Logger            *slog.Logger
+	Now               func() time.Time
+}
+
+// Composer is the one application use case for the series detail
+// page composite read.
+type Composer struct {
+	d Deps
+}
+
+// NewComposer constructs the composer; Logger defaults to slog.Default,
+// Now defaults to time.Now.UTC.
+func NewComposer(d Deps) *Composer {
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
+	if d.Now == nil {
+		d.Now = func() time.Time { return time.Now().UTC() }
+	}
+	return &Composer{d: d}
+}
+
+// Get runs the 9-branch composite read for the series detail page.
+// `lang` defaults to "en-US" when empty.
+func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID int, lang string) (*Detail, error) {
+	lang = resolveLang(lang)
+	start := c.d.Now()
+
+	// Step 1 — resolve series_cache → series_id. Failure here is
+	// the 404 path; the composer does NOT run the errgroup on a
+	// miss (no canon row → nothing to render).
+	cache, err := c.d.SeriesCache.Get(ctx, instanceName, sonarrSeriesID)
+	if err != nil {
+		return nil, fmt.Errorf("series_cache lookup: %w", err)
+	}
+	if cache.SeriesID == nil || *cache.SeriesID == 0 {
+		// Series_cache exists but has no series_id pointer — this
+		// would only happen on a broken post-cutover row; treat
+		// like 404 so the handler can map it.
+		return nil, fmt.Errorf("series_cache lookup: %w", ports.ErrNotFound)
+	}
+	seriesID := *cache.SeriesID
+
+	// Step 2 — canon series row. Same 404 mapping.
+	canon, err := c.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("series canon load: %w", err)
+	}
+
+	d := &Detail{
+		Instance:       instanceName,
+		SonarrSeriesID: sonarrSeriesID,
+		SeriesID:       seriesID,
+		Lang:           lang,
+		Canon:          canon,
+		CacheEntry:     cache,
+		Torrents:       TorrentsPlaceholder{SyncPending: true},
+		ExternalIDs:    map[string]string{},
+	}
+
+	// Branch outcome tracker (composer-local so we can attribute
+	// each failure to a source without coupling to enrichment.Source).
+	branches := newBranchTracker()
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Branch a — series_texts (lang fallback).
+	g.Go(func() error {
+		return branches.run("series_texts", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			t, terr := c.d.SeriesTexts.GetWithFallback(gctx, seriesID, lang)
+			if terr != nil {
+				if errors.Is(terr, ports.ErrNotFound) {
+					return nil // not an error — cold series
+				}
+				return terr
+			}
+			d.Text = &t
+			return nil
+		})
+	})
+
+	// Branch b — seasons + episodes + episode_texts + episode_states.
+	g.Go(func() error {
+		return branches.run("seasons_episodes", enrichment.SourceTMDBSeason, c.d.Logger, func() error {
+			return c.loadSeasonsAndEpisodes(gctx, d, lang)
+		})
+	})
+
+	// Branch c — top-10 cast.
+	g.Go(func() error {
+		return branches.run("cast", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			return c.loadTopCast(gctx, d, 10)
+		})
+	})
+
+	// Branch d — taxonomy (genres, keywords, networks, companies).
+	g.Go(func() error {
+		return branches.run("taxonomy", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			return c.loadTaxonomy(gctx, d, lang)
+		})
+	})
+
+	// Branch e — best trailer.
+	g.Go(func() error {
+		return branches.run("trailer", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			return c.loadBestTrailer(gctx, d)
+		})
+	})
+
+	// Branch f — content ratings + external ids.
+	g.Go(func() error {
+		return branches.run("ratings_ids", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			return c.loadRatingsAndIDs(gctx, d, lang)
+		})
+	})
+
+	// Branch g — recommendations.
+	g.Go(func() error {
+		return branches.run("recommendations", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
+			return c.loadRecommendations(gctx, d)
+		})
+	})
+
+	// Branch h — torrents (placeholder until A-* branch).
+	g.Go(func() error {
+		c.d.Logger.DebugContext(gctx, "torrents_placeholder",
+			slog.String("instance_name", instanceName),
+			slog.Int("sonarr_series_id", sonarrSeriesID),
+			slog.String("note", "qbit-deferred"))
+		// Always succeeds — placeholder doesn't fail the response.
+		return nil
+	})
+
+	// Branch i — Sonarr Queue (live).
+	g.Go(func() error {
+		return branches.runLive("sonarr_queue", enrichment.SourceSonarr, c.d.Logger, func() error {
+			return c.loadSonarrQueue(gctx, d)
+		})
+	})
+
+	// Recent activity — placeholder (§9 note).
+	c.d.Logger.DebugContext(ctx, "recent_activity_deferred",
+		slog.Int64("series_id", seriesID))
+	d.Recent = []RecentItem{}
+
+	// errgroup.Wait — branches NEVER return errors (run/runLive
+	// swallow them), so Wait returns nil. We keep the call so
+	// goroutine fan-in is deterministic.
+	_ = g.Wait()
+
+	// Degraded computation: walk sync_log for the four enrichment
+	// sources, then call enrichment.Degraded with the branch-failure
+	// flags from the tracker.
+	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
+	d.SyncedAt = c.d.Now()
+
+	c.d.Logger.InfoContext(ctx, "series_detail_composed",
+		slog.String("instance_name", instanceName),
+		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int64("series_id", seriesID),
+		slog.String("lang", lang),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Any("degraded", sourceStrings(d.Degraded)),
+	)
+	return d, nil
+}
+
+// GetSeason — same shape as Get, scoped to one season. Used by the
+// SPA's seasons-accordion polling. Internally calls
+// loadSeasonsAndEpisodes filtered to the single season + the
+// canon series for the parent ids.
+func (c *Composer) GetSeason(ctx context.Context, instanceName string, sonarrSeriesID, seasonNumber int, lang string) (*Detail, error) {
+	lang = resolveLang(lang)
+	start := c.d.Now()
+
+	cache, err := c.d.SeriesCache.Get(ctx, instanceName, sonarrSeriesID)
+	if err != nil {
+		return nil, fmt.Errorf("series_cache lookup: %w", err)
+	}
+	if cache.SeriesID == nil || *cache.SeriesID == 0 {
+		return nil, fmt.Errorf("series_cache lookup: %w", ports.ErrNotFound)
+	}
+	seriesID := *cache.SeriesID
+	canon, err := c.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("series canon load: %w", err)
+	}
+	d := &Detail{
+		Instance: instanceName, SonarrSeriesID: sonarrSeriesID,
+		SeriesID: seriesID, Lang: lang,
+		Canon: canon, CacheEntry: cache,
+	}
+	branches := newBranchTracker()
+	_ = branches.run("season_episodes", enrichment.SourceTMDBSeason, c.d.Logger, func() error {
+		return c.loadSeasonsAndEpisodes(ctx, d, lang)
+	})
+	// Filter to the requested season.
+	filtered := make([]SeasonDetail, 0, 1)
+	for _, s := range d.Seasons {
+		if s.Canon.SeasonNumber == seasonNumber {
+			filtered = append(filtered, s)
+			break
+		}
+	}
+	d.Seasons = filtered
+	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
+	d.SyncedAt = c.d.Now()
+	c.d.Logger.InfoContext(ctx, "series_season_composed",
+		slog.String("instance_name", instanceName),
+		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int64("series_id", seriesID),
+		slog.Int("season_number", seasonNumber),
+		slog.String("lang", lang),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
+	if len(filtered) == 0 {
+		return d, fmt.Errorf("season %d: %w", seasonNumber, ports.ErrNotFound)
+	}
+	return d, nil
+}
+
+// --- branch implementations ---
+
+func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang string) error {
+	seasons, err := c.d.Seasons.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list seasons: %w", err)
+	}
+	episodes, err := c.d.Episodes.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list episodes: %w", err)
+	}
+	states, err := c.d.EpisodeStates.ListBySeries(ctx, d.Instance, d.SeriesID)
+	if err != nil {
+		// per-instance file state — failure surfaces as no-on-disk
+		// rendering, NOT a request failure.
+		c.d.Logger.WarnContext(ctx, "episode_states_failed",
+			slog.String("instance_name", d.Instance),
+			slog.Int64("series_id", d.SeriesID),
+			slog.String("error", err.Error()))
+		states = nil
+	}
+	stateByEpID := make(map[int64]series.EpisodeState, len(states))
+	for _, st := range states {
+		stateByEpID[st.EpisodeID] = st
+	}
+	// Group episodes by season number.
+	bySeason := make(map[int][]series.CanonEpisode)
+	for _, e := range episodes {
+		bySeason[e.SeasonNumber] = append(bySeason[e.SeasonNumber], e)
+	}
+	out := make([]SeasonDetail, 0, len(seasons))
+	for _, s := range seasons {
+		eps := bySeason[s.SeasonNumber]
+		sort.Slice(eps, func(i, j int) bool {
+			return eps[i].EpisodeNumber < eps[j].EpisodeNumber
+		})
+		epDetails := make([]EpisodeDetail, 0, len(eps))
+		for _, e := range eps {
+			ed := EpisodeDetail{Canon: e}
+			if st, ok := stateByEpID[e.ID]; ok {
+				stCopy := st
+				ed.State = &stCopy
+			}
+			// Per-row i18n fallback. For 215 we do N calls — see
+			// §3 SeasonsPort note (collapse into one batched JOIN
+			// is a follow-up performance story).
+			t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, e.ID, lang)
+			if terr == nil {
+				et := t
+				ed.Text = &et
+			}
+			epDetails = append(epDetails, ed)
+		}
+		out = append(out, SeasonDetail{Canon: s, Episodes: epDetails})
+	}
+	d.Seasons = out
+	return nil
+}
+
+func (c *Composer) loadTopCast(ctx context.Context, d *Detail, limit int) error {
+	credits, err := c.d.SeriesPeople.ListBySeries(ctx, d.SeriesID, people.SeriesCreditCast)
+	if err != nil {
+		return fmt.Errorf("list series_people: %w", err)
+	}
+	// ListBySeries returns ORDER BY kind ASC, credit_order ASC —
+	// already sorted; just slice.
+	if len(credits) > limit {
+		credits = credits[:limit]
+	}
+	if len(credits) == 0 {
+		d.Cast = nil
+		return nil
+	}
+	ids := make([]int64, 0, len(credits))
+	for _, cr := range credits {
+		ids = append(ids, cr.PersonID)
+	}
+	persons, err := c.d.People.ListByIDs(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("list people by ids: %w", err)
+	}
+	byID := make(map[int64]people.Person, len(persons))
+	for _, p := range persons {
+		byID[p.ID] = p
+	}
+	d.Cast = make([]CastDetail, 0, len(credits))
+	for _, cr := range credits {
+		p, ok := byID[cr.PersonID]
+		if !ok {
+			// Person row missing — credit references an unhydrated
+			// stub. Skip (cast list shrinks gracefully).
+			continue
+		}
+		d.Cast = append(d.Cast, CastDetail{Credit: cr, Person: p})
+	}
+	return nil
+}
+
+func (c *Composer) loadTaxonomy(ctx context.Context, d *Detail, lang string) error {
+	genreIDs, err := c.d.Genres.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list series_genres: %w", err)
+	}
+	for _, id := range genreIDs {
+		g, gerr := c.d.Genres.Get(ctx, id, lang)
+		if gerr == nil {
+			d.Genres = append(d.Genres, g)
+		}
+	}
+	kwIDs, err := c.d.Keywords.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list series_keywords: %w", err)
+	}
+	for _, id := range kwIDs {
+		k, kerr := c.d.Keywords.Get(ctx, id, lang)
+		if kerr == nil {
+			d.Keywords = append(d.Keywords, k)
+		}
+	}
+	netIDs, err := c.d.Networks.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list series_networks: %w", err)
+	}
+	if len(netIDs) > 0 {
+		nets, nerr := c.d.Networks.ListByIDs(ctx, netIDs)
+		if nerr != nil {
+			return fmt.Errorf("list networks by ids: %w", nerr)
+		}
+		d.Networks = nets
+	}
+	coIDs, cerr := c.d.Companies.ListBySeries(ctx, d.SeriesID)
+	if cerr == nil && len(coIDs) > 0 {
+		cos, _ := c.d.Companies.ListByIDs(ctx, coIDs)
+		d.Companies = cos
+	}
+	return nil
+}
+
+func (c *Composer) loadBestTrailer(ctx context.Context, d *Detail) error {
+	videos, err := c.d.Videos.ListBySeriesAndType(ctx, d.SeriesID, "Trailer")
+	if err != nil {
+		return fmt.Errorf("list videos: %w", err)
+	}
+	// "Best": site=YouTube, official=true, ORDER BY published_at DESC.
+	var best *repositories.Video
+	for i := range videos {
+		v := videos[i]
+		if v.Site == nil || !strings.EqualFold(*v.Site, "YouTube") {
+			continue
+		}
+		if !v.Official {
+			continue
+		}
+		if best == nil || (v.PublishedAt != nil && (best.PublishedAt == nil || v.PublishedAt.After(*best.PublishedAt))) {
+			vCopy := v
+			best = &vCopy
+		}
+	}
+	d.Trailer = best
+	return nil
+}
+
+func (c *Composer) loadRatingsAndIDs(ctx context.Context, d *Detail, lang string) error {
+	ratings, err := c.d.ContentRatings.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list content_ratings: %w", err)
+	}
+	d.ContentRating = pickContentRating(ratings, lang)
+	xids, err := c.d.ExternalIDs.ListByEntity(ctx, enrichment.EntityTypeSeries, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list external_ids: %w", err)
+	}
+	for _, x := range xids {
+		d.ExternalIDs[x.Provider] = x.Value
+	}
+	return nil
+}
+
+func (c *Composer) loadRecommendations(ctx context.Context, d *Detail) error {
+	ids, err := c.d.Recommendations.ListBySeries(ctx, d.SeriesID)
+	if err != nil {
+		return fmt.Errorf("list recommendations: %w", err)
+	}
+	for _, recID := range ids {
+		s, sgerr := c.d.Series.Get(ctx, recID)
+		if sgerr != nil {
+			continue // recommendation stub not yet hydrated
+		}
+		rd := RecommendationDetail{Series: s}
+		// in_library probe: any cache row referencing this series.id?
+		caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
+		if len(caches) > 0 {
+			rd.InLibrary = true
+			rd.InstanceName = caches[0].InstanceName
+			rd.SonarrSeriesID = caches[0].SonarrSeriesID
+		}
+		d.Recommendations = append(d.Recommendations, rd)
+	}
+	return nil
+}
+
+func (c *Composer) loadSonarrQueue(ctx context.Context, d *Detail) error {
+	if c.d.SonarrFor == nil {
+		return fmt.Errorf("sonarr client lookup not wired")
+	}
+	client, ok := c.d.SonarrFor(d.Instance)
+	if !ok || client == nil {
+		return fmt.Errorf("sonarr unreachable for instance %s", d.Instance)
+	}
+	q, err := client.Queue(ctx, d.SonarrSeriesID)
+	if err != nil {
+		return fmt.Errorf("sonarr queue: %w", err)
+	}
+	if len(q.Records) == 0 {
+		return nil
+	}
+	rec := q.Records[0]
+	d.Queue = &QueueRecordDetail{
+		QueueID:      rec.ID,
+		EpisodeID:    rec.EpisodeID,
+		SeasonNumber: rec.SeasonNumber,
+		Title:        rec.Title,
+		Status:       rec.Status,
+		DownloadID:   rec.DownloadID,
+		Protocol:     rec.Protocol,
+	}
+	return nil
+}
+
+// computeDegraded — single source of truth for the degraded[] list.
+// Reads sync_log for the four canon sources, applies §5.6 rules
+// via enrichment.Degraded, then ORs in the branch-failure flags
+// from the tracker.
+func (c *Composer) computeDegraded(ctx context.Context, seriesID int64, canon series.Canon, br *branchTracker) ([]enrichment.Source, error) {
+	in := enrichment.DegradedInput{
+		Logs:            map[enrichment.Source]*enrichment.SyncLog{},
+		TTLs:            map[enrichment.Source]time.Duration{},
+		SonarrReachable: !br.failed(enrichment.SourceSonarr),
+		QbitReachable:   true, // qBit branch is placeholder; assume reachable.
+	}
+	sources := []enrichment.Source{
+		enrichment.SourceTMDBSeries,
+		enrichment.SourceTMDBSeason,
+		enrichment.SourceTMDBPerson,
+		enrichment.SourceOMDb,
+	}
+	kind := classifyKind(canon)
+	for _, s := range sources {
+		log, err := c.d.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, seriesID, s)
+		switch {
+		case err == nil:
+			row := log
+			in.Logs[s] = &row
+		case errors.Is(err, ports.ErrNotFound):
+			in.Logs[s] = nil
+		default:
+			c.d.Logger.WarnContext(ctx, "sync_log_lookup_failed",
+				slog.String("source", string(s)),
+				slog.Int64("series_id", seriesID),
+				slog.String("error", err.Error()))
+			in.Logs[s] = nil
+		}
+		in.TTLs[s] = enrichment.TTL(s, kindFor(s, kind))
+	}
+	out := enrichment.Degraded(in, c.d.Now())
+	// OR in any branch failure that maps to a TMDB-series source
+	// (cast / taxonomy / trailer / recommendations / ratings_ids).
+	if br.failed(enrichment.SourceTMDBSeries) && !contains(out, enrichment.SourceTMDBSeries) {
+		out = append(out, enrichment.SourceTMDBSeries)
+	}
+	if br.failed(enrichment.SourceTMDBSeason) && !contains(out, enrichment.SourceTMDBSeason) {
+		out = append(out, enrichment.SourceTMDBSeason)
+	}
+	return out, nil
+}
+
+// --- helpers ---
+
+func resolveLang(lang string) string {
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		return "en-US"
+	}
+	// Defensive guard against absurd lengths — real BCP-47 tags
+	// cap at ~10 chars.
+	if len(lang) > 35 {
+		return "en-US"
+	}
+	return lang
+}
+
+func pickContentRating(rs []repositories.ContentRating, lang string) *repositories.ContentRating {
+	// Pick by user-locale country prefix (lang="ru-RU" → "RU"),
+	// then en-US ("US"), then first available. v1 keeps the
+	// matching naive — composer correctness over locale subtlety.
+	country := ""
+	if i := strings.Index(lang, "-"); i > 0 {
+		country = strings.ToUpper(lang[i+1:])
+	}
+	var pickUS *repositories.ContentRating
+	for i := range rs {
+		r := rs[i]
+		if country != "" && r.CountryCode == country {
+			return &r
+		}
+		if r.CountryCode == "US" && pickUS == nil {
+			rCopy := r
+			pickUS = &rCopy
+		}
+	}
+	if pickUS != nil {
+		return pickUS
+	}
+	if len(rs) > 0 {
+		first := rs[0]
+		return &first
+	}
+	return nil
+}
+
+// classifyKind picks the TTL Kind bucket for the canon series.
+// Returns a coarse "is the series in production?" classification;
+// kindFor below specialises per-source.
+func classifyKind(c series.Canon) enrichment.Kind {
+	if c.InProduction {
+		return enrichment.KindSeriesContinuing
+	}
+	if c.Status != nil {
+		st := strings.ToLower(*c.Status)
+		if strings.Contains(st, "continu") || strings.Contains(st, "ongoing") {
+			return enrichment.KindSeriesContinuing
+		}
+		if strings.Contains(st, "ended") || strings.Contains(st, "cancel") {
+			return enrichment.KindSeriesEnded
+		}
+	}
+	return enrichment.KindSeriesContinuing // default-conservative
+}
+
+func kindFor(s enrichment.Source, base enrichment.Kind) enrichment.Kind {
+	switch s {
+	case enrichment.SourceTMDBSeries:
+		return base
+	case enrichment.SourceTMDBSeason:
+		if base == enrichment.KindSeriesEnded {
+			return enrichment.KindSeasonClosed
+		}
+		return enrichment.KindSeasonActive
+	case enrichment.SourceTMDBPerson:
+		return enrichment.KindPerson
+	case enrichment.SourceOMDb:
+		return enrichment.KindOMDb
+	}
+	return enrichment.KindUnknown
+}
+
+func contains(s []enrichment.Source, v enrichment.Source) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceStrings(s []enrichment.Source) []string {
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+// --- branchTracker ---
+
+// branchTracker records per-branch outcomes so degraded computation
+// can attribute failures to enrichment sources. Concurrent-safe.
+type branchTracker struct {
+	mu       sync.Mutex
+	failures map[enrichment.Source]bool
+}
+
+func newBranchTracker() *branchTracker {
+	return &branchTracker{failures: map[enrichment.Source]bool{}}
+}
+
+// run wraps a branch function; failures are logged + recorded
+// against the supplied source but never returned (errgroup wait
+// must not abort sibling branches on this story's failure model).
+func (b *branchTracker) run(name string, src enrichment.Source, log *slog.Logger, fn func() error) error {
+	defer func() {
+		if r := recover(); r != nil {
+			b.mark(src)
+			log.Error("branch_panic",
+				slog.String("branch", name),
+				slog.Any("recover", r))
+		}
+	}()
+	if err := fn(); err != nil {
+		b.mark(src)
+		log.Warn("branch_degraded",
+			slog.String("branch", name),
+			slog.String("source", string(src)),
+			slog.String("outcome", "degraded"),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	log.Debug("branch_ok",
+		slog.String("branch", name),
+		slog.String("outcome", "ok"))
+	return nil
+}
+
+// runLive is the same as run but tagged for live sources (Sonarr,
+// qBit) — separate name keeps logs greppable.
+func (b *branchTracker) runLive(name string, src enrichment.Source, log *slog.Logger, fn func() error) error {
+	return b.run(name, src, log, fn)
+}
+
+func (b *branchTracker) mark(s enrichment.Source) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failures[s] = true
+}
+
+func (b *branchTracker) failed(s enrichment.Source) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.failures[s]
+}

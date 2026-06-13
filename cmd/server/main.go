@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -518,6 +519,68 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
 	mediaHandler := handlers.NewMediaHandler(mediaStoreImpl, mediaAssetsRepo, nil, log)
 
+	// Story 215 (G-1) — series detail composer + handlers. The repos
+	// are stateless GORM wrappers around `db`, so re-constructing
+	// them here is free; the enrichment block below re-uses its own
+	// instances of the same set for the worker pipeline.
+	sdSeriesRepo := seriesRepo
+	sdSeriesTextsRepo := repositories.NewSeriesTextsRepository(db)
+	sdSeasonsRepo := repositories.NewSeasonsRepository(db)
+	sdEpisodesRepo := repositories.NewEpisodesRepository(db)
+	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
+	sdEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
+	sdSeriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
+	sdPeopleRepo := repositories.NewPeopleRepository(db)
+	sdGenresRepo := repositories.NewGenresRepository(db)
+	sdKeywordsRepo := repositories.NewKeywordsRepository(db)
+	sdNetworksRepo := repositories.NewNetworksRepository(db)
+	sdCompaniesRepo := repositories.NewCompaniesRepository(db)
+	sdVideosRepo := repositories.NewVideosRepository(db)
+	sdContentRatingsRepo := repositories.NewContentRatingsRepository(db)
+	sdExternalIDsRepo := repositories.NewExternalIDsRepository(db)
+	sdRecommendationsRepo := repositories.NewRecommendationsRepository(db)
+	sdSyncLogRepo := repositories.NewSyncLogRepository(db)
+
+	seriesDetailComposer := seriesdetail.NewComposer(seriesdetail.Deps{
+		SeriesCache:       seriesCacheRepo,
+		SeriesCacheLookup: seriesCacheRepo,
+		Series:            sdSeriesRepo,
+		SeriesTexts:       sdSeriesTextsRepo,
+		Seasons:           sdSeasonsRepo,
+		Episodes:          sdEpisodesRepo,
+		EpisodeStates:     sdEpisodeStatesRepo,
+		EpisodeTexts:      sdEpisodeTextsRepo,
+		SeriesPeople:      sdSeriesPeopleRepo,
+		People:            sdPeopleRepo,
+		Genres:            sdGenresRepo,
+		Keywords:          sdKeywordsRepo,
+		Networks:          sdNetworksRepo,
+		Companies:         sdCompaniesRepo,
+		Videos:            sdVideosRepo,
+		ContentRatings:    sdContentRatingsRepo,
+		ExternalIDs:       sdExternalIDsRepo,
+		Recommendations:   sdRecommendationsRepo,
+		SyncLog:           sdSyncLogRepo,
+		SonarrFor: func(name string) (seriesdetail.SonarrQueueLister, bool) {
+			h := holder.load()
+			if h == nil {
+				return nil, false
+			}
+			inst, ok := h[name]
+			if !ok || inst.Client == nil {
+				return nil, false
+			}
+			concrete, ok := inst.Client.(*sonarr.Client)
+			if !ok {
+				return nil, false
+			}
+			return concrete, true
+		},
+		Logger: log,
+	})
+	seriesDetailHandler := handlers.NewSeriesDetailHandler(seriesDetailComposer, log)
+	seriesSeasonHandler := handlers.NewSeriesSeasonHandler(seriesDetailComposer, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -528,7 +591,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
-		mediaHandler, log)
+		mediaHandler, seriesDetailHandler, seriesSeasonHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls

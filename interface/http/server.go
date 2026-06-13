@@ -63,6 +63,8 @@ func NewServer(
 	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	mediaHandler *handlers.MediaHandler,
+	seriesDetailHandler *handlers.SeriesDetailHandler,
+	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -162,6 +164,19 @@ func NewServer(
 		seriesPosterHandler := handlers.NewSeriesPosterHandler(
 			instanceReg, logger, handlers.WithPosterCache(posterCache))
 		guarded.GET("/instances/:name/series/:id/poster", seriesPosterHandler.Proxy)
+		// Story 215 (G-1) — composite series-detail document + per-
+		// season subset. The composer reads only from the local entity
+		// tables (no synchronous external fetches); the single live
+		// call is the local Sonarr /queue for the in-flight chip.
+		// Nil-guards mirror the mediaHandler pattern — when the
+		// composer isn't wired (tests / minimal boot) the routes are
+		// omitted, NOT 5xx-stubbed.
+		if seriesDetailHandler != nil {
+			guarded.GET("/instances/:name/series/:id", seriesDetailHandler.Get)
+		}
+		if seriesSeasonHandler != nil {
+			guarded.GET("/instances/:name/series/:id/season/:n", seriesSeasonHandler.Get)
+		}
 		// F-1 (Story 214): content-addressed media proxy. Serves the
 		// canonical TMDB image variants pre-warmed by the series
 		// enrichment worker. mediaHandler is nil-OK — when wiring is
