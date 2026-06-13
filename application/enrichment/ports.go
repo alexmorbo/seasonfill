@@ -226,3 +226,39 @@ type VideoRow struct {
 	PublishedAt *time.Time
 	Size        int
 }
+
+// ----- new in 212 ----------------------------------------------------
+
+// PeopleWritePort is the person_worker's write surface against
+// people. Distinct from PeopleRepo (which is read-mostly for
+// series_worker's stub-resolve path) because the person_worker needs
+// the *language-aware* Get to read the existing hydration level and a
+// PK-targeted Upsert that lifts the stub row to full. The production
+// impl is *PeopleRepository (same repo, different port — Go
+// duck-typing).
+type PeopleWritePort interface {
+	Get(ctx context.Context, id int64, language string) (people.Person, error)
+	Upsert(ctx context.Context, p people.Person) (int64, error)
+}
+
+// PersonBiographiesPort persists localised biography rows. The
+// fallback-read surface lives elsewhere (composer); the worker only
+// writes.
+type PersonBiographiesPort interface {
+	Upsert(ctx context.Context, b people.PersonBiography) error
+}
+
+// PersonCreditsPort is the batch-upsert surface for person_credits.
+// One INSERT … ON CONFLICT round-trip per chunk; the worker chunks at
+// personCreditsBatchSize.
+type PersonCreditsPort interface {
+	BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error)
+}
+
+// ColdStartScanner is the application-layer port for the canonical
+// series query "give me ids of series WITHOUT a sync_log row for the
+// given source". Production impl is a method on SeriesRepository
+// (Story 212 §8); tests pass a slice-backed fake.
+type ColdStartScanner interface {
+	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error)
+}

@@ -40,8 +40,12 @@ type SeriesWorkerDeps struct {
 	Recommendations RecommendationsRepoPort
 	SyncLog         SyncLogRepo
 	MediaPrewarmer  MediaPrewarmer // nil OK — F-1 not yet shipped
-	Logger          *slog.Logger
-	Clock           func() time.Time // injected for tests; defaults to time.Now
+	// Dispatcher (212): post-tx enqueue seam for the person worker.
+	// nil OK — keeps the existing test fixtures green; production
+	// wiring passes the shared *DispatcherImpl.
+	Dispatcher Dispatcher
+	Logger     *slog.Logger
+	Clock      func() time.Time // injected for tests; defaults to time.Now
 }
 
 // SeriesWorker is the bound worker. Construct via NewSeriesWorker.
@@ -154,8 +158,14 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID int64) error {
 	mapped := w.mapAll(tv, seasonResponses, canon)
 
 	// 6. ONE tx for the whole graph.
+	var enqueueRows []personEnqueueRow
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		return w.applyAll(txCtx, canon, tv, mapped, log)
+		rows, err := w.applyAll(txCtx, canon, tv, mapped, log)
+		if err != nil {
+			return err
+		}
+		enqueueRows = rows
+		return nil
 	})
 	if err != nil {
 		return w.handleTMDBError(ctx, seriesID, "tx", err, last.Attempts, start)
@@ -171,12 +181,53 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID int64) error {
 		w.deps.MediaPrewarmer.Enqueue(ctx, mapped.PrewarmAssets)
 	}
 
+	// 9. 212: enqueue persons post-tx (NOT inside the tx — calling
+	//    Dispatcher.Enqueue inside a tx is a layering violation).
+	//    Hot/cold split based on credit_order; the dispatcher's dedup
+	//    handles double-enqueues for the same person.
+	if w.deps.Dispatcher != nil {
+		w.enqueuePersons(ctx, enqueueRows, log)
+	}
+
 	log.InfoContext(ctx, "enrichment.series.handle.ok",
 		slog.String("outcome", string(enrichment.OutcomeOK)),
 		slog.Int("seasons_fetched", len(seasonResponses)),
+		slog.Int("persons_enqueued", len(enqueueRows)),
 		slog.Int("duration_ms", dur),
 	)
 	return nil
+}
+
+// personEnqueueRow pairs a resolved canon person.id with the TMDB
+// billing position from the cast row. CreditOrder=999 is the crew
+// sentinel — crew has no billing order, so it ALWAYS lands in the
+// cold bucket.
+type personEnqueueRow struct {
+	PersonID    int64
+	CreditOrder int
+}
+
+// enqueuePersons fans rows out to the dispatcher with hot/cold split.
+// credit_order < 10 → hot; ≥10 (including crew sentinel 999) → cold.
+// The dispatcher's dedup handles double-enqueues for the same person.
+func (w *SeriesWorker) enqueuePersons(ctx context.Context, rows []personEnqueueRow, log *slog.Logger) {
+	_ = ctx
+	const topN = 10
+	hot, cold := 0, 0
+	for _, r := range rows {
+		p := PriorityCold
+		if r.CreditOrder < topN {
+			p = PriorityHot
+			hot++
+		} else {
+			cold++
+		}
+		w.deps.Dispatcher.Enqueue(EntityPerson, r.PersonID, p)
+	}
+	log.Debug("enrichment.series.handle.persons_enqueued",
+		slog.Int("hot", hot),
+		slog.Int("cold", cold),
+	)
 }
 
 // classifyKind picks the TTL bucket from the canon's Status /
@@ -334,7 +385,12 @@ func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonR
 // canon → texts → seasons → episodes → episode_texts →
 // people → series_people → taxonomy → videos → content_ratings →
 // external_ids → recommendations.
-func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, m mappedPayload, log *slog.Logger) error {
+//
+// Returns the resolved person enqueue rows so the caller (Handle)
+// can fan them out to the dispatcher AFTER the tx commits (calling
+// Dispatcher.Enqueue inside a tx is a layering violation — the
+// dispatcher's dedup window opens at enqueue time, not at commit).
+func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, m mappedPayload, log *slog.Logger) ([]personEnqueueRow, error) {
 	// 1. Merge + upsert series canon.
 	merged := enrichment.MergeSeries(
 		canonToEnrichmentCanon(canon),
@@ -344,13 +400,13 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	canonOut := enrichmentCanonToCanon(merged, canon)
 	seriesID, err := w.deps.Series.Upsert(txCtx, canonOut)
 	if err != nil {
-		return fmt.Errorf("upsert series canon: %w", err)
+		return nil, fmt.Errorf("upsert series canon: %w", err)
 	}
 
 	// 2. series_texts.
 	m.SeriesText.SeriesID = seriesID
 	if err := w.deps.SeriesTexts.Upsert(txCtx, m.SeriesText); err != nil {
-		return fmt.Errorf("upsert series_texts: %w", err)
+		return nil, fmt.Errorf("upsert series_texts: %w", err)
 	}
 
 	// 3. Seasons — upsert each + collect (number → season_id) for
@@ -360,7 +416,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		s.SeriesID = seriesID
 		id, err := w.deps.Seasons.Upsert(txCtx, s)
 		if err != nil {
-			return fmt.Errorf("upsert season %d: %w", s.SeasonNumber, err)
+			return nil, fmt.Errorf("upsert season %d: %w", s.SeasonNumber, err)
 		}
 		seasonIDByNumber[s.SeasonNumber] = id
 	}
@@ -374,7 +430,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	}
 	episodeIDs, err := w.deps.Episodes.BatchUpsert(txCtx, m.Episodes)
 	if err != nil {
-		return fmt.Errorf("batch upsert episodes: %w", err)
+		return nil, fmt.Errorf("batch upsert episodes: %w", err)
 	}
 
 	// 5. episode_texts — wire by parallel index from BatchUpsert.
@@ -384,7 +440,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		}
 		txt.EpisodeID = episodeIDs[i]
 		if err := w.deps.EpisodeTexts.Upsert(txCtx, txt); err != nil {
-			return fmt.Errorf("upsert episode_texts: %w", err)
+			return nil, fmt.Errorf("upsert episode_texts: %w", err)
 		}
 	}
 
@@ -393,7 +449,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	for _, st := range m.PersonStubs {
 		pid, err := w.deps.People.Upsert(txCtx, st)
 		if err != nil {
-			return fmt.Errorf("upsert person stub: %w", err)
+			return nil, fmt.Errorf("upsert person stub: %w", err)
 		}
 		if st.TMDBID != nil {
 			personIDByTMDB[*st.TMDBID] = pid
@@ -411,7 +467,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	finalCredits, droppedCredits := resolveSeriesCreditsWithPersonID(tv, seriesID, personIDByTMDB)
 	if len(finalCredits) > 0 {
 		if _, err := w.deps.SeriesPeople.BatchUpsert(txCtx, finalCredits); err != nil {
-			return fmt.Errorf("batch upsert series_people: %w", err)
+			return nil, fmt.Errorf("batch upsert series_people: %w", err)
 		}
 	}
 	if droppedCredits > 0 {
@@ -421,30 +477,59 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		)
 	}
 
+	// 7b. 212: build the post-tx person-enqueue list from the cast +
+	//     crew rows. Cast carries credit_order (TMDB billing index) —
+	//     the worker passes <10 to PriorityHot, ≥10 to PriorityCold
+	//     downstream. Crew has no billing order; sentinel 999 forces
+	//     cold for every crew row.
+	enqueueRows := make([]personEnqueueRow, 0, len(personIDByTMDB))
+	if tv.AggregateCredits != nil {
+		for _, cast := range tv.AggregateCredits.Cast {
+			pid, ok := personIDByTMDB[int(cast.ID)]
+			if !ok || pid == 0 {
+				continue
+			}
+			enqueueRows = append(enqueueRows, personEnqueueRow{
+				PersonID:    pid,
+				CreditOrder: cast.Order,
+			})
+		}
+		for _, crew := range tv.AggregateCredits.Crew {
+			pid, ok := personIDByTMDB[int(crew.ID)]
+			if !ok || pid == 0 {
+				continue
+			}
+			enqueueRows = append(enqueueRows, personEnqueueRow{
+				PersonID:    pid,
+				CreditOrder: 999,
+			})
+		}
+	}
+
 	// 8. Taxonomy — Genres / Keywords / Networks / Companies upsert + Set.
 	if err := w.applyTaxonomy(txCtx, seriesID, m); err != nil {
-		return err
+		return nil, err
 	}
 
 	// 9. Videos.
 	for _, v := range m.Videos {
 		v.SeriesID = seriesID
 		if err := w.deps.Videos.Upsert(txCtx, v); err != nil {
-			return fmt.Errorf("upsert video: %w", err)
+			return nil, fmt.Errorf("upsert video: %w", err)
 		}
 	}
 
 	// 10. Content ratings.
 	for _, cr := range m.ContentRatings {
 		if err := w.deps.ContentRatings.Upsert(txCtx, seriesID, cr.Country, cr.Rating); err != nil {
-			return fmt.Errorf("upsert content_rating: %w", err)
+			return nil, fmt.Errorf("upsert content_rating: %w", err)
 		}
 	}
 
 	// 11. External IDs.
 	for _, e := range m.ExternalIDs {
 		if err := w.deps.ExternalIDs.Upsert(txCtx, enrichment.EntityTypeSeries, seriesID, e.Provider, e.ProviderID); err != nil {
-			return fmt.Errorf("upsert external_id: %w", err)
+			return nil, fmt.Errorf("upsert external_id: %w", err)
 		}
 	}
 
@@ -454,7 +539,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	for _, rec := range m.Recommendations {
 		id, err := w.deps.Series.Upsert(txCtx, rec)
 		if err != nil {
-			return fmt.Errorf("upsert recommendation stub: %w", err)
+			return nil, fmt.Errorf("upsert recommendation stub: %w", err)
 		}
 		// Skip self-references defensively (the recommendations Set
 		// rejects recommended_series_id == series_id).
@@ -464,9 +549,9 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		recIDs = append(recIDs, id)
 	}
 	if err := w.deps.Recommendations.Set(txCtx, seriesID, recIDs); err != nil {
-		return fmt.Errorf("set recommendations: %w", err)
+		return nil, fmt.Errorf("set recommendations: %w", err)
 	}
-	return nil
+	return enqueueRows, nil
 }
 
 // resolveSeriesCreditsWithPersonID re-walks tv.AggregateCredits and

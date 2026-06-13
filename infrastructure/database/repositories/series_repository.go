@@ -157,6 +157,34 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, e
 	return m.ID, nil
 }
 
+// ListMissingSyncLog returns series.id rows that have NO sync_log
+// row for (entity_type='series', source=<source>). LEFT JOIN +
+// IS NULL — selectivity is good on a typical library (300 rows) and
+// the (entity_type, entity_id, source) index covers the join. Limit
+// caps result-set size; cold-start callers pass 5000.
+//
+// Used by the application-layer cold-start backfill (Story 212).
+func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	var ids []int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series AS s").
+		Select("s.id").
+		Joins(`LEFT JOIN sync_log sl
+		       ON sl.entity_type = 'series'
+		      AND sl.entity_id   = s.id
+		      AND sl.source      = ?`, source).
+		Where("sl.entity_id IS NULL").
+		Limit(limit).
+		Pluck("s.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series missing sync_log(%s): %w", source, err)
+	}
+	return ids, nil
+}
+
 // seriesUpdateCols lists the columns updated on a conflict. id /
 // created_at are deliberately excluded so the row's identity and
 // insertion timestamp survive the upsert path.

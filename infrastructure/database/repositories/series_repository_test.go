@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
@@ -163,4 +164,67 @@ func TestSeriesRepository_PartialUnique(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Duplicate TMDB", got.Title,
 		"the second upsert wins by tmdb_id conflict — proving the partial unique exists")
+}
+
+// Story 212 — ListMissingSyncLog returns series whose sync_log row is
+// absent for the given source; series already journalled (any outcome)
+// are excluded. Validates the LEFT JOIN + IS NULL clause on both
+// dialects via setupTestDB.
+func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	syncLogRepo := NewSyncLogRepository(db)
+	ctx := context.Background()
+
+	// 3 series; the first two get a sync_log(tmdb_series) row, the
+	// third stays unjournalled.
+	a := sampleCanon("A")
+	a.TMDBID = ptrInt(1001)
+	a.TVDBID = ptrInt(2001)
+	idA, err := repo.Upsert(ctx, a)
+	require.NoError(t, err)
+
+	b := sampleCanon("B")
+	b.TMDBID = ptrInt(1002)
+	b.TVDBID = ptrInt(2002)
+	idB, err := repo.Upsert(ctx, b)
+	require.NoError(t, err)
+
+	c := sampleCanon("C")
+	c.TMDBID = ptrInt(1003)
+	c.TVDBID = ptrInt(2003)
+	idC, err := repo.Upsert(ctx, c)
+	require.NoError(t, err)
+
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   idA,
+		Source:     enrichment.SourceTMDBSeries,
+		Outcome:    enrichment.OutcomeOK,
+	}))
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   idB,
+		Source:     enrichment.SourceTMDBSeries,
+		Outcome:    enrichment.OutcomeError,
+	}))
+
+	ids, err := repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
+	require.NoError(t, err)
+	require.Len(t, ids, 1, "only series C should lack a sync_log row")
+	assert.Equal(t, idC, ids[0])
+
+	// A sync_log row for an unrelated source must NOT mark the series
+	// as journalled for tmdb_series.
+	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   idC,
+		Source:     enrichment.SourceOMDb,
+		Outcome:    enrichment.OutcomeOK,
+	}))
+	ids, err = repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
+	require.NoError(t, err)
+	require.Len(t, ids, 1, "different-source rows must not cover the join")
+	assert.Equal(t, idC, ids[0])
 }

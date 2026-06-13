@@ -748,3 +748,52 @@ func TestSeriesWorker_RejectsMissingDeps(t *testing.T) {
 	_, err := NewSeriesWorker(SeriesWorkerDeps{})
 	assert.Error(t, err)
 }
+
+// Story 212: verify post-tx hot/cold person enqueue split — credit_order
+// < 10 lands at PriorityHot, the rest at PriorityCold; crew is always
+// cold (sentinel 999 forces it).
+func TestSeriesWorker_PersonEnqueue_Top10Hot_RestCold(t *testing.T) {
+	t.Parallel()
+	cast := make([]tmdb.TVCastMember, 12)
+	for i := range cast {
+		cast[i] = tmdb.TVCastMember{
+			ID:    int64(100 + i),
+			Order: i,
+			Name:  "actor",
+			Roles: []tmdb.TVRole{{CreditID: itoa(int64(i + 1)), Character: "c"}},
+		}
+	}
+	crew := []tmdb.TVCrewMember{{
+		ID:         500,
+		Name:       "Director",
+		Department: "Directing",
+		Jobs:       []tmdb.TVJob{{CreditID: "crew-1", Job: "Director"}},
+	}}
+	tv := minimalTV()
+	tv.AggregateCredits = &tmdb.TVAggregateCredits{Cast: cast, Crew: crew}
+
+	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := 42
+	f.seedCanon(1, &tmdbID)
+
+	d := &recordingDispatcher{}
+	f.worker.deps.Dispatcher = d
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	hot, cold := 0, 0
+	for _, c := range d.calls {
+		if c.Kind != EntityPerson {
+			continue
+		}
+		switch c.Priority {
+		case PriorityHot:
+			hot++
+		case PriorityCold:
+			cold++
+		}
+	}
+	assert.Equal(t, 10, hot, "first 10 cast by credit_order → hot")
+	assert.Equal(t, 3, cold, "credit_order 10 + 11 + 1 crew row → cold")
+}

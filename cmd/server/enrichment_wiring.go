@@ -7,7 +7,9 @@ import (
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
@@ -18,6 +20,10 @@ import (
 type EnrichmentBundle struct {
 	Dispatcher *appenrich.DispatcherImpl
 	Nightly    func(context.Context)
+	// ColdStart (212) runs the one-shot series backfill — series
+	// rows that lack a sync_log(tmdb_series) entry are enqueued at
+	// PriorityCold. nil when enrichment is disabled.
+	ColdStart func(context.Context)
 }
 
 // wireEnrichment builds the dispatcher + nightly stale scan closure.
@@ -52,6 +58,15 @@ func wireEnrichment(
 		return nil, err
 	}
 
+	// Story 212: dispatcherHolder breaks the construction cycle
+	// (series worker needs Dispatcher seam → dispatcher needs both
+	// handlers). The holder is handed to the series worker; the
+	// real *DispatcherImpl is plugged into it after both workers
+	// + dispatcher have been constructed. Calls before the plug-in
+	// would no-op safely, but in this flow nothing fires before
+	// dispatcher.Start.
+	holder := &dispatcherHolder{}
+
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
 		TMDB:            tmdbClient,
 		Tx:              tx,
@@ -73,7 +88,28 @@ func wireEnrichment(
 		Recommendations: repos.Recommendations,
 		SyncLog:         repos.SyncLog,
 		MediaPrewarmer:  nil, // F-1 not yet shipped
+		Dispatcher:      holder,
 		Logger:          log,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 212: person worker — REUSES the SAME tmdbClient pointer
+	// constructed above. Sharing the pointer preserves the 5-rps
+	// token bucket (Client.limiter); a second tmdb.New(...) here
+	// would fragment the bucket and let the worker pool burst at
+	// 10 rps. NEVER call tmdb.New again in this function.
+	personWorker, err := appenrich.NewPersonWorker(appenrich.PersonWorkerDeps{
+		TMDB:              tmdbClient,
+		Tx:                tx,
+		Language:          tmdb.DefaultLanguage,
+		People:            repos.People,
+		PersonBiographies: repos.PersonBiographies,
+		PersonCredits:     repos.PersonCredits,
+		ExternalIDs:       repos.ExternalIDs,
+		SyncLog:           repos.SyncLog,
+		Logger:            log,
 	})
 	if err != nil {
 		return nil, err
@@ -81,43 +117,111 @@ func wireEnrichment(
 
 	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
 		SeriesHandler: worker.Handle,
-		PersonHandler: nil, // 212 lands this
+		PersonHandler: personWorker.Handle,
 	}, log)
+	holder.set(dispatcher)
 
 	nightly := func(ctx context.Context) {
 		now := time.Now().UTC()
-		// Cutoff: now - 2 × TTL. We use the continuing-series TTL
-		// (24h) so cutoff is 48h ago. Ended-series rows with
-		// 30d TTL are still selected since they're already older.
-		cutoff := now.Add(-2 * 24 * time.Hour)
-		stale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBSeries, cutoff, 100)
+		// Series sweep: cutoff is now - 2 × continuing-series TTL
+		// (24h). Ended-series rows with 30d TTL are still selected
+		// since they're already older.
+		seriesCutoff := now.Add(-2 * 24 * time.Hour)
+		seriesStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBSeries, seriesCutoff, 100)
 		if err != nil {
 			log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
-			return
 		}
-		retries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBSeries, now, 100)
+		seriesRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBSeries, now, 100)
 		if err != nil {
 			log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
 		}
-		for _, e := range stale {
+		for _, e := range seriesStale {
 			dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
 		}
-		for _, e := range retries {
+		for _, e := range seriesRetries {
 			dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
 		}
+
+		// 212: person sweep — 30d person TTL → cutoff = now - 60d.
+		personCutoff := now.Add(-60 * 24 * time.Hour)
+		personStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBPerson, personCutoff, 200)
+		if err != nil {
+			log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+				slog.String("source", string(enrichment.SourceTMDBPerson)),
+				slog.String("error", err.Error()))
+		}
+		personRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBPerson, now, 200)
+		if err != nil {
+			log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+				slog.String("source", string(enrichment.SourceTMDBPerson)),
+				slog.String("error", err.Error()))
+		}
+		for _, e := range personStale {
+			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
+		}
+		for _, e := range personRetries {
+			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
+		}
+
 		log.InfoContext(ctx, "enrichment.nightly.swept",
-			slog.Int("stale_count", len(stale)),
-			slog.Int("retry_count", len(retries)),
+			slog.Int("series_stale", len(seriesStale)),
+			slog.Int("series_retries", len(seriesRetries)),
+			slog.Int("person_stale", len(personStale)),
+			slog.Int("person_retries", len(personRetries)),
 		)
+	}
+
+	// 212: cold-start backfill closure. Hands repos.ColdStartScanner
+	// + dispatcher to the application-layer function; safe to call
+	// from a background goroutine in main.go AFTER dispatcher.Start.
+	coldStart := func(ctx context.Context) {
+		if repos.ColdStartScanner == nil {
+			return
+		}
+		if err := appenrich.BackfillSeries(ctx, repos.ColdStartScanner, dispatcher, log); err != nil {
+			log.WarnContext(ctx, "enrichment.cold_start.failed",
+				slog.String("error", err.Error()))
+		}
 	}
 
 	dispatcher.Start(rootCtx)
 	return &EnrichmentBundle{
 		Dispatcher: dispatcher,
 		Nightly:    nightly,
+		ColdStart:  coldStart,
 	}, nil
+}
+
+// dispatcherHolder is a late-binding holder satisfying
+// appenrich.Dispatcher. It exists to break the construction cycle
+// between series_worker (needs Dispatcher) and dispatcher (needs
+// series worker's Handle). The holder is constructed empty, handed
+// to series_worker.deps, and the real dispatcher is plugged in via
+// set() AFTER NewDispatcher returns. Concurrency: set() runs
+// before dispatcher.Start, so the inner pointer is established
+// before any reader goroutine exists.
+type dispatcherHolder struct {
+	inner appenrich.Dispatcher
+}
+
+func (h *dispatcherHolder) set(d appenrich.Dispatcher) { h.inner = d }
+
+func (h *dispatcherHolder) Enqueue(kind appenrich.EntityKind, id int64, p appenrich.Priority) {
+	if h.inner == nil {
+		return
+	}
+	h.inner.Enqueue(kind, id, p)
+}
+
+func (h *dispatcherHolder) Close() {
+	if h.inner == nil {
+		return
+	}
+	h.inner.Close()
 }
 
 // enrichmentRepoBundle is the dependency bundle main.go fills in.
@@ -129,7 +233,7 @@ type enrichmentRepoBundle struct {
 	Seasons         appenrich.SeasonsRepo
 	Episodes        appenrich.EpisodesRepo
 	EpisodeTexts    appenrich.EpisodeTextsRepo
-	People          appenrich.PeopleRepo
+	People          peopleRepoCombined
 	SeriesPeople    appenrich.SeriesPeopleRepo
 	Genres          appenrich.GenresRepo
 	Keywords        appenrich.KeywordsRepo
@@ -140,6 +244,20 @@ type enrichmentRepoBundle struct {
 	ExternalIDs     appenrich.ExternalIDsRepoPort
 	Recommendations appenrich.RecommendationsRepoPort
 	SyncLog         appenrich.SyncLogRepo
+	// 212 additions:
+	PersonBiographies appenrich.PersonBiographiesPort
+	PersonCredits     appenrich.PersonCreditsPort
+	ColdStartScanner  appenrich.ColdStartScanner
+}
+
+// peopleRepoCombined is the intersection interface main.go's
+// *PeopleRepository must satisfy. The series worker uses PeopleRepo
+// (GetByTMDBID + Upsert); the person worker uses PeopleWritePort
+// (Get + Upsert). One concrete repo implements both shapes — Go's
+// structural typing handles the rest.
+type peopleRepoCombined interface {
+	appenrich.PeopleRepo
+	appenrich.PeopleWritePort
 }
 
 // ---- repo → port adapters ------------------------------------------
@@ -261,4 +379,69 @@ func (a externalIDsRepoAdapter) Upsert(ctx context.Context, entityType enrichmen
 		return nil
 	}
 	return a.inner.Upsert(ctx, entityType, entityID, provider, value)
+}
+
+// ---- 212 adapters --------------------------------------------------
+
+// personCreditsRepoAdapter translates the domain-level
+// []people.PersonCredit shape the person worker emits into the
+// repository's []database.PersonCreditModel write rows. The domain
+// type carries pointer-typed nullable fields (ReleaseDate *time.Time,
+// TMDBRating *float64, etc.); the model carries year *int + poster_path
+// *string. The conversion lives here so the application layer never
+// touches the database package.
+type personCreditsRepoAdapter struct {
+	inner *repositories.PersonCreditsRepository
+}
+
+func (a personCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
+	if len(credits) == 0 {
+		return nil, nil
+	}
+	rows := make([]database.PersonCreditModel, 0, len(credits))
+	for _, c := range credits {
+		rows = append(rows, database.PersonCreditModel{
+			PersonID:      c.PersonID,
+			TMDBCreditID:  c.TMDBCreditID,
+			MediaType:     c.MediaType,
+			TMDBMediaID:   int(c.TMDBMediaID),
+			Title:         c.Title,
+			Year:          yearFromReleaseDate(c.ReleaseDate),
+			CharacterName: c.CharacterName,
+			Kind:          string(c.Kind),
+			Job:           c.Job,
+			PosterPath:    c.PosterAsset,
+			VoteAverage:   c.TMDBRating,
+			EpisodeCount:  c.EpisodeCount,
+		})
+	}
+	return a.inner.BatchUpsert(ctx, rows)
+}
+
+// yearFromReleaseDate extracts the calendar year from a TMDB release
+// date pointer. Used to populate person_credits.year (legacy column
+// kept as a denormalised filter index for the H-1 list ordering).
+func yearFromReleaseDate(t *time.Time) *int {
+	if t == nil {
+		return nil
+	}
+	y := t.Year()
+	return &y
+}
+
+// coldStartScannerAdapter wraps *SeriesRepository to satisfy
+// appenrich.ColdStartScanner. The adapter exists so the application
+// port doesn't import infrastructure/database.
+type coldStartScannerAdapter struct {
+	inner *repositories.SeriesRepository
+}
+
+// NewColdStartScannerAdapter returns the wrapper. Kept exported for
+// main.go's wiring.
+func NewColdStartScannerAdapter(s *repositories.SeriesRepository) appenrich.ColdStartScanner {
+	return coldStartScannerAdapter{inner: s}
+}
+
+func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
+	return a.inner.ListMissingSyncLog(ctx, source, limit)
 }

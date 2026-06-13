@@ -587,28 +587,35 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	externalIDsRepo := repositories.NewExternalIDsRepository(db)
 	recommendationsRepo := repositories.NewRecommendationsRepository(db)
 	syncLogRepo := repositories.NewSyncLogRepository(db)
+	// Story 212 (C-3) — person enrichment + cold-start backfill.
+	personBiographiesRepo := repositories.NewPersonBiographiesRepository(db)
+	personCreditsRepo := repositories.NewPersonCreditsRepository(db)
+	coldStartScanner := NewColdStartScannerAdapter(seriesRepo)
 
 	// Story 211 (C-2) — wire enrichment dispatcher. extSub is primed,
 	// so TMDB settings are available. wireEnrichment returns a nil
 	// dispatcher when TMDB is disabled / unconfigured (boot stays
 	// green on a fresh install).
 	enrichRepos := enrichmentRepoBundle{
-		Series:          seriesRepo,
-		SeriesTexts:     seriesTextsRepo,
-		Seasons:         seasonsRepo,
-		Episodes:        episodesRepo,
-		EpisodeTexts:    episodeTextsRepo,
-		People:          peopleRepo,
-		SeriesPeople:    seriesPeopleRepo,
-		Genres:          genresRepoAdapter{main: genresRepo, i18n: genresI18nRepo},
-		Keywords:        keywordsRepoAdapter{main: keywordsRepo, i18n: keywordsI18nRepo},
-		Networks:        networksRepo,
-		Companies:       companiesRepo,
-		Videos:          videosRepoAdapter{inner: videosRepo},
-		ContentRatings:  contentRatingsRepoAdapter{inner: contentRatingsRepo},
-		ExternalIDs:     externalIDsRepoAdapter{inner: externalIDsRepo},
-		Recommendations: recommendationsRepo,
-		SyncLog:         syncLogRepo,
+		Series:            seriesRepo,
+		SeriesTexts:       seriesTextsRepo,
+		Seasons:           seasonsRepo,
+		Episodes:          episodesRepo,
+		EpisodeTexts:      episodeTextsRepo,
+		People:            peopleRepo,
+		SeriesPeople:      seriesPeopleRepo,
+		Genres:            genresRepoAdapter{main: genresRepo, i18n: genresI18nRepo},
+		Keywords:          keywordsRepoAdapter{main: keywordsRepo, i18n: keywordsI18nRepo},
+		Networks:          networksRepo,
+		Companies:         companiesRepo,
+		Videos:            videosRepoAdapter{inner: videosRepo},
+		ContentRatings:    contentRatingsRepoAdapter{inner: contentRatingsRepo},
+		ExternalIDs:       externalIDsRepoAdapter{inner: externalIDsRepo},
+		Recommendations:   recommendationsRepo,
+		SyncLog:           syncLogRepo,
+		PersonBiographies: personBiographiesRepo,
+		PersonCredits:     personCreditsRepoAdapter{inner: personCreditsRepo},
+		ColdStartScanner:  coldStartScanner,
 	}
 	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
 	if err != nil {
@@ -639,6 +646,20 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 				}
 			}()
 		}
+	}
+
+	// Story 212 — cold-start backfill. Background goroutine: scan
+	// series rows missing sync_log(tmdb_series) and enqueue at
+	// PriorityCold. Runs AFTER dispatcher.Start (inside wireEnrichment)
+	// + bootScheduler.Start so every consumer is alive. bgWG.Add(1)
+	// ensures the scan drains on shutdown rather than racing rootCancel.
+	// Idempotent re-runs are harmless.
+	if enrichBundle != nil && enrichBundle.ColdStart != nil {
+		bgWG.Add(1)
+		go func() {
+			defer bgWG.Done()
+			enrichBundle.ColdStart(rootCtx)
+		}()
 	}
 
 	// Re-publish the boot snapshot now that subscribers are alive
