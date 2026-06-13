@@ -11,6 +11,10 @@ import { LibraryStatusCard } from '@/components/series-detail/LibraryStatusCard'
 import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
+import { KeywordChips } from '@/components/series-detail/KeywordChips';
+import { CastCarousel } from '@/components/series-detail/CastCarousel';
+import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
+import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
@@ -49,7 +53,6 @@ export function SeriesDetail() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Sub-nav: back to /series. Sub-section anchors come in I-2/A-*. */}
       <nav className="flex items-center gap-2 text-[12.5px] text-tx-muted">
         <Link
           to="/series"
@@ -116,16 +119,7 @@ export function SeriesDetail() {
                   <div className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
                     {t('seriesDetail.overview.keywords')}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {data.overview.keywords.slice(0, 12).map((k) => (
-                      <span
-                        key={k.id ?? k.name}
-                        className="rounded-md bg-bg-surface-2/70 border border-border-subtle px-1.5 py-0.5 text-[11px] text-tx-secondary"
-                      >
-                        {k.name}
-                      </span>
-                    ))}
-                  </div>
+                  <KeywordChips chips={data.overview.keywords} />
                 </div>
               )}
               {!omdbDegraded && data.overview?.awards && (
@@ -145,14 +139,25 @@ export function SeriesDetail() {
             {...(data.recent ? { recent: data.recent } : {})}
           />
 
-          {/* Deferred sections — placeholders so the page composition is
-              locked. Each gets replaced by I-2 / A-* / K-1. */}
+          {/* Torrents — still a placeholder (K-1). */}
           <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border-faint bg-bg-surface/30 px-4 py-3 text-[12px] text-tx-faint">
-            <span data-testid="placeholder-seasons">{t('seriesDetail.placeholders.seasons')}</span>
-            <span data-testid="placeholder-cast">{t('seriesDetail.placeholders.cast')}</span>
             <span data-testid="placeholder-torrents">{t('seriesDetail.placeholders.torrents')}</span>
-            <span data-testid="placeholder-recommendations">{t('seriesDetail.placeholders.recommendations')}</span>
           </div>
+
+          <SeasonsAccordion
+            instance={instance}
+            seriesId={seriesId}
+            seasons={data.seasons}
+            {...(lang ? { lang } : {})}
+          />
+
+          <CastCarousel
+            instance={instance}
+            seriesId={seriesId}
+            cast={data.cast}
+          />
+
+          <RecommendationsCarousel recommendations={data.recommendations} />
 
           <ExternalLinksFooter {...(data.external_links ? { links: data.external_links } : {})} />
 

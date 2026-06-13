@@ -65,6 +65,9 @@ const fullFixture = {
   recent: [{ event_type: 'imported', subject: 'S05E02', at: new Date().toISOString() }],
   overview: { overview: 'Alt-history NASA…', language: 'en-US', keywords: [{ id: 1, name: 'space race' }], awards: '4 wins, 18 nominations' },
   external_links: { imdb_id: 'tt9243946', tmdb_id: 1396 },
+  cast: [{ person_id: 1, name: 'Pedro Pascal', character_name: 'Joel', episode_count: 9 }],
+  seasons: [{ season_number: 1, episode_count: 1, episodes: [{ episode_number: 1, title: 'Pilot', has_file: true }] }],
+  recommendations: [{ series_id: 99, title: 'Other', year: 2022, tmdb_rating: 7.7, in_library: false }],
 };
 
 const sonarrOnlyFixture = {
@@ -103,6 +106,15 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('library-status-card')).toBeInTheDocument();
     expect(screen.getByTestId('library-missing-chip')).toBeInTheDocument();
     expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
+    expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();
+    expect(screen.getByTestId('cast-carousel')).toBeInTheDocument();
+    expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument();
+    // The three deferred placeholders are gone:
+    expect(screen.queryByTestId('placeholder-seasons')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('placeholder-cast')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('placeholder-recommendations')).not.toBeInTheDocument();
+    // Torrents placeholder still there until K-1:
+    expect(screen.getByTestId('placeholder-torrents')).toBeInTheDocument();
   });
 
   it('renders the Sonarr-only state with no TMDB blocks', async () => {
