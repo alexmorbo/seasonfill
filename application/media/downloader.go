@@ -1,0 +1,359 @@
+package media
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
+
+	"github.com/alexmorbo/seasonfill/domain/media"
+	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+)
+
+// downloaderWorkers is the goroutine count drainig the jobs channel —
+// PRD §6.6 pins it at 3 (more would smother the 5 rps limiter; fewer
+// would leave the channel backlogged behind slow upstreams).
+const downloaderWorkers = 3
+
+// downloaderRate is the shared upstream rate limit — PRD §6.6.
+// 5 requests per second, burst=1. Allocated as a *rate.Limiter so
+// every goroutine waits against the same bucket.
+const downloaderRate = rate.Limit(5)
+
+// downloadTimeout is the per-request http.Client timeout. 5s matches
+// PRD §10.4.8 TMDB API timeout (one TLS-handshake budget).
+const downloadTimeout = 10 * time.Second
+
+// retryBackoff is the sleep between the first and second attempt. A
+// fixed backoff is fine for an in-process pre-warm — the 5 rps
+// limiter already paces overall throughput.
+const retryBackoff = 500 * time.Millisecond
+
+// maxBodyBytes is the hard cap on the bytes we read from upstream.
+// 32 MiB covers every TMDB image variant (the largest is original
+// backdrop ≈ 3 MB).
+const maxBodyBytes int64 = 32 << 20
+
+// AssetRepo is the downloader's persistence surface. Production impl
+// is *repositories.MediaAssetsRepository (see §5). The narrow port
+// keeps the downloader testable with a fake repo.
+type AssetRepo interface {
+	Get(ctx context.Context, hash string) (media.Asset, error)
+	Upsert(ctx context.Context, a media.Asset) error
+}
+
+// ErrAssetNotFound is the sentinel the repository returns on Get
+// miss. Mirrors application/ports.ErrNotFound but kept in the media
+// package so the downloader has zero downstream-port imports.
+var ErrAssetNotFound = errors.New("media: asset not found")
+
+// Downloader is the consumer side of the pre-warm pipeline. Three
+// goroutines drain the jobs channel; each goroutine waits against
+// the shared rate limiter before issuing the upstream GET. Built
+// against the Enqueuer's channel + dedup set so completion clears
+// the in-flight mark.
+type Downloader struct {
+	jobs     <-chan job
+	dedup    *inflightSet
+	store    mediastore.Store
+	repo     AssetRepo
+	http     *http.Client
+	limiter  *rate.Limiter
+	logger   *slog.Logger
+	clock    func() time.Time
+	wg       sync.WaitGroup
+	stopOnce sync.Once
+	stopCh   chan struct{}
+}
+
+// DownloaderDeps is the explicit dep bundle. http=nil falls back to
+// http.DefaultClient — but production wiring MUST pass the TMDB
+// proxied client (see §7 and the story's TMDB proxy decision).
+type DownloaderDeps struct {
+	Store      mediastore.Store
+	Repo       AssetRepo
+	HTTPClient *http.Client
+	Logger     *slog.Logger
+	Clock      func() time.Time
+}
+
+// NewDownloader wires the consumer against the Enqueuer's channel +
+// dedup set. Start launches the goroutines; Close drains and waits.
+func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
+	if eq == nil {
+		return nil, errors.New("media downloader: enqueuer required")
+	}
+	if deps.Store == nil {
+		return nil, errors.New("media downloader: mediastore required")
+	}
+	if deps.Repo == nil {
+		return nil, errors.New("media downloader: asset repo required")
+	}
+	if deps.HTTPClient == nil {
+		deps.HTTPClient = &http.Client{Timeout: downloadTimeout}
+	}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	if deps.Clock == nil {
+		deps.Clock = func() time.Time { return time.Now().UTC() }
+	}
+	return &Downloader{
+		jobs:    eq.Channel(),
+		dedup:   eq.dedup,
+		store:   deps.Store,
+		repo:    deps.Repo,
+		http:    deps.HTTPClient,
+		limiter: rate.NewLimiter(downloaderRate, 1),
+		logger:  deps.Logger,
+		clock:   deps.Clock,
+		stopCh:  make(chan struct{}),
+	}, nil
+}
+
+// Start spawns the worker goroutines. Idempotent against a re-call
+// (the wg.Add path is guarded by the closed stopCh).
+func (d *Downloader) Start(ctx context.Context) {
+	for i := 0; i < downloaderWorkers; i++ {
+		d.wg.Add(1)
+		go d.runWorker(ctx, i)
+	}
+}
+
+// Close blocks until every drained job completes. Called from the
+// shutdown path; expects the Enqueuer to have already been Closed
+// (closing eq.jobs is what terminates the worker select).
+func (d *Downloader) Close() {
+	d.stopOnce.Do(func() { close(d.stopCh) })
+	d.wg.Wait()
+}
+
+func (d *Downloader) runWorker(ctx context.Context, idx int) {
+	defer d.wg.Done()
+	log := d.logger.With(slog.Int("worker_idx", idx))
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		case j, ok := <-d.jobs:
+			if !ok {
+				return
+			}
+			d.handle(ctx, log, j)
+		}
+	}
+}
+
+// handle is the per-job state machine. Always clears the dedup mark
+// before returning so a future pre-warm for the same hash can land.
+func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
+	defer d.dedup.remove(j.Hash)
+
+	start := d.clock()
+	key := mediastore.Key(j.UpstreamURL, j.Extension)
+	jlog := log.With(
+		slog.String("hash", j.Hash),
+		slog.String("kind", j.Kind),
+		slog.String("upstream_url", j.UpstreamURL),
+		slog.String("key", key),
+	)
+
+	// 1. Stat short-circuit: object already in the store. We still
+	//    want to ensure the media_assets row exists with
+	//    status=stored (the row could be missing after a failed
+	//    deploy that bypassed the row write).
+	if info, err := d.store.Stat(ctx, key); err == nil {
+		_ = d.upsertRow(ctx, media.Asset{
+			Hash:        j.Hash,
+			UpstreamURL: j.UpstreamURL,
+			Kind:        j.Kind,
+			ContentType: info.ContentType,
+			Size:        info.Size,
+			Status:      media.StatusStored,
+		}, jlog)
+		jlog.DebugContext(ctx, "media.prewarm.stat_hit",
+			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
+		)
+		return
+	} else if !errors.Is(err, mediastore.ErrNotFound) && !errors.Is(err, mediastore.ErrNotSupported) {
+		// Stat returned an unexpected error — log + fall through to
+		// the download path; the upstream fetch is the source of
+		// truth and a successful Put will mask the Stat blip.
+		jlog.WarnContext(ctx, "media.prewarm.stat_error",
+			slog.String("error", err.Error()))
+	}
+
+	// 2. Initial row write — status=pending — so a concurrent
+	//    handler GET for this hash returns 404 (frontend
+	//    placeholder) instead of "row missing" → 404.
+	if err := d.upsertRow(ctx, media.Asset{
+		Hash:        j.Hash,
+		UpstreamURL: j.UpstreamURL,
+		Kind:        j.Kind,
+		Status:      media.StatusPending,
+	}, jlog); err != nil {
+		// Row write failed — give up. The next pre-warm pass will
+		// retry.
+		return
+	}
+
+	// 3. Download with retry. transientError reports whether to retry
+	//    (network / 5xx) vs give up (4xx other than 429).
+	body, contentType, attempt, lastErr := d.downloadWithRetry(ctx, jlog, j.UpstreamURL)
+	if lastErr != nil {
+		// All attempts exhausted. Persist failed + log.
+		_ = d.upsertRow(ctx, media.Asset{
+			Hash:        j.Hash,
+			UpstreamURL: j.UpstreamURL,
+			Kind:        j.Kind,
+			Status:      media.StatusFailed,
+		}, jlog)
+		jlog.WarnContext(ctx, "media.prewarm.failed",
+			slog.Int("attempts", attempt),
+			slog.String("outcome", "failed"),
+			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
+			slog.String("error", lastErr.Error()),
+		)
+		return
+	}
+
+	// 4. Put bytes to the store. Failed Put is sticky → status=failed.
+	if err := d.store.Put(ctx, key, bytesReader(body), int64(len(body)), contentType); err != nil {
+		_ = d.upsertRow(ctx, media.Asset{
+			Hash:        j.Hash,
+			UpstreamURL: j.UpstreamURL,
+			Kind:        j.Kind,
+			Status:      media.StatusFailed,
+		}, jlog)
+		jlog.WarnContext(ctx, "media.prewarm.store_put_failed",
+			slog.String("error", err.Error()),
+			slog.Int("size", len(body)),
+		)
+		return
+	}
+
+	// 5. Final row write — status=stored, authoritative size +
+	//    content-type.
+	if err := d.upsertRow(ctx, media.Asset{
+		Hash:        j.Hash,
+		UpstreamURL: j.UpstreamURL,
+		Kind:        j.Kind,
+		ContentType: contentType,
+		Size:        int64(len(body)),
+		Status:      media.StatusStored,
+	}, jlog); err != nil {
+		// The bytes are in the store but the row write failed — the
+		// handler's lost-object recovery path will not fire (it
+		// looks at the row, not the store). The next pre-warm pass
+		// will retry the row write.
+		return
+	}
+
+	jlog.InfoContext(ctx, "media.prewarm.stored",
+		slog.Int("attempts", attempt),
+		slog.String("outcome", "stored"),
+		slog.Int("size", len(body)),
+		slog.String("content_type", contentType),
+		slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
+	)
+}
+
+// downloadWithRetry does one or two HTTP GETs against url and
+// returns the body + content-type. Returns (nil, "", attempts, err)
+// when both attempts fail. waits on the rate limiter before each
+// attempt.
+func (d *Downloader) downloadWithRetry(ctx context.Context, log *slog.Logger, url string) ([]byte, string, int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := d.limiter.Wait(ctx); err != nil {
+			return nil, "", attempt, fmt.Errorf("rate wait: %w", err)
+		}
+		body, ct, transient, err := d.fetchOnce(ctx, url)
+		if err == nil {
+			return body, ct, attempt, nil
+		}
+		lastErr = err
+		if !transient {
+			return nil, "", attempt, err
+		}
+		log.DebugContext(ctx, "media.prewarm.retry",
+			slog.Int("attempt", attempt),
+			slog.String("error", err.Error()),
+		)
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return nil, "", attempt, ctx.Err()
+			case <-time.After(retryBackoff):
+			}
+		}
+	}
+	return nil, "", 2, lastErr
+}
+
+// fetchOnce does one HTTP GET. transient is true for retryable
+// failures (network errors, 429, 5xx); false for terminal (4xx
+// non-429). The cap on body bytes is enforced via io.LimitReader.
+func (d *Downloader) fetchOnce(ctx context.Context, url string) ([]byte, string, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("new request: %w", err)
+	}
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return nil, "", true, fmt.Errorf("http do: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return nil, "", true, fmt.Errorf("upstream status %d", resp.StatusCode)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, "", false, fmt.Errorf("upstream status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return nil, "", true, fmt.Errorf("read body: %w", err)
+	}
+	return body, resp.Header.Get("Content-Type"), false, nil
+}
+
+func (d *Downloader) upsertRow(ctx context.Context, a media.Asset, log *slog.Logger) error {
+	if err := a.Validate(); err != nil {
+		log.WarnContext(ctx, "media.prewarm.row_invalid",
+			slog.String("error", err.Error()))
+		return err
+	}
+	if err := d.repo.Upsert(ctx, a); err != nil {
+		log.WarnContext(ctx, "media.prewarm.row_write_failed",
+			slog.String("error", err.Error()))
+		return err
+	}
+	return nil
+}
+
+// bytesReader is io.Reader over a []byte. Inlined instead of
+// bytes.NewReader to avoid the unused import for that single use; a
+// trivial wrapper is fine here.
+type byteReader struct {
+	b []byte
+	i int
+}
+
+func bytesReader(b []byte) io.Reader { return &byteReader{b: b} }
+
+func (r *byteReader) Read(p []byte) (int, error) {
+	if r.i >= len(r.b) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.b[r.i:])
+	r.i += n
+	return n, nil
+}

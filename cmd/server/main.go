@@ -30,6 +30,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
@@ -487,6 +488,36 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	extSub.SetUseCase(extUC)
 	externalServicesHandler := handlers.NewExternalServicesHandler(extUC, log)
 
+	// Story 214 (F-1) — media pipeline plumbing. mediastore is built
+	// from the bootstrap MediaStore config (default mode=off → null
+	// store, every op returns ErrNotSupported; the downloader treats
+	// that as a soft fail and the HTTP handler 502s on lost-object,
+	// which is the correct behaviour for an unconfigured deploy).
+	// mediaAssetsRepo is shared between the downloader (via the
+	// enrichment bundle) and the HTTP MediaHandler — one source of
+	// truth for media_assets rows. The TMDB-proxied HTTP client is
+	// constructed inside wireEnrichment and threaded back through
+	// enrichBundle.MediaHTTP; until that handle is available the
+	// MediaHandler falls back to http.DefaultClient (lost-object
+	// recovery path only).
+	mediaStoreImpl, err := mediastore.New(rootCtx, mediastore.Config{
+		Mode: mediastore.Mode(bootCfg.MediaStore.Mode),
+		S3: mediastore.S3Config{
+			Endpoint:  bootCfg.MediaStore.S3.Endpoint,
+			Bucket:    bootCfg.MediaStore.S3.Bucket,
+			AccessKey: bootCfg.MediaStore.S3.AccessKey,
+			SecretKey: bootCfg.MediaStore.S3.SecretKey,
+			Region:    bootCfg.MediaStore.S3.Region,
+			UseSSL:    bootCfg.MediaStore.S3.UseSSL,
+		},
+		FSPath: bootCfg.MediaStore.FSPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mediastore: %w", err)
+	}
+	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
+	mediaHandler := handlers.NewMediaHandler(mediaStoreImpl, mediaAssetsRepo, nil, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -496,7 +527,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		qbitSettingsHandler, externalServicesHandler, oidcUC,
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
-		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler, log)
+		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
+		mediaHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -617,6 +649,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		PersonCredits:     personCreditsRepoAdapter{inner: personCreditsRepo},
 		ColdStartScanner:  coldStartScanner,
 		LibraryWithIMDB:   NewOMDbBatchScannerAdapter(seriesRepo),
+		MediaAssets:       mediaAssetsRepo,
+		MediaStore:        mediaStoreImpl,
 	}
 	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, log)
 	if err != nil {
@@ -722,6 +756,15 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// the in-flight series worker drains before the cron tears down.
 	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
 		enrichBundle.Dispatcher.Close()
+	}
+	// Story 214 (F-1) — drain the media pre-warm pipeline AFTER the
+	// dispatcher closes (no more new pre-warm enqueues will land) so
+	// the downloader exits cleanly.
+	if enrichBundle != nil && enrichBundle.MediaEnqueuer != nil {
+		enrichBundle.MediaEnqueuer.Close()
+	}
+	if enrichBundle != nil && enrichBundle.MediaDownloader != nil {
+		enrichBundle.MediaDownloader.Close()
 	}
 
 	if cur := subSched.Current(); cur != nil {

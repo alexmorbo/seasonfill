@@ -4,15 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 )
@@ -29,6 +32,17 @@ type EnrichmentBundle struct {
 	// 213 additions: nil when OMDb disabled / unconfigured.
 	OMDbDailyBatch  func(context.Context)
 	OMDbBudgetReset func(context.Context)
+	// 214 (F-1) additions. Nil when TMDB is disabled — there's no
+	// upstream to pre-warm so the producer/consumer pair is skipped.
+	// MediaEnqueuer is the producer port for the series worker;
+	// MediaDownloader is the consumer (Start in main.go after
+	// dispatcher.Start, Close at shutdown).
+	MediaEnqueuer   *appmedia.Enqueuer
+	MediaDownloader *appmedia.Downloader
+	// MediaHTTP is the TMDB-proxied HTTP client. Re-exported so the
+	// HTTP MediaHandler in main.go uses the SAME proxy for its
+	// lost-object refetch path.
+	MediaHTTP *http.Client
 }
 
 // wireEnrichment builds the dispatcher + nightly stale scan closure.
@@ -63,6 +77,31 @@ func wireEnrichment(
 		return nil, err
 	}
 
+	// 214 (F-1): media pre-warm pipeline. Only constructed when both
+	// the blob store + the media_assets repo are available; the pair
+	// is required for the downloader to make persistent progress.
+	// httpClient is SHARED with tmdbClient above so the same
+	// proxy-connection pool serves both API + image fetches (RU DPI
+	// blocks image.tmdb.org the same way it blocks api.themoviedb.org).
+	var (
+		mediaEnqueuer   *appmedia.Enqueuer
+		mediaDownloader *appmedia.Downloader
+		mediaPrewarmer  appenrich.MediaPrewarmer // nil OK
+	)
+	if repos.MediaAssets != nil && repos.MediaStore != nil {
+		mediaEnqueuer = appmedia.NewEnqueuer(log)
+		mediaDownloader, err = appmedia.NewDownloader(mediaEnqueuer, appmedia.DownloaderDeps{
+			Store:      repos.MediaStore,
+			Repo:       repos.MediaAssets,
+			HTTPClient: httpClient,
+			Logger:     log,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("media downloader: %w", err)
+		}
+		mediaPrewarmer = mediaPrewarmerAdapter{eq: mediaEnqueuer}
+	}
+
 	// Story 212: dispatcherHolder breaks the construction cycle
 	// (series worker needs Dispatcher seam → dispatcher needs both
 	// handlers). The holder is handed to the series worker; the
@@ -92,7 +131,7 @@ func wireEnrichment(
 		ExternalIDs:     repos.ExternalIDs,
 		Recommendations: repos.Recommendations,
 		SyncLog:         repos.SyncLog,
-		MediaPrewarmer:  nil, // F-1 not yet shipped
+		MediaPrewarmer:  mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
 		Dispatcher:      holder,
 		Logger:          log,
 	})
@@ -276,12 +315,22 @@ func wireEnrichment(
 	}
 
 	dispatcher.Start(rootCtx)
+	// 214 (F-1): start the media downloader workers AFTER the
+	// dispatcher is up so the first pre-warm enqueue always lands
+	// on a live consumer. Close is driven from main.go's shutdown
+	// path (Enqueuer.Close → Downloader.Close).
+	if mediaDownloader != nil {
+		mediaDownloader.Start(rootCtx)
+	}
 	return &EnrichmentBundle{
 		Dispatcher:      dispatcher,
 		Nightly:         nightly,
 		ColdStart:       coldStart,
 		OMDbDailyBatch:  omdbDailyBatch,
 		OMDbBudgetReset: omdbBudgetReset,
+		MediaEnqueuer:   mediaEnqueuer,
+		MediaDownloader: mediaDownloader,
+		MediaHTTP:       httpClient,
 	}, nil
 }
 
@@ -341,6 +390,14 @@ type enrichmentRepoBundle struct {
 	// Production impl wraps *SeriesRepository. Nil-OK — when nil the
 	// OMDb daily-batch closure logs and short-circuits.
 	LibraryWithIMDB OMDbBatchScanner
+	// 214 (F-1): media assets read/write. Constructed in main.go
+	// outside wireEnrichment so the same handle is shared with the
+	// HTTP MediaHandler. Nil-OK — when nil the pre-warm pipeline
+	// stays off (downloader needs a repo to write rows).
+	MediaAssets appmedia.AssetRepo
+	// 214 (F-1): blob store handle constructed in main.go. Nil-OK —
+	// when nil the pre-warm pipeline stays off.
+	MediaStore mediastore.Store
 }
 
 // OMDbBatchScanner is the application-layer surface for the
@@ -583,4 +640,28 @@ func NewColdStartScannerAdapter(s *repositories.SeriesRepository) appenrich.Cold
 
 func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
 	return a.inner.ListMissingSyncLog(ctx, source, limit)
+}
+
+// mediaPrewarmerAdapter satisfies appenrich.MediaPrewarmer against
+// the application/media Enqueuer. The two request types are mirrors
+// (UpstreamURL / Kind / Extension); the adapter exists because the
+// enrichment package may NOT import application/media (sibling-app
+// layer rule).
+type mediaPrewarmerAdapter struct {
+	eq *appmedia.Enqueuer
+}
+
+func (a mediaPrewarmerAdapter) Enqueue(ctx context.Context, reqs []appenrich.MediaPrewarmRequest) {
+	if a.eq == nil || len(reqs) == 0 {
+		return
+	}
+	out := make([]appmedia.EnqueueRequest, 0, len(reqs))
+	for _, r := range reqs {
+		out = append(out, appmedia.EnqueueRequest{
+			UpstreamURL: r.UpstreamURL,
+			Kind:        r.Kind,
+			Extension:   r.Extension,
+		})
+	}
+	a.eq.Enqueue(ctx, out)
 }

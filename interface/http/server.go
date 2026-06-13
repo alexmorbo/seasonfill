@@ -62,6 +62,7 @@ func NewServer(
 	watchdogBlacklistHandler *handlers.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
+	mediaHandler *handlers.MediaHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -161,6 +162,13 @@ func NewServer(
 		seriesPosterHandler := handlers.NewSeriesPosterHandler(
 			instanceReg, logger, handlers.WithPosterCache(posterCache))
 		guarded.GET("/instances/:name/series/:id/poster", seriesPosterHandler.Proxy)
+		// F-1 (Story 214): content-addressed media proxy. Serves the
+		// canonical TMDB image variants pre-warmed by the series
+		// enrichment worker. mediaHandler is nil-OK — when wiring is
+		// disabled (tests / minimal boot) the route is omitted.
+		if mediaHandler != nil {
+			guarded.GET("/media/:hash", mediaHandler.Serve)
+		}
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
 		webhookInstallHandler := handlers.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)

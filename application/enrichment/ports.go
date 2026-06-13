@@ -205,13 +205,23 @@ type Transactor interface {
 	Transaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// MediaPrewarmer is the F-1 enqueue surface. Story 211 ships a
-// nil-OK shim (the production impl lands in F-1); the worker calls
-// Enqueue with the poster/backdrop/logo/top-10 profile hashes
-// gathered during mapping. nil → no-op. Single-method to keep the
-// future seam stable.
+// MediaPrewarmer is the F-1 enqueue surface. Each request carries
+// the canonical upstream URL (already fully-qualified with the size
+// variant), the descriptive kind, and the file extension. The
+// production impl is *application/media.Enqueuer; nil-OK seam stays
+// for tests that don't care about pre-warm.
 type MediaPrewarmer interface {
-	Enqueue(ctx context.Context, assets []string)
+	Enqueue(ctx context.Context, reqs []MediaPrewarmRequest)
+}
+
+// MediaPrewarmRequest is the producer-side payload. Re-declared here
+// (rather than importing application/media) so the dependency goes
+// app/enrichment → app/media (downstream port), not the reverse.
+// The two structs are mirrors; the wiring layer translates.
+type MediaPrewarmRequest struct {
+	UpstreamURL string
+	Kind        string
+	Extension   string
 }
 
 // VideoRow is the worker → VideosRepoPort transfer shape. Kept as

@@ -820,3 +820,25 @@ type SyncLogModel struct {
 }
 
 func (SyncLogModel) TableName() string { return "sync_log" }
+
+// MediaAssetModel is the persistent row for the media_assets table
+// (migration 000024, PRD v4 §6). One row per stored object — the
+// bytes live in mediastore; this row is the lookup index for the
+// GET /media/:hash endpoint plus future GC sweeps (E-2).
+//
+// Hash is sha256(source_url) in lowercase hex; doubles as the
+// content-addressed primary key. Status lifecycle is pending →
+// stored | failed (see domain/media.Status).
+type MediaAssetModel struct {
+	Hash         string     `gorm:"primaryKey;column:hash;type:text"`
+	SourceURL    string     `gorm:"column:source_url;type:text;not null;uniqueIndex:idx_media_assets_source_url"`
+	Kind         string     `gorm:"column:kind;type:text;not null"`
+	Status       string     `gorm:"column:status;type:text;not null;default:'pending'"`
+	ContentType  *string    `gorm:"column:content_type;type:text"`
+	SizeBytes    *int64     `gorm:"column:size_bytes"`
+	FetchedAt    *time.Time `gorm:"column:fetched_at"`
+	LastAccessAt *time.Time `gorm:"column:last_access_at"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+}
+
+func (MediaAssetModel) TableName() string { return "media_assets" }

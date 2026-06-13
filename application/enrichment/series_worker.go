@@ -292,7 +292,10 @@ type mappedPayload struct {
 	ContentRatings  []tmdb.MappedContentRating
 	ExternalIDs     []tmdb.MappedExternalID
 	Recommendations []series.Canon // hydration=stub
-	PrewarmAssets   []string       // hashes for F-1 enqueue
+	// PrewarmAssets is the per-series media-prewarm payload built by
+	// mapAll. The series_worker hands the slice to MediaPrewarmer
+	// AFTER the tx commits.
+	PrewarmAssets []MediaPrewarmRequest
 }
 
 // mapAll runs every mapper from infrastructure/tmdb against the
@@ -358,25 +361,12 @@ func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonR
 		}
 	}
 
-	// Pre-warm: poster + backdrop + top-10 profiles. Hashes are
-	// the mapper outputs (already content-addressed hashes? No —
-	// at this story they're raw paths; F-1 will swap to hashes
-	// when media store lands. For 211 the slice is a placeholder
-	// the F-1 worker re-interprets).
-	if canon.PosterAsset != nil {
-		out.PrewarmAssets = append(out.PrewarmAssets, *canon.PosterAsset)
-	}
-	if canon.BackdropAsset != nil {
-		out.PrewarmAssets = append(out.PrewarmAssets, *canon.BackdropAsset)
-	}
-	for i, st := range out.PersonStubs {
-		if i >= 10 {
-			break
-		}
-		if st.ProfileAsset != nil {
-			out.PrewarmAssets = append(out.PrewarmAssets, *st.ProfileAsset)
-		}
-	}
+	// Pre-warm payload — PRD §6.4. Build full image URLs from the
+	// raw TMDB paths the mapper persisted on canon entities. Order:
+	// poster (w342 grid + w780 hero), backdrop w1280, network logos
+	// w185, top-10 cast profiles w185, season posters w154, one
+	// trailer thumbnail (best-effort YouTube hqdefault).
+	out.PrewarmAssets = composePrewarmAssets(canon, out, tv)
 	return out
 }
 
