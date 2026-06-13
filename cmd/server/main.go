@@ -317,6 +317,55 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// grab_records.torrent_hash update. Repo also feeds the
 	// torrentsync reconciler constructed below.
 	torrentSeriesMapRepo := repositories.NewTorrentSeriesMapRepository(db)
+
+	// Story 300 (E-1 wiring fix) — construct scan.Syncer so the
+	// webhook SeriesAdd path populates the canonical entity model
+	// (series + episodes + episode_states + series_genres +
+	// series_networks) instead of falling back to the thin
+	// CacheEntry write. Repos are stateless GORM wrappers (same
+	// shape as the Story 215 seriesdetail block below), so re-
+	// constructing them here is free. Lookup returns the concrete
+	// *sonarr.Client because Syncer.SyncFromSonarrAPI needs the
+	// payload-fetcher methods (GetSeriesPayload / ListEpisodesForSync
+	// / ListEpisodeFilesForSync) that live on the concrete type,
+	// not on ports.SonarrClient. Unknown instance OR a non-concrete
+	// client → (nil, false), webhook silently falls back to the
+	// pre-E-1 thin CacheEntry path (same degradation pattern as the
+	// existing SonarrClientFor / InstanceFor closures below).
+	webhookEpisodesRepo := repositories.NewEpisodesRepository(db)
+	webhookEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
+	webhookGenresRepo := repositories.NewGenresRepository(db)
+	webhookGenresI18nRepo := repositories.NewGenresI18nRepository(db)
+	webhookNetworksRepo := repositories.NewNetworksRepository(db)
+	webhookSeriesSyncer := &scan.Syncer{
+		Deps: scan.SyncDeps{
+			Series:        seriesRepo,
+			SeriesCache:   seriesCacheRepo,
+			Episodes:      webhookEpisodesRepo,
+			EpisodeStates: webhookEpisodeStatesRepo,
+			EpisodeTexts:  webhookEpisodeTextsRepo,
+			Genres:        scan.NewGenresAdapter(webhookGenresRepo, webhookGenresI18nRepo),
+			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),
+			Logger:        log,
+		},
+		Lookup: func(name string) (*sonarr.Client, bool) {
+			h := holder.load()
+			if h == nil {
+				return nil, false
+			}
+			inst, ok := h[name]
+			if !ok || inst.Client == nil {
+				return nil, false
+			}
+			concrete, ok := inst.Client.(*sonarr.Client)
+			if !ok {
+				return nil, false
+			}
+			return concrete, true
+		},
+		Logger: log,
+	}
+
 	webhookUC := webhookuc.New(webhookuc.Deps{
 		Grabs:            grabRepo,
 		Cooldowns:        cooldownRepo,
@@ -324,6 +373,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		Tx:               txr,
 		EpisodeStates:    webhookEpisodeStatesRepo,
 		TorrentSeriesMap: torrentSeriesMapRepo,
+		SeriesSyncer:     webhookSeriesSyncer,
 		GUIDCooldownLookup: func(name string) time.Duration {
 			inst, ok := holder.load()[name]
 			if !ok {
