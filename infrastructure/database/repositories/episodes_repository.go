@@ -71,6 +71,25 @@ func (r *EpisodesRepository) ListBySeason(ctx context.Context, seriesID int64, s
 	return out, nil
 }
 
+// CountBySeries returns the count of episodes rows for seriesID.
+// Used by the H-1 cast composer (Story 216) as the divisor for
+// per-cast Main / Recurring / Guest derivation
+// (episode_count / total_episode_count). Indexed via the natural
+// key UQ `episodes_natural (series_id, season_number,
+// episode_number)` — Postgres + sqlite both pick the leading
+// column for the count.
+func (r *EpisodesRepository) CountBySeries(ctx context.Context, seriesID int64) (int, error) {
+	var n int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("episodes").
+		Where("series_id = ?", seriesID).
+		Count(&n).Error
+	if err != nil {
+		return 0, fmt.Errorf("count episodes by series: %w", err)
+	}
+	return int(n), nil
+}
+
 // Upsert writes one episode by natural key. Idempotent.
 func (r *EpisodesRepository) Upsert(ctx context.Context, e series.CanonEpisode) (int64, error) {
 	id, err := r.batchUpsert(ctx, []series.CanonEpisode{e})

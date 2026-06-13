@@ -25,7 +25,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
-		nil,      // mediaHandler (Story 214 F-1)
-		nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1)
+		nil,           // mediaHandler (Story 214 F-1)
+		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (215 G-1) + seriesCastHandler (216 H-1)
 		logger)
 }

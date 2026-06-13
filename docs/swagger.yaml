@@ -82,6 +82,59 @@ components:
         tmdb_person_id:
           type: integer
       type: object
+    dto.CastPageMember:
+      properties:
+        character_name:
+          description: |-
+            CharacterName is the role on this series. nil when the
+            TMDB credit carries no character (rare for kind=cast).
+          type: string
+        credit_order:
+          description: |-
+            CreditOrder is the TMDB billing order. nil when TMDB didn't
+            emit one; the composer sorts NULLS LAST.
+          type: integer
+        episode_count:
+          description: |-
+            EpisodeCount is the number of episodes this person appeared
+            in on this series (TMDB aggregate_credits[*].
+            total_episode_count). nil when TMDB returned no count.
+            The frontend derives Main / Recurring / Guest by comparing
+            against TotalEpisodeCount.
+          type: integer
+        in_library:
+          description: |-
+            InLibrary is true when the person appears as cast or crew
+            on at least one OTHER series in this seasonfill's library
+            (any active series_cache row, any instance). Excludes the
+            current series so the "what else are they in?" affordance
+            doesn't render a self-link.
+          type: boolean
+        name:
+          description: |-
+            Name is the person's display name (locale-independent —
+            TMDB doesn't translate names reliably, PRD §5.3 row
+            "people").
+          example: Pedro Pascal
+          type: string
+        person_id:
+          description: |-
+            PersonID is the canon people.id. Frontend uses it for the
+            /person/:tmdbId link (resolved via TMDBID where present).
+          type: integer
+        profile_asset:
+          description: |-
+            ProfileAsset is the media_assets.hash for the person's
+            profile photo. nil when the person has no profile_path
+            (frontend renders a monogram placeholder).
+          type: string
+        tmdb_id:
+          description: |-
+            TMDBID is the TMDB person id. nil when the person was
+            onboarded from a non-TMDB source (rare; today every cast
+            member comes from TMDB aggregate_credits).
+          type: integer
+      type: object
     dto.ContentRatingBadge:
       description: |-
         ContentRating is the displayed age-rating badge. nil when no
@@ -122,6 +175,40 @@ components:
             $ref: '#/components/schemas/dto.InstanceCountersDTO'
           type: array
           uniqueItems: false
+      type: object
+    dto.CrewPageMember:
+      properties:
+        department:
+          description: |-
+            Department is the TMDB department classification
+            ("Production", "Writing", "Directing", "Editorial", ...).
+            nil when TMDB didn't emit one.
+          type: string
+        episode_count:
+          description: |-
+            EpisodeCount as on CastPageMember; semantics identical
+            (per-(person, job) aggregate count).
+          type: integer
+        in_library:
+          type: boolean
+        job:
+          description: |-
+            Job is the TMDB job title within the department
+            ("Executive Producer", "Director", "Writer"). nil when
+            missing. One person with multiple jobs on the same series
+            produces multiple CrewPageMember entries with the same
+            PersonID but distinct Job values — frontend dedupes
+            visually per design brief §3.4 (top-2 jobs joined by ·,
+            rest in tooltip).
+          type: string
+        name:
+          type: string
+        person_id:
+          type: integer
+        profile_asset:
+          type: string
+        tmdb_id:
+          type: integer
       type: object
     dto.Decision:
       properties:
@@ -1762,6 +1849,67 @@ components:
             type: string
           type: array
           uniqueItems: false
+      type: object
+    dto.SeriesCastResponse:
+      properties:
+        cast:
+          description: |-
+            Cast is the full cast list, sorted by credit_order ASC NULLS
+            LAST. Empty slice when no series_people kind='cast' rows.
+          items:
+            $ref: '#/components/schemas/dto.CastPageMember'
+          type: array
+          uniqueItems: false
+        crew:
+          description: |-
+            Crew is the full crew list, sorted by (department ASC, name
+            ASC). Per-person duplicates with distinct jobs are
+            preserved — frontend dedups visually. Empty slice when no
+            series_people kind='crew' rows.
+          items:
+            $ref: '#/components/schemas/dto.CrewPageMember'
+          type: array
+          uniqueItems: false
+        instance:
+          description: |-
+            Instance is the Sonarr instance the request hit. Echoed so
+            the client can disambiguate when a person is in multiple
+            instances.
+          example: alpha
+          type: string
+        lang:
+          description: |-
+            Lang is the BCP-47 language code requested. Accepted for
+            forward compatibility (H-2 person page localises Biography);
+            the cast list itself has no per-language fields in v1.
+          example: en-US
+          type: string
+        series_id:
+          description: SeriesID is the resolved canonical series.id.
+          example: 42
+          type: integer
+        sonarr_series_id:
+          description: SonarrSeriesID is the Sonarr-side id from the URL.
+          example: 1
+          type: integer
+        synced_at:
+          description: |-
+            SyncedAt is the request timestamp (server-side now()); the
+            frontend uses it for the "synced Xs ago" microcopy.
+          example: "2026-06-13T12:00:00Z"
+          type: string
+        total_episode_count:
+          description: |-
+            TotalEpisodeCount is the count of episode rows for the
+            resolved series_id. Used by the frontend as the divisor for
+            Main / Recurring / Guest badges:
+              episode_count / total_episode_count > 0.5  -> Main
+              episode_count / total_episode_count > 0.1  -> Recurring
+              else                                       -> Guest
+            (design-handoff Q3). Zero when no episodes are hydrated
+            yet — frontend treats badges as N/A.
+          example: 62
+          type: integer
       type: object
     dto.SeriesDetailResponse:
       properties:
@@ -3859,6 +4007,80 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Composite series detail document
+      tags:
+      - instances
+  /instances/{name}/series/{id}/cast:
+    get:
+      description: |-
+        Returns the complete cast and crew for one series —
+        cast sorted by TMDB billing order, crew grouped by
+        department then person name. Each row carries the
+        per-person `episode_count` (from TMDB
+        aggregate_credits[*].total_episode_count) and an
+        `in_library` flag derived from local
+        `person_credits` intersected with active
+        `series_cache` rows (excluding the current series so
+        the "what else are they in?" affordance never
+        renders a self-link).
+
+        `total_episode_count` is the series-level divisor
+        the frontend uses to derive Main / Recurring /
+        Guest badges from `episode_count /
+        total_episode_count` (design-handoff Q3).
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Sonarr series id (per-instance)
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (default en-US, reserved for H-2 parity —
+          cast list has no per-language fields in v1)
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCastResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Full series cast & crew
       tags:
       - instances
   /instances/{name}/series/{id}/poster:

@@ -92,4 +92,41 @@ func TestEpisodesRepository_ListBySeason(t *testing.T) {
 	assert.Equal(t, 3, rows[2].EpisodeNumber)
 }
 
+func TestEpisodesRepository_CountBySeries(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	seriesRepo := NewSeriesRepository(db)
+	c1 := sampleCanon("Breaking Bad")
+	seriesID1, err := seriesRepo.Upsert(ctx, c1)
+	require.NoError(t, err)
+	// Second series with distinct TMDB id so the upsert doesn't
+	// collapse onto seriesID1 via the partial unique key.
+	c2 := sampleCanon("Better Call Saul")
+	otherTMDB := 999
+	c2.TMDBID = &otherTMDB
+	otherTVDB := 888
+	c2.TVDBID = &otherTVDB
+	otherIMDB := "tt0000002"
+	c2.IMDBID = &otherIMDB
+	seriesID2, err := seriesRepo.Upsert(ctx, c2)
+	require.NoError(t, err)
+	require.NotEqual(t, seriesID1, seriesID2)
+	repo := NewEpisodesRepository(db)
+	for e := 1; e <= 5; e++ {
+		_, err := repo.Upsert(ctx, series.CanonEpisode{
+			SeriesID:      seriesID1,
+			SeasonNumber:  1,
+			EpisodeNumber: e,
+		})
+		require.NoError(t, err)
+	}
+	n1, err := repo.CountBySeries(ctx, seriesID1)
+	require.NoError(t, err)
+	assert.Equal(t, 5, n1)
+	n2, err := repo.CountBySeries(ctx, seriesID2)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n2)
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }

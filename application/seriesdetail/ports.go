@@ -25,9 +25,40 @@ type SeriesCachePort interface {
 	Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error)
 }
 
-// SeriesPort fetches the canonical series row by series.id.
+// SeriesPort fetches the canonical series row by series.id. The
+// H-1 cast composer additionally uses GetByTMDBID to resolve a
+// person_credits.tmdb_media_id back to a canon series.id (see
+// cast.go probeInLibrary).
 type SeriesPort interface {
 	Get(ctx context.Context, id int64) (series.Canon, error)
+	GetByTMDBID(ctx context.Context, tmdbID int) (series.Canon, error)
+}
+
+// PersonCreditsPort is the narrow port for the H-1 in_library
+// probe. Returns the cross-reference rows TMDB emits via
+// `/person/{id}/tv_credits` + `/movie_credits` — the composer
+// only needs the media ids to intersect against live
+// series_cache rows. Composer-local PersonCreditRef projection
+// keeps this port free of the repository's wide PersonCredit
+// struct (the cmd-server adapter in cmd/server/main.go does the
+// projection).
+type PersonCreditsPort interface {
+	ListByPerson(ctx context.Context, personID int64) ([]PersonCreditRef, error)
+}
+
+// PersonCreditRef is the projection the H-1 cast composer reads
+// from person_credits. Kept composer-local so the port doesn't
+// depend on the repository's full PersonCredit type.
+type PersonCreditRef struct {
+	MediaType   string // "tv" | "movie"
+	TMDBMediaID int
+}
+
+// EpisodesCountPort is the narrow port for total_episode_count.
+// Implemented by EpisodesRepository.CountBySeries — see
+// infrastructure/database/repositories/episodes_repository.go.
+type EpisodesCountPort interface {
+	CountBySeries(ctx context.Context, seriesID int64) (int, error)
 }
 
 // SeriesTextsPort fetches the localised title/overview/tagline row

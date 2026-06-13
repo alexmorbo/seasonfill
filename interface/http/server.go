@@ -65,6 +65,7 @@ func NewServer(
 	mediaHandler *handlers.MediaHandler,
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
+	seriesCastHandler *handlers.SeriesCastHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -176,6 +177,11 @@ func NewServer(
 		}
 		if seriesSeasonHandler != nil {
 			guarded.GET("/instances/:name/series/:id/season/:n", seriesSeasonHandler.Get)
+		}
+		// Story 216 (H-1) — full cast & crew page. Nil-OK mirrors the
+		// series detail handler pattern.
+		if seriesCastHandler != nil {
+			guarded.GET("/instances/:name/series/:id/cast", seriesCastHandler.Get)
 		}
 		// F-1 (Story 214): content-addressed media proxy. Serves the
 		// canonical TMDB image variants pre-warmed by the series

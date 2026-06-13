@@ -73,6 +73,15 @@ func (f *fakeSeriesPort) Get(_ context.Context, id int64) (series.Canon, error) 
 	return c, nil
 }
 
+func (f *fakeSeriesPort) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
+	for _, c := range f.rows {
+		if c.TMDBID != nil && *c.TMDBID == tmdbID {
+			return c, nil
+		}
+	}
+	return series.Canon{}, ports.ErrNotFound
+}
+
 type fakeNoTexts struct{}
 
 func (fakeNoTexts) GetWithFallback(_ context.Context, _ int64, _ string) (series.SeriesText, error) {

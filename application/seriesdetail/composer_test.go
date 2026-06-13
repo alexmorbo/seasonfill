@@ -70,6 +70,18 @@ func (f *fakeSeries) Get(_ context.Context, id int64) (series.Canon, error) {
 	return c, nil
 }
 
+func (f *fakeSeries) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
+	if f.err != nil {
+		return series.Canon{}, f.err
+	}
+	for _, c := range f.rows {
+		if c.TMDBID != nil && *c.TMDBID == tmdbID {
+			return c, nil
+		}
+	}
+	return series.Canon{}, ports.ErrNotFound
+}
+
 type fakeSeriesTexts struct {
 	rows map[string]series.SeriesText // key="seriesID|lang"
 	err  error

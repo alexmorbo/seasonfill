@@ -258,8 +258,8 @@ func buildServer(t *testing.T) *Server {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
-		nil,      // mediaHandler (Story 214 F-1)
-		nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1)
+		nil,           // mediaHandler (Story 214 F-1)
+		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		lg)
 }
 
@@ -313,8 +313,8 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
-		nil,      // mediaHandler (Story 214 F-1)
-		nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1)
+		nil,           // mediaHandler (Story 214 F-1)
+		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		lg)
 }
 
@@ -482,8 +482,8 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
-		nil,      // mediaHandler (Story 214 F-1)
-		nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1)
+		nil,           // mediaHandler (Story 214 F-1)
+		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (Story 215 G-1) + seriesCastHandler (Story 216 H-1)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

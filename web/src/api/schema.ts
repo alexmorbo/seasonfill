@@ -2187,6 +2187,103 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}/cast": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Full series cast & crew
+         * @description Returns the complete cast and crew for one series —
+         *     cast sorted by TMDB billing order, crew grouped by
+         *     department then person name. Each row carries the
+         *     per-person `episode_count` (from TMDB
+         *     aggregate_credits[*].total_episode_count) and an
+         *     `in_library` flag derived from local
+         *     `person_credits` intersected with active
+         *     `series_cache` rows (excluding the current series so
+         *     the "what else are they in?" affordance never
+         *     renders a self-link).
+         *
+         *     `total_episode_count` is the series-level divisor
+         *     the frontend uses to derive Main / Recurring /
+         *     Guest badges from `episode_count /
+         *     total_episode_count` (design-handoff Q3).
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (default en-US, reserved for H-2 parity — cast list has no per-language fields in v1) */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Instance name */
+                    readonly name: string;
+                    /** @description Sonarr series id (per-instance) */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesCastResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/series/{id}/poster": {
         readonly parameters: {
             readonly query?: never;
@@ -3532,6 +3629,58 @@ export type components = {
             readonly profile_asset?: string;
             readonly tmdb_person_id?: number;
         };
+        readonly "dto.CastPageMember": {
+            /**
+             * @description CharacterName is the role on this series. nil when the
+             *     TMDB credit carries no character (rare for kind=cast).
+             */
+            readonly character_name?: string;
+            /**
+             * @description CreditOrder is the TMDB billing order. nil when TMDB didn't
+             *     emit one; the composer sorts NULLS LAST.
+             */
+            readonly credit_order?: number;
+            /**
+             * @description EpisodeCount is the number of episodes this person appeared
+             *     in on this series (TMDB aggregate_credits[*].
+             *     total_episode_count). nil when TMDB returned no count.
+             *     The frontend derives Main / Recurring / Guest by comparing
+             *     against TotalEpisodeCount.
+             */
+            readonly episode_count?: number;
+            /**
+             * @description InLibrary is true when the person appears as cast or crew
+             *     on at least one OTHER series in this seasonfill's library
+             *     (any active series_cache row, any instance). Excludes the
+             *     current series so the "what else are they in?" affordance
+             *     doesn't render a self-link.
+             */
+            readonly in_library?: boolean;
+            /**
+             * @description Name is the person's display name (locale-independent —
+             *     TMDB doesn't translate names reliably, PRD §5.3 row
+             *     "people").
+             * @example Pedro Pascal
+             */
+            readonly name?: string;
+            /**
+             * @description PersonID is the canon people.id. Frontend uses it for the
+             *     /person/:tmdbId link (resolved via TMDBID where present).
+             */
+            readonly person_id?: number;
+            /**
+             * @description ProfileAsset is the media_assets.hash for the person's
+             *     profile photo. nil when the person has no profile_path
+             *     (frontend renders a monogram placeholder).
+             */
+            readonly profile_asset?: string;
+            /**
+             * @description TMDBID is the TMDB person id. nil when the person was
+             *     onboarded from a non-TMDB source (rare; today every cast
+             *     member comes from TMDB aggregate_credits).
+             */
+            readonly tmdb_id?: number;
+        };
         /**
          * @description ContentRating is the displayed age-rating badge. nil when no
          *     content_ratings row matches the user locale OR en-US OR US
@@ -3556,6 +3705,34 @@ export type components = {
         };
         readonly "dto.CountersAggregateDTO": {
             readonly items?: readonly components["schemas"]["dto.InstanceCountersDTO"][];
+        };
+        readonly "dto.CrewPageMember": {
+            /**
+             * @description Department is the TMDB department classification
+             *     ("Production", "Writing", "Directing", "Editorial", ...).
+             *     nil when TMDB didn't emit one.
+             */
+            readonly department?: string;
+            /**
+             * @description EpisodeCount as on CastPageMember; semantics identical
+             *     (per-(person, job) aggregate count).
+             */
+            readonly episode_count?: number;
+            readonly in_library?: boolean;
+            /**
+             * @description Job is the TMDB job title within the department
+             *     ("Executive Producer", "Director", "Writer"). nil when
+             *     missing. One person with multiple jobs on the same series
+             *     produces multiple CrewPageMember entries with the same
+             *     PersonID but distinct Job values — frontend dedupes
+             *     visually per design brief §3.4 (top-2 jobs joined by ·,
+             *     rest in tooltip).
+             */
+            readonly job?: string;
+            readonly name?: string;
+            readonly person_id?: number;
+            readonly profile_asset?: string;
+            readonly tmdb_id?: number;
         };
         readonly "dto.Decision": {
             /** @example 8 */
@@ -4634,6 +4811,62 @@ export type components = {
         };
         readonly "dto.SeriesCacheNetworksList": {
             readonly networks?: readonly string[];
+        };
+        readonly "dto.SeriesCastResponse": {
+            /**
+             * @description Cast is the full cast list, sorted by credit_order ASC NULLS
+             *     LAST. Empty slice when no series_people kind='cast' rows.
+             */
+            readonly cast?: readonly components["schemas"]["dto.CastPageMember"][];
+            /**
+             * @description Crew is the full crew list, sorted by (department ASC, name
+             *     ASC). Per-person duplicates with distinct jobs are
+             *     preserved — frontend dedups visually. Empty slice when no
+             *     series_people kind='crew' rows.
+             */
+            readonly crew?: readonly components["schemas"]["dto.CrewPageMember"][];
+            /**
+             * @description Instance is the Sonarr instance the request hit. Echoed so
+             *     the client can disambiguate when a person is in multiple
+             *     instances.
+             * @example alpha
+             */
+            readonly instance?: string;
+            /**
+             * @description Lang is the BCP-47 language code requested. Accepted for
+             *     forward compatibility (H-2 person page localises Biography);
+             *     the cast list itself has no per-language fields in v1.
+             * @example en-US
+             */
+            readonly lang?: string;
+            /**
+             * @description SeriesID is the resolved canonical series.id.
+             * @example 42
+             */
+            readonly series_id?: number;
+            /**
+             * @description SonarrSeriesID is the Sonarr-side id from the URL.
+             * @example 1
+             */
+            readonly sonarr_series_id?: number;
+            /**
+             * @description SyncedAt is the request timestamp (server-side now()); the
+             *     frontend uses it for the "synced Xs ago" microcopy.
+             * @example 2026-06-13T12:00:00Z
+             */
+            readonly synced_at?: string;
+            /**
+             * @description TotalEpisodeCount is the count of episode rows for the
+             *     resolved series_id. Used by the frontend as the divisor for
+             *     Main / Recurring / Guest badges:
+             *       episode_count / total_episode_count > 0.5  -> Main
+             *       episode_count / total_episode_count > 0.1  -> Recurring
+             *       else                                       -> Guest
+             *     (design-handoff Q3). Zero when no episodes are hydrated
+             *     yet — frontend treats badges as N/A.
+             * @example 62
+             */
+            readonly total_episode_count?: number;
         };
         readonly "dto.SeriesDetailResponse": {
             /**

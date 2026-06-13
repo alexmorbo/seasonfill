@@ -581,6 +581,24 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	seriesDetailHandler := handlers.NewSeriesDetailHandler(seriesDetailComposer, log)
 	seriesSeasonHandler := handlers.NewSeriesSeasonHandler(seriesDetailComposer, log)
 
+	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
+	// repos (series_cache + series + series_people + people) plus
+	// the new EpisodesRepository.CountBySeries method and a thin
+	// adapter projecting repositories.PersonCredit → composer-local
+	// PersonCreditRef.
+	sdPersonCreditsRepo := repositories.NewPersonCreditsRepository(db)
+	castComposer := seriesdetail.NewCastComposer(seriesdetail.CastDeps{
+		SeriesCache:       seriesCacheRepo,
+		SeriesCacheLookup: seriesCacheRepo,
+		Series:            sdSeriesRepo,
+		SeriesPeople:      sdSeriesPeopleRepo,
+		People:            sdPeopleRepo,
+		PersonCredits:     personCreditsAdapter{r: sdPersonCreditsRepo},
+		EpisodesCount:     sdEpisodesRepo,
+		Logger:            log,
+	})
+	seriesCastHandler := handlers.NewSeriesCastHandler(castComposer, log)
+
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
 		adminRepo, loginLimiter, webhookLimiter,
@@ -591,7 +609,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		webhookReconciler, webhookStatusCache,
 		seriesCacheRepo, counterRepo, watchdogRollupHandler,
 		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
-		mediaHandler, seriesDetailHandler, seriesSeasonHandler, log)
+		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler, log)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
@@ -884,4 +902,28 @@ type qbitSettingsLoaderFunc func(ctx context.Context) map[string]regrab.Settings
 
 func (f qbitSettingsLoaderFunc) Load(ctx context.Context) map[string]regrab.Settings {
 	return f(ctx)
+}
+
+// personCreditsAdapter projects repositories.PersonCredit rows
+// down to the H-1 composer-internal PersonCreditRef shape (Story
+// 216). The projection is cheap (two field copies) and keeps the
+// application layer free of the repository's wide PersonCredit
+// struct.
+type personCreditsAdapter struct {
+	r *repositories.PersonCreditsRepository
+}
+
+func (a personCreditsAdapter) ListByPerson(ctx context.Context, personID int64) ([]seriesdetail.PersonCreditRef, error) {
+	rows, err := a.r.ListByPerson(ctx, personID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]seriesdetail.PersonCreditRef, 0, len(rows))
+	for _, pc := range rows {
+		out = append(out, seriesdetail.PersonCreditRef{
+			MediaType:   pc.MediaType,
+			TMDBMediaID: pc.TMDBMediaID,
+		})
+	}
+	return out, nil
 }
