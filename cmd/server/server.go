@@ -84,6 +84,7 @@ type Server struct {
 	cfg        httpServeConfig
 	bus        *runtime.Bus
 	bgWG       *sync.WaitGroup
+	lifecycle  *lifecycleGroup
 	rootCancel context.CancelFunc
 
 	httpServer   *httpserver.Server
@@ -291,21 +292,25 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// M-9: track every background goroutine so we can wait for them to exit
 	// before closing the DB handle below.
+	//
+	// bgWG is retained for cross-package wiring that still expects
+	// *sync.WaitGroup (scan.UseCase.WithWaitGroup, newRegrabLoop,
+	// newTorrentsyncLoop, startSubscribers, SonarrClientsSubscriber).
+	// lifecycle owns the inline goroutines spawned directly from
+	// Server.New (B-11 step 3 / story 325). Both are drained in
+	// Shutdown — see the ladder at the end of this file.
 	var bgWG sync.WaitGroup
+	lifecycle := newLifecycleGroup(log)
 
-	bgWG.Add(1)
-	go func() {
-		defer bgWG.Done()
-		checker.Run(rootCtx, 30*time.Second)
-	}()
+	lifecycle.Go(rootCtx, "healthcheck", func(ctx context.Context) {
+		checker.Run(ctx, 30*time.Second)
+	})
 
 	// Watchdog rechecks Unavailable* instances at per-state cadences (D-2.3).
 	wd := watchdog.New(checker.Registry(), checker, log, cfgByName)
-	bgWG.Add(1)
-	go func() {
-		defer bgWG.Done()
-		wd.Run(rootCtx)
-	}()
+	lifecycle.Go(rootCtx, "watchdog", func(ctx context.Context) {
+		wd.Run(ctx)
+	})
 
 	txr := repositories.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
@@ -838,11 +843,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		sweepInterval = 15 * time.Minute
 	}
 	sweeper := newSweepLoop(cooldownRepo, sweepInterval, log)
-	bgWG.Add(1)
-	go func() {
-		defer bgWG.Done()
-		sweeper.Run(rootCtx)
-	}()
+	lifecycle.Go(rootCtx, "cooldown-sweeper", func(ctx context.Context) {
+		sweeper.Run(ctx)
+	})
 
 	// Phase 11 — background webhook reconcile safety net (041d).
 	// The closure over holder.load is reload-aware: every publish
@@ -854,11 +857,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		holder.load,
 		log,
 	)
-	bgWG.Add(1)
-	go func() {
-		defer bgWG.Done()
-		webhookReconcileLoopVal.Run(rootCtx)
-	}()
+	lifecycle.Go(rootCtx, "webhook-reconcile", func(ctx context.Context) {
+		webhookReconcileLoopVal.Run(ctx)
+	})
 
 	// Build the boot scheduler (if cron is enabled) so the
 	// subscriber starts in the same state as the snapshot. Note:
@@ -1108,11 +1109,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// bgWG.Add(1) keeps shutdown waiting for the goroutine to
 	// exit on rootCtx cancellation.
 	if enrichBundle != nil && enrichBundle.ColdStart != nil {
-		bgWG.Add(1)
-		go func() {
-			defer bgWG.Done()
-			enrichBundle.ColdStart(rootCtx)
-		}()
+		lifecycle.Go(rootCtx, "cold-start-backfill", func(ctx context.Context) {
+			enrichBundle.ColdStart(ctx)
+		})
 	}
 
 	// Re-publish the boot snapshot now that subscribers are alive
@@ -1132,6 +1131,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		cfg:          cfg,
 		bus:          bus,
 		bgWG:         &bgWG,
+		lifecycle:    lifecycle,
 		rootCancel:   rootCancel,
 		httpServer:   httpServer,
 		scanUC:       scanUC,
@@ -1207,6 +1207,14 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	s.rootCancel()
 
 	// M-9: drain background goroutines before closing the DB handle.
+	// lifecycle covers the 5 inline goroutines spawned by Server.New
+	// (healthcheck, watchdog, cooldown-sweeper, webhook-reconcile,
+	// cold-start-backfill). bgWG covers cross-package wiring
+	// (scan.UseCase, regrabLoop, torrentsyncLoop, startSubscribers,
+	// SonarrClientsSubscriber) — migrating those is a follow-up.
+	if err := s.lifecycle.Drain(10 * time.Second); err != nil {
+		s.log.Warn("lifecycle drain timed out", slog.String("error", err.Error()))
+	}
 	drainBackground(s.bgWG, 10*time.Second, s.log)
 
 	if sqlDB, err := s.db.DB(); err == nil {
