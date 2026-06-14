@@ -248,6 +248,14 @@ type Grab struct {
 	// keeping the audit handler test snapshots untouched. Mirrors
 	// the 041g pattern on dto.MissingSeries.TitleSlug.
 	TitleSlug string `json:"title_slug,omitempty" example:"your-friends-and-neighbors"`
+	// PosterHash is the content-addressed sha256 of the stored hero
+	// poster (size w342) for this grab's series, joined at read time
+	// from the same series_cache → media_assets LEFT JOIN that powers
+	// the catalog list (story 348a). The FE renders posters via
+	// mediaUrl(hash) when set; nil falls back to the legacy proxy or
+	// a monogram placeholder. Omitted from wire when nil so audit
+	// snapshots taken pre-348b stay untouched. Story 348b.
+	PosterHash *string `json:"poster_hash,omitempty" example:"3a2b1c..." extensions:"x-content-addressed=true"`
 }
 
 // GrabParsed is the Sonarr-parsed release metadata block exposed on
@@ -336,6 +344,12 @@ type SeasonEpisodePresence struct {
 // frontend renders the link the moment it is non-empty without nil
 // checks. Year / PosterPath are *T with omitempty so cache misses don't
 // bloat the wire payload.
+//
+// Story 348b: PosterHash supersedes PosterPath. The FE migrates in 349b;
+// both ship for one release so the swap is reversible. The hash is
+// joined from the same series_cache → media_assets LEFT JOIN that 348a
+// already added — the enrichment is in-memory off ListActiveByInstance
+// so no extra SQL is incurred.
 type MissingSeries struct {
 	SeriesID          int                 `json:"series_id"             example:"122"`
 	Title             string              `json:"title"                 example:"Severance"`
@@ -344,7 +358,8 @@ type MissingSeries struct {
 	Seasons           []MissingSeasonStat `json:"seasons"`
 	TitleSlug         string              `json:"title_slug"            example:"severance"`
 	Year              *int                `json:"year,omitempty"        example:"2022"`
-	PosterPath        *string             `json:"poster_path,omitempty" example:"/MediaCover/122/poster.jpg"`
+	PosterPath        *string             `json:"poster_path,omitempty" example:"/MediaCover/122/poster.jpg"` // deprecated — use poster_hash + mediaUrl()
+	PosterHash        *string             `json:"poster_hash,omitempty" example:"3a2b1c..." extensions:"x-content-addressed=true"`
 }
 
 // MissingSeriesList — body of GET /instances/:name/missing.

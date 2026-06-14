@@ -565,6 +565,18 @@ components:
             title. Always emitted alongside a non-null Parsed; omitted when
             Parsed is null.
           type: string
+        poster_hash:
+          description: |-
+            PosterHash is the content-addressed sha256 of the stored hero
+            poster (size w342) for this grab's series, joined at read time
+            from the same series_cache → media_assets LEFT JOIN that powers
+            the catalog list (story 348a). The FE renders posters via
+            mediaUrl(hash) when set; nil falls back to the legacy proxy or
+            a monogram placeholder. Omitted from wire when nil so audit
+            snapshots taken pre-348b stay untouched. Story 348b.
+          example: 3a2b1c...
+          type: string
+          x-content-addressed: "true"
         quality:
           example: WEBDL-1080p
           type: string
@@ -1210,7 +1222,12 @@ components:
         monitored:
           example: true
           type: boolean
+        poster_hash:
+          example: 3a2b1c...
+          type: string
+          x-content-addressed: "true"
         poster_path:
+          description: deprecated — use poster_hash + mediaUrl()
           example: /MediaCover/122/poster.jpg
           type: string
         seasons:

@@ -4332,6 +4332,17 @@ export type components = {
              *     Parsed is null.
              */
             readonly parsed_at?: string;
+            /**
+             * @description PosterHash is the content-addressed sha256 of the stored hero
+             *     poster (size w342) for this grab's series, joined at read time
+             *     from the same series_cache → media_assets LEFT JOIN that powers
+             *     the catalog list (story 348a). The FE renders posters via
+             *     mediaUrl(hash) when set; nil falls back to the legacy proxy or
+             *     a monogram placeholder. Omitted from wire when nil so audit
+             *     snapshots taken pre-348b stay untouched. Story 348b.
+             * @example 3a2b1c...
+             */
+            readonly poster_hash?: string;
             /** @example WEBDL-1080p */
             readonly quality?: string;
             readonly release_guid?: string;
@@ -4786,7 +4797,12 @@ export type components = {
         readonly "dto.MissingSeries": {
             /** @example true */
             readonly monitored?: boolean;
-            /** @example /MediaCover/122/poster.jpg */
+            /** @example 3a2b1c... */
+            readonly poster_hash?: string;
+            /**
+             * @description deprecated — use poster_hash + mediaUrl()
+             * @example /MediaCover/122/poster.jpg
+             */
             readonly poster_path?: string;
             readonly seasons?: readonly components["schemas"]["dto.MissingSeasonStat"][];
             /** @example 122 */

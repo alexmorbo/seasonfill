@@ -364,6 +364,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 		items[i].TitleSlug = e.TitleSlug
 		items[i].Year = e.Year
 		items[i].PosterPath = e.PosterPath
+		items[i].PosterHash = e.PosterHash
 	}
 }
 

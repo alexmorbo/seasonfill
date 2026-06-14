@@ -799,3 +799,105 @@ func TestAuditHandler_ListGrabs_OmitsTitleSlugWhenCacheMisses(t *testing.T) {
 	_, present := body.Items[0]["title_slug"]
 	assert.False(t, present, "title_slug should be omitted when no series_cache row matches")
 }
+
+// seedSeriesCachePosterHash stamps poster_asset on the canon row
+// resolved for (instance, sonarrID) and inserts a media_assets row
+// matching the synthetic CDN URL the series_cache LEFT JOIN
+// expects. Mirrors infrastructure/database/repositories.seedPoster
+// AssetAndMedia. status=" " (empty) skips the media_assets row
+// (covers "no stored media" path).
+func seedSeriesCachePosterHash(t *testing.T, f *auditFixture, instance string, sonarrID int, path, status, hash string) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", path).Error)
+	if status == "" {
+		return
+	}
+	srcURL := "https://image.tmdb.org/t/p/w342" + path
+	require.NoError(t, f.db.Create(&database.MediaAssetModel{
+		Hash:      hash,
+		SourceURL: srcURL,
+		Kind:      "poster_w342",
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}).Error)
+}
+
+// TestAuditHandler_ListGrabs_IncludesPosterHashFromCache covers 348b.
+// When a series_cache row plus a stored media_assets row exist for
+// the (instance, series_id) tuple of a grab, the wire response
+// carries poster_hash from the media_assets row — the FE renders
+// posters via mediaUrl(hash). One ListActiveByInstance call covers
+// both title_slug and poster_hash (no fanout).
+func TestAuditHandler_ListGrabs_IncludesPosterHashFromCache(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	hash := "3a2b1c4d5e6f7890abcdef0123456789abcdef0123456789abcdef0123456789"
+
+	rec := f.seedGrab(t, "main", 122, 1, grab.StatusImported, base)
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 122,
+		Title:          "Your Friends & Neighbors",
+		TitleSlug:      "your-friends-and-neighbors",
+		Monitored:      true,
+	}))
+	seedSeriesCachePosterHash(t, f, "main", 122, "/poster.jpg", "stored", hash)
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, rec.ID.String(), body.Items[0]["id"])
+	assert.Equal(t, hash, body.Items[0]["poster_hash"],
+		"stored media_assets row → hash projected to wire")
+	// Slug still ships alongside — the single repo call covers both.
+	assert.Equal(t, "your-friends-and-neighbors", body.Items[0]["title_slug"])
+}
+
+// TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia covers
+// 348b's degradation paths. Two grabs:
+//   - series 222: cache row exists, poster_asset set, but media_assets
+//     row is status='pending' → join filtered → poster_hash nil.
+//   - series 333: no series_cache row at all → key misses entirely.
+//
+// Both rows must omit `poster_hash` from the wire (omitempty), the FE
+// then falls back to the monogram placeholder.
+func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	f.seedGrab(t, "main", 222, 1, grab.StatusImported, base.Add(time.Minute))
+	f.seedGrab(t, "main", 333, 1, grab.StatusImported, base)
+
+	// series 222: cache row present but media row is pending — join
+	// filtered by status='stored', so PosterHash projects NULL.
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 222,
+		Title:          "Pending Poster",
+		TitleSlug:      "pending-poster",
+		Monitored:      true,
+	}))
+	seedSeriesCachePosterHash(t, f, "main", 222, "/pending.jpg", "pending", "feedface11feedface11feedface11feedface11feedface11feedface11feed")
+	// series 333: no series_cache row at all — collectGrabCacheFields
+	// map misses → hashes[key] is nil pointer.
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 2)
+	for _, it := range body.Items {
+		_, present := it["poster_hash"]
+		assert.False(t, present,
+			"poster_hash must be omitted from wire when join misses or status!=stored (series %v)", it["series_id"])
+	}
+	// Sanity: omitempty drops the field entirely, never emits null.
+	assert.NotContains(t, w.Body.String(), `"poster_hash":null`)
+}

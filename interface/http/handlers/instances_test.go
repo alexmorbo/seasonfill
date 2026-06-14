@@ -959,11 +959,13 @@ func missingFixtureTwo() []series.Series {
 }
 
 // enrichedItem captures the 041g fields plus series_id for ordering.
+// 348b: PosterHash captured to assert the cache-join propagation.
 type enrichedItem struct {
 	SeriesID   int     `json:"series_id"`
 	TitleSlug  string  `json:"title_slug"`
 	Year       *int    `json:"year,omitempty"`
 	PosterPath *string `json:"poster_path,omitempty"`
+	PosterHash *string `json:"poster_hash,omitempty"`
 }
 
 func decodeEnrichedItems(t *testing.T, raw []byte) []enrichedItem {
@@ -1056,4 +1058,46 @@ func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 			tc.assert(t, decodeEnrichedItems(t, w.Body.Bytes()), cache)
 		})
 	}
+}
+
+// TestInstancesHandler_Missing_PosterHashField covers Story 348b:
+// when the series_cache entry carries a non-nil PosterHash, the
+// /missing wire response carries it as `poster_hash`. Entries without
+// a hash omit the field. No extra SQL — the existing
+// ListActiveByInstance call is reused (cache.listCall == 1).
+func TestInstancesHandler_Missing_PosterHashField(t *testing.T) {
+	hash := "3a2b1c4d5e6f7890abcdef0123456789abcdef0123456789abcdef0123456789"
+	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
+		TitleSlug: "severance", Year: intPtr(2022),
+		PosterPath: strPtr("/MediaCover/1/poster.jpg"),
+		PosterHash: strPtr(hash)}
+	// Series 2 has no hash — proves omitempty + nil propagation.
+	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
+		TitleSlug: "andor", Year: intPtr(2022),
+		PosterPath: strPtr("/MediaCover/2/poster.jpg")}
+
+	mf := &missingFakeSonarr{fakeSonarr: &fakeSonarr{name: "alpha"}, all: missingFixtureTwo()}
+	cache := &stubSeriesCache{entries: []series.CacheEntry{entryOne, entryTwo}}
+	w := doMissingWithCache(t, "alpha",
+		map[string]ports.SonarrClient{"alpha": mf},
+		map[string]string{"alpha": "manual"}, cache)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	items := decodeEnrichedItems(t, w.Body.Bytes())
+	require.Len(t, items, 2)
+
+	// Series 1 — hash present, matches.
+	assert.Equal(t, 1, items[0].SeriesID)
+	require.NotNil(t, items[0].PosterHash, "stored hash must propagate to wire")
+	assert.Equal(t, hash, *items[0].PosterHash)
+
+	// Series 2 — no hash, field omitted from JSON entirely.
+	assert.Equal(t, 2, items[1].SeriesID)
+	assert.Nil(t, items[1].PosterHash, "nil hash must omit the field")
+	assert.NotContains(t, w.Body.String(), `"poster_hash":null`,
+		"omitempty must drop the key entirely, not emit null")
+
+	// AC: no extra SQL — single ListActiveByInstance call covers both
+	// title_slug AND poster_hash enrichment.
+	assert.Equal(t, 1, cache.listCall, "poster_hash must reuse the slug join — no fanout")
 }

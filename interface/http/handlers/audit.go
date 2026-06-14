@@ -147,7 +147,7 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
-func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent, titleSlug string) dto.Grab {
+func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent, titleSlug string, posterHash *string) dto.Grab {
 	d := dto.Grab{
 		ID:                r.ID.String(),
 		Instance:          r.InstanceName,
@@ -173,6 +173,7 @@ func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, inten
 		ParsedAt:          r.ParsedAt,
 		Intent:            intentToDTO(intent),
 		TitleSlug:         titleSlug,
+		PosterHash:        posterHash,
 	}
 	if r.ReplayOfID != nil {
 		s := r.ReplayOfID.String()
@@ -504,16 +505,16 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 	// Grab DTO's intent field nil, which the frontend handles.
 	intents := h.collectGrabIntents(ctx, recs)
 
-	// 116: per-page series_cache lookup so the SPA can render the
-	// authoritative Sonarr deep-link (FE falls back to its lossy
-	// client-side slugifier when this map misses). One repo call
-	// per distinct instance on the page — production usage is
+	// 116 + 348b: per-page series_cache lookup so the SPA can render
+	// the authoritative Sonarr deep-link (slug) and the
+	// content-addressed poster URL (hash) without a fanout. One repo
+	// call per distinct instance on the page — production usage is
 	// almost always single-instance (the /grabs page passes
 	// ?instance=… in every real call), and the upper bound is the
 	// number of configured Sonarr instances (typically 1-3). Nil
 	// repo (constructor default in tests) or repo error degrades
-	// to no slugs; the page still renders.
-	slugs := h.collectGrabTitleSlugs(ctx, recs)
+	// to no slugs / no hashes; the page still renders.
+	slugs, hashes := h.collectGrabCacheFields(ctx, recs)
 
 	out := make([]dto.Grab, 0, len(recs))
 	for _, r := range recs {
@@ -523,7 +524,8 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 				parent = &p
 			}
 		}
-		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID], slugs[grabKey{instance: r.InstanceName, seriesID: r.SeriesID}]))
+		key := grabKey{instance: r.InstanceName, seriesID: r.SeriesID}
+		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID], slugs[key], hashes[key]))
 	}
 	writeListResponse(c, out, next)
 }
@@ -575,30 +577,32 @@ func (h *AuditHandler) collectGrabIntents(ctx context.Context, recs []grab.Recor
 }
 
 // grabKey scopes a series_cache lookup to (instance, series_id).
-// Used by collectGrabTitleSlugs to deduplicate per-page lookups
+// Used by collectGrabCacheFields to deduplicate per-page lookups
 // across multiple grabs of the same series.
 type grabKey struct {
 	instance string
 	seriesID int
 }
 
-// collectGrabTitleSlugs builds an (instance, series_id) →
-// authoritative-title-slug map for the supplied page of grab
-// records. One ListActiveByInstance call per distinct instance —
-// production usage is almost always single-instance (the /grabs
-// page passes ?instance=… in every real call), so this is a single
-// repo hit per request. Errors WARN-log and degrade to an empty
-// map for that instance; callers see an empty slug, the SPA falls
-// back to its client-side slugifier.
+// collectGrabCacheFields builds two (instance, series_id) → value
+// maps from one ListActiveByInstance call per distinct instance: the
+// authoritative-title-slug map (116) and the poster-hash map (348b).
+// Production usage is almost always single-instance (the /grabs page
+// passes ?instance=… in every real call), so this is a single repo
+// hit per request — the hashes ride along for free. Errors WARN-log
+// and degrade to empty maps for that instance; callers see an empty
+// slug (SPA falls back to its client-side slugifier) and a nil
+// poster_hash (DTO omits the field, FE falls back to monogram).
 //
 // Returns nil-safe even when h.seriesCache is unwired (the audit_
-// test.go fixture path).
+// test.go fixture path used to do this before 348b).
 //
-// 116. Mirrors the 041g pattern on enrichMissingFromCache.
-func (h *AuditHandler) collectGrabTitleSlugs(ctx context.Context, recs []grab.Record) map[grabKey]string {
-	out := make(map[grabKey]string, len(recs))
+// 116 + 348b. Mirrors the 041g pattern on enrichMissingFromCache.
+func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.Record) (map[grabKey]string, map[grabKey]*string) {
+	slugs := make(map[grabKey]string, len(recs))
+	hashes := make(map[grabKey]*string, len(recs))
 	if h.seriesCache == nil || len(recs) == 0 {
-		return out
+		return slugs, hashes
 	}
 	// Distinct instances on this page.
 	instances := make(map[string]struct{}, 1)
@@ -618,13 +622,16 @@ func (h *AuditHandler) collectGrabTitleSlugs(ctx context.Context, recs []grab.Re
 			continue
 		}
 		for _, e := range entries {
-			if e.TitleSlug == "" {
-				continue
+			key := grabKey{instance: inst, seriesID: e.SonarrSeriesID}
+			if e.TitleSlug != "" {
+				slugs[key] = e.TitleSlug
 			}
-			out[grabKey{instance: inst, seriesID: e.SonarrSeriesID}] = e.TitleSlug
+			if e.PosterHash != nil {
+				hashes[key] = e.PosterHash
+			}
 		}
 	}
-	return out
+	return slugs, hashes
 }
 
 // grabParsedToDTO lifts a *grab.Parsed onto a *dto.GrabParsed. nil in →
