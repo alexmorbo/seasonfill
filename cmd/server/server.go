@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -19,8 +18,6 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -101,9 +98,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// startSubscribers still consumes it for the OIDC subscriber.
 	// appSettingsRepo is intentionally NOT rebound: it has no direct
 	// reference in the surviving body — story 330+ consumers reach it
-	// via persistence.AppSettingsRepo.
+	// via persistence.AppSettingsRepo. cipher was retired with story
+	// 339: the last consumer (infraextsvc.NewRepository) moved into
+	// wiring.BuildExtSvc, which reads it from the persistence bundle.
 	db := persistence.DB
-	cipher := persistence.Cipher
 	runtimeRepo := persistence.RuntimeRepo
 	quotaCounter := persistence.QuotaCounter
 	tzResolver := persistence.TZResolver
@@ -337,59 +335,32 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// qbitSettingsUC.
 	qbitLoader := regrabBundle.QbitLoader
 
-	// Story 202 (S-2) — external services runtime config. The subscriber
-	// is built first with a nil use case so it can be injected as the
-	// use case's Publisher; the use case is then constructed and back-
-	// wired via SetUseCase before Start is called below. Plaintext keys
-	// never leave the subscriber/use case pair — the HTTP handler emits
-	// the masked DTO only.
-	extRepo := infraextsvc.NewRepository(db, cipher)
-	extSub := adapters.NewExternalServicesSubscriber(bus, log)
-	extUC := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
-		appextsvc.NewRealTester(), extSub, log)
-	extSub.SetUseCase(extUC)
-	externalServicesHandler := handlers.NewExternalServicesHandler(extUC, log)
-
-	// Story 214 (F-1) — media pipeline plumbing. mediastore is built
-	// from the bootstrap MediaStore config (default mode=off → null
-	// store, every op returns ErrNotSupported; the downloader treats
-	// that as a soft fail and the HTTP handler 502s on lost-object,
-	// which is the correct behaviour for an unconfigured deploy).
-	// mediaAssetsRepo is shared between the downloader (via the
-	// enrichment bundle) and the HTTP MediaHandler — one source of
-	// truth for media_assets rows. The TMDB-proxied HTTP client is
-	// constructed inside wireEnrichment and threaded back through
-	// enrichBundle.MediaHTTP; until that handle is available the
-	// MediaHandler falls back to http.DefaultClient (lost-object
-	// recovery path only).
-	mediaStoreImpl, err := mediastore.New(rootCtx, mediastore.Config{
-		Mode: mediastore.Mode(bootCfg.MediaStore.Mode),
-		S3: mediastore.S3Config{
-			Endpoint:  bootCfg.MediaStore.S3.Endpoint,
-			Bucket:    bootCfg.MediaStore.S3.Bucket,
-			AccessKey: bootCfg.MediaStore.S3.AccessKey,
-			SecretKey: bootCfg.MediaStore.S3.SecretKey,
-			Region:    bootCfg.MediaStore.S3.Region,
-			UseSSL:    bootCfg.MediaStore.S3.UseSSL,
-		},
-		FSPath: bootCfg.MediaStore.FSPath,
-	})
+	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
-		return nil, fmt.Errorf("mediastore: %w", err)
+		return nil, err
 	}
-	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
-	// Story 321: the handler is constructed BEFORE wireEnrichment (and
-	// thus before the on-demand fetcher exists). The fetcher is plumbed
-	// in via a setter after enrichBundle returns. Until then the handler
-	// serves the embedded SVG placeholder on pending hashes — visually
-	// stable while the media pipeline boots.
-	mediaHandler := handlers.NewMediaHandler(handlers.MediaHandlerDeps{
-		Store:           mediaStoreImpl,
-		Repo:            mediaAssetsRepo,
-		PendingResolver: mediaAssetsRepo, // story 320: satisfies GetSourceURLByHash
-		Logger:          log,
-		// OnDemandFetcher is late-bound below (see story 321 wiring after enrichBundle).
-	})
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-339 names verbatim so every downstream call site
+	// (httpserver.NewServer for externalServicesHandler, the
+	// extSub.Start(rootCtx, nil) prime below) keeps working unchanged.
+	// The extUC alias is intentionally NOT rebound — no surviving
+	// server.go code references it directly; it lives inside the bundle.
+	extSub := extSvcBundle.Sub
+	externalServicesHandler := extSvcBundle.Handler
+
+	mediaBundle, err := wiring.BuildMedia(rootCtx, persistence, bootCfg, log)
+	if err != nil {
+		return nil, err
+	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-339 names verbatim so every downstream call site
+	// (httpserver.NewServer for mediaHandler, enrichmentRepoBundle for
+	// MediaAssets + MediaStore, the seriesdetail MediaResolver fallback,
+	// the gc weekly job, the SetOnDemandFetcher late-bind below) keeps
+	// working unchanged.
+	mediaStoreImpl := mediaBundle.Store
+	mediaAssetsRepo := mediaBundle.AssetsRepo
+	mediaHandler := mediaBundle.Handler
 
 	// Story 312 + Story 320: media resolver for the seriesdetail composer.
 	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
