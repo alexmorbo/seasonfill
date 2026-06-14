@@ -2,6 +2,7 @@ package observability
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -252,4 +253,53 @@ func TestMetricConstants_AreNotEmpty(t *testing.T) {
 		assert.NotEmpty(t, c)
 		assert.Contains(t, c, "seasonfill_")
 	}
+}
+
+// 313 — smoke for the 3 new TMDB rate-limit pause helpers.
+func TestIncTMDBRateLimitPause_Registers(t *testing.T) {
+	IncTMDBRateLimitPause()
+	IncTMDBRateLimitPause()
+	body := writeAndRead(t)
+	assert.Contains(t, body, "tmdb_rate_limit_pauses_total")
+}
+
+func TestAddTMDBRateLimitPauseSeconds_Registers(t *testing.T) {
+	AddTMDBRateLimitPauseSeconds(0.5)
+	AddTMDBRateLimitPauseSeconds(1.25)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "tmdb_rate_limit_pause_seconds_total")
+}
+
+func TestAddTMDBRateLimitPauseSeconds_IgnoresNonPositive(t *testing.T) {
+	// Defensive: zero or negative seconds must NOT bump the counter.
+	// Pulls the existing value, calls with 0, asserts no change.
+	before := writeAndRead(t)
+	AddTMDBRateLimitPauseSeconds(0)
+	AddTMDBRateLimitPauseSeconds(-1)
+	after := writeAndRead(t)
+	// Both should contain the same value for the float counter line.
+	// We compare exact-line equality on the seconds-total metric line.
+	beforeLine := findMetricLine(before, "tmdb_rate_limit_pause_seconds_total")
+	afterLine := findMetricLine(after, "tmdb_rate_limit_pause_seconds_total")
+	assert.Equal(t, beforeLine, afterLine)
+}
+
+func TestSetTMDBRateLimitInPause_Registers(t *testing.T) {
+	SetTMDBRateLimitInPause(true)
+	body := writeAndRead(t)
+	assert.Contains(t, body, "tmdb_rate_limit_in_pause 1")
+	SetTMDBRateLimitInPause(false)
+	body = writeAndRead(t)
+	assert.Contains(t, body, "tmdb_rate_limit_in_pause 0")
+}
+
+// findMetricLine returns the metric line (single line) for a given
+// counter/gauge name, or "" if not present.
+func findMetricLine(body, name string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, name+" ") {
+			return line
+		}
+	}
+	return ""
 }

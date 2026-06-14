@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 )
 
@@ -58,6 +59,7 @@ type EnrichmentBundle struct {
 func wireEnrichment(
 	rootCtx context.Context,
 	extSub *ExternalServicesSubscriber,
+	bootstrap *config.Bootstrap,
 	repos enrichmentRepoBundle,
 	tx appenrich.Transactor,
 	quotaCounter quota.QuotaCounter,
@@ -87,10 +89,16 @@ func wireEnrichment(
 		slog.String("proxy", proxy),
 	)
 
+	// Story 313 — plumb SEASONFILL_TMDB_RPS + the wiring logger so
+	// adaptive pause + resume INFO lines surface under the enrichment
+	// component prefix. 0 from config means "tmdb package picks its
+	// default (50 rps)".
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
 		HTTPClient: httpClient,
 		Language:   tmdb.DefaultLanguage,
+		RPS:        bootstrap.ExternalServices.TMDBRPS,
+		Logger:     log,
 	})
 	if err != nil {
 		return nil, err

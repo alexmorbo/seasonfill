@@ -84,6 +84,11 @@ type ExternalServicesEnv struct {
 	TMDBProxyURL  string
 	TMDBProxyUser string
 	TMDBProxyPass string
+	// Story 313 — TMDB self-cap target in requests-per-second. Float
+	// (e.g. 50, 4.5). 0 or unset → infrastructure/tmdb default (50).
+	// Operator drops this when prod 429s show up in
+	// tmdb_rate_limit_pauses_total.
+	TMDBRPS       float64
 	OMDBToken     string
 	OMDBProxyURL  string
 	OMDBProxyUser string
@@ -239,6 +244,7 @@ func FromEnv() (*Bootstrap, error) {
 			TMDBProxyURL:  os.Getenv("SEASONFILL_TMDB_PROXY_URL"),
 			TMDBProxyUser: os.Getenv("SEASONFILL_TMDB_PROXY_USER"),
 			TMDBProxyPass: os.Getenv("SEASONFILL_TMDB_PROXY_PASS"),
+			TMDBRPS:       getenvFloat("SEASONFILL_TMDB_RPS", 0),
 			OMDBToken:     os.Getenv("SEASONFILL_OMDB_TOKEN"),
 			OMDBProxyURL:  os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
 			OMDBProxyUser: os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
@@ -287,6 +293,23 @@ func getenvBool(name string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+// getenvFloat parses a float64 env var (story 313). Returns def when
+// the var is unset, empty, unparseable, OR <= 0. The "<=0 → default"
+// rule lets the caller pass def=0 to mean "let the downstream package
+// use its own default" — which is how SEASONFILL_TMDB_RPS works
+// (config defaults to 0; infrastructure/tmdb interprets 0 as 50 rps).
+func getenvFloat(name string, def float64) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }
 
 // getenvAllowEmpty returns the value of name if it is explicitly set

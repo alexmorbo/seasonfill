@@ -939,7 +939,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,
 	}
-	enrichBundle, err := wireEnrichment(rootCtx, extSub, enrichRepos, txr, quotaCounter, log)
+	enrichBundle, err := wireEnrichment(rootCtx, extSub, bootCfg, enrichRepos, txr, quotaCounter, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}

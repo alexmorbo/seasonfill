@@ -57,6 +57,21 @@ const (
 	// entry and decremented to zero as each series job completes.
 	MetricEnrichmentQueueDepth         = `enrichment_queue_depth`
 	MetricEnrichmentColdStartRemaining = `enrichment_cold_start_remaining`
+
+	// Story 313 — adaptive TMDB rate-limit pause observability.
+	// `tmdb_rate_limit_pauses_total` is a counter ticked once per
+	// 429-triggered global pause entry. Compounding 429s during an
+	// existing pause do NOT bump the counter — only the FIRST entry
+	// to the paused state ticks (so "10 retries during a single
+	// 30s pause" reads as 1, not 10).
+	// `tmdb_rate_limit_pause_seconds_total` is a counter of cumulative
+	// seconds the bucket was paused. Reads "how many seconds of
+	// enrichment throughput did we lose to TMDB pushback today".
+	// `tmdb_rate_limit_in_pause` is a 0/1 gauge — 1 while a pause is
+	// active, 0 otherwise. Alert: in_pause==1 for >2× expected RetryAfter.
+	MetricTMDBRateLimitPausesTotal       = `tmdb_rate_limit_pauses_total`
+	MetricTMDBRateLimitPauseSecondsTotal = `tmdb_rate_limit_pause_seconds_total`
+	MetricTMDBRateLimitInPause           = `tmdb_rate_limit_in_pause`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -229,4 +244,43 @@ func SetEnrichmentQueueDepth(worker string, depth int) {
 // series job completes.
 func SetEnrichmentColdStartRemaining(n int) {
 	metrics.GetOrCreateGauge(`enrichment_cold_start_remaining`, nil).Set(float64(n))
+}
+
+// IncTMDBRateLimitPause bumps the pause-entry counter (Story 313).
+// Called exactly once per fresh entry to the paused state — repeated
+// 429s during an existing pause MUST NOT tick this (the caller's
+// "is_already_paused" guard owns that). Reads "how many distinct
+// rate-limit windows did we hit today" on the operator dashboard.
+func IncTMDBRateLimitPause() {
+	metrics.GetOrCreateCounter(`tmdb_rate_limit_pauses_total`).Inc()
+}
+
+// AddTMDBRateLimitPauseSeconds records the wall-clock seconds spent
+// in the just-ended pause (Story 313). Cumulative — Grafana plots
+// rate() over a window to see "seconds-lost per minute".
+func AddTMDBRateLimitPauseSeconds(seconds float64) {
+	if seconds <= 0 {
+		return
+	}
+	// VictoriaMetrics counters accept floats via FloatCounter, but the
+	// global GetOrCreateCounter returns an integer counter — bucket
+	// seconds at millisecond granularity via FloatCounter for sub-second
+	// pauses. The metric name stays scalar so the Grafana query is
+	// unchanged.
+	metrics.GetOrCreateFloatCounter(`tmdb_rate_limit_pause_seconds_total`).Add(seconds)
+}
+
+// SetTMDBRateLimitInPause flips the 0/1 in-pause gauge (Story 313).
+// Pause entry → SetTMDBRateLimitInPause(true); resume → false.
+// A nil-resume (e.g. process death mid-pause) leaves the gauge at 1
+// — which is the correct on-restart picture (pod went down WHILE
+// paused). The first call after restart from the pause path will
+// re-publish the truth.
+func SetTMDBRateLimitInPause(paused bool) {
+	g := metrics.GetOrCreateGauge(`tmdb_rate_limit_in_pause`, nil)
+	if paused {
+		g.Set(1)
+		return
+	}
+	g.Set(0)
 }
