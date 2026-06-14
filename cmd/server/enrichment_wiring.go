@@ -75,6 +75,18 @@ func wireEnrichment(
 	if err != nil {
 		return nil, err
 	}
+
+	// Story 312: surface the configured TMDB external-services proxy at
+	// boot so the operator can confirm image.tmdb.org goes through the
+	// same proxy as api.themoviedb.org (RU DPI blocks both the same way).
+	proxy := "none"
+	if settings.ProxyURL != "" {
+		proxy = settings.ProxyURL
+	}
+	log.InfoContext(rootCtx, "media.http_client.configured",
+		slog.String("proxy", proxy),
+	)
+
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
 		HTTPClient: httpClient,

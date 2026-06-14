@@ -342,7 +342,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	deps, _, canon, _, _, _, _ := castBaseDeps(t)
 	// Replace the default canon row with a richer one so we can
 	// assert every summary field individually.
-	posterHash := "poster-asset-hash"
+	posterPath := "/poster.jpg"
 	status := "Returning Series"
 	lastAir := time.Date(2025, 4, 13, 0, 0, 0, 0, time.UTC)
 	year := 2023
@@ -350,18 +350,24 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 		ID:           42,
 		Title:        "The Last of Us",
 		TMDBID:       intPtr(100),
-		PosterAsset:  &posterHash,
+		PosterAsset:  &posterPath,
 		Status:       &status,
 		Year:         &year,
 		LastAirDate:  &lastAir,
 		InProduction: false,
 	}
+	// Story 312: composer wraps the raw TMDB path through MediaResolver;
+	// inject a fake lookup so the wire field carries the sha256 hash.
+	const wantHash = "poster-asset-hash"
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w342/poster.jpg": wantHash,
+	}}, newSilentLogger())
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
 	require.Equal(t, "The Last of Us", d.Summary.Title)
 	require.NotNil(t, d.Summary.PosterAsset)
-	require.Equal(t, "poster-asset-hash", *d.Summary.PosterAsset)
+	require.Equal(t, wantHash, *d.Summary.PosterAsset)
 	require.Equal(t, "continuing", d.Summary.Status, "Returning Series → continuing")
 	require.NotNil(t, d.Summary.FirstAiredYear)
 	require.Equal(t, 2023, *d.Summary.FirstAiredYear)
@@ -418,4 +424,47 @@ func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
 	require.Nil(t, d.Summary.PosterAsset)
 	require.Equal(t, "Stub series", d.Summary.Title)
 	require.Equal(t, "unknown", d.Summary.Status)
+}
+
+// --- story 312 ---
+
+type fakeMediaLookupCast struct {
+	byURL map[string]string
+}
+
+func (f *fakeMediaLookupCast) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := f.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+
+func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
+	deps, _, canon, sp, persons, _, _ := castBaseDeps(t)
+	// Seed canon poster + one cast member with raw profile path.
+	canon.rows[42] = series.Canon{
+		ID: 42, Title: "Breaking Bad", PosterAsset: strPtr("/hero.jpg"),
+	}
+	sp.cast = []people.SeriesCredit{
+		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: intPtr(1)},
+	}
+	persons.rows[100] = people.Person{
+		ID: 100, Name: "Bryan Cranston", ProfileAsset: strPtr("/bryan.jpg"),
+	}
+
+	const hashPoster = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const hashCast = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w342/hero.jpg":  hashPoster,
+		"https://image.tmdb.org/t/p/w185/bryan.jpg": hashCast,
+	}}, newSilentLogger())
+
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.NotNil(t, d.Summary.PosterAsset)
+	require.Equal(t, hashPoster, *d.Summary.PosterAsset)
+	require.Len(t, d.Cast, 1)
+	require.NotNil(t, d.Cast[0].Person.ProfileAsset)
+	require.Equal(t, hashCast, *d.Cast[0].Person.ProfileAsset)
 }

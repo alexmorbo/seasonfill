@@ -166,6 +166,12 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		slog.String("key", key),
 	)
 
+	jlog.InfoContext(ctx, "media.fetch.start",
+		slog.String("source_url", j.UpstreamURL),
+		slog.String("hash", j.Hash),
+		slog.String("kind", j.Kind),
+	)
+
 	// 1. Stat short-circuit: object already in the store. We still
 	//    want to ensure the media_assets row exists with
 	//    status=stored (the row could be missing after a failed
@@ -216,9 +222,14 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			Kind:        j.Kind,
 			Status:      media.StatusFailed,
 		}, jlog)
-		jlog.WarnContext(ctx, "media.prewarm.failed",
+		kind := ClassifyFetchError(lastErr)
+		jlog.WarnContext(ctx, "media.fetch.failed",
+			slog.String("source_url", j.UpstreamURL),
+			slog.String("hash", j.Hash),
+			slog.String("kind", j.Kind),
+			slog.String("error_kind", string(kind)),
+			slog.Int("http_status", HTTPStatus(lastErr)),
 			slog.Int("attempts", attempt),
-			slog.String("outcome", "failed"),
 			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 			slog.String("error", lastErr.Error()),
 		)
@@ -233,9 +244,14 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			Kind:        j.Kind,
 			Status:      media.StatusFailed,
 		}, jlog)
-		jlog.WarnContext(ctx, "media.prewarm.store_put_failed",
+		jlog.WarnContext(ctx, "media.fetch.failed",
+			slog.String("source_url", j.UpstreamURL),
+			slog.String("hash", j.Hash),
+			slog.String("kind", j.Kind),
+			slog.String("error_kind", string(ErrorKindS3Write)),
+			slog.Int("http_status", 0),
+			slog.Int("size_bytes", len(body)),
 			slog.String("error", err.Error()),
-			slog.Int("size", len(body)),
 		)
 		return
 	}
@@ -257,10 +273,12 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		return
 	}
 
-	jlog.InfoContext(ctx, "media.prewarm.stored",
+	jlog.InfoContext(ctx, "media.fetch.ok",
+		slog.String("source_url", j.UpstreamURL),
+		slog.String("hash", j.Hash),
+		slog.String("kind", j.Kind),
 		slog.Int("attempts", attempt),
-		slog.String("outcome", "stored"),
-		slog.Int("size", len(body)),
+		slog.Int("size_bytes", len(body)),
 		slog.String("content_type", contentType),
 		slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 	)
@@ -313,10 +331,10 @@ func (d *Downloader) fetchOnce(ctx context.Context, url string) ([]byte, string,
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		return nil, "", true, fmt.Errorf("upstream status %d", resp.StatusCode)
+		return nil, "", true, newHTTPStatusError(resp.StatusCode, req.URL.String())
 	}
 	if resp.StatusCode >= 400 {
-		return nil, "", false, fmt.Errorf("upstream status %d", resp.StatusCode)
+		return nil, "", false, newHTTPStatusError(resp.StatusCode, req.URL.String())
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
@@ -332,7 +350,12 @@ func (d *Downloader) upsertRow(ctx context.Context, a media.Asset, log *slog.Log
 		return err
 	}
 	if err := d.repo.Upsert(ctx, a); err != nil {
-		log.WarnContext(ctx, "media.prewarm.row_write_failed",
+		log.WarnContext(ctx, "media.fetch.failed",
+			slog.String("source_url", a.UpstreamURL),
+			slog.String("hash", a.Hash),
+			slog.String("kind", a.Kind),
+			slog.String("error_kind", string(ErrorKindDBWrite)),
+			slog.Int("http_status", 0),
 			slog.String("error", err.Error()))
 		return err
 	}

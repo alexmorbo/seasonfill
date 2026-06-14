@@ -121,3 +121,68 @@ func TestMediaAssetsRepository_Upsert_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "poster_w342", got.Kind)
 }
+
+func TestMediaAssetsRepository_HashForSourceURL_Stored(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+
+	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
+	require.NoError(t, repo.Upsert(ctx, media.Asset{
+		Hash: sampleHash, UpstreamURL: url, Kind: "poster_w342",
+		Status: media.StatusStored, ContentType: "image/jpeg", Size: 17,
+	}))
+
+	got, err := repo.HashForSourceURL(ctx, url)
+	require.NoError(t, err)
+	assert.Equal(t, sampleHash, got)
+}
+
+func TestMediaAssetsRepository_HashForSourceURL_PendingMisses(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+
+	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
+	require.NoError(t, repo.Upsert(ctx, media.Asset{
+		Hash: sampleHash, UpstreamURL: url, Kind: "poster_w342",
+		Status: media.StatusPending,
+	}))
+
+	_, err := repo.HashForSourceURL(ctx, url)
+	require.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestMediaAssetsRepository_HashForSourceURL_FailedMisses(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+
+	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
+	require.NoError(t, repo.Upsert(ctx, media.Asset{
+		Hash: sampleHash, UpstreamURL: url, Kind: "poster_w342",
+		Status: media.StatusFailed,
+	}))
+
+	_, err := repo.HashForSourceURL(ctx, url)
+	require.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestMediaAssetsRepository_HashForSourceURL_Empty(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewMediaAssetsRepository(db)
+	_, err := repo.HashForSourceURL(context.Background(), "")
+	require.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestMediaAssetsRepository_HashForSourceURL_Unknown(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewMediaAssetsRepository(db)
+	_, err := repo.HashForSourceURL(context.Background(), "https://nope.example/x.jpg")
+	require.ErrorIs(t, err, ports.ErrNotFound)
+}

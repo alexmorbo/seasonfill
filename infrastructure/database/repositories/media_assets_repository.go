@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -67,6 +68,41 @@ func (r *MediaAssetsRepository) GetByUpstreamURL(ctx context.Context, url string
 		return media.Asset{}, fmt.Errorf("get media_asset by url: %w", err)
 	}
 	return modelToAsset(m), nil
+}
+
+// HashForSourceURL returns the sha256 hash of the media_assets row matching
+// source_url AND status='stored'. Used by the seriesdetail composer to
+// translate a raw TMDB image path + size into the wire field (a sha256 hex
+// the frontend hands to /api/v1/media/:hash).
+//
+// Returns ports.ErrNotFound for the miss case (no row, or row exists but
+// status != 'stored'). Callers MUST treat ErrNotFound as "leave the DTO field
+// nil" — frontend renders a monogram fallback.
+//
+// Implementation uses the unique idx_media_assets_source_url plus a tiny WHERE
+// status='stored' filter; planner serves the read off the index.
+func (r *MediaAssetsRepository) HashForSourceURL(ctx context.Context, sourceURL string) (string, error) {
+	if sourceURL == "" {
+		return "", ports.ErrNotFound
+	}
+	var hash string
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("media_assets").
+		Select("hash").
+		Where("source_url = ? AND status = ?", sourceURL, string(media.StatusStored)).
+		Limit(1).
+		Row().
+		Scan(&hash)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows) {
+			return "", ports.ErrNotFound
+		}
+		return "", fmt.Errorf("hash for source_url: %w", err)
+	}
+	if hash == "" {
+		return "", ports.ErrNotFound
+	}
+	return hash, nil
 }
 
 // Upsert writes the row keyed by hash. The conflict clause updates

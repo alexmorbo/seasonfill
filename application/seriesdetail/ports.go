@@ -190,3 +190,16 @@ type SeriesCacheLookupPort interface {
 type SonarrQueueLister interface {
 	Queue(ctx context.Context, seriesID int) (sonarr.QueuePayload, error)
 }
+
+// MediaHashLookupPort resolves (raw TMDB path + size) → sha256 hash of the
+// media_assets row for the stored variant. Used by the composer to translate
+// canon.PosterAsset (a TMDB raw path) into the wire field the frontend hands
+// to /api/v1/media/:hash. Misses are ports.ErrNotFound — the composer leaves
+// the wire field nil so the frontend renders a monogram placeholder.
+//
+// The composer never builds the URL itself; it asks the resolver with the raw
+// path + size and lets the resolver own the URL shape (kept consistent with
+// application/media.BuildTMDBImageURL on the pre-warm producer side).
+type MediaHashLookupPort interface {
+	HashForSourceURL(ctx context.Context, sourceURL string) (string, error)
+}

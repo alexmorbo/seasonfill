@@ -78,6 +78,10 @@ type CastDeps struct {
 	EpisodesCount     EpisodesCountPort
 	Logger            *slog.Logger
 	Now               func() time.Time
+	// MediaResolver (story 312) — translates raw TMDB ProfileAsset / PosterAsset
+	// paths into sha256 hashes the frontend serves via /api/v1/media/:hash. Nil
+	// is allowed at wiring; NewCastComposer defaults to a no-op resolver.
+	MediaResolver *MediaResolver
 }
 
 // CastComposer is the one application use case for the H-1 page.
@@ -93,6 +97,9 @@ func NewCastComposer(d CastDeps) *CastComposer {
 	}
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if d.MediaResolver == nil {
+		d.MediaResolver = NewNopMediaResolver()
 	}
 	return &CastComposer{d: d}
 }
@@ -131,6 +138,10 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 		Lang:           lang,
 		Summary:        buildSeriesSummary(canon),
 	}
+
+	// Story 312: translate the raw TMDB poster path into a sha256 hash so
+	// the wire field matches /api/v1/media/:hash. Miss → nil → monogram.
+	out.Summary.PosterAsset = c.d.MediaResolver.Resolve(ctx, out.Summary.PosterAsset, "w342", "poster_w342")
 
 	// Step 3 — total_episode_count. One indexed count query.
 	// Failure is non-fatal: zero is a valid value (cold series,
@@ -254,6 +265,14 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 		return derefStr(crew[i].Credit.Job) < derefStr(crew[j].Credit.Job)
 	})
 	out.Crew = crew
+
+	// Story 312: cast + crew profile assets.
+	for i := range out.Cast {
+		out.Cast[i].Person.ProfileAsset = c.d.MediaResolver.Resolve(ctx, out.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
+	}
+	for i := range out.Crew {
+		out.Crew[i].Person.ProfileAsset = c.d.MediaResolver.Resolve(ctx, out.Crew[i].Person.ProfileAsset, "w185", "profile_w185")
+	}
 
 	out.SyncedAt = c.d.Now()
 

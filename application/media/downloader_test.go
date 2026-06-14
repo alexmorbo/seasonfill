@@ -1,16 +1,21 @@
 package media
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
@@ -257,4 +262,152 @@ func TestDownloader_AllFailsMarksFailed(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("timed out — expected status=failed")
+}
+
+// --- Story 312: structured logging tests ---
+
+// syncBuffer is a goroutine-safe wrapper around bytes.Buffer so the slog
+// handler can write concurrently while the test inspects the captured output.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func waitForLog(t *testing.T, buf *syncBuffer, needle string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(buf.String(), needle) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for log line %q\nGot:\n%s", needle, buf.String())
+}
+
+func TestDownloader_LogsFetchOk_OnSuccess(t *testing.T) {
+	t.Parallel()
+	buf := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("img"))
+	}))
+	defer ts.Close()
+	store := newFakeStore()
+	repo := newFakeRepo()
+	eq := NewEnqueuer(logger)
+	dl, err := NewDownloader(eq, DownloaderDeps{Store: store, Repo: repo, HTTPClient: ts.Client(), Logger: logger})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dl.Start(ctx)
+	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
+	waitForLog(t, buf, `"msg":"media.fetch.ok"`, 3*time.Second)
+	eq.Close()
+	dl.Close()
+	out := buf.String()
+	require.Contains(t, out, `"msg":"media.fetch.start"`)
+	require.Contains(t, out, `"msg":"media.fetch.ok"`)
+	require.Contains(t, out, `"content_type":"image/jpeg"`)
+	require.Contains(t, out, `"kind":"poster_w342"`)
+	require.Contains(t, out, `"size_bytes":3`)
+}
+
+func TestDownloader_LogsFetchFailed_OnHTTP500(t *testing.T) {
+	t.Parallel()
+	buf := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	store := newFakeStore()
+	repo := newFakeRepo()
+	eq := NewEnqueuer(logger)
+	dl, err := NewDownloader(eq, DownloaderDeps{Store: store, Repo: repo, HTTPClient: ts.Client(), Logger: logger})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dl.Start(ctx)
+	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
+	waitForLog(t, buf, `"msg":"media.fetch.failed"`, 5*time.Second)
+	eq.Close()
+	dl.Close()
+	out := buf.String()
+	require.Contains(t, out, `"msg":"media.fetch.failed"`)
+	require.Contains(t, out, `"error_kind":"http_5xx"`)
+	require.Contains(t, out, `"http_status":500`)
+}
+
+func TestDownloader_LogsFetchFailed_OnHTTP404(t *testing.T) {
+	t.Parallel()
+	buf := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer ts.Close()
+	store := newFakeStore()
+	repo := newFakeRepo()
+	eq := NewEnqueuer(logger)
+	dl, err := NewDownloader(eq, DownloaderDeps{Store: store, Repo: repo, HTTPClient: ts.Client(), Logger: logger})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dl.Start(ctx)
+	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
+	waitForLog(t, buf, `"msg":"media.fetch.failed"`, 3*time.Second)
+	eq.Close()
+	dl.Close()
+	out := buf.String()
+	require.Contains(t, out, `"msg":"media.fetch.failed"`)
+	require.Contains(t, out, `"error_kind":"http_4xx"`)
+	require.Contains(t, out, `"http_status":404`)
+}
+
+// failingPutStore is a Store that returns an error on Put — drives the
+// s3_write_error path.
+type failingPutStore struct{ *fakeStore }
+
+func (f failingPutStore) Put(_ context.Context, _ string, _ io.Reader, _ int64, _ string) error {
+	return errors.New("S3 access denied")
+}
+
+func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
+	t.Parallel()
+	buf := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("img"))
+	}))
+	defer ts.Close()
+	store := failingPutStore{fakeStore: newFakeStore()}
+	repo := newFakeRepo()
+	eq := NewEnqueuer(logger)
+	dl, err := NewDownloader(eq, DownloaderDeps{Store: store, Repo: repo, HTTPClient: ts.Client(), Logger: logger})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dl.Start(ctx)
+	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
+	waitForLog(t, buf, `"error_kind":"s3_write_error"`, 3*time.Second)
+	eq.Close()
+	dl.Close()
+	out := buf.String()
+	require.Contains(t, out, `"msg":"media.fetch.failed"`)
+	require.Contains(t, out, `"error_kind":"s3_write_error"`)
 }

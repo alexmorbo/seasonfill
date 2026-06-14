@@ -656,6 +656,15 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
 	mediaHandler := handlers.NewMediaHandler(mediaStoreImpl, mediaAssetsRepo, nil, log)
 
+	// Story 312: media resolver for the seriesdetail composer. nil-OK
+	// `mediaAssetsRepo` falls back to a nop resolver inside NewMediaResolver
+	// → every wire field stays nil and the frontend renders monograms.
+	var mediaHashLookup seriesdetail.MediaHashLookupPort
+	if mediaAssetsRepo != nil {
+		mediaHashLookup = mediaAssetsRepo
+	}
+	seriesDetailMediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, log)
+
 	// Story 215 (G-1) — series detail composer + handlers. The repos
 	// are stateless GORM wrappers around `db`, so re-constructing
 	// them here is free; the enrichment block below re-uses its own
@@ -713,7 +722,8 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 			}
 			return concrete, true
 		},
-		Logger: log,
+		Logger:        log,
+		MediaResolver: seriesDetailMediaResolver,
 	})
 	seriesDetailHandler := handlers.NewSeriesDetailHandler(seriesDetailComposer, log)
 	seriesSeasonHandler := handlers.NewSeriesSeasonHandler(seriesDetailComposer, log)
@@ -733,6 +743,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		PersonCredits:     personCreditsAdapter{r: sdPersonCreditsRepo},
 		EpisodesCount:     sdEpisodesRepo,
 		Logger:            log,
+		MediaResolver:     seriesDetailMediaResolver,
 	})
 	seriesCastHandler := handlers.NewSeriesCastHandler(castComposer, log)
 

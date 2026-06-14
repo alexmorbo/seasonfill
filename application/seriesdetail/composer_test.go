@@ -477,3 +477,129 @@ func TestClassifyKind(t *testing.T) {
 
 // silence unused-helper warning if any
 var _ = tmPtr
+
+// --- story 312: media resolver integration ---
+
+type fakeMediaLookupIntegration struct {
+	byURL map[string]string
+}
+
+func (f *fakeMediaLookupIntegration) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := f.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+
+// networksWithLogo is a per-test fake that exposes a logo path on a single
+// network. Used by TestComposer_Get_ResolvesAllAssetFields to drive the
+// network logo resolution branch.
+type networksWithLogo struct {
+	logo string
+	id   int64
+}
+
+func (n networksWithLogo) ListBySeries(_ context.Context, _ int64) ([]int64, error) {
+	return []int64{n.id}, nil
+}
+func (n networksWithLogo) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.Network, error) {
+	v := n.logo
+	return []taxonomy.Network{{ID: n.id, Name: "AMC", LogoAsset: &v}}, nil
+}
+
+func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
+	deps, _, canon := baseDeps(t)
+	rawPath := "/abc.jpg"
+	canon.rows[42] = series.Canon{
+		ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath),
+	}
+	const wantHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w342/abc.jpg": wantHash,
+	}}, newSilentLogger())
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.NotNil(t, d.Canon.PosterAsset)
+	require.Equal(t, wantHash, *d.Canon.PosterAsset)
+}
+
+func TestComposer_Get_PosterMissResolvesToNil(t *testing.T) {
+	deps, _, canon := baseDeps(t)
+	rawPath := "/abc.jpg"
+	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
+	// Empty lookup table → miss → nil.
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{}}, newSilentLogger())
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Nil(t, d.Canon.PosterAsset)
+}
+
+func TestComposer_Get_NopResolver_KeepsNil(t *testing.T) {
+	deps, _, canon := baseDeps(t)
+	rawPath := "/abc.jpg"
+	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
+	deps.MediaResolver = nil // → NewComposer fills with nop
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Nil(t, d.Canon.PosterAsset, "nop resolver must wipe raw path to nil")
+}
+
+func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
+	deps, _, canon := baseDeps(t)
+	canon.rows[42] = series.Canon{
+		ID: 42, Title: "Breaking Bad",
+		PosterAsset:   strPtr("/poster.jpg"),
+		BackdropAsset: strPtr("/back.jpg"),
+	}
+	// Network with a logo.
+	deps.Networks = networksWithLogo{logo: "/logo.png", id: 7}
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")},
+	}}
+	deps.SeriesPeople = &fakeSeriesPeople{rows: []people.SeriesCredit{
+		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: intPtr(1)},
+	}}
+	deps.People = &fakePeople{rows: []people.Person{
+		{ID: 100, Name: "Bryan Cranston", ProfileAsset: strPtr("/bryan.jpg")},
+	}}
+	deps.Recommendations = &fakeRecommendations{ids: []int64{99}}
+	canon.rows[99] = series.Canon{ID: 99, Title: "Recommended Show", PosterAsset: strPtr("/rec.jpg")}
+
+	const hashPoster = "1111111111111111111111111111111111111111111111111111111111111111"
+	const hashBack = "2222222222222222222222222222222222222222222222222222222222222222"
+	const hashLogo = "3333333333333333333333333333333333333333333333333333333333333333"
+	const hashSeason = "4444444444444444444444444444444444444444444444444444444444444444"
+	const hashProfile = "5555555555555555555555555555555555555555555555555555555555555555"
+	const hashRec = "6666666666666666666666666666666666666666666666666666666666666666"
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w342/poster.jpg": hashPoster,
+		"https://image.tmdb.org/t/p/w1280/back.jpg":  hashBack,
+		"https://image.tmdb.org/t/p/w185/logo.png":   hashLogo,
+		"https://image.tmdb.org/t/p/w154/s1.jpg":     hashSeason,
+		"https://image.tmdb.org/t/p/w185/bryan.jpg":  hashProfile,
+		"https://image.tmdb.org/t/p/w342/rec.jpg":    hashRec,
+	}}, newSilentLogger())
+
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.NotNil(t, d.Canon.PosterAsset)
+	require.Equal(t, hashPoster, *d.Canon.PosterAsset)
+	require.NotNil(t, d.Canon.BackdropAsset)
+	require.Equal(t, hashBack, *d.Canon.BackdropAsset)
+	require.Len(t, d.Networks, 1)
+	require.NotNil(t, d.Networks[0].LogoAsset)
+	require.Equal(t, hashLogo, *d.Networks[0].LogoAsset)
+	require.Len(t, d.Seasons, 1)
+	require.NotNil(t, d.Seasons[0].Canon.PosterAsset)
+	require.Equal(t, hashSeason, *d.Seasons[0].Canon.PosterAsset)
+	require.Len(t, d.Cast, 1)
+	require.NotNil(t, d.Cast[0].Person.ProfileAsset)
+	require.Equal(t, hashProfile, *d.Cast[0].Person.ProfileAsset)
+	require.Len(t, d.Recommendations, 1)
+	require.NotNil(t, d.Recommendations[0].Series.PosterAsset)
+	require.Equal(t, hashRec, *d.Recommendations[0].Series.PosterAsset)
+}

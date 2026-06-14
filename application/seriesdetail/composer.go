@@ -131,6 +131,11 @@ type Deps struct {
 	SonarrFor         func(instanceName string) (SonarrQueueLister, bool)
 	Logger            *slog.Logger
 	Now               func() time.Time
+	// MediaResolver translates raw TMDB image paths on canon entities into the
+	// sha256 hash the frontend serves via /api/v1/media/:hash. Story 312. Pass
+	// NewNopMediaResolver() when the media subsystem is disabled — every wire
+	// field falls back to nil and the frontend renders monograms.
+	MediaResolver *MediaResolver
 }
 
 // Composer is the one application use case for the series detail
@@ -147,6 +152,9 @@ func NewComposer(d Deps) *Composer {
 	}
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if d.MediaResolver == nil {
+		d.MediaResolver = NewNopMediaResolver()
 	}
 	return &Composer{d: d}
 }
@@ -285,6 +293,11 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
 	d.SyncedAt = c.d.Now()
 
+	// Story 312: translate raw TMDB paths into sha256 hashes via the
+	// media_assets index. Misses leave the field nil — frontend renders a
+	// monogram fallback. Pure projection; never fails the request.
+	c.resolveAssets(ctx, d)
+
 	c.d.Logger.InfoContext(ctx, "series_detail_composed",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
@@ -336,6 +349,7 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName string, sonarrSer
 	d.Seasons = filtered
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
 	d.SyncedAt = c.d.Now()
+	c.resolveAssets(ctx, d)
 	c.d.Logger.InfoContext(ctx, "series_season_composed",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
@@ -704,6 +718,35 @@ func kindFor(s enrichment.Source, base enrichment.Kind) enrichment.Kind {
 		return enrichment.KindOMDb
 	}
 	return enrichment.KindUnknown
+}
+
+// resolveAssets walks every image field on the composed Detail and overwrites
+// the raw TMDB path with the sha256 hash from media_assets (where a stored
+// row exists). Fields with no stored row are nil → frontend renders a
+// monogram. Story 312. Sizes mirror application/enrichment.composePrewarmAssets
+// so the resolver looks up the same source URLs the worker enqueues.
+func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
+	r := c.d.MediaResolver
+	// Hero — series poster (w342) + backdrop (w1280).
+	d.Canon.PosterAsset = r.Resolve(ctx, d.Canon.PosterAsset, "w342", "poster_w342")
+	d.Canon.BackdropAsset = r.Resolve(ctx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
+	// Networks — w185 logos.
+	for i := range d.Networks {
+		d.Networks[i].LogoAsset = r.Resolve(ctx, d.Networks[i].LogoAsset, "w185", "network_logo_w185")
+	}
+	// Seasons — w154 posters. Episodes intentionally untouched (stills are
+	// out of scope: not pre-warmed today; see story §Followups).
+	for i := range d.Seasons {
+		d.Seasons[i].Canon.PosterAsset = r.Resolve(ctx, d.Seasons[i].Canon.PosterAsset, "w154", "season_poster_w154")
+	}
+	// Cast — w185 profiles.
+	for i := range d.Cast {
+		d.Cast[i].Person.ProfileAsset = r.Resolve(ctx, d.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
+	}
+	// Recommendations — w342 posters (same as series grid poster).
+	for i := range d.Recommendations {
+		d.Recommendations[i].Series.PosterAsset = r.Resolve(ctx, d.Recommendations[i].Series.PosterAsset, "w342", "poster_w342")
+	}
 }
 
 func contains(s []enrichment.Source, v enrichment.Source) bool {

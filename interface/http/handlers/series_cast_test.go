@@ -64,6 +64,36 @@ func (f castFakeEpisodesCount) CountBySeries(_ context.Context, _ int64) (int, e
 	return f.count, nil
 }
 
+// castHandlerTestMediaLookup is a passthrough media-hash lookup for handler
+// tests: it echoes the raw path back as the hash so existing assertions
+// (story 312) on the wire field continue to hold. Production wires the real
+// repo; tests that don't care about hash semantics get an identity mapping.
+type castHandlerTestMediaLookup struct{}
+
+func (castHandlerTestMediaLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
+	// URL shape: https://image.tmdb.org/t/p/<size>/<path>
+	// The test seeds canon with PosterAsset = "poster-hash"; the resolver
+	// constructs https://image.tmdb.org/t/p/w342/poster-hash. Echo the
+	// trailing segment so the existing assertion ("poster-hash") holds.
+	const prefix = "https://image.tmdb.org/t/p/"
+	if len(url) <= len(prefix) {
+		return "", ports.ErrNotFound
+	}
+	rest := url[len(prefix):]
+	// Skip the size token.
+	slash := -1
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '/' {
+			slash = i
+			break
+		}
+	}
+	if slash < 0 {
+		return "", ports.ErrNotFound
+	}
+	return rest[slash+1:], nil
+}
+
 func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]series.CacheEntry,
 	cast []people.SeriesCredit, persons map[int64]people.Person, total int,
 ) *seriesdetail.CastComposer {
@@ -77,6 +107,7 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 		EpisodesCount:     castFakeEpisodesCount{count: total},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now:               func() time.Time { return time.Now().UTC() },
+		MediaResolver:     seriesdetail.NewMediaResolver(castHandlerTestMediaLookup{}, slog.New(slog.NewTextHandler(io.Discard, nil))),
 	})
 }
 
