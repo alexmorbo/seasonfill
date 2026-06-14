@@ -145,6 +145,7 @@ export const ru: Translations = {
     grabs: 'Захваты',
     queue: 'Очередь',
     settings: 'Настройки',
+    externalServices: 'Внешние сервисы',
     logout: 'Выйти',
     changePassword: 'Сменить пароль',
     language: 'Язык',

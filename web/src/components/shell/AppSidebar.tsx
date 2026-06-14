@@ -13,6 +13,7 @@ import {
   Check,
   ChevronDown,
   ListChecks,
+  Globe,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -40,7 +41,8 @@ const OVERVIEW: Item[] = [
 ]
 const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },
-  { to: "/settings", icon: SettingsIcon, key: "settings" },
+  { to: "/settings", end: true, icon: SettingsIcon, key: "settings" },
+  { to: "/settings/external-services", icon: Globe, key: "externalServices" },
 ]
 
 function useActivityItems(): Item[] {

@@ -143,6 +143,7 @@ export const en = {
     grabs: 'Grabs',
     queue: 'Queue',
     settings: 'Settings',
+    externalServices: 'External services',
     logout: 'Logout',
     changePassword: 'Change password',
     language: 'Language',
