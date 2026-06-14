@@ -15,14 +15,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/gc"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
-	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
-	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
@@ -254,113 +251,26 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
 
-	// 032e: per-instance webhook cooldown lookup reads live from the
-	// instanceMapHolder so PUT /instances/<name> mutations to
-	// cooldown.guid_failed_import_sec take effect on the next webhook
-	// without a pod restart. The OnApplied fan-out swap-replaces the
-	// holder map on every publish; this closure reflects whichever
-	// snapshot is current at call time. Unknown instances → 0 (same
-	// behaviour as pre-032e: log + skip the cooldown write).
-	// Story 218 (E-2): webhook SeriesDelete cascade soft-deletes
-	// episode_states under the deleted series. Repo is constructed
-	// here so the cascade port is wired at boot.
-	webhookEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
-	// 221 (A-3) — torrent_series_map repo wired here so the webhook
-	// path can write the bridge row in the same tx as the
-	// grab_records.torrent_hash update. Repo also feeds the
-	// torrentsync reconciler constructed below.
-	torrentSeriesMapRepo := repositories.NewTorrentSeriesMapRepository(db)
-
-	// Story 300 (E-1 wiring fix) — construct scan.Syncer so the
-	// webhook SeriesAdd path populates the canonical entity model
-	// (series + episodes + episode_states + series_genres +
-	// series_networks) instead of falling back to the thin
-	// CacheEntry write. Repos are stateless GORM wrappers (same
-	// shape as the Story 215 seriesdetail block below), so re-
-	// constructing them here is free. Lookup returns the concrete
-	// *sonarr.Client because Syncer.SyncFromSonarrAPI needs the
-	// payload-fetcher methods (GetSeriesPayload / ListEpisodesForSync
-	// / ListEpisodeFilesForSync) that live on the concrete type,
-	// not on ports.SonarrClient. Unknown instance OR a non-concrete
-	// client → (nil, false), webhook silently falls back to the
-	// pre-E-1 thin CacheEntry path (same degradation pattern as the
-	// existing SonarrClientFor / InstanceFor closures below).
-	webhookEpisodesRepo := repositories.NewEpisodesRepository(db)
-	webhookEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
-	webhookGenresRepo := repositories.NewGenresRepository(db)
-	webhookGenresI18nRepo := repositories.NewGenresI18nRepository(db)
-	webhookNetworksRepo := repositories.NewNetworksRepository(db)
-	webhookSeriesSyncer := &scan.Syncer{
-		Deps: scan.SyncDeps{
-			Series:        seriesRepo,
-			SeriesCache:   seriesCacheRepo,
-			Episodes:      webhookEpisodesRepo,
-			EpisodeStates: webhookEpisodeStatesRepo,
-			EpisodeTexts:  webhookEpisodeTextsRepo,
-			Genres:        scan.NewGenresAdapter(webhookGenresRepo, webhookGenresI18nRepo),
-			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),
-			Logger:        log,
-		},
-		Lookup: func(name string) (*sonarr.Client, bool) {
-			h := holder.Load()
-			if h == nil {
-				return nil, false
-			}
-			inst, ok := h[name]
-			if !ok || inst.Client == nil {
-				return nil, false
-			}
-			concrete, ok := inst.Client.(*sonarr.Client)
-			if !ok {
-				return nil, false
-			}
-			return concrete, true
-		},
-		Logger: log,
+	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, log)
+	if err != nil {
+		return nil, err
 	}
-
-	webhookUC := webhookuc.New(webhookuc.Deps{
-		Grabs:            grabRepo,
-		Cooldowns:        cooldownRepo,
-		SeriesCache:      seriesCacheRepo,
-		Tx:               txr,
-		EpisodeStates:    webhookEpisodeStatesRepo,
-		TorrentSeriesMap: torrentSeriesMapRepo,
-		SeriesSyncer:     webhookSeriesSyncer,
-		GUIDCooldownLookup: func(name string) time.Duration {
-			inst, ok := holder.Load()[name]
-			if !ok {
-				return 0
-			}
-			return inst.Config.Cooldown.GUIDAfterFailedImport
-		},
-		Logger: log,
-		SonarrClientFor: func(name string) (ports.SonarrClient, bool) {
-			if h := holder.Load(); h != nil {
-				if inst, ok := h[name]; ok && inst.Client != nil {
-					return inst.Client, true
-				}
-			}
-			return nil, false
-		},
-		InstanceFor: func(name string) (runtime.InstanceSnapshot, bool) {
-			if h := holder.Load(); h != nil {
-				if inst, ok := h[name]; ok {
-					return inst.Config, true
-				}
-			}
-			return runtime.InstanceSnapshot{}, false
-		},
-	})
-
-	webhookStatusCache := webhookinstall.NewStatusCache()
-	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
-		Lookup:    adapters.NewWebhookReconcileLookup(instanceReg),
-		PublicURL: webhookinstall.PublicURLFromContext,
-		Cache:     webhookStatusCache,
-		APIKey:    cfg.HTTP.Auth.APIKey,
-		Logger:    log,
-	})
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-335 names verbatim so every downstream call site
+	// (instance.New().WithWebhookReconciler / WithWebhookStatusCache,
+	// torrentsync.NewReconciler, torrentsync.NewQuery,
+	// httpserver.NewServer, loops.NewWebhookReconcileLoop,
+	// webhooksAggregateHandler) keeps working unchanged.
+	//
+	// torrentSeriesMapRepo is rebound — server.go (torrentsync.NewReconciler)
+	// and (torrentsync.NewQuery) reference it by the original name.
+	// EpisodeStatesRepo is intentionally NOT rebound: no surviving
+	// server.go code references it directly (the Syncer captures it
+	// inside the bundle).
+	webhookUC := webhookBundle.WebhookUC
+	webhookReconciler := webhookBundle.Reconciler
+	webhookStatusCache := webhookBundle.StatusCache
+	torrentSeriesMapRepo := webhookBundle.TorrentSeriesMapRepo
 
 	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log).
 		WithWebhookReconciler(adapters.ReconcilerAdapter{Inner: webhookReconciler}).
