@@ -38,7 +38,7 @@ import (
 // media pipeline exists in cmd/server/main.go).
 type MediaResolver struct {
 	lookup   MediaHashLookupPort
-	enqueuer atomic.Pointer[mediaEnqueuerBox] // story 316 — async priority enqueue
+	enqueuer atomic.Pointer[mediaEnqueuerBox]    // story 316 — async priority enqueue
 	fetcher  atomic.Pointer[mediaSyncFetcherBox] // story 316 — sync first-fold fetch
 	logger   *slog.Logger
 }
