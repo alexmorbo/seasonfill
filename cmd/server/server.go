@@ -22,7 +22,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/rescan"
-	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
@@ -61,24 +60,12 @@ type Options struct {
 	OnReady func(*runtime.Bus)
 }
 
-// httpServeConfig is the on-the-stack config struct previously inlined
-// in main.runWithContext. Captured on the Server so Shutdown can read
-// cfg.Scan.ShutdownGrace from the same value Run was constructed with.
-type httpServeConfig struct {
-	HTTP            config.HTTPConfig
-	SonarrInstances []runtime.InstanceSnapshot
-	DryRun          bool
-	GlobalRateLimit runtime.RateLimitSnapshot
-	Scan            runtime.ScanSnapshot
-	Cron            runtime.CronSnapshot
-}
-
 // Server is the seasonfill composition root + lifecycle driver.
 // Fields are the subset of locals from the original runWithContext that
 // the HTTP-serve loop and shutdown ladder need to access.
 type Server struct {
 	log        *slog.Logger
-	cfg        httpServeConfig
+	cfg        wiring.HTTPServeConfig
 	bus        *runtime.Bus
 	bgWG       *sync.WaitGroup
 	lifecycle  *lifecycleGroup
@@ -125,13 +112,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// Rebind locals for the remainder of New(). Subsequent B-11 stories
 	// will progressively retire these as wirers absorb the dependent
-	// blocks (e.g. story 330 absorbs runtimeRepo + instanceRepo into
-	// BuildRuntimeConfig). appSettingsRepo is intentionally NOT rebound:
-	// it has no direct reference in the surviving body — story 330+
-	// consumers reach it via persistence.AppSettingsRepo.
+	// blocks. After story 330, runtimeRepo + instanceRepo aliases stay
+	// because they are still consumed by instance.New, qbitSettingsUC,
+	// watchdogInstanceAdapter, qbitLoader, and startSubscribers below.
+	// appSettingsRepo is intentionally NOT rebound: it has no direct
+	// reference in the surviving body — story 330+ consumers reach it
+	// via persistence.AppSettingsRepo.
 	db := persistence.DB
 	cipher := persistence.Cipher
-	masterKey := persistence.MasterKey
 	runtimeRepo := persistence.RuntimeRepo
 	instanceRepo := persistence.InstanceRepo
 	quotaCounter := persistence.QuotaCounter
@@ -140,42 +128,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	bgCtx := context.Background()
 
-	// Seed runtime_config from Defaults() on a truly-fresh install.
-	row, err := runtimeRepo.Get(bgCtx)
-	switch {
-	case err == nil:
-		// happy path
-	case errors.Is(err, ports.ErrNotFound):
-		if err := runtimeRepo.Upsert(bgCtx, runtime.Defaults(), nil); err != nil {
-			return nil, fmt.Errorf("seed runtime_config: %w", err)
-		}
-		row, err = runtimeRepo.Get(bgCtx)
-		if err != nil {
-			return nil, fmt.Errorf("reload runtime_config after seed: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("read runtime_config: %w", err)
-	}
-
-	instances, err := instanceRepo.List(bgCtx, cipher)
-	if err != nil {
-		return nil, fmt.Errorf("list instances: %w", err)
-	}
-	for i := range instances {
-		runtime.ApplyInstanceDefaults(&instances[i])
-	}
-	runtime.SortInstances(instances)
-
-	snap := runtime.Snapshot{
-		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
-		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
-		Instances: instances,
-	}
-
+	// Bus is constructed BEFORE BuildRuntimeConfig (story 330 reorder)
+	// so the wirer can take *runtime.Bus as input and own the runtime
+	// config UC construction. The `armed` sentinel mirrors the pre-330
+	// pattern: defer fires bus.Close on every early error return; the
+	// success path at the bottom of New() disarms before returning.
 	bus := runtime.NewBus(log)
-	// `defer bus.Close()` in the original fired on every return from
-	// runWithContext. Here we only want it to fire on early error
-	// returns; the success path transfers ownership to the Server.
 	armed := true
 	defer func() {
 		if armed {
@@ -183,9 +141,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		}
 	}()
 
-	runtimeConfigUC := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, bus, log).
-		WithClientSecretEnv(bootCfg.Auth.OIDCClientSecret)
-	runtimeConfigHandler := handlers.NewRuntimeConfigHandler(runtimeConfigUC, log)
+	runtimecfg, err := wiring.BuildRuntimeConfig(ctx, persistence, bootCfg, bus, log)
+	if err != nil {
+		return nil, err
+	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-330 names verbatim so every downstream call site
+	// (httpserver.NewServer, startSubscribers, scheduler factory,
+	// webhookReconciler, etc.) keeps working unchanged.
+	snap := runtimecfg.Snap
+	runtimeConfigHandler := runtimecfg.Handler
+	cfg := runtimecfg.ServeConfig
 
 	adminRepo := repositories.NewAdminUserRepository(db)
 	oidcCache := infraoidc.NewProviderCache()
@@ -196,26 +162,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
 	}, log); err != nil {
 		return nil, fmt.Errorf("auth bootstrap: %w", err)
-	}
-
-	// cfg now reads from snap instead of bootstrap config
-	authCfg := config.Auth{
-		Enabled:          true,
-		APIKey:           masterKey,
-		SessionTTL:       snap.Auth.SessionTTL,
-		SecureCookie:     snap.Auth.SecureCookie,
-		TrustedProxies:   snap.Auth.TrustedProxies,
-		OIDCClientSecret: bootCfg.Auth.OIDCClientSecret,
-	}
-	httpCfg := bootCfg.HTTP
-	httpCfg.Auth = authCfg
-	cfg := httpServeConfig{
-		HTTP:            httpCfg,
-		SonarrInstances: instances,
-		DryRun:          snap.DryRun,
-		GlobalRateLimit: snap.GlobalRateLimit,
-		Scan:            snap.Scan,
-		Cron:            snap.Cron,
 	}
 
 	scanRepo := repositories.NewScanRepository(db)
