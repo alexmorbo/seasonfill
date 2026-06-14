@@ -278,6 +278,26 @@ func (r *SeriesRepository) ListCanonImagesCorrupted(ctx context.Context, limit i
 	return ids, nil
 }
 
+// CountCanonImagesBreakdown returns (poster_null_count, backdrop_null_count)
+// across the same population ListCanonImagesCorrupted draws from
+// (tmdb_id IS NOT NULL AND hydration = 'full'). Story 346 telemetry so
+// operators can grep the cold-start log for converging counts across
+// successive deploys. Two indexed scans; no full table walk — the
+// hydration='full' filter narrows the scan to the library-active set.
+func (r *SeriesRepository) CountCanonImagesBreakdown(ctx context.Context) (int, int, error) {
+	base := dbFromContext(ctx, r.db).WithContext(ctx).Table("series").
+		Where("tmdb_id IS NOT NULL").
+		Where("hydration = 'full'")
+	var posterNull, backdropNull int64
+	if err := base.Session(&gorm.Session{}).Where("poster_asset IS NULL").Count(&posterNull).Error; err != nil {
+		return 0, 0, fmt.Errorf("count canon poster nulls: %w", err)
+	}
+	if err := base.Session(&gorm.Session{}).Where("backdrop_asset IS NULL").Count(&backdropNull).Error; err != nil {
+		return 0, 0, fmt.Errorf("count canon backdrop nulls: %w", err)
+	}
+	return int(posterNull), int(backdropNull), nil
+}
+
 // ListMissingSyncLog returns series.id rows that have NO sync_log
 // row for (entity_type='series', source=<source>). LEFT JOIN +
 // IS NULL — selectivity is good on a typical library (300 rows) and

@@ -303,3 +303,29 @@ func findMetricLine(body, name string) string {
 	}
 	return ""
 }
+
+// Story 346 — per-kind recovery sweep counter must register both
+// {kind="poster"} and {kind="backdrop"} label variants.
+func TestAddRecoverySweepEnqueued_RegistersBothKinds(t *testing.T) {
+	AddRecoverySweepEnqueued("poster", 5)
+	AddRecoverySweepEnqueued("backdrop", 3)
+	body := writeAndRead(t)
+	assert.Contains(t, body, `recovery_sweep_enqueued_total{kind="poster"}`)
+	assert.Contains(t, body, `recovery_sweep_enqueued_total{kind="backdrop"}`)
+}
+
+// Story 346 — passing n <= 0 must be a no-op (the cold-start sweep
+// publishes "this many rows still need fixing" — zero is a legitimate
+// converged state, NOT a counter bump).
+func TestAddRecoverySweepEnqueued_ZeroIsNoop(t *testing.T) {
+	// Snapshot the current value (if any). Since other tests in this
+	// file may have bumped it, we measure the delta over a no-op call.
+	before := writeAndRead(t)
+	AddRecoverySweepEnqueued("poster", 0)
+	AddRecoverySweepEnqueued("backdrop", -1)
+	after := writeAndRead(t)
+	beforeLine := findMetricLine(before, `recovery_sweep_enqueued_total{kind="poster"}`)
+	afterLine := findMetricLine(after, `recovery_sweep_enqueued_total{kind="poster"}`)
+	// The two snapshots must show the same value — a no-op n didn't tick.
+	require.Equal(t, beforeLine, afterLine)
+}

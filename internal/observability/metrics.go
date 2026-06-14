@@ -86,6 +86,17 @@ const (
 	MetricTMDBRateLimitPausesTotal       = `tmdb_rate_limit_pauses_total`
 	MetricTMDBRateLimitPauseSecondsTotal = `tmdb_rate_limit_pause_seconds_total`
 	MetricTMDBRateLimitInPause           = `tmdb_rate_limit_in_pause`
+
+	// Story 346 — per-kind cold-start canon-images recovery telemetry.
+	// `recovery_sweep_enqueued_total{kind}` ticks by the count of canon
+	// rows the boot-time recovery sweep observed missing poster_asset
+	// (`kind=poster`) or backdrop_asset (`kind=backdrop`) and re-enqueued
+	// for re-enrichment. Reads "is the sweep actually moving rows" on
+	// the operator dashboard. A flat counter across successive deploys
+	// with the same backlog row count means the sweep is firing but the
+	// enrichment write side never lands the path — i.e. the defensive
+	// write-side guard is the only fix.
+	MetricRecoverySweepEnqueuedTotal = `recovery_sweep_enqueued_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -308,6 +319,18 @@ func AddTMDBRateLimitPauseSeconds(seconds float64) {
 	// pauses. The metric name stays scalar so the Grafana query is
 	// unchanged.
 	metrics.GetOrCreateFloatCounter(`tmdb_rate_limit_pause_seconds_total`).Add(seconds)
+}
+
+// AddRecoverySweepEnqueued bumps the per-kind recovery-sweep enqueue
+// counter (Story 346) by n. kind ∈ {"poster", "backdrop"} — the boot
+// one-shot recovery sweep calls this with the count of canon rows it
+// observed missing the named column. n <= 0 is a no-op so callers can
+// pass an unconditional count without a guard.
+func AddRecoverySweepEnqueued(kind string, n int) {
+	if n <= 0 {
+		return
+	}
+	metrics.GetOrCreateCounter(`recovery_sweep_enqueued_total{kind="` + kind + `"}`).Add(n)
 }
 
 // SetTMDBRateLimitInPause flips the 0/1 in-pause gauge (Story 313).

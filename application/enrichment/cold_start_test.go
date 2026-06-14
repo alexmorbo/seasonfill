@@ -35,6 +35,13 @@ func (f *fakeScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]int6
 	return nil, nil
 }
 
+// CountCanonImagesBreakdown — Story 346: cold_start_test cases never
+// touch the breakdown path (same justification as ListCanonImagesCorrupted),
+// so the fake returns zeroes.
+func (f *fakeScanner) CountCanonImagesBreakdown(_ context.Context) (int, int, error) {
+	return 0, 0, nil
+}
+
 type recordedCall struct {
 	Kind     EntityKind
 	ID       int64
@@ -236,6 +243,11 @@ func (c *countingScanner) callCount() int {
 // re-sweep loop, not the recovery path; return empty.
 func (c *countingScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]int64, error) {
 	return nil, nil
+}
+
+// CountCanonImagesBreakdown — Story 346: same justification.
+func (c *countingScanner) CountCanonImagesBreakdown(_ context.Context) (int, int, error) {
+	return 0, 0, nil
 }
 
 func TestRunBackfillLoop_RunsImmediatelyThenOnTick(t *testing.T) {

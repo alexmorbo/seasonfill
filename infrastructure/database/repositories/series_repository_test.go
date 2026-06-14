@@ -558,3 +558,40 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 	assert.Contains(t, ids, missingBoth)
 	assert.Len(t, ids, 2)
 }
+
+// Story 346 — CountCanonImagesBreakdown returns (poster_null,
+// backdrop_null) counts over the SAME population
+// ListCanonImagesCorrupted draws from.
+func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	mkFull := func(tmdb int, title, poster, backdrop string) {
+		var pp, bp *string
+		if poster != "" {
+			s := poster
+			pp = &s
+		}
+		if backdrop != "" {
+			s := backdrop
+			bp = &s
+		}
+		_, err := repo.Upsert(ctx, series.Canon{
+			TMDBID: ptrInt(tmdb), Title: title, Hydration: series.HydrationFull,
+			PosterAsset: pp, BackdropAsset: bp,
+		})
+		require.NoError(t, err)
+	}
+	// 1 healthy (no nulls), 1 backdrop-null, 1 poster-null, 1 both-null.
+	mkFull(2001, "Healthy", "/p.jpg", "/b.jpg")
+	mkFull(2002, "BackdropNull", "/p.jpg", "")
+	mkFull(2003, "PosterNull", "", "/b.jpg")
+	mkFull(2004, "BothNull", "", "")
+
+	posterNull, backdropNull, err := repo.CountCanonImagesBreakdown(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, posterNull, "PosterNull + BothNull = 2 poster-null rows")
+	assert.Equal(t, 2, backdropNull, "BackdropNull + BothNull = 2 backdrop-null rows")
+}

@@ -20,6 +20,7 @@ import (
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -97,15 +98,22 @@ func BuildEnrichment(
 		slog.String("proxy", proxy),
 	)
 
-	// Story 313 — plumb SEASONFILL_TMDB_RPS + the wiring logger so
-	// adaptive pause + resume INFO lines surface under the enrichment
-	// component prefix. 0 from config means "tmdb package picks its
-	// default (50 rps)".
+	// Story 313 + Story 346 — plumb SEASONFILL_TMDB_API_RPS (legacy
+	// SEASONFILL_TMDB_RPS still honoured by config.FromEnv as an
+	// alias) + the wiring logger so adaptive pause + resume INFO
+	// lines surface under the enrichment component prefix. 0 from
+	// config means "tmdb package picks its default (50 rps)".
+	if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
+		log.WarnContext(rootCtx, "config.deprecated_env",
+			slog.String("env", "SEASONFILL_TMDB_RPS"),
+			slog.String("replacement", "SEASONFILL_TMDB_API_RPS"),
+			slog.String("removal", "next release"))
+	}
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
 		HTTPClient: httpClient,
 		Language:   tmdb.DefaultLanguage,
-		RPS:        bootstrap.ExternalServices.TMDBRPS,
+		RPS:        bootstrap.ExternalServices.TMDBAPIRPS,
 		Logger:     log,
 	})
 	if err != nil {
@@ -126,11 +134,16 @@ func BuildEnrichment(
 	)
 	if repos.MediaAssets != nil && repos.MediaStore != nil {
 		mediaEnqueuer = appmedia.NewEnqueuer(log)
+		// Story 346: split CDN limiter from the TMDB API limiter.
+		// bootstrap.ExternalServices.TMDBCDNRPS=0 → downloader default
+		// (100 rps for image.tmdb.org); override via
+		// SEASONFILL_TMDB_CDN_RPS.
 		mediaDownloader, err = appmedia.NewDownloader(mediaEnqueuer, appmedia.DownloaderDeps{
-			Store:      repos.MediaStore,
-			Repo:       repos.MediaAssets,
-			HTTPClient: httpClient,
-			Logger:     log,
+			Store:           repos.MediaStore,
+			Repo:            repos.MediaAssets,
+			HTTPClient:      httpClient,
+			Logger:          log,
+			CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("media downloader: %w", err)
@@ -382,6 +395,23 @@ func BuildEnrichment(
 		// SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED=1 to skip
 		// during disaster recovery / manual control.
 		if os.Getenv("SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED") != "1" {
+			// Story 346: per-kind breakdown log so operators can
+			// confirm the sweep observed both poster + backdrop NULLs
+			// (or just one). Counted BEFORE the enqueue so a converging
+			// counter reads "this many rows still need fixing" rather
+			// than "this many we enqueued". Cheap (two indexed
+			// COUNT(*) on hydration='full'); failures non-fatal.
+			posterNull, backdropNull, cntErr := repos.ColdStartScanner.CountCanonImagesBreakdown(ctx)
+			if cntErr != nil {
+				log.WarnContext(ctx, "enrichment.canon_images.recovery.breakdown_failed",
+					slog.String("error", cntErr.Error()))
+			} else {
+				log.InfoContext(ctx, "enrichment.canon_images.recovery.breakdown",
+					slog.Int("poster_null", posterNull),
+					slog.Int("backdrop_null", backdropNull))
+				observability.AddRecoverySweepEnqueued("poster", posterNull)
+				observability.AddRecoverySweepEnqueued("backdrop", backdropNull)
+			}
 			ids, err := repos.ColdStartScanner.ListCanonImagesCorrupted(ctx, 5000)
 			if err != nil {
 				log.WarnContext(ctx, "enrichment.canon_images.recovery.failed",
@@ -736,6 +766,12 @@ func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source 
 // import infrastructure/database.
 func (a coldStartScannerAdapter) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error) {
 	return a.inner.ListCanonImagesCorrupted(ctx, limit)
+}
+
+// CountCanonImagesBreakdown — Story 346: forwards to the underlying
+// repository.
+func (a coldStartScannerAdapter) CountCanonImagesBreakdown(ctx context.Context) (int, int, error) {
+	return a.inner.CountCanonImagesBreakdown(ctx)
 }
 
 // mediaPrewarmerAdapter satisfies appenrich.MediaPrewarmer against

@@ -287,4 +287,10 @@ type ColdStartScanner interface {
 	// backdrop_asset is NULL, so the boot one-shot recovery sweep can
 	// enqueue them at PriorityCold for the TMDB re-sync to repopulate.
 	ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error)
+	// CountCanonImagesBreakdown — Story 346: returns
+	// (poster_null_count, backdrop_null_count) over the same
+	// population ListCanonImagesCorrupted draws from. Lets the boot
+	// recovery sweep bump per-kind Prometheus counters so operators
+	// can verify the sweep is moving backdrop nulls (not just poster).
+	CountCanonImagesBreakdown(ctx context.Context) (int, int, error)
 }
