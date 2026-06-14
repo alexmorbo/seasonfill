@@ -841,3 +841,204 @@ func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 	assert.Equal(t, 1, items[1].SonarrSeriesID, "older aired second")
 	assert.Equal(t, 3, items[2].SonarrSeriesID, "nil aired last (NULLS LAST)")
 }
+
+// Story 348a — LEFT JOIN media_assets projects the content-addressed
+// hash for the stored w342 hero poster onto every series_cache read
+// path.
+//
+// seedPosterAssetAndMedia stamps `s.poster_asset = path` on the canon
+// row resolved for (instance, sonarrID) and optionally inserts a
+// media_assets row matching the synthetic CDN URL the LEFT JOIN
+// expects. status=” skips the media_assets insert (covers the
+// "row entirely missing" case).
+func seedPosterAssetAndMedia(
+	t *testing.T,
+	db *gorm.DB,
+	instance string,
+	sonarrID int,
+	path, status, hash string,
+) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
+	require.NoError(t, db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", path).Error)
+	if status == "" {
+		return
+	}
+	srcURL := "https://image.tmdb.org/t/p/w342" + path
+	require.NoError(t, db.Create(&database.MediaAssetModel{
+		Hash:      hash,
+		SourceURL: srcURL,
+		Kind:      "poster_w342",
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}).Error)
+}
+
+func TestSeriesCacheRepository_LeftJoinMediaAssets_StoredHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
+	seedPosterAssetAndMedia(t, db, "main", 12, "/abc.jpg", "stored", "deadbeef00")
+
+	got, err := repo.Get(ctx, "main", 12)
+	require.NoError(t, err)
+	require.NotNil(t, got.PosterHash, "stored media_assets row → hash projected")
+	assert.Equal(t, "deadbeef00", *got.PosterHash)
+	// PosterPath (raw asset path) still ships for FE backward compat.
+	require.NotNil(t, got.PosterPath)
+	assert.Equal(t, "/abc.jpg", *got.PosterPath)
+}
+
+func TestSeriesCacheRepository_LeftJoinMediaAssets_PendingStatus_NoHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 13)))
+	seedPosterAssetAndMedia(t, db, "main", 13, "/def.jpg", "pending", "feedface11")
+
+	got, err := repo.Get(ctx, "main", 13)
+	require.NoError(t, err)
+	assert.Nil(t, got.PosterHash, "status=pending → join filtered → nil hash")
+	require.NotNil(t, got.PosterPath)
+}
+
+func TestSeriesCacheRepository_LeftJoinMediaAssets_FailedStatus_NoHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 14)))
+	seedPosterAssetAndMedia(t, db, "main", 14, "/ghi.jpg", "failed", "cafebabe22")
+
+	got, err := repo.Get(ctx, "main", 14)
+	require.NoError(t, err)
+	assert.Nil(t, got.PosterHash, "status=failed → join filtered → nil hash")
+}
+
+func TestSeriesCacheRepository_LeftJoinMediaAssets_NullPosterAsset_NoHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 15)))
+	// Don't seed poster_asset — canon row leaves it NULL.
+	got, err := repo.Get(ctx, "main", 15)
+	require.NoError(t, err)
+	assert.Nil(t, got.PosterHash, "NULL s.poster_asset → no join match → nil hash")
+	assert.Nil(t, got.PosterPath, "NULL s.poster_asset → nil PosterPath too")
+}
+
+func TestSeriesCacheRepository_LeftJoinMediaAssets_NoMediaRow_NoHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 16)))
+	// poster_asset set, but no media_assets row written.
+	seedPosterAssetAndMedia(t, db, "main", 16, "/jkl.jpg", "", "")
+
+	got, err := repo.Get(ctx, "main", 16)
+	require.NoError(t, err)
+	assert.Nil(t, got.PosterHash, "no media_assets row → LEFT JOIN nil → nil hash")
+	require.NotNil(t, got.PosterPath)
+	assert.Equal(t, "/jkl.jpg", *got.PosterPath)
+}
+
+// TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved
+// — one series row with no matching media_assets row must still yield
+// exactly one result row (LEFT JOIN semantics).
+func TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 21)))
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 22)))
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 23)))
+	// Only series 22 has poster_asset + stored hash.
+	seedPosterAssetAndMedia(t, db, "main", 22, "/mno.jpg", "stored", "1234567890")
+	// Series 21 has poster_asset but no media row.
+	seedPosterAssetAndMedia(t, db, "main", 21, "/pqr.jpg", "", "")
+
+	active, err := repo.ListActiveByInstance(ctx, "main")
+	require.NoError(t, err)
+	assert.Len(t, active, 3, "exactly 3 cache rows → exactly 3 result rows")
+	byID := make(map[int]series.CacheEntry, len(active))
+	for _, e := range active {
+		byID[e.SonarrSeriesID] = e
+	}
+	require.NotNil(t, byID[22].PosterHash)
+	assert.Equal(t, "1234567890", *byID[22].PosterHash)
+	assert.Nil(t, byID[21].PosterHash)
+	assert.Nil(t, byID[23].PosterHash)
+}
+
+// TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement —
+// the LEFT JOIN must yield ONE statement, not N+1. Capture the SQL via
+// gorm's DryRun session and assert it contains exactly one SELECT.
+func TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	for i := 1; i <= 4; i++ {
+		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", i)))
+	}
+	seedPosterAssetAndMedia(t, db, "main", 1, "/a.jpg", "stored", "h1")
+	seedPosterAssetAndMedia(t, db, "main", 2, "/b.jpg", "stored", "h2")
+
+	dry := db.Session(&gorm.Session{DryRun: true})
+	stmt := dry.Table("series_cache").
+		Joins(seriesCacheJoin).
+		Select(seriesCacheSelect).
+		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", "main").
+		Find(&[]cacheRow{}).Statement
+	sql := stmt.SQL.String()
+	assert.Equal(t, 1, strings.Count(strings.ToLower(sql), "select "),
+		"exactly one SELECT — LEFT JOIN, not N+1; got: %s", sql)
+	assert.Contains(t, sql, "LEFT JOIN media_assets ma_poster",
+		"LEFT JOIN media_assets present in projection: %s", sql)
+	assert.Contains(t, sql, "s_poster_hash",
+		"PosterHash projected: %s", sql)
+
+	// Verify the result actually carries hashes via the live (non-dry) path.
+	active, err := repo.ListActiveByInstance(ctx, "main")
+	require.NoError(t, err)
+	hashes := 0
+	for _, e := range active {
+		if e.PosterHash != nil {
+			hashes++
+		}
+	}
+	assert.Equal(t, 2, hashes, "two seeded stored rows → two PosterHash values")
+
+	// ListByFilter also goes via the same JOIN.
+	items, _, _, _, err := repo.ListByFilter(ctx, "main",
+		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+		ports.SeriesCacheSortUpdatedDesc,
+		ports.Pagination{Limit: 50})
+	require.NoError(t, err)
+	hashes = 0
+	for _, e := range items {
+		if e.PosterHash != nil {
+			hashes++
+		}
+	}
+	assert.Equal(t, 2, hashes, "ListByFilter projects hashes via the same JOIN")
+}

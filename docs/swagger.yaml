@@ -1945,7 +1945,19 @@ components:
         monitored:
           example: true
           type: boolean
+        poster_hash:
+          description: |-
+            PosterHash is the content-addressed sha256 of the stored w342
+            hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
+            URL). Absent when the row has not been warmed yet — the FE falls
+            back to a monogram placeholder. Story 348a.
+          example: 3a2b1c...
+          type: string
         poster_path:
+          description: |-
+            PosterPath is the legacy raw TMDB path. Deprecated by Story 348a
+            in favour of PosterHash + mediaUrl(hash); kept for one release so
+            the FE cutover (Story 349a) is reversible.
           example: /MediaCover/122/poster.jpg
           type: string
         sonarr_series_id:

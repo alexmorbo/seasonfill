@@ -5252,7 +5252,20 @@ export type components = {
             readonly missing_count?: number;
             /** @example true */
             readonly monitored?: boolean;
-            /** @example /MediaCover/122/poster.jpg */
+            /**
+             * @description PosterHash is the content-addressed sha256 of the stored w342
+             *     hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
+             *     URL). Absent when the row has not been warmed yet — the FE falls
+             *     back to a monogram placeholder. Story 348a.
+             * @example 3a2b1c...
+             */
+            readonly poster_hash?: string;
+            /**
+             * @description PosterPath is the legacy raw TMDB path. Deprecated by Story 348a
+             *     in favour of PosterHash + mediaUrl(hash); kept for one release so
+             *     the FE cutover (Story 349a) is reversible.
+             * @example /MediaCover/122/poster.jpg
+             */
             readonly poster_path?: string;
             /** @example 122 */
             readonly sonarr_series_id?: number;

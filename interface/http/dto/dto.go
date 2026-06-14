@@ -681,8 +681,16 @@ type SeriesCacheItem struct {
 	// Network field REMOVED in E-1 (Story 210). Network membership lives
 	// in series_networks join; the catalog tile omits the network line
 	// until the detail-card endpoint (future story) projects per-row.
-	Status              *string    `json:"status,omitempty"        example:"continuing" enums:"continuing,ended,upcoming"`
-	PosterPath          *string    `json:"poster_path,omitempty"   example:"/MediaCover/122/poster.jpg"`
+	Status *string `json:"status,omitempty"        example:"continuing" enums:"continuing,ended,upcoming"`
+	// PosterPath is the legacy raw TMDB path. Deprecated by Story 348a
+	// in favour of PosterHash + mediaUrl(hash); kept for one release so
+	// the FE cutover (Story 349a) is reversible.
+	PosterPath *string `json:"poster_path,omitempty"   example:"/MediaCover/122/poster.jpg"`
+	// PosterHash is the content-addressed sha256 of the stored w342
+	// hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
+	// URL). Absent when the row has not been warmed yet — the FE falls
+	// back to a monogram placeholder. Story 348a.
+	PosterHash          *string    `json:"poster_hash,omitempty"   example:"3a2b1c..."`
 	Monitored           bool       `json:"monitored"               example:"true"`
 	MissingCount        int        `json:"missing_count"           example:"0"`
 	LastGrabAt          *time.Time `json:"last_grab_at,omitempty"`

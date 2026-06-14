@@ -25,6 +25,19 @@ import (
 // variant onto each path to produce the full UpstreamURL.
 const tmdbImageBase = "https://image.tmdb.org/t/p"
 
+// TMDBImageBase is the exported CDN host+/t/p prefix so SQL projections
+// (story 348a series_cache LEFT JOIN media_assets) can mint the
+// source_url for batched hash lookup. Stable across the lifetime of
+// TMDB v3.
+const TMDBImageBase = tmdbImageBase
+
+// SeriesPosterListSize is the canonical w342 hero-poster size used by
+// the catalog tiles. MUST match what composer.resolveAssets passes to
+// MediaResolver and what the prewarm pipeline writes for the series
+// list — series_cache.PosterHash projection joins on
+// CONCAT(TMDBImageBase, '/', SeriesPosterListSize, s.poster_asset).
+const SeriesPosterListSize = "w342"
+
 // channelCap is the pre-warm queue depth — PRD §6.6. Sized for ~10
 // series worth of pre-warm in flight (each series produces ~30 assets
 // = poster ×2, backdrop, network logos, top-10 profiles, season

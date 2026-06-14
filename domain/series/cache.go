@@ -39,9 +39,15 @@ type CacheEntry struct {
 	Monitored      bool
 	Overview       *string
 	PosterPath     *string
-	FanartPath     *string
-	BannerPath     *string
-	MissingCount   int
+	// PosterHash is the content-addressed sha256 of the stored w342
+	// hero poster, joined from media_assets when status='stored'. nil
+	// when the row has not been warmed yet — the FE falls back to a
+	// monogram placeholder via <MediaImage fallback="monogram">.
+	// Composer-side resolver remains the recovery path. Story 348a.
+	PosterHash   *string
+	FanartPath   *string
+	BannerPath   *string
+	MissingCount int
 	// LastAiredAt mirrors Sonarr's `previousAiring` — the datetime of
 	// the most recently aired episode for this series. Nil when no
 	// episode has aired yet (upcoming series). Powers the F11
