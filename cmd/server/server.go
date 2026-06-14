@@ -36,8 +36,6 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
-	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
-	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -73,6 +71,7 @@ type Server struct {
 	enrichBundle *EnrichmentBundle
 	subSched     *reload.SchedulerSubscriber
 	persistence  *wiring.PersistenceBundle
+	watchdog     *wiring.WatchdogBundle
 	onReady      func(*runtime.Bus)
 }
 
@@ -184,14 +183,25 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// testcontext hook) shares the same cell.
 	clientFactory := sonarrBundle.ClientFactory
 	sonarrClientsByName := sonarrBundle.ClientsByName
-	sonarrClients := sonarrBundle.SonarrClients
 	scanInstances := sonarrBundle.ScanInstances
-	cfgByName := sonarrBundle.CfgByName
 	holder := sonarrBundle.Holder
 	instanceReg := sonarrBundle.InstanceReg
 	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
 
-	checker := healthcheck.New(db, sonarrClients)
+	watchdogBundle, err := wiring.BuildWatchdog(persistence, sonarrBundle, log)
+	if err != nil {
+		return nil, err
+	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-333 names verbatim so every downstream call site
+	// (scan.UseCase.WithHealthRegistry, httpserver.NewServer,
+	// startSubscribers, notifyTestContext) keeps working unchanged.
+	// The lifecycle.Go spawns below address checker.Run / wd.Run via
+	// these aliases — the bundle itself is stored on the Server so
+	// future Shutdown wiring can reach the same handles via
+	// s.watchdog.
+	checker := watchdogBundle.Checker
+	wd := watchdogBundle.Watchdog
 
 	rootCtx, rootCancel := context.WithCancel(ctx)
 	// `defer rootCancel()` in the original fired on every return.
@@ -220,7 +230,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	})
 
 	// Watchdog rechecks Unavailable* instances at per-state cadences (D-2.3).
-	wd := watchdog.New(checker.Registry(), checker, log, cfgByName)
 	lifecycle.Go(rootCtx, "watchdog", func(ctx context.Context) {
 		wd.Run(ctx)
 	})
@@ -1044,6 +1053,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		enrichBundle: enrichBundle,
 		subSched:     subSched,
 		persistence:  persistence,
+		watchdog:     watchdogBundle,
 		onReady:      opts.OnReady,
 	}, nil
 }
