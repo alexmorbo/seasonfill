@@ -1,4 +1,4 @@
-package main
+package wiring
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // TestPersonCreditsAdapter_DomainModelRoundTrip covers Story 307.
 // Constructs a fully-populated domain PersonCredit (all 3 new
 // fields set), pushes it through the write-side projection
-// (personCreditsRepoAdapter), reads back via the read-side
+// (PersonCreditsRepoAdapter), reads back via the read-side
 // projection (adapters.ModelToPersonCredit), and asserts every field
 // survives. Catches drift between the two adapters.
 func TestPersonCreditsAdapter_DomainModelRoundTrip(t *testing.T) {
@@ -50,7 +50,7 @@ func TestPersonCreditsAdapter_DomainModelRoundTrip(t *testing.T) {
 	}
 
 	// Write-side: domain → model via the adapter's projection logic.
-	// We build the model literal the same way personCreditsRepoAdapter
+	// We build the model literal the same way PersonCreditsRepoAdapter
 	// does — this isolates the projection from gorm + DB.
 	row := database.PersonCreditModel{
 		PersonID:      in.PersonID,

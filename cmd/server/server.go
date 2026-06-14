@@ -45,7 +45,7 @@ type Server struct {
 	httpServer   *httpserver.Server
 	scanUC       *scan.UseCase
 	scanRepo     *repositories.ScanRepository
-	enrichBundle *EnrichmentBundle
+	enrichBundle *wiring.EnrichmentBundle
 	subSched     *reload.SchedulerSubscriber
 	persistence  *wiring.PersistenceBundle
 	watchdog     *wiring.WatchdogBundle
@@ -344,7 +344,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-339 names verbatim so every downstream call site
-	// (httpserver.NewServer for mediaHandler, enrichmentRepoBundle for
+	// (httpserver.NewServer for mediaHandler, wiring.EnrichmentRepoBundle for
 	// MediaAssets + MediaStore, the seriesdetail MediaResolver fallback,
 	// the gc weekly job, the SetOnDemandFetcher late-bind below) keeps
 	// working unchanged.
@@ -436,13 +436,13 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Story 212 (C-3) — person enrichment + cold-start backfill.
 	personBiographiesRepo := repositories.NewPersonBiographiesRepository(db)
 	personCreditsRepo := repositories.NewPersonCreditsRepository(db)
-	coldStartScanner := NewColdStartScannerAdapter(seriesRepo)
+	coldStartScanner := wiring.NewColdStartScannerAdapter(seriesRepo)
 
 	// Story 211 (C-2) — wire enrichment dispatcher. extSub is primed,
-	// so TMDB settings are available. wireEnrichment returns a nil
-	// dispatcher when TMDB is disabled / unconfigured (boot stays
-	// green on a fresh install).
-	enrichRepos := enrichmentRepoBundle{
+	// so TMDB settings are available. wiring.BuildEnrichment returns
+	// a nil dispatcher when TMDB is disabled / unconfigured (boot
+	// stays green on a fresh install).
+	enrichRepos := wiring.EnrichmentRepoBundle{
 		Series:            seriesRepo,
 		SeriesTexts:       seriesTextsRepo,
 		Seasons:           seasonsRepo,
@@ -450,29 +450,29 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		EpisodeTexts:      episodeTextsRepo,
 		People:            peopleRepo,
 		SeriesPeople:      seriesPeopleRepo,
-		Genres:            genresRepoAdapter{main: genresRepo, i18n: genresI18nRepo},
-		Keywords:          keywordsRepoAdapter{main: keywordsRepo, i18n: keywordsI18nRepo},
+		Genres:            wiring.GenresRepoAdapter{Main: genresRepo, I18n: genresI18nRepo},
+		Keywords:          wiring.KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18nRepo},
 		Networks:          networksRepo,
 		Companies:         companiesRepo,
-		Videos:            videosRepoAdapter{inner: videosRepo},
-		ContentRatings:    contentRatingsRepoAdapter{inner: contentRatingsRepo},
-		ExternalIDs:       externalIDsRepoAdapter{inner: externalIDsRepo},
+		Videos:            wiring.VideosRepoAdapter{Inner: videosRepo},
+		ContentRatings:    wiring.ContentRatingsRepoAdapter{Inner: contentRatingsRepo},
+		ExternalIDs:       wiring.ExternalIDsRepoAdapter{Inner: externalIDsRepo},
 		Recommendations:   recommendationsRepo,
 		SyncLog:           syncLogRepo,
 		PersonBiographies: personBiographiesRepo,
-		PersonCredits:     personCreditsRepoAdapter{inner: personCreditsRepo},
+		PersonCredits:     wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},
 		ColdStartScanner:  coldStartScanner,
-		LibraryWithIMDB:   NewOMDbBatchScannerAdapter(seriesRepo),
+		LibraryWithIMDB:   wiring.NewOMDbBatchScannerAdapter(seriesRepo),
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,
 	}
-	enrichBundle, err := wireEnrichment(rootCtx, extSub, bootCfg, enrichRepos, txr, quotaCounter, log)
+	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, bootCfg, enrichRepos, txr, quotaCounter, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}
 
 	// ───────── LATE BIND ZONE ─────────
-	// The three callsites below depend on wireEnrichment having returned
+	// The three callsites below depend on wiring.BuildEnrichment having returned
 	// (enrichBundle must exist). They STAY in server.go — the wirers that
 	// constructed the holders (BuildSeriesDetail for the people enqueuer
 	// + the seriesdetail MediaResolver; BuildMedia for the MediaHandler)
@@ -516,7 +516,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// ───────── END LATE BIND ZONE ─────────
 
 	// Build the boot scheduler + factory (story 341). Construction is
-	// after wireEnrichment so the four enrichment-derived job closures
+	// after wiring.BuildEnrichment so the four enrichment-derived job closures
 	// are ready; the wirer Registers every cron job before returning
 	// so the caller only owns Start. The factory is captured by the
 	// reload SchedulerSubscriber via startSubscribers below; the
@@ -577,7 +577,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Enrichment.ColdStartResweepInterval (default 60s) for the
 	// lifetime of the process. Picks up rows the dispatcher had
 	// to drop on a saturated cold channel during the previous
-	// sweep. Runs AFTER dispatcher.Start (inside wireEnrichment)
+	// sweep. Runs AFTER dispatcher.Start (inside wiring.BuildEnrichment)
 	// + bootScheduler.Start so every consumer is alive.
 	// bgWG.Add(1) keeps shutdown waiting for the goroutine to
 	// exit on rootCtx cancellation.

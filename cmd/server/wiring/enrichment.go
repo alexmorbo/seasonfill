@@ -1,4 +1,4 @@
-package main
+package wiring
 
 import (
 	"context"
@@ -60,15 +60,15 @@ type EnrichmentBundle struct {
 	UsesQuotaCounter bool
 }
 
-// wireEnrichment builds the dispatcher + nightly stale scan closure.
+// BuildEnrichment builds the dispatcher + nightly stale scan closure.
 // Returns a nil dispatcher when TMDB is disabled or no token is set
 // (boot path stays green on a freshly-installed instance with no
 // runtime config yet).
-func wireEnrichment(
+func BuildEnrichment(
 	rootCtx context.Context,
 	extSub *adapters.ExternalServicesSubscriber,
 	bootstrap *config.Bootstrap,
-	repos enrichmentRepoBundle,
+	repos EnrichmentRepoBundle,
 	tx appenrich.Transactor,
 	quotaCounter quota.QuotaCounter,
 	log *slog.Logger,
@@ -448,10 +448,10 @@ func (h *dispatcherHolder) Close() {
 	h.inner.Close()
 }
 
-// enrichmentRepoBundle is the dependency bundle main.go fills in.
-// Kept as an explicit struct so the wireEnrichment signature stays
+// EnrichmentRepoBundle is the dependency bundle main.go fills in.
+// Kept as an explicit struct so the BuildEnrichment signature stays
 // scannable.
-type enrichmentRepoBundle struct {
+type EnrichmentRepoBundle struct {
 	Series          appenrich.SeriesRepo
 	SeriesTexts     appenrich.SeriesTextsRepo
 	Seasons         appenrich.SeasonsRepo
@@ -477,7 +477,7 @@ type enrichmentRepoBundle struct {
 	// OMDb daily-batch closure logs and short-circuits.
 	LibraryWithIMDB OMDbBatchScanner
 	// 214 (F-1): media assets read/write. Constructed in main.go
-	// outside wireEnrichment so the same handle is shared with the
+	// outside BuildEnrichment so the same handle is shared with the
 	// HTTP MediaHandler. Nil-OK — when nil the pre-warm pipeline
 	// stays off (downloader needs a repo to write rows).
 	MediaAssets appmedia.AssetRepo
@@ -544,15 +544,15 @@ type peopleRepoCombined interface {
 
 // ---- repo → port adapters ------------------------------------------
 
-// videosRepoAdapter wraps *repositories.VideosRepository to satisfy
+// VideosRepoAdapter wraps *repositories.VideosRepository to satisfy
 // VideosRepoPort. The worker's VideoRow uses plain strings; the
 // underlying VideoModel persists optional fields as *string —
 // translate at this boundary.
-type videosRepoAdapter struct {
-	inner *repositories.VideosRepository
+type VideosRepoAdapter struct {
+	Inner *repositories.VideosRepository
 }
 
-func (a videosRepoAdapter) Upsert(ctx context.Context, v appenrich.VideoRow) error {
+func (a VideosRepoAdapter) Upsert(ctx context.Context, v appenrich.VideoRow) error {
 	m := repositories.Video{
 		SeriesID:    v.SeriesID,
 		Name:        v.Name,
@@ -584,99 +584,99 @@ func (a videosRepoAdapter) Upsert(ctx context.Context, v appenrich.VideoRow) err
 		// silently — a video with no name has nothing to display.
 		return nil
 	}
-	_, err := a.inner.Upsert(ctx, m)
+	_, err := a.Inner.Upsert(ctx, m)
 	return err
 }
 
-// contentRatingsRepoAdapter wraps the canonical repo to match the
+// ContentRatingsRepoAdapter wraps the canonical repo to match the
 // (seriesID, country, rating) tuple shape the worker uses.
-type contentRatingsRepoAdapter struct {
-	inner *repositories.ContentRatingsRepository
+type ContentRatingsRepoAdapter struct {
+	Inner *repositories.ContentRatingsRepository
 }
 
-func (a contentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID int64, country, rating string) error {
+func (a ContentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID int64, country, rating string) error {
 	if country == "" || rating == "" {
 		return nil
 	}
-	return a.inner.Upsert(ctx, repositories.ContentRating{
+	return a.Inner.Upsert(ctx, repositories.ContentRating{
 		SeriesID: seriesID, CountryCode: country, Rating: rating,
 	})
 }
 
-// genresRepoAdapter composes GenresRepository + GenresI18nRepository
+// GenresRepoAdapter composes GenresRepository + GenresI18nRepository
 // behind the appenrich.GenresRepo port. The port treats the i18n
 // write as a single method; the production split is invisible to
 // the worker.
-type genresRepoAdapter struct {
-	main *repositories.GenresRepository
-	i18n *repositories.GenresI18nRepository
+type GenresRepoAdapter struct {
+	Main *repositories.GenresRepository
+	I18n *repositories.GenresI18nRepository
 }
 
-func (a genresRepoAdapter) Upsert(ctx context.Context, g taxonomy.Genre) (int64, error) {
-	return a.main.Upsert(ctx, g)
+func (a GenresRepoAdapter) Upsert(ctx context.Context, g taxonomy.Genre) (int64, error) {
+	return a.Main.Upsert(ctx, g)
 }
 
-func (a genresRepoAdapter) UpsertI18n(ctx context.Context, genreID int64, language, name string) error {
-	return a.i18n.Upsert(ctx, taxonomy.GenreI18n{
+func (a GenresRepoAdapter) UpsertI18n(ctx context.Context, genreID int64, language, name string) error {
+	return a.I18n.Upsert(ctx, taxonomy.GenreI18n{
 		GenreID:  genreID,
 		Language: language,
 		Name:     name,
 	})
 }
 
-func (a genresRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
-	return a.main.Set(ctx, seriesID, ids)
+func (a GenresRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
+	return a.Main.Set(ctx, seriesID, ids)
 }
 
-// keywordsRepoAdapter mirrors genresRepoAdapter.
-type keywordsRepoAdapter struct {
-	main *repositories.KeywordsRepository
-	i18n *repositories.KeywordsI18nRepository
+// KeywordsRepoAdapter mirrors GenresRepoAdapter.
+type KeywordsRepoAdapter struct {
+	Main *repositories.KeywordsRepository
+	I18n *repositories.KeywordsI18nRepository
 }
 
-func (a keywordsRepoAdapter) Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error) {
-	return a.main.Upsert(ctx, k)
+func (a KeywordsRepoAdapter) Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error) {
+	return a.Main.Upsert(ctx, k)
 }
 
-func (a keywordsRepoAdapter) UpsertI18n(ctx context.Context, keywordID int64, language, name string) error {
-	return a.i18n.Upsert(ctx, taxonomy.KeywordI18n{
+func (a KeywordsRepoAdapter) UpsertI18n(ctx context.Context, keywordID int64, language, name string) error {
+	return a.I18n.Upsert(ctx, taxonomy.KeywordI18n{
 		KeywordID: keywordID,
 		Language:  language,
 		Name:      name,
 	})
 }
 
-func (a keywordsRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
-	return a.main.Set(ctx, seriesID, ids)
+func (a KeywordsRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
+	return a.Main.Set(ctx, seriesID, ids)
 }
 
-// externalIDsRepoAdapter wraps the canonical repo to match the
+// ExternalIDsRepoAdapter wraps the canonical repo to match the
 // (entityType, entityID, provider, value) tuple shape.
-type externalIDsRepoAdapter struct {
-	inner *repositories.ExternalIDsRepository
+type ExternalIDsRepoAdapter struct {
+	Inner *repositories.ExternalIDsRepository
 }
 
-func (a externalIDsRepoAdapter) Upsert(ctx context.Context, entityType enrichment.EntityType, entityID int64, provider, value string) error {
+func (a ExternalIDsRepoAdapter) Upsert(ctx context.Context, entityType enrichment.EntityType, entityID int64, provider, value string) error {
 	if provider == "" || value == "" {
 		return nil
 	}
-	return a.inner.Upsert(ctx, entityType, entityID, provider, value)
+	return a.Inner.Upsert(ctx, entityType, entityID, provider, value)
 }
 
 // ---- 212 adapters --------------------------------------------------
 
-// personCreditsRepoAdapter translates the domain-level
+// PersonCreditsRepoAdapter translates the domain-level
 // []people.PersonCredit shape the person worker emits into the
 // repository's []database.PersonCreditModel write rows. The domain
 // type carries pointer-typed nullable fields (ReleaseDate *time.Time,
 // TMDBRating *float64, etc.); the model carries year *int + poster_path
 // *string. The conversion lives here so the application layer never
 // touches the database package.
-type personCreditsRepoAdapter struct {
-	inner *repositories.PersonCreditsRepository
+type PersonCreditsRepoAdapter struct {
+	Inner *repositories.PersonCreditsRepository
 }
 
-func (a personCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
+func (a PersonCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
 	if len(credits) == 0 {
 		return nil, nil
 	}
@@ -700,7 +700,7 @@ func (a personCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []peo
 			EpisodeCount:  c.EpisodeCount,
 		})
 	}
-	return a.inner.BatchUpsert(ctx, rows)
+	return a.Inner.BatchUpsert(ctx, rows)
 }
 
 // yearFromReleaseDate extracts the calendar year from a TMDB release
