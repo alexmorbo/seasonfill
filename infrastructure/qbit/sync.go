@@ -37,7 +37,14 @@ type TorrentInfo struct {
 	Tags        string // raw comma-separated qBit tag string
 	Tracker     string // full first-tracker URL
 	TrackerHost string // derived host (see ExtractTrackerHost)
-	SavePath    string
+	// SeasonNumber is the season parsed from Name by ParseSeason
+	// (see season.go). Pointer-nullable: nil means "no SxxExx hit"
+	// (pack torrent, malformed name) OR "matches reference multiple
+	// distinct seasons" (multi-season compilation). Single-season
+	// releases yield the season number. Set once at mapTorrent
+	// time; consumers read it through Entry.Info.SeasonNumber.
+	SeasonNumber *int
+	SavePath     string
 	ContentPath string
 	MagnetURI   string
 	Private     bool
@@ -187,18 +194,19 @@ func mapTorrent(mapKey string, t qbt.Torrent) TorrentInfo {
 	}
 	hash := NormaliseHash(t.InfohashV1, fallback)
 	return TorrentInfo{
-		Hash:        hash,
-		InfohashV1:  strings.ToLower(t.InfohashV1),
-		InfohashV2:  strings.ToLower(t.InfohashV2),
-		Name:        t.Name,
-		Category:    t.Category,
-		Tags:        t.Tags,
-		Tracker:     t.Tracker,
-		TrackerHost: ExtractTrackerHost(t.Tracker),
-		SavePath:    t.SavePath,
-		ContentPath: t.ContentPath,
-		MagnetURI:   t.MagnetURI,
-		Private:     t.Private,
+		Hash:         hash,
+		InfohashV1:   strings.ToLower(t.InfohashV1),
+		InfohashV2:   strings.ToLower(t.InfohashV2),
+		Name:         t.Name,
+		Category:     t.Category,
+		Tags:         t.Tags,
+		Tracker:      t.Tracker,
+		TrackerHost:  ExtractTrackerHost(t.Tracker),
+		SeasonNumber: ParseSeason(t.Name),
+		SavePath:     t.SavePath,
+		ContentPath:  t.ContentPath,
+		MagnetURI:    t.MagnetURI,
+		Private:      t.Private,
 
 		StateRaw:   string(t.State),
 		StateGroup: stateGroup(string(t.State)),

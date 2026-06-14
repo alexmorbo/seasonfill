@@ -174,3 +174,32 @@ func TestPersist_FlushCountersBatchesAll(t *testing.T) {
 	require.Len(t, repo.batches, 1)
 	assert.Len(t, repo.batches[0], 3)
 }
+
+// TestPersistPolicy_SeasonNumberCarriesOnTransition covers Story 308:
+// when HandleTransition fires an Upsert (added or state_change),
+// the season number set on the Entry must reach the TorrentsRepo
+// via the repo.Upsert call.
+func TestPersistPolicy_SeasonNumberCarriesOnTransition(t *testing.T) {
+	t.Parallel()
+	repo := &fakeTorrentsRepo{}
+	events := &fakeEventsRepo{}
+	policy := NewPersistPolicy(repo, events, slog.Default())
+
+	three := 3
+	next := Entry{
+		Info: qbit.TorrentInfo{
+			Hash: "aaaa", Name: "Show.S03E07.1080p", StateRaw: "downloading",
+			SeasonNumber: &three,
+		},
+		StateGroup: qbit.StateGroupDownloading,
+		SyncedAt:   time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+	}
+
+	persisted, err := policy.HandleTransition(context.Background(), "alpha", nil, next)
+	require.NoError(t, err)
+	assert.True(t, persisted, "first sight of a hash must persist (added event)")
+
+	require.Len(t, repo.upserts, 1)
+	require.NotNil(t, repo.upserts[0].Info.SeasonNumber)
+	assert.Equal(t, 3, *repo.upserts[0].Info.SeasonNumber, "Upsert must carry the parsed season")
+}

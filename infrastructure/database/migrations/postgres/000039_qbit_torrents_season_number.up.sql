@@ -1,0 +1,28 @@
+-- Story 308: add nullable season_number to qbit_torrents.
+--
+-- The column carries the season parsed from `qbit_torrents.name`
+-- by infrastructure/qbit.ParseSeason — single-season releases
+-- ("Show.S03E07.1080p") yield 3; multi-season packs and full-
+-- series torrents that match no SxxExx pattern yield NULL.
+--
+-- Why a SEPARATE column from torrent_series_map.season_number
+-- (migration 000035, line 56):
+--   * torrent_series_map records the season AS REPORTED by the
+--     authoritative source (webhook / grab_record / Sonarr
+--     queue or history). That row exists only after the
+--     reconciler runs (or the webhook fires).
+--   * qbit_torrents.season_number is a BEST-EFFORT name-parse,
+--     populated on every qBit refresh, so unmapped torrents
+--     still surface a season chip in the UI.
+-- The two can disagree (e.g. Sonarr categorises a "Special" under
+-- season 0 while the release title says S02E13). The DTO consumes
+-- qbit_torrents.season_number because the read path joins on the
+-- torrents table, not the map.
+--
+-- NULLABLE with no default. Existing rows stay NULL until the
+-- per-instance torrentsync loop reaches them on its next tick;
+-- the BatchUpsert column list (story 308 §"DoUpdate column list")
+-- now includes season_number so the existing flush path
+-- populates it without any backfill SQL.
+
+ALTER TABLE qbit_torrents ADD COLUMN season_number integer;

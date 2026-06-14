@@ -56,4 +56,32 @@ describe('<TorrentRow />', () => {
     expect(screen.getByTestId('row-peers').textContent).toBe('—');
     expect(screen.getByTestId('speed-cell-down').textContent).toBe('—');
   });
+
+  it('renders the S{NN} chip in the secondary line when season_number is set', () => {
+    r(<TorrentRow row={{ ...base, season_number: 5 }} />);
+    const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
+    expect(meta?.textContent).toMatch(/S05/);
+  });
+
+  it('omits the season chip when season_number is missing (pack torrent)', () => {
+    // The DTO uses omitempty on the Go side, so a pack torrent
+    // (no parseable season) arrives as a missing property in
+    // TypeScript — equivalent to undefined for the rendering path.
+    const row = { ...base };
+    delete (row as { season_number?: number }).season_number;
+    r(<TorrentRow row={row} />);
+    const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
+    // Only the tracker shows on the secondary line — no SxxExx prefix.
+    expect(meta?.textContent ?? '').not.toMatch(/^S\d/);
+    expect(meta?.textContent).toMatch(/rutracker\.org/);
+  });
+
+  it('omits the season chip when season_number is zero (defensive)', () => {
+    // seasonLabel short-circuits on n <= 0 even if the wire delivers a
+    // 0 — protecting the UI from a hypothetical "Season 0 Specials"
+    // edge case the backend would more correctly report as nil.
+    r(<TorrentRow row={{ ...base, season_number: 0 }} />);
+    const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
+    expect(meta?.textContent ?? '').not.toMatch(/^S\d/);
+  });
 });

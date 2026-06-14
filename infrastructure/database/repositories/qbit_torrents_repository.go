@@ -47,6 +47,7 @@ func (r *QbitTorrentsRepository) Upsert(ctx context.Context, instance string, e 
 			"size_bytes", "total_size", "downloaded", "uploaded",
 			"ratio", "popularity", "time_active_s", "seeding_time_s",
 			"added_on", "completion_on", "last_activity",
+			"season_number",
 			"present", "deleted_at", "updated_at",
 		}),
 	}).Create(&model).Error
@@ -79,6 +80,7 @@ func (r *QbitTorrentsRepository) BatchUpsert(ctx context.Context, instance strin
 				"size_bytes", "total_size", "downloaded", "uploaded",
 				"ratio", "popularity", "time_active_s", "seeding_time_s",
 				"added_on", "completion_on", "last_activity",
+				"season_number",
 				"present", "deleted_at", "updated_at",
 			}),
 		}).CreateInBatches(models, 100).Error
@@ -220,6 +222,10 @@ func modelFromEntry(instance string, e torrentsync.Entry, updatedAt time.Time) d
 		t := info.LastActivity
 		m.LastActivity = &t
 	}
+	if info.SeasonNumber != nil {
+		v := *info.SeasonNumber
+		m.SeasonNumber = &v
+	}
 	return m
 }
 
@@ -267,6 +273,10 @@ func entryFromModel(m database.QbitTorrentModel) torrentsync.Entry {
 	}
 	if m.LastActivity != nil {
 		info.LastActivity = *m.LastActivity
+	}
+	if m.SeasonNumber != nil {
+		v := *m.SeasonNumber
+		info.SeasonNumber = &v
 	}
 	return torrentsync.Entry{
 		Info:                info,

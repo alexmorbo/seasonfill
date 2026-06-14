@@ -5685,6 +5685,15 @@ export type components = {
              */
             readonly ratio?: number;
             readonly save_path?: string;
+            /**
+             * @description SeasonNumber is the season parsed from the torrent name
+             *     by infrastructure/qbit.ParseSeason. Nil/absent when no
+             *     SxxExx pattern matched (pack torrents, multi-season
+             *     compilations, malformed names). Single-season releases
+             *     surface the integer for the UI's "S05" chip.
+             * @example 5
+             */
+            readonly season_number?: number;
             /** @example 3600 */
             readonly seeding_time_seconds?: number;
             /**

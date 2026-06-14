@@ -236,6 +236,10 @@ func mapTorrentRow(r torrentsync.QueryRow) dto.TorrentRow {
 		v := info.TrackerHost
 		row.TrackerHost = &v
 	}
+	if info.SeasonNumber != nil {
+		v := *info.SeasonNumber
+		row.SeasonNumber = &v
+	}
 	if info.SavePath != "" {
 		v := info.SavePath
 		row.SavePath = &v

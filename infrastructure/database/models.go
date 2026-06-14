@@ -916,6 +916,7 @@ type QbitTorrentModel struct {
 	AddedOn      *time.Time `gorm:"column:added_on"`
 	CompletionOn *time.Time `gorm:"column:completion_on"`
 	LastActivity *time.Time `gorm:"column:last_activity"`
+	SeasonNumber *int       `gorm:"column:season_number"`
 	Present      bool       `gorm:"column:present;not null;default:true"`
 	DeletedAt    *time.Time `gorm:"column:deleted_at"`
 	FirstSeenAt  time.Time  `gorm:"column:first_seen_at;not null"`

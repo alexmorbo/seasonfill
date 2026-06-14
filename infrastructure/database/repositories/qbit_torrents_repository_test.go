@@ -94,3 +94,69 @@ func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// TestQbitTorrentsRepository_SeasonNumber_RoundTrip covers Story 308:
+// migration 000039 added qbit_torrents.season_number; modelFromEntry
+// carries it from torrentsync.Entry → model; entryFromModel restores
+// it; the DoUpdate column list includes it so Upsert overwrites the
+// stored value on every refresh.
+func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	r := NewQbitTorrentsRepository(db)
+	ctx := context.Background()
+
+	// Insert a row with SeasonNumber=ptrInt(5).
+	five := 5
+	e := mkEntry("aaaa", "Show.S05E07.1080p.WEB-DL", qbit.StateGroupDownloading)
+	e.Info.SeasonNumber = &five
+	require.NoError(t, r.Upsert(ctx, "alpha", e))
+
+	got, err := r.List(ctx, "alpha")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.NotNil(t, got[0].Info.SeasonNumber)
+	assert.Equal(t, 5, *got[0].Info.SeasonNumber)
+
+	// Re-upsert with SeasonNumber=nil — the DoUpdate column list
+	// includes "season_number" so the row stays nil after this.
+	e2 := mkEntry("aaaa", "Show.Complete.Series.PACK.1080p", qbit.StateGroupDownloading)
+	e2.Info.SeasonNumber = nil
+	require.NoError(t, r.Upsert(ctx, "alpha", e2))
+
+	got, err = r.List(ctx, "alpha")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Nil(t, got[0].Info.SeasonNumber, "nil overrides previous non-nil via DoUpdate column list")
+}
+
+// TestQbitTorrentsRepository_SeasonNumber_BatchUpsertSurvivesAcrossRows
+// asserts BatchUpsert correctly persists distinct season values
+// across rows in the same transaction — the column is in the
+// BatchUpsert DoUpdate list, not just Upsert.
+func TestQbitTorrentsRepository_SeasonNumber_BatchUpsertSurvivesAcrossRows(t *testing.T) {
+	db := setupTestDB(t)
+	r := NewQbitTorrentsRepository(db)
+	ctx := context.Background()
+
+	two, three := 2, 3
+	a := mkEntry("aaaa", "Show.S02E01", qbit.StateGroupSeeding)
+	a.Info.SeasonNumber = &two
+	b := mkEntry("bbbb", "Show.S03E01", qbit.StateGroupSeeding)
+	b.Info.SeasonNumber = &three
+	c := mkEntry("cccc", "Show.PACK", qbit.StateGroupSeeding) // nil season
+
+	require.NoError(t, r.BatchUpsert(ctx, "alpha", []torrentsync.Entry{a, b, c}, time.Now().UTC()))
+	rows, err := r.List(ctx, "alpha")
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	got := map[string]*int{}
+	for _, row := range rows {
+		got[row.Info.Hash] = row.Info.SeasonNumber
+	}
+	require.NotNil(t, got["aaaa"])
+	assert.Equal(t, 2, *got["aaaa"])
+	require.NotNil(t, got["bbbb"])
+	assert.Equal(t, 3, *got["bbbb"])
+	assert.Nil(t, got["cccc"])
+}

@@ -56,9 +56,7 @@ export function TorrentRow({ row, className }: TorrentRowProps) {
   // chip/UI semantics tidy.
   const liveMuted = row.live === false || deleted;
   const tracker = row.tracker_host ?? undefined;
-  // season_number is not (yet) in the OpenAPI for TorrentRow — when
-  // the backend lands it, swap the `undefined` for `row.season_number`.
-  const season = seasonLabel(undefined);
+  const season = seasonLabel(row.season_number);
 
   const pct = Math.min(100, Math.max(0, Math.round((row.progress ?? 0) * 100)));
 

@@ -2494,6 +2494,15 @@ components:
           type: number
         save_path:
           type: string
+        season_number:
+          description: |-
+            SeasonNumber is the season parsed from the torrent name
+            by infrastructure/qbit.ParseSeason. Nil/absent when no
+            SxxExx pattern matched (pack torrents, multi-season
+            compilations, malformed names). Single-season releases
+            surface the integer for the UI's "S05" chip.
+          example: 5
+          type: integer
         seeding_time_seconds:
           example: 3600
           type: integer

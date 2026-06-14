@@ -105,12 +105,14 @@ func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	store.EnsureInstance("alpha")
+	five := 5
 	store.Put("alpha", torrentsync.Entry{
 		Info: qbit.TorrentInfo{
 			Hash: "aaaa", Name: "live", StateRaw: "uploading",
-			StateGroup: qbit.StateGroupSeeding,
-			DlSpeed:    1024,
-			AddedOn:    time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC),
+			StateGroup:   qbit.StateGroupSeeding,
+			DlSpeed:      1024,
+			AddedOn:      time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC),
+			SeasonNumber: &five,
 		},
 		StateGroup: qbit.StateGroupSeeding,
 		SyncedAt:   time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
@@ -150,10 +152,18 @@ func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
 	assert.Equal(t, "aaaa", body.Torrents[0].Hash)
 	assert.True(t, body.Torrents[0].Live)
 	assert.EqualValues(t, 1024, body.Torrents[0].DLSpeed)
+	// Story 308: season_number must surface end-to-end through the
+	// QueryRow → DTO mapping. The parsed season from qbit_torrents
+	// (or the in-memory store's TorrentInfo) lands in the JSON.
+	require.NotNil(t, body.Torrents[0].SeasonNumber, "season_number must propagate from TorrentInfo to wire")
+	assert.Equal(t, 5, *body.Torrents[0].SeasonNumber)
 	// Second row — dead, live cells zeroed.
 	assert.Equal(t, "bbbb", body.Torrents[1].Hash)
 	assert.False(t, body.Torrents[1].Live)
 	assert.EqualValues(t, 0, body.Torrents[1].DLSpeed)
+	// And the DB-only row whose TorrentInfo has nil SeasonNumber
+	// must yield nil/absent on the wire.
+	assert.Nil(t, body.Torrents[1].SeasonNumber, "nil SeasonNumber must surface as absent")
 }
 
 func TestSeriesTorrents_304_OnIfNoneMatch(t *testing.T) {

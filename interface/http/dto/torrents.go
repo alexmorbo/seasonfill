@@ -83,8 +83,14 @@ type TorrentRow struct {
 	Category    *string `json:"category,omitempty"`
 	Tags        *string `json:"tags,omitempty"`
 	TrackerHost *string `json:"tracker_host,omitempty" example:"tracker.example.com"`
-	SavePath    *string `json:"save_path,omitempty"`
-	ContentPath *string `json:"content_path,omitempty"`
+	// SeasonNumber is the season parsed from the torrent name
+	// by infrastructure/qbit.ParseSeason. Nil/absent when no
+	// SxxExx pattern matched (pack torrents, multi-season
+	// compilations, malformed names). Single-season releases
+	// surface the integer for the UI's "S05" chip.
+	SeasonNumber *int    `json:"season_number,omitempty" example:"5"`
+	SavePath     *string `json:"save_path,omitempty"`
+	ContentPath  *string `json:"content_path,omitempty"`
 
 	// StateRaw is the verbatim qBit state token (22 values —
 	// see PRD §4.3); UI tooltip uses this.
