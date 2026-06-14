@@ -107,7 +107,7 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 		EpisodesCount:     castFakeEpisodesCount{count: total},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now:               func() time.Time { return time.Now().UTC() },
-		MediaResolver:     seriesdetail.NewMediaResolver(castHandlerTestMediaLookup{}, slog.New(slog.NewTextHandler(io.Discard, nil))),
+		MediaResolver:     seriesdetail.NewMediaResolver(castHandlerTestMediaLookup{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
 	})
 }
 

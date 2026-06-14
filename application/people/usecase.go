@@ -123,7 +123,8 @@ func NewUseCase(d Deps) *UseCase {
 // the media subsystem wired (tests, boot-time fallback).
 type nopMediaResolver struct{}
 
-func (nopMediaResolver) Resolve(_ context.Context, _ *string, _, _ string) *string { return nil }
+func (nopMediaResolver) Resolve(_ context.Context, _ *string, _, _ string) *string     { return nil }
+func (nopMediaResolver) ResolveSync(_ context.Context, _ *string, _, _ string) *string { return nil }
 
 // Get runs the H-2 workflow for (tmdbID, lang, sort).
 func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey string) (*PersonDetail, error) {
@@ -198,7 +199,13 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 	// Story 315 — resolve TMDB raw paths to sha256 hashes the
 	// frontend can serve via /api/v1/media/:hash. Misses → nil →
 	// monogram fallback. Mirrors seriesdetail.Composer.resolveAssets.
-	out.Person.ProfileAsset = uc.d.MediaResolver.Resolve(ctx, out.Person.ProfileAsset, "w185", "profile_w185")
+	// Story 316 — hero portrait gets a 1.5s sync fetch budget; library
+	// credit posters stay async-only.
+	{
+		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		out.Person.ProfileAsset = uc.d.MediaResolver.ResolveSync(syncCtx, out.Person.ProfileAsset, "w185", "profile_w185")
+		cancel()
+	}
 	for i := range out.LibraryCredits {
 		out.LibraryCredits[i].Canon.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].Canon.PosterAsset, "w342", "poster_w342")
 	}

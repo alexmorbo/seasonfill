@@ -139,9 +139,13 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 		Summary:        buildSeriesSummary(canon),
 	}
 
-	// Story 312: translate the raw TMDB poster path into a sha256 hash so
-	// the wire field matches /api/v1/media/:hash. Miss → nil → monogram.
-	out.Summary.PosterAsset = c.d.MediaResolver.Resolve(ctx, out.Summary.PosterAsset, "w342", "poster_w342")
+	// Story 312 + 316: hero summary poster — sync first-fold fetch with a
+	// 1.5s per-asset budget. Cast/crew profiles stay on async-only Resolve.
+	{
+		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		out.Summary.PosterAsset = c.d.MediaResolver.ResolveSync(syncCtx, out.Summary.PosterAsset, "w342", "poster_w342")
+		cancel()
+	}
 
 	// Step 3 — total_episode_count. One indexed count query.
 	// Failure is non-fatal: zero is a valid value (cold series,

@@ -663,7 +663,10 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	if mediaAssetsRepo != nil {
 		mediaHashLookup = mediaAssetsRepo
 	}
-	seriesDetailMediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, log)
+	// Story 316: enqueuer + fetcher are late-bound via SetSideEffects
+	// after wireEnrichment returns — the media pipeline doesn't exist
+	// yet at this point in boot.
+	seriesDetailMediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, log)
 
 	// Story 215 (G-1) — series detail composer + handlers. The repos
 	// are stateless GORM wrappers around `db`, so re-constructing
@@ -952,6 +955,20 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	// degraded for stub persons.
 	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
 		peopleEnqueuerHolder.set(enrichBundle.Dispatcher)
+	}
+
+	// Story 316 — late-bind the enqueuer + on-demand fetcher onto the
+	// seriesdetail.MediaResolver. Both are nil when the media subsystem
+	// is unwired (no MediaStore + MediaAssets repo); the resolver then
+	// stays in the pre-316 behaviour (sync resolves to nil + no async
+	// enqueue). *appmedia.Enqueuer already satisfies the
+	// seriesdetail.MediaEnqueuer interface shape.
+	if enrichBundle != nil && seriesDetailMediaResolver != nil {
+		var mediaEnq seriesdetail.MediaEnqueuer
+		if enrichBundle.MediaEnqueuer != nil {
+			mediaEnq = enrichBundle.MediaEnqueuer
+		}
+		seriesDetailMediaResolver.SetSideEffects(mediaEnq, enrichBundle.MediaOnDemand)
 	}
 
 	// Register the nightly stale scan into the boot scheduler if cron

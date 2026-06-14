@@ -45,6 +45,11 @@ type EnrichmentBundle struct {
 	// HTTP MediaHandler in main.go uses the SAME proxy for its
 	// lost-object refetch path.
 	MediaHTTP *http.Client
+	// Story 316 — on-demand fetcher for the seriesdetail.MediaResolver
+	// first-fold path. Shares the Downloader's *rate.Limiter so the
+	// global 5 rps cap covers both sync + async. nil-OK (the resolver
+	// silently falls back to async-only).
+	MediaOnDemand appmedia.OnDemandFetcher
 	// 305: true when the OMDb budget guard is backed by the DB
 	// QuotaCounter. main.go uses this to decide whether to register
 	// the legacy `omdb-budget-reset` cron (in-process path) or
@@ -113,6 +118,7 @@ func wireEnrichment(
 	var (
 		mediaEnqueuer   *appmedia.Enqueuer
 		mediaDownloader *appmedia.Downloader
+		mediaOnDemand   appmedia.OnDemandFetcher
 		mediaPrewarmer  appenrich.MediaPrewarmer // nil OK
 	)
 	if repos.MediaAssets != nil && repos.MediaStore != nil {
@@ -127,6 +133,21 @@ func wireEnrichment(
 			return nil, fmt.Errorf("media downloader: %w", err)
 		}
 		mediaPrewarmer = mediaPrewarmerAdapter{eq: mediaEnqueuer}
+		// Story 316 — on-demand fetcher shares the downloader's rate
+		// limiter so the 5 rps cap applies globally across the sync +
+		// async paths. The wiring layer in main.go calls
+		// seriesDetailMediaResolver.SetSideEffects(mediaEnqueuer,
+		// mediaOnDemand) once the bundle returns.
+		mediaOnDemand, err = appmedia.NewOnDemandFetcher(appmedia.OnDemandDeps{
+			Store:      repos.MediaStore,
+			Repo:       repos.MediaAssets,
+			HTTPClient: httpClient,
+			Limiter:    mediaDownloader.Limiter(),
+			Logger:     log,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("media ondemand fetcher: %w", err)
+		}
 	}
 
 	// Story 212: dispatcherHolder breaks the construction cycle
@@ -366,6 +387,7 @@ func wireEnrichment(
 		OMDbBudgetReset:  omdbBudgetReset,
 		MediaEnqueuer:    mediaEnqueuer,
 		MediaDownloader:  mediaDownloader,
+		MediaOnDemand:    mediaOnDemand,
 		MediaHTTP:        httpClient,
 		UsesQuotaCounter: quotaCounter != nil && omdbBudget != nil,
 	}, nil

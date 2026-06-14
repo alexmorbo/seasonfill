@@ -516,7 +516,7 @@ func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
 	const wantHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/abc.jpg": wantHash,
-	}}, newSilentLogger())
+	}}, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -529,7 +529,7 @@ func TestComposer_Get_PosterMissResolvesToNil(t *testing.T) {
 	rawPath := "/abc.jpg"
 	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
 	// Empty lookup table → miss → nil.
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{}}, newSilentLogger())
+	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{}}, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -581,7 +581,7 @@ func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
 		"https://image.tmdb.org/t/p/w154/s1.jpg":     hashSeason,
 		"https://image.tmdb.org/t/p/w185/bryan.jpg":  hashProfile,
 		"https://image.tmdb.org/t/p/w342/rec.jpg":    hashRec,
-	}}, newSilentLogger())
+	}}, nil, nil, newSilentLogger())
 
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")

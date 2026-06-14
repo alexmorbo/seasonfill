@@ -361,7 +361,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	const wantHash = "poster-asset-hash"
 	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/poster.jpg": wantHash,
-	}}, newSilentLogger())
+	}}, nil, nil, newSilentLogger())
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -457,7 +457,7 @@ func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/hero.jpg":  hashPoster,
 		"https://image.tmdb.org/t/p/w185/bryan.jpg": hashCast,
-	}}, newSilentLogger())
+	}}, nil, nil, newSilentLogger())
 
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")

@@ -76,6 +76,8 @@ type PersonEnqueuer interface {
 // MediaResolver narrows seriesdetail.MediaResolver to the methods the
 // people use case calls. Kept as an interface so tests can pass a
 // stub; the wiring layer hands the concrete *seriesdetail.MediaResolver.
+// Story 316 added ResolveSync for the hero portrait on-demand fetch.
 type MediaResolver interface {
 	Resolve(ctx context.Context, rawPath *string, size, kind string) *string
+	ResolveSync(ctx context.Context, rawPath *string, size, kind string) *string
 }

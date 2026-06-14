@@ -727,23 +727,24 @@ func kindFor(s enrichment.Source, base enrichment.Kind) enrichment.Kind {
 // so the resolver looks up the same source URLs the worker enqueues.
 func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 	r := c.d.MediaResolver
-	// Hero — series poster (w342) + backdrop (w1280).
-	d.Canon.PosterAsset = r.Resolve(ctx, d.Canon.PosterAsset, "w342", "poster_w342")
-	d.Canon.BackdropAsset = r.Resolve(ctx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
-	// Networks — w185 logos.
+	// Story 316 — hero gets a 3s wall budget for synchronous on-demand
+	// fetch. Past the budget, ResolveSync short-circuits and falls back
+	// to the async path (still gets the priority enqueue).
+	syncCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	// First-fold (sync): hero poster + backdrop.
+	d.Canon.PosterAsset = r.ResolveSync(syncCtx, d.Canon.PosterAsset, "w342", "poster_w342")
+	d.Canon.BackdropAsset = r.ResolveSync(syncCtx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
+	// Rest (async — priority enqueue, no wait).
 	for i := range d.Networks {
 		d.Networks[i].LogoAsset = r.Resolve(ctx, d.Networks[i].LogoAsset, "w185", "network_logo_w185")
 	}
-	// Seasons — w154 posters. Episodes intentionally untouched (stills are
-	// out of scope: not pre-warmed today; see story §Followups).
 	for i := range d.Seasons {
 		d.Seasons[i].Canon.PosterAsset = r.Resolve(ctx, d.Seasons[i].Canon.PosterAsset, "w154", "season_poster_w154")
 	}
-	// Cast — w185 profiles.
 	for i := range d.Cast {
 		d.Cast[i].Person.ProfileAsset = r.Resolve(ctx, d.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
 	}
-	// Recommendations — w342 posters (same as series grid poster).
 	for i := range d.Recommendations {
 		d.Recommendations[i].Series.PosterAsset = r.Resolve(ctx, d.Recommendations[i].Series.PosterAsset, "w342", "poster_w342")
 	}

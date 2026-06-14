@@ -134,6 +134,11 @@ func (d *Downloader) Close() {
 	d.wg.Wait()
 }
 
+// Limiter returns the shared *rate.Limiter the Downloader uses. The
+// on-demand fetcher (Story 316) must share the limiter so the 5 rps cap
+// applies across both the sync + async paths.
+func (d *Downloader) Limiter() *rate.Limiter { return d.limiter }
+
 func (d *Downloader) runWorker(ctx context.Context, idx int) {
 	defer d.wg.Done()
 	log := d.logger.With(slog.Int("worker_idx", idx))

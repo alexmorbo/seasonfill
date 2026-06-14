@@ -458,12 +458,16 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 }
 
 // recordingResolver is the test stub for apppeople.MediaResolver.
+// Story 316 widened the interface with ResolveSync; we delegate both
+// methods to the same shared call recorder so existing assertions
+// continue to pass even though the use case now routes the hero
+// portrait through ResolveSync.
 type recordingResolver struct {
 	responses map[string]string
 	calls     []string
 }
 
-func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, _ string) *string {
+func (r *recordingResolver) resolveOne(rawPath *string, size string) *string {
 	if rawPath == nil || *rawPath == "" {
 		return nil
 	}
@@ -473,4 +477,12 @@ func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, _ 
 		return &v
 	}
 	return nil
+}
+
+func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, _ string) *string {
+	return r.resolveOne(rawPath, size)
+}
+
+func (r *recordingResolver) ResolveSync(_ context.Context, rawPath *string, size, _ string) *string {
+	return r.resolveOne(rawPath, size)
 }
