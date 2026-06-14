@@ -11,7 +11,13 @@ export interface SeriesCacheItem {
   readonly year?: number;
   readonly network?: string;
   readonly status?: string;
+  // Deprecated by Story 348a — kept one release for FE cutover (349a)
+  // reversibility. Removed by Story 350.
   readonly poster_path?: string;
+  // Content-addressed sha256 hex of the stored hero poster. Story 348a
+  // backend exposes this via the series_cache enrichment join; Story
+  // 349a uses it with mediaUrl() to call /api/v1/media/<hash>.
+  readonly poster_hash?: string;
   readonly monitored: boolean;
   readonly missing_count: number;
   readonly last_grab_at?: string;
