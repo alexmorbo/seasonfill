@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
@@ -33,7 +32,6 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
-	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
@@ -169,34 +167,30 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 
-	// Single shared global limiter pointer (live-reloaded). Seed from the
-	// boot snapshot so the first publish's subscriber diff-skip works.
-	var globalLimiterPtr atomic.Pointer[ratelimit.Limiter]
-	globalLimiterPtr.Store(reload.DefaultGlobalLimiterFactory(
-		cfg.GlobalRateLimit.RPM, cfg.GlobalRateLimit.Burst))
-
-	clientFactory := reload.NewSonarrClientFactory(&globalLimiterPtr, log)
-	sonarrClientsByName := make(map[string]ports.SonarrClient, len(cfg.SonarrInstances))
-	for _, sc := range cfg.SonarrInstances {
-		sonarrClientsByName[sc.Name] = clientFactory(sc)
+	sonarrBundle, err := wiring.BuildSonarr(snap, log)
+	if err != nil {
+		return nil, err
 	}
-	sonarrClients := make([]ports.SonarrClient, 0, len(sonarrClientsByName))
-	scanInstances := make([]scan.Instance, 0, len(sonarrClientsByName))
-	scanInstancesByName := make(map[string]scan.Instance, len(sonarrClientsByName))
-	cfgByName := make(map[string]config.HealthCheckConfig, len(sonarrClientsByName))
-	for _, sc := range cfg.SonarrInstances {
-		c := sonarrClientsByName[sc.Name]
-		sonarrClients = append(sonarrClients, c)
-		si := scan.Instance{Config: sc, Client: c}
-		scanInstances = append(scanInstances, si)
-		scanInstancesByName[sc.Name] = si
-		cfgByName[sc.Name] = config.NewHealthCheckConfig(sc.HealthCheck)
-	}
-	holder := adapters.NewInstanceMapHolder(scanInstancesByName)
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-332 names verbatim so every downstream call
+	// site (healthcheck.New, watchdog.New, scan.NewUseCase, the
+	// reload-aware lookup closures, startSubscribers,
+	// notifyTestContext) keeps working unchanged. holder is exposed
+	// as a *InstanceMapHolder so its pointer identity stays stable
+	// across reload — the OnApplied fanout swaps the inner map via
+	// Replace, never the wrapper. globalLimiterPtr is exposed as a
+	// pointer to the heap-allocated atomic so every consumer (the
+	// ClientFactory closure, GlobalRateLimiterSubscriber, and the
+	// testcontext hook) shares the same cell.
+	clientFactory := sonarrBundle.ClientFactory
+	sonarrClientsByName := sonarrBundle.ClientsByName
+	sonarrClients := sonarrBundle.SonarrClients
+	scanInstances := sonarrBundle.ScanInstances
+	cfgByName := sonarrBundle.CfgByName
+	holder := sonarrBundle.Holder
+	instanceReg := sonarrBundle.InstanceReg
+	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
 
-	// Registry is constructed ONCE here. checker.Registry() returns a
-	// stable pointer for the life of the process; the reload subscriber
-	// mutates membership via ReplaceClients, NOT by replacing the pointer.
 	checker := healthcheck.New(db, sonarrClients)
 
 	rootCtx, rootCancel := context.WithCancel(ctx)
@@ -346,12 +340,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		},
 	})
 
-	// Single registry value the reload bus drives via instanceMapHolder.
-	// holder.load is invoked per-request by InstancesHandler /
-	// GrabHandler / WebhookHandler — they see every Sonarr added or
-	// removed via Settings UI without a pod restart.
-	instanceReg := handlers.InstanceRegistry{Load: holder.Load}
-
 	webhookStatusCache := webhookinstall.NewStatusCache()
 	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
 		Lookup:    adapters.NewWebhookReconcileLookup(instanceReg),
@@ -395,7 +383,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	noBetterCounterRepo := repositories.NewNoBetterCounterRepository(db)
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
-		adapters.NewRegrabInstanceRegistry(instanceReg),
+		sonarrBundle.InstanceRegistry,
 		infraregrab.QbitClientFactoryFunc{},
 		infraregrab.DetectorFactoryFunc{},
 		grabRepo, cooldownRepo, blacklistRepo, noBetterCounterRepo,
@@ -808,7 +796,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		scanUC, sonarrClientsByName,
 		clientFactory, checker, wd, holder, sweeper,
 		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
-		&globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
+		globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
 		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
@@ -1038,7 +1026,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// notifyTestContext fires testContextHook (integration builds only) so
 	// E2E tests can assert per-subscriber state. The call is a no-op in
 	// production builds (testcontext_stub.go provides the empty function).
-	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.Load, checker.Snapshot)
+	notifyTestContext(bus, subSched, subClients, authRuntimePtr, globalLimiterPtr, holder.Load, checker.Snapshot)
 
 	// Construction succeeded — disarm the bus.Close + rootCancel defers
 	// so the Server owns these resources until Shutdown.
