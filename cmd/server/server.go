@@ -22,18 +22,14 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// Options carries optional construction-time hooks. OnReady mirrors the
-// existing runWithContext onReady callback used by E2E tests to detect
-// "bus is wired". It fires from Run, AFTER the boot snapshot has been
-// published and BEFORE the HTTP serve goroutine starts — same temporal
-// position as the original runWithContext implementation.
+// Options carries optional construction-time hooks. OnReady fires from
+// Run after the boot snapshot is published and before HTTP starts —
+// E2E tests use it to detect "bus is wired".
 type Options struct {
 	OnReady func(*runtime.Bus)
 }
 
 // Server is the seasonfill composition root + lifecycle driver.
-// Fields are the subset of locals from the original runWithContext that
-// the HTTP-serve loop and shutdown ladder need to access.
 type Server struct {
 	log        *slog.Logger
 	cfg        wiring.HTTPServeConfig
@@ -52,17 +48,9 @@ type Server struct {
 	onReady      func(*runtime.Bus)
 }
 
-// New wires the server. The body below is the verbatim lift-and-shift of
-// runWithContext from `bootCfg, err := config.FromEnv()` through
-// `notifyTestContext(...)`. The HTTP serve goroutine + signal-select +
-// shutdown ladder move to Run/Shutdown. Every `// Story XXX` comment is
-// preserved as institutional knowledge per B-11 design doc §1.3.
-//
-// On error returns after `bus` and `rootCancel` are created the original
-// code relied on `defer bus.Close()` + `defer rootCancel()` at function
-// return. We preserve that semantic with an `armed` sentinel: defers fire
-// on early error returns, but are disarmed on the successful return so
-// the bus and rootCancel survive into Shutdown.
+// New wires the server. The `armed` sentinel ensures bus.Close +
+// rootCancel defers fire on early error returns but are disarmed on
+// success so the resources survive into Shutdown.
 func New(ctx context.Context, opts Options) (*Server, error) {
 	bootCfg, err := config.FromEnv()
 	if err != nil {
@@ -82,27 +70,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). Subsequent B-11 stories
-	// will progressively retire these as wirers absorb the dependent
-	// blocks. After story 337, instanceRepo no longer needs rebinding —
-	// the qbitSettingsUC + watchdogInstanceAdapter + qbitLoader call sites
-	// all moved into wiring.BuildRegrab, which reads the repo from the
-	// persistence bundle directly. runtimeRepo retired with story 344:
-	// wiring.StartSubscribers reads it from the persistence bundle directly.
-	// appSettingsRepo is intentionally NOT rebound: it has no direct
-	// reference in the surviving body — story 330+ consumers reach it
-	// via persistence.AppSettingsRepo. cipher was retired with story
-	// 339: the last consumer (infraextsvc.NewRepository) moved into
-	// wiring.BuildExtSvc, which reads it from the persistence bundle.
+	// Surviving locals: db feeds the C-2 repo constructors below;
+	// quotaCounter is handed to BuildEnrichment. All other persistence
+	// fields are consumed by downstream wirers via the bundle.
 	db := persistence.DB
 	quotaCounter := persistence.QuotaCounter
-	// timezoneHandler retired into wiring.BuildHTTPServer (story 342).
 
-	// Bus is constructed BEFORE BuildRuntimeConfig (story 330 reorder)
-	// so the wirer can take *runtime.Bus as input and own the runtime
-	// config UC construction. The `armed` sentinel mirrors the pre-330
-	// pattern: defer fires bus.Close on every early error return; the
-	// success path at the bottom of New() disarms before returning.
+	// Bus is constructed BEFORE BuildRuntimeConfig so the wirer can
+	// take *runtime.Bus as input and own the runtime config UC.
 	bus := runtime.NewBus(log)
 	armed := true
 	defer func() {
@@ -115,81 +90,48 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-330 names verbatim so every downstream call site
-	// (httpserver.NewServer, wiring.StartSubscribers, scheduler factory,
-	// webhookReconciler, etc.) keeps working unchanged.
+	// snap is republished after subscribers start; cfg feeds Build* calls
+	// + Run/Shutdown via s.cfg.
 	snap := runtimecfg.Snap
-	// runtimeConfigHandler retired into wiring.BuildHTTPServer (story 342).
 	cfg := runtimecfg.ServeConfig
 
 	auth, err := wiring.BuildAuth(ctx, persistence, bootCfg, bus, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-331 names verbatim so every downstream call site
-	// (httpserver.NewServer, OIDCProviderSubscriber) keeps working
-	// unchanged.
-	// adminRepo / oidcUC / loginLimiter / webhookLimiter retired into
-	// wiring.BuildHTTPServer (story 342). oidcCache is still consumed by
-	// the OIDCProviderSubscriber below.
+	// oidcCache feeds the OIDCProviderSubscriber spawn below.
 	oidcCache := auth.OIDCCache
 
 	sonarrBundle, err := wiring.BuildSonarr(snap, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-332 names verbatim so every downstream call
-	// site (healthcheck.New, watchdog.New, scan.NewUseCase, the
-	// reload-aware lookup closures, wiring.StartSubscribers,
-	// notifyTestContext) keeps working unchanged. holder is exposed
-	// as a *InstanceMapHolder so its pointer identity stays stable
-	// across reload — the OnApplied fanout swaps the inner map via
-	// Replace, never the wrapper. globalLimiterPtr is exposed as a
-	// pointer to the heap-allocated atomic so every consumer (the
-	// GlobalRateLimiterSubscriber and the testcontext hook) shares
-	// the same cell. clientFactory + ClientsByName retired with story
-	// 344: wiring.StartSubscribers reads them from sonarrBundle directly.
+	// holder.Load is captured by the webhook reconcile loop closure;
+	// globalLimiterPtr is shared with notifyTestContext. Both pointer
+	// identities must stay stable across reload (OnApplied swaps the
+	// inner cells, never the wrappers).
 	holder := sonarrBundle.Holder
-	// instanceReg retired into wiring.BuildHTTPServer (story 342).
 	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
 
 	watchdogBundle, err := wiring.BuildWatchdog(persistence, sonarrBundle, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-333 names verbatim so every downstream call site
-	// (scan.UseCase.WithHealthRegistry, httpserver.NewServer,
-	// wiring.StartSubscribers, notifyTestContext) keeps working unchanged.
-	// The lifecycle.Go spawns below address checker.Run / wd.Run via
-	// these aliases — the bundle itself is stored on the Server so
-	// future Shutdown wiring can reach the same handles via
-	// s.watchdog.
+	// checker + wd are spawned on the lifecycle group below; the bundle
+	// itself is also stored on the Server for Shutdown reach.
 	checker := watchdogBundle.Checker
 	wd := watchdogBundle.Watchdog
 
 	rootCtx, rootCancel := context.WithCancel(ctx)
-	// `defer rootCancel()` in the original fired on every return.
-	// Mirror the bus pattern: error returns cancel, success path
-	// transfers ownership to the Server.
 	defer func() {
 		if armed {
 			rootCancel()
 		}
 	}()
 
-	// M-9: track every background goroutine so we can wait for them to exit
-	// before closing the DB handle below.
-	//
-	// bgWG is retained for cross-package wiring that still expects
-	// *sync.WaitGroup (scan.UseCase.WithWaitGroup, newRegrabLoop,
-	// newTorrentsyncLoop, wiring.StartSubscribers, SonarrClientsSubscriber).
-	// lifecycle owns the inline goroutines spawned directly from
-	// Server.New (B-11 step 3 / story 325). Both are drained in
-	// Shutdown — see the ladder at the end of this file.
+	// M-9: track every background goroutine for shutdown drain.
+	// bgWG covers cross-package wiring that expects *sync.WaitGroup;
+	// lifecycle owns inline goroutines spawned from Server.New.
 	var bgWG sync.WaitGroup
 	lifecycle := newLifecycleGroup(log)
 
@@ -206,25 +148,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-334 names verbatim so every downstream call site
-	// (httpserver.NewServer, webhook UC Deps, scheduler.Start, startup
-	// scan goroutine, the regrab use case, the reload subscribers,
-	// waitForScans) keeps working unchanged. seriesRepo / seriesCacheRepo
-	// / counterRepo are constructed here because BuildScan uses
-	// seriesRepo / seriesCacheRepo internally but does not re-expose
-	// them on the bundle (they are stateless GORM wrappers; downstream
-	// call sites each get their own instance). counterRepo is unrelated
-	// to the scan stack but was historically constructed in the same
-	// block; it stays here.
+	// txr feeds BuildEnrichment; scanUC + scanRepo are stored on the Server
+	// for Shutdown's waitForScans; sweeper spawns on the lifecycle group.
 	scanRepo := scanBundle.ScanRepo
-	// decisionRepo / grabRepo / cooldownRepo / grabUC / rescanUC retired
-	// into wiring.BuildHTTPServer (story 342). txr + scanUC stay — both
-	// are consumed by surviving server.go body code.
 	txr := scanBundle.Txr
 	scanUC := scanBundle.ScanUC
 	sweeper := scanBundle.Sweeper
 
+	// seriesRepo / seriesCacheRepo / counterRepo are stateless GORM
+	// wrappers — each call site gets its own. seriesCacheRepo +
+	// counterRepo are still consumed by BuildHTTPServer below.
 	seriesRepo := repositories.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
@@ -233,21 +166,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-335 names verbatim so every downstream call site
-	// (instance.New().WithWebhookReconciler / WithWebhookStatusCache,
-	// httpserver.NewServer, loops.NewWebhookReconcileLoop,
-	// webhooksAggregateHandler) keeps working unchanged.
-	//
-	// TorrentSeriesMapRepo is intentionally NOT rebound — story 338
-	// moved torrentsync.NewReconciler + torrentsync.NewQuery into
-	// wiring.BuildTorrentsync, which reads the repo from webhookBundle
-	// directly. EpisodeStatesRepo is intentionally NOT rebound: no
-	// surviving server.go code references it directly (the Syncer
-	// captures it inside the bundle).
-	// webhookUC retired into wiring.BuildHTTPServer (story 342).
-	// webhookReconciler + webhookStatusCache stay — both feed the
-	// WebhookReconcileLoop below + the instance.New decorator.
+	// reconciler + statusCache feed loops.NewWebhookReconcileLoop below.
 	webhookReconciler := webhookBundle.Reconciler
 	webhookStatusCache := webhookBundle.StatusCache
 
@@ -255,41 +174,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields preserve
-	// the pre-336 names verbatim so every downstream call site
-	// (httpserver.NewServer for instanceCRUDHandler / instanceProbeHandler,
-	// notifyTestContext) keeps working unchanged. The UC alias is kept for
-	// future stories that may need the handle directly from server.go (none
-	// in the surviving body — the CRUD handler is the only consumer).
-	// instanceCRUDHandler / instanceProbeHandler retired into
-	// wiring.BuildHTTPServer (story 342).
-	instanceUC := instanceBundle.UC
-	_ = instanceUC // reserved — see godoc
 
 	regrabBundle, err := wiring.BuildRegrab(persistence, sonarrBundle, scanBundle, webhookBundle, &bgWG, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-337 names verbatim so every downstream call site
-	// (httpserver.NewServer for the four watchdog handlers + qbit settings
-	// handler + webhooks aggregate handler, wiring.StartSubscribers for
-	// regrabBundle) keeps working unchanged. qbitSettingsUC /
-	// blacklistRepo / noBetterCounterRepo / regrabUC are intentionally
-	// NOT rebound — no surviving server.go body code references them
-	// directly (story 338 moved the torrentsyncFactory lookup site into
-	// wiring.BuildTorrentsync; the rollup handler captures blacklistRepo
-	// inside BuildRegrab; the regrab use case is owned by the RegrabLoop
-	// and consumed via SwapSettings through regrabLoopVal).
-	// qbitSettingsHandler retired into wiring.BuildHTTPServer (story 342).
-	// qbitLoader retired with story 344: wiring.StartSubscribers reads it
-	// from regrabBundle directly.
-	regrabLoopVal := regrabBundle.RegrabLoop
-
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
-	// is called from the OnApplied fanout below. The constructor moved to
-	// BuildRegrab in story 337; only the rootCtx-bearing .Start lives here.
-	regrabLoopVal.Start(rootCtx)
+	// fires from the OnApplied fanout in wiring.StartSubscribers. Only
+	// the rootCtx-bearing .Start lives here.
+	regrabBundle.RegrabLoop.Start(rootCtx)
 
 	torrentsyncBundle, err := wiring.BuildTorrentsync(
 		persistence, sonarrBundle, scanBundle, webhookBundle, regrabBundle, &bgWG, log,
@@ -297,53 +190,24 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-338 names verbatim so every downstream call site
-	// (httpserver.NewServer for seriesTorrentsHandler, wiring.StartSubscribers
-	// for torrentsyncBundle) keeps working unchanged. Other bundle
-	// fields (Store / Policy / Factory / Reconciler / UC / Query) are
-	// not referenced by the surviving body — they live entirely inside
-	// BuildTorrentsync now.
-	// seriesTorrentsHandler retired into wiring.BuildHTTPServer (story 342).
-	// torrentsyncLoopVal retired with story 344: wiring.StartSubscribers reads
-	// torrentsyncBundle directly. The local stays for Start() below.
-	torrentsyncLoopVal := torrentsyncBundle.Loop
-
-	// 220 (A-2) — torrentsync loop's Start needs rootCtx (owned by
-	// server.go, not the wirer). Same pattern as regrabLoopVal.Start
-	// above (story 337).
-	torrentsyncLoopVal.Start(rootCtx)
-
-	// 047a/047b/098a + webhooks aggregate handler — moved to wiring.BuildRegrab
-	// (story 337). Rebind for the remainder of New() so the httpserver.NewServer
-	// call below keeps the pre-337 names verbatim.
-	// watchdogRollupHandler / watchdogBlacklistHandler /
-	// watchdogSeasonsHandler / webhooksAggregateHandler retired into
-	// wiring.BuildHTTPServer (story 342).
+	// torrentsync loop's Start needs rootCtx (owned by server.go, not
+	// the wirer). Same pattern as regrabBundle.RegrabLoop.Start above.
+	torrentsyncBundle.Loop.Start(rootCtx)
 
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-339 names verbatim so every downstream call site
-	// (httpserver.NewServer for externalServicesHandler, the
-	// extSub.Start(rootCtx, nil) prime below) keeps working unchanged.
-	// The extUC alias is intentionally NOT rebound — no surviving
-	// server.go code references it directly; it lives inside the bundle.
+	// extSub is primed below so TMDB settings are available before
+	// BuildEnrichment runs.
 	extSub := extSvcBundle.Sub
-	// externalServicesHandler retired into wiring.BuildHTTPServer (story 342).
 
 	mediaBundle, err := wiring.BuildMedia(rootCtx, persistence, bootCfg, log)
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-339 names verbatim so every downstream call site
-	// (httpserver.NewServer for mediaHandler, wiring.EnrichmentRepoBundle for
-	// MediaAssets + MediaStore, the seriesdetail MediaResolver fallback,
-	// the gc weekly job, the SetOnDemandFetcher late-bind below) keeps
-	// working unchanged.
+	// Store + AssetsRepo feed the EnrichmentRepoBundle below; Handler is
+	// the late-bind target for SetOnDemandFetcher.
 	mediaStoreImpl := mediaBundle.Store
 	mediaAssetsRepo := mediaBundle.AssetsRepo
 	mediaHandler := mediaBundle.Handler
@@ -352,20 +216,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Rebind locals for the remainder of New(). The bundle's fields
-	// preserve the pre-340 names verbatim so every downstream call site
-	// (httpserver.NewServer for the 5 series-detail handlers, the LATE
-	// BIND ZONE block below that injects the enrichment dispatcher into
-	// the people holder and the media side-effects onto the resolver)
-	// keeps working unchanged. Composer / CastComposer / PeopleUC /
-	// SeriesRefreshUC are intentionally NOT rebound — no surviving
-	// server.go code references them directly; their handler wrappers
-	// are the only consumers.
-	// seriesDetailHandler / seriesSeasonHandler / seriesCastHandler /
-	// peopleHandler / seriesRefreshHandler retired into
-	// wiring.BuildHTTPServer (story 342). seriesDetailMediaResolver +
-	// peopleEnqueuerHolder stay — both are consumed by the LATE BIND
-	// ZONE below.
+	// MediaResolver + PersonEnqueuerHolder are late-bound below once
+	// BuildEnrichment has returned (the dispatcher / on-demand fetcher
+	// don't exist at BuildSeriesDetail's call point).
 	seriesDetailMediaResolver := seriesDetailBundle.MediaResolver
 	peopleEnqueuerHolder := seriesDetailBundle.PersonEnqueuerHolder
 
@@ -377,21 +230,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesCacheRepo, counterRepo, log,
 	)
 
-	// Cooldown sweep loop — removes expired rows so the table stays
-	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
-	// SetInterval whenever a new snapshot publishes a different
-	// Scan.CooldownSweep, so changes via the runtime config UI take
-	// effect without a pod restart. The loop itself is constructed
-	// by BuildScan (story 334); we only spawn it here on the
-	// lifecycle group so Shutdown can drain it.
+	// Cooldown sweep — reload-aware cadence via SetInterval from the
+	// OnApplied fan-out. Constructed in BuildScan; spawned here so
+	// Shutdown can drain via the lifecycle group.
 	lifecycle.Go(rootCtx, "cooldown-sweeper", func(ctx context.Context) {
 		sweeper.Run(ctx)
 	})
 
-	// Phase 11 — background webhook reconcile safety net (041d).
-	// The closure over holder.load is reload-aware: every publish
-	// swaps the underlying map, so newly-added Sonarr instances
-	// appear in the next tick without their own subscriber.
+	// Phase 11 — webhook reconcile safety net (041d). The closure
+	// over holder.Load is reload-aware: every publish swaps the inner
+	// map so newly-added instances appear in the next tick.
 	webhookReconcileLoopVal := loops.NewWebhookReconcileLoop(
 		webhookReconciler,
 		webhookStatusCache,
@@ -402,16 +250,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		webhookReconcileLoopVal.Run(ctx)
 	})
 
-	// Story 202 (S-2) — external services subscriber. Primes its cache
-	// eagerly so the first Phase C/D client.Get() works before any bus
-	// publish. No new barrier channel is added to wiring.StartSubscribers
-	// because downstream consumers (Phase C/D) don't exist yet; the
-	// boot publish below still flows through the subscriber's bus
-	// channel and triggers a second apply.
+	// Story 202 (S-2) — prime extSub eagerly so TMDB settings are
+	// available before BuildEnrichment runs. The boot publish below
+	// triggers a second apply through the subscriber's bus channel.
 	extSub.Start(rootCtx, nil)
 
-	// Story 211 (C-2) repositories — used by the enrichment dispatcher
-	// + nightly stale scan. seriesRepo already exists above.
+	// Story 211 (C-2) repositories — fed to the enrichment dispatcher.
 	seriesTextsRepo := repositories.NewSeriesTextsRepository(db)
 	seasonsRepo := repositories.NewSeasonsRepository(db)
 	episodesRepo := repositories.NewEpisodesRepository(db)
@@ -434,10 +278,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	personCreditsRepo := repositories.NewPersonCreditsRepository(db)
 	coldStartScanner := wiring.NewColdStartScannerAdapter(seriesRepo)
 
-	// Story 211 (C-2) — wire enrichment dispatcher. extSub is primed,
-	// so TMDB settings are available. wiring.BuildEnrichment returns
-	// a nil dispatcher when TMDB is disabled / unconfigured (boot
-	// stays green on a fresh install).
+	// Story 211 (C-2) — enrichment dispatcher. BuildEnrichment returns
+	// a nil dispatcher when TMDB is disabled (boot stays green).
 	enrichRepos := wiring.EnrichmentRepoBundle{
 		Series:            seriesRepo,
 		SeriesTexts:       seriesTextsRepo,
@@ -468,31 +310,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 
 	// ───────── LATE BIND ZONE ─────────
-	// The three callsites below depend on wiring.BuildEnrichment having returned
-	// (enrichBundle must exist). They STAY in server.go — the wirers that
-	// constructed the holders (BuildSeriesDetail for the people enqueuer
-	// + the seriesdetail MediaResolver; BuildMedia for the MediaHandler)
-	// cannot self-bind because the enrichment pipeline doesn't exist at
-	// their construction point. Each callsite reads the holder from its
-	// bundle and writes the dispatcher / fetcher into it; the holders are
-	// nil-OK so a disabled enrichment / media subsystem keeps the boot
-	// path green.
+	// The three callsites below need enrichBundle (its dispatcher /
+	// fetcher / enqueuer don't exist at BuildSeriesDetail / BuildMedia
+	// time). All holders are nil-safe so a disabled enrichment / media
+	// subsystem keeps the boot path green.
 
-	// Story 217 (H-2) — late-bind the dispatcher into the people use
-	// case's enqueuer holder. enrichBundle.Dispatcher is nil when
-	// enrichment is disabled (cold boot / dev mode); the holder
-	// no-ops on nil so the use case continues to return 200 +
-	// degraded for stub persons.
+	// Story 217 (H-2) — dispatcher into the people enqueuer holder.
 	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
 		peopleEnqueuerHolder.Set(enrichBundle.Dispatcher)
 	}
 
-	// Story 316 — late-bind the enqueuer + on-demand fetcher onto the
-	// seriesdetail.MediaResolver. Both are nil when the media subsystem
-	// is unwired (no MediaStore + MediaAssets repo); the resolver then
-	// stays in the pre-316 behaviour (sync resolves to nil + no async
-	// enqueue). *appmedia.Enqueuer already satisfies the
-	// seriesdetail.MediaEnqueuer interface shape.
+	// Story 316 — enqueuer + on-demand fetcher onto the MediaResolver.
 	if enrichBundle != nil && seriesDetailMediaResolver != nil {
 		var mediaEnq seriesdetail.MediaEnqueuer
 		if enrichBundle.MediaEnqueuer != nil {
@@ -501,22 +329,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesDetailMediaResolver.SetSideEffects(mediaEnq, enrichBundle.MediaOnDemand)
 	}
 
-	// Story 321 — late-bind the on-demand fetcher onto the MediaHandler
-	// so GET /api/v1/media/:hash can synchronously fill pending rows on
-	// a cache miss. enrichBundle.MediaOnDemand is nil when the media
-	// subsystem is unwired; the handler stays on the embedded SVG
-	// placeholder path in that case.
+	// Story 321 — on-demand fetcher onto the MediaHandler so cache-miss
+	// reads can synchronously fill pending rows.
 	if enrichBundle != nil && mediaHandler != nil && enrichBundle.MediaOnDemand != nil {
 		mediaHandler.SetOnDemandFetcher(enrichBundle.MediaOnDemand)
 	}
 	// ───────── END LATE BIND ZONE ─────────
 
-	// Build the boot scheduler + factory (story 341). Construction is
-	// after wiring.BuildEnrichment so the four enrichment-derived job closures
-	// are ready; the wirer Registers every cron job before returning
-	// so the caller only owns Start. The factory is captured by the
-	// reload SchedulerSubscriber via wiring.StartSubscribers below; the
-	// bootScheduler pointer is rebound for the Start call further down.
+	// Boot scheduler — constructed after BuildEnrichment so the four
+	// enrichment-derived job closures are ready. BuildScheduler Registers
+	// every cron job before returning; caller owns Start() below.
 	schedulerBundle, err := wiring.BuildScheduler(persistence, mediaBundle, cfg,
 		wiring.SchedulerEnrichmentJobs{
 			Nightly:          enrichBundle.Nightly,
@@ -529,12 +351,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	bootScheduler := schedulerBundle.BootScheduler
 
-	// Pull the AuthRuntime pointer out of the http server's auth
-	// handler so we can hand it to the reload subscriber.
-	authHandler := httpServer.AuthHandler()
+	// AuthRuntime pointer feeds the reload subscriber (auth config swap).
 	var authRuntimePtr *middleware.AuthRuntimePointer
-	if authHandler != nil {
-		authRuntimePtr = authHandler.AuthRuntime()
+	if h := httpServer.AuthHandler(); h != nil {
+		authRuntimePtr = h.AuthRuntime()
 	}
 
 	subSched, subClients, err := wiring.StartSubscribers(
@@ -563,9 +383,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	oidcProviderSub := reload.NewOIDCProviderSubscriber(oidcCache, log)
 	go oidcProviderSub.Run(rootCtx, bus, func() {})
 
-	// Start the boot scheduler now that all jobs are registered. The
-	// legacy Start(ctx, scanUC) wrapper internally Register(ScanJobName)
-	// + StartRegistered.
+	// Start the boot scheduler. Start(ctx, scanUC) internally
+	// Register(ScanJobName) + StartRegistered.
 	if bootScheduler != nil {
 		if err := bootScheduler.Start(rootCtx, scanUC); err != nil {
 			return nil, fmt.Errorf("start scheduler: %w", err)
@@ -579,16 +398,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		}
 	}
 
-	// Story 212 + 318 — cold-start backfill loop. Background
-	// goroutine: scan series rows missing sync_log(tmdb_series)
-	// and enqueue at PriorityCold, then re-sweep every
-	// Enrichment.ColdStartResweepInterval (default 60s) for the
-	// lifetime of the process. Picks up rows the dispatcher had
-	// to drop on a saturated cold channel during the previous
-	// sweep. Runs AFTER dispatcher.Start (inside wiring.BuildEnrichment)
-	// + bootScheduler.Start so every consumer is alive.
-	// bgWG.Add(1) keeps shutdown waiting for the goroutine to
-	// exit on rootCtx cancellation.
+	// Story 212 + 318 — cold-start backfill loop. Re-sweeps every
+	// ColdStartResweepInterval (default 60s) to pick up rows the
+	// dispatcher had to drop on a saturated cold channel. Runs AFTER
+	// dispatcher.Start + bootScheduler.Start so every consumer is alive.
 	if enrichBundle != nil && enrichBundle.ColdStart != nil {
 		lifecycle.Go(rootCtx, "cold-start-backfill", func(ctx context.Context) {
 			enrichBundle.ColdStart(ctx)
@@ -599,13 +412,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// — they all apply it once and increment their success metric.
 	bus.Publish(rootCtx, snap)
 
-	// notifyTestContext fires testContextHook (integration builds only) so
-	// E2E tests can assert per-subscriber state. The call is a no-op in
-	// production builds (testcontext_stub.go provides the empty function).
+	// No-op in production (testcontext_stub.go); E2E builds use it to
+	// assert per-subscriber state.
 	notifyTestContext(bus, subSched, subClients, authRuntimePtr, globalLimiterPtr, holder.Load, checker.Snapshot)
 
-	// Construction succeeded — disarm the bus.Close + rootCancel defers
-	// so the Server owns these resources until Shutdown.
+	// Disarm defers — Server owns bus + rootCancel until Shutdown.
 	armed = false
 	return &Server{
 		log:          log,
@@ -625,10 +436,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}, nil
 }
 
-// Run fires the OnReady hook (same temporal position as the original
-// runWithContext) then starts the HTTP server and blocks until ctx is
-// cancelled or the HTTP server returns. Always calls Shutdown before
-// returning.
+// Run fires OnReady, starts the HTTP server, and blocks until ctx is
+// cancelled or the server returns. Always calls Shutdown before exit.
 func (s *Server) Run(ctx context.Context) error {
 	if s.onReady != nil {
 		s.onReady(s.bus)
@@ -647,9 +456,9 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.Shutdown(ctx)
 }
 
-// Shutdown drains HTTP server, enrichment pipeline, scheduler, in-flight
-// scans, background goroutines, then closes the DB handle and the reload
-// bus — in the same order as the original runWithContext shutdown ladder.
+// Shutdown drains HTTP, enrichment, scheduler, in-flight scans, and
+// background goroutines, then closes the DB handle and the reload bus.
+// Ordering matches the original runWithContext shutdown ladder.
 func (s *Server) Shutdown(parentCtx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -658,14 +467,12 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 		s.log.Error("http shutdown error", slog.String("error", err.Error()))
 	}
 
-	// Story 211 — stop enrichment dispatcher BEFORE the scheduler so
-	// the in-flight series worker drains before the cron tears down.
+	// Story 211 — stop dispatcher BEFORE scheduler so in-flight series
+	// worker drains before cron tears down. Story 214 — drain media
+	// pre-warm AFTER dispatcher closes (no more new enqueues).
 	if s.enrichBundle != nil && s.enrichBundle.Dispatcher != nil {
 		s.enrichBundle.Dispatcher.Close()
 	}
-	// Story 214 (F-1) — drain the media pre-warm pipeline AFTER the
-	// dispatcher closes (no more new pre-warm enqueues will land) so
-	// the downloader exits cleanly.
 	if s.enrichBundle != nil && s.enrichBundle.MediaEnqueuer != nil {
 		s.enrichBundle.MediaEnqueuer.Close()
 	}
@@ -688,12 +495,9 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	waitForScans(parentCtx, s.scanUC, s.scanRepo, s.log, grace)
 	s.rootCancel()
 
-	// M-9: drain background goroutines before closing the DB handle.
-	// lifecycle covers the 5 inline goroutines spawned by Server.New
-	// (healthcheck, watchdog, cooldown-sweeper, webhook-reconcile,
-	// cold-start-backfill). bgWG covers cross-package wiring
-	// (scan.UseCase, regrabLoop, torrentsyncLoop, wiring.StartSubscribers,
-	// SonarrClientsSubscriber) — migrating those is a follow-up.
+	// M-9: drain goroutines before closing DB. lifecycle = the 5 inline
+	// spawns; bgWG = cross-package wiring (scan.UseCase, regrabLoop,
+	// torrentsyncLoop, StartSubscribers).
 	if err := s.lifecycle.Drain(10 * time.Second); err != nil {
 		s.log.Warn("lifecycle drain timed out", slog.String("error", err.Error()))
 	}
@@ -702,9 +506,7 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	if sqlDB, err := s.persistence.DB.DB(); err == nil {
 		_ = sqlDB.Close()
 	}
-	// Close the reload bus last — the original runWithContext relied on
-	// `defer bus.Close()` to fire after the shutdown ladder; we preserve
-	// that ordering explicitly here.
+	// Reload bus closes last — matches the original defer ordering.
 	s.bus.Close()
 	s.log.Info("seasonfill stopped cleanly")
 	return nil
