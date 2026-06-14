@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
-// runAuthMode implements `seasonfill auth-mode`. Two modes (mutually
+// AuthMode implements `seasonfill auth-mode`. Two modes (mutually
 // exclusive):
 //
 //	--get          print current auth mode + exit 0
@@ -30,7 +30,7 @@ import (
 // on a row already in forms still bumps the epoch (the operator is
 // explicitly invalidating live sessions, that's the whole point of
 // the rescue command).
-func runAuthMode(args []string) error {
+func AuthMode(args []string) error {
 	fs := flag.NewFlagSet("auth-mode", flag.ContinueOnError)
 	getMode := fs.Bool("get", false, "Print the current auth mode")
 	setVal := fs.String("set", "", "Set the auth mode (forms|basic|none)")

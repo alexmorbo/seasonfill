@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
@@ -23,9 +24,9 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
-// runReparseCLI entry point for the CLI command. Initializes DB and
-// Sonarr clients, then delegates to runReparseInternal.
-func runReparseCLI(ctx context.Context, args []string) error {
+// Reparse is the CLI entry point for `seasonfill grabs reparse`.
+// Initializes DB and Sonarr clients, then delegates to reparseInternal.
+func Reparse(ctx context.Context, args []string) error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return fmt.Errorf("load bootstrap config: %w", err)
@@ -71,7 +72,7 @@ func runReparseCLI(ctx context.Context, args []string) error {
 	// Build Sonarr clients. Use unlimited rate limiting for CLI.
 	var globalLimiterPtr atomic.Pointer[ratelimit.Limiter]
 	globalLimiterPtr.Store(ratelimit.NewFromRPMWithOptions(0, 0))
-	clientFactory := buildSonarrClientFactory(&globalLimiterPtr, log)
+	clientFactory := reload.NewSonarrClientFactory(&globalLimiterPtr, log)
 	sonarrClientsByName := make(map[string]ports.SonarrClient, len(instances))
 	for _, sc := range instances {
 		sonarrClientsByName[sc.Name] = clientFactory(sc)
@@ -83,15 +84,15 @@ func runReparseCLI(ctx context.Context, args []string) error {
 	}
 
 	grabRepo := repositories.NewGrabRepository(db)
-	return runReparseInternal(ctx, args, grabRepo, clientFor, log)
+	return reparseInternal(ctx, args, grabRepo, clientFor, log)
 }
 
-// runReparseInternal implements `seasonfill grabs reparse --since=<dur>` —
+// reparseInternal implements `seasonfill grabs reparse --since=<dur>` —
 // iterates every grab_records row whose parsed_at IS NULL AND
 // created_at >= now - since, calls Sonarr /api/v3/parse for each,
 // and writes the result via repo.UpdateParsed. --dry-run prints the
 // rowcount without writing.
-func runReparseInternal(
+func reparseInternal(
 	ctx context.Context,
 	args []string,
 	grabs ports.GrabRepository,

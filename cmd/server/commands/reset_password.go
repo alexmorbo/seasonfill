@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"context"
@@ -17,14 +17,14 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 )
 
-// runResetPassword implements `seasonfill reset-password`.
+// ResetPassword implements `seasonfill reset-password`.
 // Modes (mutually exclusive):
 //
 //	--print          generate + persist + print plaintext to stdout once
 //	--set <password> bcrypt-hash + persist + print "Password set"
 //
 // Reads DB connection from env vars (SEASONFILL_DATABASE_*).
-func runResetPassword(args []string) error {
+func ResetPassword(args []string) error {
 	fs := flag.NewFlagSet("reset-password", flag.ContinueOnError)
 	printMode := fs.Bool("print", false, "Generate + persist + print new password once")
 	setVal := fs.String("set", "", "Set the password to this exact value")

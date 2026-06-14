@@ -16,11 +16,9 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
-	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
@@ -61,33 +59,6 @@ func (h *instanceMapHolder) load() map[string]scan.Instance {
 		out[k] = v
 	}
 	return out
-}
-
-func buildSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter], log *slog.Logger) reload.SonarrClientFactory {
-	return func(s runtime.InstanceSnapshot) ports.SonarrClient {
-		instanceName := s.Name
-		instLimiter := ratelimit.NewFromRPMWithOptions(
-			s.RateLimit.RPM, s.RateLimit.Burst,
-			ratelimit.WithObserver("per_instance", func(scope string) {
-				observability.IncRateLimitThrottled(instanceName, scope)
-			}))
-		// Dedicated MediaCover limiter. Hard-coded at 200 rpm / burst 60
-		// — the frontend grid pulls ~60 posters at once; this lets a
-		// page load drain instantly but caps sustained throughput so
-		// runaway clients can't crater upstream Sonarr. Independent
-		// from the global limiter so /system/status is never starved
-		// by poster traffic.
-		posterLimiter := ratelimit.NewFromRPMWithOptions(
-			runtime.PosterLimitRPM, runtime.PosterLimitBurst,
-			ratelimit.WithObserver("poster", func(scope string) {
-				observability.IncRateLimitThrottled(instanceName, scope)
-			}))
-		return sonarr.NewWithOptions(s.Name, s.URL, s.APIKey, s.Timeout,
-			instLimiter, log,
-			sonarr.WithGlobalLimiterPointer(globalLimiterPtr),
-			sonarr.WithPosterLimiter(posterLimiter),
-			sonarr.WithSearchTimeout(s.SearchTimeout))
-	}
 }
 
 // sweepIntervalSetter is the narrow contract buildOnAppliedFanout

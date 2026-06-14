@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
+	"github.com/alexmorbo/seasonfill/cmd/server/commands"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
@@ -24,14 +25,14 @@ import (
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
-		if err := runResetPassword(os.Args[2:]); err != nil {
+		if err := commands.ResetPassword(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "reset-password: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "auth-mode" {
-		if err := runAuthMode(os.Args[2:]); err != nil {
+		if err := commands.AuthMode(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "auth-mode: %v\n", err)
 			os.Exit(1)
 		}
@@ -44,7 +45,7 @@ func main() {
 		}
 		switch os.Args[2] {
 		case "reparse":
-			if err := runReparseCLI(context.Background(), os.Args[3:]); err != nil {
+			if err := commands.Reparse(context.Background(), os.Args[3:]); err != nil {
 				fmt.Fprintf(os.Stderr, "reparse: %v\n", err)
 				os.Exit(1)
 			}

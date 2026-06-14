@@ -255,7 +255,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	globalLimiterPtr.Store(reload.DefaultGlobalLimiterFactory(
 		cfg.GlobalRateLimit.RPM, cfg.GlobalRateLimit.Burst))
 
-	clientFactory := buildSonarrClientFactory(&globalLimiterPtr, log)
+	clientFactory := reload.NewSonarrClientFactory(&globalLimiterPtr, log)
 	sonarrClientsByName := make(map[string]ports.SonarrClient, len(cfg.SonarrInstances))
 	for _, sc := range cfg.SonarrInstances {
 		sonarrClientsByName[sc.Name] = clientFactory(sc)

@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// withAuthEnv sets the minimum SEASONFILL_* env vars runAuthMode needs
+// withAuthEnv sets the minimum SEASONFILL_* env vars AuthMode needs
 // to boot (config.FromEnv → database.Open → migrations). Returns a
 // cleanup func that resets the environment.
 func withAuthEnv(t *testing.T) {
@@ -22,78 +22,78 @@ func withAuthEnv(t *testing.T) {
 	t.Setenv("SEASONFILL_LOG_FORMAT", "json")
 }
 
-// TestRunAuthMode_GetReturnsForms exercises the --get happy path
+// TestAuthMode_GetReturnsForms exercises the --get happy path
 // against a freshly-seeded SQLite DB. Default after migrations =
 // "forms".
-func TestRunAuthMode_GetReturnsForms(t *testing.T) {
+func TestAuthMode_GetReturnsForms(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--get"})
-	// runAuthMode writes the mode to stdout. We can't easily capture
+	err := AuthMode([]string{"--get"})
+	// AuthMode writes the mode to stdout. We can't easily capture
 	// stdout here without restructuring (the helper writes via
 	// fmt.Fprintln directly). Asserting nil-err is sufficient — the
 	// detailed mode-roundtrip is covered by the usecase test.
 	require.NoError(t, err)
 }
 
-func TestRunAuthMode_SetForms(t *testing.T) {
+func TestAuthMode_SetForms(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--set", "forms"})
+	err := AuthMode([]string{"--set", "forms"})
 	require.NoError(t, err)
 }
 
-func TestRunAuthMode_SetBasic(t *testing.T) {
+func TestAuthMode_SetBasic(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--set", "basic"})
+	err := AuthMode([]string{"--set", "basic"})
 	require.NoError(t, err)
 }
 
-func TestRunAuthMode_SetNone(t *testing.T) {
+func TestAuthMode_SetNone(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--set", "none"})
+	err := AuthMode([]string{"--set", "none"})
 	require.NoError(t, err)
 }
 
-func TestRunAuthMode_InvalidMode(t *testing.T) {
+func TestAuthMode_InvalidMode(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--set", "oidc"})
+	err := AuthMode([]string{"--set", "oidc"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mode")
 }
 
-func TestRunAuthMode_NoArgs(t *testing.T) {
+func TestAuthMode_NoArgs(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{})
+	err := AuthMode([]string{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exactly one")
 }
 
-func TestRunAuthMode_BothArgs(t *testing.T) {
+func TestAuthMode_BothArgs(t *testing.T) {
 	withAuthEnv(t)
-	err := runAuthMode([]string{"--get", "--set", "forms"})
+	err := AuthMode([]string{"--get", "--set", "forms"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exactly one")
 }
 
-func TestRunAuthMode_DBUnreachable(t *testing.T) {
+func TestAuthMode_DBUnreachable(t *testing.T) {
 	withAuthEnv(t)
 	// Override to a path that cannot exist (sqlite opens read-write on
 	// a directory path → error). Use a non-existent parent dir.
 	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", "/nonexistent/dir/that/cannot/be/created/db.sqlite")
-	err := runAuthMode([]string{"--get"})
+	err := AuthMode([]string{"--get"})
 	require.Error(t, err)
 }
 
-// TestRunAuthMode_SetBumpsEpoch wires together --set and a follow-up
+// TestAuthMode_SetBumpsEpoch wires together --set and a follow-up
 // inspection: after `--set basic` then `--set none`, the row's epoch
 // must differ from the post-`--set basic` epoch. We use a temp DB and
 // re-open via repositories to avoid relying on stdout capture.
-func TestRunAuthMode_SetBumpsEpoch(t *testing.T) {
+func TestAuthMode_SetBumpsEpoch(t *testing.T) {
 	withAuthEnv(t)
-	require.NoError(t, runAuthMode([]string{"--set", "basic"}))
+	require.NoError(t, AuthMode([]string{"--set", "basic"}))
 	dbPath := os.Getenv("SEASONFILL_DATABASE_SQLITE_PATH")
 	require.NotEmpty(t, dbPath)
 	// Calling --set again with a different mode must succeed and bump
 	// epoch (no error indicates the upsert went through).
-	require.NoError(t, runAuthMode([]string{"--set", "none"}))
-	require.NoError(t, runAuthMode([]string{"--set", "forms"}))
+	require.NoError(t, AuthMode([]string{"--set", "none"}))
+	require.NoError(t, AuthMode([]string{"--set", "forms"}))
 }
