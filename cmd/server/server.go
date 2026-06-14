@@ -11,15 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/evaluate"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
-	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
-	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
@@ -160,12 +157,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	loginLimiter := auth.LoginLimiter
 	webhookLimiter := auth.WebhookLimiter
 
-	scanRepo := repositories.NewScanRepository(db)
-	decisionRepo := repositories.NewDecisionRepository(db)
-	grabRepo := repositories.NewGrabRepository(db)
-	cooldownRepo := repositories.NewCooldownRepository(db)
-	originRepo := repositories.NewOriginReleaseRepository(db)
-
 	sonarrBundle, err := wiring.BuildSonarr(snap, log)
 	if err != nil {
 		return nil, err
@@ -183,7 +174,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// testcontext hook) shares the same cell.
 	clientFactory := sonarrBundle.ClientFactory
 	sonarrClientsByName := sonarrBundle.ClientsByName
-	scanInstances := sonarrBundle.ScanInstances
 	holder := sonarrBundle.Holder
 	instanceReg := sonarrBundle.InstanceReg
 	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
@@ -234,21 +224,35 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		wd.Run(ctx)
 	})
 
-	txr := repositories.NewGormTransactor(db)
-	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
-	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
-		WithTransactor(txr)
+	scanBundle, err := wiring.BuildScan(persistence, sonarrBundle, watchdogBundle, cfg, &bgWG, log)
+	if err != nil {
+		return nil, err
+	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-334 names verbatim so every downstream call site
+	// (httpserver.NewServer, webhook UC Deps, scheduler.Start, startup
+	// scan goroutine, the regrab use case, the reload subscribers,
+	// waitForScans) keeps working unchanged. seriesRepo / seriesCacheRepo
+	// / counterRepo are constructed here because BuildScan uses
+	// seriesRepo / seriesCacheRepo internally but does not re-expose
+	// them on the bundle (they are stateless GORM wrappers; downstream
+	// call sites each get their own instance). counterRepo is unrelated
+	// to the scan stack but was historically constructed in the same
+	// block; it stays here.
+	scanRepo := scanBundle.ScanRepo
+	decisionRepo := scanBundle.DecisionRepo
+	grabRepo := scanBundle.GrabRepo
+	cooldownRepo := scanBundle.CooldownRepo
+	txr := scanBundle.Txr
+	evaluator := scanBundle.Evaluator
+	grabUC := scanBundle.GrabUC
+	scanUC := scanBundle.ScanUC
+	rescanUC := scanBundle.RescanUC
+	sweeper := scanBundle.Sweeper
+
 	seriesRepo := repositories.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
-	scanUC := scan.NewUseCase(scanInstances, evaluator, scanRepo, log, cfg.DryRun).
-		WithGrabUseCase(grabUC).
-		WithCooldowns(cooldownRepo).
-		WithOrigins(originRepo).
-		WithSeriesCache(seriesCacheRepo).
-		WithHealthRegistry(checker.Registry()).
-		WithWaitGroup(&bgWG)
-	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, holder.Load, log)
 
 	// 032e: per-instance webhook cooldown lookup reads live from the
 	// instanceMapHolder so PUT /instances/<name> mutations to
@@ -751,12 +755,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
 	// SetInterval whenever a new snapshot publishes a different
 	// Scan.CooldownSweep, so changes via the runtime config UI take
-	// effect without a pod restart.
-	sweepInterval := cfg.Scan.CooldownSweep
-	if sweepInterval <= 0 {
-		sweepInterval = 15 * time.Minute
-	}
-	sweeper := loops.NewSweepLoop(cooldownRepo, sweepInterval, log)
+	// effect without a pod restart. The loop itself is constructed
+	// by BuildScan (story 334); we only spawn it here on the
+	// lifecycle group so Shutdown can drain it.
 	lifecycle.Go(rootCtx, "cooldown-sweeper", func(ctx context.Context) {
 		sweeper.Run(ctx)
 	})
