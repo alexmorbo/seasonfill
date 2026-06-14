@@ -48,7 +48,8 @@ const fullFixture = {
   ],
   other_credits: [
     { tmdb_media_id: 999, title: 'Strange Way of Life', year: 2023,
-      media_type: 'tv', kind: 'cast', role_label: 'Silva', poster_path: '/abc.jpg' },
+      media_type: 'tv', kind: 'cast', role_label: 'Silva',
+      poster_asset: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' },
   ],
   degraded: [],
 };

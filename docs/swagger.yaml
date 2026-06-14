@@ -1289,7 +1289,7 @@ components:
           type: string
         original_title:
           type: string
-        poster_path:
+        poster_asset:
           type: string
         role_label:
           type: string

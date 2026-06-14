@@ -209,6 +209,12 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 	for i := range out.LibraryCredits {
 		out.LibraryCredits[i].Canon.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].Canon.PosterAsset, "w342", "poster_w342")
 	}
+	// Story 317 — OtherCredits posters. Movies + canon-less TV stubs. Same
+	// resolver, w185 (the frontend's grid is denser → smaller variant). The
+	// async miss-enqueue makes the bytes available on subsequent loads.
+	for i := range out.OtherCredits {
+		out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w185", "poster_w185")
+	}
 
 	degraded := uc.computeDegraded(person, out.Sync)
 	out.Degraded = degraded

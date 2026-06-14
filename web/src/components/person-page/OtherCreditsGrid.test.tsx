@@ -15,10 +15,12 @@ function r(node: React.ReactElement) {
 // length expansion past the limit, so keep enough TV rows to overflow.
 const mixed = [
   { tmdb_media_id: 9999, title: 'A Movie', year: 2023, kind: 'cast',
-    media_type: 'movie', role_label: 'Movie Role', poster_path: '/m.jpg' },
+    media_type: 'movie', role_label: 'Movie Role',
+    poster_asset: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
   ...Array.from({ length: 12 }, (_, i) => ({
     tmdb_media_id: 1000 + i, title: `TV Show ${i}`, year: 2020 + i, kind: 'cast',
-    media_type: 'tv', role_label: `Role ${i}`, poster_path: `/tv${i}.jpg`,
+    media_type: 'tv', role_label: `Role ${i}`,
+    poster_asset: `${String(i).padStart(2, '0')}${'b'.repeat(62)}`,
   })),
 ];
 

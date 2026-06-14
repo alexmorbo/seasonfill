@@ -172,7 +172,7 @@ func mapOtherCredit(oc apppeople.OtherCredit) dto.OtherCreditEntry {
 		Kind:          string(oc.Credit.Kind),
 		Department:    oc.Credit.Department,
 		RoleLabel:     deriveRoleLabel(oc.Credit),
-		PosterPath:    oc.Credit.PosterAsset,
+		PosterAsset:   oc.Credit.PosterAsset,
 		VoteAverage:   oc.Credit.TMDBRating,
 		VoteCount:     oc.Credit.TMDBVotes,
 	}

@@ -5,9 +5,9 @@ import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import type { OtherCreditEntry } from '@/api/person';
+import { mediaUrl } from '@/api/seriesDetail';
 
 const INITIAL_LIMIT = 10;
-const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
 
 export interface OtherCreditsGridProps {
   readonly credits: readonly OtherCreditEntry[];
@@ -58,7 +58,7 @@ export function OtherCreditsGrid({ credits, className }: OtherCreditsGridProps) 
         className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5"
       >
         {visible.map((c, idx) => {
-          const src = c.poster_path ? `${TMDB_POSTER_BASE}${c.poster_path}` : undefined;
+          const src = mediaUrl(c.poster_asset);
           const role = c.role_label ?? c.character_name ?? '';
           const titleYear = c.year ? `${c.title ?? ''} · ${c.year}` : (c.title ?? '');
           const key = `${c.tmdb_media_id ?? 'x'}-${c.media_type ?? 'tv'}-${idx}`;

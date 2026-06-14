@@ -168,15 +168,27 @@ export function SeriesHero({
             )}
             {networks.length > 0 && (
               <span className="inline-flex items-center gap-2 ml-1">
-                {networks.map((n) => (
-                  <span
-                    key={n.id ?? n.name}
-                    title={n.name ?? ''}
-                    className="text-[10.5px] font-bold tracking-widest uppercase text-tx-muted"
-                  >
-                    {n.name}
-                  </span>
-                ))}
+                {networks.map((n) => {
+                  const logoSrc = mediaUrl(n.logo_asset);
+                  return logoSrc ? (
+                    <img
+                      key={n.id ?? n.name}
+                      src={logoSrc}
+                      alt={n.name ?? ''}
+                      title={n.name ?? ''}
+                      className="h-4 w-auto object-contain opacity-80"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span
+                      key={n.id ?? n.name}
+                      title={n.name ?? ''}
+                      className="text-[10.5px] font-bold tracking-widest uppercase text-tx-muted"
+                    >
+                      {n.name}
+                    </span>
+                  );
+                })}
               </span>
             )}
           </div>

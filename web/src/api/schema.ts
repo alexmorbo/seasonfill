@@ -4833,7 +4833,7 @@ export type components = {
             /** @example tv */
             readonly media_type?: string;
             readonly original_title?: string;
-            readonly poster_path?: string;
+            readonly poster_asset?: string;
             readonly role_label?: string;
             readonly title?: string;
             /** @example 999 */

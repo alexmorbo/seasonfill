@@ -111,7 +111,7 @@ type OtherCreditEntry struct {
 	Kind          string   `json:"kind" example:"cast"`
 	Department    *string  `json:"department,omitempty" example:"Production"`
 	RoleLabel     string   `json:"role_label"`
-	PosterPath    *string  `json:"poster_path,omitempty"`
+	PosterAsset   *string  `json:"poster_asset,omitempty"`
 	VoteAverage   *float64 `json:"vote_average,omitempty"`
 	VoteCount     *int     `json:"vote_count,omitempty" example:"12345"`
 }
