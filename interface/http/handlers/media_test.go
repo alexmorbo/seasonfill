@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -108,7 +109,12 @@ func newHandler(t *testing.T) (*MediaHandler, *stubRepo, *stubStore) {
 	t.Helper()
 	repo := newStubRepo()
 	store := newStubStore()
-	h := NewMediaHandler(store, repo, http.DefaultClient, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	h := NewMediaHandler(MediaHandlerDeps{
+		Store:      store,
+		Repo:       repo,
+		HTTPClient: http.DefaultClient,
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
 	return h, repo, store
 }
 
@@ -218,7 +224,9 @@ func TestMedia_LostObjectRecovery(t *testing.T) {
 	}
 }
 
-func TestMedia_PendingReturns404(t *testing.T) {
+// Story 321: pending without fetcher/resolver wiring → SVG placeholder
+// (the wiring is nil-OK; main.go late-binds it after enrichBundle).
+func TestMedia_PendingServesPlaceholderWhenUnwired(t *testing.T) {
 	h, repo, _ := newHandler(t)
 	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
 	hash := hashOf(url)
@@ -226,12 +234,22 @@ func TestMedia_PendingReturns404(t *testing.T) {
 	r := newRouter(h)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
-	if rr.Code != 404 {
-		t.Fatalf("want 404 got %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Fatalf("want image/svg+xml Content-Type, got %q", got)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected X-Media-Placeholder=1")
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("expected SVG body, got %q", rr.Body.String()[:min(120, rr.Body.Len())])
 	}
 }
 
-func TestMedia_FailedReturns404(t *testing.T) {
+// Story 321: failed rows short-circuit to placeholder (negative cache).
+func TestMedia_FailedServesPlaceholder(t *testing.T) {
 	h, repo, _ := newHandler(t)
 	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
 	hash := hashOf(url)
@@ -239,8 +257,11 @@ func TestMedia_FailedReturns404(t *testing.T) {
 	r := newRouter(h)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
-	if rr.Code != 404 {
-		t.Fatalf("want 404 got %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected X-Media-Placeholder=1")
 	}
 }
 
@@ -288,5 +309,267 @@ func TestMedia_SingleflightConcurrentRefetch(t *testing.T) {
 		// requests can let a second one in before the singleflight closure
 		// completes. >2 is the real failure.
 		t.Fatalf("singleflight failed: %d upstream calls", got)
+	}
+}
+
+// --- Story 321 on-demand fetch tests ------------------------------------
+
+// stubPendingResolver satisfies MediaPendingResolver.
+type stubPendingResolver struct {
+	mu   sync.Mutex
+	rows map[string]pendingRow
+	err  error
+}
+
+type pendingRow struct {
+	source string
+	kind   string
+	status media.Status
+}
+
+func newStubPendingResolver() *stubPendingResolver {
+	return &stubPendingResolver{rows: map[string]pendingRow{}}
+}
+
+func (s *stubPendingResolver) put(hash, source, kind string, status media.Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows[hash] = pendingRow{source: source, kind: kind, status: status}
+}
+
+func (s *stubPendingResolver) GetSourceURLByHash(_ context.Context, hash string) (string, string, media.Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return "", "", "", s.err
+	}
+	r, ok := s.rows[hash]
+	if !ok {
+		return "", "", "", ports.ErrNotFound
+	}
+	return r.source, r.kind, r.status, nil
+}
+
+// stubOnDemand mirrors application/media.OnDemandFetcher for the
+// handler tests. When hashWin is "" the fetcher always misses.
+type stubOnDemand struct {
+	mu       sync.Mutex
+	calls    int32
+	hashWin  string
+	bytes    []byte
+	contentT string
+	store    mediastore.Store
+	repo     MediaAssetReader
+	delay    time.Duration
+}
+
+func (f *stubOnDemand) FetchSync(ctx context.Context, sourceURL, kind, ext string) (string, bool) {
+	atomic.AddInt32(&f.calls, 1)
+	if f.delay > 0 {
+		select {
+		case <-time.After(f.delay):
+		case <-ctx.Done():
+			return "", false
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hashWin == "" {
+		return "", false
+	}
+	if f.store != nil {
+		_ = f.store.Put(ctx, mediastore.Key(sourceURL, ext), bytes.NewReader(f.bytes), int64(len(f.bytes)), f.contentT)
+	}
+	if f.repo != nil {
+		_ = f.repo.Upsert(ctx, media.Asset{
+			Hash: f.hashWin, UpstreamURL: sourceURL, Kind: kind,
+			ContentType: f.contentT, Size: int64(len(f.bytes)),
+			Status: media.StatusStored,
+		})
+	}
+	return f.hashWin, true
+}
+
+func newOnDemandHandler(t *testing.T, resolver MediaPendingResolver, fetcher MediaOnDemandSyncFetcher) (*MediaHandler, *stubRepo, *stubStore) {
+	t.Helper()
+	repo := newStubRepo()
+	store := newStubStore()
+	h := NewMediaHandler(MediaHandlerDeps{
+		Store:           store,
+		Repo:            repo,
+		PendingResolver: resolver,
+		OnDemandFetcher: fetcher,
+		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	return h, repo, store
+}
+
+func TestMediaHandler_OnDemand_PendingHitFillsAndServes(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/abc-ondemand.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusPending)
+	fetcher := &stubOnDemand{hashWin: hash, bytes: []byte("PNG"), contentT: "image/jpeg"}
+	h, repo, store := newOnDemandHandler(t, resolver, fetcher)
+	fetcher.store = store
+	fetcher.repo = repo
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != "PNG" {
+		t.Fatalf("want PNG body, got %q", rr.Body.String())
+	}
+	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+		t.Fatalf("want 1 fetcher call, got %d", got)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "" {
+		t.Fatal("must NOT serve placeholder on success path")
+	}
+}
+
+func TestMediaHandler_OnDemand_PendingMissServesPlaceholderAndStampsFailed(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w1280/xx-miss.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "backdrop_w1280", media.StatusPending)
+	fetcher := &stubOnDemand{hashWin: ""}
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "backdrop_w1280", Status: media.StatusPending})
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Fatalf("want image/svg+xml Content-Type, got %q", ct)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected X-Media-Placeholder=1")
+	}
+	if cc := rr.Header().Get("Cache-Control"); cc != "public, max-age=300" {
+		t.Fatalf("want 5-min cache-control, got %q", cc)
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatal("body must be SVG")
+	}
+	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+		t.Fatalf("want 1 fetcher call, got %d", got)
+	}
+	// Row stamped failed.
+	row, err := repo.Get(t.Context(), hash)
+	if err != nil {
+		t.Fatalf("repo.Get after miss: %v", err)
+	}
+	if row.Status != media.StatusFailed {
+		t.Fatalf("want status=failed after miss, got %s", row.Status)
+	}
+}
+
+func TestMediaHandler_OnDemand_FailedShortCircuits(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/failed.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	fetcher := &stubOnDemand{hashWin: hash, bytes: []byte("Y"), contentT: "image/jpeg"}
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusFailed})
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected placeholder header")
+	}
+	if got := atomic.LoadInt32(&fetcher.calls); got != 0 {
+		t.Fatalf("failed rows must NOT trigger TMDB call, got %d", got)
+	}
+}
+
+func TestMediaHandler_OnDemand_SingleflightDedupes(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/sf-dedupe.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusPending)
+	fetcher := &stubOnDemand{
+		hashWin: hash, bytes: []byte("OK"), contentT: "image/jpeg",
+		delay: 200 * time.Millisecond,
+	}
+	h, repo, store := newOnDemandHandler(t, resolver, fetcher)
+	fetcher.store = store
+	fetcher.repo = repo
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+
+	r := newRouter(h)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+		}()
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+		t.Fatalf("singleflight must collapse to one TMDB call, got %d", got)
+	}
+}
+
+func TestMediaHandler_OnDemand_NilFetcherServesPlaceholder(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/legacy.jpg"
+	hash := hashOf(url)
+	h, repo, _ := newHandler(t) // no fetcher, no resolver
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected placeholder header")
+	}
+}
+
+// TestMediaHandler_Placeholder_ContentAndHeaders confirms placeholder
+// response shape end-to-end (operator override of story 321 404 path).
+func TestMediaHandler_Placeholder_ContentAndHeaders(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/placeholder-shape.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusPending)
+	fetcher := &stubOnDemand{hashWin: ""} // miss
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Errorf("Content-Type want image/svg+xml, got %q", got)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("Cache-Control want 5min, got %q", got)
+	}
+	if got := rr.Header().Get("X-Media-Placeholder"); got != "1" {
+		t.Errorf("X-Media-Placeholder want 1, got %q", got)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "<svg") || !strings.Contains(body, "no image") {
+		t.Errorf("body must be the no-image SVG, got %q", body[:min(200, len(body))])
 	}
 }

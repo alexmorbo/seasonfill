@@ -654,7 +654,18 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		return nil, fmt.Errorf("mediastore: %w", err)
 	}
 	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
-	mediaHandler := handlers.NewMediaHandler(mediaStoreImpl, mediaAssetsRepo, nil, log)
+	// Story 321: the handler is constructed BEFORE wireEnrichment (and
+	// thus before the on-demand fetcher exists). The fetcher is plumbed
+	// in via a setter after enrichBundle returns. Until then the handler
+	// serves the embedded SVG placeholder on pending hashes — visually
+	// stable while the media pipeline boots.
+	mediaHandler := handlers.NewMediaHandler(handlers.MediaHandlerDeps{
+		Store:           mediaStoreImpl,
+		Repo:            mediaAssetsRepo,
+		PendingResolver: mediaAssetsRepo, // story 320: satisfies GetSourceURLByHash
+		Logger:          log,
+		// OnDemandFetcher is late-bound below (see story 321 wiring after enrichBundle).
+	})
 
 	// Story 312 + Story 320: media resolver for the seriesdetail composer.
 	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
@@ -972,6 +983,15 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 			mediaEnq = enrichBundle.MediaEnqueuer
 		}
 		seriesDetailMediaResolver.SetSideEffects(mediaEnq, enrichBundle.MediaOnDemand)
+	}
+
+	// Story 321 — late-bind the on-demand fetcher onto the MediaHandler
+	// so GET /api/v1/media/:hash can synchronously fill pending rows on
+	// a cache miss. enrichBundle.MediaOnDemand is nil when the media
+	// subsystem is unwired; the handler stays on the embedded SVG
+	// placeholder path in that case.
+	if enrichBundle != nil && mediaHandler != nil && enrichBundle.MediaOnDemand != nil {
+		mediaHandler.SetOnDemandFetcher(enrichBundle.MediaOnDemand)
 	}
 
 	// Register the nightly stale scan into the boot scheduler if cron

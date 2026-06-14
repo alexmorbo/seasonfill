@@ -3,10 +3,12 @@ package handlers
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,9 +47,33 @@ const mediaRefetchMaxBytes int64 = 32 << 20
 
 // MediaAssetReader is the read-only repo port the handler consumes.
 // Production impl is *repositories.MediaAssetsRepository.
+//
+// Story 321: the handler also calls Upsert to stamp status='failed' on
+// negative-cache transitions and (transitively via the fetcher) status=
+// 'stored' on on-demand-fetch success.
 type MediaAssetReader interface {
 	Get(ctx context.Context, hash string) (media.Asset, error)
 	Upsert(ctx context.Context, a media.Asset) error
+}
+
+// MediaOnDemandSyncFetcher is the handler's hook into the on-demand
+// fetcher (application/media.OnDemandFetcher). Story 321: when the
+// media_assets row is status='pending', the handler reaches via this
+// hook to synchronously pull the bytes from TMDB before serving.
+// Returns (hash, true) on success — bytes are in mediastore + the row
+// has been upserted to status='stored'. ("", false) on timeout / fail.
+// Nil-OK: the handler keeps the legacy 404-on-pending behavior when
+// the fetcher isn't wired (boot ordering or media subsystem disabled).
+type MediaOnDemandSyncFetcher interface {
+	FetchSync(ctx context.Context, upstreamURL, kind, ext string) (string, bool)
+}
+
+// MediaPendingResolver is the handler's lookup from hash to the row's
+// source_url + kind + status. Story 321: used on the status='pending'
+// path to recover the URL the fetcher needs. Story 320 ships the
+// repo-side GetSourceURLByHash method on *MediaAssetsRepository.
+type MediaPendingResolver interface {
+	GetSourceURLByHash(ctx context.Context, hash string) (sourceURL, kind string, status media.Status, err error)
 }
 
 // mediaCacheEntry is the LRU's value type. Bytes is the decoded
@@ -57,39 +83,131 @@ type mediaCacheEntry struct {
 	ContentType string
 }
 
-// MediaHandler implements GET /api/v1/media/:hash. Three cache tiers:
-// in-process LRU → mediastore → upstream refetch under singleflight.
+// mediaPlaceholderSVG is the static "no image" SVG served when the
+// on-demand fetcher misses (TMDB error, timeout, banned URL). Embedded
+// at build time so the binary stays self-contained. Story 321 override
+// from operator: serve a placeholder instead of 404 so the frontend
+// always renders a stable visual instead of a broken-image icon.
+//
+//go:embed assets/media_placeholder.svg
+var mediaPlaceholderSVG []byte
+
+// mediaPlaceholderContentType is the verbatim Content-Type for the
+// embedded SVG placeholder.
+const mediaPlaceholderContentType = "image/svg+xml"
+
+// mediaPlaceholderCacheControl caps placeholder caching at 5 minutes
+// so the frontend reattempts within a reasonable window once the row
+// transitions to status='stored'.
+const mediaPlaceholderCacheControl = "public, max-age=300"
+
+// MediaHandler implements GET /api/v1/media/:hash. Cache tiers:
+// in-process LRU → mediastore → on-demand sync fetch (story 321,
+// for status='pending' rows) → upstream refetch under singleflight
+// (lost-object recovery for status='stored' rows).
 //
 // The handler is constructed once at boot and held for the life of
 // the process; LRU + singleflight group are per-handler so a future
 // per-tenant deploy keeps state isolated.
 type MediaHandler struct {
-	store  mediastore.Store
-	repo   MediaAssetReader
-	http   *http.Client
-	cache  *byteCappedLRU
-	sf     singleflight.Group
-	logger *slog.Logger
-	clock  func() time.Time
+	store              mediastore.Store
+	repo               MediaAssetReader
+	pendingResolver    MediaPendingResolver     // story 321 — may be nil
+	ondemandFetcher    MediaOnDemandSyncFetcher // story 321 — may be nil
+	negativeCacheTTL   time.Duration            // story 321 — failed-at re-attempt window
+	ondemandWallBudget time.Duration            // story 321 — per-request budget for FetchSync
+	http               *http.Client
+	cache              *byteCappedLRU
+	sf                 singleflight.Group
+	logger             *slog.Logger
+	clock              func() time.Time
 }
 
-// NewMediaHandler wires the handler. http=nil → http.DefaultClient
-// (acceptable for tests; production passes the TMDB-proxied client
-// per §7).
-func NewMediaHandler(store mediastore.Store, repo MediaAssetReader, httpClient *http.Client, logger *slog.Logger) *MediaHandler {
+// MediaHandlerDeps groups the handler's wiring. Kept as a struct so the
+// caller specifies named fields — the constructor's positional shape was
+// brittle once the on-demand fetcher landed.
+type MediaHandlerDeps struct {
+	Store              mediastore.Store
+	Repo               MediaAssetReader
+	PendingResolver    MediaPendingResolver     // story 321: may be nil
+	OnDemandFetcher    MediaOnDemandSyncFetcher // story 321: may be nil
+	HTTPClient         *http.Client
+	Logger             *slog.Logger
+	NegativeCacheTTL   time.Duration // story 321: 0 → defaultNegativeCacheTTL (60 s)
+	OnDemandWallBudget time.Duration // story 321: 0 → defaultOnDemandWallBudget (2 s)
+}
+
+// defaultNegativeCacheTTL is the window after a failed on-demand fetch
+// during which the handler short-circuits to the placeholder without
+// re-attempting. 60 s balances "operator hits refresh hoping for a fix"
+// against "don't hammer TMDB for a permanently dead path." Override via
+// env in main.go.
+const defaultNegativeCacheTTL = 60 * time.Second
+
+// defaultOnDemandWallBudget is the per-request budget passed to
+// FetchSync. TMDB-via-VPN p50 ~600 ms; 2 s leaves 2× headroom and stays
+// well under browser image-fetch tolerance.
+const defaultOnDemandWallBudget = 2 * time.Second
+
+// SetOnDemandFetcher late-binds the on-demand fetcher onto an
+// already-constructed handler. Used by cmd/server/main.go: the handler
+// is created before wireEnrichment runs (so router registration can
+// take a stable *MediaHandler pointer), then the fetcher is plugged in
+// once the media pipeline is up. Concurrent reads are safe — the
+// handler's Serve only reads the field; the late-bind happens once
+// during boot before the HTTP server starts serving.
+func (h *MediaHandler) SetOnDemandFetcher(f MediaOnDemandSyncFetcher) {
+	if h == nil {
+		return
+	}
+	h.ondemandFetcher = f
+}
+
+// SetPendingResolver late-binds the pending resolver onto an
+// already-constructed handler. Symmetric to SetOnDemandFetcher — used
+// when the resolver isn't available at NewMediaHandler time.
+func (h *MediaHandler) SetPendingResolver(r MediaPendingResolver) {
+	if h == nil {
+		return
+	}
+	h.pendingResolver = r
+}
+
+// NewMediaHandler wires the handler.
+//
+// Story 321: signature changed from (store, repo, httpClient, logger)
+// to a deps struct. PendingResolver + OnDemandFetcher MAY be nil — the
+// handler falls back to the legacy "404 on non-stored" behavior in
+// that case (used during boot ordering, or when the media subsystem
+// is disabled).
+func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
+	logger := d.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
+	httpClient := d.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
+	negTTL := d.NegativeCacheTTL
+	if negTTL <= 0 {
+		negTTL = defaultNegativeCacheTTL
+	}
+	wall := d.OnDemandWallBudget
+	if wall <= 0 {
+		wall = defaultOnDemandWallBudget
+	}
 	return &MediaHandler{
-		store:  store,
-		repo:   repo,
-		http:   httpClient,
-		cache:  newByteCappedLRU(mediaCacheMaxBytes),
-		logger: logger,
-		clock:  func() time.Time { return time.Now().UTC() },
+		store:              d.Store,
+		repo:               d.Repo,
+		pendingResolver:    d.PendingResolver,
+		ondemandFetcher:    d.OnDemandFetcher,
+		negativeCacheTTL:   negTTL,
+		ondemandWallBudget: wall,
+		http:               httpClient,
+		cache:              newByteCappedLRU(mediaCacheMaxBytes),
+		logger:             logger,
+		clock:              func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -133,12 +251,16 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		return
 	}
 
-	// 2. Repo lookup. status=pending|failed → 404 (frontend
-	//    placeholder). status=stored → mediastore Get; on lost-object
-	//    fall through to upstream refetch under singleflight.
+	// 2. Repo lookup. status=stored → mediastore Get; status=pending →
+	//    story 321 on-demand sync fetch; status=failed within negative
+	//    cache window → placeholder fast; status=failed past window →
+	//    re-attempt. Operator override: failed paths return 200 + SVG
+	//    placeholder instead of 404 (a stable visual is better than a
+	//    broken-image icon while the underlying row recovers).
 	asset, err := h.repo.Get(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
+			// Truly unknown hash — operator-trigger required for debugging.
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "media not found"})
 			return
 		}
@@ -149,8 +271,17 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		return
 	}
 	if asset.Status != media.StatusStored {
-		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "media not ready"})
-		return
+		// Story 321: try synchronous on-demand fetch for pending rows
+		// (failed rows short-circuit straight to placeholder). Falls back
+		// to placeholder on legacy wiring (fetcher / resolver not
+		// plumbed), budget exhaustion, or unrecoverable upstream errors.
+		// Re-reads the asset on hit so the rest of the handler (LRU,
+		// refetch loop) operates on the freshly-stored row.
+		fresh, ok := h.serveOnDemand(c, ctx, hash, asset)
+		if !ok {
+			return
+		}
+		asset = fresh
 	}
 
 	// 3. mediastore Get. Lost object → refetch under singleflight.
@@ -253,6 +384,152 @@ func (h *MediaHandler) refetchAndStore(ctx context.Context, asset media.Asset) (
 		// retry the Put on the next lost-object hit.
 	}
 	return mediaCacheEntry{Bytes: body, ContentType: ct}, nil
+}
+
+// serveOnDemand is the story 321 sync-fetch path. Called when
+// repo.Get returns a non-stored asset (pending or failed). Returns
+// (freshAsset, true) when the fetch succeeded + the caller should
+// continue serving from store; otherwise writes the placeholder (200 +
+// image/svg+xml + X-Media-Placeholder: 1) and returns (_, false).
+//
+// Negative-cache rules: status='failed' rows always serve the
+// placeholder fast without TMDB contact. Future iteration may relax
+// this with a fine-grained TTL re-attempt.
+//
+// Singleflight keyed on the hash so simultaneous tabs racing for the
+// same hash share ONE upstream call.
+func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash string, asset media.Asset) (media.Asset, bool) {
+	// Bypass when the wiring isn't there yet — serve the placeholder so
+	// the frontend stays visually stable.
+	if h.ondemandFetcher == nil || h.pendingResolver == nil {
+		h.writePlaceholder(c, hash, "wiring_unavailable")
+		return media.Asset{}, false
+	}
+
+	// Negative cache: status=failed → placeholder fast, no TMDB. The
+	// downloader's existing retry loop eventually flips the row back to
+	// pending; the cold-start re-sweep (story 318) also refreshes
+	// long-dead rows.
+	if asset.Status == media.StatusFailed {
+		h.writePlaceholder(c, hash, "negative_cache")
+		return media.Asset{}, false
+	}
+
+	// status=pending (or any non-stored, non-failed) → sync fetch.
+	sourceURL, kind, _, lerr := h.pendingResolver.GetSourceURLByHash(ctx, hash)
+	if lerr != nil || sourceURL == "" {
+		h.logger.WarnContext(ctx, "media.serve.pending_no_source",
+			slog.String("hash", hash),
+			slog.String("error", errString(lerr)),
+		)
+		h.writePlaceholder(c, hash, "no_source_url")
+		return media.Asset{}, false
+	}
+
+	// Per-request budget — capped at h.ondemandWallBudget.
+	fetchCtx, cancel := context.WithTimeout(ctx, h.ondemandWallBudget)
+	defer cancel()
+
+	// Singleflight per hash. The closure returns sfResult; concurrent
+	// callers see the same negative result without retrying.
+	type sfResult struct {
+		ok    bool
+		asset media.Asset
+	}
+	resAny, _, _ := h.sf.Do("ondemand:"+hash, func() (interface{}, error) {
+		_, ok := h.ondemandFetcher.FetchSync(fetchCtx, sourceURL, kind, extFromSourceURL(sourceURL))
+		if !ok {
+			// Negative-cache stamp: mark the row failed so subsequent
+			// requests short-circuit via the failed branch above.
+			// Best-effort — Upsert errors log only.
+			if uerr := h.repo.Upsert(ctx, media.Asset{
+				Hash: hash, UpstreamURL: sourceURL, Kind: kind,
+				Status: media.StatusFailed,
+			}); uerr != nil {
+				h.logger.WarnContext(ctx, "media.serve.failed_stamp_failed",
+					slog.String("hash", hash),
+					slog.String("error", uerr.Error()),
+				)
+			}
+			h.logger.WarnContext(ctx, "media.serve.ondemand_miss",
+				slog.String("hash", hash),
+				slog.String("kind", kind),
+				slog.String("source_url", sourceURL),
+			)
+			return sfResult{ok: false}, nil
+		}
+		// Re-read the row to get the freshly-stamped status/content_type/size.
+		updated, gerr := h.repo.Get(ctx, hash)
+		if gerr != nil {
+			h.logger.WarnContext(ctx, "media.serve.ondemand_reread_failed",
+				slog.String("hash", hash),
+				slog.String("error", gerr.Error()),
+			)
+			return sfResult{ok: false}, nil
+		}
+		h.logger.InfoContext(ctx, "media.serve.ondemand_filled",
+			slog.String("hash", hash),
+			slog.String("kind", kind),
+			slog.Int64("size_bytes", updated.Size),
+		)
+		return sfResult{ok: true, asset: updated}, nil
+	})
+	res, _ := resAny.(sfResult)
+	if !res.ok {
+		h.writePlaceholder(c, hash, "fetch_failed")
+		return media.Asset{}, false
+	}
+	return res.asset, true
+}
+
+// writePlaceholder serves the embedded SVG with a 5-minute cache window
+// and an X-Media-Placeholder debug header. Reason is logged so we can
+// trace WHY the placeholder fired from logs / NetworkTab.
+func (h *MediaHandler) writePlaceholder(c *gin.Context, hash, reason string) {
+	c.Header("Cache-Control", mediaPlaceholderCacheControl)
+	c.Header("X-Media-Placeholder", "1")
+	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
+	h.logger.DebugContext(c.Request.Context(), "media.serve.placeholder",
+		slog.String("hash", hash),
+		slog.String("reason", reason),
+	)
+}
+
+// extFromSourceURL extracts the lowercase extension from a URL path.
+// Mirrors application/media.ExtractExt for the handler's needs (the
+// extension is just a hint for the store key).
+func extFromSourceURL(url string) string {
+	// Trim query string if any.
+	if i := indexByteFromEnd(url, '?'); i >= 0 {
+		url = url[:i]
+	}
+	dot := indexByteFromEnd(url, '.')
+	slash := indexByteFromEnd(url, '/')
+	if dot < 0 || dot < slash || dot == len(url)-1 {
+		return ""
+	}
+	ext := strings.ToLower(url[dot+1:])
+	switch ext {
+	case "jpg", "jpeg", "png", "webp", "gif":
+		return ext
+	}
+	return ""
+}
+
+func indexByteFromEnd(s string, b byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
+}
+
+func errString(e error) string {
+	if e == nil {
+		return ""
+	}
+	return e.Error()
 }
 
 func (h *MediaHandler) write200(c *gin.Context, entry mediaCacheEntry, etag string) {
