@@ -388,10 +388,56 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		enrichment.SourceTMDBSeries,
 	)
 	canonOut := enrichmentCanonToCanon(merged, canon)
+
+	// 346: defensive write-side guard. Working hypothesis on the
+	// backdrop NULL backlog is that the merge policy zeros the asset
+	// before persist. The guard runs on the value about to be written
+	// — if TMDB returned a non-empty path but canonOut still carries
+	// nil/empty, WARN + force the path on so prod converges. Strictly
+	// additive: only writes when both (a) TMDB has a path and (b)
+	// canon-side is nil/empty, so a stored canon value is never
+	// clobbered. Mirror behavior for poster.
+	if tv != nil && tv.BackdropPath != "" && (canonOut.BackdropAsset == nil || *canonOut.BackdropAsset == "") {
+		log.WarnContext(txCtx, "enrichment.series.canon.backdrop_write_gap",
+			slog.Int64("series_id", canon.ID),
+			slog.Any("tmdb_id", canonOut.TMDBID),
+			slog.String("tmdb_backdrop_path", tv.BackdropPath),
+			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
+		)
+		bp := tv.BackdropPath
+		canonOut.BackdropAsset = &bp
+	}
+	if tv != nil && tv.PosterPath != "" && (canonOut.PosterAsset == nil || *canonOut.PosterAsset == "") {
+		log.WarnContext(txCtx, "enrichment.series.canon.poster_write_gap",
+			slog.Int64("series_id", canon.ID),
+			slog.Any("tmdb_id", canonOut.TMDBID),
+			slog.String("tmdb_poster_path", tv.PosterPath),
+			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
+		)
+		pp := tv.PosterPath
+		canonOut.PosterAsset = &pp
+	}
+
 	seriesID, err := w.deps.Series.Upsert(txCtx, canonOut)
 	if err != nil {
 		return nil, fmt.Errorf("upsert series canon: %w", err)
 	}
+
+	// 346: diagnostic — pinpoint backdrop write-gap. Audit found 100%
+	// of recent canon rows NULL backdrop_asset; this log line
+	// attributes blame to either (a) upstream TMDB sent no
+	// backdrop_path, or (b) mapper/merge zeroed it before persist.
+	// Sampled at INFO so it surfaces in the default log level on prod.
+	tvHasPoster := tv != nil && tv.PosterPath != ""
+	tvHasBackdrop := tv != nil && tv.BackdropPath != ""
+	log.InfoContext(txCtx, "enrichment.series.canon.images_persisted",
+		slog.Int64("series_id", seriesID),
+		slog.Any("tmdb_id", canonOut.TMDBID),
+		slog.Bool("poster_present", canonOut.PosterAsset != nil && *canonOut.PosterAsset != ""),
+		slog.Bool("backdrop_present", canonOut.BackdropAsset != nil && *canonOut.BackdropAsset != ""),
+		slog.Bool("tmdb_poster_path_present", tvHasPoster),
+		slog.Bool("tmdb_backdrop_path_present", tvHasBackdrop),
+	)
 
 	// 2. series_texts.
 	m.SeriesText.SeriesID = seriesID
