@@ -9,14 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/gc"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
-	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -99,7 +97,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	db := persistence.DB
 	runtimeRepo := persistence.RuntimeRepo
 	quotaCounter := persistence.QuotaCounter
-	tzResolver := persistence.TZResolver
 	timezoneHandler := persistence.TimezoneHandler
 
 	// Bus is constructed BEFORE BuildRuntimeConfig (story 330 reorder)
@@ -417,45 +414,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		webhookReconcileLoopVal.Run(ctx)
 	})
 
-	// Build the boot scheduler (if cron is enabled) so the
-	// subscriber starts in the same state as the snapshot. Note:
-	// Start is deferred so Story 211 can Register the nightly
-	// enrichment job after extSub.Start primes TMDB settings.
-	// Story 301: closure factory captures the resolver's current
-	// location at construction time. Built fresh on each scheduler
-	// rebuild (boot + reload) so a pod restart picks up the
-	// PATCH'd value. Already-running jobs do NOT pick up live
-	// PATCHes — see story known_limitations.
-	schedulerFactory := func(schedule string, jitter time.Duration, logger *slog.Logger) *scheduler.Scheduler {
-		return scheduler.NewWithLocation(schedule, jitter, logger, tzResolver.Get())
-	}
-	var bootScheduler *scheduler.Scheduler
-	if cfg.Cron.Enabled {
-		bootScheduler = schedulerFactory(cfg.Cron.Schedule, cfg.Cron.Jitter, log)
-	}
-
-	// Pull the AuthRuntime pointer out of the http server's auth
-	// handler so we can hand it to the reload subscriber.
-	authHandler := httpServer.AuthHandler()
-	var authRuntimePtr *middleware.AuthRuntimePointer
-	if authHandler != nil {
-		authRuntimePtr = authHandler.AuthRuntime()
-	}
-
-	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
-		bootScheduler, reload.SchedulerFactory(schedulerFactory),
-		scanUC, sonarrClientsByName,
-		clientFactory, checker, wd, holder, sweeper,
-		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
-		globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
-		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
-	if err != nil {
-		return nil, fmt.Errorf("start subscribers: %w", err)
-	}
-
-	oidcProviderSub := reload.NewOIDCProviderSubscriber(oidcCache, log)
-	go oidcProviderSub.Run(rootCtx, bus, func() {})
-
 	// Story 202 (S-2) — external services subscriber. Primes its cache
 	// eagerly so the first Phase C/D client.Get() works before any bus
 	// publish. No new barrier channel is added to startSubscribers
@@ -565,90 +523,45 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// ───────── END LATE BIND ZONE ─────────
 
-	// Register the nightly stale scan into the boot scheduler if cron
-	// is enabled. Done BEFORE Start (now StartRegistered via the
-	// legacy wrapper) so the registry is build-once.
-	if bootScheduler != nil && enrichBundle != nil && enrichBundle.Nightly != nil {
-		if err := bootScheduler.Register("enrichment-nightly", "0 4 * * *",
-			enrichBundle.Nightly); err != nil {
-			return nil, fmt.Errorf("register nightly enrichment: %w", err)
-		}
+	// Build the boot scheduler + factory (story 341). Construction is
+	// after wireEnrichment so the four enrichment-derived job closures
+	// are ready; the wirer Registers every cron job before returning
+	// so the caller only owns Start. The factory is captured by the
+	// reload SchedulerSubscriber via startSubscribers below; the
+	// bootScheduler pointer is rebound for the Start call further down.
+	schedulerBundle, err := wiring.BuildScheduler(persistence, mediaBundle, cfg,
+		wiring.SchedulerEnrichmentJobs{
+			Nightly:          enrichBundle.Nightly,
+			OMDbBudgetReset:  enrichBundle.OMDbBudgetReset,
+			OMDbDailyBatch:   enrichBundle.OMDbDailyBatch,
+			UsesQuotaCounter: enrichBundle.UsesQuotaCounter,
+		}, log)
+	if err != nil {
+		return nil, err
+	}
+	bootScheduler := schedulerBundle.BootScheduler
+
+	// Pull the AuthRuntime pointer out of the http server's auth
+	// handler so we can hand it to the reload subscriber.
+	authHandler := httpServer.AuthHandler()
+	var authRuntimePtr *middleware.AuthRuntimePointer
+	if authHandler != nil {
+		authRuntimePtr = authHandler.AuthRuntime()
 	}
 
-	// Story 213 (D-1) — OMDb daily batch + budget reset.
-	// 04:00 — reset the in-process budget counter (must precede the
-	// 04:30 batch so the batch runs against a fresh budget).
-	// 04:30 — fan out library series with stale OMDb sync into the
-	// enrichment dispatcher at PriorityCold.
-	if bootScheduler != nil && enrichBundle != nil {
-		// 305: in the DB-backed path the budget guard rotates at UTC
-		// midnight implicitly — no explicit Reset needed. Only the
-		// in-process fallback (no QuotaCounter) keeps the daily reset
-		// cron, because its atomic counter must be Store(initial) at
-		// midnight to refill.
-		if !enrichBundle.UsesQuotaCounter && enrichBundle.OMDbBudgetReset != nil {
-			if err := bootScheduler.Register("omdb-budget-reset", "0 4 * * *",
-				enrichBundle.OMDbBudgetReset); err != nil {
-				return nil, fmt.Errorf("register omdb budget reset: %w", err)
-			}
-		}
-		if enrichBundle.OMDbDailyBatch != nil {
-			if err := bootScheduler.Register("omdb-daily-batch", "30 4 * * *",
-				enrichBundle.OMDbDailyBatch); err != nil {
-				return nil, fmt.Errorf("register omdb daily batch: %w", err)
-			}
-		}
-		// 305: daily GC sweep for the external_service_quota_state
-		// table. Deletes windows older than 7 days so the table stays
-		// bounded at #services × 7 rows at steady state. Runs at
-		// 04:15 — between budget-reset (which is skipped in DB-mode)
-		// and omdb-daily-batch (which runs at 04:30).
-		if err := bootScheduler.Register("quota-counter-gc", "15 4 * * *",
-			func(ctx context.Context) {
-				cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
-				deleted, err := quotaCounter.Reset(ctx, cutoff)
-				if err != nil {
-					log.WarnContext(ctx, "quota.counter.gc.failed",
-						slog.String("error", err.Error()))
-					return
-				}
-				log.InfoContext(ctx, "quota.counter.gc.swept",
-					slog.Time("cutoff", cutoff),
-					slog.Int64("deleted_rows", deleted))
-			}); err != nil {
-			return nil, fmt.Errorf("register quota-counter-gc: %w", err)
-		}
+	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
+		bootScheduler, schedulerBundle.Factory,
+		scanUC, sonarrClientsByName,
+		clientFactory, checker, wd, holder, sweeper,
+		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
+		globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
+		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
+	if err != nil {
+		return nil, fmt.Errorf("start subscribers: %w", err)
 	}
 
-	// Story 218 (E-2) — weekly GC at Sunday 05:00. Best-effort
-	// sub-tasks: orphan canon series sweep (90d grace) → media
-	// asset sweep (30d cooldown vs live-hash set) → qbit event
-	// prune (skipped until A-3 lands the table). Registered
-	// unconditionally — the scheduler decides whether to fire it
-	// based on cfg.Cron.Enabled.
-	if bootScheduler != nil {
-		liveAssetsRepo := repositories.NewLiveAssetsRepository(db)
-		weeklyJob := gc.WeeklyJob{
-			OrphanSeries: gc.OrphanSeriesDeps{
-				Repo:   seriesRepo,
-				Logger: log,
-			}.Build(),
-			MediaSweep: gc.MediaSweepDeps{
-				LiveSet: liveAssetsRepo,
-				Assets:  mediaAssetsRepo,
-				Store:   mediaStoreImpl,
-				Logger:  log,
-			}.Build(),
-			EventPrune: gc.EventPruneDeps{
-				DB:     db,
-				Logger: log,
-			}.Build(),
-			Logger: log,
-		}
-		if err := bootScheduler.Register("weekly-gc", "0 5 * * 0", weeklyJob.Run); err != nil {
-			return nil, fmt.Errorf("register weekly-gc: %w", err)
-		}
-	}
+	oidcProviderSub := reload.NewOIDCProviderSubscriber(oidcCache, log)
+	go oidcProviderSub.Run(rootCtx, bus, func() {})
 
 	// Start the boot scheduler now that all jobs are registered. The
 	// legacy Start(ctx, scanUC) wrapper internally Register(ScanJobName)
