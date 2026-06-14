@@ -184,6 +184,27 @@ func hashURL(url string) string {
 // media_test.
 func HashFromURL(url string) string { return hashURL(strings.TrimSpace(url)) }
 
+// sentinelMissingHashSeed is the salted input the sentinel sha256
+// hashes. MUST NOT be a valid TMDB CDN URL prefix so collisions with
+// content-addressed hashes are impossible — every real upstream URL
+// hashed by HashFromURL begins with "https://image.tmdb.org/t/p/...".
+const sentinelMissingHashSeed = "seasonfill:media:sentinel:missing:v1"
+
+// SentinelMissingHash is the deterministic sha256-hex of
+// sentinelMissingHashSeed. Story 347 — composer / resolver hand this
+// value to the frontend in place of nil when an asset has no raw path
+// (or no recoverable source URL). The media handler short-circuits on
+// it and serves the embedded SVG placeholder without a DB lookup.
+//
+// Stable across processes — literally sha256("seasonfill:media:
+// sentinel:missing:v1") in lowercase hex. var (not const) because
+// crypto/sha256 is not const-eligible in Go; computed once at package
+// init.
+var SentinelMissingHash = func() string {
+	sum := sha256.Sum256([]byte(sentinelMissingHashSeed))
+	return hex.EncodeToString(sum[:])
+}()
+
 // BuildTMDBImageURL stamps the TMDB CDN base + size onto a raw image
 // path emitted by the mapper. path is the value of poster_path /
 // backdrop_path / etc. — the leading slash is preserved. Returns

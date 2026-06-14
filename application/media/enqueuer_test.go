@@ -2,6 +2,8 @@ package media
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"strconv"
@@ -66,6 +68,37 @@ func TestExtractExt(t *testing.T) {
 	} {
 		if got := ExtractExt(in); got != want {
 			t.Fatalf("ExtractExt(%q): got %q want %q", in, got, want)
+		}
+	}
+}
+
+// Story 347 — sentinel-missing hash invariants.
+
+func TestSentinelMissingHash_Deterministic(t *testing.T) {
+	sum := sha256.Sum256([]byte("seasonfill:media:sentinel:missing:v1"))
+	want := hex.EncodeToString(sum[:])
+	if SentinelMissingHash != want {
+		t.Fatalf("SentinelMissingHash: got %q want %q", SentinelMissingHash, want)
+	}
+	// 64 lowercase hex chars — must satisfy isValidHashHex on the
+	// handler side without special casing.
+	if len(SentinelMissingHash) != 64 {
+		t.Fatalf("SentinelMissingHash len: got %d want 64", len(SentinelMissingHash))
+	}
+}
+
+func TestSentinelMissingHash_NoCollisionWithRealURL(t *testing.T) {
+	urls := []string{
+		"https://image.tmdb.org/t/p/w342/abc.jpg",
+		"https://image.tmdb.org/t/p/w1280/abc.jpg",
+		"https://image.tmdb.org/t/p/w185/x.png",
+		"https://image.tmdb.org/t/p/w154/y.jpg",
+		"https://image.tmdb.org/t/p/original/z.jpg",
+		BuildTMDBImageURL("w342", "/seasonfill:media:sentinel:missing:v1"),
+	}
+	for _, u := range urls {
+		if HashFromURL(u) == SentinelMissingHash {
+			t.Fatalf("collision: HashFromURL(%q) == SentinelMissingHash", u)
 		}
 	}
 }
