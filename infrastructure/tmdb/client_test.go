@@ -655,3 +655,59 @@ func countersFromMetrics(t *testing.T, name string) int64 {
 	}
 	return 0
 }
+
+// Story 351 — verify the per-HTTP-call metric family is emitted by a
+// real TMDB-style GetTV. Distinct from Story 306's
+// tmdb_requests_total{result=success}: that one is retry-semantic;
+// this one is per-RoundTrip and carries endpoint + method + status (literal HTTP code).
+func TestClient_Metrics_ExternalHTTPFamily_OnSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+
+	if _, err := c.GetTV(context.Background(), 1399, ""); err != nil {
+		t.Fatalf("GetTV: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	body := buf.String()
+	if !strings.Contains(body, `seasonfill_external_http_requests_total{client="tmdb"`) {
+		t.Fatalf("seasonfill_external_http_requests_total{client=tmdb} missing:\n%s", body)
+	}
+	if !strings.Contains(body, `endpoint="/tv/{id}"`) {
+		t.Fatalf("endpoint=/tv/{id} missing:\n%s", body)
+	}
+	if !strings.Contains(body, `status="200"`) {
+		t.Fatalf("status=200 missing:\n%s", body)
+	}
+}
+
+// 429 → literal status="429" path. Compare with Story 306's
+// TestClient_Metrics_RecordsRateLimited which asserts the retry-semantic
+// counter; this one asserts the per-RoundTrip status label is the literal code.
+func TestClient_Metrics_ExternalHTTPFamily_On429(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+	c.sleep = func(ctx context.Context, d time.Duration) error { return nil }
+
+	_, _ = c.GetTV(context.Background(), 1399, "")
+
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	body := buf.String()
+	if !strings.Contains(body, `seasonfill_external_http_requests_total{client="tmdb"`) {
+		t.Fatalf("client=tmdb missing:\n%s", body)
+	}
+	if !strings.Contains(body, `status="429"`) {
+		t.Fatalf("status=429 missing for 429 response:\n%s", body)
+	}
+}

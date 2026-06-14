@@ -38,6 +38,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
@@ -161,11 +162,25 @@ func New(cfg Config) (*Client, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// Story 351 — wrap the injected httpClient with the per-client
+	// metrics transport. We CLONE the *http.Client so the caller's
+	// shared pointer is left untouched (the media downloader uses the
+	// SAME shared pointer for image.tmdb.org and needs its own
+	// "tmdb_cdn"-labelled wrap — see cmd/server/wiring/enrichment.go).
+	// Jar + CheckRedirect are round-tripped even if nil — keeps the
+	// clone faithful so a future externalservices.HttpClientFor change
+	// that sets them doesn't silently break.
+	clientWithMetrics := &http.Client{
+		Transport:     httpx.NewMetricsTransport("tmdb", httpx.TMDBEndpointFor, cfg.HTTPClient.Transport),
+		Timeout:       cfg.HTTPClient.Timeout,
+		Jar:           cfg.HTTPClient.Jar,
+		CheckRedirect: cfg.HTTPClient.CheckRedirect,
+	}
 	c := &Client{
 		baseURL:    strings.TrimRight(base, "/"),
 		token:      cfg.Token,
 		lang:       lang,
-		httpClient: cfg.HTTPClient,
+		httpClient: clientWithMetrics,
 		limiter:    newTokenBucket(interval, rateLimitBurst),
 		logger:     logger,
 		clock:      time.Now,
