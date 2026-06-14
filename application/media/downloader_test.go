@@ -154,10 +154,14 @@ func TestDownloader_RateLimit(t *testing.T) {
 
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	repo := newFakeRepo()
+	// Story 346: the default CDN cap moved from 5 rps to 100 rps. This
+	// test explicitly pins 5 rps so the timing assertion stays
+	// meaningful regardless of future default changes.
 	d, err := NewDownloader(eq, DownloaderDeps{
 		Store: newFakeStore(), Repo: repo,
-		HTTPClient: srv.Client(),
-		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		HTTPClient:      srv.Client(),
+		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		CDNRateLimitRPS: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -410,4 +414,53 @@ func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
 	out := buf.String()
 	require.Contains(t, out, `"msg":"media.fetch.failed"`)
 	require.Contains(t, out, `"error_kind":"s3_write_error"`)
+}
+
+// Story 346 — when CDNRateLimitRPS is left at zero the downloader picks
+// the package default (100 rps). Asserts the limiter's effective rate
+// via Limiter().Limit().
+func TestDownloader_DefaultCDNRate100(t *testing.T) {
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store:      newFakeStore(),
+		Repo:       newFakeRepo(),
+		HTTPClient: &http.Client{},
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		// CDNRateLimitRPS left at zero — expect default 100.
+	})
+	require.NoError(t, err)
+	got := float64(d.Limiter().Limit())
+	require.InDelta(t, 100.0, got, 0.001, "default CDN rate must be 100 rps")
+}
+
+// Story 346 — DownloaderDeps.CDNRateLimitRPS overrides the default.
+func TestDownloader_CDNRateOverride(t *testing.T) {
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store:           newFakeStore(),
+		Repo:            newFakeRepo(),
+		HTTPClient:      &http.Client{},
+		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		CDNRateLimitRPS: 25,
+	})
+	require.NoError(t, err)
+	got := float64(d.Limiter().Limit())
+	require.InDelta(t, 25.0, got, 0.001, "explicit CDN rate must be honoured")
+}
+
+// Story 346 — negative or zero RPS still collapses to the default
+// (defensive: a config bug must NOT permit a 0-rps limiter, which
+// would block every request).
+func TestDownloader_NegativeRateFallsBack(t *testing.T) {
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store:           newFakeStore(),
+		Repo:            newFakeRepo(),
+		HTTPClient:      &http.Client{},
+		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		CDNRateLimitRPS: -1,
+	})
+	require.NoError(t, err)
+	got := float64(d.Limiter().Limit())
+	require.InDelta(t, 100.0, got, 0.001, "negative rate must fall back to default")
 }

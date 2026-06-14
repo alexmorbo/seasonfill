@@ -17,14 +17,18 @@ import (
 )
 
 // downloaderWorkers is the goroutine count drainig the jobs channel —
-// PRD §6.6 pins it at 3 (more would smother the 5 rps limiter; fewer
-// would leave the channel backlogged behind slow upstreams).
+// PRD §6.6 pins it at 3 (more would smother the limiter; fewer would
+// leave the channel backlogged behind slow upstreams).
 const downloaderWorkers = 3
 
-// downloaderRate is the shared upstream rate limit — PRD §6.6.
-// 5 requests per second, burst=1. Allocated as a *rate.Limiter so
-// every goroutine waits against the same bucket.
-const downloaderRate = rate.Limit(5)
+// defaultCDNRateLimitRPS is the Story 346 default cap for image.tmdb.org
+// fetches. Was a hardcoded 5 rps (PRD §6.6) — the CDN is Cloudflare-backed
+// with no published per-IP limit, so the old cap throttled a hot Series
+// Detail page (~20 first-fold assets) to a 4 s blocking window behind the
+// pre-warm queue. 100 rps keeps the burst bounded but lets a hot page
+// land sub-second. Override via DownloaderDeps.CDNRateLimitRPS (production
+// wiring threads bootstrap.ExternalServices.TMDBCDNRPS into the field).
+const defaultCDNRateLimitRPS = 100.0
 
 // downloadTimeout is the per-request http.Client timeout. 5s matches
 // PRD §10.4.8 TMDB API timeout (one TLS-handshake budget).
@@ -75,12 +79,18 @@ type Downloader struct {
 // DownloaderDeps is the explicit dep bundle. http=nil falls back to
 // http.DefaultClient — but production wiring MUST pass the TMDB
 // proxied client (see §7 and the story's TMDB proxy decision).
+//
+// Story 346: CDNRateLimitRPS is the image-CDN rps cap (image.tmdb.org).
+// 0 → defaultCDNRateLimitRPS (100). Production wiring threads
+// bootstrap.ExternalServices.TMDBCDNRPS through this field; tests can
+// override to assert burst semantics.
 type DownloaderDeps struct {
-	Store      mediastore.Store
-	Repo       AssetRepo
-	HTTPClient *http.Client
-	Logger     *slog.Logger
-	Clock      func() time.Time
+	Store           mediastore.Store
+	Repo            AssetRepo
+	HTTPClient      *http.Client
+	Logger          *slog.Logger
+	Clock           func() time.Time
+	CDNRateLimitRPS float64
 }
 
 // NewDownloader wires the consumer against the Enqueuer's channel +
@@ -104,13 +114,17 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }
 	}
+	rps := deps.CDNRateLimitRPS
+	if rps <= 0 {
+		rps = defaultCDNRateLimitRPS
+	}
 	return &Downloader{
 		jobs:    eq.Channel(),
 		dedup:   eq.dedup,
 		store:   deps.Store,
 		repo:    deps.Repo,
 		http:    deps.HTTPClient,
-		limiter: rate.NewLimiter(downloaderRate, 1),
+		limiter: rate.NewLimiter(rate.Limit(rps), 1),
 		logger:  deps.Logger,
 		clock:   deps.Clock,
 		stopCh:  make(chan struct{}),
@@ -135,8 +149,9 @@ func (d *Downloader) Close() {
 }
 
 // Limiter returns the shared *rate.Limiter the Downloader uses. The
-// on-demand fetcher (Story 316) must share the limiter so the 5 rps cap
-// applies across both the sync + async paths.
+// on-demand fetcher (Story 316) must share the limiter so the CDN cap
+// applies across both the sync + async paths. Story 346: the cap is now
+// configurable (DownloaderDeps.CDNRateLimitRPS, default 100 rps).
 func (d *Downloader) Limiter() *rate.Limiter { return d.limiter }
 
 func (d *Downloader) runWorker(ctx context.Context, idx int) {

@@ -5,8 +5,9 @@
 // upserts the media_assets row, returns the sha256 hash. Designed
 // for the page-composer "first-fold" path (hero poster/backdrop, person
 // portrait) so the visited assets land in S3 before the response goes
-// out. Cap'd by the shared 5 rps rate limiter so a hot page can't
-// hammer TMDB.
+// out. Cap'd by the shared CDN rate limiter (Story 346: default 100 rps,
+// see application/media/downloader.go::defaultCDNRateLimitRPS) so a hot
+// page can't hammer TMDB.
 //
 // Failures and ctx-cancel return ("", false) — the resolver
 // translates that to nil and the frontend falls back to a monogram.
@@ -46,7 +47,7 @@ type OnDemandFetcher interface {
 // OnDemandDeps groups the prod wiring. Mirrors DownloaderDeps so the
 // wiring code can hand the same Store / Repo / HTTPClient. Limiter
 // MUST be the shared *rate.Limiter the Downloader uses (otherwise the
-// 5 rps cap gets split).
+// CDN cap gets split — Story 346 default 100 rps).
 type OnDemandDeps struct {
 	Store      mediastore.Store
 	Repo       AssetRepo
@@ -68,7 +69,8 @@ type onDemandFetcher struct {
 
 // NewOnDemandFetcher constructs the prod fetcher. The shared Limiter
 // (the same *rate.Limiter the Downloader holds) is required to keep
-// the global 5 rps cap intact across sync + async paths.
+// the global CDN cap intact across sync + async paths (Story 346:
+// default 100 rps).
 func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 	if d.Store == nil {
 		return nil, errors.New("media ondemand: mediastore required")

@@ -104,7 +104,32 @@ type ExternalServicesEnv struct {
 	// (e.g. 50, 4.5). 0 or unset → infrastructure/tmdb default (50).
 	// Operator drops this when prod 429s show up in
 	// tmdb_rate_limit_pauses_total.
-	TMDBRPS       float64
+	//
+	// Story 346: DEPRECATED. Kept as a legacy alias for
+	// TMDBAPIRPS — when the new SEASONFILL_TMDB_API_RPS is unset,
+	// SEASONFILL_TMDB_RPS still wins. main.go logs a one-shot
+	// deprecation warning at boot when only the legacy name is set.
+	// Remove next release.
+	//
+	// Deprecated: use TMDBAPIRPS instead.
+	TMDBRPS float64
+	// Story 346 — split rate limiters for the TMDB API host
+	// (api.themoviedb.org) and the image CDN host (image.tmdb.org).
+	// The two hosts have wildly different per-IP budgets; sharing one
+	// limiter stalled the on-demand fetcher behind every API call.
+	//
+	// TMDBAPIRPS: API host self-cap. 0 or unset → infrastructure/tmdb
+	// default (50). Operator-tunable for adaptive rate-limit pauses.
+	// Env: SEASONFILL_TMDB_API_RPS. Legacy fallback honours
+	// SEASONFILL_TMDB_RPS for one release.
+	//
+	// TMDBCDNRPS: image CDN cap consumed by the media downloader and
+	// the on-demand fetcher. 0 or unset → application/media default
+	// (100). The CDN is Cloudflare-backed with no published per-IP
+	// limit; the cap exists only to bound a runaway worker pool.
+	// Env: SEASONFILL_TMDB_CDN_RPS.
+	TMDBAPIRPS    float64
+	TMDBCDNRPS    float64
 	OMDBToken     string
 	OMDBProxyURL  string
 	OMDBProxyUser string
@@ -261,6 +286,14 @@ func FromEnv() (*Bootstrap, error) {
 			TMDBProxyUser: os.Getenv("SEASONFILL_TMDB_PROXY_USER"),
 			TMDBProxyPass: os.Getenv("SEASONFILL_TMDB_PROXY_PASS"),
 			TMDBRPS:       getenvFloat("SEASONFILL_TMDB_RPS", 0),
+			// Story 346: SEASONFILL_TMDB_API_RPS supersedes the legacy
+			// SEASONFILL_TMDB_RPS; when the new env is unset, fall back
+			// to the legacy value so existing prod deployments don't
+			// regress when this code lands. wiring/enrichment.go logs
+			// a one-shot deprecation warning when only the legacy name
+			// is set.
+			TMDBAPIRPS:    getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
+			TMDBCDNRPS:    getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
 			OMDBToken:     os.Getenv("SEASONFILL_OMDB_TOKEN"),
 			OMDBProxyURL:  os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
 			OMDBProxyUser: os.Getenv("SEASONFILL_OMDB_PROXY_USER"),

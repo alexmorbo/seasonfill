@@ -99,3 +99,45 @@ func TestFromEnv_MediaStoreUnknownMode(t *testing.T) {
 	_, err := FromEnv()
 	require.ErrorIs(t, err, ErrMediaStoreMode)
 }
+
+// Story 346 — legacy SEASONFILL_TMDB_RPS still wins when the new
+// SEASONFILL_TMDB_API_RPS env is unset. Backward-compat invariant for
+// existing prod deployments.
+func TestFromEnv_LegacyTMDBRPSFallback(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_RPS", "42")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 42.0, cfg.ExternalServices.TMDBAPIRPS, 0.001,
+		"legacy SEASONFILL_TMDB_RPS must populate TMDBAPIRPS when the new env is unset")
+	assert.InDelta(t, 42.0, cfg.ExternalServices.TMDBRPS, 0.001,
+		"legacy TMDBRPS field still reads the legacy env (deprecated path)")
+}
+
+// Story 346 — when both envs are set, the new SEASONFILL_TMDB_API_RPS wins.
+func TestFromEnv_NewEnvWinsOverLegacy(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_RPS", "10")
+	t.Setenv("SEASONFILL_TMDB_API_RPS", "75")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 75.0, cfg.ExternalServices.TMDBAPIRPS, 0.001)
+}
+
+// Story 346 — SEASONFILL_TMDB_CDN_RPS plumbs into TMDBCDNRPS. 0 (unset)
+// passes through so the downloader picks its own default.
+func TestFromEnv_TMDBCDNRPS(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_CDN_RPS", "200")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 200.0, cfg.ExternalServices.TMDBCDNRPS, 0.001)
+}
+
+func TestFromEnv_TMDBCDNRPS_UnsetIsZero(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, cfg.ExternalServices.TMDBCDNRPS, 0.001,
+		"unset TMDBCDNRPS must be 0 so downstream applies the package default")
+}
