@@ -276,7 +276,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		scanInstancesByName[sc.Name] = si
 		cfgByName[sc.Name] = config.NewHealthCheckConfig(sc.HealthCheck)
 	}
-	holder := newInstanceMapHolder(scanInstancesByName)
+	holder := adapters.NewInstanceMapHolder(scanInstancesByName)
 
 	// Registry is constructed ONCE here. checker.Registry() returns a
 	// stable pointer for the life of the process; the reload subscriber
@@ -329,7 +329,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		WithSeriesCache(seriesCacheRepo).
 		WithHealthRegistry(checker.Registry()).
 		WithWaitGroup(&bgWG)
-	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, holder.load, log)
+	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, holder.Load, log)
 
 	// 032e: per-instance webhook cooldown lookup reads live from the
 	// instanceMapHolder so PUT /instances/<name> mutations to
@@ -379,7 +379,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			Logger:        log,
 		},
 		Lookup: func(name string) (*sonarr.Client, bool) {
-			h := holder.load()
+			h := holder.Load()
 			if h == nil {
 				return nil, false
 			}
@@ -405,7 +405,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		TorrentSeriesMap: torrentSeriesMapRepo,
 		SeriesSyncer:     webhookSeriesSyncer,
 		GUIDCooldownLookup: func(name string) time.Duration {
-			inst, ok := holder.load()[name]
+			inst, ok := holder.Load()[name]
 			if !ok {
 				return 0
 			}
@@ -413,7 +413,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		},
 		Logger: log,
 		SonarrClientFor: func(name string) (ports.SonarrClient, bool) {
-			if h := holder.load(); h != nil {
+			if h := holder.Load(); h != nil {
 				if inst, ok := h[name]; ok && inst.Client != nil {
 					return inst.Client, true
 				}
@@ -421,7 +421,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			return nil, false
 		},
 		InstanceFor: func(name string) (runtime.InstanceSnapshot, bool) {
-			if h := holder.load(); h != nil {
+			if h := holder.Load(); h != nil {
 				if inst, ok := h[name]; ok {
 					return inst.Config, true
 				}
@@ -436,7 +436,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// holder.load is invoked per-request by InstancesHandler /
 	// GrabHandler / WebhookHandler — they see every Sonarr added or
 	// removed via Settings UI without a pod restart.
-	instanceReg := handlers.InstanceRegistry{Load: holder.load}
+	instanceReg := handlers.InstanceRegistry{Load: holder.Load}
 
 	webhookStatusCache := webhookinstall.NewStatusCache()
 	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
@@ -481,7 +481,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	noBetterCounterRepo := repositories.NewNoBetterCounterRepository(db)
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
-		regrabInstanceRegistry{reg: instanceReg},
+		adapters.NewRegrabInstanceRegistry(instanceReg),
 		infraregrab.QbitClientFactoryFunc{},
 		infraregrab.DetectorFactoryFunc{},
 		grabRepo, cooldownRepo, blacklistRepo, noBetterCounterRepo,
@@ -516,7 +516,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// torrentsync.SonarrReconciler (its QueueAll + GrabHistoryPaged
 	// are exactly the two methods in the port).
 	sonarrFor := func(instance string) (torrentsync.SonarrReconciler, bool) {
-		h := holder.load()
+		h := holder.Load()
 		inst, ok := h[instance]
 		if !ok || inst.Client == nil {
 			return nil, false
@@ -588,7 +588,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// qBit settings loader for the fanout — calls List + builds the
 	// Settings map fresh on every publish. The Lookup closure delegates
 	// to the settings use case so password decryption is centralised.
-	qbitLoader := qbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
+	qbitLoader := adapters.QbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
 		recs, err := qbitSettingsRepo.List(ctx)
 		if err != nil {
 			log.WarnContext(ctx, "qbit_settings_list_failed",
@@ -735,7 +735,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		Recommendations:   sdRecommendationsRepo,
 		SyncLog:           sdSyncLogRepo,
 		SonarrFor: func(name string) (seriesdetail.SonarrQueueLister, bool) {
-			h := holder.load()
+			h := holder.Load()
 			if h == nil {
 				return nil, false
 			}
@@ -767,7 +767,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		Series:            sdSeriesRepo,
 		SeriesPeople:      sdSeriesPeopleRepo,
 		People:            sdPeopleRepo,
-		PersonCredits:     personCreditsAdapter{r: sdPersonCreditsRepo},
+		PersonCredits:     adapters.NewPersonCreditsAdapter(sdPersonCreditsRepo),
 		EpisodesCount:     sdEpisodesRepo,
 		Logger:            log,
 		MediaResolver:     seriesDetailMediaResolver,
@@ -783,10 +783,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// dispatcher is wired in after wireEnrichment returns (the
 	// holder's inner is nil-OK and the use case logs a warn line
 	// when stub persons land before the dispatcher is up).
-	peopleEnqueuerHolder := &personEnqueuerHolder{}
+	peopleEnqueuerHolder := adapters.NewPersonEnqueuerHolder()
 	peopleUC := apppeople.NewUseCase(apppeople.Deps{
-		People:        peopleReaderAdapter{r: sdPeopleRepo},
-		PersonCredits: personCreditsReaderAdapter{r: sdPersonCreditsRepo},
+		People:        adapters.NewPeopleReaderAdapter(sdPeopleRepo),
+		PersonCredits: adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
 		SeriesByTMDB:  sdSeriesRepo,
 		SeriesCache:   seriesCacheRepo,
 		SyncLog:       sdSyncLogRepo,
@@ -801,8 +801,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// satisfies both the H-2 use case AND the refresh path.
 	seriesRefreshUC, err := seriesrefresh.New(seriesrefresh.Deps{
 		SeriesCache:  seriesCacheRepo,
-		Series:       seriesRefreshSeriesAdapter{r: seriesRepo},
-		SeriesPeople: seriesRefreshCastAdapter{r: sdSeriesPeopleRepo},
+		Series:       adapters.NewSeriesRefreshSeriesAdapter(seriesRepo),
+		SeriesPeople: adapters.NewSeriesRefreshCastAdapter(sdSeriesPeopleRepo),
 		Dispatcher:   peopleEnqueuerHolder,
 		Logger:       log,
 	})
@@ -857,7 +857,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	webhookReconcileLoopVal := loops.NewWebhookReconcileLoop(
 		webhookReconciler,
 		webhookStatusCache,
-		holder.load,
+		holder.Load,
 		log,
 	)
 	lifecycle.Go(rootCtx, "webhook-reconcile", func(ctx context.Context) {
@@ -974,7 +974,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// no-ops on nil so the use case continues to return 200 +
 	// degraded for stub persons.
 	if enrichBundle != nil && enrichBundle.Dispatcher != nil {
-		peopleEnqueuerHolder.set(enrichBundle.Dispatcher)
+		peopleEnqueuerHolder.Set(enrichBundle.Dispatcher)
 	}
 
 	// Story 316 — late-bind the enqueuer + on-demand fetcher onto the
@@ -1124,7 +1124,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// notifyTestContext fires testContextHook (integration builds only) so
 	// E2E tests can assert per-subscriber state. The call is a no-op in
 	// production builds (testcontext_stub.go provides the empty function).
-	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.load, checker.Snapshot)
+	notifyTestContext(bus, subSched, subClients, authRuntimePtr, &globalLimiterPtr, holder.Load, checker.Snapshot)
 
 	// Construction succeeded — disarm the bus.Close + rootCancel defers
 	// so the Server owns these resources until Shutdown.

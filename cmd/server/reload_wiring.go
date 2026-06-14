@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
@@ -28,38 +29,6 @@ import (
 // microseconds. If we hit the timeout, the process is broken: main
 // exits non-zero with a clear log line.
 const subscriberReadyTimeout = 2 * time.Second
-
-// instanceMapHolder is the shared, mutex-protected container the
-// OnApplied fan-out writes into and rescanUC reads from. A plain map
-// would race; using sync.Map loses the by-name shape the caller needs.
-type instanceMapHolder struct {
-	mu sync.RWMutex
-	m  map[string]scan.Instance
-}
-
-func newInstanceMapHolder(initial map[string]scan.Instance) *instanceMapHolder {
-	cp := make(map[string]scan.Instance, len(initial))
-	for k, v := range initial {
-		cp[k] = v
-	}
-	return &instanceMapHolder{m: cp}
-}
-
-func (h *instanceMapHolder) replace(next map[string]scan.Instance) {
-	h.mu.Lock()
-	h.m = next
-	h.mu.Unlock()
-}
-
-func (h *instanceMapHolder) load() map[string]scan.Instance {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	out := make(map[string]scan.Instance, len(h.m))
-	for k, v := range h.m {
-		out[k] = v
-	}
-	return out
-}
 
 // sweepIntervalSetter is the narrow contract buildOnAppliedFanout
 // needs from the cooldown sweeper. Keeping it as an interface lets the
@@ -100,7 +69,7 @@ type qbitSettingsLoader interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *instanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
+func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -125,7 +94,7 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 			cfgByName[inst.Name] = config.NewHealthCheckConfig(inst.HealthCheck)
 		}
 		scanUC.SwapInstances(nextSlice)
-		holder.replace(nextMap)
+		holder.Replace(nextMap)
 		checker.ReplaceClients(clientSlice, names)
 		wd.SwapConfigs(cfgByName)
 		if sweeper != nil {
@@ -179,7 +148,7 @@ func startSubscribers(
 	clientFactory reload.SonarrClientFactory,
 	checker reload.HealthChecker,
 	wd *watchdog.Watchdog,
-	holder *instanceMapHolder,
+	holder *adapters.InstanceMapHolder,
 	sweeper sweepIntervalSetter,
 	regrabLoop regrabSwapper,
 	torrentsyncLoop torrentsyncSwapper,

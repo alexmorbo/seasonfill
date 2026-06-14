@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
@@ -16,7 +17,7 @@ import (
 // Constructs a fully-populated domain PersonCredit (all 3 new
 // fields set), pushes it through the write-side projection
 // (personCreditsRepoAdapter), reads back via the read-side
-// projection (modelToPersonCredit), and asserts every field
+// projection (adapters.ModelToPersonCredit), and asserts every field
 // survives. Catches drift between the two adapters.
 func TestPersonCreditsAdapter_DomainModelRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -69,8 +70,8 @@ func TestPersonCreditsAdapter_DomainModelRoundTrip(t *testing.T) {
 		EpisodeCount:  in.EpisodeCount,
 	}
 
-	// Read-side: model → domain via modelToPersonCredit.
-	out := modelToPersonCredit(row)
+	// Read-side: model → domain via adapters.ModelToPersonCredit.
+	out := adapters.ModelToPersonCredit(row)
 
 	assert.Equal(t, in.PersonID, out.PersonID)
 	assert.Equal(t, in.MediaType, out.MediaType)
@@ -137,7 +138,7 @@ func TestPersonCreditsAdapter_NilFields_RoundTrip(t *testing.T) {
 		TMDBVotes:     in.TMDBVotes,
 		EpisodeCount:  in.EpisodeCount,
 	}
-	out := modelToPersonCredit(row)
+	out := adapters.ModelToPersonCredit(row)
 	assert.Nil(t, out.OriginalTitle)
 	assert.Nil(t, out.Department)
 	assert.Nil(t, out.TMDBVotes)
