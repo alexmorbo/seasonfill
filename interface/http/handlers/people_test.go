@@ -399,3 +399,78 @@ func TestSeriesPersonHandler_OtherCredits_NewFields_Story307(t *testing.T) {
 	require.NotNil(t, wire.VoteCount)
 	assert.Equal(t, 9876, *wire.VoteCount)
 }
+
+// TestPeopleUseCase_ResolvesAssets exercises the Story 315 wiring:
+// the use case calls MediaResolver.Resolve for person.profile_asset
+// and library_credits[].poster_asset. The stub resolver records its
+// calls; the assertions verify (a) Resolve was called with the right
+// (size, kind) tags, and (b) the returned hex string replaces the raw
+// path in the response.
+func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
+	t.Parallel()
+
+	profilePath := "/abc.jpg"
+	posterPath := "/def.jpg"
+	tmdbPersonID := 5887
+
+	resolver := &recordingResolver{
+		responses: map[string]string{
+			"w185|/abc.jpg": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"w342|/def.jpg": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		},
+	}
+
+	person := dompeople.Person{
+		ID:           1,
+		TMDBID:       &tmdbPersonID,
+		Hydration:    dompeople.HydrationFull,
+		Name:         "Pedro Pascal",
+		ProfileAsset: &profilePath,
+	}
+	credits := []dompeople.PersonCredit{{
+		ID: 10, PersonID: 1, MediaType: "tv", TMDBMediaID: 300, Kind: dompeople.SeriesCreditCast,
+	}}
+	canon := series.Canon{ID: 42, Title: "FROM", PosterAsset: &posterPath}
+
+	uc := apppeople.NewUseCase(apppeople.Deps{
+		People:        peopleHandlerFakePeople{person: person},
+		PersonCredits: peopleHandlerFakeCredits{rows: credits},
+		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{rows: map[int]series.Canon{300: canon}},
+		SeriesCache: peopleHandlerFakeSeriesCache{
+			rows: map[int64][]series.CacheEntry{42: {{InstanceName: "homelab", SonarrSeriesID: 369}}},
+		},
+		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
+		MediaResolver: resolver,
+		Logger:        handlerTestLogger(),
+	})
+
+	detail, err := uc.Get(t.Context(), 5887, "en-US", "recent")
+	require.NoError(t, err)
+	require.NotNil(t, detail.Person.ProfileAsset, "profile_asset should be a hash, not nil")
+	assert.Len(t, *detail.Person.ProfileAsset, 64, "profile_asset should be 64-char sha256 hex")
+	require.Len(t, detail.LibraryCredits, 1)
+	require.NotNil(t, detail.LibraryCredits[0].Canon.PosterAsset)
+	assert.Len(t, *detail.LibraryCredits[0].Canon.PosterAsset, 64)
+
+	// Resolver was called with the right (size, kind) tags.
+	assert.Contains(t, resolver.calls, "w185|/abc.jpg")
+	assert.Contains(t, resolver.calls, "w342|/def.jpg")
+}
+
+// recordingResolver is the test stub for apppeople.MediaResolver.
+type recordingResolver struct {
+	responses map[string]string
+	calls     []string
+}
+
+func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, _ string) *string {
+	if rawPath == nil || *rawPath == "" {
+		return nil
+	}
+	k := size + "|" + *rawPath
+	r.calls = append(r.calls, k)
+	if v, ok := r.responses[k]; ok {
+		return &v
+	}
+	return nil
+}

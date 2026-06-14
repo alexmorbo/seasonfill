@@ -764,6 +764,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		SeriesCache:   seriesCacheRepo,
 		SyncLog:       sdSyncLogRepo,
 		Enqueuer:      peopleEnqueuerHolder,
+		MediaResolver: seriesDetailMediaResolver,
 		Logger:        log,
 	})
 	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)

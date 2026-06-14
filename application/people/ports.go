@@ -72,3 +72,10 @@ type SyncLogLookup interface {
 type PersonEnqueuer interface {
 	Enqueue(kind enrichment.EntityKind, id int64, p enrichment.Priority)
 }
+
+// MediaResolver narrows seriesdetail.MediaResolver to the methods the
+// people use case calls. Kept as an interface so tests can pass a
+// stub; the wiring layer hands the concrete *seriesdetail.MediaResolver.
+type MediaResolver interface {
+	Resolve(ctx context.Context, rawPath *string, size, kind string) *string
+}

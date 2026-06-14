@@ -81,7 +81,10 @@ type OtherCredit struct {
 
 // Deps groups the use case's dependencies. Every port is required;
 // the dispatcher (Enqueuer) MAY be nil in test fixtures that
-// don't care about stub-on-demand.
+// don't care about stub-on-demand. MediaResolver MAY be nil — the
+// use case substitutes a no-op resolver that leaves every *_asset
+// field as the raw TMDB path (legacy behavior; broken in prod —
+// production wiring MUST pass the real resolver).
 type Deps struct {
 	People        PeopleReader
 	PersonCredits PersonCreditsReader
@@ -89,6 +92,7 @@ type Deps struct {
 	SeriesCache   SeriesCacheLookup
 	SyncLog       SyncLogLookup
 	Enqueuer      PersonEnqueuer
+	MediaResolver MediaResolver
 	Logger        *slog.Logger
 	Now           func() time.Time
 }
@@ -107,8 +111,19 @@ func NewUseCase(d Deps) *UseCase {
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
+	if d.MediaResolver == nil {
+		d.MediaResolver = nopMediaResolver{}
+	}
 	return &UseCase{d: d}
 }
+
+// nopMediaResolver is the zero MediaResolver — every Resolve call
+// returns nil, so wire fields stay nil and the frontend renders a
+// monogram placeholder. Used when the use case is constructed without
+// the media subsystem wired (tests, boot-time fallback).
+type nopMediaResolver struct{}
+
+func (nopMediaResolver) Resolve(_ context.Context, _ *string, _, _ string) *string { return nil }
 
 // Get runs the H-2 workflow for (tmdbID, lang, sort).
 func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey string) (*PersonDetail, error) {
@@ -179,6 +194,14 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 
 	out.LibraryCredits = libCredits
 	out.OtherCredits = otherCredits
+
+	// Story 315 — resolve TMDB raw paths to sha256 hashes the
+	// frontend can serve via /api/v1/media/:hash. Misses → nil →
+	// monogram fallback. Mirrors seriesdetail.Composer.resolveAssets.
+	out.Person.ProfileAsset = uc.d.MediaResolver.Resolve(ctx, out.Person.ProfileAsset, "w185", "profile_w185")
+	for i := range out.LibraryCredits {
+		out.LibraryCredits[i].Canon.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].Canon.PosterAsset, "w342", "poster_w342")
+	}
 
 	degraded := uc.computeDegraded(person, out.Sync)
 	out.Degraded = degraded
