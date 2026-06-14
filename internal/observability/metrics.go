@@ -97,6 +97,23 @@ const (
 	// enrichment write side never lands the path — i.e. the defensive
 	// write-side guard is the only fix.
 	MetricRecoverySweepEnqueuedTotal = `recovery_sweep_enqueued_total`
+
+	// Story 351 — generic external-HTTP observability. Written by
+	// infrastructure/httpx.MetricsTransport at the http.RoundTripper
+	// layer. Labels:
+	//   - client:   closed set {tmdb, omdb, tmdb_cdn, sonarr (reserved)}
+	//   - endpoint: normalised path (see infrastructure/httpx tables)
+	//   - method:   HTTP method (GET / POST / ...)
+	//   - status:   CLOSED SET {200, 304, 401, 404, 429, 500, 502, 503, 504,
+	//                            other, error} — bounded cardinality + per-code
+	//                            alerts (429 rate-limit, 504 timeout, 401 auth)
+	//
+	// IMPORTANT: this family is per-HTTP-call. The legacy
+	// tmdb_requests_total{result} (Story 306) is retry-semantic. Both
+	// surface; both useful. Do NOT delete the legacy series.
+	MetricExternalHTTPRequestsTotal    = `seasonfill_external_http_requests_total`
+	MetricExternalHTTPRequestDuration  = `seasonfill_external_http_request_duration_seconds`
+	MetricExternalHTTPRequestsInFlight = `seasonfill_external_http_requests_in_flight`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on

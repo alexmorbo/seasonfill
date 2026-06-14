@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	metricsLib "github.com/VictoriaMetrics/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -328,4 +329,35 @@ func TestAddRecoverySweepEnqueued_ZeroIsNoop(t *testing.T) {
 	afterLine := findMetricLine(after, `recovery_sweep_enqueued_total{kind="poster"}`)
 	// The two snapshots must show the same value — a no-op n didn't tick.
 	require.Equal(t, beforeLine, afterLine)
+}
+
+// Story 351 — the new external-HTTP family must surface on
+// WritePrometheus after a direct write. We don't import
+// infrastructure/httpx here (would create a layering cycle — observability
+// is imported by httpx-adjacent layers); instead we hit the metric names
+// directly through the metrics package.
+func TestExternalHTTPMetrics_Surface(t *testing.T) {
+	metricsLib.GetOrCreateCounter(
+		`seasonfill_external_http_requests_total{client="testdirect",endpoint="/x",method="GET",status="200"}`,
+	).Inc()
+	metricsLib.GetOrCreateHistogram(
+		`seasonfill_external_http_request_duration_seconds{client="testdirect",endpoint="/x",method="GET",status="200"}`,
+	).Update(0.123)
+	metricsLib.GetOrCreateGauge(
+		`seasonfill_external_http_requests_in_flight{client="testdirect"}`,
+		nil,
+	).Set(0)
+
+	body := writeAndRead(t)
+	assert.Contains(t, body, `seasonfill_external_http_requests_total{client="testdirect",endpoint="/x",method="GET",status="200"}`)
+	// Histograms expose _bucket / _sum / _count — assert on _count.
+	assert.Contains(t, body, `seasonfill_external_http_request_duration_seconds_count{client="testdirect",endpoint="/x",method="GET",status="200"}`)
+	assert.Contains(t, body, `seasonfill_external_http_requests_in_flight{client="testdirect"}`)
+}
+
+func TestMetricConstants_ExternalHTTP_NotEmpty(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "seasonfill_external_http_requests_total", MetricExternalHTTPRequestsTotal)
+	assert.Equal(t, "seasonfill_external_http_request_duration_seconds", MetricExternalHTTPRequestDuration)
+	assert.Equal(t, "seasonfill_external_http_requests_in_flight", MetricExternalHTTPRequestsInFlight)
 }
