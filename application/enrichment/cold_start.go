@@ -1,4 +1,5 @@
-// Package enrichment — Story 212 cold-start backfill.
+// Package enrichment — Story 212 cold-start backfill +
+// Story 318 periodic re-sweep.
 //
 // BackfillSeries scans `series` rows that lack a sync_log(tmdb_series)
 // row and enqueues them at PriorityCold. Person backfill happens
@@ -6,16 +7,31 @@
 // stubs and enqueues them (series_worker integration).
 //
 // Idempotency: after the first pass every series acquires a sync_log
-// row (outcome ∈ {ok, error, not_found}). The second pass's LEFT JOIN
-// returns zero rows. The function is therefore safe to call from a
-// recovery script or repeated restarts.
+// row (outcome ∈ {ok, error, not_found}). Subsequent passes' LEFT JOIN
+// returns zero (or only newly-added) rows. The function is therefore
+// safe to call from a recovery script, repeated restarts, OR a
+// periodic ticker (Story 318 — the production path now calls
+// BackfillSeries every 60s for the lifetime of the process, picking
+// up rows the dispatcher dropped on a saturated cold channel during
+// the previous sweep).
 //
 // 306: publishes the `enrichment_cold_start_remaining` gauge —
 // initialised to len(ids) before the first enqueue, decremented to
 // zero as each enqueued series completes. The decrement plumbing
 // lives in the dispatcher's OnSeriesComplete hook (set on every
 // call to BackfillSeries; nil-OK on the test path that uses a
-// recordingDispatcher fake).
+// recordingDispatcher fake). Re-sweep semantics: each invocation
+// overwrites the prior hook + re-publishes the gauge to the new
+// len(ids). Previous-sweep completions that race the new
+// SetOnSeriesComplete are dropped silently — the new gauge value
+// reflects "remaining as of the latest scan", which is the operator
+// signal we want.
+//
+// Story 318: BackfillSeries also publishes
+// `enrichment_cold_start_resweeps_total` (always) and
+// `enrichment_cold_start_resweep_enqueued_total` (when len(ids) > 0).
+// RunBackfillLoop is the production goroutine entry point — runs
+// once synchronously, then on a ticker until ctx cancels.
 
 package enrichment
 
@@ -25,6 +41,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/observability"
 )
@@ -67,11 +84,15 @@ type hookableDispatcher interface {
 // if the same id is already pending. Limit caps a single sweep at
 // 5000 ids — enough to cover a typical library (~300) by an order
 // of magnitude, bounded so a runaway query doesn't pin memory.
+// Safe to call repeatedly (Story 318): each invocation ticks
+// `enrichment_cold_start_resweeps_total` and overwrites the prior
+// completion hook. Channel-full drops self-heal on the next call.
 func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, log *slog.Logger) error {
 	const sweepLimit = 5000
 	if log == nil {
 		log = slog.Default()
 	}
+	observability.IncEnrichmentColdStartResweep()
 	ids, err := scanner.ListMissingSyncLog(ctx, "tmdb_series", sweepLimit)
 	if err != nil {
 		return fmt.Errorf("cold-start scan: %w", err)
@@ -118,9 +139,57 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 	for _, id := range ids {
 		dispatcher.Enqueue(EntitySeries, id, PriorityCold)
 	}
+	observability.AddEnrichmentColdStartResweepEnqueued(len(ids))
 	log.InfoContext(ctx, "enrichment.cold_start.enqueued",
 		slog.Int("series_count", len(ids)),
 		slog.String("priority", "cold"),
 	)
 	return nil
+}
+
+// RunBackfillLoop is the production driver for the cold-start re-sweep
+// (Story 318). It runs BackfillSeries once synchronously, then on a
+// ticker until ctx cancels. interval <= 0 collapses to a 60s default;
+// the floor matches internal/config.coldStartResweepIntervalFromEnv,
+// so a misconfiguration cannot turn this into a DB hot loop.
+//
+// Errors from BackfillSeries are logged at WARN and do NOT terminate
+// the loop — a transient DB blip on one tick must not silence the
+// re-sweep forever.
+//
+// The function returns when ctx is Done. main.go wraps the call in
+// bgWG so shutdown waits for the goroutine to exit cleanly.
+func RunBackfillLoop(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, interval time.Duration, log *slog.Logger) {
+	if log == nil {
+		log = slog.Default()
+	}
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+	// Initial synchronous sweep keeps boot-time behaviour identical
+	// to the pre-Story-318 codepath.
+	if err := BackfillSeries(ctx, scanner, dispatcher, log); err != nil {
+		log.WarnContext(ctx, "enrichment.cold_start.failed",
+			slog.String("error", err.Error()))
+	}
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	log.InfoContext(ctx, "enrichment.cold_start.resweep.started",
+		slog.Duration("interval", interval))
+	for {
+		select {
+		case <-ctx.Done():
+			log.InfoContext(ctx, "enrichment.cold_start.resweep.stopped")
+			return
+		case <-ticker.C:
+			if err := BackfillSeries(ctx, scanner, dispatcher, log); err != nil {
+				log.WarnContext(ctx, "enrichment.cold_start.failed",
+					slog.String("error", err.Error()))
+			}
+		}
+	}
 }

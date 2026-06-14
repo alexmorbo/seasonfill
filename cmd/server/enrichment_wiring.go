@@ -358,17 +358,19 @@ func wireEnrichment(
 		)
 	}
 
-	// 212: cold-start backfill closure. Hands repos.ColdStartScanner
-	// + dispatcher to the application-layer function; safe to call
-	// from a background goroutine in main.go AFTER dispatcher.Start.
+	// 212 + 318: cold-start backfill closure. Hands repos.ColdStartScanner
+	// + dispatcher to the application-layer loop; safe to call from a
+	// background goroutine in main.go AFTER dispatcher.Start. The loop
+	// re-sweeps every Enrichment.ColdStartResweepInterval (default 60s)
+	// so series the dispatcher dropped on a saturated cold channel are
+	// re-enqueued on the next tick. RunBackfillLoop returns when ctx
+	// is Done.
+	resweepInterval := bootstrap.Enrichment.ColdStartResweepInterval
 	coldStart := func(ctx context.Context) {
 		if repos.ColdStartScanner == nil {
 			return
 		}
-		if err := appenrich.BackfillSeries(ctx, repos.ColdStartScanner, dispatcher, log); err != nil {
-			log.WarnContext(ctx, "enrichment.cold_start.failed",
-				slog.String("error", err.Error()))
-		}
+		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval, log)
 	}
 
 	dispatcher.Start(rootCtx)

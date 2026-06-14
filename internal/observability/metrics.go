@@ -58,6 +58,20 @@ const (
 	MetricEnrichmentQueueDepth         = `enrichment_queue_depth`
 	MetricEnrichmentColdStartRemaining = `enrichment_cold_start_remaining`
 
+	// Story 318 — periodic cold-start re-sweep observability.
+	// `enrichment_cold_start_resweeps_total` ticks once per BackfillSeries
+	// invocation (including empty sweeps — operator wants to see the
+	// goroutine is alive).
+	// `enrichment_cold_start_resweep_enqueued_total` increments by
+	// len(ids) per sweep (counts attempted enqueues; some may be
+	// dispatcher-dedup-skipped or channel-full-dropped — see
+	// `enrichment_queue_drops_total`).
+	// `enrichment_queue_drops_total{worker}` increments every time
+	// priorityQueue.enqueue() takes the channel-full default branch.
+	MetricEnrichmentColdStartResweepsTotal        = `enrichment_cold_start_resweeps_total`
+	MetricEnrichmentColdStartResweepEnqueuedTotal = `enrichment_cold_start_resweep_enqueued_total`
+	MetricEnrichmentQueueDropsTotal               = `enrichment_queue_drops_total`
+
 	// Story 313 — adaptive TMDB rate-limit pause observability.
 	// `tmdb_rate_limit_pauses_total` is a counter ticked once per
 	// 429-triggered global pause entry. Compounding 429s during an
@@ -244,6 +258,32 @@ func SetEnrichmentQueueDepth(worker string, depth int) {
 // series job completes.
 func SetEnrichmentColdStartRemaining(n int) {
 	metrics.GetOrCreateGauge(`enrichment_cold_start_remaining`, nil).Set(float64(n))
+}
+
+// IncEnrichmentColdStartResweep ticks the per-sweep counter (Story 318).
+// Fires on EVERY BackfillSeries invocation, including empty sweeps —
+// the operator wants to verify the re-sweep goroutine is alive even
+// when there is nothing to enqueue.
+func IncEnrichmentColdStartResweep() {
+	metrics.GetOrCreateCounter(`enrichment_cold_start_resweeps_total`).Inc()
+}
+
+// AddEnrichmentColdStartResweepEnqueued bumps the per-sweep enqueue
+// counter (Story 318) by n. n is len(ids) BEFORE deduplication /
+// channel-full drops — to see drops, subtract a delta of
+// `enrichment_queue_drops_total{worker="series"}` over the same window.
+func AddEnrichmentColdStartResweepEnqueued(n int) {
+	if n <= 0 {
+		return
+	}
+	metrics.GetOrCreateCounter(`enrichment_cold_start_resweep_enqueued_total`).Add(n)
+}
+
+// IncEnrichmentQueueDrop ticks the per-worker channel-full drop
+// counter (Story 318). Called from priorityQueue.enqueue when the
+// non-blocking send takes the default branch.
+func IncEnrichmentQueueDrop(worker string) {
+	metrics.GetOrCreateCounter(`enrichment_queue_drops_total{worker="` + worker + `"}`).Inc()
 }
 
 // IncTMDBRateLimitPause bumps the pause-entry counter (Story 313).

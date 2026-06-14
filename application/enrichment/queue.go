@@ -121,13 +121,15 @@ func (q *priorityQueue) enqueue(j Job) bool {
 	default:
 		// Channel full — release the dedup slot and the depth, then
 		// report the drop. The gauge re-publish guarantees the depth
-		// reflects the rollback.
+		// reflects the rollback. Story 318: also tick the drops
+		// counter so the operator can see saturation on Grafana.
 		q.mu.Lock()
 		delete(q.inFlight, key)
 		q.depth[j.Kind]--
 		depthAfter = q.depth[j.Kind]
 		q.mu.Unlock()
 		observability.SetEnrichmentQueueDepth(string(j.Kind), depthAfter)
+		observability.IncEnrichmentQueueDrop(string(j.Kind))
 		return false
 	}
 }

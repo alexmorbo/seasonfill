@@ -72,6 +72,22 @@ type Bootstrap struct {
 	Auth             AuthBootstrap
 	MediaStore       MediaStoreConfig
 	ExternalServices ExternalServicesEnv
+	Enrichment       EnrichmentConfig
+}
+
+// EnrichmentConfig carries the env-only tuning knobs for the
+// enrichment dispatcher. Story 318 ships the cold-start periodic
+// re-sweep interval; future stories layer additional knobs here.
+type EnrichmentConfig struct {
+	// ColdStartResweepInterval governs how often the cold-start
+	// backfill goroutine re-queries the canonical series table for
+	// rows still missing a sync_log(tmdb_series) entry. Production
+	// default is 60s — fast enough to clear a stranded backlog
+	// within minutes after a queue-full drop, cheap enough that the
+	// single PK-indexed LEFT JOIN does not move the DB needle.
+	// Override via SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS
+	// (clamped to >=5s; 0 or unset → default).
+	ColdStartResweepInterval time.Duration
 }
 
 // ExternalServicesEnv carries the env-only overrides for the three
@@ -254,6 +270,9 @@ func FromEnv() (*Bootstrap, error) {
 			TVDBProxyUser: os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
 			TVDBProxyPass: os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
 		},
+		Enrichment: EnrichmentConfig{
+			ColdStartResweepInterval: coldStartResweepIntervalFromEnv(),
+		},
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -321,6 +340,25 @@ func getenvAllowEmpty(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// coldStartResweepIntervalFromEnv reads
+// SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS as an int. Story
+// 318: <5 (including 0 / unset / unparseable) collapses to the 60s
+// default. The floor exists so a misconfiguration cannot turn the
+// re-sweep into a hot loop against the DB.
+func coldStartResweepIntervalFromEnv() time.Duration {
+	const def = 60 * time.Second
+	const floor = 5 * time.Second
+	secs := getenvInt("SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS", 0)
+	if secs <= 0 {
+		return def
+	}
+	d := time.Duration(secs) * time.Second
+	if d < floor {
+		return floor
+	}
+	return d
 }
 
 // (Validate lives in validate.go — see §3.)

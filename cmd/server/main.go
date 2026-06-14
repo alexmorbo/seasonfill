@@ -1072,12 +1072,16 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 		}
 	}
 
-	// Story 212 — cold-start backfill. Background goroutine: scan
-	// series rows missing sync_log(tmdb_series) and enqueue at
-	// PriorityCold. Runs AFTER dispatcher.Start (inside wireEnrichment)
-	// + bootScheduler.Start so every consumer is alive. bgWG.Add(1)
-	// ensures the scan drains on shutdown rather than racing rootCancel.
-	// Idempotent re-runs are harmless.
+	// Story 212 + 318 — cold-start backfill loop. Background
+	// goroutine: scan series rows missing sync_log(tmdb_series)
+	// and enqueue at PriorityCold, then re-sweep every
+	// Enrichment.ColdStartResweepInterval (default 60s) for the
+	// lifetime of the process. Picks up rows the dispatcher had
+	// to drop on a saturated cold channel during the previous
+	// sweep. Runs AFTER dispatcher.Start (inside wireEnrichment)
+	// + bootScheduler.Start so every consumer is alive.
+	// bgWG.Add(1) keeps shutdown waiting for the goroutine to
+	// exit on rootCtx cancellation.
 	if enrichBundle != nil && enrichBundle.ColdStart != nil {
 		bgWG.Add(1)
 		go func() {

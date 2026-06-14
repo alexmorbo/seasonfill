@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -192,4 +193,144 @@ func TestBackfillSeries_LegacyRecordingDispatcher_StillWorks(t *testing.T) {
 	d := &recordingDispatcher{}
 	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
 	require.Len(t, d.calls, 2)
+}
+
+// ----- Story 318 — periodic re-sweep ----------------------------------
+
+// countingScanner returns a deterministic id list on each pass and
+// records how many times ListMissingSyncLog was called.
+type countingScanner struct {
+	mu     sync.Mutex
+	idsFn  func(pass int) []int64
+	passes int
+	err    error
+}
+
+func (c *countingScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.passes++
+	if c.err != nil {
+		return nil, c.err
+	}
+	if c.idsFn == nil {
+		return nil, nil
+	}
+	return c.idsFn(c.passes), nil
+}
+
+func (c *countingScanner) callCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.passes
+}
+
+func TestRunBackfillLoop_RunsImmediatelyThenOnTick(t *testing.T) {
+	t.Parallel()
+	// First pass returns 2 ids; subsequent passes return 0 (cold-start
+	// is done). The loop must call the scanner AT LEAST twice within
+	// 300ms when ticker interval is 50ms.
+	scanner := &countingScanner{
+		idsFn: func(pass int) []int64 {
+			if pass == 1 {
+				return []int64{1, 2}
+			}
+			return nil
+		},
+	}
+	d := &recordingHookableDispatcher{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunBackfillLoop(ctx, scanner, d, 50*time.Millisecond, quietLogger())
+		close(done)
+	}()
+
+	// Wait up to 500ms for the loop to make at least 3 passes
+	// (initial + 2 tick-driven).
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if scanner.callCount() >= 3 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.GreaterOrEqual(t, scanner.callCount(), 3,
+		"scanner must be polled by ticker after initial sweep")
+	// The initial pass enqueued 2 ids; subsequent passes are no-ops.
+	require.Len(t, d.calls, 2)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunBackfillLoop did not exit on ctx cancel")
+	}
+}
+
+func TestRunBackfillLoop_ScannerErrorDoesNotKillLoop(t *testing.T) {
+	t.Parallel()
+	// Errors must be logged + the loop must keep going. We assert
+	// "kept going" by checking the scanner is invoked more than once.
+	scanner := &countingScanner{err: errors.New("db down")}
+	d := &recordingHookableDispatcher{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunBackfillLoop(ctx, scanner, d, 30*time.Millisecond, quietLogger())
+		close(done)
+	}()
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if scanner.callCount() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.GreaterOrEqual(t, scanner.callCount(), 2,
+		"loop must survive scanner errors and keep ticking")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunBackfillLoop did not exit on ctx cancel")
+	}
+}
+
+func TestRunBackfillLoop_ZeroIntervalUsesDefault(t *testing.T) {
+	t.Parallel()
+	// interval <= 0 collapses to 60s. We can't wait 60s in a unit
+	// test, so we assert by canceling immediately after the initial
+	// synchronous sweep — the goroutine should exit cleanly and the
+	// scanner should have been called exactly once.
+	scanner := &countingScanner{
+		idsFn: func(int) []int64 { return nil },
+	}
+	d := &recordingHookableDispatcher{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		RunBackfillLoop(ctx, scanner, d, 0, quietLogger())
+		close(done)
+	}()
+	// Give the initial synchronous sweep time to run.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunBackfillLoop did not exit on ctx cancel")
+	}
+	require.Equal(t, 1, scanner.callCount(),
+		"initial sweep runs once before the ticker")
 }
