@@ -15,14 +15,12 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
-	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
-	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -31,7 +29,6 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
-	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
@@ -254,19 +251,18 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-335 names verbatim so every downstream call site
 	// (instance.New().WithWebhookReconciler / WithWebhookStatusCache,
-	// torrentsync.NewReconciler, torrentsync.NewQuery,
 	// httpserver.NewServer, loops.NewWebhookReconcileLoop,
 	// webhooksAggregateHandler) keeps working unchanged.
 	//
-	// torrentSeriesMapRepo is rebound — server.go (torrentsync.NewReconciler)
-	// and (torrentsync.NewQuery) reference it by the original name.
-	// EpisodeStatesRepo is intentionally NOT rebound: no surviving
-	// server.go code references it directly (the Syncer captures it
-	// inside the bundle).
+	// TorrentSeriesMapRepo is intentionally NOT rebound — story 338
+	// moved torrentsync.NewReconciler + torrentsync.NewQuery into
+	// wiring.BuildTorrentsync, which reads the repo from webhookBundle
+	// directly. EpisodeStatesRepo is intentionally NOT rebound: no
+	// surviving server.go code references it directly (the Syncer
+	// captures it inside the bundle).
 	webhookUC := webhookBundle.WebhookUC
 	webhookReconciler := webhookBundle.Reconciler
 	webhookStatusCache := webhookBundle.StatusCache
-	torrentSeriesMapRepo := webhookBundle.TorrentSeriesMapRepo
 
 	instanceBundle, err := wiring.BuildInstance(persistence, webhookBundle, bus, log)
 	if err != nil {
@@ -290,14 +286,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-337 names verbatim so every downstream call site
 	// (httpserver.NewServer for the four watchdog handlers + qbit settings
-	// handler + webhooks aggregate handler, torrentsyncFactory's
-	// qbitSettingsUC lookup, startSubscribers for regrabLoop + qbitLoader)
-	// keeps working unchanged. blacklistRepo / noBetterCounterRepo / regrabUC
-	// are intentionally NOT rebound — no surviving server.go body code
-	// references them directly (the rollup handler captures blacklistRepo
+	// handler + webhooks aggregate handler, startSubscribers for
+	// regrabLoop + qbitLoader) keeps working unchanged. qbitSettingsUC /
+	// blacklistRepo / noBetterCounterRepo / regrabUC are intentionally
+	// NOT rebound — no surviving server.go body code references them
+	// directly (story 338 moved the torrentsyncFactory lookup site into
+	// wiring.BuildTorrentsync; the rollup handler captures blacklistRepo
 	// inside BuildRegrab; the regrab use case is owned by the RegrabLoop
 	// and consumed via SwapSettings through regrabLoopVal).
-	qbitSettingsUC := regrabBundle.QbitSettingsUC
 	qbitSettingsHandler := regrabBundle.QbitSettingsHandler
 	regrabLoopVal := regrabBundle.RegrabLoop
 
@@ -306,54 +302,25 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// BuildRegrab in story 337; only the rootCtx-bearing .Start lives here.
 	regrabLoopVal.Start(rootCtx)
 
-	// 220 (A-2) — torrentsync loop. Reuses the same qbitLoader as
-	// regrabLoop for reload publishes (one fetch of qbit settings
-	// per applied snapshot is shared between the two loop owners).
-	qbitTorrentsRepo := repositories.NewQbitTorrentsRepository(db)
-	qbitTorrentEventsRepo := repositories.NewQbitTorrentEventsRepository(db)
-	torrentsyncStore := torrentsync.NewStore()
-	torrentsyncPolicy := torrentsync.NewPersistPolicy(
-		qbitTorrentsRepo, qbitTorrentEventsRepo, log,
+	torrentsyncBundle, err := wiring.BuildTorrentsync(
+		persistence, sonarrBundle, scanBundle, webhookBundle, regrabBundle, &bgWG, log,
 	)
-	torrentsyncFactory := loops.NewTorrentsyncSessionFactoryAdapter(
-		infraregrab.QbitClientFactoryFunc{},
-		qbitSettingsUC,
-	)
-	// 221 (A-3) — reconciler (torrentSeriesMapRepo already
-	// constructed above for the webhook same-tx write).
-	// sonarrFor wires the per-instance Sonarr client lookup the
-	// reconciler needs for sources 3 + 4. Production wiring reuses
-	// the instance holder; the concrete *sonarr.Client satisfies
-	// torrentsync.SonarrReconciler (its QueueAll + GrabHistoryPaged
-	// are exactly the two methods in the port).
-	sonarrFor := func(instance string) (torrentsync.SonarrReconciler, bool) {
-		h := holder.Load()
-		inst, ok := h[instance]
-		if !ok || inst.Client == nil {
-			return nil, false
-		}
-		client, ok := inst.Client.(*sonarr.Client)
-		if !ok {
-			return nil, false
-		}
-		return client, true
+	if err != nil {
+		return nil, err
 	}
-	reconciler := torrentsync.NewReconciler(
-		torrentsyncStore,
-		torrentSeriesMapRepo,
-		grabRepo,
-		sonarrFor,
-		observability.TorrentsyncMetricsAdapter{},
-		log,
-	)
-	torrentsyncUC := torrentsync.NewUseCase(
-		torrentsyncStore, torrentsyncPolicy,
-		torrentsyncFactory, qbitTorrentsRepo, log,
-	).WithReconciler(reconciler)
-	torrentsyncLoopVal := loops.NewTorrentsyncLoop(
-		loops.NewProductionTorrentsyncRunner(torrentsyncUC, log),
-		&bgWG, log,
-	)
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-338 names verbatim so every downstream call site
+	// (httpserver.NewServer for seriesTorrentsHandler, startSubscribers
+	// for torrentsyncLoopVal) keeps working unchanged. Other bundle
+	// fields (Store / Policy / Factory / Reconciler / UC / Query) are
+	// not referenced by the surviving body — they live entirely inside
+	// BuildTorrentsync now.
+	torrentsyncLoopVal := torrentsyncBundle.Loop
+	seriesTorrentsHandler := torrentsyncBundle.SeriesTorrentsHandler
+
+	// 220 (A-2) — torrentsync loop's Start needs rootCtx (owned by
+	// server.go, not the wirer). Same pattern as regrabLoopVal.Start
+	// above (story 337).
 	torrentsyncLoopVal.Start(rootCtx)
 
 	// 047a/047b/098a + webhooks aggregate handler — moved to wiring.BuildRegrab
@@ -557,17 +524,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
 	}
 	seriesRefreshHandler := handlers.NewSeriesRefreshHandler(seriesRefreshUC, log)
-
-	// Story 222 (A-4) — per-series torrents endpoint. Reuses the
-	// torrentsync store + qbit_torrents repo wired by 220/221.
-	// torrentSeriesMapRepo is already constructed for the
-	// reconciler in 221; we pass the same value as LookupRepo.
-	torrentsyncQuery := torrentsync.NewQuery(
-		torrentsyncStore, qbitTorrentsRepo, torrentSeriesMapRepo,
-	)
-	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(
-		torrentsyncQuery, seriesCacheRepo, sdSeriesRepo, log,
-	)
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
