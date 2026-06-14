@@ -94,14 +94,24 @@ type LibraryCreditInstance struct {
 // OR canon row with no live series_cache references). Shape
 // projects the upstream TMDB metadata directly — no library
 // attribution.
+//
+// Story 307 added the three optional fields below (Department,
+// OriginalTitle, VoteCount). They are populated from
+// person_credits when TMDB emitted a value; nil omits them from
+// the JSON. Frontend has them available for richer labels (e.g.
+// "Original: <name>") and for future vote-desc sort, but does NOT
+// consume them in v1.
 type OtherCreditEntry struct {
 	TMDBMediaID   int      `json:"tmdb_media_id" example:"999"`
 	MediaType     string   `json:"media_type" example:"tv"`
 	Title         string   `json:"title"`
+	OriginalTitle *string  `json:"original_title,omitempty"`
 	Year          *int     `json:"year,omitempty"`
 	CharacterName *string  `json:"character_name,omitempty"`
 	Kind          string   `json:"kind" example:"cast"`
+	Department    *string  `json:"department,omitempty" example:"Production"`
 	RoleLabel     string   `json:"role_label"`
 	PosterPath    *string  `json:"poster_path,omitempty"`
 	VoteAverage   *float64 `json:"vote_average,omitempty"`
+	VoteCount     *int     `json:"vote_count,omitempty" example:"12345"`
 }

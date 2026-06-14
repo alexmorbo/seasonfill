@@ -147,9 +147,9 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"media_type", "tmdb_media_id",
-			"title", "year",
-			"character_name", "kind", "job",
-			"poster_path", "vote_average", "episode_count",
+			"title", "original_title", "year",
+			"character_name", "kind", "department", "job",
+			"poster_path", "vote_average", "tmdb_votes", "episode_count",
 			"updated_at",
 		}),
 	}).Create(&models).Error

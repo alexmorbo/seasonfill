@@ -205,6 +205,33 @@ func TestMapPersonToDomain_BryanCranston(t *testing.T) {
 	if tv == 0 || mov == 0 {
 		t.Errorf("expected both tv (%d) and movie (%d) credits", tv, mov)
 	}
+
+	// Story 307: assert the 3 new fields surface on at least one
+	// credit. The fixture contains "Production" department entries
+	// (`grep '"department": "Production"' person_17419.json` → 2+
+	// hits) and every credit row carries an original_name /
+	// original_title + vote_count.
+	var sawDept, sawOriginalTitle, sawVotes bool
+	for _, c := range credits {
+		if c.Department != nil && *c.Department == "Production" {
+			sawDept = true
+		}
+		if c.OriginalTitle != nil && *c.OriginalTitle != "" {
+			sawOriginalTitle = true
+		}
+		if c.TMDBVotes != nil && *c.TMDBVotes > 0 {
+			sawVotes = true
+		}
+	}
+	if !sawDept {
+		t.Error("expected at least one credit with Department=\"Production\"")
+	}
+	if !sawOriginalTitle {
+		t.Error("expected at least one credit with non-empty OriginalTitle")
+	}
+	if !sawVotes {
+		t.Error("expected at least one credit with non-zero TMDBVotes")
+	}
 }
 
 func TestMapFindResponseToTMDBID(t *testing.T) {

@@ -166,12 +166,15 @@ func mapOtherCredit(oc apppeople.OtherCredit) dto.OtherCreditEntry {
 		TMDBMediaID:   int(oc.Credit.TMDBMediaID),
 		MediaType:     oc.Credit.MediaType,
 		Title:         oc.Credit.Title,
+		OriginalTitle: oc.Credit.OriginalTitle,
 		Year:          yearFromReleaseDate(oc.Credit.ReleaseDate),
 		CharacterName: oc.Credit.CharacterName,
 		Kind:          string(oc.Credit.Kind),
+		Department:    oc.Credit.Department,
 		RoleLabel:     deriveRoleLabel(oc.Credit),
 		PosterPath:    oc.Credit.PosterAsset,
 		VoteAverage:   oc.Credit.TMDBRating,
+		VoteCount:     oc.Credit.TMDBVotes,
 	}
 }
 

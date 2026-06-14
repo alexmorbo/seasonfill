@@ -4826,16 +4826,21 @@ export type components = {
         };
         readonly "dto.OtherCreditEntry": {
             readonly character_name?: string;
+            /** @example Production */
+            readonly department?: string;
             /** @example cast */
             readonly kind?: string;
             /** @example tv */
             readonly media_type?: string;
+            readonly original_title?: string;
             readonly poster_path?: string;
             readonly role_label?: string;
             readonly title?: string;
             /** @example 999 */
             readonly tmdb_media_id?: number;
             readonly vote_average?: number;
+            /** @example 12345 */
+            readonly vote_count?: number;
             readonly year?: number;
         };
         /**

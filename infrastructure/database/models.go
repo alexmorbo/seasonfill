@@ -815,12 +815,15 @@ type PersonCreditModel struct {
 	MediaType     string    `gorm:"column:media_type;type:text;not null"`
 	TMDBMediaID   int       `gorm:"column:tmdb_media_id;not null"`
 	Title         string    `gorm:"column:title;type:text;not null"`
+	OriginalTitle *string   `gorm:"column:original_title;type:text"`
 	Year          *int      `gorm:"column:year"`
 	CharacterName *string   `gorm:"column:character_name;type:text"`
 	Kind          string    `gorm:"column:kind;type:text;not null"`
+	Department    *string   `gorm:"column:department;type:text"`
 	Job           *string   `gorm:"column:job;type:text"`
 	PosterPath    *string   `gorm:"column:poster_path;type:text"`
 	VoteAverage   *float64  `gorm:"column:vote_average"`
+	TMDBVotes     *int      `gorm:"column:tmdb_votes"`
 	EpisodeCount  *int      `gorm:"column:episode_count"`
 	CreatedAt     time.Time `gorm:"column:created_at;not null"`
 	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`

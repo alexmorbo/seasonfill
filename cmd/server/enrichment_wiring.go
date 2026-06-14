@@ -619,12 +619,15 @@ func (a personCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []peo
 			MediaType:     c.MediaType,
 			TMDBMediaID:   int(c.TMDBMediaID),
 			Title:         c.Title,
+			OriginalTitle: c.OriginalTitle,
 			Year:          yearFromReleaseDate(c.ReleaseDate),
 			CharacterName: c.CharacterName,
 			Kind:          string(c.Kind),
+			Department:    c.Department,
 			Job:           c.Job,
 			PosterPath:    c.PosterAsset,
 			VoteAverage:   c.TMDBRating,
+			TMDBVotes:     c.TMDBVotes,
 			EpisodeCount:  c.EpisodeCount,
 		})
 	}

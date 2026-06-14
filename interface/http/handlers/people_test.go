@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -323,4 +324,78 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 	require.Len(t, body.LibraryCredits, 2)
 	assert.Equal(t, "Alpha Show", body.LibraryCredits[0].Title)
 	assert.Equal(t, "Zulu Show", body.LibraryCredits[1].Title)
+}
+
+// TestSeriesPersonHandler_OtherCredits_NewFields_Story307 asserts the
+// 3 new optional OtherCreditEntry fields (department, original_title,
+// vote_count) surface in the JSON when the underlying PersonCredit
+// has them populated. Mirrors the happy-path handler test shape but
+// scoped to one OtherCredit row.
+func TestSeriesPersonHandler_OtherCredits_NewFields_Story307(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	original := "Narcos (Original)"
+	dept := "Production"
+	character := "Javier Peña"
+	votes := 9876
+	rating := 8.5
+	releaseDate := time.Date(2017, 9, 1, 0, 0, 0, 0, time.UTC)
+	tmdbPersonID := 4495
+
+	credits := []dompeople.PersonCredit{
+		{
+			ID:            10,
+			PersonID:      1,
+			MediaType:     "tv",
+			TMDBMediaID:   300,
+			TMDBCreditID:  "cr-narcos",
+			Kind:          dompeople.SeriesCreditCast,
+			Title:         "Narcos",
+			OriginalTitle: &original,
+			CharacterName: &character,
+			Department:    &dept,
+			ReleaseDate:   &releaseDate,
+			TMDBRating:    &rating,
+			TMDBVotes:     &votes,
+		},
+	}
+
+	detail := &apppeople.PersonDetail{
+		Person: dompeople.Person{
+			ID:        1,
+			TMDBID:    &tmdbPersonID,
+			Hydration: dompeople.HydrationFull,
+			Name:      "Pedro Pascal",
+		},
+		OtherCredits: []apppeople.OtherCredit{{Credit: credits[0]}},
+	}
+
+	resp := toPersonDetailResponse(detail)
+	require.Len(t, resp.OtherCredits, 1)
+	got := resp.OtherCredits[0]
+
+	require.NotNil(t, got.Department, "department dropped")
+	assert.Equal(t, "Production", *got.Department)
+	require.NotNil(t, got.OriginalTitle, "original_title dropped")
+	assert.Equal(t, "Narcos (Original)", *got.OriginalTitle)
+	require.NotNil(t, got.VoteCount, "vote_count dropped")
+	assert.Equal(t, 9876, *got.VoteCount)
+
+	// JSON round-trip — confirms the field tags are correct and the
+	// optional fields show up in the wire payload.
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.JSON(http.StatusOK, resp)
+
+	var decoded dto.PersonDetailResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded))
+	require.Len(t, decoded.OtherCredits, 1)
+	wire := decoded.OtherCredits[0]
+	require.NotNil(t, wire.Department)
+	assert.Equal(t, "Production", *wire.Department)
+	require.NotNil(t, wire.OriginalTitle)
+	assert.Equal(t, "Narcos (Original)", *wire.OriginalTitle)
+	require.NotNil(t, wire.VoteCount)
+	assert.Equal(t, 9876, *wire.VoteCount)
 }

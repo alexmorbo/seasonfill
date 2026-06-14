@@ -1278,11 +1278,16 @@ components:
       properties:
         character_name:
           type: string
+        department:
+          example: Production
+          type: string
         kind:
           example: cast
           type: string
         media_type:
           example: tv
+          type: string
+        original_title:
           type: string
         poster_path:
           type: string
@@ -1295,6 +1300,9 @@ components:
           type: integer
         vote_average:
           type: number
+        vote_count:
+          example: 12345
+          type: integer
         year:
           type: integer
       type: object
