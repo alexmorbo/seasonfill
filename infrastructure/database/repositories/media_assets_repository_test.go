@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -184,5 +185,93 @@ func TestMediaAssetsRepository_HashForSourceURL_Unknown(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewMediaAssetsRepository(db)
 	_, err := repo.HashForSourceURL(context.Background(), "https://nope.example/x.jpg")
+	require.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestMediaAssetsRepository_EnsurePending_InsertsNewRow(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+	hash := strings.Repeat("a", 64)
+	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
+	require.NoError(t, repo.EnsurePending(ctx, hash, url, "poster_w342"))
+
+	got, err := repo.Get(ctx, hash)
+	require.NoError(t, err)
+	assert.Equal(t, hash, got.Hash)
+	assert.Equal(t, url, got.UpstreamURL)
+	assert.Equal(t, "poster_w342", got.Kind)
+	assert.Equal(t, media.StatusPending, got.Status)
+}
+
+func TestMediaAssetsRepository_EnsurePending_IsIdempotent(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+	hash := strings.Repeat("b", 64)
+	url := "https://example.com/x.jpg"
+	// First call inserts pending.
+	require.NoError(t, repo.EnsurePending(ctx, hash, url, "poster_w342"))
+	// Now Upsert lifts it to stored.
+	require.NoError(t, repo.Upsert(ctx, media.Asset{
+		Hash: hash, UpstreamURL: url,
+		Kind: "poster_w342", ContentType: "image/jpeg", Size: 100,
+		Status: media.StatusStored,
+	}))
+	// Second EnsurePending must NOT downgrade to pending.
+	require.NoError(t, repo.EnsurePending(ctx, hash, url, "poster_w342"))
+	got, err := repo.Get(ctx, hash)
+	require.NoError(t, err)
+	assert.Equal(t, media.StatusStored, got.Status, "EnsurePending must NOT downgrade a stored row")
+	assert.Equal(t, "image/jpeg", got.ContentType, "EnsurePending must preserve content_type from the stored row")
+	assert.Equal(t, int64(100), got.Size, "EnsurePending must preserve size_bytes from the stored row")
+}
+
+func TestMediaAssetsRepository_EnsurePending_PreservesFailedStatus(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+	hash := strings.Repeat("d", 64)
+	url := "https://example.com/dead.jpg"
+	require.NoError(t, repo.Upsert(ctx, media.Asset{
+		Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusFailed,
+	}))
+	require.NoError(t, repo.EnsurePending(ctx, hash, url, "poster_w342"))
+	got, err := repo.Get(ctx, hash)
+	require.NoError(t, err)
+	assert.Equal(t, media.StatusFailed, got.Status, "EnsurePending must NOT overwrite a failed row")
+}
+
+func TestMediaAssetsRepository_EnsurePending_RejectsEmptyArgs(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+	require.Error(t, repo.EnsurePending(ctx, "", "https://x", "poster_w342"))
+	require.Error(t, repo.EnsurePending(ctx, strings.Repeat("a", 64), "", "poster_w342"))
+}
+
+func TestMediaAssetsRepository_GetSourceURLByHash(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewMediaAssetsRepository(db)
+	hash := strings.Repeat("c", 64)
+	url := "https://example.com/y.jpg"
+	require.NoError(t, repo.EnsurePending(ctx, hash, url, "backdrop_w1280"))
+
+	gotURL, kind, status, err := repo.GetSourceURLByHash(ctx, hash)
+	require.NoError(t, err)
+	assert.Equal(t, url, gotURL)
+	assert.Equal(t, "backdrop_w1280", kind)
+	assert.Equal(t, media.StatusPending, status)
+
+	_, _, _, err = repo.GetSourceURLByHash(ctx, strings.Repeat("z", 64))
+	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	_, _, _, err = repo.GetSourceURLByHash(ctx, "")
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }

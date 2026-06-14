@@ -656,9 +656,12 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 	mediaAssetsRepo := repositories.NewMediaAssetsRepository(db)
 	mediaHandler := handlers.NewMediaHandler(mediaStoreImpl, mediaAssetsRepo, nil, log)
 
-	// Story 312: media resolver for the seriesdetail composer. nil-OK
-	// `mediaAssetsRepo` falls back to a nop resolver inside NewMediaResolver
-	// → every wire field stays nil and the frontend renders monograms.
+	// Story 312 + Story 320: media resolver for the seriesdetail composer.
+	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
+	// NewMediaResolver → every wire field stays nil and the frontend
+	// renders monograms. *MediaAssetsRepository satisfies the widened
+	// MediaHashLookupPort (HashForSourceURL + EnsurePending) by virtue
+	// of the new EnsurePending method (story 320).
 	var mediaHashLookup seriesdetail.MediaHashLookupPort
 	if mediaAssetsRepo != nil {
 		mediaHashLookup = mediaAssetsRepo

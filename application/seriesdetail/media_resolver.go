@@ -140,12 +140,16 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 
 // ResolveSync is the first-fold variant — on lookup miss, synchronously
 // fetches the asset under a per-asset budget. Returns the hash on success
-// (bytes are in store + media_assets row written), nil otherwise. Callers
-// MUST pass a ctx with a deadline; an undeadlined ctx will be capped at
-// the fetcher's onDemandTimeout default.
+// (bytes are in store + media_assets row written). When sync fetch misses
+// the budget, the eager-hash path (story 320) returns the deterministic
+// sha256-hex of the source URL anyway + writes a media_assets row with
+// status='pending' so the handler's pending-row sync fetch (story 321)
+// can recover. Callers MUST pass a ctx with a deadline; an undeadlined
+// ctx will be capped at the fetcher's onDemandTimeout default.
 //
 // Callers: use this for hero poster + backdrop + person hero portrait.
-// Cast/recommendations/networks/seasons stay on plain Resolve (async only).
+// Cast/recommendations/networks/seasons stay on plain Resolve (async only +
+// nil on miss — they render as monograms below the fold).
 func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, kind string) *string {
 	if r == nil || r.lookup == nil {
 		return nil
@@ -167,15 +171,36 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 			slog.String("source_url", url),
 			slog.String("error", err.Error()))
 	}
-	// Miss — try sync fetch. On failure / timeout, fall back to async
-	// enqueue so the frontend's next refresh has a chance.
+	ext := appmedia.ExtractExt(*rawPath)
+	// Miss — try sync fetch first; FetchSync writes status='stored' on
+	// success, so callers get the warm hash directly.
 	if box := r.fetcher.Load(); box != nil && box.v != nil {
-		if h, ok := box.v.FetchSync(ctx, url, kind, appmedia.ExtractExt(*rawPath)); ok {
+		if h, ok := box.v.FetchSync(ctx, url, kind, ext); ok {
 			return &h
 		}
 	}
-	r.enqueueAsync(ctx, url, kind, appmedia.ExtractExt(*rawPath))
-	return nil
+	// Sync fetch missed (budget / failure). Story 320: eager-hash path —
+	// the canonical sha256-hex of the URL is deterministic and stable, so
+	// we hand it to the frontend now AND pre-register a status='pending'
+	// row in media_assets so the handler can recover the source URL via
+	// GetSourceURLByHash and synchronously fetch on the user's GET
+	// /api/v1/media/:hash (story 321). Best-effort: an EnsurePending
+	// error logs at Debug and falls back to the legacy async-enqueue +
+	// nil path so the frontend's next refresh has a chance.
+	eagerHash := appmedia.HashFromURL(url)
+	if perr := r.lookup.EnsurePending(ctx, eagerHash, url, kind); perr != nil {
+		r.logger.DebugContext(ctx, "media_resolver.ensure_pending_failed",
+			slog.String("kind", kind),
+			slog.String("source_url", url),
+			slog.String("error", perr.Error()))
+		r.enqueueAsync(ctx, url, kind, ext)
+		return nil
+	}
+	// Pending row written — also kick the async pre-warm pipeline so the
+	// downloader has a shot at landing the bytes before the handler's
+	// next request races for them. Cheap; FIFO-deduped on hash.
+	r.enqueueAsync(ctx, url, kind, ext)
+	return &eagerHash
 }
 
 // enqueueAsync fires a best-effort hot enqueue. Nil enqueuer / context done

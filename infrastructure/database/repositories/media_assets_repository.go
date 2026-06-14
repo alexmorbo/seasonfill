@@ -105,6 +105,83 @@ func (r *MediaAssetsRepository) HashForSourceURL(ctx context.Context, sourceURL 
 	return hash, nil
 }
 
+// EnsurePending writes a media_assets row keyed by hash with status='pending',
+// source_url, kind, created_at=now — IFF the row doesn't already exist.
+// Idempotent: ON CONFLICT (hash) DO NOTHING — an existing row's status (which
+// may be 'stored' or 'failed' from a prior fetch) is preserved.
+//
+// Story 320: the seriesdetail composer calls this on hero poster/backdrop
+// lookup miss BEFORE returning the deterministic eager hash, so the handler
+// (story 321 GET /api/v1/media/:hash) can recover the source URL + kind off
+// the pending row and synchronously fetch on demand.
+//
+// Validation: empty hash / sourceURL → fmt.Errorf — programming bugs surface,
+// not silently swallowed. Hash length is NOT enforced here (the underlying
+// model is text PRIMARY KEY); media.Asset.Validate() is the source of truth
+// for hash format and only runs on Upsert.
+func (r *MediaAssetsRepository) EnsurePending(ctx context.Context, hash, sourceURL, kind string) error {
+	if hash == "" {
+		return fmt.Errorf("ensure pending media_asset: empty hash")
+	}
+	if sourceURL == "" {
+		return fmt.Errorf("ensure pending media_asset: empty source_url")
+	}
+	now := r.clock()
+	m := database.MediaAssetModel{
+		Hash:      hash,
+		SourceURL: sourceURL,
+		Kind:      kind,
+		Status:    string(media.StatusPending),
+		CreatedAt: now,
+	}
+	// ON CONFLICT (hash) DO NOTHING — an existing row keeps its status,
+	// source_url, kind, content_type, size_bytes, fetched_at, created_at.
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "hash"}},
+			DoNothing: true,
+		}).
+		Create(&m).Error
+	if err != nil {
+		return fmt.Errorf("ensure pending media_asset: %w", err)
+	}
+	return nil
+}
+
+// GetSourceURLByHash returns the (source_url, kind, status) tuple for the
+// media_assets row keyed by hash. Used by the GET /api/v1/media/:hash
+// handler (story 321) to recover the upstream URL when the store doesn't
+// have the bytes yet — the handler then calls OnDemandFetcher.FetchSync to
+// pull the bytes synchronously before serving.
+//
+// Returns ports.ErrNotFound when no row exists; the handler maps that to
+// 404. Errors other than "not found" are wrapped and surfaced to the
+// handler's 5xx path.
+func (r *MediaAssetsRepository) GetSourceURLByHash(ctx context.Context, hash string) (string, string, media.Status, error) {
+	if hash == "" {
+		return "", "", "", ports.ErrNotFound
+	}
+	var row struct {
+		SourceURL string `gorm:"column:source_url"`
+		Kind      string `gorm:"column:kind"`
+		Status    string `gorm:"column:status"`
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("media_assets").
+		Select("source_url, kind, status").
+		Where("hash = ?", hash).
+		Limit(1).
+		Row().
+		Scan(&row.SourceURL, &row.Kind, &row.Status)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows) {
+			return "", "", "", ports.ErrNotFound
+		}
+		return "", "", "", fmt.Errorf("get source_url by hash: %w", err)
+	}
+	return row.SourceURL, row.Kind, media.Status(row.Status), nil
+}
+
 // Upsert writes the row keyed by hash. The conflict clause updates
 // every non-PK column except created_at — the latter is fixed by the
 // first insert. fetched_at is stamped when status transitions to

@@ -14,9 +14,15 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 )
 
+type ensurePendingCall struct {
+	hash, sourceURL, kind string
+}
+
 type fakeMediaLookup struct {
-	byURL map[string]string
-	err   error
+	byURL       map[string]string
+	err         error
+	ensureCalls []ensurePendingCall
+	ensureErr   error
 }
 
 func (f *fakeMediaLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
@@ -28,6 +34,11 @@ func (f *fakeMediaLookup) HashForSourceURL(_ context.Context, url string) (strin
 		return "", ports.ErrNotFound
 	}
 	return h, nil
+}
+
+func (f *fakeMediaLookup) EnsurePending(_ context.Context, hash, sourceURL, kind string) error {
+	f.ensureCalls = append(f.ensureCalls, ensurePendingCall{hash, sourceURL, kind})
+	return f.ensureErr
 }
 
 func silentResolverLogger() *slog.Logger {
@@ -143,16 +154,75 @@ func TestMediaResolver_ResolveSync_MissCallsFetchSync(t *testing.T) {
 	assert.Empty(t, enq.calls)
 }
 
-func TestMediaResolver_ResolveSync_FetchFailFallsBackToEnqueue(t *testing.T) {
+func TestMediaResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
 	t.Parallel()
+	// Story 320: fetcher-miss no longer short-circuits to nil — the
+	// resolver mints the deterministic sha256-hex of the URL, writes a
+	// pending media_assets row, and returns the eager hash so the
+	// handler can recover on the user's GET /api/v1/media/:hash.
 	lookup := &fakeMediaLookup{}
 	enq := &stubEnqueuer{}
 	fetcher := &stubFetcher{ok: false}
 	r := NewMediaResolver(lookup, enq, fetcher, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
-	assert.Nil(t, got)
-	require.Len(t, enq.calls, 1, "fallback async enqueue expected")
+	require.NotNil(t, got, "eager-hash path must return a non-nil hash on fetcher miss")
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	assert.Equal(t, appmedia.HashFromURL(url), *got)
+	require.Len(t, lookup.ensureCalls, 1)
+	assert.Equal(t, appmedia.HashFromURL(url), lookup.ensureCalls[0].hash)
+	assert.Equal(t, url, lookup.ensureCalls[0].sourceURL)
+	assert.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
+	require.Len(t, enq.calls, 1, "fallback async enqueue still kicks the pre-warm pipeline")
+}
+
+func TestMediaResolver_ResolveSync_EagerHashWithoutFetcher(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	path := "/abc.jpg"
+	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got, "eager-hash path must NOT return nil on miss even without a fetcher")
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	assert.Equal(t, appmedia.HashFromURL(url), *got)
+	require.Len(t, lookup.ensureCalls, 1)
+	assert.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
+}
+
+func TestMediaResolver_ResolveSync_EagerHashSkippedOnLookupHit(t *testing.T) {
+	t.Parallel()
+	path := "/already-warm.jpg"
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	lookup := &fakeMediaLookup{byURL: map[string]string{url: "already-stored-hash"}}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got)
+	assert.Equal(t, "already-stored-hash", *got)
+	assert.Empty(t, lookup.ensureCalls, "lookup hit must NOT trigger EnsurePending")
+}
+
+func TestMediaResolver_ResolveSync_EagerHashSkippedOnFetcherHit(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	fetcher := &stubFetcher{hash: "warm-hash-from-fetcher", ok: true}
+	r := NewMediaResolver(lookup, nil, fetcher, silentResolverLogger())
+	path := "/xyz.jpg"
+	got := r.ResolveSync(t.Context(), &path, "w1280", "backdrop_w1280")
+	require.NotNil(t, got)
+	assert.Equal(t, "warm-hash-from-fetcher", *got)
+	assert.Empty(t, lookup.ensureCalls, "EnsurePending must NOT fire when FetchSync warmed the row")
+}
+
+func TestMediaResolver_ResolveSync_EagerHashFallbackOnEnsureError(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{ensureErr: errors.New("db down")}
+	enq := &stubEnqueuer{}
+	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	path := "/abc.jpg"
+	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
+	assert.Nil(t, got, "EnsurePending failure must fall back to nil (legacy behavior)")
+	require.Len(t, lookup.ensureCalls, 1)
+	require.Len(t, enq.calls, 1, "fallback async enqueue still fires on EnsurePending error")
 }
 
 func TestMediaResolver_SetSideEffects_LateBind(t *testing.T) {

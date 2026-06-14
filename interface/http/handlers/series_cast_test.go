@@ -70,6 +70,10 @@ func (f castFakeEpisodesCount) CountBySeries(_ context.Context, _ int64) (int, e
 // repo; tests that don't care about hash semantics get an identity mapping.
 type castHandlerTestMediaLookup struct{}
 
+func (castHandlerTestMediaLookup) EnsurePending(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (castHandlerTestMediaLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
 	// URL shape: https://image.tmdb.org/t/p/<size>/<path>
 	// The test seeds canon with PosterAsset = "poster-hash"; the resolver

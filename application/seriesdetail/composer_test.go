@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/people"
@@ -481,7 +482,8 @@ var _ = tmPtr
 // --- story 312: media resolver integration ---
 
 type fakeMediaLookupIntegration struct {
-	byURL map[string]string
+	byURL       map[string]string
+	ensureCalls []ensurePendingCall
 }
 
 func (f *fakeMediaLookupIntegration) HashForSourceURL(_ context.Context, url string) (string, error) {
@@ -489,6 +491,11 @@ func (f *fakeMediaLookupIntegration) HashForSourceURL(_ context.Context, url str
 		return h, nil
 	}
 	return "", ports.ErrNotFound
+}
+
+func (f *fakeMediaLookupIntegration) EnsurePending(_ context.Context, hash, sourceURL, kind string) error {
+	f.ensureCalls = append(f.ensureCalls, ensurePendingCall{hash, sourceURL, kind})
+	return nil
 }
 
 // networksWithLogo is a per-test fake that exposes a logo path on a single
@@ -524,16 +531,25 @@ func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
 	require.Equal(t, wantHash, *d.Canon.PosterAsset)
 }
 
-func TestComposer_Get_PosterMissResolvesToNil(t *testing.T) {
+func TestComposer_Get_PosterMissReturnsEagerHash(t *testing.T) {
+	// Story 320: hero poster lookup-miss returns the deterministic
+	// sha256-hex of the source URL (eager hash) + writes a pending
+	// media_assets row, so the handler's pending-row sync fetch can
+	// recover when the user GETs /api/v1/media/:hash. Replaces the
+	// pre-320 expectation of nil-on-miss for hero.
 	deps, _, canon := baseDeps(t)
 	rawPath := "/abc.jpg"
 	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
-	// Empty lookup table → miss → nil.
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{}}, nil, nil, newSilentLogger())
+	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
+	deps.MediaResolver = NewMediaResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
-	require.Nil(t, d.Canon.PosterAsset)
+	require.NotNil(t, d.Canon.PosterAsset, "hero poster must get the eager hash")
+	url := appmedia.BuildTMDBImageURL("w342", rawPath)
+	require.Equal(t, appmedia.HashFromURL(url), *d.Canon.PosterAsset)
+	require.Len(t, lookup.ensureCalls, 1, "EnsurePending must fire once on hero miss")
+	require.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
 }
 
 func TestComposer_Get_NopResolver_KeepsNil(t *testing.T) {
@@ -602,4 +618,57 @@ func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
 	require.Len(t, d.Recommendations, 1)
 	require.NotNil(t, d.Recommendations[0].Series.PosterAsset)
 	require.Equal(t, hashRec, *d.Recommendations[0].Series.PosterAsset)
+}
+
+// TestComposer_ResolveAssets_HeroEagerHashOnMiss exercises the story 320
+// invariant directly on c.resolveAssets — hero poster + backdrop emit
+// eager hashes via EnsurePending on lookup miss, while below-the-fold
+// fields (network logo, cast profile, season poster, recommendation
+// poster) stay nil-on-miss and DO NOT call EnsurePending.
+func TestComposer_ResolveAssets_HeroEagerHashOnMiss(t *testing.T) {
+	t.Parallel()
+	d := &Detail{
+		Canon: series.Canon{
+			ID:            42,
+			Title:         "Breaking Bad",
+			PosterAsset:   strPtr("/hero-poster.jpg"),
+			BackdropAsset: strPtr("/hero-backdrop.jpg"),
+		},
+		Networks: []taxonomy.Network{{ID: 1, Name: "AMC", LogoAsset: strPtr("/net.png")}},
+		Cast: []CastDetail{
+			{Person: people.Person{ID: 1, Name: "Bryan Cranston", ProfileAsset: strPtr("/p1.jpg")}},
+		},
+		Recommendations: []RecommendationDetail{
+			{Series: series.Canon{ID: 99, Title: "Rec", PosterAsset: strPtr("/rec1.jpg")}},
+		},
+		Seasons: []SeasonDetail{
+			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")}},
+		},
+	}
+	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
+	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	c := NewComposer(Deps{MediaResolver: resolver})
+	c.resolveAssets(context.Background(), d)
+
+	// Hero — eager hash returned.
+	require.NotNil(t, d.Canon.PosterAsset)
+	require.NotNil(t, d.Canon.BackdropAsset)
+	require.Equal(t,
+		appmedia.HashFromURL(appmedia.BuildTMDBImageURL("w342", "/hero-poster.jpg")),
+		*d.Canon.PosterAsset)
+	require.Equal(t,
+		appmedia.HashFromURL(appmedia.BuildTMDBImageURL("w1280", "/hero-backdrop.jpg")),
+		*d.Canon.BackdropAsset)
+
+	// Below the fold — nil on miss (legacy behavior).
+	require.Nil(t, d.Networks[0].LogoAsset)
+	require.Nil(t, d.Cast[0].Person.ProfileAsset)
+	require.Nil(t, d.Recommendations[0].Series.PosterAsset)
+	require.Nil(t, d.Seasons[0].Canon.PosterAsset)
+
+	// EnsurePending fired exactly twice — once per hero field. Order is
+	// poster first (composer line ordering in resolveAssets).
+	require.Len(t, lookup.ensureCalls, 2)
+	require.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
+	require.Equal(t, "backdrop_w1280", lookup.ensureCalls[1].kind)
 }

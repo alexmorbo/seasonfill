@@ -439,6 +439,10 @@ func (f *fakeMediaLookupCast) HashForSourceURL(_ context.Context, url string) (s
 	return "", ports.ErrNotFound
 }
 
+func (f *fakeMediaLookupCast) EnsurePending(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	deps, _, canon, sp, persons, _, _ := castBaseDeps(t)
 	// Seed canon poster + one cast member with raw profile path.
