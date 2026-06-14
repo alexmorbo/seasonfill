@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
-	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -272,22 +269,20 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	webhookStatusCache := webhookBundle.StatusCache
 	torrentSeriesMapRepo := webhookBundle.TorrentSeriesMapRepo
 
-	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log).
-		WithWebhookReconciler(adapters.ReconcilerAdapter{Inner: webhookReconciler}).
-		WithWebhookStatusCache(webhookStatusCache)
-	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
-	probeClient := &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Transport: &http.Transport{
-			DialContext:            (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
-			TLSHandshakeTimeout:    5 * time.Second,
-			ResponseHeaderTimeout:  5 * time.Second,
-			MaxResponseHeaderBytes: 64 << 10,
-		},
+	instanceBundle, err := wiring.BuildInstance(persistence, webhookBundle, bus, log)
+	if err != nil {
+		return nil, err
 	}
-	instanceProbeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
+	// Rebind locals for the remainder of New(). The bundle's fields preserve
+	// the pre-336 names verbatim so every downstream call site
+	// (httpserver.NewServer for instanceCRUDHandler / instanceProbeHandler,
+	// notifyTestContext) keeps working unchanged. The UC alias is kept for
+	// future stories that may need the handle directly from server.go (none
+	// in the surviving body — the CRUD handler is the only consumer).
+	instanceUC := instanceBundle.UC
+	instanceCRUDHandler := instanceBundle.CRUDHandler
+	instanceProbeHandler := instanceBundle.ProbeHandler
+	_ = instanceUC // reserved — see godoc
 
 	// Phase 10 Watchdog. The settings CRUD is wired here; the regrab
 	// orchestrator + per-instance polling loop + reload-bus fanout are
