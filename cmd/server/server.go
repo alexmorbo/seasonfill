@@ -97,7 +97,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	db := persistence.DB
 	runtimeRepo := persistence.RuntimeRepo
 	quotaCounter := persistence.QuotaCounter
-	timezoneHandler := persistence.TimezoneHandler
+	// timezoneHandler retired into wiring.BuildHTTPServer (story 342).
 
 	// Bus is constructed BEFORE BuildRuntimeConfig (story 330 reorder)
 	// so the wirer can take *runtime.Bus as input and own the runtime
@@ -121,7 +121,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// (httpserver.NewServer, startSubscribers, scheduler factory,
 	// webhookReconciler, etc.) keeps working unchanged.
 	snap := runtimecfg.Snap
-	runtimeConfigHandler := runtimecfg.Handler
+	// runtimeConfigHandler retired into wiring.BuildHTTPServer (story 342).
 	cfg := runtimecfg.ServeConfig
 
 	auth, err := wiring.BuildAuth(ctx, persistence, bootCfg, bus, log)
@@ -132,11 +132,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// preserve the pre-331 names verbatim so every downstream call site
 	// (httpserver.NewServer, OIDCProviderSubscriber) keeps working
 	// unchanged.
-	adminRepo := auth.AdminRepo
+	// adminRepo / oidcUC / loginLimiter / webhookLimiter retired into
+	// wiring.BuildHTTPServer (story 342). oidcCache is still consumed by
+	// the OIDCProviderSubscriber below.
 	oidcCache := auth.OIDCCache
-	oidcUC := auth.OIDCUC
-	loginLimiter := auth.LoginLimiter
-	webhookLimiter := auth.WebhookLimiter
 
 	sonarrBundle, err := wiring.BuildSonarr(snap, log)
 	if err != nil {
@@ -156,7 +155,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	clientFactory := sonarrBundle.ClientFactory
 	sonarrClientsByName := sonarrBundle.ClientsByName
 	holder := sonarrBundle.Holder
-	instanceReg := sonarrBundle.InstanceReg
+	// instanceReg retired into wiring.BuildHTTPServer (story 342).
 	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
 
 	watchdogBundle, err := wiring.BuildWatchdog(persistence, sonarrBundle, log)
@@ -221,13 +220,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// to the scan stack but was historically constructed in the same
 	// block; it stays here.
 	scanRepo := scanBundle.ScanRepo
-	decisionRepo := scanBundle.DecisionRepo
-	grabRepo := scanBundle.GrabRepo
-	cooldownRepo := scanBundle.CooldownRepo
+	// decisionRepo / grabRepo / cooldownRepo / grabUC / rescanUC retired
+	// into wiring.BuildHTTPServer (story 342). txr + scanUC stay — both
+	// are consumed by surviving server.go body code.
 	txr := scanBundle.Txr
-	grabUC := scanBundle.GrabUC
 	scanUC := scanBundle.ScanUC
-	rescanUC := scanBundle.RescanUC
 	sweeper := scanBundle.Sweeper
 
 	seriesRepo := repositories.NewSeriesRepository(db)
@@ -250,7 +247,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// directly. EpisodeStatesRepo is intentionally NOT rebound: no
 	// surviving server.go code references it directly (the Syncer
 	// captures it inside the bundle).
-	webhookUC := webhookBundle.WebhookUC
+	// webhookUC retired into wiring.BuildHTTPServer (story 342).
+	// webhookReconciler + webhookStatusCache stay — both feed the
+	// WebhookReconcileLoop below + the instance.New decorator.
 	webhookReconciler := webhookBundle.Reconciler
 	webhookStatusCache := webhookBundle.StatusCache
 
@@ -264,9 +263,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// notifyTestContext) keeps working unchanged. The UC alias is kept for
 	// future stories that may need the handle directly from server.go (none
 	// in the surviving body — the CRUD handler is the only consumer).
+	// instanceCRUDHandler / instanceProbeHandler retired into
+	// wiring.BuildHTTPServer (story 342).
 	instanceUC := instanceBundle.UC
-	instanceCRUDHandler := instanceBundle.CRUDHandler
-	instanceProbeHandler := instanceBundle.ProbeHandler
 	_ = instanceUC // reserved — see godoc
 
 	regrabBundle, err := wiring.BuildRegrab(persistence, sonarrBundle, scanBundle, webhookBundle, &bgWG, log)
@@ -284,7 +283,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// wiring.BuildTorrentsync; the rollup handler captures blacklistRepo
 	// inside BuildRegrab; the regrab use case is owned by the RegrabLoop
 	// and consumed via SwapSettings through regrabLoopVal).
-	qbitSettingsHandler := regrabBundle.QbitSettingsHandler
+	// qbitSettingsHandler retired into wiring.BuildHTTPServer (story 342).
 	regrabLoopVal := regrabBundle.RegrabLoop
 
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
@@ -305,8 +304,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// fields (Store / Policy / Factory / Reconciler / UC / Query) are
 	// not referenced by the surviving body — they live entirely inside
 	// BuildTorrentsync now.
+	// seriesTorrentsHandler retired into wiring.BuildHTTPServer (story 342).
 	torrentsyncLoopVal := torrentsyncBundle.Loop
-	seriesTorrentsHandler := torrentsyncBundle.SeriesTorrentsHandler
 
 	// 220 (A-2) — torrentsync loop's Start needs rootCtx (owned by
 	// server.go, not the wirer). Same pattern as regrabLoopVal.Start
@@ -316,10 +315,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// 047a/047b/098a + webhooks aggregate handler — moved to wiring.BuildRegrab
 	// (story 337). Rebind for the remainder of New() so the httpserver.NewServer
 	// call below keeps the pre-337 names verbatim.
-	watchdogRollupHandler := regrabBundle.WatchdogRollupHandler
-	watchdogBlacklistHandler := regrabBundle.WatchdogBlacklistHandler
-	watchdogSeasonsHandler := regrabBundle.WatchdogSeasonsHandler
-	webhooksAggregateHandler := regrabBundle.WebhooksAggregateHandler
+	// watchdogRollupHandler / watchdogBlacklistHandler /
+	// watchdogSeasonsHandler / webhooksAggregateHandler retired into
+	// wiring.BuildHTTPServer (story 342).
 
 	// qBit settings loader for the fanout — moved to wiring.BuildRegrab
 	// (story 337). The closure semantics are identical: fresh List + build
@@ -338,7 +336,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// The extUC alias is intentionally NOT rebound — no surviving
 	// server.go code references it directly; it lives inside the bundle.
 	extSub := extSvcBundle.Sub
-	externalServicesHandler := extSvcBundle.Handler
+	// externalServicesHandler retired into wiring.BuildHTTPServer (story 342).
 
 	mediaBundle, err := wiring.BuildMedia(rootCtx, persistence, bootCfg, log)
 	if err != nil {
@@ -367,27 +365,21 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// SeriesRefreshUC are intentionally NOT rebound — no surviving
 	// server.go code references them directly; their handler wrappers
 	// are the only consumers.
+	// seriesDetailHandler / seriesSeasonHandler / seriesCastHandler /
+	// peopleHandler / seriesRefreshHandler retired into
+	// wiring.BuildHTTPServer (story 342). seriesDetailMediaResolver +
+	// peopleEnqueuerHolder stay — both are consumed by the LATE BIND
+	// ZONE below.
 	seriesDetailMediaResolver := seriesDetailBundle.MediaResolver
-	seriesDetailHandler := seriesDetailBundle.DetailHandler
-	seriesSeasonHandler := seriesDetailBundle.SeasonHandler
-	seriesCastHandler := seriesDetailBundle.CastHandler
-	peopleHandler := seriesDetailBundle.PeopleHandler
-	seriesRefreshHandler := seriesDetailBundle.RefreshHandler
 	peopleEnqueuerHolder := seriesDetailBundle.PersonEnqueuerHolder
 
-	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
-		checker, scanRepo, decisionRepo, grabRepo,
-		adminRepo, loginLimiter, webhookLimiter,
-		instanceReg,
-		cooldownRepo, grabUC, rescanUC,
-		instanceCRUDHandler, instanceProbeHandler, runtimeConfigHandler,
-		qbitSettingsHandler, externalServicesHandler, oidcUC,
-		webhookReconciler, webhookStatusCache,
-		seriesCacheRepo, counterRepo, watchdogRollupHandler,
-		watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler,
-		mediaHandler, seriesDetailHandler, seriesSeasonHandler, seriesCastHandler,
-		peopleHandler, seriesRefreshHandler,
-		seriesTorrentsHandler, timezoneHandler, log)
+	httpServer := wiring.BuildHTTPServer(
+		persistence, runtimecfg, auth,
+		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
+		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
+		mediaBundle, seriesDetailBundle,
+		seriesCacheRepo, counterRepo, log,
+	)
 
 	// Cooldown sweep loop — removes expired rows so the table stays
 	// bounded. Cadence is reload-aware: the OnApplied fan-out calls
