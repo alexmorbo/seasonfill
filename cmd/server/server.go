@@ -12,7 +12,6 @@ import (
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
@@ -98,16 +97,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// Rebind locals for the remainder of New(). Subsequent B-11 stories
 	// will progressively retire these as wirers absorb the dependent
-	// blocks. After story 330, runtimeRepo + instanceRepo aliases stay
-	// because they are still consumed by instance.New, qbitSettingsUC,
-	// watchdogInstanceAdapter, qbitLoader, and startSubscribers below.
+	// blocks. After story 337, instanceRepo no longer needs rebinding —
+	// the qbitSettingsUC + watchdogInstanceAdapter + qbitLoader call sites
+	// all moved into wiring.BuildRegrab, which reads the repo from the
+	// persistence bundle directly. runtimeRepo stays because
+	// startSubscribers still consumes it for the OIDC subscriber.
 	// appSettingsRepo is intentionally NOT rebound: it has no direct
 	// reference in the surviving body — story 330+ consumers reach it
 	// via persistence.AppSettingsRepo.
 	db := persistence.DB
 	cipher := persistence.Cipher
 	runtimeRepo := persistence.RuntimeRepo
-	instanceRepo := persistence.InstanceRepo
 	quotaCounter := persistence.QuotaCounter
 	tzResolver := persistence.TZResolver
 	timezoneHandler := persistence.TimezoneHandler
@@ -238,7 +238,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	grabRepo := scanBundle.GrabRepo
 	cooldownRepo := scanBundle.CooldownRepo
 	txr := scanBundle.Txr
-	evaluator := scanBundle.Evaluator
 	grabUC := scanBundle.GrabUC
 	scanUC := scanBundle.ScanUC
 	rescanUC := scanBundle.RescanUC
@@ -284,35 +283,27 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	instanceProbeHandler := instanceBundle.ProbeHandler
 	_ = instanceUC // reserved — see godoc
 
-	// Phase 10 Watchdog. The settings CRUD is wired here; the regrab
-	// orchestrator + per-instance polling loop + reload-bus fanout are
-	// constructed below and threaded through startSubscribers.
-	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
-	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log).
-		WithWebhookChecker(adapters.NewWebhookChecker(instanceReg))
-	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
-
-	// regrab orchestrator — depends on the settings use case (Lookup),
-	// the instance registry (Get), the qBit + detector factories, the
-	// grab / cooldown / blacklist / counter repos, and the evaluator +
-	// grab use case. Metrics adapter is the production VictoriaMetrics
-	// implementation.
-	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
-	noBetterCounterRepo := repositories.NewNoBetterCounterRepository(db)
-	regrabUC := regrab.NewUseCase(
-		qbitSettingsUC, // implements SettingsLookup
-		sonarrBundle.InstanceRegistry,
-		infraregrab.QbitClientFactoryFunc{},
-		infraregrab.DetectorFactoryFunc{},
-		grabRepo, cooldownRepo, blacklistRepo, noBetterCounterRepo,
-		evaluator, grabUC,
-		log,
-	).WithMetrics(observability.WatchdogMetricsAdapter{}).
-		WithDecisions(decisionRepo)
+	regrabBundle, err := wiring.BuildRegrab(persistence, sonarrBundle, scanBundle, webhookBundle, &bgWG, log)
+	if err != nil {
+		return nil, err
+	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-337 names verbatim so every downstream call site
+	// (httpserver.NewServer for the four watchdog handlers + qbit settings
+	// handler + webhooks aggregate handler, torrentsyncFactory's
+	// qbitSettingsUC lookup, startSubscribers for regrabLoop + qbitLoader)
+	// keeps working unchanged. blacklistRepo / noBetterCounterRepo / regrabUC
+	// are intentionally NOT rebound — no surviving server.go body code
+	// references them directly (the rollup handler captures blacklistRepo
+	// inside BuildRegrab; the regrab use case is owned by the RegrabLoop
+	// and consumed via SwapSettings through regrabLoopVal).
+	qbitSettingsUC := regrabBundle.QbitSettingsUC
+	qbitSettingsHandler := regrabBundle.QbitSettingsHandler
+	regrabLoopVal := regrabBundle.RegrabLoop
 
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
-	// is called from the OnApplied fanout below.
-	regrabLoopVal := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
+	// is called from the OnApplied fanout below. The constructor moved to
+	// BuildRegrab in story 337; only the rootCtx-bearing .Start lives here.
 	regrabLoopVal.Start(rootCtx)
 
 	// 220 (A-2) — torrentsync loop. Reuses the same qbitLoader as
@@ -365,83 +356,19 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	)
 	torrentsyncLoopVal.Start(rootCtx)
 
-	// 047a — watchdog rollup handler wiring.
-	watchdogInstanceAdapter := adapters.NewWatchdogInstanceLister(instanceRepo, cipher)
-	watchdogRollupHandler := handlers.NewWatchdogRollupHandler(
-		qbitSettingsUC,          // SettingsLookup
-		regrabUC,                // RollupSnapshotProvider
-		grabRepo,                // rollupGrabCounter
-		blacklistRepo,           // rollupBlacklistCounter
-		watchdogInstanceAdapter, // InstanceLister
-		watchdogInstanceAdapter, // InstanceIDLookup
-		log,
-	).WithQbitProbe(infraregrab.QbitProbeFunc{}).
-		WithQbitTorrentsLister(infraregrab.QbitTorrentsListerFunc{})
+	// 047a/047b/098a + webhooks aggregate handler — moved to wiring.BuildRegrab
+	// (story 337). Rebind for the remainder of New() so the httpserver.NewServer
+	// call below keeps the pre-337 names verbatim.
+	watchdogRollupHandler := regrabBundle.WatchdogRollupHandler
+	watchdogBlacklistHandler := regrabBundle.WatchdogBlacklistHandler
+	watchdogSeasonsHandler := regrabBundle.WatchdogSeasonsHandler
+	webhooksAggregateHandler := regrabBundle.WebhooksAggregateHandler
 
-	// 047b — blacklist handler + webhooks aggregate handler. blacklistRepo
-	// and seriesCacheRepo are already constructed above (Phase 11 + 047a);
-	// reuse them directly.
-	watchdogBlacklistHandler := handlers.NewWatchdogBlacklistHandler(
-		blacklistRepo,           // BlacklistPager (production repo satisfies the narrow interface)
-		seriesCacheRepo,         // SeriesTitleResolver (production repo has Get(name, sonarrSeriesID))
-		watchdogInstanceAdapter, // InstanceIDLookup — same adapter as 047a
-		log,
-	)
-
-	// 098a — watchdog seasons aggregate read view. Joins the watchdog
-	// source-of-truth tables (origin_releases, cooldowns, regrab_no_
-	// better_counter, watchdog_blacklist) with series_cache so the SPA
-	// can render the watched-seasons page without per-row fetches.
-	watchdogSeasonsRepo := repositories.NewWatchdogSeasonsRepository(db)
-	watchdogSeasonsHandler := handlers.NewWatchdogSeasonsHandler(
-		watchdogSeasonsRepo,
-		watchdogSeasonsRepo,
-		qbitSettingsUC,
-		log,
-	)
-	webhooksAggregateHandler := handlers.NewWebhooksAggregateHandler(
-		webhookReconciler,
-		watchdogInstanceAdapter, // InstanceLister
-		log,
-	)
-
-	// qBit settings loader for the fanout — calls List + builds the
-	// Settings map fresh on every publish. The Lookup closure delegates
-	// to the settings use case so password decryption is centralised.
-	qbitLoader := adapters.QbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
-		recs, err := qbitSettingsRepo.List(ctx)
-		if err != nil {
-			log.WarnContext(ctx, "qbit_settings_list_failed",
-				slog.String("error", err.Error()))
-			return map[string]regrab.Settings{}
-		}
-		out := make(map[string]regrab.Settings, len(recs))
-		instances, err := instanceRepo.List(ctx, cipher)
-		if err != nil {
-			log.WarnContext(ctx, "qbit_settings_list_instances_failed",
-				slog.String("error", err.Error()))
-			return map[string]regrab.Settings{}
-		}
-		byID := make(map[uint]string, len(instances))
-		for _, inst := range instances {
-			byID[inst.ID] = inst.Name
-		}
-		for _, rec := range recs {
-			name := byID[rec.InstanceID]
-			if name == "" {
-				continue
-			}
-			s, err := regrab.NewSettingsFromRecord(rec, name, cipher)
-			if err != nil {
-				log.WarnContext(ctx, "qbit_settings_decrypt_failed",
-					slog.String("instance", name),
-					slog.String("error", err.Error()))
-				continue
-			}
-			out[name] = s
-		}
-		return out
-	})
+	// qBit settings loader for the fanout — moved to wiring.BuildRegrab
+	// (story 337). The closure semantics are identical: fresh List + build
+	// Settings map on every Load, password decryption centralised via
+	// qbitSettingsUC.
+	qbitLoader := regrabBundle.QbitLoader
 
 	// Story 202 (S-2) — external services runtime config. The subscriber
 	// is built first with a nil use case so it can be injected as the
