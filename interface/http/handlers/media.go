@@ -16,6 +16,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
@@ -234,6 +235,19 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+
+	// Story 347 — sentinel served as the embedded SVG placeholder
+	// without a DB roundtrip. Composer hands the FE this hash when an
+	// asset has no raw path / no recoverable source URL; the handler
+	// short-circuits before any repo / store call. Intentionally
+	// always 200 (no 304) — sentinel responses are tiny and a
+	// freshly-deployed FE doesn't carry a stale ETag past a
+	// resolver flip.
+	if hash == appmedia.SentinelMissingHash {
+		h.writeSentinel(c)
+		return
+	}
+
 	ifNoneMatch := c.GetHeader("If-None-Match")
 	etag := `"` + hash + `"`
 
@@ -493,6 +507,20 @@ func (h *MediaHandler) writePlaceholder(c *gin.Context, hash, reason string) {
 		slog.String("hash", hash),
 		slog.String("reason", reason),
 	)
+}
+
+// writeSentinel serves the embedded SVG placeholder for the story-347
+// sentinel hash. Distinct from writePlaceholder so logs / NetworkTab
+// can tell the deterministic "no canonical asset" case apart from the
+// on-demand-fetch failure path. Cache window is 24h — sentinel hashes
+// never transition, so browsers can hold the response indefinitely
+// (the seed is namespaced "...:v1" so a future rotation is the escape
+// hatch).
+func (h *MediaHandler) writeSentinel(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("X-Media-Placeholder", "sentinel")
+	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
+	h.logger.DebugContext(c.Request.Context(), "media.serve.sentinel")
 }
 
 // extFromSourceURL extracts the lowercase extension from a URL path.

@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
@@ -24,8 +25,9 @@ import (
 
 // stubRepo for the handler tests.
 type stubRepo struct {
-	mu     sync.Mutex
-	byHash map[string]media.Asset
+	mu       sync.Mutex
+	byHash   map[string]media.Asset
+	getCalls atomic.Int32
 }
 
 func newStubRepo() *stubRepo { return &stubRepo{byHash: map[string]media.Asset{}} }
@@ -37,6 +39,7 @@ func (s *stubRepo) put(a media.Asset) {
 }
 
 func (s *stubRepo) Get(ctx context.Context, hash string) (media.Asset, error) {
+	s.getCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.byHash[hash]
@@ -571,5 +574,53 @@ func TestMediaHandler_Placeholder_ContentAndHeaders(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, "<svg") || !strings.Contains(body, "no image") {
 		t.Errorf("body must be the no-image SVG, got %q", body[:min(200, len(body))])
+	}
+}
+
+// Story 347 — sentinel served as the SVG placeholder without a DB call.
+func TestMedia_SentinelServesSVG_NoDBCall(t *testing.T) {
+	h, repo, store := newHandler(t)
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/api/v1/media/"+appmedia.SentinelMissingHash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Fatalf("want image/svg+xml, got %q", got)
+	}
+	if got := rr.Header().Get("X-Media-Placeholder"); got != "sentinel" {
+		t.Fatalf("X-Media-Placeholder want 'sentinel', got %q", got)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=86400" {
+		t.Fatalf("Cache-Control want public,max-age=86400, got %q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("body must be SVG, got %q", rr.Body.String()[:min(120, rr.Body.Len())])
+	}
+	if got := repo.getCalls.Load(); got != 0 {
+		t.Fatalf("sentinel path must not call repo.Get; got %d calls", got)
+	}
+	if got := store.calls.Load(); got != 0 {
+		t.Fatalf("sentinel path must not call store.Get; got %d calls", got)
+	}
+}
+
+// Story 347 — normal hashes still flow through the legacy path.
+func TestMedia_NonSentinelHash_StillReadsRepo(t *testing.T) {
+	h, repo, store := newHandler(t)
+	url := "https://image.tmdb.org/t/p/w342/normal.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	_ = store.Put(context.Background(), mediastore.Key(url, "jpg"), bytes.NewReader([]byte("PNG")), 3, "image/jpeg")
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	if repo.getCalls.Load() == 0 {
+		t.Fatal("normal hash must reach repo.Get")
 	}
 }
