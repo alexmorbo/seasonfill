@@ -10,19 +10,14 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/gc"
-	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
-	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
-	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
-	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
@@ -362,139 +357,26 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	mediaAssetsRepo := mediaBundle.AssetsRepo
 	mediaHandler := mediaBundle.Handler
 
-	// Story 312 + Story 320: media resolver for the seriesdetail composer.
-	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
-	// NewMediaResolver → every wire field stays nil and the frontend
-	// renders monograms. *MediaAssetsRepository satisfies the widened
-	// MediaHashLookupPort (HashForSourceURL + EnsurePending) by virtue
-	// of the new EnsurePending method (story 320).
-	var mediaHashLookup seriesdetail.MediaHashLookupPort
-	if mediaAssetsRepo != nil {
-		mediaHashLookup = mediaAssetsRepo
-	}
-	// Story 316: enqueuer + fetcher are late-bound via SetSideEffects
-	// after wireEnrichment returns — the media pipeline doesn't exist
-	// yet at this point in boot.
-	seriesDetailMediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, log)
-
-	// Story 215 (G-1) — series detail composer + handlers. The repos
-	// are stateless GORM wrappers around `db`, so re-constructing
-	// them here is free; the enrichment block below re-uses its own
-	// instances of the same set for the worker pipeline.
-	sdSeriesRepo := seriesRepo
-	sdSeriesTextsRepo := repositories.NewSeriesTextsRepository(db)
-	sdSeasonsRepo := repositories.NewSeasonsRepository(db)
-	sdEpisodesRepo := repositories.NewEpisodesRepository(db)
-	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
-	sdEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
-	sdSeriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
-	sdPeopleRepo := repositories.NewPeopleRepository(db)
-	sdGenresRepo := repositories.NewGenresRepository(db)
-	sdKeywordsRepo := repositories.NewKeywordsRepository(db)
-	sdNetworksRepo := repositories.NewNetworksRepository(db)
-	sdCompaniesRepo := repositories.NewCompaniesRepository(db)
-	sdVideosRepo := repositories.NewVideosRepository(db)
-	sdContentRatingsRepo := repositories.NewContentRatingsRepository(db)
-	sdExternalIDsRepo := repositories.NewExternalIDsRepository(db)
-	sdRecommendationsRepo := repositories.NewRecommendationsRepository(db)
-	sdSyncLogRepo := repositories.NewSyncLogRepository(db)
-
-	seriesDetailComposer := seriesdetail.NewComposer(seriesdetail.Deps{
-		SeriesCache:       seriesCacheRepo,
-		SeriesCacheLookup: seriesCacheRepo,
-		Series:            sdSeriesRepo,
-		SeriesTexts:       sdSeriesTextsRepo,
-		Seasons:           sdSeasonsRepo,
-		Episodes:          sdEpisodesRepo,
-		EpisodeStates:     sdEpisodeStatesRepo,
-		EpisodeTexts:      sdEpisodeTextsRepo,
-		SeriesPeople:      sdSeriesPeopleRepo,
-		People:            sdPeopleRepo,
-		Genres:            sdGenresRepo,
-		Keywords:          sdKeywordsRepo,
-		Networks:          sdNetworksRepo,
-		Companies:         sdCompaniesRepo,
-		Videos:            sdVideosRepo,
-		ContentRatings:    sdContentRatingsRepo,
-		ExternalIDs:       sdExternalIDsRepo,
-		Recommendations:   sdRecommendationsRepo,
-		SyncLog:           sdSyncLogRepo,
-		SonarrFor: func(name string) (seriesdetail.SonarrQueueLister, bool) {
-			h := holder.Load()
-			if h == nil {
-				return nil, false
-			}
-			inst, ok := h[name]
-			if !ok || inst.Client == nil {
-				return nil, false
-			}
-			concrete, ok := inst.Client.(*sonarr.Client)
-			if !ok {
-				return nil, false
-			}
-			return concrete, true
-		},
-		Logger:        log,
-		MediaResolver: seriesDetailMediaResolver,
-	})
-	seriesDetailHandler := handlers.NewSeriesDetailHandler(seriesDetailComposer, log)
-	seriesSeasonHandler := handlers.NewSeriesSeasonHandler(seriesDetailComposer, log)
-
-	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
-	// repos (series_cache + series + series_people + people) plus
-	// the new EpisodesRepository.CountBySeries method and a thin
-	// adapter projecting repositories.PersonCredit → composer-local
-	// PersonCreditRef.
-	sdPersonCreditsRepo := repositories.NewPersonCreditsRepository(db)
-	castComposer := seriesdetail.NewCastComposer(seriesdetail.CastDeps{
-		SeriesCache:       seriesCacheRepo,
-		SeriesCacheLookup: seriesCacheRepo,
-		Series:            sdSeriesRepo,
-		SeriesPeople:      sdSeriesPeopleRepo,
-		People:            sdPeopleRepo,
-		PersonCredits:     adapters.NewPersonCreditsAdapter(sdPersonCreditsRepo),
-		EpisodesCount:     sdEpisodesRepo,
-		Logger:            log,
-		MediaResolver:     seriesDetailMediaResolver,
-	})
-	seriesCastHandler := handlers.NewSeriesCastHandler(castComposer, log)
-
-	// Story 217 (H-2) — person detail use case. Adapter wraps
-	// PeopleRepository so the application port distinguishes the
-	// bio-skipping GetByTMDBID path (hot, used for the tmdb→id
-	// resolution) from the bio-resolving GetWithBio path (cold,
-	// used after id is known) — same repository, two narrow
-	// methods. The Enqueuer is a late-binding holder; the real
-	// dispatcher is wired in after wireEnrichment returns (the
-	// holder's inner is nil-OK and the use case logs a warn line
-	// when stub persons land before the dispatcher is up).
-	peopleEnqueuerHolder := adapters.NewPersonEnqueuerHolder()
-	peopleUC := apppeople.NewUseCase(apppeople.Deps{
-		People:        adapters.NewPeopleReaderAdapter(sdPeopleRepo),
-		PersonCredits: adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
-		SeriesByTMDB:  sdSeriesRepo,
-		SeriesCache:   seriesCacheRepo,
-		SyncLog:       sdSyncLogRepo,
-		Enqueuer:      peopleEnqueuerHolder,
-		MediaResolver: seriesDetailMediaResolver,
-		Logger:        log,
-	})
-	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)
-
-	// Story 218 (E-2) — series refresh trigger. Reuses the
-	// peopleEnqueuerHolder so the same late-binding dispatcher
-	// satisfies both the H-2 use case AND the refresh path.
-	seriesRefreshUC, err := seriesrefresh.New(seriesrefresh.Deps{
-		SeriesCache:  seriesCacheRepo,
-		Series:       adapters.NewSeriesRefreshSeriesAdapter(seriesRepo),
-		SeriesPeople: adapters.NewSeriesRefreshCastAdapter(sdSeriesPeopleRepo),
-		Dispatcher:   peopleEnqueuerHolder,
-		Logger:       log,
-	})
+	seriesDetailBundle, err := wiring.BuildSeriesDetail(persistence, sonarrBundle, mediaBundle, log)
 	if err != nil {
-		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
+		return nil, err
 	}
-	seriesRefreshHandler := handlers.NewSeriesRefreshHandler(seriesRefreshUC, log)
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-340 names verbatim so every downstream call site
+	// (httpserver.NewServer for the 5 series-detail handlers, the LATE
+	// BIND ZONE block below that injects the enrichment dispatcher into
+	// the people holder and the media side-effects onto the resolver)
+	// keeps working unchanged. Composer / CastComposer / PeopleUC /
+	// SeriesRefreshUC are intentionally NOT rebound — no surviving
+	// server.go code references them directly; their handler wrappers
+	// are the only consumers.
+	seriesDetailMediaResolver := seriesDetailBundle.MediaResolver
+	seriesDetailHandler := seriesDetailBundle.DetailHandler
+	seriesSeasonHandler := seriesDetailBundle.SeasonHandler
+	seriesCastHandler := seriesDetailBundle.CastHandler
+	peopleHandler := seriesDetailBundle.PeopleHandler
+	seriesRefreshHandler := seriesDetailBundle.RefreshHandler
+	peopleEnqueuerHolder := seriesDetailBundle.PersonEnqueuerHolder
 
 	httpServer := httpserver.NewServer(cfg.HTTP, scanUC, webhookUC,
 		checker, scanRepo, decisionRepo, grabRepo,
@@ -639,6 +521,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}
 
+	// ───────── LATE BIND ZONE ─────────
+	// The three callsites below depend on wireEnrichment having returned
+	// (enrichBundle must exist). They STAY in server.go — the wirers that
+	// constructed the holders (BuildSeriesDetail for the people enqueuer
+	// + the seriesdetail MediaResolver; BuildMedia for the MediaHandler)
+	// cannot self-bind because the enrichment pipeline doesn't exist at
+	// their construction point. Each callsite reads the holder from its
+	// bundle and writes the dispatcher / fetcher into it; the holders are
+	// nil-OK so a disabled enrichment / media subsystem keeps the boot
+	// path green.
+
 	// Story 217 (H-2) — late-bind the dispatcher into the people use
 	// case's enqueuer holder. enrichBundle.Dispatcher is nil when
 	// enrichment is disabled (cold boot / dev mode); the holder
@@ -670,6 +563,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && mediaHandler != nil && enrichBundle.MediaOnDemand != nil {
 		mediaHandler.SetOnDemandFetcher(enrichBundle.MediaOnDemand)
 	}
+	// ───────── END LATE BIND ZONE ─────────
 
 	// Register the nightly stale scan into the boot scheduler if cron
 	// is enabled. Done BEFORE Start (now StartRegistered via the
