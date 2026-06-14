@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
@@ -34,7 +33,6 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
-	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
@@ -126,8 +124,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	tzResolver := persistence.TZResolver
 	timezoneHandler := persistence.TimezoneHandler
 
-	bgCtx := context.Background()
-
 	// Bus is constructed BEFORE BuildRuntimeConfig (story 330 reorder)
 	// so the wirer can take *runtime.Bus as input and own the runtime
 	// config UC construction. The `armed` sentinel mirrors the pre-330
@@ -153,16 +149,19 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	runtimeConfigHandler := runtimecfg.Handler
 	cfg := runtimecfg.ServeConfig
 
-	adminRepo := repositories.NewAdminUserRepository(db)
-	oidcCache := infraoidc.NewProviderCache()
-	oidcUC := authapp.NewOIDCLoginUseCase(oidcCache, adminRepo)
-	if err := authapp.Bootstrap(bgCtx, adminRepo, authapp.BootstrapConfig{
-		WebUser:         bootCfg.Auth.WebUser,
-		WebPassword:     bootCfg.Auth.WebPassword,
-		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
-	}, log); err != nil {
-		return nil, fmt.Errorf("auth bootstrap: %w", err)
+	auth, err := wiring.BuildAuth(ctx, persistence, bootCfg, bus, log)
+	if err != nil {
+		return nil, err
 	}
+	// Rebind locals for the remainder of New(). The bundle's fields
+	// preserve the pre-331 names verbatim so every downstream call site
+	// (httpserver.NewServer, OIDCProviderSubscriber) keeps working
+	// unchanged.
+	adminRepo := auth.AdminRepo
+	oidcCache := auth.OIDCCache
+	oidcUC := auth.OIDCUC
+	loginLimiter := auth.LoginLimiter
+	webhookLimiter := auth.WebhookLimiter
 
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := repositories.NewDecisionRepository(db)
@@ -347,8 +346,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		},
 	})
 
-	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)
-	webhookLimiter := authapp.NewIPLimiter(authapp.WebhookLimit(), 60)
 	// Single registry value the reload bus drives via instanceMapHolder.
 	// holder.load is invoked per-request by InstancesHandler /
 	// GrabHandler / WebhookHandler — they see every Sonarr added or
