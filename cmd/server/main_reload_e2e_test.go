@@ -35,7 +35,7 @@ func TestReload_E2E_PublishFiresAllSubscribers(t *testing.T) {
 	defer stop()
 
 	// Boot publish has already landed by the time bootForTest returns
-	// (the barrier in startSubscribers + the boot Publish guarantee it).
+	// (the barrier in wiring.StartSubscribers + the boot Publish guarantee it).
 	require.True(t, allSubscribersGreen(t),
 		"all 6 subscribers must have applied the boot snapshot before runForTest exposed the bus")
 

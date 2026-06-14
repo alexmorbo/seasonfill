@@ -87,15 +87,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// blocks. After story 337, instanceRepo no longer needs rebinding —
 	// the qbitSettingsUC + watchdogInstanceAdapter + qbitLoader call sites
 	// all moved into wiring.BuildRegrab, which reads the repo from the
-	// persistence bundle directly. runtimeRepo stays because
-	// startSubscribers still consumes it for the OIDC subscriber.
+	// persistence bundle directly. runtimeRepo retired with story 344:
+	// wiring.StartSubscribers reads it from the persistence bundle directly.
 	// appSettingsRepo is intentionally NOT rebound: it has no direct
 	// reference in the surviving body — story 330+ consumers reach it
 	// via persistence.AppSettingsRepo. cipher was retired with story
 	// 339: the last consumer (infraextsvc.NewRepository) moved into
 	// wiring.BuildExtSvc, which reads it from the persistence bundle.
 	db := persistence.DB
-	runtimeRepo := persistence.RuntimeRepo
 	quotaCounter := persistence.QuotaCounter
 	// timezoneHandler retired into wiring.BuildHTTPServer (story 342).
 
@@ -118,7 +117,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-330 names verbatim so every downstream call site
-	// (httpserver.NewServer, startSubscribers, scheduler factory,
+	// (httpserver.NewServer, wiring.StartSubscribers, scheduler factory,
 	// webhookReconciler, etc.) keeps working unchanged.
 	snap := runtimecfg.Snap
 	// runtimeConfigHandler retired into wiring.BuildHTTPServer (story 342).
@@ -144,16 +143,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-332 names verbatim so every downstream call
 	// site (healthcheck.New, watchdog.New, scan.NewUseCase, the
-	// reload-aware lookup closures, startSubscribers,
+	// reload-aware lookup closures, wiring.StartSubscribers,
 	// notifyTestContext) keeps working unchanged. holder is exposed
 	// as a *InstanceMapHolder so its pointer identity stays stable
 	// across reload — the OnApplied fanout swaps the inner map via
 	// Replace, never the wrapper. globalLimiterPtr is exposed as a
 	// pointer to the heap-allocated atomic so every consumer (the
-	// ClientFactory closure, GlobalRateLimiterSubscriber, and the
-	// testcontext hook) shares the same cell.
-	clientFactory := sonarrBundle.ClientFactory
-	sonarrClientsByName := sonarrBundle.ClientsByName
+	// GlobalRateLimiterSubscriber and the testcontext hook) shares
+	// the same cell. clientFactory + ClientsByName retired with story
+	// 344: wiring.StartSubscribers reads them from sonarrBundle directly.
 	holder := sonarrBundle.Holder
 	// instanceReg retired into wiring.BuildHTTPServer (story 342).
 	globalLimiterPtr := sonarrBundle.GlobalLimiterPtr
@@ -165,7 +163,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-333 names verbatim so every downstream call site
 	// (scan.UseCase.WithHealthRegistry, httpserver.NewServer,
-	// startSubscribers, notifyTestContext) keeps working unchanged.
+	// wiring.StartSubscribers, notifyTestContext) keeps working unchanged.
 	// The lifecycle.Go spawns below address checker.Run / wd.Run via
 	// these aliases — the bundle itself is stored on the Server so
 	// future Shutdown wiring can reach the same handles via
@@ -188,7 +186,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	//
 	// bgWG is retained for cross-package wiring that still expects
 	// *sync.WaitGroup (scan.UseCase.WithWaitGroup, newRegrabLoop,
-	// newTorrentsyncLoop, startSubscribers, SonarrClientsSubscriber).
+	// newTorrentsyncLoop, wiring.StartSubscribers, SonarrClientsSubscriber).
 	// lifecycle owns the inline goroutines spawned directly from
 	// Server.New (B-11 step 3 / story 325). Both are drained in
 	// Shutdown — see the ladder at the end of this file.
@@ -275,8 +273,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-337 names verbatim so every downstream call site
 	// (httpserver.NewServer for the four watchdog handlers + qbit settings
-	// handler + webhooks aggregate handler, startSubscribers for
-	// regrabLoop + qbitLoader) keeps working unchanged. qbitSettingsUC /
+	// handler + webhooks aggregate handler, wiring.StartSubscribers for
+	// regrabBundle) keeps working unchanged. qbitSettingsUC /
 	// blacklistRepo / noBetterCounterRepo / regrabUC are intentionally
 	// NOT rebound — no surviving server.go body code references them
 	// directly (story 338 moved the torrentsyncFactory lookup site into
@@ -284,6 +282,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// inside BuildRegrab; the regrab use case is owned by the RegrabLoop
 	// and consumed via SwapSettings through regrabLoopVal).
 	// qbitSettingsHandler retired into wiring.BuildHTTPServer (story 342).
+	// qbitLoader retired with story 344: wiring.StartSubscribers reads it
+	// from regrabBundle directly.
 	regrabLoopVal := regrabBundle.RegrabLoop
 
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
@@ -299,12 +299,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// Rebind locals for the remainder of New(). The bundle's fields
 	// preserve the pre-338 names verbatim so every downstream call site
-	// (httpserver.NewServer for seriesTorrentsHandler, startSubscribers
-	// for torrentsyncLoopVal) keeps working unchanged. Other bundle
+	// (httpserver.NewServer for seriesTorrentsHandler, wiring.StartSubscribers
+	// for torrentsyncBundle) keeps working unchanged. Other bundle
 	// fields (Store / Policy / Factory / Reconciler / UC / Query) are
 	// not referenced by the surviving body — they live entirely inside
 	// BuildTorrentsync now.
 	// seriesTorrentsHandler retired into wiring.BuildHTTPServer (story 342).
+	// torrentsyncLoopVal retired with story 344: wiring.StartSubscribers reads
+	// torrentsyncBundle directly. The local stays for Start() below.
 	torrentsyncLoopVal := torrentsyncBundle.Loop
 
 	// 220 (A-2) — torrentsync loop's Start needs rootCtx (owned by
@@ -318,12 +320,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// watchdogRollupHandler / watchdogBlacklistHandler /
 	// watchdogSeasonsHandler / webhooksAggregateHandler retired into
 	// wiring.BuildHTTPServer (story 342).
-
-	// qBit settings loader for the fanout — moved to wiring.BuildRegrab
-	// (story 337). The closure semantics are identical: fresh List + build
-	// Settings map on every Load, password decryption centralised via
-	// qbitSettingsUC.
-	qbitLoader := regrabBundle.QbitLoader
 
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
@@ -408,7 +404,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// Story 202 (S-2) — external services subscriber. Primes its cache
 	// eagerly so the first Phase C/D client.Get() works before any bus
-	// publish. No new barrier channel is added to startSubscribers
+	// publish. No new barrier channel is added to wiring.StartSubscribers
 	// because downstream consumers (Phase C/D) don't exist yet; the
 	// boot publish below still flows through the subscriber's bus
 	// channel and triggers a second apply.
@@ -519,7 +515,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// after wiring.BuildEnrichment so the four enrichment-derived job closures
 	// are ready; the wirer Registers every cron job before returning
 	// so the caller only owns Start. The factory is captured by the
-	// reload SchedulerSubscriber via startSubscribers below; the
+	// reload SchedulerSubscriber via wiring.StartSubscribers below; the
 	// bootScheduler pointer is rebound for the Start call further down.
 	schedulerBundle, err := wiring.BuildScheduler(persistence, mediaBundle, cfg,
 		wiring.SchedulerEnrichmentJobs{
@@ -541,13 +537,25 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		authRuntimePtr = authHandler.AuthRuntime()
 	}
 
-	subSched, subClients, err := startSubscribers(rootCtx, &bgWG, bus, log,
-		bootScheduler, schedulerBundle.Factory,
-		scanUC, sonarrClientsByName,
-		clientFactory, checker, wd, holder, sweeper,
-		regrabLoopVal, torrentsyncLoopVal, qbitLoader,
-		globalLimiterPtr, snap.GlobalRateLimit, authRuntimePtr, httpServer.Engine(),
-		runtimeRepo, bootCfg.Auth.OIDCClientSecret)
+	subSched, subClients, err := wiring.StartSubscribers(
+		rootCtx,
+		&bgWG,
+		bus,
+		persistence,
+		sonarrBundle,
+		scanBundle,
+		watchdogBundle,
+		regrabBundle,
+		torrentsyncBundle,
+		schedulerBundle,
+		wiring.SubscriberDeps{
+			Snap:            snap,
+			Engine:          httpServer.Engine(),
+			AuthRuntimePtr:  authRuntimePtr,
+			ClientSecretEnv: bootCfg.Auth.OIDCClientSecret,
+		},
+		log,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("start subscribers: %w", err)
 	}
@@ -684,7 +692,7 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	// lifecycle covers the 5 inline goroutines spawned by Server.New
 	// (healthcheck, watchdog, cooldown-sweeper, webhook-reconcile,
 	// cold-start-backfill). bgWG covers cross-package wiring
-	// (scan.UseCase, regrabLoop, torrentsyncLoop, startSubscribers,
+	// (scan.UseCase, regrabLoop, torrentsyncLoop, wiring.StartSubscribers,
 	// SonarrClientsSubscriber) — migrating those is a follow-up.
 	if err := s.lifecycle.Drain(10 * time.Second); err != nil {
 		s.log.Warn("lifecycle drain timed out", slog.String("error", err.Error()))

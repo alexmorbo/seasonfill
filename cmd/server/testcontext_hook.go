@@ -31,7 +31,7 @@ type TestContext struct {
 var testContextHook func(*TestContext)
 
 // notifyTestContext populates and fires testContextHook if it is set.
-// Called from runWithContext after startSubscribers + boot Publish.
+// Called from Server.New after wiring.StartSubscribers + boot Publish.
 func notifyTestContext(
 	bus *runtime.Bus,
 	subSched *reload.SchedulerSubscriber,

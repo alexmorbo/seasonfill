@@ -1,11 +1,10 @@
-package main
+package wiring
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,37 +13,35 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
-	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// subscriberReadyTimeout bounds how long startSubscribers will wait
+// subscriberReadyTimeout bounds how long StartSubscribers will wait
 // for every subscriber to register its bus.Subscribe call. Defensive
 // only — in normal operation each goroutine reaches Subscribe in
 // microseconds. If we hit the timeout, the process is broken: main
 // exits non-zero with a clear log line.
 const subscriberReadyTimeout = 2 * time.Second
 
-// sweepIntervalSetter is the narrow contract buildOnAppliedFanout
+// sweepIntervalSetter is the narrow contract BuildOnAppliedFanout
 // needs from the cooldown sweeper. Keeping it as an interface lets the
 // fan-out be unit-tested without spinning up a real sweepLoop.
 type sweepIntervalSetter interface {
 	SetInterval(d time.Duration)
 }
 
-// regrabSwapper is the narrow contract buildOnAppliedFanout needs from
+// regrabSwapper is the narrow contract BuildOnAppliedFanout needs from
 // the regrab loop. Decoupled into an interface so the fanout test can
 // stub it without spinning up a real per-instance goroutine.
 type regrabSwapper interface {
 	SwapSettings(map[string]regrab.Settings)
 }
 
-// torrentsyncSwapper is the narrow contract buildOnAppliedFanout needs
+// torrentsyncSwapper is the narrow contract BuildOnAppliedFanout needs
 // from the torrentsync loop. Identical SwapSettings shape as regrab
 // — both loops consume the same qbit-settings projection from the
 // reload-bus snapshot.
@@ -52,7 +49,7 @@ type torrentsyncSwapper interface {
 	SwapSettings(map[string]regrab.Settings)
 }
 
-// qbitSettingsLoader is the narrow contract buildOnAppliedFanout needs
+// qbitSettingsLoader is the narrow contract BuildOnAppliedFanout needs
 // to project the qbit-settings repo into a map keyed by instance name.
 // In production it's a closure over QbitSettingsRepository.List +
 // instance lookup; in tests it's a fake that returns a fixed map.
@@ -60,7 +57,7 @@ type qbitSettingsLoader interface {
 	Load(ctx context.Context) map[string]regrab.Settings
 }
 
-// buildOnAppliedFanout wires the OnApplied hook that updates everything
+// BuildOnAppliedFanout wires the OnApplied hook that updates everything
 // that depends on the freshly-rebuilt sonarr-client set: the scan UC
 // instance list, the holder map HTTP handlers iterate, the health
 // checker's registry membership + preflight client list, and the
@@ -69,7 +66,7 @@ type qbitSettingsLoader interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
+func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -125,51 +122,80 @@ func buildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 	}
 }
 
-// startSubscribers launches every subscriber under bgWG and blocks
-// until each has registered on the bus, then returns. ctx is the
-// long-lived rootCtx — SIGTERM cancels it and every subscriber
+// SubscriberDeps groups the cross-bundle inputs StartSubscribers needs
+// that are not themselves bundles. Kept as a struct so the signature
+// stays readable even as new subscribers join over time.
+type SubscriberDeps struct {
+	// Snap is the boot snapshot — its GlobalRateLimit field seeds the
+	// GlobalRateLimiterSubscriber.
+	Snap runtime.Snapshot
+	// Engine is the gin engine the AuthMiddlewareSubscriber rewires on
+	// each apply. Read from the http server: httpServer.Engine().
+	Engine *gin.Engine
+	// AuthRuntimePtr is the live AuthRuntime pointer the
+	// AuthMiddlewareSubscriber atomically swaps. Read from the http
+	// server: httpServer.AuthHandler().AuthRuntime() (nil-OK when auth
+	// disabled).
+	AuthRuntimePtr *middleware.AuthRuntimePointer
+	// ClientSecretEnv is the OIDC client_secret env override forwarded to
+	// the AuthMiddlewareSubscriber. From bootCfg.Auth.OIDCClientSecret.
+	ClientSecretEnv string
+}
+
+// StartSubscribers launches every reload subscriber under bgWG and
+// blocks until each has registered on the bus, then returns. ctx is
+// the long-lived rootCtx — SIGTERM cancels it and every subscriber
 // drains. Returns the SchedulerSubscriber + SonarrClientsSubscriber
-// so main.go can hand them off to shutdown and to other callers
-// (rescanUC, healthcheck).
+// so server.go can hand them off to shutdown and to the testcontext
+// hook (notifyTestContext).
 //
 // If any subscriber fails to register within subscriberReadyTimeout
-// the function returns an error and main is expected to exit
+// the function returns an error and the caller is expected to exit
 // non-zero. In normal operation this returns within microseconds.
-func startSubscribers(
+//
+// The function takes wired bundles instead of the pre-344 raw-deps
+// list. Each bundle field consumed below preserves its pre-344 name
+// verbatim so the behavior is byte-equivalent — only the
+// argument-construction site (server.go) changed.
+func StartSubscribers(
 	ctx context.Context,
 	bgWG *sync.WaitGroup,
 	bus *runtime.Bus,
+	persistence *PersistenceBundle,
+	sonarr *SonarrBundle,
+	scan *ScanBundle,
+	watchdogBundle *WatchdogBundle,
+	regrab *RegrabBundle,
+	torrentsync *TorrentsyncBundle,
+	scheduler *SchedulerBundle,
+	deps SubscriberDeps,
 	log *slog.Logger,
-
-	bootScheduler *scheduler.Scheduler,
-	schedulerFactory reload.SchedulerFactory,
-	scanUC *scan.UseCase,
-	bootClients map[string]ports.SonarrClient,
-	clientFactory reload.SonarrClientFactory,
-	checker reload.HealthChecker,
-	wd *watchdog.Watchdog,
-	holder *adapters.InstanceMapHolder,
-	sweeper sweepIntervalSetter,
-	regrabLoop regrabSwapper,
-	torrentsyncLoop torrentsyncSwapper,
-	qbitLoader qbitSettingsLoader,
-	globalLimiterPtr *atomic.Pointer[ratelimit.Limiter],
-	bootGlobalRateLimit runtime.RateLimitSnapshot,
-	authRuntimePtr *middleware.AuthRuntimePointer,
-	engine *gin.Engine,
-	runtimeRepo ports.RuntimeConfigRepository,
-	clientSecretEnv string,
 ) (*reload.SchedulerSubscriber, *reload.SonarrClientsSubscriber, error) {
-	subSched := reload.NewSchedulerSubscriber(ctx, bootScheduler, scanUC,
-		schedulerFactory, log)
-	subClients := reload.NewSonarrClientsSubscriber(bootClients, clientFactory, log).
+	subSched := reload.NewSchedulerSubscriber(ctx, scheduler.BootScheduler, scan.ScanUC,
+		scheduler.Factory, log)
+	subClients := reload.NewSonarrClientsSubscriber(sonarr.ClientsByName, sonarr.ClientFactory, log).
 		WithWaitGroup(bgWG).
-		WithOnApplied(buildOnAppliedFanout(ctx, scanUC, holder, checker, wd, sweeper, regrabLoop, torrentsyncLoop, qbitLoader, log))
+		WithOnApplied(BuildOnAppliedFanout(
+			ctx,
+			scan.ScanUC,
+			sonarr.Holder,
+			watchdogBundle.Checker,
+			watchdogBundle.Watchdog,
+			scan.Sweeper,
+			regrab.RegrabLoop,
+			torrentsync.Loop,
+			regrab.QbitLoader,
+			log,
+		))
 
-	subRate := reload.NewGlobalRateLimiterSubscriber(globalLimiterPtr,
-		reload.DefaultGlobalLimiterFactory, bootGlobalRateLimit, log)
-	subAuth := reload.NewAuthMiddlewareSubscriber(authRuntimePtr, engine, log,
-		runtimeRepo, clientSecretEnv)
+	subRate := reload.NewGlobalRateLimiterSubscriber(sonarr.GlobalLimiterPtr,
+		reload.DefaultGlobalLimiterFactory, deps.Snap.GlobalRateLimit, log)
+	subAuth := reload.NewAuthMiddlewareSubscriber(deps.AuthRuntimePtr, deps.Engine, log,
+		persistence.RuntimeRepo, deps.ClientSecretEnv)
+	// Note: NewAuthMiddlewareSubscriber positional order is
+	// (ptr, engine, logger, runtimeRepo, clientSecretEnv) per
+	// infrastructure/reload/auth_middleware_subscriber.go — preserved
+	// verbatim from the pre-344 call site.
 
 	runners := []func(context.Context, *runtime.Bus, func()){
 		subSched.Run, subClients.Run, subRate.Run, subAuth.Run,
@@ -231,9 +257,9 @@ func waitAllReady(ready []chan struct{}, timeout time.Duration, names []string, 
 				stuck = append(stuck, names[i])
 			}
 		}
-		log.Error("startSubscribers: timeout waiting for subscribers to register",
+		log.Error("StartSubscribers: timeout waiting for subscribers to register",
 			slog.Duration("timeout", timeout),
 			slog.Any("stuck", stuck))
-		return fmt.Errorf("startSubscribers: timeout waiting for subscribers to register: %v", stuck)
+		return fmt.Errorf("StartSubscribers: timeout waiting for subscribers to register: %v", stuck)
 	}
 }
