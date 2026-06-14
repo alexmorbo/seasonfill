@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 )
 
 // DefaultBaseURL is the production OMDb endpoint. Override only in
@@ -116,12 +118,26 @@ func New(cfg Config) (*Client, error) {
 	if cfg.HTTPClient.Timeout == 0 {
 		cfg.HTTPClient.Timeout = defaultTimeout
 	}
+	// Story 351 — wrap with the per-client metrics transport. OMDb is
+	// single-endpoint so the EndpointFunc is a constant "/". Clone
+	// the *http.Client so the caller's pointer is left untouched.
+	clientWithMetrics := &http.Client{
+		Transport:     httpx.NewMetricsTransport("omdb", omdbEndpointFor, cfg.HTTPClient.Transport),
+		Timeout:       cfg.HTTPClient.Timeout,
+		Jar:           cfg.HTTPClient.Jar,
+		CheckRedirect: cfg.HTTPClient.CheckRedirect,
+	}
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    strings.TrimRight(base, "/"),
-		httpClient: cfg.HTTPClient,
+		httpClient: clientWithMetrics,
 	}, nil
 }
+
+// omdbEndpointFor returns the static "/" label (OMDb is single
+// endpoint — `GET /?i={imdbID}&apikey=...`). Kept as a function so it
+// matches the httpx.EndpointFunc signature.
+func omdbEndpointFor(*http.Request) string { return "/" }
 
 // GetByIMDB calls GET /?i={imdb_id}&apikey={key}. Returns the parsed
 // Response on Response="True"; one of the sentinel errors on the

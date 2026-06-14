@@ -1,15 +1,19 @@
 package omdb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/observability"
 )
 
 func newTestClient(t *testing.T, handler http.Handler) *Client {
@@ -150,4 +154,30 @@ func TestNew_RequiresHTTPClient(t *testing.T) {
 	t.Parallel()
 	_, err := New(Config{APIKey: "k"})
 	require.Error(t, err)
+}
+
+// Story 351 — single-endpoint smoke: OMDb GetByIMDB publishes the
+// generic external-HTTP metric with client="omdb" and endpoint="/".
+func TestClient_Metrics_ExternalHTTPFamily_OnSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"Response":"True","Title":"Test","imdbID":"tt0000001"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := New(Config{
+		APIKey:     "test",
+		BaseURL:    srv.URL,
+		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+	})
+	require.NoError(t, err)
+
+	_, err = c.GetByIMDB(context.Background(), "tt0000001")
+	require.NoError(t, err)
+
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	body := buf.String()
+	assert.Contains(t, body, `seasonfill_external_http_requests_total{client="omdb",endpoint="/",method="GET",status="200"}`)
+	// Sanity: in-flight gauge surfaces for the omdb label.
+	assert.True(t, strings.Contains(body, `seasonfill_external_http_requests_in_flight{client="omdb"}`))
 }
