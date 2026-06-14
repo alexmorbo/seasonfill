@@ -672,3 +672,74 @@ func TestComposer_ResolveAssets_HeroEagerHashOnMiss(t *testing.T) {
 	require.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
 	require.Equal(t, "backdrop_w1280", lookup.ensureCalls[1].kind)
 }
+
+// TestComposer_ResolveAssets_EpisodeStills exercises the story 322 wiring:
+// every episode still in every season gets r.Resolve at w300, so the wire
+// field carries either a sha256 hex (lookup hit) OR nil (frontend renders
+// monogram). NEVER the raw TMDB path.
+func TestComposer_ResolveAssets_EpisodeStills(t *testing.T) {
+	t.Parallel()
+	d := &Detail{
+		Canon: series.Canon{ID: 42, Title: "Breaking Bad"},
+		Seasons: []SeasonDetail{
+			{
+				Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")},
+				Episodes: []EpisodeDetail{
+					{Canon: series.CanonEpisode{ID: 10, SeasonNumber: 1, EpisodeNumber: 1, StillAsset: strPtr("/ep1.jpg")}},
+					{Canon: series.CanonEpisode{ID: 11, SeasonNumber: 1, EpisodeNumber: 2, StillAsset: strPtr("/ep2.jpg")}},
+				},
+			},
+			{
+				Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: strPtr("/s2.jpg")},
+				Episodes: []EpisodeDetail{
+					{Canon: series.CanonEpisode{ID: 20, SeasonNumber: 2, EpisodeNumber: 1, StillAsset: strPtr("/ep3.jpg")}},
+				},
+			},
+		},
+	}
+	const (
+		hashEp1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		hashEp3 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w300/ep1.jpg": hashEp1,
+		"https://image.tmdb.org/t/p/w300/ep3.jpg": hashEp3,
+		// ep2.jpg intentionally missing — must come back nil (not raw path).
+	}}
+	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	c := NewComposer(Deps{MediaResolver: resolver})
+	c.resolveAssets(context.Background(), d)
+
+	// Season 1.
+	require.NotNil(t, d.Seasons[0].Episodes[0].Canon.StillAsset)
+	require.Equal(t, hashEp1, *d.Seasons[0].Episodes[0].Canon.StillAsset)
+	require.Nil(t, d.Seasons[0].Episodes[1].Canon.StillAsset, "miss must return nil, NOT raw path")
+	// Season 2.
+	require.NotNil(t, d.Seasons[1].Episodes[0].Canon.StillAsset)
+	require.Equal(t, hashEp3, *d.Seasons[1].Episodes[0].Canon.StillAsset)
+}
+
+// TestComposer_ResolveAssets_SeasonPosterRegression is a defensive guard that
+// season poster resolution stays wired — story 322 didn't change it, but the
+// operator's report named seasons too, so we lock the contract: raw path
+// NEVER leaks; hash on hit, nil on miss.
+func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
+	t.Parallel()
+	d := &Detail{
+		Canon: series.Canon{ID: 42, Title: "Breaking Bad"},
+		Seasons: []SeasonDetail{
+			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/seasonA.jpg")}},
+			{Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: strPtr("/seasonB.jpg")}},
+		},
+	}
+	const hashA = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w154/seasonA.jpg": hashA,
+	}}
+	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	c := NewComposer(Deps{MediaResolver: resolver})
+	c.resolveAssets(context.Background(), d)
+	require.NotNil(t, d.Seasons[0].Canon.PosterAsset)
+	require.Equal(t, hashA, *d.Seasons[0].Canon.PosterAsset)
+	require.Nil(t, d.Seasons[1].Canon.PosterAsset, "miss must return nil, NOT raw path")
+}

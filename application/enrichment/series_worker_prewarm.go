@@ -19,6 +19,7 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 		sizeLogoNetwork  = "w185"
 		sizeProfileCast  = "w185"
 		sizeSeasonPoster = "w154"
+		sizeStillEpisode = "w300"
 	)
 	reqs := make([]MediaPrewarmRequest, 0, 32)
 
@@ -59,6 +60,14 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 	// Season posters — every season we mapped.
 	for _, s := range m.Seasons {
 		push(sizeSeasonPoster, s.PosterAsset, "season_poster_w154")
+	}
+
+	// Episode stills — w300 matches what EpisodeRow.tsx renders. Cold-start
+	// enrichment now lands these bytes so first expand of the seasons
+	// accordion never 404s on a still. Async-only on the composer side
+	// (Resolve, not ResolveSync) so a miss renders the monogram — story 322.
+	for _, e := range m.Episodes {
+		push(sizeStillEpisode, e.StillAsset, "still_w300")
 	}
 
 	// Trailer thumbnail (best-effort). Pick first Official Trailer

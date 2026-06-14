@@ -741,6 +741,9 @@ func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 	}
 	for i := range d.Seasons {
 		d.Seasons[i].Canon.PosterAsset = r.Resolve(ctx, d.Seasons[i].Canon.PosterAsset, "w154", "season_poster_w154")
+		for j := range d.Seasons[i].Episodes {
+			d.Seasons[i].Episodes[j].Canon.StillAsset = r.Resolve(ctx, d.Seasons[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
+		}
 	}
 	for i := range d.Cast {
 		d.Cast[i].Person.ProfileAsset = r.Resolve(ctx, d.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
