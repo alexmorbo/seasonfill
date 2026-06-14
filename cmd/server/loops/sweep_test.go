@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 )
 
 // countingSweepRepo records every Sweep call as an atomic counter.
-// Embeds the test-helpers fakeCooldownRepo's no-op contract via the
-// methods we re-declare below — we don't reuse fakeCooldownRepo because
-// its counter is a non-atomic int, which would race when the sweep
+// Embeds fakeCooldownRepo (helpers_test.go) for the no-op contract on
+// Set/Get/FilterActive — we override Sweep with the atomic counter
+// because the embedded struct's int counter would race when the sweep
 // goroutine and the test assertion read it concurrently.
 type countingSweepRepo struct {
 	fakeCooldownRepo
@@ -24,7 +24,7 @@ func (r *countingSweepRepo) Sweep(_ context.Context, _ time.Time) (int64, error)
 
 func TestSweepLoop_ReloadShortensCadence(t *testing.T) {
 	repo := &countingSweepRepo{}
-	s := newSweepLoop(repo, 200*time.Millisecond, nullLogger())
+	s := NewSweepLoop(repo, 200*time.Millisecond, nullLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -58,13 +58,13 @@ func TestSweepLoop_ReloadShortensCadence(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("sweepLoop did not exit after context cancel")
+		t.Fatal("SweepLoop did not exit after context cancel")
 	}
 }
 
 func TestSweepLoop_DisabledBySetIntervalZero(t *testing.T) {
 	repo := &countingSweepRepo{}
-	s := newSweepLoop(repo, 30*time.Millisecond, nullLogger())
+	s := NewSweepLoop(repo, 30*time.Millisecond, nullLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -10,21 +10,21 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 )
 
-// regrabRunner is the narrow surface regrabLoop calls on each tick. The
+// RegrabRunner is the narrow surface RegrabLoop calls on each tick. The
 // production type is *regrab.UseCase; tests inject stubs without
 // pulling the full use-case.
-type regrabRunner interface {
+type RegrabRunner interface {
 	RunInstance(ctx context.Context, instanceName string) (regrab.RunResult, error)
 }
 
-// instanceLoopMetrics is the subset of regrab.Metrics the per-instance
+// InstanceLoopMetrics is the subset of regrab.Metrics the per-instance
 // loop emits directly. Currently only the qbit_unreachable_streak gauge
 // is owned at this level — the rest are owned inside RunInstance.
-type instanceLoopMetrics interface {
+type InstanceLoopMetrics interface {
 	SetQbitUnreachableStreak(instance string, streak int)
 }
 
-// regrabLoop owns one polling goroutine per qBit-enabled Sonarr
+// RegrabLoop owns one polling goroutine per qBit-enabled Sonarr
 // instance. SwapSettings is invoked from the OnApplied fanout under
 // the SonarrClientsSubscriber lock so callers cannot race against
 // runtime config publishes.
@@ -34,7 +34,7 @@ type instanceLoopMetrics interface {
 // instance A never blocks instance B's poll.
 //
 // Lifecycle:
-//   - newRegrabLoop is called once at server boot.
+//   - NewRegrabLoop is called once at server boot.
 //   - Start(ctx) primes the loop with the bootstrap settings + sets
 //     the parent context every per-instance goroutine derives from.
 //   - SwapSettings(...) is called on every runtime snapshot publish.
@@ -44,9 +44,9 @@ type instanceLoopMetrics interface {
 //     interval re-tuned via SetInterval (which signals wake).
 //   - When ctx is cancelled (SIGTERM), every per-instance goroutine
 //     exits and bgWG drains.
-type regrabLoop struct {
-	runner  regrabRunner
-	metrics instanceLoopMetrics
+type RegrabLoop struct {
+	runner  RegrabRunner
+	metrics InstanceLoopMetrics
 	bgWG    *sync.WaitGroup
 	logger  *slog.Logger
 	now     func() time.Time
@@ -67,21 +67,21 @@ type instanceLoop struct {
 	wake       chan struct{}
 	cancel     context.CancelFunc
 	streak     atomic.Int32 // consecutive qBit errors
-	parent     *regrabLoop
+	parent     *RegrabLoop
 }
 
-// newRegrabLoop wires the loop owner. runner is the regrab use case,
+// NewRegrabLoop wires the loop owner. runner is the regrab use case,
 // metrics is the production adapter (nullMetrics is acceptable for
 // tests), bgWG is the process-wide drain WaitGroup so SIGTERM blocks
 // on in-flight RunInstance calls.
-func newRegrabLoop(runner regrabRunner, metrics instanceLoopMetrics, bgWG *sync.WaitGroup, log *slog.Logger) *regrabLoop {
+func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.WaitGroup, log *slog.Logger) *RegrabLoop {
 	if log == nil {
 		log = slog.Default()
 	}
 	if metrics == nil {
 		metrics = nullStreakMetrics{}
 	}
-	return &regrabLoop{
+	return &RegrabLoop{
 		runner:  runner,
 		metrics: metrics,
 		bgWG:    bgWG,
@@ -100,7 +100,7 @@ func (nullStreakMetrics) SetQbitUnreachableStreak(string, int) {}
 // Start records the parent context. Must be called before SwapSettings.
 // The actual goroutines are spawned by SwapSettings on the first
 // publish — there's no work to do here other than capturing the ctx.
-func (l *regrabLoop) Start(ctx context.Context) {
+func (l *RegrabLoop) Start(ctx context.Context) {
 	l.mu.Lock()
 	l.parent = ctx
 	l.mu.Unlock()
@@ -116,7 +116,7 @@ func (l *regrabLoop) Start(ctx context.Context) {
 //
 // The caller must NOT pass a nil map; an empty map is the valid
 // "no instances enabled" state.
-func (l *regrabLoop) SwapSettings(settings map[string]regrab.Settings) {
+func (l *RegrabLoop) SwapSettings(settings map[string]regrab.Settings) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -170,7 +170,7 @@ func (l *regrabLoop) SwapSettings(settings map[string]regrab.Settings) {
 
 // active is a test/diagnostic helper — count of running per-instance
 // loops at this moment.
-func (l *regrabLoop) active() int {
+func (l *RegrabLoop) active() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.loops)
@@ -178,7 +178,7 @@ func (l *regrabLoop) active() int {
 
 // intervalOf returns the current cadence for the named instance, or 0
 // if no loop is running for it. Test-only helper.
-func (l *regrabLoop) intervalOf(name string) time.Duration {
+func (l *RegrabLoop) intervalOf(name string) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if ll, ok := l.loops[name]; ok {
@@ -189,7 +189,7 @@ func (l *regrabLoop) intervalOf(name string) time.Duration {
 
 // newInstanceLoop wires a per-instance loop value. intervalNS is set;
 // cancel is filled in by the caller (it derives the ctx).
-func newInstanceLoop(name string, initial time.Duration, parent *regrabLoop) *instanceLoop {
+func newInstanceLoop(name string, initial time.Duration, parent *RegrabLoop) *instanceLoop {
 	il := &instanceLoop{
 		name:   name,
 		wake:   make(chan struct{}, 1),
@@ -199,7 +199,7 @@ func newInstanceLoop(name string, initial time.Duration, parent *regrabLoop) *in
 	return il
 }
 
-// setInterval mirrors sweepLoop.SetInterval — atomic swap + non-
+// setInterval mirrors SweepLoop.SetInterval — atomic swap + non-
 // blocking wake nudge. The check on prev == d skips the wake when the
 // cadence is unchanged so a flood of identical publishes does not
 // spin the goroutine.
@@ -215,7 +215,7 @@ func (il *instanceLoop) setInterval(d time.Duration) {
 }
 
 // run is the per-instance main loop. Structured exactly like
-// sweepLoop.Run for symmetry: time.NewTimer + Reset on each iteration
+// SweepLoop.Run for symmetry: time.NewTimer + Reset on each iteration
 // so a stale timer never fires after SetInterval changes the cadence.
 func (il *instanceLoop) run(ctx context.Context) {
 	timer := time.NewTimer(time.Hour)

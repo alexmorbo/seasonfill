@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func instMap(name string, webhookEnabled bool) map[string]scan.Instance {
 	}
 }
 
-func runLoopBriefly(t *testing.T, l *webhookReconcileLoop, dur time.Duration) {
+func runLoopBriefly(t *testing.T, l *WebhookReconcileLoop, dur time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -62,9 +62,9 @@ func runLoopBriefly(t *testing.T, l *webhookReconcileLoop, dur time.Duration) {
 	}
 }
 
-func newTestLoop(t *testing.T, cache *webhookinstall.StatusCache, rec webhookReconcileReconciler, instances map[string]scan.Instance) *webhookReconcileLoop {
+func newTestLoop(t *testing.T, cache *webhookinstall.StatusCache, rec WebhookReconcileReconciler, instances map[string]scan.Instance) *WebhookReconcileLoop {
 	t.Helper()
-	return newWebhookReconcileLoop(rec, cache,
+	return NewWebhookReconcileLoop(rec, cache,
 		func() map[string]scan.Instance { return instances }, nullLogger())
 }
 
@@ -135,7 +135,7 @@ func TestWebhookReconcileLoop_ReconcileErrorDoesNotKillLoop(t *testing.T) {
 func TestWebhookReconcileLoop_SetTickIntervalChangesCadence(t *testing.T) {
 	rec := &fakeWebhookReconciler{}
 	instances := instMap("alpha", true)
-	loop := newWebhookReconcileLoop(rec, webhookinstall.NewStatusCache(),
+	loop := NewWebhookReconcileLoop(rec, webhookinstall.NewStatusCache(),
 		func() map[string]scan.Instance { return instances }, nullLogger())
 	loop.SetTickInterval(200 * time.Millisecond)
 
@@ -160,7 +160,7 @@ func TestWebhookReconcileLoop_SetTickIntervalChangesCadence(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_ZeroIntervalFallsBackToDefault(t *testing.T) {
-	loop := newWebhookReconcileLoop(&fakeWebhookReconciler{}, webhookinstall.NewStatusCache(),
+	loop := NewWebhookReconcileLoop(&fakeWebhookReconciler{}, webhookinstall.NewStatusCache(),
 		func() map[string]scan.Instance { return nil }, nullLogger())
 	loop.SetTickInterval(0)
 	if got := loop.TickInterval(); got != defaultWebhookReconcileTickInterval {

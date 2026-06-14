@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 )
 
-// defaultTorrentsyncCadence is the wall-clock fallback when the
+// DefaultTorrentsyncCadence is the wall-clock fallback when the
 // operator has not customised poll_interval. PRD §4.4 calls for
 // 30s. The instance_qbit_settings.poll_interval column is
 // minutes-grained (it was modelled for regrab, see PRD §4.7);
@@ -27,32 +27,31 @@ import (
 // minutes-grained `poll_interval` for now. Story 221 (or a
 // later polish story) will add the explicit column once
 // operators have run the loop in production.
-const defaultTorrentsyncCadence = 30 * time.Second
+const DefaultTorrentsyncCadence = 30 * time.Second
 
-// torrentsyncRunner is the narrow Loop-construction surface the
+// TorrentsyncRunner is the narrow Loop-construction surface the
 // per-instance launcher needs. Production: torrentsync.NewLoop +
 // torrentsync.UseCase.Hydrate + Loop.Run. Tests stub it.
-type torrentsyncRunner interface {
+type TorrentsyncRunner interface {
 	Hydrate(ctx context.Context, instance string) error
-	NewLoop(instance string, configured time.Duration) torrentsyncRunningLoop
+	NewLoop(instance string, configured time.Duration) TorrentsyncRunningLoop
 }
 
-// torrentsyncRunningLoop is the trimmed Loop surface — only the
+// TorrentsyncRunningLoop is the trimmed Loop surface — only the
 // methods the launcher invokes. *torrentsync.Loop satisfies it
 // implicitly.
-type torrentsyncRunningLoop interface {
+type TorrentsyncRunningLoop interface {
 	Run(ctx context.Context)
 	SetInterval(d time.Duration)
 }
 
-// torrentsyncLoop owns one polling goroutine per qBit-enabled
-// Sonarr instance. Modelled 1:1 on regrabLoop in
-// cmd/server/regrab_loop.go; the shape diverges only in the
-// cadence translation (see torrentsyncCadence) and the
-// Hydrate-before-Run step that loads `qbit_torrents` into the
+// TorrentsyncLoop owns one polling goroutine per qBit-enabled
+// Sonarr instance. Modelled 1:1 on RegrabLoop; the shape diverges
+// only in the cadence translation (see torrentsyncCadence) and
+// the Hydrate-before-Run step that loads `qbit_torrents` into the
 // memory store on each fresh spawn.
-type torrentsyncLoop struct {
-	runner torrentsyncRunner
+type TorrentsyncLoop struct {
+	runner TorrentsyncRunner
 	bgWG   *sync.WaitGroup
 	logger *slog.Logger
 
@@ -63,18 +62,18 @@ type torrentsyncLoop struct {
 
 type torrentsyncInstance struct {
 	name    string
-	loop    torrentsyncRunningLoop
+	loop    TorrentsyncRunningLoop
 	cancel  context.CancelFunc
 	cadence time.Duration
 }
 
-// newTorrentsyncLoop wires the launcher. Constructor mirrors
-// newRegrabLoop intentionally.
-func newTorrentsyncLoop(runner torrentsyncRunner, bgWG *sync.WaitGroup, log *slog.Logger) *torrentsyncLoop {
+// NewTorrentsyncLoop wires the launcher. Constructor mirrors
+// NewRegrabLoop intentionally.
+func NewTorrentsyncLoop(runner TorrentsyncRunner, bgWG *sync.WaitGroup, log *slog.Logger) *TorrentsyncLoop {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &torrentsyncLoop{
+	return &TorrentsyncLoop{
 		runner: runner,
 		bgWG:   bgWG,
 		logger: log,
@@ -84,14 +83,14 @@ func newTorrentsyncLoop(runner torrentsyncRunner, bgWG *sync.WaitGroup, log *slo
 
 // Start records the parent ctx. SwapSettings is the actual
 // spawn entrypoint.
-func (l *torrentsyncLoop) Start(ctx context.Context) {
+func (l *TorrentsyncLoop) Start(ctx context.Context) {
 	l.mu.Lock()
 	l.parent = ctx
 	l.mu.Unlock()
 }
 
 // SwapSettings is the reload-bus entrypoint. Diff semantics
-// identical to regrabLoop.SwapSettings:
+// identical to RegrabLoop.SwapSettings:
 //   - name not in next, was in loops → cancel + remove
 //   - name not in loops, was in next + enabled → spawn
 //   - name in both, cadence changed → SetInterval (signals wake)
@@ -99,7 +98,7 @@ func (l *torrentsyncLoop) Start(ctx context.Context) {
 // Hydrate runs once per (instance, lifetime-of-this-pod) before
 // Loop.Run so the read endpoint has the last-known snapshot
 // available from t=0.
-func (l *torrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
+func (l *TorrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -137,7 +136,7 @@ func (l *torrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
 		if l.bgWG != nil {
 			l.bgWG.Add(1)
 		}
-		go func(name string, il torrentsyncRunningLoop, runCtx context.Context) {
+		go func(name string, il TorrentsyncRunningLoop, runCtx context.Context) {
 			defer func() {
 				if l.bgWG != nil {
 					l.bgWG.Done()
@@ -164,14 +163,14 @@ func (l *torrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
 // the rule documented above.
 func torrentsyncCadence(regrabPoll time.Duration) time.Duration {
 	if regrabPoll < 2*time.Minute {
-		return defaultTorrentsyncCadence
+		return DefaultTorrentsyncCadence
 	}
 	return regrabPoll
 }
 
 // active is a diagnostic accessor — count of running per-instance
-// loops at this moment. Test-only; mirrors regrabLoop.active().
-func (l *torrentsyncLoop) active() int {
+// loops at this moment. Test-only; mirrors RegrabLoop.active().
+func (l *TorrentsyncLoop) active() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.loops)
@@ -179,7 +178,7 @@ func (l *torrentsyncLoop) active() int {
 
 // cadenceOf returns the current cadence for the named instance,
 // or 0 if no loop is running for it. Test helper.
-func (l *torrentsyncLoop) cadenceOf(name string) time.Duration {
+func (l *TorrentsyncLoop) cadenceOf(name string) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if ll, ok := l.loops[name]; ok {
@@ -196,26 +195,33 @@ type productionTorrentsyncRunner struct {
 	logger *slog.Logger
 }
 
+// NewProductionTorrentsyncRunner is the public constructor for the
+// production runner. server.go uses it; tests roll their own
+// TorrentsyncRunner.
+func NewProductionTorrentsyncRunner(uc *torrentsync.UseCase, log *slog.Logger) TorrentsyncRunner {
+	return productionTorrentsyncRunner{uc: uc, logger: log}
+}
+
 func (r productionTorrentsyncRunner) Hydrate(ctx context.Context, instance string) error {
 	return r.uc.Hydrate(ctx, instance)
 }
 
-func (r productionTorrentsyncRunner) NewLoop(instance string, configured time.Duration) torrentsyncRunningLoop {
+func (r productionTorrentsyncRunner) NewLoop(instance string, configured time.Duration) TorrentsyncRunningLoop {
 	return torrentsync.NewLoop(instance, r.uc, configured, r.logger)
 }
 
-// torrentsyncSettingsLookup is the narrow Settings projection
+// TorrentsyncSettingsLookup is the narrow Settings projection
 // the session factory needs — implemented in production by
 // *regrab.SettingsUseCase (Lookup decrypts the password and
 // returns the resolved Settings).
-type torrentsyncSettingsLookup interface {
+type TorrentsyncSettingsLookup interface {
 	Lookup(ctx context.Context, instanceName string) (regrab.Settings, error)
 }
 
-// torrentsyncQbitClientFactory is the narrow client constructor
+// TorrentsyncQbitClientFactory is the narrow client constructor
 // surface the adapter calls. Implemented by
 // infraregrab.QbitClientFactoryFunc.
-type torrentsyncQbitClientFactory interface {
+type TorrentsyncQbitClientFactory interface {
 	NewClient(s regrab.Settings) (qbit.Client, error)
 }
 
@@ -226,8 +232,16 @@ type torrentsyncQbitClientFactory interface {
 // session, and hands it back. The application layer never sees
 // the password or the qbit.Client.
 type torrentsyncSessionFactoryAdapter struct {
-	factory torrentsyncQbitClientFactory
-	lookup  torrentsyncSettingsLookup
+	factory TorrentsyncQbitClientFactory
+	lookup  TorrentsyncSettingsLookup
+}
+
+// NewTorrentsyncSessionFactoryAdapter wires the production
+// session factory. Returned as torrentsync.SyncSessionFactory so
+// callers (server.go) can hand it straight to torrentsync.NewUseCase
+// without an interface cast.
+func NewTorrentsyncSessionFactoryAdapter(factory TorrentsyncQbitClientFactory, lookup TorrentsyncSettingsLookup) torrentsync.SyncSessionFactory {
+	return torrentsyncSessionFactoryAdapter{factory: factory, lookup: lookup}
 }
 
 // NewSyncSession implements torrentsync.SyncSessionFactory.

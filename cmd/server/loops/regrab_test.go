@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func (m *fakeMetrics) streak(name string) int {
 
 func TestRegrabLoop_StartSpawnsNoGoroutines(t *testing.T) {
 	r := newFakeRunner()
-	loop := newRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -82,7 +82,7 @@ func TestRegrabLoop_StartSpawnsNoGoroutines(t *testing.T) {
 
 func TestRegrabLoop_SwapSettingsBeforeStartIsNoOp(t *testing.T) {
 	r := newFakeRunner()
-	loop := newRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
 
 	loop.SwapSettings(map[string]regrab.Settings{
 		"alpha": {InstanceName: "alpha", Enabled: true, PollInterval: time.Second},
@@ -94,7 +94,7 @@ func TestRegrabLoop_SwapSettingsBeforeStartIsNoOp(t *testing.T) {
 func TestRegrabLoop_SwapSpawnsEnabledLoops(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -120,7 +120,7 @@ func TestRegrabLoop_SwapSpawnsEnabledLoops(t *testing.T) {
 func TestRegrabLoop_SwapStopsDisabledInstance(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -142,7 +142,7 @@ func TestRegrabLoop_SwapStopsDisabledInstance(t *testing.T) {
 func TestRegrabLoop_SwapStopsRemovedInstance(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -166,7 +166,7 @@ func TestRegrabLoop_SwapStopsRemovedInstance(t *testing.T) {
 func TestRegrabLoop_SwapRetunesInterval(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -195,7 +195,7 @@ func TestRegrabLoop_QbitErrorBumpsStreakGauge(t *testing.T) {
 	r.qbitErr["alpha"] = errFakeQbit
 	m := newFakeMetrics()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, m, &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, m, &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -222,7 +222,7 @@ func TestRegrabLoop_QbitErrorBumpsStreakGauge(t *testing.T) {
 func TestRegrabLoop_CtxCancelDrainsGoroutines(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	loop.Start(ctx)
@@ -242,7 +242,7 @@ func TestRegrabLoop_CtxCancelDrainsGoroutines(t *testing.T) {
 func TestRegrabLoop_SetIntervalChangesAreApplied(t *testing.T) {
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
-	loop := newRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -270,8 +270,8 @@ func TestRegrabLoop_SetIntervalChangesAreApplied(t *testing.T) {
 }
 
 // waitWG blocks until wg.Done is called for every Add, or t fails on
-// timeout. Helper kept package-private — sweep_loop_test.go has the
-// same pattern but with a different name.
+// timeout. Helper kept package-private — sweep_test.go does not need
+// it, but torrentsync_test.go shares it (same file-set, same package).
 func waitWG(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) {
 	t.Helper()
 	done := make(chan struct{})

@@ -52,6 +52,8 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/loops"
+
 	"gorm.io/gorm"
 )
 
@@ -489,7 +491,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// regrab loop owns the per-instance polling goroutines; SwapSettings
 	// is called from the OnApplied fanout below.
-	regrabLoopVal := newRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
+	regrabLoopVal := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, &bgWG, log)
 	regrabLoopVal.Start(rootCtx)
 
 	// 220 (A-2) — torrentsync loop. Reuses the same qbitLoader as
@@ -501,10 +503,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	torrentsyncPolicy := torrentsync.NewPersistPolicy(
 		qbitTorrentsRepo, qbitTorrentEventsRepo, log,
 	)
-	torrentsyncFactory := torrentsyncSessionFactoryAdapter{
-		factory: infraregrab.QbitClientFactoryFunc{},
-		lookup:  qbitSettingsUC,
-	}
+	torrentsyncFactory := loops.NewTorrentsyncSessionFactoryAdapter(
+		infraregrab.QbitClientFactoryFunc{},
+		qbitSettingsUC,
+	)
 	// 221 (A-3) — reconciler (torrentSeriesMapRepo already
 	// constructed above for the webhook same-tx write).
 	// sonarrFor wires the per-instance Sonarr client lookup the
@@ -536,8 +538,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		torrentsyncStore, torrentsyncPolicy,
 		torrentsyncFactory, qbitTorrentsRepo, log,
 	).WithReconciler(reconciler)
-	torrentsyncLoopVal := newTorrentsyncLoop(
-		productionTorrentsyncRunner{uc: torrentsyncUC, logger: log},
+	torrentsyncLoopVal := loops.NewTorrentsyncLoop(
+		loops.NewProductionTorrentsyncRunner(torrentsyncUC, log),
 		&bgWG, log,
 	)
 	torrentsyncLoopVal.Start(rootCtx)
@@ -842,7 +844,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if sweepInterval <= 0 {
 		sweepInterval = 15 * time.Minute
 	}
-	sweeper := newSweepLoop(cooldownRepo, sweepInterval, log)
+	sweeper := loops.NewSweepLoop(cooldownRepo, sweepInterval, log)
 	lifecycle.Go(rootCtx, "cooldown-sweeper", func(ctx context.Context) {
 		sweeper.Run(ctx)
 	})
@@ -851,7 +853,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// The closure over holder.load is reload-aware: every publish
 	// swaps the underlying map, so newly-added Sonarr instances
 	// appear in the next tick without their own subscriber.
-	webhookReconcileLoopVal := newWebhookReconcileLoop(
+	webhookReconcileLoopVal := loops.NewWebhookReconcileLoop(
 		webhookReconciler,
 		webhookStatusCache,
 		holder.load,

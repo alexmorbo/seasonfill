@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -21,25 +21,25 @@ const (
 // Narrow surfaces the loop needs — production types are
 // *webhookinstall.Reconciler, *webhookinstall.StatusCache, and
 // instanceMapHolder.load; tests substitute fakes.
-type webhookReconcileReconciler interface {
+type WebhookReconcileReconciler interface {
 	Reconcile(ctx context.Context, instanceName string) (webhookinstall.Status, error)
 }
 
-type webhookReconcileStatusReader interface {
+type WebhookReconcileStatusReader interface {
 	Get(name string) (webhookinstall.Status, bool)
 }
 
-type webhookReconcileInstanceLister func() map[string]scan.Instance
+type WebhookReconcileInstanceLister func() map[string]scan.Instance
 
-// webhookReconcileLoop is the safety-net background reconciler. Boot
+// WebhookReconcileLoop is the safety-net background reconciler. Boot
 // once; Run(ctx) blocks until ctx is cancelled. Each tick walks the
 // instance map and calls Reconcile per-instance (3 s timeout), skipping
 // fresh / disabled / backoff'd entries. Errors are logged WARN and
 // swallowed — the loop must NEVER fail-fast.
-type webhookReconcileLoop struct {
-	reconciler webhookReconcileReconciler
-	cache      webhookReconcileStatusReader
-	instances  webhookReconcileInstanceLister
+type WebhookReconcileLoop struct {
+	reconciler WebhookReconcileReconciler
+	cache      WebhookReconcileStatusReader
+	instances  WebhookReconcileInstanceLister
 	log        *slog.Logger
 
 	tickIntervalNS atomic.Int64 // nanoseconds; <=0 → use default
@@ -47,17 +47,17 @@ type webhookReconcileLoop struct {
 	now            func() time.Time
 }
 
-// newWebhookReconcileLoop wires the loop. Nil logger → slog.Default.
-func newWebhookReconcileLoop(
-	reconciler webhookReconcileReconciler,
-	cache webhookReconcileStatusReader,
-	instances webhookReconcileInstanceLister,
+// NewWebhookReconcileLoop wires the loop. Nil logger → slog.Default.
+func NewWebhookReconcileLoop(
+	reconciler WebhookReconcileReconciler,
+	cache WebhookReconcileStatusReader,
+	instances WebhookReconcileInstanceLister,
 	log *slog.Logger,
-) *webhookReconcileLoop {
+) *WebhookReconcileLoop {
 	if log == nil {
 		log = slog.Default()
 	}
-	l := &webhookReconcileLoop{
+	l := &WebhookReconcileLoop{
 		reconciler: reconciler,
 		cache:      cache,
 		instances:  instances,
@@ -72,7 +72,7 @@ func newWebhookReconcileLoop(
 // SetTickInterval atomically updates the cadence + nudges Run via the
 // wake channel so the new interval takes effect on the next iteration.
 // d <= 0 falls back to the default — never goes fully idle.
-func (l *webhookReconcileLoop) SetTickInterval(d time.Duration) {
+func (l *WebhookReconcileLoop) SetTickInterval(d time.Duration) {
 	if d <= 0 {
 		d = defaultWebhookReconcileTickInterval
 	}
@@ -87,17 +87,17 @@ func (l *webhookReconcileLoop) SetTickInterval(d time.Duration) {
 }
 
 // TickInterval / withClock — tests only.
-func (l *webhookReconcileLoop) TickInterval() time.Duration {
+func (l *WebhookReconcileLoop) TickInterval() time.Duration {
 	return time.Duration(l.tickIntervalNS.Load())
 }
-func (l *webhookReconcileLoop) withClock(f func() time.Time) *webhookReconcileLoop {
+func (l *WebhookReconcileLoop) withClock(f func() time.Time) *WebhookReconcileLoop {
 	l.now = f
 	return l
 }
 
-// Run blocks until ctx is cancelled. Standard sweepLoop pattern:
+// Run blocks until ctx is cancelled. Standard SweepLoop pattern:
 // time.NewTimer + Reset so SetTickInterval can drop the stale timer.
-func (l *webhookReconcileLoop) Run(ctx context.Context) {
+func (l *WebhookReconcileLoop) Run(ctx context.Context) {
 	timer := time.NewTimer(time.Hour)
 	if !timer.Stop() {
 		<-timer.C
@@ -133,7 +133,7 @@ func (l *webhookReconcileLoop) Run(ctx context.Context) {
 
 // iterate is one full tick. NEVER propagates errors — the loop must
 // survive arbitrary Sonarr / DB failures.
-func (l *webhookReconcileLoop) iterate(ctx context.Context) {
+func (l *WebhookReconcileLoop) iterate(ctx context.Context) {
 	if l.instances == nil {
 		return
 	}
@@ -170,7 +170,7 @@ func (l *webhookReconcileLoop) iterate(ctx context.Context) {
 // fresh success (within tick) or active backoff (now < NextRetryAt).
 // Missing entry, stale success, error past NextRetryAt, error without
 // NextRetryAt → false (reconcile).
-func (l *webhookReconcileLoop) skipByCache(name string, now time.Time, tick time.Duration) bool {
+func (l *WebhookReconcileLoop) skipByCache(name string, now time.Time, tick time.Duration) bool {
 	cur, ok := l.cache.Get(name)
 	if !ok {
 		return false
@@ -189,7 +189,7 @@ func (l *webhookReconcileLoop) skipByCache(name string, now time.Time, tick time
 
 // reconcileOne fires a single Reconcile + metrics. Errors are logged
 // WARN and swallowed; ErrUnknownInstance (deletion race) is silent.
-func (l *webhookReconcileLoop) reconcileOne(ctx context.Context, name string, start time.Time) {
+func (l *WebhookReconcileLoop) reconcileOne(ctx context.Context, name string, start time.Time) {
 	rctx, cancel := context.WithTimeout(ctx, webhookReconcilePerInstanceTimeout)
 	defer cancel()
 

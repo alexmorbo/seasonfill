@@ -1,4 +1,4 @@
-package main
+package loops
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func (f *fakeTorrentsyncRunner) Hydrate(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *fakeTorrentsyncRunner) NewLoop(name string, cadence time.Duration) torrentsyncRunningLoop {
+func (f *fakeTorrentsyncRunner) NewLoop(name string, cadence time.Duration) TorrentsyncRunningLoop {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	l := &fakeTorrentsyncLoop{name: name, cadence: cadence, done: make(chan struct{})}
@@ -64,7 +64,7 @@ func (l *fakeTorrentsyncLoop) SetInterval(d time.Duration) {
 func TestTorrentsyncLoop_SwapSpawnsEnabled(t *testing.T) {
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
-	loop := newTorrentsyncLoop(r, &bgWG, slog.Default())
+	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loop.Start(ctx)
@@ -84,7 +84,7 @@ func TestTorrentsyncLoop_SwapSpawnsEnabled(t *testing.T) {
 func TestTorrentsyncLoop_SubMinuteCadenceFallsBackToDefault(t *testing.T) {
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
-	loop := newTorrentsyncLoop(r, &bgWG, slog.Default())
+	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loop.Start(ctx)
@@ -93,7 +93,7 @@ func TestTorrentsyncLoop_SubMinuteCadenceFallsBackToDefault(t *testing.T) {
 		"alpha": {InstanceName: "alpha", Enabled: true, PollInterval: 0},
 	})
 
-	assert.Equal(t, defaultTorrentsyncCadence, loop.cadenceOf("alpha"))
+	assert.Equal(t, DefaultTorrentsyncCadence, loop.cadenceOf("alpha"))
 	cancel()
 	waitWG(t, &bgWG, 2*time.Second)
 }
@@ -101,7 +101,7 @@ func TestTorrentsyncLoop_SubMinuteCadenceFallsBackToDefault(t *testing.T) {
 func TestTorrentsyncLoop_SwapStopsRemoved(t *testing.T) {
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
-	loop := newTorrentsyncLoop(r, &bgWG, slog.Default())
+	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loop.Start(ctx)
@@ -120,7 +120,7 @@ func TestTorrentsyncLoop_SwapStopsRemoved(t *testing.T) {
 func TestTorrentsyncLoop_HydrateRunsOncePerSpawn(t *testing.T) {
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
-	loop := newTorrentsyncLoop(r, &bgWG, slog.Default())
+	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loop.Start(ctx)

@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/cmd/server/commands"
+	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
@@ -94,7 +95,7 @@ func runWithContext(ctx context.Context, onReady func(*runtime.Bus)) (*runtime.B
 // sweep with a fixed cadence. New call sites should construct a
 // sweepLoop directly so the cadence can be updated by the reload bus.
 func runCooldownSweep(ctx context.Context, repo ports.CooldownRepository, every time.Duration, log *slog.Logger) {
-	newSweepLoop(repo, every, log).Run(ctx)
+	loops.NewSweepLoop(repo, every, log).Run(ctx)
 }
 
 // regrabInstanceRegistry adapts handlers.InstanceRegistry to the
