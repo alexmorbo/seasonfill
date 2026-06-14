@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
 import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
-import { SeriesPoster } from '@/components/SeriesPoster';
+import { MediaImage } from '@/components/MediaImage';
 import { SonarrLink } from '@/components/SonarrLink';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
@@ -16,7 +16,6 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const sonarrPublicURL = useInstancePublicURL(item.instance_name);
-  const mono = (item.title.charAt(0) || '?').toUpperCase();
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
   // Operator R2: always render the subtitle when either year or
   // network is available — no embedded-year suppression.
@@ -51,22 +50,15 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
       data-monitored={item.monitored ? 'true' : 'false'}
       data-missing={item.missing_count > 0 ? 'true' : 'false'}
     >
-      <SeriesPoster
-        instance={item.instance_name}
-        seriesId={item.sonarr_series_id}
+      <MediaImage
+        hash={item.poster_hash}
+        kind="series_poster"
         title={item.title}
-        hueKey={item.poster_path && item.poster_path.length > 0 ? item.poster_path : item.title}
-        size="full"
+        hueKey={item.poster_hash && item.poster_hash.length > 0 ? item.poster_hash : item.title}
+        fallback="monogram"
         aspectRatio="aspect-auto"
         className="absolute inset-0 z-0"
       />
-
-      <span
-        aria-hidden="true"
-        className="absolute z-10 -right-1.5 -top-2.5 font-mono font-bold text-[120px] leading-[0.8] tracking-tighter text-[oklch(1_0_0_/_0.07)]"
-      >
-        {mono}
-      </span>
 
       <span
         aria-label={item.monitored ? t('series.tile.monitoredOn') : t('series.tile.monitoredOff')}

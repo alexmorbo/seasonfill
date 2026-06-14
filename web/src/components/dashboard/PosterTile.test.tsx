@@ -27,6 +27,7 @@ const fixture: SeriesCacheItem = {
   network: 'AMC',
   status: 'ended',
   poster_path: '/path/to/poster.jpg',
+  poster_hash: 'cafebabe',
   monitored: true,
   missing_count: 0,
   last_grab_at: new Date(Date.now() - 3600000).toISOString(),
@@ -55,13 +56,28 @@ describe('<PosterTile />', () => {
   beforeEach(() => mockNavigate.mockClear());
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders proxy img with size=full for the instance + series id', () => {
+  it('renders content-addressed media img for poster_hash', () => {
     renderTile(fixture);
-    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe(
-      '/api/v1/instances/alpha/series/1/poster?size=full',
-    );
+    const img = screen.getByTestId('media-image-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/cafebabe');
     expect(img.getAttribute('loading')).toBe('lazy');
+  });
+
+  it('renders monogram fallback when poster_hash is absent', () => {
+    const { poster_hash: _ph, ...rest } = fixture;
+    renderTile(rest as SeriesCacheItem);
+    expect(screen.queryByTestId('media-image-img')).toBeNull();
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+  });
+
+  it('does not emit legacy /api/v1/instances/.../poster URL', () => {
+    renderTile(fixture);
+    const imgs = document.querySelectorAll('img');
+    imgs.forEach((img) => {
+      expect(img.getAttribute('src') ?? '').not.toMatch(
+        /\/api\/v1\/instances\/[^/]+\/series\/\d+\/poster/,
+      );
+    });
   });
 
   it('renders title, year, network footer', () => {
@@ -71,9 +87,10 @@ describe('<PosterTile />', () => {
     expect(screen.getByText(/AMC/)).toBeInTheDocument();
   });
 
-  it('renders mono-mark letter (first char uppercase) when title present', () => {
-    renderTile(fixture);
-    const mark = screen.getByText('B', { selector: '[aria-hidden="true"]' });
+  it('renders mono-mark letter (first char uppercase) when poster_hash absent and title present', () => {
+    const { poster_hash: _ph, ...rest } = fixture;
+    renderTile(rest as SeriesCacheItem);
+    const mark = screen.getByText('B', { selector: 'span' });
     expect(mark).toBeInTheDocument();
   });
 

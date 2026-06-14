@@ -28,6 +28,7 @@ function makeItem(overrides: Partial<SeriesCacheItem> = {}): SeriesCacheItem {
     network: 'Apple TV+',
     status: 'continuing',
     poster_path: '/MediaCover/122/poster.jpg',
+    poster_hash: 'abc123def456',
     monitored: true,
     missing_count: 0,
     last_grab_at: new Date(Date.now() - 60_000).toISOString(),
@@ -62,13 +63,28 @@ function renderTile(item: SeriesCacheItem) {
 }
 
 describe('<SeriesPosterTile />', () => {
-  it('renders proxy img with size=full for the instance + series id', () => {
+  it('renders content-addressed media img for poster_hash', () => {
     renderTile(makeItem());
-    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe(
-      '/api/v1/instances/homelab/series/122/poster?size=full',
-    );
+    const img = screen.getByTestId('media-image-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/abc123def456');
     expect(img.getAttribute('loading')).toBe('lazy');
+  });
+
+  it('renders monogram fallback when poster_hash is absent', () => {
+    const { poster_hash: _ph, ...rest } = makeItem();
+    renderTile(rest as SeriesCacheItem);
+    expect(screen.queryByTestId('media-image-img')).toBeNull();
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+  });
+
+  it('does not emit legacy /api/v1/instances/.../poster URL', () => {
+    renderTile(makeItem());
+    const imgs = document.querySelectorAll('img');
+    imgs.forEach((img) => {
+      expect(img.getAttribute('src') ?? '').not.toMatch(
+        /\/api\/v1\/instances\/[^/]+\/series\/\d+\/poster/,
+      );
+    });
   });
 
   it('renders title and metadata footer', () => {
