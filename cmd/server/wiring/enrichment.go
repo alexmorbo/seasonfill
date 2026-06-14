@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
@@ -109,6 +110,23 @@ func BuildEnrichment(
 			slog.String("replacement", "SEASONFILL_TMDB_API_RPS"),
 			slog.String("removal", "next release"))
 	}
+	// Story 351 — tmdb.New must run FIRST. The TMDB client constructs
+	// an internal CLONE of httpClient and wraps its Transport with
+	// httpx.NewMetricsTransport("tmdb", ...). That clone captures the
+	// CURRENT httpClient.Transport (the raw proxy transport).
+	//
+	// AFTER tmdb.New returns we mutate the SHARED httpClient pointer in
+	// place — wrapping its Transport with httpx.NewMetricsTransport
+	// ("tmdb_cdn", ...) — so every subsequent http.Request issued via
+	// the shared pointer (i.e. every image.tmdb.org fetch from the
+	// media downloader / on-demand fetcher) flows through the
+	// "tmdb_cdn" metric writes.
+	//
+	// This ordering guarantees api.themoviedb.org metrics carry ONLY
+	// client="tmdb" and image.tmdb.org metrics carry ONLY
+	// client="tmdb_cdn" — no double-write. Canary check: a
+	// client="tmdb_cdn" row with endpoint matching a /tv/... or /search/...
+	// path means the order is broken.
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
 		HTTPClient: httpClient,
@@ -119,6 +137,10 @@ func BuildEnrichment(
 	if err != nil {
 		return nil, err
 	}
+	// Story 351 — see comment block above. tmdb.New has captured the
+	// pre-wrap Transport into its clone; now we wrap the SHARED pointer
+	// for the downloader's use.
+	httpClient.Transport = httpx.NewMetricsTransport("tmdb_cdn", httpx.TMDBCDNEndpointFor, httpClient.Transport)
 
 	// 214 (F-1): media pre-warm pipeline. Only constructed when both
 	// the blob store + the media_assets repo are available; the pair
