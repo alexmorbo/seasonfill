@@ -402,3 +402,159 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExclude
 	require.NoError(t, err)
 	assert.NotContains(t, ids, id)
 }
+
+// Story 319 — UpsertStub MUST NOT overwrite a 'full' canon row's
+// poster_asset, backdrop_asset, hydration, or status with NULL when
+// the stub payload has those fields unset.
+func TestSeriesRepository_UpsertStub_PreservesFullRowImages(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 83524
+	posterPath := "/full-poster.jpg"
+	backdropPath := "/full-backdrop.jpg"
+	status := "Returning Series"
+	yr := 2019
+	rating := 8.0
+	votes := 2000
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:        ptrInt(tmdbID),
+		Title:         "For All Mankind",
+		Hydration:     series.HydrationFull,
+		PosterAsset:   &posterPath,
+		BackdropAsset: &backdropPath,
+		Status:        &status,
+		Year:          &yr,
+		TMDBRating:    &rating,
+		TMDBVotes:     &votes,
+	})
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	// Apply a stub upsert mimicking the recommendation mapper output:
+	// title refreshable, hydration='stub', NIL poster, NIL backdrop,
+	// stub-fresh rating (which the stub has NO authority to overwrite).
+	stubTitle := "For All Mankind (rec)"
+	stubYear := 2019
+	stubRating := 8.1
+	gotID, err := repo.UpsertStub(ctx, series.Canon{
+		TMDBID:     ptrInt(tmdbID),
+		Title:      stubTitle,
+		Hydration:  series.HydrationStub,
+		Year:       &stubYear,
+		TMDBRating: &stubRating,
+	})
+	require.NoError(t, err)
+	require.Equal(t, id, gotID, "stub upsert must resolve to the same canon id by tmdb_id")
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, series.HydrationFull, got.Hydration, "stub MUST NOT downgrade hydration")
+	require.NotNil(t, got.PosterAsset)
+	assert.Equal(t, posterPath, *got.PosterAsset, "stub MUST NOT null poster_asset")
+	require.NotNil(t, got.BackdropAsset)
+	assert.Equal(t, backdropPath, *got.BackdropAsset, "stub MUST NOT null backdrop_asset")
+	require.NotNil(t, got.Status)
+	assert.Equal(t, status, *got.Status, "stub MUST NOT overwrite Status")
+	require.NotNil(t, got.TMDBRating)
+	assert.InDelta(t, 8.0, *got.TMDBRating, 0.001, "stub MUST NOT overwrite existing rating (COALESCE keeps 8.0)")
+
+	// Title IS allowed to be refreshed by the stub (recommendation
+	// tile chips need the latest title).
+	assert.Equal(t, stubTitle, got.Title, "stub title overwrites")
+}
+
+// Story 319 — UpsertStub on a tmdb_id that has no existing row inserts
+// fresh, applying the stub's columns verbatim.
+func TestSeriesRepository_UpsertStub_InsertsWhenAbsent(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 99999
+	posterPath := "/new-poster.jpg"
+	yr := 2026
+	rating := 7.5
+	id, err := repo.UpsertStub(ctx, series.Canon{
+		TMDBID:      ptrInt(tmdbID),
+		Title:       "New Show",
+		Hydration:   series.HydrationStub,
+		Year:        &yr,
+		TMDBRating:  &rating,
+		PosterAsset: &posterPath,
+	})
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, series.HydrationStub, got.Hydration)
+	require.NotNil(t, got.PosterAsset)
+	assert.Equal(t, posterPath, *got.PosterAsset)
+	assert.Nil(t, got.BackdropAsset, "stub has no backdrop — stays nil")
+}
+
+// Story 319 — UpsertStub requires a non-nil tmdb_id (recommendation
+// stubs always carry one). Empty title is also rejected.
+func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	_, err := repo.UpsertStub(ctx, series.Canon{Title: "x", Hydration: series.HydrationStub})
+	require.Error(t, err)
+
+	_, err = repo.UpsertStub(ctx, series.Canon{TMDBID: ptrInt(1), Hydration: series.HydrationStub})
+	require.Error(t, err)
+}
+
+// Story 319 — ListCanonImagesCorrupted returns 'full'-hydrated rows
+// with tmdb_id set where poster_asset OR backdrop_asset is NULL. Stub
+// rows and tmdb_id-NULL rows are excluded.
+func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	mkFull := func(tmdb int, title, poster, backdrop string) int64 {
+		var pp, bp *string
+		if poster != "" {
+			s := poster
+			pp = &s
+		}
+		if backdrop != "" {
+			s := backdrop
+			bp = &s
+		}
+		id, err := repo.Upsert(ctx, series.Canon{
+			TMDBID: ptrInt(tmdb), Title: title, Hydration: series.HydrationFull,
+			PosterAsset: pp, BackdropAsset: bp,
+		})
+		require.NoError(t, err)
+		return id
+	}
+	healthy := mkFull(1001, "Healthy", "/p.jpg", "/b.jpg")
+	missingBackdrop := mkFull(1002, "MissingBackdrop", "/p.jpg", "")
+	missingBoth := mkFull(1003, "MissingBoth", "", "")
+
+	// Stub row — even though it has no backdrop, hydration != 'full'
+	// so it must not appear in the corrupted set.
+	_, err := repo.UpsertStub(ctx, series.Canon{
+		TMDBID:    ptrInt(1004),
+		Title:     "Stub",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+
+	ids, err := repo.ListCanonImagesCorrupted(ctx, 100)
+	require.NoError(t, err)
+	assert.NotContains(t, ids, healthy)
+	assert.Contains(t, ids, missingBackdrop)
+	assert.Contains(t, ids, missingBoth)
+	assert.Len(t, ids, 2)
+}

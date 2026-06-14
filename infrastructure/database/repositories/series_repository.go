@@ -158,6 +158,126 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, e
 	return m.ID, nil
 }
 
+// UpsertStub is the recommendation-stub variant of Upsert. Story 319:
+// recommendation stubs built by MapTVToRecommendations carry NIL
+// PosterAsset (often) and ALWAYS-NIL BackdropAsset, plus hydration='stub'.
+// The legacy Upsert path overwrites every column in DO UPDATE SET, so a
+// stub upsert against an existing 'full' canon row blanks out the
+// images and downgrades hydration — frontend then renders monograms
+// forever until the next TMDB sync of that series.
+//
+// UpsertStub uses a hand-written ON CONFLICT DO UPDATE that COALESCEs
+// the columns a stub has no authority over (PRD §5.4: PosterAsset,
+// BackdropAsset, Status, FirstAirDate, LastAirDate, Homepage,
+// OriginalLanguage, OriginCountry, Popularity, InProduction,
+// RuntimeMinutes, TMDBRating, TMDBVotes, IMDBID, IMDBRating, IMDBVotes,
+// OMDBRated, OMDBAwards) against the existing row — the stub value is
+// applied ONLY when the existing value is NULL. Hydration is preserved
+// when the existing row is 'full' (a stub MUST NOT downgrade a full
+// row). Title, Year, OriginalTitle, TVDBID, NextAirDate, UpdatedAt are
+// still refreshable from the stub.
+//
+// The id-conflict branch is intentionally absent: callers reach this
+// method only via the tmdb_id natural-key path (recommendation stubs
+// always carry a tmdb_id from the TMDB recommendation summary). An
+// id-known caller should keep using Upsert (it has the authoritative
+// row in hand).
+func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+	if c.Title == "" {
+		return 0, fmt.Errorf("upsert stub series: title must be non-empty")
+	}
+	if c.TMDBID == nil {
+		return 0, fmt.Errorf("upsert stub series: tmdb_id required")
+	}
+	now := time.Now().UTC()
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = now
+	}
+	c.UpdatedAt = now
+	if c.Hydration == "" {
+		c.Hydration = series.HydrationStub
+	}
+	if !c.Hydration.IsValid() {
+		return 0, fmt.Errorf("upsert stub series: invalid hydration %q", c.Hydration)
+	}
+	m := fromCanon(c)
+
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	conflict := clause.OnConflict{
+		Columns:     []clause.Column{{Name: "tmdb_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
+		// Hand-rolled assignments: COALESCE preserves the existing
+		// value when the stub's value is NULL. Hydration uses CASE so
+		// a stub never downgrades 'full' → 'stub'. The `series.` table
+		// prefix references the existing row in both Postgres and
+		// SQLite ON CONFLICT semantics; `excluded.` is the proposed
+		// row in both dialects, so no branching is needed.
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"tvdb_id":           gorm.Expr("COALESCE(series.tvdb_id, excluded.tvdb_id)"),
+			"imdb_id":           gorm.Expr("COALESCE(series.imdb_id, excluded.imdb_id)"),
+			"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN series.hydration ELSE excluded.hydration END"),
+			"title":             gorm.Expr("excluded.title"),
+			"original_title":    gorm.Expr("COALESCE(series.original_title, excluded.original_title)"),
+			"status":            gorm.Expr("COALESCE(series.status, excluded.status)"),
+			"first_air_date":    gorm.Expr("COALESCE(series.first_air_date, excluded.first_air_date)"),
+			"last_air_date":     gorm.Expr("COALESCE(series.last_air_date, excluded.last_air_date)"),
+			"next_air_date":     gorm.Expr("COALESCE(series.next_air_date, excluded.next_air_date)"),
+			"year":              gorm.Expr("COALESCE(series.year, excluded.year)"),
+			"runtime_minutes":   gorm.Expr("COALESCE(series.runtime_minutes, excluded.runtime_minutes)"),
+			"homepage":          gorm.Expr("COALESCE(series.homepage, excluded.homepage)"),
+			"original_language": gorm.Expr("COALESCE(series.original_language, excluded.original_language)"),
+			"origin_country":    gorm.Expr("COALESCE(series.origin_country, excluded.origin_country)"),
+			"popularity":        gorm.Expr("COALESCE(series.popularity, excluded.popularity)"),
+			"in_production":     gorm.Expr("series.in_production"),
+			"poster_asset":      gorm.Expr("COALESCE(series.poster_asset, excluded.poster_asset)"),
+			"backdrop_asset":    gorm.Expr("COALESCE(series.backdrop_asset, excluded.backdrop_asset)"),
+			"tmdb_rating":       gorm.Expr("COALESCE(series.tmdb_rating, excluded.tmdb_rating)"),
+			"tmdb_votes":        gorm.Expr("COALESCE(series.tmdb_votes, excluded.tmdb_votes)"),
+			"imdb_rating":       gorm.Expr("series.imdb_rating"),
+			"imdb_votes":        gorm.Expr("series.imdb_votes"),
+			"omdb_rated":        gorm.Expr("series.omdb_rated"),
+			"omdb_awards":       gorm.Expr("series.omdb_awards"),
+			"updated_at":        gorm.Expr("excluded.updated_at"),
+		}),
+	}
+	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+		return 0, fmt.Errorf("upsert stub series: %w", err)
+	}
+	return m.ID, nil
+}
+
+// ListCanonImagesCorrupted returns series.id rows where the canon row
+// finished a full enrichment pass (tmdb_id IS NOT NULL AND
+// hydration = 'full') but EITHER poster_asset OR backdrop_asset is
+// NULL. Story 319: rows corrupted by the pre-fix recommendation-stub
+// upsert path. Caller (cmd/server/enrichment_wiring.go boot one-shot)
+// enqueues each id to the enrichment dispatcher at PriorityCold; the
+// TMDB sync repopulates the missing paths via MergeSeries.
+//
+// Limit caps the result-set size at 5000 to mirror the cold-start
+// re-sweep budget. Selectivity is good on a typical library (300
+// series, ~30 corrupted on a fresh library that's been through one
+// recommendations pass) — the WHERE NULL filter rides the planner's
+// row scan; no index added.
+func (r *SeriesRepository) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	var ids []int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Select("id").
+		Where("tmdb_id IS NOT NULL").
+		Where("hydration = 'full'").
+		Where("(poster_asset IS NULL OR backdrop_asset IS NULL)").
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list canon images corrupted: %w", err)
+	}
+	return ids, nil
+}
+
 // ListMissingSyncLog returns series.id rows that have NO sync_log
 // row for (entity_type='series', source=<source>). LEFT JOIN +
 // IS NULL — selectivity is good on a typical library (300 rows) and

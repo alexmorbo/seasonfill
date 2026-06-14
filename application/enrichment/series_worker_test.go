@@ -94,12 +94,13 @@ func (c *callRecord) list() []string {
 type fakeSeriesRepo struct {
 	rec     *callRecord
 	rows    map[int64]series.Canon
+	byTMDB  map[int]int64 // tmdb_id -> internal id, Story 319
 	nextID  int64
 	upsertN int
 }
 
 func newFakeSeriesRepo(rec *callRecord) *fakeSeriesRepo {
-	return &fakeSeriesRepo{rec: rec, rows: make(map[int64]series.Canon), nextID: 100}
+	return &fakeSeriesRepo{rec: rec, rows: make(map[int64]series.Canon), byTMDB: make(map[int]int64), nextID: 100}
 }
 
 func (f *fakeSeriesRepo) Get(ctx context.Context, id int64) (series.Canon, error) {
@@ -117,6 +118,43 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (int64, err
 		c.ID = f.nextID
 	}
 	f.rows[c.ID] = c
+	if c.TMDBID != nil {
+		f.byTMDB[*c.TMDBID] = c.ID
+	}
+	return c.ID, nil
+}
+
+// UpsertStub mirrors the production COALESCE semantics: existing
+// non-NULL columns win over the stub's value. An existing 'full' row
+// keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.
+func (f *fakeSeriesRepo) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+	f.rec.add("Series.UpsertStub")
+	if c.TMDBID != nil {
+		if existingID, ok := f.byTMDB[*c.TMDBID]; ok {
+			existing := f.rows[existingID]
+			if existing.Hydration == series.HydrationFull {
+				c.Hydration = existing.Hydration
+			}
+			// COALESCE(existing, stub) — existing wins when non-nil.
+			if existing.PosterAsset != nil {
+				c.PosterAsset = existing.PosterAsset
+			}
+			if existing.BackdropAsset != nil {
+				c.BackdropAsset = existing.BackdropAsset
+			}
+			c.ID = existing.ID
+			f.rows[existing.ID] = c
+			return existing.ID, nil
+		}
+	}
+	if c.ID == 0 {
+		f.nextID++
+		c.ID = f.nextID
+	}
+	f.rows[c.ID] = c
+	if c.TMDBID != nil {
+		f.byTMDB[*c.TMDBID] = c.ID
+	}
 	return c.ID, nil
 }
 
@@ -602,6 +640,7 @@ func TestSeriesWorker_HappyPath_AllRepoesWritten(t *testing.T) {
 		"Videos.Upsert",
 		"ContentRatings.Upsert",
 		"ExternalIDs.Upsert",
+		"Series.UpsertStub", // Story 319: recommendation stubs go through UpsertStub.
 		"Recommendations.Set",
 	}
 	for _, e := range expect {
@@ -740,7 +779,48 @@ func TestSeriesWorker_DeterministicWriteOrder(t *testing.T) {
 	mustOrder("Genres.Set", "Videos.Upsert")
 	mustOrder("Videos.Upsert", "ContentRatings.Upsert")
 	mustOrder("ContentRatings.Upsert", "ExternalIDs.Upsert")
-	mustOrder("ExternalIDs.Upsert", "Recommendations.Set")
+	mustOrder("ExternalIDs.Upsert", "Series.UpsertStub")
+	mustOrder("Series.UpsertStub", "Recommendations.Set")
+}
+
+// TestSeriesWorker_RecommendationStub_PreservesFullCanonImages: Story
+// 319 regression — a recommendation sweep MUST NOT blank out an
+// existing 'full' canon row's poster_asset / backdrop_asset when the
+// stub payload has them nil.
+func TestSeriesWorker_RecommendationStub_PreservesFullCanonImages(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
+	tmdbID := 42
+	f.seedCanon(1, &tmdbID)
+
+	// Seed an EXISTING 'full' canon row for the recommendation's
+	// tmdb_id (minimalTV's recommendation has ID=999). The
+	// recommendation loop will call UpsertStub against this row; the
+	// fake mirrors the COALESCE production semantics.
+	recTMDB := 999
+	posterPath := "/seed-poster.jpg"
+	backdropPath := "/seed-backdrop.jpg"
+	f.series.rows[2] = series.Canon{
+		ID:            2,
+		TMDBID:        &recTMDB,
+		Title:         "Other Show",
+		Hydration:     series.HydrationFull,
+		PosterAsset:   &posterPath,
+		BackdropAsset: &backdropPath,
+	}
+	f.series.byTMDB[recTMDB] = 2
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	// After the recommendation sweep, the recommendation row's images
+	// + hydration MUST survive.
+	got := f.series.rows[2]
+	assert.Equal(t, series.HydrationFull, got.Hydration, "stub MUST NOT downgrade hydration")
+	require.NotNil(t, got.PosterAsset, "stub MUST NOT null poster_asset")
+	assert.Equal(t, posterPath, *got.PosterAsset)
+	require.NotNil(t, got.BackdropAsset, "stub MUST NOT null backdrop_asset")
+	assert.Equal(t, backdropPath, *got.BackdropAsset)
 }
 
 func TestSeriesWorker_RejectsMissingDeps(t *testing.T) {

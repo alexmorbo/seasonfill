@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
@@ -370,6 +371,28 @@ func wireEnrichment(
 		if repos.ColdStartScanner == nil {
 			return
 		}
+		// Story 319 — one-shot recovery sweep for canon rows whose
+		// poster_asset / backdrop_asset were nulled by the legacy
+		// recommendation-stub upsert bug. Enqueues each at
+		// PriorityCold so the TMDB sync repopulates the paths via
+		// MergeSeries. Safe to re-run (idempotent — healed rows have
+		// both columns non-NULL and are not returned). Set
+		// SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED=1 to skip
+		// during disaster recovery / manual control.
+		if os.Getenv("SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED") != "1" {
+			ids, err := repos.ColdStartScanner.ListCanonImagesCorrupted(ctx, 5000)
+			if err != nil {
+				log.WarnContext(ctx, "enrichment.canon_images.recovery.failed",
+					slog.String("error", err.Error()))
+			} else if len(ids) > 0 {
+				for _, id := range ids {
+					dispatcher.Enqueue(appenrich.EntitySeries, id, appenrich.PriorityCold)
+				}
+				log.InfoContext(ctx, "enrichment.canon_images.recovery.enqueued",
+					slog.Int("series_count", len(ids)),
+					slog.String("priority", "cold"))
+			}
+		}
 		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval, log)
 	}
 
@@ -704,6 +727,13 @@ func NewColdStartScannerAdapter(s *repositories.SeriesRepository) appenrich.Cold
 
 func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
 	return a.inner.ListMissingSyncLog(ctx, source, limit)
+}
+
+// ListCanonImagesCorrupted — Story 319: forwards to the underlying
+// repository. The wrapper exists so the application port doesn't
+// import infrastructure/database.
+func (a coldStartScannerAdapter) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error) {
+	return a.inner.ListCanonImagesCorrupted(ctx, limit)
 }
 
 // mediaPrewarmerAdapter satisfies appenrich.MediaPrewarmer against

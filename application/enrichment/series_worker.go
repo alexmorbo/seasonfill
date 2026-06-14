@@ -524,10 +524,13 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	}
 
 	// 12. Recommendations — upsert each stub by tmdb_id, collect
-	//     canon ids, write the join via Set.
+	//     canon ids, write the join via Set. Story 319: stubs go
+	//     through UpsertStub, whose ON CONFLICT preserves existing
+	//     poster_asset / backdrop_asset / hydration='full' so a
+	//     recommendation sweep cannot blank out a real canon row.
 	recIDs := make([]int64, 0, len(m.Recommendations))
 	for _, rec := range m.Recommendations {
-		id, err := w.deps.Series.Upsert(txCtx, rec)
+		id, err := w.deps.Series.UpsertStub(txCtx, rec)
 		if err != nil {
 			return nil, fmt.Errorf("upsert recommendation stub: %w", err)
 		}

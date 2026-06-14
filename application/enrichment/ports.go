@@ -113,6 +113,11 @@ type Dispatcher interface {
 type SeriesRepo interface {
 	Get(ctx context.Context, id int64) (series.Canon, error)
 	Upsert(ctx context.Context, c series.Canon) (int64, error)
+	// UpsertStub — Story 319: see SeriesRepository.UpsertStub for
+	// semantics. The recommendation loop in series_worker calls this
+	// path so a stub upsert cannot blank a 'full' canon row's
+	// poster_asset / backdrop_asset / hydration.
+	UpsertStub(ctx context.Context, c series.Canon) (int64, error)
 }
 
 type SeriesTextsRepo interface {
@@ -277,4 +282,9 @@ type PersonCreditsPort interface {
 // (Story 212 §8); tests pass a slice-backed fake.
 type ColdStartScanner interface {
 	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error)
+	// ListCanonImagesCorrupted — Story 319: returns series.id rows
+	// where the canon is past stub phase but poster_asset or
+	// backdrop_asset is NULL, so the boot one-shot recovery sweep can
+	// enqueue them at PriorityCold for the TMDB re-sync to repopulate.
+	ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error)
 }

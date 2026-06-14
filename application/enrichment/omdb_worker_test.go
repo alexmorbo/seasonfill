@@ -41,6 +41,12 @@ func (f *fakeOMDbSeries) Upsert(_ context.Context, c series.Canon) (int64, error
 	return c.ID, nil
 }
 
+// UpsertStub — Story 319: OMDb tests never exercise the recommendation
+// stub path; a delegate to Upsert keeps the fake satisfying SeriesRepo.
+func (f *fakeOMDbSeries) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+	return f.Upsert(ctx, c)
+}
+
 type fakeOMDbSyncLog struct {
 	last    enrichment.SyncLog
 	lastErr error
