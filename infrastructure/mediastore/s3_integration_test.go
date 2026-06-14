@@ -21,10 +21,10 @@ import (
 //
 // Configure with:
 //
-//   MEDIASTORE_S3_TEST_ENDPOINT=http://localhost:9000
-//   MEDIASTORE_S3_TEST_BUCKET=seasonfill-test
-//   MEDIASTORE_S3_TEST_ACCESS_KEY=minioadmin
-//   MEDIASTORE_S3_TEST_SECRET_KEY=minioadmin
+//	MEDIASTORE_S3_TEST_ENDPOINT=http://localhost:9000
+//	MEDIASTORE_S3_TEST_BUCKET=seasonfill-test
+//	MEDIASTORE_S3_TEST_ACCESS_KEY=minioadmin
+//	MEDIASTORE_S3_TEST_SECRET_KEY=minioadmin
 func TestS3Store_RoundTrip(t *testing.T) {
 	endpoint := os.Getenv("MEDIASTORE_S3_TEST_ENDPOINT")
 	if endpoint == "" {

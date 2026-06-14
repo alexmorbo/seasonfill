@@ -45,9 +45,9 @@ type TorrentInfo struct {
 	// time; consumers read it through Entry.Info.SeasonNumber.
 	SeasonNumber *int
 	SavePath     string
-	ContentPath string
-	MagnetURI   string
-	Private     bool
+	ContentPath  string
+	MagnetURI    string
+	Private      bool
 
 	StateRaw   string     // verbatim qBit state string
 	StateGroup StateGroup // see state.go
