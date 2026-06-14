@@ -13,7 +13,6 @@ import (
 	"time"
 
 	authapp "github.com/alexmorbo/seasonfill/application/auth"
-	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/gc"
@@ -30,7 +29,9 @@ import (
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
+	"github.com/alexmorbo/seasonfill/cmd/server/loops"
+	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
@@ -49,13 +50,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
-	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
-	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
-
-	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/cmd/server/loops"
-
-	"gorm.io/gorm"
 )
 
 // Options carries optional construction-time hooks. OnReady mirrors the
@@ -95,7 +89,7 @@ type Server struct {
 	scanRepo     *repositories.ScanRepository
 	enrichBundle *EnrichmentBundle
 	subSched     *reload.SchedulerSubscriber
-	db           *gorm.DB
+	persistence  *wiring.PersistenceBundle
 	onReady      func(*runtime.Bus)
 }
 
@@ -125,49 +119,26 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	log.Info("starting seasonfill (bootstrap config)",
 		slog.String("driver", bootCfg.Database.Driver))
 
-	db, err := database.Open(bootCfg.Database)
+	persistence, err := wiring.BuildPersistence(ctx, bootCfg, log)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, err
 	}
-	if err := database.Migrate(db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-
-	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+	// Rebind locals for the remainder of New(). Subsequent B-11 stories
+	// will progressively retire these as wirers absorb the dependent
+	// blocks (e.g. story 330 absorbs runtimeRepo + instanceRepo into
+	// BuildRuntimeConfig). appSettingsRepo is intentionally NOT rebound:
+	// it has no direct reference in the surviving body — story 330+
+	// consumers reach it via persistence.AppSettingsRepo.
+	db := persistence.DB
+	cipher := persistence.Cipher
+	masterKey := persistence.MasterKey
+	runtimeRepo := persistence.RuntimeRepo
+	instanceRepo := persistence.InstanceRepo
+	quotaCounter := persistence.QuotaCounter
+	tzResolver := persistence.TZResolver
+	timezoneHandler := persistence.TimezoneHandler
 
 	bgCtx := context.Background()
-
-	// We need a temporary repo without cipher to resolve the API key first.
-	// Then we rebuild the repo with the derived cipher.
-	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
-	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, bootCfg.Auth.APIKey, tempRuntimeRepo, log)
-	if err != nil {
-		return nil, fmt.Errorf("resolve api key: %w", err)
-	}
-	cipher, err := crypto.New(masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("derive cipher: %w", err)
-	}
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
-
-	// Story 301: app-level settings (id=1) — currently only the
-	// operator-selected timezone. Built early so the scheduler
-	// factory and the HTTP handler share the same Resolver. The
-	// store is the GORM-backed app_settings repo; the v36 seed
-	// guarantees a singleton row exists.
-	appSettingsRepo := repositories.NewAppSettingsRepository(db)
-	tzResolver := tz.New(bgCtx, appSettingsRepo, log)
-	log.Info("timezone resolver",
-		slog.String("name", tzResolver.Name()),
-		slog.String("source", string(tzResolver.Source())))
-	timezoneHandler := handlers.NewTimezoneHandler(tzResolver, log)
-
-	// Story 305: generic DB-backed rate-limit counter. Currently
-	// consumed by the OMDb budget guard (replaces the in-process
-	// counter that zeroed on every pod restart). Other external-
-	// service clients can opt in by injecting `quotaCounter` and
-	// switching their guard to the QuotaCounter port.
-	quotaCounter := repositories.NewQuotaCounterRepository(db)
 
 	// Seed runtime_config from Defaults() on a truly-fresh install.
 	row, err := runtimeRepo.Get(bgCtx)
@@ -1141,7 +1112,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		scanRepo:     scanRepo,
 		enrichBundle: enrichBundle,
 		subSched:     subSched,
-		db:           db,
+		persistence:  persistence,
 		onReady:      opts.OnReady,
 	}, nil
 }
@@ -1220,7 +1191,7 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	}
 	drainBackground(s.bgWG, 10*time.Second, s.log)
 
-	if sqlDB, err := s.db.DB(); err == nil {
+	if sqlDB, err := s.persistence.DB.DB(); err == nil {
 		_ = sqlDB.Close()
 	}
 	// Close the reload bus last — the original runWithContext relied on
