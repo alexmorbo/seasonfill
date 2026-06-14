@@ -21,6 +21,8 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
+
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 )
 
 // EnrichmentBundle groups the dispatcher + the nightly job closure
@@ -64,7 +66,7 @@ type EnrichmentBundle struct {
 // runtime config yet).
 func wireEnrichment(
 	rootCtx context.Context,
-	extSub *ExternalServicesSubscriber,
+	extSub *adapters.ExternalServicesSubscriber,
 	bootstrap *config.Bootstrap,
 	repos enrichmentRepoBundle,
 	tx appenrich.Transactor,

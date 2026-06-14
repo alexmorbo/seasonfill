@@ -1,4 +1,4 @@
-package main
+package adapters
 
 import (
 	"context"
@@ -7,15 +7,20 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
-// watchdogInstanceLister adapts SonarrInstanceRepository to the
+// WatchdogInstanceLister adapts SonarrInstanceRepository to the
 // InstanceLister + InstanceIDLookup interfaces the watchdog rollup
 // handler depends on. One value satisfies both.
-type watchdogInstanceLister struct {
+type WatchdogInstanceLister struct {
 	repo   *repositories.SonarrInstanceRepository
 	cipher *crypto.Cipher
 }
 
-func (a watchdogInstanceLister) ListNames(ctx context.Context) ([]string, error) {
+// NewWatchdogInstanceLister wraps the supplied repository + cipher.
+func NewWatchdogInstanceLister(repo *repositories.SonarrInstanceRepository, cipher *crypto.Cipher) WatchdogInstanceLister {
+	return WatchdogInstanceLister{repo: repo, cipher: cipher}
+}
+
+func (a WatchdogInstanceLister) ListNames(ctx context.Context) ([]string, error) {
 	instances, err := a.repo.List(ctx, a.cipher)
 	if err != nil {
 		return nil, err
@@ -27,7 +32,7 @@ func (a watchdogInstanceLister) ListNames(ctx context.Context) ([]string, error)
 	return out, nil
 }
 
-func (a watchdogInstanceLister) IDByName(ctx context.Context, name string) (uint, bool, error) {
+func (a WatchdogInstanceLister) IDByName(ctx context.Context, name string) (uint, bool, error) {
 	instances, err := a.repo.List(ctx, a.cipher)
 	if err != nil {
 		return 0, false, err

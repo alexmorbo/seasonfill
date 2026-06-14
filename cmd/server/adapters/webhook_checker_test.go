@@ -1,4 +1,4 @@
-package main
+package adapters
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
-func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handler) *webhookChecker {
+func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handler) *WebhookChecker {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
@@ -34,7 +34,7 @@ func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handle
 			}
 		},
 	}
-	return newWebhookChecker(reg)
+	return NewWebhookChecker(reg)
 }
 
 func TestWebhookChecker_UnknownInstance(t *testing.T) {
@@ -43,16 +43,16 @@ func TestWebhookChecker_UnknownInstance(t *testing.T) {
 			return map[string]scan.Instance{}
 		},
 	}
-	c := newWebhookChecker(reg)
+	c := NewWebhookChecker(reg)
 
 	ok, err := c.IsInstalled(context.Background(), "alpha")
 	assert.False(t, ok)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, errUnknownInstance)
+	assert.ErrorIs(t, err, ErrUnknownInstance)
 }
 
 func TestWebhookChecker_NilLoadIsUnknown(t *testing.T) {
-	c := newWebhookChecker(handlers.InstanceRegistry{})
+	c := NewWebhookChecker(handlers.InstanceRegistry{})
 
 	ok, err := c.IsInstalled(context.Background(), "alpha")
 	assert.False(t, ok)

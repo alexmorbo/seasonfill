@@ -1,4 +1,4 @@
-package main
+package adapters
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
-// webhookReconcileLookup adapts handlers.InstanceRegistry (reload-aware
-// map of scan.Instance) to webhookinstall.InstanceLookup. The Sonarr
-// client is type-asserted to *sonarr.Client so the reconciler can
-// reach notification methods ports.SonarrClient intentionally omits.
-// A type-assert miss yields ok=false so a test fixture with a fake
-// client degrades to "unknown instance" rather than panicking.
-func webhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.InstanceLookup {
+// NewWebhookReconcileLookup adapts handlers.InstanceRegistry (reload-
+// aware map of scan.Instance) to webhookinstall.InstanceLookup. The
+// Sonarr client is type-asserted to *sonarr.Client so the reconciler
+// can reach notification methods ports.SonarrClient intentionally
+// omits. A type-assert miss yields ok=false so a test fixture with a
+// fake client degrades to "unknown instance" rather than panicking.
+func NewWebhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.InstanceLookup {
 	return func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
 		var inst scan.Instance
 		var ok bool
@@ -34,17 +34,17 @@ func webhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.Instan
 	}
 }
 
-// reconcilerAdapter widens webhookinstall.Reconciler's (Status, error)
+// ReconcilerAdapter widens webhookinstall.Reconciler's (Status, error)
 // return to (any, error) so it satisfies application/instance's
 // WebhookReconciler interface without that package importing
 // application/webhookinstall (which would create a cycle through
 // infrastructure/sonarr).
-type reconcilerAdapter struct{ inner *webhookinstall.Reconciler }
+type ReconcilerAdapter struct{ Inner *webhookinstall.Reconciler }
 
-func (a reconcilerAdapter) Reconcile(ctx context.Context, name string) (any, error) {
-	return a.inner.Reconcile(ctx, name)
+func (a ReconcilerAdapter) Reconcile(ctx context.Context, name string) (any, error) {
+	return a.Inner.Reconcile(ctx, name)
 }
 
-func (a reconcilerAdapter) HandleInstanceDeleted(ctx context.Context, name string) {
-	a.inner.HandleInstanceDeleted(ctx, name)
+func (a ReconcilerAdapter) HandleInstanceDeleted(ctx context.Context, name string) {
+	a.Inner.HandleInstanceDeleted(ctx, name)
 }

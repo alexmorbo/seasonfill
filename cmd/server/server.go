@@ -52,6 +52,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 
 	"gorm.io/gorm"
@@ -439,7 +440,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	webhookStatusCache := webhookinstall.NewStatusCache()
 	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
-		Lookup:    webhookReconcileLookup(instanceReg),
+		Lookup:    adapters.NewWebhookReconcileLookup(instanceReg),
 		PublicURL: webhookinstall.PublicURLFromContext,
 		Cache:     webhookStatusCache,
 		APIKey:    cfg.HTTP.Auth.APIKey,
@@ -447,7 +448,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	})
 
 	instanceUC := instance.New(instanceRepo, runtimeRepo, cipher, bus, log).
-		WithWebhookReconciler(reconcilerAdapter{inner: webhookReconciler}).
+		WithWebhookReconciler(adapters.ReconcilerAdapter{Inner: webhookReconciler}).
 		WithWebhookStatusCache(webhookStatusCache)
 	instanceCRUDHandler := handlers.NewInstanceCRUDHandler(instanceUC, log)
 	probeClient := &http.Client{
@@ -468,7 +469,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// constructed below and threaded through startSubscribers.
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
 	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log).
-		WithWebhookChecker(newWebhookChecker(instanceReg))
+		WithWebhookChecker(adapters.NewWebhookChecker(instanceReg))
 	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
 
 	// regrab orchestrator — depends on the settings use case (Lookup),
@@ -545,7 +546,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	torrentsyncLoopVal.Start(rootCtx)
 
 	// 047a — watchdog rollup handler wiring.
-	watchdogInstanceAdapter := watchdogInstanceLister{repo: instanceRepo, cipher: cipher}
+	watchdogInstanceAdapter := adapters.NewWatchdogInstanceLister(instanceRepo, cipher)
 	watchdogRollupHandler := handlers.NewWatchdogRollupHandler(
 		qbitSettingsUC,          // SettingsLookup
 		regrabUC,                // RollupSnapshotProvider
@@ -629,7 +630,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// never leave the subscriber/use case pair — the HTTP handler emits
 	// the masked DTO only.
 	extRepo := infraextsvc.NewRepository(db, cipher)
-	extSub := NewExternalServicesSubscriber(bus, log)
+	extSub := adapters.NewExternalServicesSubscriber(bus, log)
 	extUC := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
 		appextsvc.NewRealTester(), extSub, log)
 	extSub.SetUseCase(extUC)
