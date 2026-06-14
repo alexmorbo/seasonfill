@@ -141,3 +141,50 @@ func TestFromEnv_TMDBCDNRPS_UnsetIsZero(t *testing.T) {
 	assert.InDelta(t, 0.0, cfg.ExternalServices.TMDBCDNRPS, 0.001,
 		"unset TMDBCDNRPS must be 0 so downstream applies the package default")
 }
+
+// Story 347 — SEASONFILL_MEDIA_UNIFIED_RESOLVE default-on + kill-switch.
+
+func TestFromEnv_MediaUnifiedResolve_DefaultsTrue(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	// SEASONFILL_MEDIA_UNIFIED_RESOLVE deliberately unset.
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.True(t, cfg.Enrichment.MediaUnifiedResolve,
+		"unset SEASONFILL_MEDIA_UNIFIED_RESOLVE must default to true (story 347)")
+}
+
+func TestFromEnv_MediaUnifiedResolve_KillSwitchFalse(t *testing.T) {
+	for _, v := range []string{"false", "0", "no", "off", "FALSE"} {
+		v := v
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_MEDIA_UNIFIED_RESOLVE", v)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.False(t, cfg.Enrichment.MediaUnifiedResolve,
+				"kill-switch %q must flip MediaUnifiedResolve off", v)
+		})
+	}
+}
+
+func TestFromEnv_MediaUnifiedResolve_ExplicitTrue(t *testing.T) {
+	for _, v := range []string{"true", "1", "yes", "on", "TRUE"} {
+		v := v
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_MEDIA_UNIFIED_RESOLVE", v)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.True(t, cfg.Enrichment.MediaUnifiedResolve)
+		})
+	}
+}
+
+func TestFromEnv_MediaUnifiedResolve_GarbageFallsBackToDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_MEDIA_UNIFIED_RESOLVE", "banana")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.True(t, cfg.Enrichment.MediaUnifiedResolve,
+		"unparseable env must fall back to default-on")
+}

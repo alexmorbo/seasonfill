@@ -36,11 +36,18 @@ import (
 // enqueuer + fetcher fields are atomic.Pointer for late-binding via
 // SetSideEffects (the wiring layer constructs MediaResolver before the
 // media pipeline exists in cmd/server/main.go).
+//
+// Story 347 — unifiedResolve toggles the always-emit-hash contract:
+// when true (the production default), Resolve emits a real hash via
+// eager-hash + EnsurePending for every non-nil rawPath, and the
+// sentinel-missing hash for nil/empty rawPath. When false (env
+// kill-switch), Resolve falls back to legacy nil-on-miss behavior.
 type MediaResolver struct {
-	lookup   MediaHashLookupPort
-	enqueuer atomic.Pointer[mediaEnqueuerBox]    // story 316 — async priority enqueue
-	fetcher  atomic.Pointer[mediaSyncFetcherBox] // story 316 — sync first-fold fetch
-	logger   *slog.Logger
+	lookup         MediaHashLookupPort
+	enqueuer       atomic.Pointer[mediaEnqueuerBox]    // story 316 — async priority enqueue
+	fetcher        atomic.Pointer[mediaSyncFetcherBox] // story 316 — sync first-fold fetch
+	unifiedResolve atomic.Bool                         // story 347 — always-emit-hash contract
+	logger         *slog.Logger
 }
 
 // MediaEnqueuer is the story 316 async surface — kicks the pre-warm
@@ -100,15 +107,34 @@ func (r *MediaResolver) SetSideEffects(enqueuer MediaEnqueuer, fetcher MediaSync
 	}
 }
 
+// SetUnifiedResolve toggles the story-347 always-emit-hash contract on
+// this resolver. Wiring sets it post-construction so the constructor
+// signature stays stable for existing callers + tests. Concurrent reads
+// are safe via atomic.Bool. Production wiring reads the bool from
+// cfg.Enrichment.MediaUnifiedResolve (default-on; env kill-switch).
+func (r *MediaResolver) SetUnifiedResolve(v bool) {
+	if r == nil {
+		return
+	}
+	r.unifiedResolve.Store(v)
+}
+
 // Resolve takes a raw TMDB image path (nil-or-empty allowed) + the size
 // variant the pre-warm pipeline used + a kind tag (for logging). Returns a
-// pointer to the sha256 hex when a stored media_assets row exists, nil
-// otherwise.
+// pointer to the sha256 hex when a stored media_assets row exists.
 //
 // Story 316: on miss, fire-and-forget enqueues the asset for async fetch
 // (priority hot — the existing pre-warm pipeline is FIFO, so just landing
 // in the queue gives it precedence over cold-start enqueues from minutes
 // ago).
+//
+// Story 347: when unifiedResolve is on (production default), Resolve
+// uniformly emits a hash for every call — the sentinel for nil/empty
+// rawPath, the eager content-hash + EnsurePending for misses, the
+// stored hash on hits. The frontend gets a stable visual slot for every
+// category (cast, networks, season posters, episode stills,
+// recommendations) instead of nil. When the flag is off (env
+// kill-switch), the legacy nil-on-miss behavior is preserved verbatim.
 //
 // Lookup errors are logged at Debug. The returned pointer is the value the
 // composer assigns to the DTO field; nil renders as the frontend's monogram.
@@ -116,11 +142,20 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 	if r == nil || r.lookup == nil {
 		return nil
 	}
+	unified := r.unifiedResolve.Load()
 	if rawPath == nil || *rawPath == "" {
+		if unified {
+			h := appmedia.SentinelMissingHash
+			return &h
+		}
 		return nil
 	}
 	url := appmedia.BuildTMDBImageURL(size, *rawPath)
 	if url == "" {
+		if unified {
+			h := appmedia.SentinelMissingHash
+			return &h
+		}
 		return nil
 	}
 	hash, err := r.lookup.HashForSourceURL(ctx, url)
@@ -133,8 +168,28 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 			slog.String("source_url", url),
 			slog.String("error", err.Error()))
 	}
-	// Miss — async enqueue (best-effort, no wait).
-	r.enqueueAsync(ctx, url, kind, appmedia.ExtractExt(*rawPath))
+	ext := appmedia.ExtractExt(*rawPath)
+	if unified {
+		// Miss — mint the eager content-hash + EnsurePending so the
+		// handler can recover on the user's GET /api/v1/media/:hash.
+		// Mirrors the ResolveSync story-320 eager-hash path. On
+		// EnsurePending failure, fall back to sentinel (better than
+		// nil; the FE renders the SVG placeholder).
+		eagerHash := appmedia.HashFromURL(url)
+		if perr := r.lookup.EnsurePending(ctx, eagerHash, url, kind); perr != nil {
+			r.logger.DebugContext(ctx, "media_resolver.ensure_pending_failed",
+				slog.String("kind", kind),
+				slog.String("source_url", url),
+				slog.String("error", perr.Error()))
+			r.enqueueAsync(ctx, url, kind, ext)
+			sentinel := appmedia.SentinelMissingHash
+			return &sentinel
+		}
+		r.enqueueAsync(ctx, url, kind, ext)
+		return &eagerHash
+	}
+	// Legacy flag-off path: async enqueue + nil.
+	r.enqueueAsync(ctx, url, kind, ext)
 	return nil
 }
 
@@ -154,11 +209,20 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 	if r == nil || r.lookup == nil {
 		return nil
 	}
+	unified := r.unifiedResolve.Load()
 	if rawPath == nil || *rawPath == "" {
+		if unified {
+			h := appmedia.SentinelMissingHash
+			return &h
+		}
 		return nil
 	}
 	url := appmedia.BuildTMDBImageURL(size, *rawPath)
 	if url == "" {
+		if unified {
+			h := appmedia.SentinelMissingHash
+			return &h
+		}
 		return nil
 	}
 	hash, err := r.lookup.HashForSourceURL(ctx, url)

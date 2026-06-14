@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -88,6 +89,15 @@ type EnrichmentConfig struct {
 	// Override via SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS
 	// (clamped to >=5s; 0 or unset → default).
 	ColdStartResweepInterval time.Duration
+
+	// MediaUnifiedResolve gates the story-347 always-emit-hash
+	// contract. DEFAULT ON; the env var SEASONFILL_MEDIA_UNIFIED_RESOLVE
+	// is a kill-switch — set "false"/"0"/"no"/"off" to revert to the
+	// legacy nil-on-miss path with zero schema impact, unset / "true" /
+	// "1" / "yes" / "on" keeps the unified contract active. When ON
+	// (the default), MediaResolver.Resolve emits a real or sentinel
+	// hash for every call so the frontend has a stable visual slot.
+	MediaUnifiedResolve bool
 }
 
 // ExternalServicesEnv carries the env-only overrides for the three
@@ -305,6 +315,11 @@ func FromEnv() (*Bootstrap, error) {
 		},
 		Enrichment: EnrichmentConfig{
 			ColdStartResweepInterval: coldStartResweepIntervalFromEnv(),
+			// Story 347 — default ON; the env exists purely as a panic
+			// kill-switch. Pinning "true" in chart values.yaml would
+			// defeat that, so leave the env unset in production and let
+			// the code default win.
+			MediaUnifiedResolve: getenvBool("SEASONFILL_MEDIA_UNIFIED_RESOLVE", true),
 		},
 	}
 	if err := cfg.Validate(); err != nil {
@@ -333,14 +348,14 @@ func getenvInt(name string, def int) int {
 }
 
 func getenvBool(name string, def bool) bool {
-	v := os.Getenv(name)
+	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
 		return def
 	}
-	switch v {
-	case "1", "true", "TRUE", "True", "yes", "YES":
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y", "on":
 		return true
-	case "0", "false", "FALSE", "False", "no", "NO":
+	case "0", "false", "no", "n", "off":
 		return false
 	default:
 		return def

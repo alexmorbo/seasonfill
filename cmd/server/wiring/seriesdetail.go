@@ -100,6 +100,7 @@ func BuildSeriesDetail(
 	persistence *PersistenceBundle,
 	sonarrBundle *SonarrBundle,
 	mediaBundle *MediaBundle,
+	unifiedResolve bool,
 	log *slog.Logger,
 ) (*SeriesDetailBundle, error) {
 	db := persistence.DB
@@ -119,6 +120,10 @@ func BuildSeriesDetail(
 	// after wireEnrichment returns — the media pipeline doesn't exist
 	// yet at this point in boot.
 	mediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, log)
+	// Story 347 — uniform always-emit-hash contract. Default-on; env
+	// kill-switch (SEASONFILL_MEDIA_UNIFIED_RESOLVE=false) flips back
+	// to legacy nil-on-miss without a redeploy.
+	mediaResolver.SetUnifiedResolve(unifiedResolve)
 
 	// Story 215 (G-1) — series detail composer + handlers. The repos
 	// are stateless GORM wrappers around `db`, so re-constructing

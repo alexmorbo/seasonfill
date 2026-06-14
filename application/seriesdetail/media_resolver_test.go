@@ -244,3 +244,91 @@ func TestMediaResolver_SetSideEffects_LateBind(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "cafebabe", *got)
 }
+
+// --- Story 347: uniform always-emit-hash contract ---
+
+func TestMediaResolver_Resolve_FlagOff_LegacyNilOnMiss(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	// Flag explicitly off — preserve pre-347 behavior.
+	r.SetUnifiedResolve(false)
+	path := "/abc.jpg"
+	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
+	assert.Nil(t, got, "flag-off resolve on miss must remain nil (legacy)")
+	assert.Empty(t, lookup.ensureCalls, "flag-off must NOT call EnsurePending")
+	// Also confirm nil-path stays nil with flag off.
+	assert.Nil(t, r.Resolve(t.Context(), nil, "w342", "poster_w342"))
+	empty := ""
+	assert.Nil(t, r.Resolve(t.Context(), &empty, "w342", "poster_w342"))
+}
+
+func TestMediaResolver_Resolve_FlagOn_SentinelOnNilPath(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+	got := r.Resolve(t.Context(), nil, "w342", "poster_w342")
+	require.NotNil(t, got, "flag-on nil path must yield sentinel hash")
+	assert.Equal(t, appmedia.SentinelMissingHash, *got)
+	empty := ""
+	got2 := r.Resolve(t.Context(), &empty, "w342", "poster_w342")
+	require.NotNil(t, got2)
+	assert.Equal(t, appmedia.SentinelMissingHash, *got2)
+	assert.Empty(t, lookup.ensureCalls, "sentinel branch must NOT touch EnsurePending")
+}
+
+func TestMediaResolver_Resolve_FlagOn_EagerHashOnLookupMiss(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	enq := &stubEnqueuer{}
+	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+	path := "/abc.jpg"
+	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got, "flag-on miss must yield eager content hash")
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	assert.Equal(t, appmedia.HashFromURL(url), *got)
+	require.Len(t, lookup.ensureCalls, 1, "EnsurePending must fire once")
+	assert.Equal(t, url, lookup.ensureCalls[0].sourceURL)
+	assert.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
+	require.Len(t, enq.calls, 1, "async pre-warm enqueue still fires on miss")
+}
+
+func TestMediaResolver_Resolve_FlagOn_SentinelOnEnsurePendingFailure(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{ensureErr: errors.New("db down")}
+	enq := &stubEnqueuer{}
+	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+	path := "/abc.jpg"
+	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got, "EnsurePending failure under flag-on must fall back to sentinel, not nil")
+	assert.Equal(t, appmedia.SentinelMissingHash, *got)
+	require.Len(t, lookup.ensureCalls, 1)
+	require.Len(t, enq.calls, 1, "async fallback enqueue still fires")
+}
+
+func TestMediaResolver_Resolve_FlagOn_StoredHashStillWins(t *testing.T) {
+	t.Parallel()
+	const stored = "1111111111111111111111111111111111111111111111111111111111111111"
+	path := "/warm.jpg"
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	lookup := &fakeMediaLookup{byURL: map[string]string{url: stored}}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got)
+	assert.Equal(t, stored, *got, "stored hash MUST shadow the eager / sentinel path")
+	assert.Empty(t, lookup.ensureCalls, "lookup hit must NOT trigger EnsurePending")
+}
+
+func TestMediaResolver_ResolveSync_FlagOn_SentinelOnNilPath(t *testing.T) {
+	t.Parallel()
+	lookup := &fakeMediaLookup{}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+	got := r.ResolveSync(t.Context(), nil, "w342", "poster_w342")
+	require.NotNil(t, got, "ResolveSync nil path under flag-on must yield sentinel")
+	assert.Equal(t, appmedia.SentinelMissingHash, *got)
+}
