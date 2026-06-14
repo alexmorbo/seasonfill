@@ -18,6 +18,7 @@ const base: Partial<Grab> = {
   indexer_name: 'rutracker',
   custom_format_score: 180,
   size_bytes: 13_325_829_734,
+  poster_hash: 'abc123def456',
   parsed: {
     codec: 'HEVC',
     source: 'webdl',
@@ -38,37 +39,38 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('<GrabRow />', () => {
-  it('renders a small poster img pointing at the proxy endpoint when instance is provided', () => {
+  it('renders the content-addressed media img for poster_hash', () => {
     render(wrap(
       <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
         instance="alpha"
         onOpenDrawer={() => {}} onToggleThread={() => {}} />,
     ));
-    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe(
-      '/api/v1/instances/alpha/series/1234/poster?size=small',
-    );
+    const img = screen.getByTestId('media-image-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/abc123def456');
+    expect(img.getAttribute('loading')).toBe('lazy');
   });
 
-  it('omits the poster img when instance is not provided', () => {
+  it('renders the monogram fallback when poster_hash is absent', () => {
+    const { poster_hash: _ph, ...rest } = base;
+    render(wrap(
+      <GrabRow grab={rest as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
+    ));
+    expect(screen.queryByTestId('media-image-img')).toBeNull();
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+  });
+
+  it('does not emit legacy /api/v1/instances/.../poster URL', () => {
     render(wrap(
       <GrabRow grab={base as Grab} selected={false} threadOpen={false} reGrabIndex={null}
+        instance="alpha"
         onOpenDrawer={() => {}} onToggleThread={() => {}} />,
     ));
-    expect(screen.queryByTestId('series-poster-img')).toBeNull();
-  });
-
-  it('renders poster from per-row grab.instance when the prop is null (all-instances view)', () => {
-    const withInstance: Partial<Grab> = { ...base, instance: 'homelab' };
-    render(wrap(
-      <GrabRow grab={withInstance as Grab} selected={false} threadOpen={false} reGrabIndex={null}
-        instance={null}
-        onOpenDrawer={() => {}} onToggleThread={() => {}} />,
-    ));
-    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe(
-      '/api/v1/instances/homelab/series/1234/poster?size=small',
-    );
+    document.querySelectorAll('img').forEach((img) => {
+      expect(img.getAttribute('src') ?? '').not.toMatch(
+        /\/api\/v1\/instances\/[^/]+\/series\/\d+\/poster/,
+      );
+    });
   });
 
   it('renders title, status chip, and full chip set', () => {

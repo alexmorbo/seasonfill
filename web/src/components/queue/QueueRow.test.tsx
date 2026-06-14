@@ -18,6 +18,7 @@ const row: MissingSeries = {
   title_slug: 'severance',
   year: 2022,
   monitored: true,
+  poster_hash: 'abc123def456',
   total_missing_aired: 8,
   seasons: [
     { season_number: 2, missing_aired_count: 8, aired_episode_count: 10 },
@@ -26,11 +27,10 @@ const row: MissingSeries = {
 };
 
 describe('<QueueRow />', () => {
-  it('renders the small poster img pointing at the proxy endpoint', () => {
+  it('renders the content-addressed media img for poster_hash', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -38,17 +38,49 @@ describe('<QueueRow />', () => {
         onScan={vi.fn()}
       />,
     ));
-    const img = screen.getByTestId('series-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe(
-      '/api/v1/instances/alpha/series/122/poster?size=small',
-    );
+    const img = screen.getByTestId('media-image-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/abc123def456');
+    expect(img.getAttribute('loading')).toBe('lazy');
+  });
+
+  it('renders the monogram fallback when poster_hash is absent', () => {
+    const { poster_hash: _ph, ...rest } = row;
+    renderWithProviders(withTooltip(
+      <QueueRow
+        row={rest as MissingSeries}
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    ));
+    expect(screen.queryByTestId('media-image-img')).toBeNull();
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+  });
+
+  it('does not emit legacy /api/v1/instances/.../poster URL', () => {
+    renderWithProviders(withTooltip(
+      <QueueRow
+        row={row}
+        instanceUiUrl="https://sonarr.example.com"
+        openSeason={null}
+        isInFlight={false}
+        onSeasonToggle={vi.fn()}
+        onScan={vi.fn()}
+      />,
+    ));
+    document.querySelectorAll('img').forEach((img) => {
+      expect(img.getAttribute('src') ?? '').not.toMatch(
+        /\/api\/v1\/instances\/[^/]+\/series\/\d+\/poster/,
+      );
+    });
   });
 
   it('renders the title, year, missing pill, and season chips', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -67,7 +99,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -91,7 +122,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -107,7 +137,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={2}
         isInFlight={false}
@@ -125,7 +154,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={2}
         isInFlight={false}
@@ -147,7 +175,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -176,7 +203,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={rowWithEpisodes}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -195,7 +221,6 @@ describe('<QueueRow />', () => {
     renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -214,7 +239,6 @@ describe('<QueueRow />', () => {
     const { rerender } = renderWithProviders(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight={false}
@@ -227,7 +251,6 @@ describe('<QueueRow />', () => {
     rerender(withTooltip(
       <QueueRow
         row={row}
-        instanceName="alpha"
         instanceUiUrl="https://sonarr.example.com"
         openSeason={null}
         isInFlight

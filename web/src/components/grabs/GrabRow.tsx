@@ -7,7 +7,7 @@ import { formatEpisodeRange, formatImportDuration } from '@/lib/grabs/format';
 import { relativeTime } from '@/lib/format';
 import { ChipsRow } from '@/components/grabs/ChipsRow';
 import { ReGrabThread } from '@/components/grabs/ReGrabThread';
-import { SeriesPoster } from '@/components/SeriesPoster';
+import { MediaImage } from '@/components/MediaImage';
 import { SonarrLink } from '@/components/SonarrLink';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
@@ -95,14 +95,15 @@ export function GrabRow({
         ],
       )}
     >
-      {/* poster thumb — prefer per-row instance (DTO field) so posters render
-          on the "all instances" view where the global filter prop is null. */}
-      <SeriesPoster
-        instance={grab.instance ?? instance ?? undefined}
-        seriesId={grab.series_id ?? 0}
+      {/* poster thumb — content-addressed via poster_hash carried on the
+          grab DTO (story 348b). Falls back to a monogram gradient when
+          the hash is absent (legacy rows / pre-348b). */}
+      <MediaImage
+        hash={grab.poster_hash}
+        kind="series_poster"
         title={grab.series_title ?? ''}
         hueKey={String(grab.series_id ?? 0)}
-        size="small"
+        fallback="monogram"
         aspectRatio="aspect-auto"
         className="w-[38px] h-[57px] rounded-[5px] flex-none border border-border-subtle"
       />

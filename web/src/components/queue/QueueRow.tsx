@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Play, MoreHorizontal, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SeriesTitleLink } from '@/components/SeriesTitleLink';
-import { SeriesPoster } from '@/components/SeriesPoster';
+import { MediaImage } from '@/components/MediaImage';
 import {
   Tooltip,
   TooltipContent,
@@ -14,7 +14,6 @@ import { QueueSeasonChips } from './QueueSeasonChips';
 
 export interface QueueRowProps {
   readonly row: MissingSeries;
-  readonly instanceName: string;
   readonly instanceUiUrl: string | undefined;
   readonly openSeason: number | null;
   readonly isInFlight: boolean;
@@ -24,7 +23,7 @@ export interface QueueRowProps {
 }
 
 export function QueueRow({
-  row, instanceName, instanceUiUrl, openSeason, isInFlight,
+  row, instanceUiUrl, openSeason, isInFlight,
   onSeasonToggle, onScan, drillSlot,
 }: QueueRowProps) {
   const { t } = useTranslation();
@@ -44,12 +43,12 @@ export function QueueRow({
       data-series-id={row.series_id}
     >
       <div className="flex gap-[13px] items-start">
-        <SeriesPoster
-          instance={instanceName}
-          seriesId={row.series_id ?? 0}
+        <MediaImage
+          hash={row.poster_hash}
+          kind="series_poster"
           title={row.title ?? ''}
           hueKey={hueKey}
-          size="small"
+          fallback="monogram"
           aspectRatio="aspect-auto"
           className="w-[46px] h-[69px] flex-none rounded-[6px] border border-border-subtle"
         />
