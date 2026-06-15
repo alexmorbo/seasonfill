@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"io"
 	"log/slog"
 	"net/http"
@@ -666,6 +667,45 @@ func TestMediaHandler_Placeholder_ContentAndHeaders(t *testing.T) {
 	// Assert the root <svg> element + the aria-label declared by the new asset.
 	if !strings.Contains(body, "<svg") || !strings.Contains(body, `aria-label="No image"`) {
 		t.Errorf("body must be the no-image SVG, got %q", body[:min(200, len(body))])
+	}
+}
+
+// TestMediaHandler_PlaceholderSVG_IsWellFormedXML guards against the
+// real prod bug where a `--` inside an XML comment (line 24 of
+// media_placeholder.svg referenced the FE's `--gs` CSS token) made
+// browsers reject the SVG and rendered cast avatars empty. The XML
+// spec forbids `--` inside `<!-- ... -->`. Parsing the body with
+// encoding/xml's strict decoder catches malformed comments, invalid
+// attribute syntax, and any other XML-strict violation regression.
+func TestMediaHandler_PlaceholderSVG_IsWellFormedXML(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/wellformed-xml.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusPending)
+	fetcher := &stubOnDemand{hashWin: ""} // miss → placeholder
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	body := rr.Body.Bytes()
+	if !bytes.Contains(body, []byte("<text")) {
+		t.Errorf("placeholder must contain <text glyph (engraved monogram), got %q", string(body[:min(200, len(body))]))
+	}
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("XML parse error at offset %d: %v\nbody:\n%s", dec.InputOffset(), err, string(body))
+		}
 	}
 }
 

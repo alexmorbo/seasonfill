@@ -21,7 +21,7 @@
        independent fills/strokes — mirrors the FE's <span>s<b>f</b></span>.
        paint-order="stroke fill" puts the tinted-blue outline under the
        engraved fill so the letterform stays crisp.
-       Font-size 120 in viewBox units ≈ the FE's --gs:108px at poster scale;
+       Font-size 120 in viewBox units ≈ the FE glyph size token at 108px (poster scale);
        slice-cropping enlarges it for backdrop and avatar contexts. -->
   <g font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
      font-weight="800"
