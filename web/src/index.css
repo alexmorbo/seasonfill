@@ -171,6 +171,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding-bottom: 11%; /* shift glyph upward — matches SVG y=72 (~11% of viewBox height) */
   color: var(--color-tx-faint);
 }
 .ph-b {

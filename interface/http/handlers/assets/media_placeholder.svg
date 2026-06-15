@@ -28,12 +28,12 @@
      font-size="120"
      text-anchor="middle"
      dominant-baseline="central">
-    <text x="135" y="92"
+    <text x="135" y="72"
           fill="#14171D"
           stroke="#1D2F44"
           stroke-width="1.5"
           paint-order="stroke fill">s</text>
-    <text x="195" y="92"
+    <text x="195" y="72"
           fill="#1D2F44">f</text>
   </g>
 </svg>
