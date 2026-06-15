@@ -255,10 +255,10 @@ func TestSyncEpisodes_PopulatesMediaMeta(t *testing.T) {
 	ctx := context.Background()
 
 	seriesPayload := sonarr.SeriesPayload{
-		ID:       1,
-		Title:    "MediaMetaTest",
-		TVDBID:   888,
-		Year:     2024,
+		ID:        1,
+		Title:     "MediaMetaTest",
+		TVDBID:    888,
+		Year:      2024,
 		Monitored: true,
 		TitleSlug: "test",
 	}

@@ -509,13 +509,13 @@ func (EpisodeTextModel) TableName() string { return "episode_texts" }
 // EpisodeStateModel — per-instance file state. PK
 // (instance_name, episode_id) — file state is instance-scoped (§5.11).
 type EpisodeStateModel struct {
-	InstanceName  string    `gorm:"primaryKey;column:instance_name;type:text"`
-	EpisodeID     int64     `gorm:"primaryKey;column:episode_id"`
-	Monitored     bool      `gorm:"column:monitored;not null;default:false"`
-	HasFile       bool      `gorm:"column:has_file;not null;default:false"`
-	EpisodeFileID *int      `gorm:"column:episode_file_id"`
-	Quality       *string   `gorm:"column:quality;type:text"`
-	SizeBytes     *int64    `gorm:"column:size_bytes"`
+	InstanceName  string  `gorm:"primaryKey;column:instance_name;type:text"`
+	EpisodeID     int64   `gorm:"primaryKey;column:episode_id"`
+	Monitored     bool    `gorm:"column:monitored;not null;default:false"`
+	HasFile       bool    `gorm:"column:has_file;not null;default:false"`
+	EpisodeFileID *int    `gorm:"column:episode_file_id"`
+	Quality       *string `gorm:"column:quality;type:text"`
+	SizeBytes     *int64  `gorm:"column:size_bytes"`
 	// VideoCodec, AudioCodec, AudioChannels, ReleaseGroup come from
 	// Sonarr's episodeFile.mediaInfo block + releaseGroup. All
 	// nullable — mediaInfo is absent when Sonarr never probed the file.

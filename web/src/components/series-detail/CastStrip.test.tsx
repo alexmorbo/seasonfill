@@ -15,7 +15,7 @@ function wrap(ui: React.ReactElement) {
 
 const sample = [
   { person_id: 1, name: 'Joel Kinnaman', character_name: 'Ed Baldwin', profile_asset: 'h1' },
-  { person_id: 2, name: 'Krys Marshall', character_name: 'Danielle Poole', profile_asset: undefined },
+  { person_id: 2, name: 'Krys Marshall', character_name: 'Danielle Poole' },
   { person_id: 3, name: 'Wrenn Schmidt', character_name: 'Margo Madison', profile_asset: 'h3' },
 ];
 

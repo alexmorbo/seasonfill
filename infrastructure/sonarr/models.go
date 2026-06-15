@@ -95,16 +95,16 @@ type episodeDTO struct {
 }
 
 type episodeFileDTO struct {
-	ID           int            `json:"id"`
-	SeriesID     int            `json:"seriesId"`
-	SeasonNumber int            `json:"seasonNumber"`
-	EpisodeIDs   []int          `json:"episodeIds,omitempty"`
-	Path         string         `json:"path,omitempty"`
-	RelativePath string         `json:"relativePath"`
-	Size         int64          `json:"size"`
-	ReleaseGroup string         `json:"releaseGroup,omitempty"`
-	Quality      qualityRef     `json:"quality"`
-	MediaInfo    *mediaInfoDTO  `json:"mediaInfo,omitempty"`
+	ID           int           `json:"id"`
+	SeriesID     int           `json:"seriesId"`
+	SeasonNumber int           `json:"seasonNumber"`
+	EpisodeIDs   []int         `json:"episodeIds,omitempty"`
+	Path         string        `json:"path,omitempty"`
+	RelativePath string        `json:"relativePath"`
+	Size         int64         `json:"size"`
+	ReleaseGroup string        `json:"releaseGroup,omitempty"`
+	Quality      qualityRef    `json:"quality"`
+	MediaInfo    *mediaInfoDTO `json:"mediaInfo,omitempty"`
 }
 
 // mediaInfoDTO mirrors Sonarr's episodeFile.mediaInfo subset we read.

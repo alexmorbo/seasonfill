@@ -103,8 +103,6 @@ func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
 	require.Len(t, rows, 3)
 }
 
-func ptrInt64(v int64) *int64 { return &v }
-
 func TestEpisodeStatesRepository_MediaMeta_RoundTrip(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
