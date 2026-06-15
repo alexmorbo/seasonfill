@@ -27,7 +27,6 @@ function makeItem(overrides: Partial<SeriesCacheItem> = {}): SeriesCacheItem {
     year: 2019,
     network: 'Apple TV+',
     status: 'continuing',
-    poster_path: '/MediaCover/122/poster.jpg',
     poster_hash: 'abc123def456',
     monitored: true,
     missing_count: 0,

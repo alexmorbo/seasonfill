@@ -14,7 +14,6 @@ const lastImportFixture: SeriesCacheItem = {
   year: 2008,
   network: 'AMC',
   status: 'ended',
-  poster_path: '/path/to/poster.jpg',
   monitored: true,
   missing_count: 0,
   last_grab_at: new Date(Date.now() - 86400000).toISOString(),

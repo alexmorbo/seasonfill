@@ -27,7 +27,6 @@ function item(id: number, title: string): SeriesCacheItem {
     year: 2024,
     network: 'HBO',
     status: 'continuing',
-    poster_path: `/MediaCover/${id}/poster.jpg`,
     monitored: true,
     missing_count: 0,
     updated_at: new Date().toISOString(),

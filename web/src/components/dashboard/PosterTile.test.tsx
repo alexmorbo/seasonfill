@@ -26,7 +26,6 @@ const fixture: SeriesCacheItem = {
   year: 2008,
   network: 'AMC',
   status: 'ended',
-  poster_path: '/path/to/poster.jpg',
   poster_hash: 'cafebabe',
   monitored: true,
   missing_count: 0,

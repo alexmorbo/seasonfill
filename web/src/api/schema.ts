@@ -2289,104 +2289,6 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/instances/{name}/series/{id}/poster": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /**
-         * Stream a Sonarr series poster
-         * @description Streams the poster image from the upstream Sonarr at
-         *     /api/v3/MediaCover/{seriesId}/poster[-500].jpg with
-         *     authentication injected server-side. size=small returns
-         *     the 500px variant; default is the full-size poster.
-         *     Responses are served from an in-process LRU cache after
-         *     the first fetch; ETag is synthesized server-side so
-         *     If-None-Match cheaply produces a 304 without touching
-         *     Sonarr.
-         */
-        readonly get: {
-            readonly parameters: {
-                readonly query?: {
-                    /** @description full (default) or small */
-                    readonly size?: string;
-                };
-                readonly header?: never;
-                readonly path: {
-                    /** @description Instance name */
-                    readonly name: string;
-                    /** @description Sonarr series id */
-                    readonly id: number;
-                };
-                readonly cookie?: never;
-            };
-            readonly requestBody?: never;
-            readonly responses: {
-                /** @description poster image bytes */
-                readonly 200: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": string;
-                        readonly "image/jpeg": string;
-                    };
-                };
-                /** @description not modified (when If-None-Match matched cache or upstream) */
-                readonly 304: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                readonly 400: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Unauthorized */
-                readonly 401: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description unknown instance or poster missing */
-                readonly 404: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Bad Gateway */
-                readonly 502: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-            };
-        };
-        readonly put?: never;
-        readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
     readonly "/instances/{name}/series/{id}/refresh": {
         readonly parameters: {
             readonly query?: never;
@@ -4799,11 +4701,6 @@ export type components = {
             readonly monitored?: boolean;
             /** @example 3a2b1c... */
             readonly poster_hash?: string;
-            /**
-             * @description deprecated — use poster_hash + mediaUrl()
-             * @example /MediaCover/122/poster.jpg
-             */
-            readonly poster_path?: string;
             readonly seasons?: readonly components["schemas"]["dto.MissingSeasonStat"][];
             /** @example 122 */
             readonly series_id?: number;
@@ -5272,17 +5169,11 @@ export type components = {
              * @description PosterHash is the content-addressed sha256 of the stored w342
              *     hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
              *     URL). Absent when the row has not been warmed yet — the FE falls
-             *     back to a monogram placeholder. Story 348a.
+             *     back to a monogram placeholder. Story 348a; Story 350 dropped the
+             *     legacy poster_path companion.
              * @example 3a2b1c...
              */
             readonly poster_hash?: string;
-            /**
-             * @description PosterPath is the legacy raw TMDB path. Deprecated by Story 348a
-             *     in favour of PosterHash + mediaUrl(hash); kept for one release so
-             *     the FE cutover (Story 349a) is reversible.
-             * @example /MediaCover/122/poster.jpg
-             */
-            readonly poster_path?: string;
             /** @example 122 */
             readonly sonarr_series_id?: number;
             /**
