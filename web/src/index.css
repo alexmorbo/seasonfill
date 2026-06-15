@@ -110,6 +110,10 @@
   to   { height: 0; }
 }
 
+/* component stylesheets (Tailwind-incompatible CSS) — keep this list short.
+ */
+@import './components/series-detail/series-hero-bleed.css';
+
 @layer base {
   *,
   ::after,
