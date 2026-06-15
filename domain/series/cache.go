@@ -38,12 +38,15 @@ type CacheEntry struct {
 	RuntimeMinutes *int
 	Monitored      bool
 	Overview       *string
-	// PosterHash is the content-addressed sha256 of the stored w342
-	// hero poster, joined from media_assets when status='stored'. nil
-	// when the row has not been warmed yet — the FE falls back to a
-	// monogram placeholder via <MediaImage fallback="monogram">.
-	// Composer-side resolver remains the recovery path. Story 348a.
-	PosterHash   *string
+	// PosterAsset is the raw canon poster path (e.g. "/abc.jpg") as
+	// stored on `series.poster_asset`. Read straight from the canon
+	// JOIN — no dependency on media_assets row existence. Handler-side
+	// helpers derive the content-addressed media hash from this path
+	// deterministically (sha256 over the synthetic CDN URL), so the
+	// FE can request /media/<hash> the moment the canon row carries
+	// a path, even before the byte download has completed. nil when
+	// the canon row has no poster path → FE renders monogram.
+	PosterAsset  *string
 	FanartPath   *string
 	BannerPath   *string
 	MissingCount int

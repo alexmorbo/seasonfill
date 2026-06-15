@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -59,11 +58,15 @@ type cacheRow struct {
 	// card lands in a future story.
 	RuntimeMinutes *int       `gorm:"column:s_runtime_minutes"`
 	LastAiredAt    *time.Time `gorm:"column:s_last_air_date"`
-	// PosterHash is projected via LEFT JOIN media_assets on the
-	// synthetic TMDB CDN URL for the w342 hero (story 348a). nil when
-	// the join misses (no row, or status != 'stored'). Story 350 dropped
-	// the s_poster_asset projection — the FE consumes media_assets only.
-	PosterHash *string `gorm:"column:s_poster_hash"`
+	// PosterAsset is the raw canon path read straight from
+	// series.poster_asset. The handler layer derives the content-
+	// addressed media hash from this path so the catalog tiles can
+	// request /media/<hash> deterministically — there is no LEFT JOIN
+	// on media_assets in this projection anymore, which means tiles
+	// no longer wait for the downloader to write a 'stored' row before
+	// they can show a poster. The on-demand fetch path on the media
+	// handler is the recovery for "hash known, bytes not yet there".
+	PosterAsset *string `gorm:"column:s_poster_asset"`
 	// Genres / Overview / FanartPath / BannerPath: post-cutover canon
 	// does not store these in the same form as the old series_cache
 	// (genres → series_genres join; overview → series_texts; fanart/
@@ -76,10 +79,12 @@ type cacheRow struct {
 // prefix to avoid name collisions with series_cache.*. Used as the
 // SELECT list on every read path.
 //
-// Story 348a: s_poster_hash projects the content-addressed sha256 of
-// the stored hero poster (w342) via LEFT JOIN media_assets on the
-// synthetic TMDB CDN URL. NULL when the join misses (no row, or
-// status != 'stored', or s.poster_asset IS NULL).
+// s_poster_asset projects the raw canon poster path. Handler-side
+// helpers derive the content-addressed media hash deterministically
+// (sha256 of the synthetic CDN URL) so the wire `poster_hash` is
+// available the moment the canon row carries a path, independent of
+// whether media_assets has caught up. This replaces the earlier LEFT
+// JOIN on media_assets, which made tiles wait for the downloader.
 const seriesCacheSelect = `
 		series_cache.instance_name      AS instance_name,
 		series_cache.sonarr_series_id   AS sonarr_series_id,
@@ -97,33 +102,14 @@ const seriesCacheSelect = `
 		s.status                        AS s_status,
 		s.runtime_minutes               AS s_runtime_minutes,
 		s.last_air_date                 AS s_last_air_date,
-		ma_poster.hash                  AS s_poster_hash
+		s.poster_asset                  AS s_poster_asset
 	`
 
-// buildTMDBPosterURLExpr returns the SQL fragment that mints the
-// synthetic CDN URL the prewarm pipeline writes for the w342 hero
-// poster: 'https://image.tmdb.org/t/p/w342' || s.poster_asset.
-// Both Postgres and SQLite support `||` for string concatenation; we
-// keep the dialects unified for the test/prod plan parity. Exported
-// (package-internal) so the future Grab/Missing repos in 348b can
-// reuse the same projection.
-func buildTMDBPosterURLExpr() string {
-	return "'" + appmedia.TMDBImageBase + "/" + appmedia.SeriesPosterListSize + "' || s.poster_asset"
-}
-
-// seriesCachePosterJoin is the LEFT JOIN that projects the stored
-// hero-poster hash. The join is on the synthetic TMDB CDN URL plus
-// status='stored' — pending/failed rows project NULL just like an
-// unjoined row, so the FE falls back to the placeholder uniformly.
-// Computed once at package init so callers see a stable string.
-var seriesCachePosterJoin = `LEFT JOIN media_assets ma_poster ON ma_poster.source_url = ` + buildTMDBPosterURLExpr() + ` AND ma_poster.status = 'stored'`
-
-// seriesCacheJoin chains the canon JOIN with the optional poster hash
-// projection. The series JOIN stays INNER (every cache row has a
-// canon row post-cutover; INNER catches stale data fast). The
-// media_assets JOIN is LEFT — missing rows yield NULL hash, and the
-// composer-side resolver is the recovery path.
-var seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id ` + seriesCachePosterJoin
+// seriesCacheJoin is the canon JOIN. INNER — every cache row has a
+// canon row post-cutover; INNER catches stale data fast. No LEFT JOIN
+// on media_assets: the FE poster_hash is derived from s.poster_asset
+// in the handler layer.
+const seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
 
 func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error) {
 	var row cacheRow
@@ -653,7 +639,7 @@ func rowToCacheEntry(r cacheRow) series.CacheEntry {
 		RuntimeMinutes: r.RuntimeMinutes,
 		Monitored:      r.Monitored,
 		Overview:       nil,
-		PosterHash:     r.PosterHash,
+		PosterAsset:    r.PosterAsset,
 		FanartPath:     nil,
 		BannerPath:     nil,
 		MissingCount:   r.MissingCount,

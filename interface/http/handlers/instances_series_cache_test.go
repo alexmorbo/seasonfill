@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -194,19 +195,23 @@ func TestInstancesHandler_ListSeriesCache_StateAll_HappyPath(t *testing.T) {
 	assert.Equal(t, 3, body.Items[0].SonarrSeriesID, "updated_desc default — newest first")
 }
 
-// TestInstancesHandler_ListSeriesCache_PosterHash — Story 348a: the
-// /series-cache list serializes `poster_hash` for rows whose canon
-// poster_asset is warmed in media_assets (status='stored'), and omits
-// the field when the hash is absent.
+// The /series-cache list serializes `poster_hash` for every row whose
+// canon poster_asset is set, deriving the hash deterministically from
+// the synthetic w342 CDN URL. The downloader having reached
+// status='stored' on media_assets is NOT a precondition — the FE
+// requests /media/<hash> immediately, and the media handler's on-
+// demand fetch fills the bytes. Rows without a canon path omit the
+// field (FE falls back to monogram).
 func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
-	f.seed(t, "homelab", 1, "Warmed", 0, now)
-	f.seed(t, "homelab", 2, "Unwarmed", 0, now.Add(time.Minute))
+	f.seed(t, "homelab", 1, "WithPath", 0, now)
+	f.seed(t, "homelab", 2, "Pathless", 0, now.Add(time.Minute))
 
-	// Warm series 1 by stamping the canon poster_asset + writing a
-	// stored media_assets row matching the synthetic CDN URL.
+	// Stamp the canon poster_asset on series 1. Deliberately do NOT
+	// write a media_assets row — the new behavior is "canon path → hash
+	// projected regardless of media_assets state".
 	var sc database.SeriesCacheModel
 	require.NoError(t, f.db.Where(
 		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
@@ -215,13 +220,10 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 	require.NoError(t, f.db.Model(&database.SeriesModel{}).
 		Where("id = ?", *sc.SeriesID).
 		Update("poster_asset", "/warmed.jpg").Error)
-	require.NoError(t, f.db.Create(&database.MediaAssetModel{
-		Hash:      "abcdef1234567890",
-		SourceURL: "https://image.tmdb.org/t/p/w342/warmed.jpg",
-		Kind:      "poster_w342",
-		Status:    "stored",
-		CreatedAt: now,
-	}).Error)
+
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/warmed.jpg"),
+	)
 
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -231,16 +233,16 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 	for _, it := range body.Items {
 		byID[it.SonarrSeriesID] = it
 	}
-	require.NotNil(t, byID[1].PosterHash, "warmed row → poster_hash projected")
-	assert.Equal(t, "abcdef1234567890", *byID[1].PosterHash)
-	assert.Nil(t, byID[2].PosterHash, "unwarmed row → poster_hash absent")
+	require.NotNil(t, byID[1].PosterHash, "row with canon path → poster_hash derived")
+	assert.Equal(t, expectedHash, *byID[1].PosterHash)
+	assert.Nil(t, byID[2].PosterHash, "row without canon path → poster_hash absent")
 
 	// Verify the wire JSON actually carries poster_hash (omitempty
 	// must not strip it when present).
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	raw := rec.Body.String()
-	assert.Contains(t, raw, `"poster_hash":"abcdef1234567890"`,
-		"poster_hash field present in wire JSON for warmed row")
+	assert.Contains(t, raw, `"poster_hash":"`+expectedHash+`"`,
+		"poster_hash field present in wire JSON for row with canon path")
 }
 
 func TestInstancesHandler_ListSeriesCache_StateImported(t *testing.T) {

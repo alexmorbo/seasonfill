@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
@@ -800,13 +801,11 @@ func TestAuditHandler_ListGrabs_OmitsTitleSlugWhenCacheMisses(t *testing.T) {
 	assert.False(t, present, "title_slug should be omitted when no series_cache row matches")
 }
 
-// seedSeriesCachePosterHash stamps poster_asset on the canon row
-// resolved for (instance, sonarrID) and inserts a media_assets row
-// matching the synthetic CDN URL the series_cache LEFT JOIN
-// expects. Mirrors infrastructure/database/repositories.seedPoster
-// AssetAndMedia. status=" " (empty) skips the media_assets row
-// (covers "no stored media" path).
-func seedSeriesCachePosterHash(t *testing.T, f *auditFixture, instance string, sonarrID int, path, status, hash string) {
+// seedCanonPosterAsset stamps poster_asset on the canon row resolved
+// for (instance, sonarrID). The grabs handler derives the wire
+// poster_hash deterministically from this raw path — independent of
+// any media_assets row state.
+func seedCanonPosterAsset(t *testing.T, f *auditFixture, instance string, sonarrID int, path string) {
 	t.Helper()
 	var sc database.SeriesCacheModel
 	require.NoError(t, f.db.Where(
@@ -816,29 +815,20 @@ func seedSeriesCachePosterHash(t *testing.T, f *auditFixture, instance string, s
 	require.NoError(t, f.db.Model(&database.SeriesModel{}).
 		Where("id = ?", *sc.SeriesID).
 		Update("poster_asset", path).Error)
-	if status == "" {
-		return
-	}
-	srcURL := "https://image.tmdb.org/t/p/w342" + path
-	require.NoError(t, f.db.Create(&database.MediaAssetModel{
-		Hash:      hash,
-		SourceURL: srcURL,
-		Kind:      "poster_w342",
-		Status:    status,
-		CreatedAt: time.Now().UTC(),
-	}).Error)
 }
 
-// TestAuditHandler_ListGrabs_IncludesPosterHashFromCache covers 348b.
-// When a series_cache row plus a stored media_assets row exist for
-// the (instance, series_id) tuple of a grab, the wire response
-// carries poster_hash from the media_assets row — the FE renders
-// posters via mediaUrl(hash). One ListActiveByInstance call covers
-// both title_slug and poster_hash (no fanout).
-func TestAuditHandler_ListGrabs_IncludesPosterHashFromCache(t *testing.T) {
+// When a series_cache row exists and the canon poster_asset is set,
+// the grabs wire response carries poster_hash derived from the
+// synthetic w342 CDN URL — independent of any media_assets row state.
+// One ListActiveByInstance call covers both title_slug and the
+// derived poster_hash (no fanout).
+func TestAuditHandler_ListGrabs_IncludesPosterHashDerivedFromCanonPath(t *testing.T) {
 	f := newAuditFixture(t, false)
 	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	hash := "3a2b1c4d5e6f7890abcdef0123456789abcdef0123456789abcdef0123456789"
+	path := "/poster.jpg"
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, path),
+	)
 
 	rec := f.seedGrab(t, "main", 122, 1, grab.StatusImported, base)
 	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
@@ -848,36 +838,34 @@ func TestAuditHandler_ListGrabs_IncludesPosterHashFromCache(t *testing.T) {
 		TitleSlug:      "your-friends-and-neighbors",
 		Monitored:      true,
 	}))
-	seedSeriesCachePosterHash(t, f, "main", 122, "/poster.jpg", "stored", hash)
+	seedCanonPosterAsset(t, f, "main", 122, path)
 
 	w := f.do(t, http.MethodGet, "/api/v1/grabs")
 	require.Equal(t, http.StatusOK, w.Code)
 	body := decodeList(t, w)
 	require.Len(t, body.Items, 1)
 	assert.Equal(t, rec.ID.String(), body.Items[0]["id"])
-	assert.Equal(t, hash, body.Items[0]["poster_hash"],
-		"stored media_assets row → hash projected to wire")
+	assert.Equal(t, expectedHash, body.Items[0]["poster_hash"],
+		"canon path on series → deterministic hash projected to wire (no media_assets dependency)")
 	// Slug still ships alongside — the single repo call covers both.
 	assert.Equal(t, "your-friends-and-neighbors", body.Items[0]["title_slug"])
 }
 
-// TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia covers
-// 348b's degradation paths. Two grabs:
-//   - series 222: cache row exists, poster_asset set, but media_assets
-//     row is status='pending' → join filtered → poster_hash nil.
-//   - series 333: no series_cache row at all → key misses entirely.
-//
-// Both rows must omit `poster_hash` from the wire (omitempty), the FE
-// then falls back to the monogram placeholder.
-func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia(t *testing.T) {
+// Pending media_assets rows must NOT suppress the wire poster_hash —
+// the derivation works off the canon path alone, so the FE can request
+// /media/<hash> immediately and the media handler's on-demand fetch
+// fills the bytes. This is the central fix for the "monogram until
+// Series Detail" bug.
+func TestAuditHandler_ListGrabs_PosterHashUnaffectedByPendingMediaRow(t *testing.T) {
 	f := newAuditFixture(t, false)
 	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	path := "/pending.jpg"
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, path),
+	)
 
 	f.seedGrab(t, "main", 222, 1, grab.StatusImported, base.Add(time.Minute))
-	f.seedGrab(t, "main", 333, 1, grab.StatusImported, base)
 
-	// series 222: cache row present but media row is pending — join
-	// filtered by status='stored', so PosterHash projects NULL.
 	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   "main",
 		SonarrSeriesID: 222,
@@ -885,7 +873,45 @@ func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia(t *testing.T) {
 		TitleSlug:      "pending-poster",
 		Monitored:      true,
 	}))
-	seedSeriesCachePosterHash(t, f, "main", 222, "/pending.jpg", "pending", "feedface11feedface11feedface11feedface11feedface11feedface11feed")
+	seedCanonPosterAsset(t, f, "main", 222, path)
+	// media_assets row exists but is still in 'pending'. Previously
+	// this suppressed the wire poster_hash; the fix is to ignore the
+	// media row state and derive from the canon path.
+	require.NoError(t, f.db.Create(&database.MediaAssetModel{
+		Hash:      "feedface11feedface11feedface11feedface11feedface11feedface11feed",
+		SourceURL: "https://image.tmdb.org/t/p/w342/pending.jpg",
+		Kind:      "poster_w342",
+		Status:    "pending",
+		CreatedAt: time.Now().UTC(),
+	}).Error)
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, expectedHash, body.Items[0]["poster_hash"],
+		"pending media_assets row must NOT suppress the canon-derived poster_hash")
+}
+
+// poster_hash MUST be omitted from the wire when either the cache row
+// is missing OR the canon poster_asset is NULL — those are the cases
+// where the FE legitimately falls back to a monogram placeholder.
+func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoCanonPath(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	f.seedGrab(t, "main", 222, 1, grab.StatusImported, base.Add(time.Minute))
+	f.seedGrab(t, "main", 333, 1, grab.StatusImported, base)
+
+	// series 222: cache row exists, but poster_asset stays NULL on the
+	// canon row — handler derivation returns nil → field omitted.
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 222,
+		Title:          "No Canon Path",
+		TitleSlug:      "no-canon-path",
+		Monitored:      true,
+	}))
 	// series 333: no series_cache row at all — collectGrabCacheFields
 	// map misses → hashes[key] is nil pointer.
 
@@ -896,7 +922,7 @@ func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoStoredMedia(t *testing.T) {
 	for _, it := range body.Items {
 		_, present := it["poster_hash"]
 		assert.False(t, present,
-			"poster_hash must be omitted from wire when join misses or status!=stored (series %v)", it["series_id"])
+			"poster_hash must be omitted from wire when canon path is NULL or cache row missing (series %v)", it["series_id"])
 	}
 	// Sanity: omitempty drops the field entirely, never emits null.
 	assert.NotContains(t, w.Body.String(), `"poster_hash":null`)

@@ -626,8 +626,12 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 			if e.TitleSlug != "" {
 				slugs[key] = e.TitleSlug
 			}
-			if e.PosterHash != nil {
-				hashes[key] = e.PosterHash
+			// Derive the content-addressed media hash from the raw
+			// canon poster path — no dependency on media_assets row
+			// existence. The media handler's on-demand fetch fills the
+			// bytes when the FE first requests them.
+			if hash := mediaHashForPosterAsset(e.PosterAsset); hash != nil {
+				hashes[key] = hash
 			}
 		}
 	}

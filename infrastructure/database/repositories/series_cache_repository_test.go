@@ -837,21 +837,24 @@ func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 	assert.Equal(t, 3, items[2].SonarrSeriesID, "nil aired last (NULLS LAST)")
 }
 
-// Story 348a — LEFT JOIN media_assets projects the content-addressed
-// hash for the stored w342 hero poster onto every series_cache read
-// path.
+// The repository projects the raw canon poster path (s.poster_asset)
+// onto every read path so the handler layer can derive the content-
+// addressed media hash without waiting for the media_assets row to
+// catch up. The hash derivation itself lives in interface/http/
+// handlers/media_hash.go and is unit-tested at the handler level.
 //
-// seedPosterAssetAndMedia stamps `s.poster_asset = path` on the canon
-// row resolved for (instance, sonarrID) and optionally inserts a
-// media_assets row matching the synthetic CDN URL the LEFT JOIN
-// expects. status=” skips the media_assets insert (covers the
-// "row entirely missing" case).
-func seedPosterAssetAndMedia(
+// seedPosterAssetOnCanon stamps `s.poster_asset = path` on the canon
+// row resolved for (instance, sonarrID). It deliberately does NOT
+// write a media_assets row — the previous projection's dependency on
+// status='stored' is the bug these tests guard against, and the new
+// behavior is "path on canon → PosterAsset projected regardless of
+// media_assets state".
+func seedPosterAssetOnCanon(
 	t *testing.T,
 	db *gorm.DB,
 	instance string,
 	sonarrID int,
-	path, status, hash string,
+	path string,
 ) {
 	t.Helper()
 	var sc database.SeriesCacheModel
@@ -862,63 +865,71 @@ func seedPosterAssetAndMedia(
 	require.NoError(t, db.Model(&database.SeriesModel{}).
 		Where("id = ?", *sc.SeriesID).
 		Update("poster_asset", path).Error)
-	if status == "" {
-		return
-	}
-	srcURL := "https://image.tmdb.org/t/p/w342" + path
-	require.NoError(t, db.Create(&database.MediaAssetModel{
-		Hash:      hash,
-		SourceURL: srcURL,
-		Kind:      "poster_w342",
-		Status:    status,
-		CreatedAt: time.Now().UTC(),
-	}).Error)
 }
 
-func TestSeriesCacheRepository_LeftJoinMediaAssets_StoredHash(t *testing.T) {
+func TestSeriesCacheRepository_ProjectsRawPosterAsset(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
-	seedPosterAssetAndMedia(t, db, "main", 12, "/abc.jpg", "stored", "deadbeef00")
+	seedPosterAssetOnCanon(t, db, "main", 12, "/abc.jpg")
 
 	got, err := repo.Get(ctx, "main", 12)
 	require.NoError(t, err)
-	require.NotNil(t, got.PosterHash, "stored media_assets row → hash projected")
-	assert.Equal(t, "deadbeef00", *got.PosterHash)
+	require.NotNil(t, got.PosterAsset, "canon poster path must project")
+	assert.Equal(t, "/abc.jpg", *got.PosterAsset)
 }
 
-func TestSeriesCacheRepository_LeftJoinMediaAssets_PendingStatus_NoHash(t *testing.T) {
+func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfMediaStatus(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 13)))
-	seedPosterAssetAndMedia(t, db, "main", 13, "/def.jpg", "pending", "feedface11")
+	seedPosterAssetOnCanon(t, db, "main", 13, "/def.jpg")
+	// Write a media_assets row with status='pending' — the projection
+	// must NOT filter on this anymore. The canon path drives the wire
+	// `poster_hash`; the media row state drives the bytes path only.
+	require.NoError(t, db.Create(&database.MediaAssetModel{
+		Hash:      "feedface11",
+		SourceURL: "https://image.tmdb.org/t/p/w342/def.jpg",
+		Kind:      "poster_w342",
+		Status:    "pending",
+		CreatedAt: time.Now().UTC(),
+	}).Error)
 
 	got, err := repo.Get(ctx, "main", 13)
 	require.NoError(t, err)
-	assert.Nil(t, got.PosterHash, "status=pending → join filtered → nil hash")
+	require.NotNil(t, got.PosterAsset, "pending media row must not suppress the canon path projection")
+	assert.Equal(t, "/def.jpg", *got.PosterAsset)
 }
 
-func TestSeriesCacheRepository_LeftJoinMediaAssets_FailedStatus_NoHash(t *testing.T) {
+func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfFailedMediaRow(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 14)))
-	seedPosterAssetAndMedia(t, db, "main", 14, "/ghi.jpg", "failed", "cafebabe22")
+	seedPosterAssetOnCanon(t, db, "main", 14, "/ghi.jpg")
+	require.NoError(t, db.Create(&database.MediaAssetModel{
+		Hash:      "cafebabe22",
+		SourceURL: "https://image.tmdb.org/t/p/w342/ghi.jpg",
+		Kind:      "poster_w342",
+		Status:    "failed",
+		CreatedAt: time.Now().UTC(),
+	}).Error)
 
 	got, err := repo.Get(ctx, "main", 14)
 	require.NoError(t, err)
-	assert.Nil(t, got.PosterHash, "status=failed → join filtered → nil hash")
+	require.NotNil(t, got.PosterAsset, "failed media row must not suppress the canon path projection")
+	assert.Equal(t, "/ghi.jpg", *got.PosterAsset)
 }
 
-func TestSeriesCacheRepository_LeftJoinMediaAssets_NullPosterAsset_NoHash(t *testing.T) {
+func TestSeriesCacheRepository_NullCanonPoster_NilAsset(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
@@ -928,28 +939,31 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_NullPosterAsset_NoHash(t *tes
 	// Don't seed poster_asset — canon row leaves it NULL.
 	got, err := repo.Get(ctx, "main", 15)
 	require.NoError(t, err)
-	assert.Nil(t, got.PosterHash, "NULL s.poster_asset → no join match → nil hash")
+	assert.Nil(t, got.PosterAsset, "NULL s.poster_asset → nil PosterAsset")
 }
 
-func TestSeriesCacheRepository_LeftJoinMediaAssets_NoMediaRow_NoHash(t *testing.T) {
+func TestSeriesCacheRepository_NoMediaRow_PosterAssetStillProjected(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	ctx := context.Background()
 
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 16)))
-	// poster_asset set, but no media_assets row written.
-	seedPosterAssetAndMedia(t, db, "main", 16, "/jkl.jpg", "", "")
+	// poster_asset set on canon, NO media_assets row at all — the
+	// FE still gets a deterministic hash via handler-side derivation.
+	seedPosterAssetOnCanon(t, db, "main", 16, "/jkl.jpg")
 
 	got, err := repo.Get(ctx, "main", 16)
 	require.NoError(t, err)
-	assert.Nil(t, got.PosterHash, "no media_assets row → LEFT JOIN nil → nil hash")
+	require.NotNil(t, got.PosterAsset,
+		"canon path projects even without any media_assets row — handler derives hash")
+	assert.Equal(t, "/jkl.jpg", *got.PosterAsset)
 }
 
-// TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved
-// — one series row with no matching media_assets row must still yield
-// exactly one result row (LEFT JOIN semantics).
-func TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved(t *testing.T) {
+// Cardinality: one series_cache row in, one out — no fanout, regardless
+// of media_assets state. The previous LEFT JOIN risk (multiple matching
+// rows) is gone now that we project raw s.poster_asset only.
+func TestSeriesCacheRepository_CardinalityPreservedWithoutMediaJoin(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
@@ -958,10 +972,8 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved(t *testi
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 21)))
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 22)))
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 23)))
-	// Only series 22 has poster_asset + stored hash.
-	seedPosterAssetAndMedia(t, db, "main", 22, "/mno.jpg", "stored", "1234567890")
-	// Series 21 has poster_asset but no media row.
-	seedPosterAssetAndMedia(t, db, "main", 21, "/pqr.jpg", "", "")
+	seedPosterAssetOnCanon(t, db, "main", 22, "/mno.jpg")
+	seedPosterAssetOnCanon(t, db, "main", 21, "/pqr.jpg")
 
 	active, err := repo.ListActiveByInstance(ctx, "main")
 	require.NoError(t, err)
@@ -970,16 +982,17 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved(t *testi
 	for _, e := range active {
 		byID[e.SonarrSeriesID] = e
 	}
-	require.NotNil(t, byID[22].PosterHash)
-	assert.Equal(t, "1234567890", *byID[22].PosterHash)
-	assert.Nil(t, byID[21].PosterHash)
-	assert.Nil(t, byID[23].PosterHash)
+	require.NotNil(t, byID[21].PosterAsset)
+	assert.Equal(t, "/pqr.jpg", *byID[21].PosterAsset)
+	require.NotNil(t, byID[22].PosterAsset)
+	assert.Equal(t, "/mno.jpg", *byID[22].PosterAsset)
+	assert.Nil(t, byID[23].PosterAsset)
 }
 
-// TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement —
-// the LEFT JOIN must yield ONE statement, not N+1. Capture the SQL via
-// gorm's DryRun session and assert it contains exactly one SELECT.
-func TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement(t *testing.T) {
+// Single SQL statement with no LEFT JOIN on media_assets — proves the
+// projection no longer depends on the media-assets row reaching a
+// 'stored' state before tiles can render.
+func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
@@ -988,8 +1001,8 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement(t *testing
 	for i := 1; i <= 4; i++ {
 		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", i)))
 	}
-	seedPosterAssetAndMedia(t, db, "main", 1, "/a.jpg", "stored", "h1")
-	seedPosterAssetAndMedia(t, db, "main", 2, "/b.jpg", "stored", "h2")
+	seedPosterAssetOnCanon(t, db, "main", 1, "/a.jpg")
+	seedPosterAssetOnCanon(t, db, "main", 2, "/b.jpg")
 
 	dry := db.Session(&gorm.Session{DryRun: true})
 	stmt := dry.Table("series_cache").
@@ -999,34 +1012,33 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_SingleSQLStatement(t *testing
 		Find(&[]cacheRow{}).Statement
 	sql := stmt.SQL.String()
 	assert.Equal(t, 1, strings.Count(strings.ToLower(sql), "select "),
-		"exactly one SELECT — LEFT JOIN, not N+1; got: %s", sql)
-	assert.Contains(t, sql, "LEFT JOIN media_assets ma_poster",
-		"LEFT JOIN media_assets present in projection: %s", sql)
-	assert.Contains(t, sql, "s_poster_hash",
-		"PosterHash projected: %s", sql)
+		"exactly one SELECT; got: %s", sql)
+	assert.NotContains(t, strings.ToLower(sql), "media_assets",
+		"projection must not LEFT JOIN media_assets anymore: %s", sql)
+	assert.Contains(t, sql, "s_poster_asset",
+		"PosterAsset projected: %s", sql)
 
-	// Verify the result actually carries hashes via the live (non-dry) path.
+	// Verify the result carries the canon paths.
 	active, err := repo.ListActiveByInstance(ctx, "main")
 	require.NoError(t, err)
-	hashes := 0
+	withPath := 0
 	for _, e := range active {
-		if e.PosterHash != nil {
-			hashes++
+		if e.PosterAsset != nil {
+			withPath++
 		}
 	}
-	assert.Equal(t, 2, hashes, "two seeded stored rows → two PosterHash values")
+	assert.Equal(t, 2, withPath, "two seeded canon paths → two PosterAsset values")
 
-	// ListByFilter also goes via the same JOIN.
 	items, _, _, _, err := repo.ListByFilter(ctx, "main",
 		ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
 		ports.SeriesCacheSortUpdatedDesc,
 		ports.Pagination{Limit: 50})
 	require.NoError(t, err)
-	hashes = 0
+	withPath = 0
 	for _, e := range items {
-		if e.PosterHash != nil {
-			hashes++
+		if e.PosterAsset != nil {
+			withPath++
 		}
 	}
-	assert.Equal(t, 2, hashes, "ListByFilter projects hashes via the same JOIN")
+	assert.Equal(t, 2, withPath, "ListByFilter projects PosterAsset via the same SELECT")
 }

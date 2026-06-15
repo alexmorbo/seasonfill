@@ -337,8 +337,9 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 	}
 }
 
-// enrichMissingFromCache joins TitleSlug / Year / PosterHash from
-// series_cache onto every item. ONE query per request — the in-memory
+// enrichMissingFromCache joins TitleSlug / Year / PosterHash (derived
+// from the raw canon poster_asset) from series_cache onto every item.
+// ONE query per request — the in-memory
 // map lookup is O(1) per item, no N+1. Repository errors WARN-log and
 // the response continues unenriched (the queue page must NOT 5xx when
 // the cache hiccups). nil h.seriesCache short-circuits to no-op.
@@ -363,7 +364,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 		}
 		items[i].TitleSlug = e.TitleSlug
 		items[i].Year = e.Year
-		items[i].PosterHash = e.PosterHash
+		items[i].PosterHash = mediaHashForPosterAsset(e.PosterAsset)
 	}
 }
 
@@ -995,7 +996,7 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		TitleSlug:           e.TitleSlug,
 		Year:                e.Year,
 		Status:              e.Status,
-		PosterHash:          e.PosterHash,
+		PosterHash:          mediaHashForPosterAsset(e.PosterAsset),
 		Monitored:           e.Monitored,
 		MissingCount:        e.MissingCount,
 		LastGrabAt:          lastGrabAt,

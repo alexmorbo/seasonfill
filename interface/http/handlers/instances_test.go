@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
@@ -1056,17 +1057,18 @@ func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 	}
 }
 
-// TestInstancesHandler_Missing_PosterHashField covers Story 348b:
-// when the series_cache entry carries a non-nil PosterHash, the
-// /missing wire response carries it as `poster_hash`. Entries without
-// a hash omit the field. No extra SQL — the existing
-// ListActiveByInstance call is reused (cache.listCall == 1).
+// When the series_cache entry carries a non-nil PosterAsset (raw canon
+// path), the /missing wire response carries a deterministic
+// `poster_hash` derived from the synthetic CDN URL. Entries without a
+// path omit the field. No extra SQL — the existing ListActiveByInstance
+// call is reused (cache.listCall == 1).
 func TestInstancesHandler_Missing_PosterHashField(t *testing.T) {
-	hash := "3a2b1c4d5e6f7890abcdef0123456789abcdef0123456789abcdef0123456789"
+	path := "/poster-test.jpg"
+	expectedHash := appmedia.HashFromURL(appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, path))
 	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
 		TitleSlug: "severance", Year: intPtr(2022),
-		PosterHash: strPtr(hash)}
-	// Series 2 has no hash — proves omitempty + nil propagation.
+		PosterAsset: strPtr(path)}
+	// Series 2 has no canon path — proves omitempty + nil propagation.
 	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
 		TitleSlug: "andor", Year: intPtr(2022)}
 
@@ -1080,14 +1082,14 @@ func TestInstancesHandler_Missing_PosterHashField(t *testing.T) {
 	items := decodeEnrichedItems(t, w.Body.Bytes())
 	require.Len(t, items, 2)
 
-	// Series 1 — hash present, matches.
+	// Series 1 — hash derived from canon path.
 	assert.Equal(t, 1, items[0].SeriesID)
-	require.NotNil(t, items[0].PosterHash, "stored hash must propagate to wire")
-	assert.Equal(t, hash, *items[0].PosterHash)
+	require.NotNil(t, items[0].PosterHash, "derived hash must propagate to wire")
+	assert.Equal(t, expectedHash, *items[0].PosterHash)
 
-	// Series 2 — no hash, field omitted from JSON entirely.
+	// Series 2 — no canon path, field omitted from JSON entirely.
 	assert.Equal(t, 2, items[1].SeriesID)
-	assert.Nil(t, items[1].PosterHash, "nil hash must omit the field")
+	assert.Nil(t, items[1].PosterHash, "nil path must omit the wire field")
 	assert.NotContains(t, w.Body.String(), `"poster_hash":null`,
 		"omitempty must drop the key entirely, not emit null")
 

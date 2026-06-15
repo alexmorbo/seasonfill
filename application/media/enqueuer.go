@@ -34,8 +34,8 @@ const TMDBImageBase = tmdbImageBase
 // SeriesPosterListSize is the canonical w342 hero-poster size used by
 // the catalog tiles. MUST match what composer.resolveAssets passes to
 // MediaResolver and what the prewarm pipeline writes for the series
-// list — series_cache.PosterHash projection joins on
-// CONCAT(TMDBImageBase, '/', SeriesPosterListSize, s.poster_asset).
+// list — handlers derive the wire `poster_hash` by hashing
+// BuildTMDBImageURL(SeriesPosterListSize, s.poster_asset).
 const SeriesPosterListSize = "w342"
 
 // channelCap is the pre-warm queue depth — PRD §6.6. Sized for ~10
