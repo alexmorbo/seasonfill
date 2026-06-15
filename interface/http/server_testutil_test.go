@@ -26,6 +26,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		nil,           // mediaHandler (Story 214 F-1)
+		nil,           // mediaPending (Story 352, nil-OK)
 		nil, nil, nil, // seriesDetailHandler + seriesSeasonHandler (215 G-1) + seriesCastHandler (216 H-1)
 		nil, // peopleHandler (Story 217 H-2)
 		nil, // seriesRefreshHandler (Story 218 E-2)

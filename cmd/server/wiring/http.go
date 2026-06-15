@@ -78,6 +78,7 @@ func BuildHTTPServer(
 		regrabBundle.WatchdogSeasonsHandler,
 		regrabBundle.WebhooksAggregateHandler,
 		mediaBundle.Handler,
+		mediaBundle.AssetsRepo,
 		seriesDetailBundle.DetailHandler,
 		seriesDetailBundle.SeasonHandler,
 		seriesDetailBundle.CastHandler,

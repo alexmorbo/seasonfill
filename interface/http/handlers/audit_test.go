@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
@@ -45,6 +46,14 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, database.Migrate(db))
+	// Story 352: the EnsurePending kick runs in a background
+	// goroutine which acquires a fresh sqlite connection — :memory:
+	// connections get isolated databases, so without single-conn
+	// pinning the goroutine's writes land on an unmigrated DB.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	scans := repositories.NewScanRepository(db)
 	decs := repositories.NewDecisionRepository(db)
@@ -71,6 +80,31 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	api.GET("/grabs", h.ListGrabs)
 
 	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, seriesCache: seriesCache, router: r}
+}
+
+// withMediaPending swaps the AuditHandler in the fixture's router
+// for one that also wires a MediaAssetsRepository as the
+// CatalogMediaPendingWriter. Story 352 — verifies /grabs enqueues
+// EnsurePending after building the wire DTOs.
+//
+// Returns the underlying *MediaAssetsRepository so tests can poll
+// media_assets for the row.
+func (f *auditFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsRepository {
+	t.Helper()
+	mediaRepo := repositories.NewMediaAssetsRepository(f.db)
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewAuditHandler(f.scans, f.decs, f.grabs, lg).
+		WithSeriesCache(f.seriesCache).
+		WithMediaPending(mediaRepo)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	api.GET("/scans", h.ListScans)
+	api.GET("/scans/:id", h.GetScan)
+	api.GET("/decisions", h.ListDecisions)
+	api.GET("/decisions/:id", h.GetDecision)
+	api.GET("/grabs", h.ListGrabs)
+	f.router = r
+	return mediaRepo
 }
 
 func (f *auditFixture) seedScan(t *testing.T, instance, status string, createdAt time.Time) ports.ScanRecord {
@@ -926,4 +960,68 @@ func TestAuditHandler_ListGrabs_OmitsPosterHashWhenNoCanonPath(t *testing.T) {
 	}
 	// Sanity: omitempty drops the field entirely, never emits null.
 	assert.NotContains(t, w.Body.String(), `"poster_hash":null`)
+}
+
+// Story 352: /grabs projects an eager poster_hash via
+// collectGrabCacheFields and must land a pending media_assets row
+// for every projected hash. The kick runs in a background goroutine
+// after the response commits; the test polls media_assets until the
+// row appears (2-second deadline).
+func TestAudit_ListGrabs_EnsuresPendingMediaAssets(t *testing.T) {
+	t.Parallel()
+	f := newAuditFixture(t, false)
+	mediaRepo := f.withMediaPending(t)
+
+	now := time.Now().UTC()
+	scan := f.seedScan(t, "homelab", "completed", now)
+	_ = f.seedDecision(t, scan.ID, "homelab", 42, 1, decision.OutcomeGrab, now)
+	g := f.seedGrab(t, "homelab", 42, 1, grab.StatusGrabbed, now)
+	_ = g
+
+	// Seed a series_cache row with a canon poster_asset for the
+	// (instance, series_id) pair the grab references. The audit
+	// handler reads series_cache to derive title_slug + poster_hash.
+	// The PosterAsset is stored on the canon `series` row, not the
+	// series_cache row — Upsert does not persist e.PosterAsset
+	// (see resolveOrCreateCanon docs), so we stamp the canon row
+	// directly after upsert.
+	year := 2024
+	posterPath := "/audit-grab.jpg"
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   "homelab",
+		SonarrSeriesID: 42,
+		Title:          "Hijack",
+		TitleSlug:      "hijack",
+		Year:           &year,
+		Monitored:      true,
+	}))
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", "homelab", 42,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID)
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", posterPath).Error)
+
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, posterPath),
+	)
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs?instance=homelab")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var asset media.Asset
+	for time.Now().Before(deadline) {
+		a, err := mediaRepo.Get(context.Background(), expectedHash)
+		if err == nil {
+			asset = a
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, expectedHash, asset.Hash, "media_assets row must exist for the eager hash from the grab series_cache lookup")
+	assert.Equal(t, "poster_w342", asset.Kind)
+	assert.Equal(t, media.StatusPending, asset.Status)
 }

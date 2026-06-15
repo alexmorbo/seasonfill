@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -43,6 +45,17 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, database.Migrate(db))
+	// Story 352: the EnsurePending kick runs in a background
+	// goroutine which acquires a fresh sqlite connection — :memory:
+	// connections get isolated databases, so without single-conn
+	// pinning the goroutine's writes land on an unmigrated DB. Other
+	// fixtures that ran only on the request-serving connection don't
+	// need this; we add it here because we touch media_assets from
+	// the background goroutine.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	repo := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
 	grabs := repositories.NewGrabRepository(db)
@@ -62,6 +75,42 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	api.GET("/instances/:name/series-cache/networks", h.ListSeriesCacheNetworks)
 
 	return &seriesCacheFixture{db: db, repo: repo, grabs: grabs, router: r}
+}
+
+// withMediaPending widens the fixture to also wire a
+// MediaAssetsRepository as the InstancesHandler's CatalogMediaPendingWriter.
+// Used by the story 352 tests that assert the EnsurePending kick fired
+// after the response committed.
+//
+// Returns the underlying *MediaAssetsRepository so the test can query
+// media_assets rows for assertions.
+func (f *seriesCacheFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsRepository {
+	t.Helper()
+	mediaRepo := repositories.NewMediaAssetsRepository(f.db)
+
+	// Rebuild the router with a fresh handler chain that includes
+	// WithMediaPending. The fixture's existing router has the handler
+	// registered without the writer, so we replace it.
+	instMap := map[string]scan.Instance{}
+	// Re-read instance set from the existing route registration is
+	// impossible — restore from a sentinel. The fixture builder seeds
+	// "homelab" as the canonical name; tests that need additional
+	// instances should not use this helper.
+	instMap["homelab"] = scan.Instance{Config: config.SonarrInstance{Name: "homelab", URL: "http://x", Mode: "auto"}}
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance { return instMap }}
+	checker := &healthcheck.Checker{}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(checker, reg, lg).
+		WithSeriesCache(f.repo).
+		WithMediaPending(mediaRepo)
+
+	r := gin.New()
+	api := r.Group("/api/v1")
+	api.GET("/instances/:name/series-cache", h.ListSeriesCache)
+	api.GET("/instances/:name/series-cache/networks", h.ListSeriesCacheNetworks)
+	api.GET("/instances/:name/missing", h.Missing)
+	f.router = r
+	return mediaRepo
 }
 
 // seedWith — Story 121a: lets a test seed a row and then mutate
@@ -546,4 +595,160 @@ func TestInstancesHandler_ListSeriesCacheNetworks_UnknownInstance404(t *testing.
 		"/api/v1/instances/nope/series-cache/networks", nil)
 	f.router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// Story 352: the /series-cache endpoint must land a pending
+// media_assets row for every series whose canon poster_asset is set,
+// keyed on the same eager hash projected into the wire DTO. The
+// EnsurePending call runs in a background goroutine after the response
+// commits; the test polls media_assets until the row appears (2-second
+// deadline). On-demand fetch (run by GET /api/v1/media/<hash>) then
+// reads the row to recover the source_url + kind without an extra
+// catalog lookup.
+func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	mediaRepo := f.withMediaPending(t)
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "WithPath", 0, now)
+
+	// Stamp the canon poster_asset on series 1.
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID)
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", "/poster.jpg").Error)
+
+	expectedURL := appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/poster.jpg")
+	expectedHash := appmedia.HashFromURL(expectedURL)
+
+	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Poll media_assets for the pending row. 2-second deadline + 10 ms
+	// step balances test wall-time against the goroutine's wake-up
+	// latency under -race (~ms on a hot CPU).
+	deadline := time.Now().Add(2 * time.Second)
+	var asset media.Asset
+	for time.Now().Before(deadline) {
+		a, err := mediaRepo.Get(context.Background(), expectedHash)
+		if err == nil {
+			asset = a
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, expectedHash, asset.Hash, "media_assets row must exist for the eager hash")
+	assert.Equal(t, expectedURL, asset.UpstreamURL)
+	assert.Equal(t, "poster_w342", asset.Kind)
+	assert.Equal(t, media.StatusPending, asset.Status)
+}
+
+// Two concurrent /series-cache requests for the same series must
+// produce exactly ONE media_assets row (ON CONFLICT (hash) DO NOTHING).
+func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	mediaRepo := f.withMediaPending(t)
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "WithPath", 0, now)
+
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID)
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", "/race.jpg").Error)
+
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/race.jpg"),
+	)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache")
+			require.Equal(t, http.StatusOK, rec.Code)
+		}()
+	}
+	wg.Wait()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := mediaRepo.Get(context.Background(), expectedHash); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	var count int64
+	require.NoError(t, f.db.Table("media_assets").
+		Where("hash = ?", expectedHash).
+		Count(&count).Error)
+	assert.Equal(t, int64(1), count, "ON CONFLICT (hash) DO NOTHING — exactly one row")
+}
+
+// Story 352: the /missing endpoint enriches items via
+// enrichMissingFromCache which also projects eager poster_hash values.
+// The same EnsurePending kick must fire so the media handler's
+// on-demand path can recover from /api/v1/media/<hash>.
+//
+// Note: the /missing endpoint's full Missing handler requires a live
+// Sonarr client (for episode counts). This test invokes
+// enrichMissingFromCache directly with synthetic items to isolate the
+// EnsurePending behaviour from the upstream wiring.
+func TestInstancesHandler_EnrichMissingFromCache_EnsuresPendingMediaAssets(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	mediaRepo := f.withMediaPending(t)
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "WithPath", 0, now)
+
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID)
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", *sc.SeriesID).
+		Update("poster_asset", "/missing.jpg").Error)
+
+	expectedHash := appmedia.HashFromURL(
+		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/missing.jpg"),
+	)
+
+	// Rebuild a handler that exposes enrichMissingFromCache directly.
+	instMap := map[string]scan.Instance{
+		"homelab": {Config: config.SonarrInstance{Name: "homelab", URL: "http://x", Mode: "auto"}},
+	}
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance { return instMap }}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(&healthcheck.Checker{}, reg, lg).
+		WithSeriesCache(f.repo).
+		WithMediaPending(mediaRepo)
+
+	items := []dto.MissingSeries{{SeriesID: 1}}
+	h.enrichMissingFromCache(context.Background(), "homelab", items)
+	require.NotNil(t, items[0].PosterHash)
+	assert.Equal(t, expectedHash, *items[0].PosterHash)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var asset media.Asset
+	for time.Now().Before(deadline) {
+		a, err := mediaRepo.Get(context.Background(), expectedHash)
+		if err == nil {
+			asset = a
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	assert.Equal(t, expectedHash, asset.Hash)
+	assert.Equal(t, media.StatusPending, asset.Status)
 }

@@ -21,11 +21,13 @@ import (
 // tests use real GORM repos against in-memory SQLite for stronger
 // coverage).
 type AuditHandler struct {
-	scans       ports.ScanRepository
-	decisions   ports.DecisionRepository
-	grabs       ports.GrabRepository
-	seriesCache ports.SeriesCacheRepository
-	logger      *slog.Logger
+	scans          ports.ScanRepository
+	decisions      ports.DecisionRepository
+	grabs          ports.GrabRepository
+	seriesCache    ports.SeriesCacheRepository
+	mediaPending   CatalogMediaPendingWriter // story 352, nil-OK
+	mediaPrewarmer CatalogMediaPrewarmer     // story 352, nil-OK
+	logger         *slog.Logger
 }
 
 // NewAuditHandler wires the audit endpoints with their backing repos
@@ -48,6 +50,25 @@ func NewAuditHandler(scans ports.ScanRepository, decisions ports.DecisionReposit
 // audit_test.go call sites.
 func (h *AuditHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *AuditHandler {
 	h.seriesCache = repo
+	return h
+}
+
+// WithMediaPending wires the catalog-side EnsurePending kick so
+// /grabs (which projects an eager poster_hash via
+// collectGrabCacheFields) also lands a pending media_assets row
+// keyed on the same hash. nil writer = no-op (test fixtures /
+// minimal boot).
+//
+// Story 352.
+func (h *AuditHandler) WithMediaPending(w CatalogMediaPendingWriter) *AuditHandler {
+	h.mediaPending = w
+	return h
+}
+
+// WithMediaPrewarmer wires the optional downloader-enqueue kick.
+// nil-OK — see story 352 MVP scope.
+func (h *AuditHandler) WithMediaPrewarmer(p CatalogMediaPrewarmer) *AuditHandler {
+	h.mediaPrewarmer = p
 	return h
 }
 
@@ -612,6 +633,11 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 		}
 		instances[r.InstanceName] = struct{}{}
 	}
+	// Story 352: gather every entry seen across all instances so the
+	// EnsurePending kick covers exactly the hashes the wire DTO will
+	// carry. Allocated outside the for loop so the kick batches one
+	// goroutine per request rather than one per instance.
+	var pendingEntries []catalogPosterEntry
 	for inst := range instances {
 		entries, err := h.seriesCache.ListActiveByInstance(ctx, inst)
 		if err != nil {
@@ -632,8 +658,14 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 			// bytes when the FE first requests them.
 			if hash := mediaHashForPosterAsset(e.PosterAsset); hash != nil {
 				hashes[key] = hash
+				pendingEntries = append(pendingEntries, catalogPosterEntry{PosterAsset: e.PosterAsset})
 			}
 		}
+	}
+	// Story 352: best-effort fire-and-forget. nil mediaPending = no-op.
+	if h.mediaPending != nil && len(pendingEntries) > 0 {
+		kickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer,
+			pendingEntries, catalogPosterKindW342, h.logger)
 	}
 	return slugs, hashes
 }

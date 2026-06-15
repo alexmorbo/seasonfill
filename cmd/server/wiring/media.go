@@ -107,3 +107,9 @@ func BuildMedia(
 		Handler:    handler,
 	}, nil
 }
+
+// Compile-time check: *MediaAssetsRepository satisfies the catalog-side
+// pending writer port consumed by InstancesHandler + AuditHandler
+// (story 352). Catches a future signature drift at build time rather
+// than at runtime.
+var _ handlers.CatalogMediaPendingWriter = (*repositories.MediaAssetsRepository)(nil)

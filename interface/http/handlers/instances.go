@@ -37,11 +37,13 @@ const (
 )
 
 type InstancesHandler struct {
-	checker       *healthcheck.Checker
-	reg           InstanceRegistry
-	seriesCache   ports.SeriesCacheRepository
-	episodesCache sonarr.EpisodesCache
-	logger        *slog.Logger
+	checker        *healthcheck.Checker
+	reg            InstanceRegistry
+	seriesCache    ports.SeriesCacheRepository
+	episodesCache  sonarr.EpisodesCache
+	mediaPending   CatalogMediaPendingWriter // story 352, nil-OK
+	mediaPrewarmer CatalogMediaPrewarmer     // story 352, nil-OK
+	logger         *slog.Logger
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
@@ -74,6 +76,25 @@ func (h *InstancesHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *In
 // loses the warm-path speedup. Builder pattern mirrors WithSeriesCache.
 func (h *InstancesHandler) WithEpisodesCache(cache sonarr.EpisodesCache) *InstancesHandler {
 	h.episodesCache = cache
+	return h
+}
+
+// WithMediaPending wires the catalog-side EnsurePending kick so
+// list endpoints that emit deterministic eager poster_hash values
+// (ListSeriesCache, Missing) also land a pending media_assets row
+// keyed on the same hash. nil writer = no-op (boot ordering /
+// minimal-boot tests).
+func (h *InstancesHandler) WithMediaPending(w CatalogMediaPendingWriter) *InstancesHandler {
+	h.mediaPending = w
+	return h
+}
+
+// WithMediaPrewarmer wires the optional downloader-enqueue kick
+// fired after EnsurePending lands the rows. nil-OK: without it,
+// the media handler's on-demand fetch path covers the bytes-not-
+// ready case on the first GET /api/v1/media/<hash>.
+func (h *InstancesHandler) WithMediaPrewarmer(p CatalogMediaPrewarmer) *InstancesHandler {
+	h.mediaPrewarmer = p
 	return h
 }
 
@@ -366,6 +387,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 		items[i].Year = e.Year
 		items[i].PosterHash = mediaHashForPosterAsset(e.PosterAsset)
 	}
+	h.kickPendingForSeriesCacheEntries(ctx, entries)
 }
 
 // snapshotToDTO reads URL, PublicURL and Mode from the live registry
@@ -780,6 +802,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 	for _, e := range entries {
 		items = append(items, toSeriesCacheItem(e, lastGrabs[e.SonarrSeriesID]))
 	}
+	h.kickPendingForSeriesCacheEntries(ctx, entries)
 	var nextStr string
 	if next != nil {
 		nextStr = next.String()
@@ -809,6 +832,23 @@ type seriesCacheLister interface {
 // gracefully if the backing repo doesn't satisfy it.
 type seriesCacheLastGrabFetcher interface {
 	FetchLastGrabInfo(ctx context.Context, instanceName string, seriesIDs []int) (map[int]ports.LastGrabInfo, error)
+}
+
+// kickPendingForSeriesCacheEntries is the shared kick: lifts
+// PosterAsset off each entry, fires a background goroutine that
+// EnsurePending-batches the eager hash → source_url binding into
+// media_assets. nil mediaPending → no-op (boot ordering, tests).
+// Called from ListSeriesCache + enrichMissingFromCache so both
+// catalog paths populate the same rows the media handler reads.
+func (h *InstancesHandler) kickPendingForSeriesCacheEntries(ctx context.Context, entries []series.CacheEntry) {
+	if h.mediaPending == nil || len(entries) == 0 {
+		return
+	}
+	work := make([]catalogPosterEntry, 0, len(entries))
+	for _, e := range entries {
+		work = append(work, catalogPosterEntry{PosterAsset: e.PosterAsset})
+	}
+	kickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer, work, catalogPosterKindW342, h.logger)
 }
 
 func parseSeriesCacheState(c *gin.Context) (ports.SeriesCacheState, error) {

@@ -63,6 +63,7 @@ func NewServer(
 	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	mediaHandler *handlers.MediaHandler,
+	mediaPending handlers.CatalogMediaPendingWriter,
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	seriesCastHandler *handlers.SeriesCastHandler,
@@ -100,9 +101,11 @@ func NewServer(
 		runtime.EpisodesCacheMaxBytes, runtime.EpisodesCacheTTL)
 	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger).
 		WithSeriesCache(seriesCacheRepo).
-		WithEpisodesCache(episodesCache)
+		WithEpisodesCache(episodesCache).
+		WithMediaPending(mediaPending)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
-		WithSeriesCache(seriesCacheRepo)
+		WithSeriesCache(seriesCacheRepo).
+		WithMediaPending(mediaPending)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
