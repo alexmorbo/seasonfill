@@ -3087,7 +3087,7 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description pending / failed / unknown hash */
+                /** @description reserved (handler currently has no 404 paths) */
                 readonly 404: {
                     headers: {
                         readonly [name: string]: unknown;
@@ -4117,6 +4117,10 @@ export type components = {
         };
         readonly "dto.Episode": {
             readonly air_date?: string;
+            /** @example 5.1 */
+            readonly audio_channels?: string;
+            /** @example DDP */
+            readonly audio_codec?: string;
             readonly episode_number?: number;
             readonly finale_type?: string;
             readonly has_file?: boolean;
@@ -4124,12 +4128,21 @@ export type components = {
             readonly overview?: string;
             readonly overview_language?: string;
             readonly quality?: string;
+            /** @example RARBG */
+            readonly release_group?: string;
             readonly runtime_minutes?: number;
             readonly size_bytes?: number;
             readonly sonarr_episode_id?: number;
             readonly still_asset?: string;
             readonly title?: string;
             readonly title_language?: string;
+            /**
+             * @description Media meta — from Sonarr episodeFile.mediaInfo + releaseGroup.
+             *     All nil when the file was never probed (rare) or the episode is
+             *     not on disk.
+             * @example HEVC
+             */
+            readonly video_codec?: string;
         };
         readonly "dto.EpisodeFileDetail": {
             /**
@@ -5337,6 +5350,13 @@ export type components = {
             readonly backdrop_asset?: string;
             readonly content_rating?: components["schemas"]["dto.ContentRatingBadge"];
             /**
+             * @description Country is the ISO 3166-1 alpha-2 origin country code (e.g. "US",
+             *     "RU"). FE maps the token to a localised label. nil when the canon
+             *     row has no origin_country (cold series).
+             * @example US
+             */
+            readonly country?: string;
+            /**
              * @description Genres are localised chips (max 5 rendered, the composer
              *     returns all available — frontend caps display).
              */
@@ -5358,6 +5378,13 @@ export type components = {
              * @example ended
              */
             readonly status?: string;
+            /**
+             * @description Studio is the headline production company name (first row of
+             *     series_companies ordered by position). nil when the series has
+             *     no companies attached (cold series, no TMDB sync).
+             * @example Sony Pictures Television
+             */
+            readonly studio?: string;
             readonly tagline?: string;
             /** @example Breaking Bad */
             readonly title?: string;

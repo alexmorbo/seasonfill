@@ -1799,6 +1799,13 @@ export const ru: Translations = {
       empty: 'Описание недоступно.',
       keywords: 'Ключевые слова',
     },
+    rail: {
+      status: 'Статус',
+      network: 'Сеть',
+      studio: 'Студия',
+      country: 'Страна',
+      awards: 'Награды',
+    },
     links: {
       imdb: 'IMDb',
       tmdb: 'TMDB',

@@ -1801,6 +1801,13 @@ export const en = {
       empty: 'No overview available.',
       keywords: 'Keywords',
     },
+    rail: {
+      status: 'Status',
+      network: 'Network',
+      studio: 'Studio',
+      country: 'Country',
+      awards: 'Awards',
+    },
     links: {
       imdb: 'IMDb',
       tmdb: 'TMDB',
