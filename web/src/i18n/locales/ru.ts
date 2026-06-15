@@ -1774,6 +1774,8 @@ export const ru: Translations = {
     },
     library: {
       label: 'Библиотека',
+      cap: 'На диске',
+      downloadShort: 'Скачивается',
       onDiskCounts: '{{on}} из {{total}} на диске',
       missing: 'нет {{count}} серий',
       nothingOnDisk: 'На диске пока ничего нет',

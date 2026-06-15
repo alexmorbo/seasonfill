@@ -1776,6 +1776,8 @@ export const en = {
     },
     library: {
       label: 'Library',
+      cap: 'On disk',
+      downloadShort: 'Downloading',
       onDiskCounts: '{{on}} of {{total}} on disk',
       missing: '{{count}} missing',
       nothingOnDisk: 'Nothing on disk yet',
