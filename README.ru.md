@@ -77,6 +77,7 @@ Webhook-приёмник обновляет grab-запись по факту im
 | Rescue-CLI `reset-password` + `auth-mode` | shipped |
 | Bypass для локальных адресов (RFC1918/loopback) | shipped |
 | Watchdog: re-grab после import при unregistered торрентах (opt-in per-instance) | shipped |
+| Media-слой: кэш постеров/backdrop'ов/cast с TMDB в S3 (self-healing) | shipped |
 | Helm-чарт (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
 | Стек Docker Compose | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
@@ -320,6 +321,90 @@ unreachability (10 последовательных fail'ов polling'а) авт
 - Auto-unblock из blacklist'а — только вручную; в схеме
   зарезервирована колонка `expires_at`, но loop её никогда не
   выставляет.
+
+## Media-слой
+
+Постеры карточек, hero-backdrop на странице сериала, портреты cast'а,
+постеры сезонов, episode stills и логотипы networks подтягиваются с
+TMDB на этапе enrichment и кешируются в S3-совместимом хранилище
+(`mediaStore.mode=s3` — работает с SeaweedFS и MinIO; режим `fs`
+кладёт байты на PVC для single-replica-деплоев).
+
+Wire-контракт content-addressed: каждый URL картинки, который рендерит
+SPA, это `GET /api/v1/media/{hash}`, где `{hash}` —
+`sha256(<полный URL TMDB CDN>)`. Браузер никогда не ходит на
+`image.tmdb.org` напрямую. Ключи в бакете построены так же —
+`media/v1/{hash[:2]}/{hash}.{ext}` — поэтому два бэкенда могут
+делить один бакет без коллизий.
+
+### Self-healing
+
+Бакет — это **кэш**, а не источник истины. В Postgres-таблице
+`media_assets` лежит upstream URL, content-type и статус; в бакете —
+байты. Если объект пропадает (ручной wipe, потеря железа, пересоздание
+бакета), следующий запрос на этот hash:
+
+1. Прилетает в media handler.
+2. Находит row в `media_assets` → восстанавливает исходный TMDB CDN URL.
+3. Перекачивает байты, кладёт обратно в бакет, отдаёт их в том же
+   ответе (success log: `media.serve.lost_object_recovered`).
+
+Refetch дедуплицируется per-hash через singleflight, поэтому 100
+параллельных запросов на один пропавший объект порождают **один**
+upstream-вызов. Восстановление не требует admin-действия — сноси хоть
+весь бакет на работающем сервисе, трафик продолжает обслуживаться;
+бакет наполняется обратно лениво, по мере того как пользователи
+открывают карточки. Массовая холодная регидрация ограничена
+`SEASONFILL_TMDB_CDN_RPS`.
+
+Если сам TMDB отдаёт 4xx на картинку (удалили upstream, не существовала
+никогда), handler отдаёт встроенный SVG-monogram placeholder с
+5-минутным browser-кэшем, а не 4xx. Серверного negative-cache нет —
+каждый следующий запрос повторно бьёт upstream до тех пор, пока тот не
+ответит.
+
+### Rate-лимиты
+
+Два независимых бюджета, оба через env, оба перезагружаются через
+reload-bus (рестарт не нужен):
+
+| Env | Default | Используется для |
+|-----|---------|------------------|
+| `SEASONFILL_TMDB_API_RPS` | `50` | `api.themoviedb.org` (метаданные на enrichment) |
+| `SEASONFILL_TMDB_CDN_RPS` | `100` | `image.tmdb.org` (downloader pre-warm + on-demand recovery) |
+
+API- и CDN-бюджеты разделены — заглот картинок никогда не уморит
+метаданный пайплайн. Старый `SEASONFILL_TMDB_RPS` (по умолчанию не
+задан) всё ещё работает как fallback для `*_API_RPS` для существующих
+деплоев; на boot'е логируется deprecation WARN.
+
+### Pre-warming
+
+На коммите enrichment series-воркер фан-аутит все известные варианты
+ассетов (poster `w342`/`w780`, backdrop `w1280`, profile `w185` и т.д.)
+в bounded-канал; пул downloader-горутин разгребает его в фоне.
+Catalog-list эндпоинты (`/series-cache`, `/missing`, `/grabs`) ещё и
+fire-and-forget вызывают `EnsurePending` для сериалов, до которых
+воркер не дотянулся — поэтому свежесканенный Sonarr-сериал
+рендерится в карточке через секунды, а не на следующем scan tick.
+
+### Эксплуатационные заметки
+
+- Бакет растёт примерно по **5–10 MiB на полностью гидрированный
+  сериал** (poster + backdrop + 10–15 cast-портретов + episode stills).
+  Закладывай ~10 GiB на 1 000 сериалов.
+- Встроенного GC нет. Колонка `media_assets.last_access_at`
+  обновляется на каждом serve и зарезервирована под будущий sweep;
+  сегодня бакет только растёт.
+- Внешний трафик в TMDB / OMDb виден через
+  `seasonfill_external_http_requests_total{client,endpoint,method,status}`
+  и `seasonfill_external_http_request_duration_seconds{...}` на
+  `/metrics` — удобно ловить recovery-шторм или upstream-throttling.
+- `DELETE FROM media_assets` вместе с wipe бакета форсит полную
+  регидрацию с TMDB на следующем доступе. Вместе — безопасно;
+  по-отдельности rows десинхронизируются, но lost-object recovery
+  всё равно отработает — устаревают только `last_access_at` и
+  `size_bytes` до следующего serve.
 
 ## Contributing
 

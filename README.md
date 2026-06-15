@@ -76,6 +76,7 @@ re-grabbing broken releases.
 | `reset-password` + `auth-mode` rescue CLI | shipped |
 | Disabled-for-local-addresses bypass (RFC1918/loopback) | shipped |
 | Watchdog: post-import re-grab on unregistered torrents (per-instance opt-in) | shipped |
+| Media layer: TMDB-sourced poster/backdrop/cast cache backed by S3 (self-healing) | shipped |
 | Helm chart (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
 | Docker Compose stack | shipped |
 | Prometheus `/metrics` + `ServiceMonitor` | shipped |
@@ -318,6 +319,89 @@ cycles.
 - Watchdog never writes to qBit (no tagging, no deletes). Read-only.
 - Auto-unblock from the blacklist is manual; the schema reserves an
   `expires_at` column but the loop never sets it.
+
+## Media layer
+
+Catalog tiles, the series-detail hero backdrop, cast portraits, season
+posters, episode stills, and network logos are sourced from TMDB during
+enrichment and cached in an S3-compatible object store
+(`mediaStore.mode=s3` — SeaweedFS and MinIO both work; `fs` mode keeps
+bytes on a PVC for single-replica deploys).
+
+The wire contract is content-addressed: every image URL the SPA renders
+is `GET /api/v1/media/{hash}`, where `{hash}` is
+`sha256(<full TMDB CDN URL>)`. The browser never talks to
+`image.tmdb.org` directly. Bucket keys follow the same shape —
+`media/v1/{hash[:2]}/{hash}.{ext}` — so two backend deployments can
+share a bucket without colliding.
+
+### Self-healing
+
+The bucket is a **cache**, not the source of truth. The Postgres
+`media_assets` table holds the upstream URL, content type, and status;
+the bucket holds bytes. If an object disappears (manual wipe, hardware
+loss, bucket re-creation), the next request for that hash:
+
+1. Hits the media handler.
+2. Finds the `media_assets` row → resolves the original TMDB CDN URL.
+3. Re-fetches the bytes, stores them back in the bucket, serves them
+   in the same response (success log: `media.serve.lost_object_recovered`).
+
+The refetch is deduplicated per-hash via singleflight, so 100 concurrent
+requests for the same missing object produce **one** upstream call.
+Recovery does not require an admin action — wipe the whole bucket while
+the service is running and traffic continues to serve; the bucket
+repopulates lazily as users browse. Mass cold-start refills are bounded
+by `SEASONFILL_TMDB_CDN_RPS`.
+
+If TMDB itself returns 4xx for a given image (deleted upstream, never
+existed), the handler serves an embedded SVG monogram placeholder with
+a 5-minute browser cache rather than a 4xx. Nothing is negatively cached
+server-side — every subsequent request retries the upstream until it
+succeeds.
+
+### Rate limits
+
+Two independent budgets, both env-driven, both live-reloadable via the
+reload bus (no restart needed):
+
+| Env | Default | Used by |
+|-----|---------|---------|
+| `SEASONFILL_TMDB_API_RPS` | `50` | `api.themoviedb.org` (metadata during enrichment) |
+| `SEASONFILL_TMDB_CDN_RPS` | `100` | `image.tmdb.org` (downloader pre-warm + on-demand recovery) |
+
+The API and CDN budgets are split so a flood of image refetches never
+starves the metadata pipeline. Legacy `SEASONFILL_TMDB_RPS` (unset by
+default) is still honoured as a fallback for `*_API_RPS` if you have
+existing deploys; a deprecation WARN is logged at boot.
+
+### Pre-warming
+
+On enrichment commit, the series worker fan-outs every known asset
+variant (poster `w342`/`w780`, backdrop `w1280`, profile `w185`, etc.)
+into a bounded channel; a pool of downloader goroutines drains it in
+the background. Catalog list endpoints (`/series-cache`, `/missing`,
+`/grabs`) also fire-and-forget an `EnsurePending` for any series whose
+poster the worker hasn't reached yet — so a freshly-seen Sonarr series
+renders its tile within seconds, not the next scan tick.
+
+### Operating notes
+
+- The bucket grows roughly **5–10 MiB per fully-hydrated series**
+  (poster + backdrop + 10–15 cast portraits + episode stills). Budget
+  ~10 GiB per 1 000 series.
+- There is no built-in GC. The `media_assets.last_access_at` column is
+  updated on every serve and reserved for a future sweep; today the
+  bucket only grows.
+- External TMDB / OMDb traffic is observable via
+  `seasonfill_external_http_requests_total{client,endpoint,method,status}`
+  and `seasonfill_external_http_request_duration_seconds{...}` on
+  `/metrics` — useful to spot a recovery storm or upstream throttling.
+- `DELETE FROM media_assets` together with a bucket wipe forces full
+  re-hydration from TMDB on next access. Done together it's safe;
+  done in isolation the rows desync but the lost-object recovery
+  still fires — only `last_access_at` and `size_bytes` go stale until
+  the next serve refreshes them.
 
 ## Contributing
 

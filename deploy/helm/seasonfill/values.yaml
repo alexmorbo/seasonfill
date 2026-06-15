@@ -160,10 +160,13 @@ tests:
     tag: "1.36"
     pullPolicy: IfNotPresent
 
-# Local media store (PRD v4 §6). Default mode "off" preserves legacy
-# hotlink behaviour; opt into "s3" (recommended for production
-# behind SeaweedFS) or "fs" (local development / single-replica) to
-# enable the store-backed media path.
+# Cached media layer. Posters, backdrops, cast portraits, episode
+# stills, and network logos are sourced from TMDB on enrichment and
+# served via GET /api/v1/media/{hash}. Bucket is a cache — missing
+# objects auto-refetch from TMDB on next request.
+#   s3 — recommended for production (SeaweedFS / MinIO)
+#   fs — local development / single-replica deploys
+#   off — disable the cached path; UI tiles fall back to the monogram
 mediaStore:
   mode: "off"                      # off|s3|fs
   s3:

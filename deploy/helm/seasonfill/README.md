@@ -130,6 +130,12 @@ Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --vers
 | `serviceMonitor.enabled` | `false` | Prometheus Operator scrape. |
 | `networkPolicy.enabled` | `false` | Default-deny + explicit allow-list. |
 | `web.replicaCount` | `1` | Frontend can scale horizontally (stateless). |
+| `mediaStore.mode` | `off` | `s3` (recommended, SeaweedFS / MinIO) or `fs` (single-replica) enables the cached media path. |
+| `mediaStore.s3.endpoint` | `""` | S3 endpoint URL (e.g. `https://s3.morbo.dev` or `http://seaweedfs-s3.seaweedfs.svc:8333`). |
+| `mediaStore.s3.bucket` | `seasonfill-media` | Bucket name. Created out-of-band; the chart does not provision it. |
+| `mediaStore.s3.existingSecret` | `""` | Secret with `access-key` + `secret-key`. Key names overridable via `mediaStore.s3.secretKeys`. |
+| `mediaStore.fs.path` | `/data/media` | Local store mount path when `mode=fs`. |
+| `mediaStore.fs.persistence.enabled` | `false` | RWO PVC for `fs` mode. |
 
 Everything else — cron schedule, scan tuning, `dry_run`, instances,
 session TTL, secure cookie toggle, trusted proxies, **auth mode** —
@@ -353,6 +359,59 @@ Reload-bus aware: changing `poll_interval_minutes`,
 The full Watchdog model (opt-in flow, hash-required gate, throttling
 layers, security) is documented in the project root
 [README.md](../../../README.md#watchdog-post-import-re-grab-automation).
+
+## Media store
+
+The catalog UI serves posters, backdrops, cast portraits, season posters,
+episode stills, and network logos through `GET /api/v1/media/{hash}`. The
+bytes are sourced from TMDB during enrichment and cached in an
+S3-compatible store; the browser never reaches `image.tmdb.org` directly.
+
+**Bucket pre-provisioning.** The chart does not create the bucket — make
+sure it exists before flipping `mediaStore.mode` to `s3`. SeaweedFS:
+
+```sh
+kubectl -n seaweedfs exec deploy/seaweedfs-s3 -- \
+  s3api create-bucket --bucket seasonfill-media
+```
+
+MinIO: use `mc mb` against your endpoint.
+
+**Credentials Secret.** Create a Secret with two keys (`access-key`,
+`secret-key`) referenced by `mediaStore.s3.existingSecret`:
+
+```sh
+kubectl -n seasonfill create secret generic seasonfill-s3-creds \
+  --from-literal=access-key=<AK> \
+  --from-literal=secret-key=<SK>
+```
+
+Then in values:
+
+```yaml
+mediaStore:
+  mode: s3
+  s3:
+    endpoint: http://seaweedfs-s3.seaweedfs.svc:8333
+    bucket: seasonfill-media
+    useSSL: false
+    existingSecret: seasonfill-s3-creds
+```
+
+**Self-healing.** The bucket is a cache. If you wipe it (or it dies),
+the next request for each hash refetches the bytes from TMDB and writes
+them back. No admin action needed; concurrent requests for the same
+missing object collapse into a single upstream call (singleflight).
+Successful recoveries log `media.serve.lost_object_recovered` at WARN —
+a heartbeat to alert on if the rate is unexpectedly high.
+Mass refills are bounded by `SEASONFILL_TMDB_CDN_RPS` (default `100`).
+
+**Capacity planning.** ~5–10 MiB per fully-hydrated series. Budget
+~10 GiB per 1 000 series. No built-in GC yet — the bucket only grows.
+
+The full architecture (wire contract, pre-warm pipeline, rate-limit
+budgets, operating notes) is in the project root
+[README.md](../../../README.md#media-layer).
 
 ## Troubleshooting
 
