@@ -17,12 +17,14 @@ describe('RailCard', () => {
     expect(row.querySelector('.text-accent')).toBeTruthy();
   });
 
-  it('renders network/studio/country/awards rows when data present', () => {
+  it('renders network/studio/countries/awards rows when data present', () => {
     const hero: SeriesHero = {
       title: 'X',
       networks: [{ id: 1, name: 'AppleTV+', logo_asset: 'h' }],
       studio: 'Sony Pictures TV',
-      country: 'US',
+      countries: ['US'],
+      premiere_date: '2026-05-28',
+      original_language: 'en',
     };
     render(withI18n(<RailCard
       status="ended"
@@ -31,15 +33,74 @@ describe('RailCard', () => {
     />));
     expect(screen.getByTestId('rail-row-network')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-studio')).toBeInTheDocument();
-    expect(screen.getByTestId('rail-row-country')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-premiere-date')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-original-language')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-awards')).toBeInTheDocument();
   });
 
   it('hides the studio row when hero.studio is missing', () => {
-    const hero: SeriesHero = { title: 'X', country: 'US' };
+    const hero: SeriesHero = { title: 'X', countries: ['US'] };
     render(withI18n(<RailCard status="ended" hero={hero} />));
     expect(screen.queryByTestId('rail-row-studio')).toBeNull();
-    expect(screen.getByTestId('rail-row-country')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
+  });
+
+  it('renders network row with logo only (no text) when logo_asset is present', () => {
+    const hero: SeriesHero = {
+      title: 'X',
+      networks: [{ id: 1, name: 'Apple TV', logo_asset: 'abc' }],
+    };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    const row = screen.getByTestId('rail-row-network');
+    expect(row.querySelector('img')).toBeInTheDocument();
+    // No mono-text fallback span when logo is present.
+    expect(row.querySelector('span.font-mono')).toBeNull();
+  });
+
+  it('renders network row with text fallback when logo_asset is absent', () => {
+    const hero: SeriesHero = {
+      title: 'X',
+      networks: [{ id: 1, name: 'NoLogo Network' }],
+    };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    const row = screen.getByTestId('rail-row-network');
+    expect(row.querySelector('img')).toBeNull();
+    expect(row.querySelector('span.font-mono')).toBeInTheDocument();
+    expect(row).toHaveTextContent('NoLogo Network');
+  });
+
+  it('falls back to singular country when countries[] is absent', () => {
+    const hero: SeriesHero = { title: 'X', country: 'US' };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
+  });
+
+  it('hides countries row when both countries[] and country are absent', () => {
+    const hero: SeriesHero = { title: 'X' };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    expect(screen.queryByTestId('rail-row-countries')).toBeNull();
+  });
+
+  it('renders the plural label when countries[] has 2+ entries', () => {
+    const hero: SeriesHero = { title: 'X', countries: ['US', 'CA', 'GB'] };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    const row = screen.getByTestId('rail-row-countries');
+    // Three country names → render contains commas (CLDR separator).
+    expect(row.querySelector('[data-testid="rail-row-countries-value"]')).not.toBeNull();
+    expect(row.textContent ?? '').toMatch(/,/);
+  });
+
+  it('hides premiere date row when hero.premiere_date is missing', () => {
+    const hero: SeriesHero = { title: 'X' };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    expect(screen.queryByTestId('rail-row-premiere-date')).toBeNull();
+  });
+
+  it('hides original language row when hero.original_language is missing', () => {
+    const hero: SeriesHero = { title: 'X' };
+    render(withI18n(<RailCard status="ended" hero={hero} />));
+    expect(screen.queryByTestId('rail-row-original-language')).toBeNull();
   });
 
   it('hides the awards row when omdb is degraded', () => {

@@ -96,7 +96,10 @@ test.describe('B-13 Series Detail v2 — overview rail', () => {
     // Studio / country come from B-13a (story 354). Both should be set
     // for "For All Mankind".
     await expect(page.getByTestId('rail-row-studio')).toBeVisible();
-    await expect(page.getByTestId('rail-row-country')).toBeVisible();
+    await expect(page.getByTestId('rail-row-countries')).toBeVisible();
+    // 365b — 3 new rail rows. For All Mankind has all three.
+    await expect(page.getByTestId('rail-row-premiere-date')).toBeVisible();
+    await expect(page.getByTestId('rail-row-original-language')).toBeVisible();
     // Awards: present if OMDb hydrated. Tolerate absence.
     // (Awards may be omitted when OMDb is degraded.)
     await page.screenshot({
@@ -185,5 +188,28 @@ test.describe('B-13 Series Detail v2 — Sonarr-only fallback', () => {
     // hero must have one of the two fallback states.
     const fallback = await hero.getAttribute('data-fallback');
     expect(['none', 'sonarr-only']).toContain(fallback);
+  });
+});
+
+test.describe('B-13 Series Detail v2 — rail network logo dedup (Star City)', () => {
+  test('network row renders logo only when logo_asset is present (no text fallback)', async ({ page }) => {
+    await page.goto(`${BASE_URL}/series/homelab/372`);
+    await page.waitForLoadState('networkidle', { timeout: 20_000 });
+    await expect(page.getByTestId('series-hero')).toBeVisible({ timeout: 10_000 });
+
+    const row = page.getByTestId('rail-row-network');
+    await expect(row).toBeVisible();
+    // Issue 4: row contains an <img> and NO text node beyond whitespace.
+    const imgCount = await row.locator('img').count();
+    expect(imgCount).toBe(1);
+    // Inspect the value span (second child of the row, see RailRow shape):
+    // assert no span with the legacy mono "PARAMOUNT+"/"APPLE TV" text class.
+    const monoCount = await row.locator('span.font-mono').count();
+    expect(monoCount).toBe(0);
+
+    await page.screenshot({
+      path: 'test-results/b13-365b-rail-network-372.png',
+      clip: { x: 2900, y: 600, width: 900, height: 800 },
+    });
   });
 });

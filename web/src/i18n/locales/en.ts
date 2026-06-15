@@ -1805,7 +1805,12 @@ export const en = {
       status: 'Status',
       network: 'Network',
       studio: 'Studio',
-      country: 'Country',
+      premiereDate: 'Premiere date',
+      country_one: 'Country',
+      country_few: 'Countries', // CLDR fallback for Russian compat (not used in en)
+      country_many: 'Countries', // CLDR fallback for Russian compat (not used in en)
+      country_other: 'Countries',
+      originalLanguage: 'Original language',
       awards: 'Awards',
     },
     links: {

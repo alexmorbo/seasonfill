@@ -1803,7 +1803,12 @@ export const ru: Translations = {
       status: 'Статус',
       network: 'Сеть',
       studio: 'Студия',
-      country: 'Страна',
+      premiereDate: 'Дата выхода',
+      country_one: 'Страна',
+      country_few: 'Страны',
+      country_many: 'Стран',
+      country_other: 'Страны',
+      originalLanguage: 'Язык оригинала',
       awards: 'Награды',
     },
     links: {

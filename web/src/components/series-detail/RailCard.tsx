@@ -8,6 +8,8 @@ import {
 } from '@/api/seriesDetail';
 import type { components } from '@/api/schema';
 import { CountryName } from './CountryName';
+import { LanguageName } from './LanguageName';
+import { PremiereDate } from './PremiereDate';
 
 type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
 
@@ -52,7 +54,15 @@ export function RailCard({
   const network = hero?.networks?.[0];
   const networkLogo = mediaUrl(network?.logo_asset);
   const showStudio = Boolean(hero?.studio);
-  const showCountry = Boolean(hero?.country);
+  const countries = hero?.countries ?? [];
+  // Prefer the plural array when present; fall back to the singular field
+  // for pre-365a payloads. Empty array AND empty singular → hide row.
+  const countriesList: readonly string[] = countries.length > 0
+    ? countries
+    : (hero?.country ? [hero.country] : []);
+  const showCountries = countriesList.length > 0;
+  const showPremiereDate = Boolean(hero?.premiere_date);
+  const showOriginalLanguage = Boolean(hero?.original_language);
   const showAwards = Boolean(awards) && !omdbDegraded;
   const showNetwork = Boolean(network?.name);
   const showKeywords = (keywords?.length ?? 0) > 0;
@@ -78,20 +88,19 @@ export function RailCard({
             label={t('seriesDetail.rail.network')}
             testId="rail-row-network"
             value={
-              <>
-                {networkLogo && (
-                  <img
-                    src={networkLogo}
-                    alt={network?.name ?? ''}
-                    title={network?.name ?? ''}
-                    className="h-4 w-auto object-contain opacity-90"
-                    loading="lazy"
-                  />
-                )}
+              networkLogo ? (
+                <img
+                  src={networkLogo}
+                  alt={network?.name ?? ''}
+                  title={network?.name ?? ''}
+                  className="h-4 w-auto object-contain opacity-90"
+                  loading="lazy"
+                />
+              ) : (
                 <span className="font-mono text-[10.5px] tracking-[0.08em] uppercase">
                   {network?.name}
                 </span>
-              </>
+              )
             }
           />
         )}
@@ -102,11 +111,34 @@ export function RailCard({
             testId="rail-row-studio"
           />
         )}
-        {showCountry && (
+        {showPremiereDate && (
           <RailRow
-            label={t('seriesDetail.rail.country')}
-            value={<CountryName code={hero?.country ?? undefined} />}
-            testId="rail-row-country"
+            label={t('seriesDetail.rail.premiereDate')}
+            value={<PremiereDate iso={hero?.premiere_date ?? undefined} />}
+            testId="rail-row-premiere-date"
+          />
+        )}
+        {showCountries && (
+          <RailRow
+            label={t('seriesDetail.rail.country', { count: countriesList.length })}
+            testId="rail-row-countries"
+            value={
+              <span data-testid="rail-row-countries-value">
+                {countriesList.map((c, i) => (
+                  <span key={`${c}-${i}`}>
+                    {i > 0 && ', '}
+                    <CountryName code={c} />
+                  </span>
+                ))}
+              </span>
+            }
+          />
+        )}
+        {showOriginalLanguage && (
+          <RailRow
+            label={t('seriesDetail.rail.originalLanguage')}
+            value={<LanguageName code={hero?.original_language ?? undefined} />}
+            testId="rail-row-original-language"
           />
         )}
         {showAwards && (
