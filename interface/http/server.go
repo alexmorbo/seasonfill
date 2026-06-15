@@ -199,8 +199,14 @@ func NewServer(
 		// canonical TMDB image variants pre-warmed by the series
 		// enrichment worker. mediaHandler is nil-OK — when wiring is
 		// disabled (tests / minimal boot) the route is omitted.
+		//
+		// HEAD is registered alongside GET so probes (curl -I, browser
+		// prefetch, CDN warmup, monitoring) don't fall through to the
+		// default Gin 404. The handler's c.Data writes the same headers
+		// for HEAD — Gin's writer suppresses the body automatically.
 		if mediaHandler != nil {
 			guarded.GET("/media/:hash", mediaHandler.Serve)
+			guarded.HEAD("/media/:hash", mediaHandler.Serve)
 		}
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)

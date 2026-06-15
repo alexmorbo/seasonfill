@@ -125,6 +125,10 @@ func newRouter(h *MediaHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v1/media/:hash", h.Serve)
+	// Mirror server.go: HEAD shares the GET handler so probes (curl -I,
+	// CDN warmup, monitoring) get a 200+headers reply instead of the
+	// default Gin no-route 404.
+	r.HEAD("/api/v1/media/:hash", h.Serve)
 	return r
 }
 
@@ -622,5 +626,49 @@ func TestMedia_NonSentinelHash_StillReadsRepo(t *testing.T) {
 	}
 	if repo.getCalls.Load() == 0 {
 		t.Fatal("normal hash must reach repo.Get")
+	}
+}
+
+// Regression — HEAD on the media route MUST hit the same handler the
+// GET path uses instead of falling through to Gin's default no-route
+// 404. Production curl -I, CDN warm-ups, and uptime probes hit HEAD,
+// and pre-fix they got a default 18-byte "404 page not found" because
+// only GET was registered. The handler writes the same headers for
+// both methods (Go's net/http server suppresses the body on HEAD); we
+// assert the success code + identifying header.
+func TestMedia_SentinelServesOnHEAD(t *testing.T) {
+	h, _, _ := newHandler(t)
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodHead,
+		"/api/v1/media/"+appmedia.SentinelMissingHash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("HEAD sentinel want 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("X-Media-Placeholder"); got != "sentinel" {
+		t.Fatalf("X-Media-Placeholder want 'sentinel', got %q", got)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Fatalf("Content-Type want image/svg+xml, got %q", got)
+	}
+}
+
+// Regression companion — HEAD on a normal stored hash returns 200 +
+// the same ETag / Cache-Control as GET. Locks in the symmetric
+// behavior promised by registering HEAD on the route.
+func TestMedia_NormalHashServesOnHEAD(t *testing.T) {
+	h, repo, store := newHandler(t)
+	url := "https://image.tmdb.org/t/p/w342/normal-head.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	_ = store.Put(context.Background(), mediastore.Key(url, "jpg"), bytes.NewReader([]byte("PNG")), 3, "image/jpeg")
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("HEAD normal want 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("ETag"); got != `"`+hash+`"` {
+		t.Fatalf("ETag want %q, got %q", `"`+hash+`"`, got)
 	}
 }
