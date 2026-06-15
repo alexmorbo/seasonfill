@@ -255,8 +255,10 @@ func TestMedia_PendingServesPlaceholderWhenUnwired(t *testing.T) {
 	}
 }
 
-// Story 321: failed rows short-circuit to placeholder (negative cache).
-func TestMedia_FailedServesPlaceholder(t *testing.T) {
+// Failed rows without resolver/fetcher wiring still serve the SVG
+// placeholder; the wiring is nil-OK and the handler is read-only on
+// the row's status (no negative-cache short-circuit anymore).
+func TestMedia_FailedServesPlaceholderWhenUnwired(t *testing.T) {
 	h, repo, _ := newHandler(t)
 	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
 	hash := hashOf(url)
@@ -439,7 +441,10 @@ func TestMediaHandler_OnDemand_PendingHitFillsAndServes(t *testing.T) {
 	}
 }
 
-func TestMediaHandler_OnDemand_PendingMissServesPlaceholderAndStampsFailed(t *testing.T) {
+// On-demand miss for a pending row → SVG placeholder for this request,
+// AND the row's status is left UNCHANGED (no negative-cache persist).
+// The next request will retry the upstream fetch.
+func TestMediaHandler_OnDemand_PendingMissServesPlaceholderWithoutStampingFailed(t *testing.T) {
 	url := "https://image.tmdb.org/t/p/w1280/xx-miss.jpg"
 	hash := hashOf(url)
 	resolver := newStubPendingResolver()
@@ -469,35 +474,86 @@ func TestMediaHandler_OnDemand_PendingMissServesPlaceholderAndStampsFailed(t *te
 	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
 		t.Fatalf("want 1 fetcher call, got %d", got)
 	}
-	// Row stamped failed.
+	// Row left at status=pending — the handler does NOT persist failure.
 	row, err := repo.Get(t.Context(), hash)
 	if err != nil {
 		t.Fatalf("repo.Get after miss: %v", err)
 	}
-	if row.Status != media.StatusFailed {
-		t.Fatalf("want status=failed after miss, got %s", row.Status)
+	if row.Status == media.StatusFailed {
+		t.Fatalf("handler must NOT stamp status=failed on miss, got %s", row.Status)
+	}
+	if row.Status != media.StatusPending {
+		t.Fatalf("status must stay pending, got %s", row.Status)
 	}
 }
 
-func TestMediaHandler_OnDemand_FailedShortCircuits(t *testing.T) {
+// Status=failed must trigger an upstream fetch on every request — the
+// handler does not short-circuit on the row's current state. On a
+// successful fetch the row flips to status=stored (via the fetcher's
+// own Upsert) and the bytes serve normally.
+func TestMediaHandler_OnDemand_FailedStatusRetriesAndFills(t *testing.T) {
 	url := "https://image.tmdb.org/t/p/w342/failed.jpg"
 	hash := hashOf(url)
 	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusFailed)
 	fetcher := &stubOnDemand{hashWin: hash, bytes: []byte("Y"), contentT: "image/jpeg"}
-	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	h, repo, store := newOnDemandHandler(t, resolver, fetcher)
+	fetcher.store = store
+	fetcher.repo = repo
 	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusFailed})
 
 	r := newRouter(h)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
 	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200 (placeholder) got %d", rr.Code)
+		t.Fatalf("want 200 got %d body=%s", rr.Code, rr.Body.String())
 	}
-	if rr.Header().Get("X-Media-Placeholder") != "1" {
-		t.Fatal("expected placeholder header")
+	if rr.Body.String() != "Y" {
+		t.Fatalf("want fetched bytes 'Y', got %q", rr.Body.String())
 	}
-	if got := atomic.LoadInt32(&fetcher.calls); got != 0 {
-		t.Fatalf("failed rows must NOT trigger TMDB call, got %d", got)
+	if rr.Header().Get("X-Media-Placeholder") != "" {
+		t.Fatal("must NOT serve placeholder once retry succeeds")
+	}
+	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+		t.Fatalf("failed rows must trigger a fresh fetch, got %d calls", got)
+	}
+}
+
+// Status=failed + upstream still failing → placeholder for this
+// request, but the row stays at status=failed (handler does not
+// re-stamp). Confirms the no-negative-cache invariant: every request
+// gets a fresh fetch attempt regardless of prior failures.
+func TestMediaHandler_OnDemand_FailedRetriesEachRequestWithoutPersistingFailure(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/still-failing.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusFailed)
+	fetcher := &stubOnDemand{hashWin: ""} // upstream still missing
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusFailed})
+
+	r := newRouter(h)
+	for i := 0; i < 2; i++ {
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("attempt %d: want 200 (placeholder) got %d", i, rr.Code)
+		}
+		if rr.Header().Get("X-Media-Placeholder") != "1" {
+			t.Fatalf("attempt %d: want placeholder header", i)
+		}
+	}
+	// One fetch per request — no negative cache.
+	if got := atomic.LoadInt32(&fetcher.calls); got != 2 {
+		t.Fatalf("want 2 fetcher calls (one per request), got %d", got)
+	}
+	// Row status untouched — still 'failed', NOT re-stamped by handler.
+	row, err := repo.Get(t.Context(), hash)
+	if err != nil {
+		t.Fatalf("repo.Get: %v", err)
+	}
+	if row.Status != media.StatusFailed {
+		t.Fatalf("row status must be left at 'failed' (handler must not write), got %s", row.Status)
 	}
 }
 

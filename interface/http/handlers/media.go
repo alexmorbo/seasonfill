@@ -48,9 +48,11 @@ const mediaRefetchMaxBytes int64 = 32 << 20
 // MediaAssetReader is the read-only repo port the handler consumes.
 // Production impl is *repositories.MediaAssetsRepository.
 //
-// Story 321: the handler also calls Upsert to stamp status='failed' on
-// negative-cache transitions and (transitively via the fetcher) status=
-// 'stored' on on-demand-fetch success.
+// Upsert is retained on the port so the on-demand fetcher (which the
+// handler holds a reference to but does not invoke directly for
+// status writes) can stamp status='stored' on a successful fetch.
+// The handler itself never persists status='failed' — a failed fetch
+// leaves the row's status untouched so the next request retries.
 type MediaAssetReader interface {
 	Get(ctx context.Context, hash string) (media.Asset, error)
 	Upsert(ctx context.Context, a media.Asset) error
@@ -264,12 +266,12 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		return
 	}
 
-	// 2. Repo lookup. status=stored → mediastore Get; status=pending →
-	//    story 321 on-demand sync fetch; status=failed within negative
-	//    cache window → placeholder fast; status=failed past window →
-	//    re-attempt. Operator override: failed paths return 200 + SVG
-	//    placeholder instead of 404 (a stable visual is better than a
-	//    broken-image icon while the underlying row recovers).
+	// 2. Repo lookup. status=stored → mediastore Get; any other status
+	//    (pending OR failed) → on-demand sync fetch; on miss we serve
+	//    the SVG placeholder for THIS request but do not persist any
+	//    negative-cache state, so the next request tries again. Operator
+	//    decision: a transient failure must heal itself on reload rather
+	//    than wait for the downloader's background retry loop.
 	asset, err := h.repo.Get(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
@@ -405,12 +407,13 @@ func (h *MediaHandler) refetchAndStore(ctx context.Context, asset media.Asset) (
 // continue serving from store; otherwise writes the placeholder (200 +
 // image/svg+xml + X-Media-Placeholder: 1) and returns (_, false).
 //
-// Negative-cache rules: status='failed' rows always serve the
-// placeholder fast without TMDB contact. Future iteration may relax
-// this with a fine-grained TTL re-attempt.
-//
-// Singleflight keyed on the hash so simultaneous tabs racing for the
-// same hash share ONE upstream call.
+// Every request tries the upstream fetch — there is no negative cache
+// keyed on status='failed'. The downloader's own retry loop owns the
+// status transitions; this handler is a pure read-path that prefers
+// "serve placeholder for this one request and try again next time"
+// over latching the row into a sticky failure state. Singleflight
+// keyed on the hash collapses concurrent tabs onto a single upstream
+// call.
 func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash string, asset media.Asset) (media.Asset, bool) {
 	// Bypass when the wiring isn't there yet — serve the placeholder so
 	// the frontend stays visually stable.
@@ -419,16 +422,11 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 		return media.Asset{}, false
 	}
 
-	// Negative cache: status=failed → placeholder fast, no TMDB. The
-	// downloader's existing retry loop eventually flips the row back to
-	// pending; the cold-start re-sweep (story 318) also refreshes
-	// long-dead rows.
-	if asset.Status == media.StatusFailed {
-		h.writePlaceholder(c, hash, "negative_cache")
-		return media.Asset{}, false
-	}
-
-	// status=pending (or any non-stored, non-failed) → sync fetch.
+	// status=pending OR status=failed (or any non-stored) → sync fetch.
+	// Failed rows are NOT short-circuited: the operator decision is to
+	// retry on every request so a transient TMDB / VPN hiccup heals
+	// itself the next time the user reloads, without waiting for the
+	// downloader's background sweep.
 	sourceURL, kind, _, lerr := h.pendingResolver.GetSourceURLByHash(ctx, hash)
 	if lerr != nil || sourceURL == "" {
 		h.logger.WarnContext(ctx, "media.serve.pending_no_source",
@@ -452,18 +450,10 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 	resAny, _, _ := h.sf.Do("ondemand:"+hash, func() (interface{}, error) {
 		_, ok := h.ondemandFetcher.FetchSync(fetchCtx, sourceURL, kind, extFromSourceURL(sourceURL))
 		if !ok {
-			// Negative-cache stamp: mark the row failed so subsequent
-			// requests short-circuit via the failed branch above.
-			// Best-effort — Upsert errors log only.
-			if uerr := h.repo.Upsert(ctx, media.Asset{
-				Hash: hash, UpstreamURL: sourceURL, Kind: kind,
-				Status: media.StatusFailed,
-			}); uerr != nil {
-				h.logger.WarnContext(ctx, "media.serve.failed_stamp_failed",
-					slog.String("hash", hash),
-					slog.String("error", uerr.Error()),
-				)
-			}
+			// No negative-cache persist: leave the row's current status
+			// alone so the next request gets another fetch attempt. The
+			// downloader's background retry loop owns the status flip
+			// to 'failed' when its own attempts give up.
 			h.logger.WarnContext(ctx, "media.serve.ondemand_miss",
 				slog.String("hash", hash),
 				slog.String("kind", kind),
