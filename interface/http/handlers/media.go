@@ -225,7 +225,7 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 // @Success     200   {string}  binary  "asset bytes"
 // @Success     304   "not modified"
 // @Failure     400   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse  "pending / failed / unknown hash"
+// @Failure     404   {object}  dto.ErrorResponse  "reserved (handler currently has no 404 paths)"
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
 // @Router      /media/{hash} [get]
@@ -275,8 +275,19 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	asset, err := h.repo.Get(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			// Truly unknown hash — operator-trigger required for debugging.
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "media not found"})
+			// Story 352: catalog endpoints (ListSeriesCache,
+			// enrichMissingFromCache, collectGrabCacheFields) emit
+			// deterministic eager poster_hash values into the wire DTO
+			// before media_assets has a pending row — the EnsurePending
+			// side effect runs in a background goroutine after the
+			// response commits. Serving 404 here breaks <img onError>
+			// into the monogram fallback for the milliseconds between
+			// the FE receiving the hash and the goroutine landing the
+			// row. The SVG placeholder (200 + image/svg+xml + 5-min
+			// Cache-Control) keeps the visual stable; the FE re-requests
+			// once the cache window expires and by then the row is
+			// pending → on-demand fetch path takes over.
+			h.writePlaceholder(c, hash, "unknown_hash")
 			return
 		}
 		h.logger.WarnContext(ctx, "media.serve.repo_error",

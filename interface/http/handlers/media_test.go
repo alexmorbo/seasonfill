@@ -274,6 +274,36 @@ func TestMedia_FailedServesPlaceholderWhenUnwired(t *testing.T) {
 	}
 }
 
+// Story 352: unknown hash (no media_assets row at all) serves the
+// SVG placeholder instead of 404 so the FE's <img onError> doesn't
+// fall back to the monogram during the milliseconds between the
+// catalog handler returning the wire DTO and its background
+// EnsurePending goroutine landing the row.
+func TestMedia_UnknownHashServesPlaceholder(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler(t)
+	// Hash is a valid 64-char lowercase hex string but no row exists.
+	hash := hashOf("https://image.tmdb.org/t/p/w342/unknown.jpg")
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 (placeholder), got %d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Fatalf("want image/svg+xml, got %q", got)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected X-Media-Placeholder=1")
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Fatalf("want Cache-Control public, max-age=300, got %q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("expected SVG body, got %q", rr.Body.String()[:min(120, rr.Body.Len())])
+	}
+}
+
 func TestMedia_InvalidHashReturns400(t *testing.T) {
 	h, _, _ := newHandler(t)
 	r := newRouter(h)
