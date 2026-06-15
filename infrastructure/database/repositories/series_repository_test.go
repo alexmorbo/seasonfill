@@ -497,6 +497,50 @@ func TestSeriesRepository_UpsertStub_InsertsWhenAbsent(t *testing.T) {
 	assert.Nil(t, got.BackdropAsset, "stub has no backdrop — stays nil")
 }
 
+func TestSeriesRepository_OriginCountriesRoundtrip(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 99999
+	in := series.Canon{
+		TMDBID:          &tmdbID,
+		Hydration:       series.HydrationFull,
+		Title:           "Origin Countries Test",
+		OriginCountries: []string{"US", "GB", "CA"},
+	}
+	id, err := repo.Upsert(ctx, in)
+	require.NoError(t, err)
+	require.Greater(t, id, int64(0))
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, []string{"US", "GB", "CA"}, got.OriginCountries)
+}
+
+func TestSeriesRepository_OriginCountriesEmptyRoundtrip(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 99998
+	in := series.Canon{
+		TMDBID:          &tmdbID,
+		Hydration:       series.HydrationFull,
+		Title:           "Empty Countries",
+		OriginCountries: nil,
+	}
+	id, err := repo.Upsert(ctx, in)
+	require.NoError(t, err)
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.Nil(t, got.OriginCountries)
+}
+
 // Story 319 — UpsertStub requires a non-nil tmdb_id (recommendation
 // stubs always carry one). Empty title is also rejected.
 func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {

@@ -381,3 +381,88 @@ func TestMapSeasons_PopulatesMediaMeta(t *testing.T) {
 	require.Equal(t, &rg, ep.ReleaseGroup)
 	require.Equal(t, &qn, ep.Quality)
 }
+
+func TestMapHero_PremiereLanguageCountries(t *testing.T) {
+	t.Parallel()
+
+	firstAir := time.Date(2026, 5, 28, 0, 0, 0, 0, time.UTC)
+	lang := "en"
+	countries := []string{"US", "CA"}
+
+	cases := []struct {
+		name           string
+		firstAir       *time.Time
+		lang           *string
+		countries      []string
+		originCountry  *string
+		wantPremiere   *string
+		wantLang       *string
+		wantCountries  []string
+		wantSingularCt *string
+	}{
+		{
+			name:           "all present",
+			firstAir:       &firstAir,
+			lang:           &lang,
+			countries:      countries,
+			originCountry:  func() *string { s := "US"; return &s }(),
+			wantPremiere:   func() *string { s := "2026-05-28"; return &s }(),
+			wantLang:       &lang,
+			wantCountries:  countries,
+			wantSingularCt: func() *string { s := "US"; return &s }(),
+		},
+		{
+			name:           "no first_air_date — premiere omitted",
+			firstAir:       nil,
+			lang:           &lang,
+			countries:      countries,
+			originCountry:  nil,
+			wantPremiere:   nil,
+			wantLang:       &lang,
+			wantCountries:  countries,
+			wantSingularCt: func() *string { s := "US"; return &s }(), // backfilled from countries[0]
+		},
+		{
+			name:           "no original_language — language omitted",
+			firstAir:       &firstAir,
+			lang:           nil,
+			countries:      nil,
+			originCountry:  nil,
+			wantPremiere:   func() *string { s := "2026-05-28"; return &s }(),
+			wantLang:       nil,
+			wantCountries:  nil,
+			wantSingularCt: nil,
+		},
+		{
+			name:           "empty language string — omitted",
+			firstAir:       nil,
+			lang:           func() *string { s := ""; return &s }(),
+			countries:      nil,
+			originCountry:  nil,
+			wantPremiere:   nil,
+			wantLang:       nil,
+			wantCountries:  nil,
+			wantSingularCt: nil,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := &seriesdetail.Detail{
+				Canon: series.Canon{
+					Title:            "X",
+					FirstAirDate:     tc.firstAir,
+					OriginalLanguage: tc.lang,
+					OriginCountries:  tc.countries,
+					OriginCountry:    tc.originCountry,
+				},
+			}
+			h := mapHero(d)
+			require.Equal(t, tc.wantPremiere, h.PremiereDate, "premiere_date")
+			require.Equal(t, tc.wantLang, h.OriginalLanguage, "original_language")
+			require.Equal(t, tc.wantCountries, h.Countries, "countries")
+			require.Equal(t, tc.wantSingularCt, h.Country, "country singular")
+		})
+	}
+}

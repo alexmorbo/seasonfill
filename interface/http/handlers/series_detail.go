@@ -160,6 +160,24 @@ func mapHero(d *seriesdetail.Detail) dto.SeriesHero {
 		c := *d.Canon.OriginCountry
 		h.Country = &c
 	}
+	if len(d.Canon.OriginCountries) > 0 {
+		h.Countries = append([]string(nil), d.Canon.OriginCountries...)
+		// Backfill singular Country from Countries[0] when canon.origin_country
+		// happened to be NULL but the array carries data (defensive — the TMDB
+		// mapper writes both, but cold rows may diverge).
+		if h.Country == nil && d.Canon.OriginCountries[0] != "" {
+			c := d.Canon.OriginCountries[0]
+			h.Country = &c
+		}
+	}
+	if d.Canon.FirstAirDate != nil {
+		s := d.Canon.FirstAirDate.Format("2006-01-02")
+		h.PremiereDate = &s
+	}
+	if d.Canon.OriginalLanguage != nil && *d.Canon.OriginalLanguage != "" {
+		lang := *d.Canon.OriginalLanguage
+		h.OriginalLanguage = &lang
+	}
 	if d.ContentRating != nil {
 		h.ContentRating = &dto.ContentRatingBadge{CountryCode: d.ContentRating.CountryCode, Rating: d.ContentRating.Rating}
 	}

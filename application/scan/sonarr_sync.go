@@ -184,6 +184,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 		Homepage:         c.Homepage,
 		OriginalLanguage: c.OriginalLanguage,
 		OriginCountry:    c.OriginCountry,
+		OriginCountries:  append([]string(nil), c.OriginCountries...),
 		Popularity:       c.Popularity,
 		InProduction:     c.InProduction,
 		PosterAsset:      c.PosterAsset,
@@ -213,6 +214,7 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.Homepage = ec.Homepage
 	base.OriginalLanguage = ec.OriginalLanguage
 	base.OriginCountry = ec.OriginCountry
+	base.OriginCountries = append([]string(nil), ec.OriginCountries...)
 	base.Popularity = ec.Popularity
 	base.InProduction = ec.InProduction
 	base.PosterAsset = ec.PosterAsset

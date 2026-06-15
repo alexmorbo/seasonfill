@@ -423,8 +423,13 @@ type SeriesModel struct {
 	Homepage         *string    `gorm:"column:homepage;type:text"`
 	OriginalLanguage *string    `gorm:"column:original_language;type:text"`
 	OriginCountry    *string    `gorm:"column:origin_country;type:text"`
-	Popularity       *float64   `gorm:"column:popularity"`
-	InProduction     bool       `gorm:"column:in_production;not null;default:false"`
+	// OriginCountries is a JSON-encoded array of ISO 3166-1 alpha-2 codes
+	// (e.g. `["US","CA"]`). Migration 000041 introduced it; OriginCountry
+	// is kept in sync as the first element for compat. NULL on rows older
+	// than 000041 OR Sonarr-only cold rows that never went through TMDB.
+	OriginCountries datatypes.JSON `gorm:"column:origin_countries;type:text"`
+	Popularity      *float64       `gorm:"column:popularity"`
+	InProduction    bool           `gorm:"column:in_production;not null;default:false"`
 	// Network field REMOVED in E-1 (000033). Network membership lives
 	// in series_networks join, resolved via NetworksRepository.
 	PosterAsset   *string   `gorm:"column:poster_asset;type:text"`

@@ -861,6 +861,7 @@ func patchFromTMDBCanon(c series.Canon) enrichment.SeriesPatch {
 		Homepage:         c.Homepage,
 		OriginalLanguage: c.OriginalLanguage,
 		OriginCountry:    c.OriginCountry,
+		OriginCountries:  append([]string(nil), c.OriginCountries...),
 		Popularity:       c.Popularity,
 		InProduction:     &c.InProduction,
 		PosterAsset:      c.PosterAsset,
@@ -887,7 +888,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate: c.NextAirDate, Year: c.Year,
 		RuntimeMinutes: c.RuntimeMinutes, Homepage: c.Homepage,
-		OriginalLanguage: c.OriginalLanguage, OriginCountry: c.OriginCountry,
+		OriginalLanguage: c.OriginalLanguage, OriginCountry: c.OriginCountry, OriginCountries: append([]string(nil), c.OriginCountries...),
 		Popularity: c.Popularity, InProduction: c.InProduction,
 		PosterAsset: c.PosterAsset, BackdropAsset: c.BackdropAsset,
 		TMDBRating: c.TMDBRating, TMDBVotes: c.TMDBVotes,
@@ -912,6 +913,7 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.Homepage = ec.Homepage
 	base.OriginalLanguage = ec.OriginalLanguage
 	base.OriginCountry = ec.OriginCountry
+	base.OriginCountries = append([]string(nil), ec.OriginCountries...)
 	base.Popularity = ec.Popularity
 	base.InProduction = ec.InProduction
 	base.PosterAsset = ec.PosterAsset

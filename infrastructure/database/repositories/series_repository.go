@@ -2,10 +2,12 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -227,6 +229,7 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (int6
 			"homepage":          gorm.Expr("COALESCE(series.homepage, excluded.homepage)"),
 			"original_language": gorm.Expr("COALESCE(series.original_language, excluded.original_language)"),
 			"origin_country":    gorm.Expr("COALESCE(series.origin_country, excluded.origin_country)"),
+			"origin_countries":  gorm.Expr("COALESCE(series.origin_countries, excluded.origin_countries)"),
 			"popularity":        gorm.Expr("COALESCE(series.popularity, excluded.popularity)"),
 			"in_production":     gorm.Expr("series.in_production"),
 			"poster_asset":      gorm.Expr("COALESCE(series.poster_asset, excluded.poster_asset)"),
@@ -496,6 +499,7 @@ func seriesUpsertAssignments() map[string]interface{} {
 		"homepage":          gorm.Expr("excluded.homepage"),
 		"original_language": gorm.Expr("excluded.original_language"),
 		"origin_country":    gorm.Expr("excluded.origin_country"),
+		"origin_countries":  gorm.Expr("excluded.origin_countries"),
 		"popularity":        gorm.Expr("excluded.popularity"),
 		"in_production":     gorm.Expr("excluded.in_production"),
 		"poster_asset":      gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
@@ -528,6 +532,7 @@ func toCanon(m database.SeriesModel) series.Canon {
 		Homepage:         m.Homepage,
 		OriginalLanguage: m.OriginalLanguage,
 		OriginCountry:    m.OriginCountry,
+		OriginCountries:  decodeOriginCountries(m.OriginCountries),
 		Popularity:       m.Popularity,
 		InProduction:     m.InProduction,
 		PosterAsset:      m.PosterAsset,
@@ -561,6 +566,7 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		Homepage:         c.Homepage,
 		OriginalLanguage: c.OriginalLanguage,
 		OriginCountry:    c.OriginCountry,
+		OriginCountries:  encodeOriginCountries(c.OriginCountries),
 		Popularity:       c.Popularity,
 		InProduction:     c.InProduction,
 		PosterAsset:      c.PosterAsset,
@@ -574,4 +580,32 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		CreatedAt:        c.CreatedAt,
 		UpdatedAt:        c.UpdatedAt,
 	}
+}
+
+// encodeOriginCountries marshals a string slice to a datatypes.JSON
+// (storage column origin_countries text). nil + empty slice both
+// roundtrip as NULL in the database — neither has display value and
+// distinguishing them is not worth the read-side branch.
+func encodeOriginCountries(s []string) datatypes.JSON {
+	if len(s) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil
+	}
+	return datatypes.JSON(b)
+}
+
+// decodeOriginCountries unmarshals datatypes.JSON to a string slice.
+// Returns nil on empty / invalid JSON; never panics.
+func decodeOriginCountries(j datatypes.JSON) []string {
+	if len(j) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(j, &out); err != nil {
+		return nil
+	}
+	return out
 }

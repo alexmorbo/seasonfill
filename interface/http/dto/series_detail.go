@@ -113,8 +113,24 @@ type SeriesHero struct {
 	Studio *string `json:"studio,omitempty" example:"Sony Pictures Television"`
 	// Country is the ISO 3166-1 alpha-2 origin country code (e.g. "US",
 	// "RU"). FE maps the token to a localised label. nil when the canon
-	// row has no origin_country (cold series).
+	// row has no origin_country (cold series). DEPRECATED for new consumers:
+	// use Countries (plural) instead — Country is kept as Countries[0] for
+	// back-compat with pre-365 clients.
 	Country *string `json:"country,omitempty" example:"US"`
+	// Countries is the full origin-country list (ISO 3166-1 alpha-2 each).
+	// Empty/nil → FE hides the "Страны" row. FE localises each code via
+	// Intl.DisplayNames and switches the label between singular/plural
+	// based on length. Sourced from TMDB's `origin_country` array.
+	Countries []string `json:"countries,omitempty" example:"US,CA"`
+	// PremiereDate is the series' first-air-date as ISO YYYY-MM-DD. nil
+	// when canon.first_air_date is NULL. FE formats locale-aware via
+	// Intl.DateTimeFormat. Date-only (no timezone) — the underlying TMDB
+	// field is a calendar date, not an instant.
+	PremiereDate *string `json:"premiere_date,omitempty" example:"2026-05-28"`
+	// OriginalLanguage is the BCP-47 / ISO 639-1 code (e.g. "en", "ru").
+	// nil when canon.original_language is NULL. FE renders the localised
+	// display name via Intl.DisplayNames({type:'language'}).
+	OriginalLanguage *string `json:"original_language,omitempty" example:"en"`
 	// ContentRating is the displayed age-rating badge. nil when no
 	// content_ratings row matches the user locale OR en-US OR US
 	// fallback.

@@ -28,6 +28,7 @@ type SeriesPatch struct {
 	Homepage         *string
 	OriginalLanguage *string
 	OriginCountry    *string
+	OriginCountries  []string
 	Popularity       *float64
 	InProduction     *bool
 	PosterAsset      *string
@@ -65,6 +66,7 @@ type SeriesCanon struct {
 	Homepage         *string
 	OriginalLanguage *string
 	OriginCountry    *string
+	OriginCountries  []string
 	Popularity       *float64
 	InProduction     bool
 	PosterAsset      *string
@@ -176,6 +178,12 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		}
 		if patch.OriginCountry != nil {
 			canon.OriginCountry = patch.OriginCountry
+		}
+		// TMDB-priority: full overwrite when the patch supplies a non-nil
+		// slice (including empty slice — TMDB authoritatively dropped all
+		// countries). nil patch leaves canon untouched.
+		if patch.OriginCountries != nil {
+			canon.OriginCountries = patch.OriginCountries
 		}
 		if patch.Popularity != nil {
 			canon.Popularity = patch.Popularity

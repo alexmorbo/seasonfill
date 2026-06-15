@@ -266,3 +266,35 @@ func TestNormaliseIMDBID(t *testing.T) {
 		}
 	}
 }
+
+func TestMapTVToCanon_OriginCountries(t *testing.T) {
+	t.Parallel()
+	tv := &TVResponse{
+		ID:            123,
+		Name:          "Multi-country",
+		OriginCountry: []string{"US", "GB", "JP"},
+	}
+	c := MapTVToCanon(tv)
+	if c.OriginCountry == nil {
+		t.Error("OriginCountry should be populated from first element")
+	} else if *c.OriginCountry != "US" {
+		t.Errorf("OriginCountry = %q, want US", *c.OriginCountry)
+	}
+	if c.OriginCountries == nil || len(c.OriginCountries) != 3 {
+		t.Errorf("OriginCountries = %v, want [US GB JP]", c.OriginCountries)
+	} else if c.OriginCountries[0] != "US" || c.OriginCountries[1] != "GB" || c.OriginCountries[2] != "JP" {
+		t.Errorf("OriginCountries = %v, want [US GB JP]", c.OriginCountries)
+	}
+}
+
+func TestMapTVToCanon_OriginCountriesEmpty(t *testing.T) {
+	t.Parallel()
+	tv := &TVResponse{ID: 124, Name: "No country", OriginCountry: nil}
+	c := MapTVToCanon(tv)
+	if c.OriginCountry != nil {
+		t.Errorf("OriginCountry should be nil, got %v", c.OriginCountry)
+	}
+	if c.OriginCountries != nil {
+		t.Errorf("OriginCountries should be nil, got %v", c.OriginCountries)
+	}
+}

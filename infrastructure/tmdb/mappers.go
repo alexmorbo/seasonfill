@@ -53,6 +53,11 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 	}
 	if len(tv.OriginCountry) > 0 {
 		c.OriginCountry = ptrString(tv.OriginCountry[0])
+		// OriginCountries holds the full TMDB array — used by the
+		// right-rail "Страны" row. Singular OriginCountry stays the
+		// first element for compat. Copy defensively to avoid aliasing
+		// the TVResponse slice.
+		c.OriginCountries = append([]string(nil), tv.OriginCountry...)
 	}
 	if tv.NextEpisodeToAir != nil {
 		c.NextAirDate = parseDate(tv.NextEpisodeToAir.AirDate)

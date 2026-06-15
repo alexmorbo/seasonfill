@@ -52,6 +52,7 @@ type Canon struct {
 	Homepage         *string
 	OriginalLanguage *string
 	OriginCountry    *string
+	OriginCountries  []string
 	Popularity       *float64
 	InProduction     bool
 	// Network REMOVED in E-1 (000033). Use SeriesNetworksRepository
