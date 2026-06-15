@@ -340,6 +340,10 @@ func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
 				ep.HasFile = e.State.HasFile
 				ep.Quality = e.State.Quality
 				ep.SizeBytes = e.State.SizeBytes
+				ep.VideoCodec = e.State.VideoCodec
+				ep.AudioCodec = e.State.AudioCodec
+				ep.AudioChannels = e.State.AudioChannels
+				ep.ReleaseGroup = e.State.ReleaseGroup
 				if e.State.HasFile {
 					onDisk++
 				} else {

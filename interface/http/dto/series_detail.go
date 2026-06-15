@@ -272,6 +272,13 @@ type Episode struct {
 	HasFile          bool       `json:"has_file"`
 	Quality          *string    `json:"quality,omitempty"`
 	SizeBytes        *int64     `json:"size_bytes,omitempty"`
+	// Media meta — from Sonarr episodeFile.mediaInfo + releaseGroup.
+	// All nil when the file was never probed (rare) or the episode is
+	// not on disk.
+	VideoCodec    *string `json:"video_codec,omitempty" example:"HEVC"`
+	AudioCodec    *string `json:"audio_codec,omitempty" example:"DDP"`
+	AudioChannels *string `json:"audio_channels,omitempty" example:"5.1"`
+	ReleaseGroup  *string `json:"release_group,omitempty" example:"RARBG"`
 }
 
 // CastMember — one row of the cast carousel (design brief §2.6).

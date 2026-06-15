@@ -69,15 +69,18 @@ type EpisodePayload struct {
 
 // EpisodeFilePayload carries the full Sonarr episode-file shape for E-1.
 type EpisodeFilePayload struct {
-	ID           int
-	SeasonNumber int
-	EpisodeIDs   []int
-	Path         string
-	RelativePath string
-	SizeBytes    int64
-	QualityID    int
-	QualityName  string
-	ReleaseGroup string
+	ID            int
+	SeasonNumber  int
+	EpisodeIDs    []int
+	Path          string
+	RelativePath  string
+	SizeBytes     int64
+	QualityID     int
+	QualityName   string
+	ReleaseGroup  string
+	VideoCodec    string // mediaInfo.videoCodec ("HEVC", "x264")
+	AudioCodec    string // mediaInfo.audioCodec ("DDP", "DTS")
+	AudioChannels string // mediaInfo.audioChannels ("5.1", "2.0")
 }
 
 // queueDTO mirrors Sonarr's GET /api/v3/queue response.
@@ -178,7 +181,7 @@ func episodePayloadFromDTO(d episodeDTO) EpisodePayload {
 }
 
 func episodeFilePayloadFromDTO(d episodeFileDTO) EpisodeFilePayload {
-	return EpisodeFilePayload{
+	p := EpisodeFilePayload{
 		ID:           d.ID,
 		SeasonNumber: d.SeasonNumber,
 		EpisodeIDs:   append([]int(nil), d.EpisodeIDs...),
@@ -189,6 +192,12 @@ func episodeFilePayloadFromDTO(d episodeFileDTO) EpisodeFilePayload {
 		QualityName:  d.Quality.Quality.Name,
 		ReleaseGroup: d.ReleaseGroup,
 	}
+	if d.MediaInfo != nil {
+		p.VideoCodec = d.MediaInfo.VideoCodec
+		p.AudioCodec = d.MediaInfo.AudioCodec
+		p.AudioChannels = string(d.MediaInfo.AudioChannels)
+	}
+	return p
 }
 
 // GetSeriesPayload returns the full Sonarr seriesDTO for E-1's

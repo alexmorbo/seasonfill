@@ -121,6 +121,10 @@ type EpisodeState struct {
 	EpisodeFileID *int
 	Quality       *string
 	SizeBytes     *int64
+	VideoCodec    *string
+	AudioCodec    *string
+	AudioChannels *string
+	ReleaseGroup  *string
 	UpdatedAt     time.Time
 }
 

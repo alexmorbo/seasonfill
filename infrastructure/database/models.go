@@ -516,6 +516,13 @@ type EpisodeStateModel struct {
 	EpisodeFileID *int      `gorm:"column:episode_file_id"`
 	Quality       *string   `gorm:"column:quality;type:text"`
 	SizeBytes     *int64    `gorm:"column:size_bytes"`
+	// VideoCodec, AudioCodec, AudioChannels, ReleaseGroup come from
+	// Sonarr's episodeFile.mediaInfo block + releaseGroup. All
+	// nullable — mediaInfo is absent when Sonarr never probed the file.
+	VideoCodec    *string   `gorm:"column:video_codec;type:text"`
+	AudioCodec    *string   `gorm:"column:audio_codec;type:text"`
+	AudioChannels *string   `gorm:"column:audio_channels;type:text"`
+	ReleaseGroup  *string   `gorm:"column:release_group;type:text"`
 	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
 	// DeletedAt is set by the SeriesDelete webhook cascade
 	// (story 218 E-2). Production readers filter by IS NULL.

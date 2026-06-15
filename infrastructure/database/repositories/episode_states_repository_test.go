@@ -24,13 +24,15 @@ func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
 	require.NoError(t, err)
 	repo := NewEpisodeStatesRepository(db)
 
+	q := "WEBDL-1080p"
+	sz := int64(123456789)
 	require.NoError(t, repo.Upsert(ctx, series.EpisodeState{
 		InstanceName: "main",
 		EpisodeID:    epID,
 		Monitored:    true,
 		HasFile:      true,
-		Quality:      ptrString("WEBDL-1080p"),
-		SizeBytes:    ptrInt64(123456789),
+		Quality:      &q,
+		SizeBytes:    &sz,
 	}))
 
 	got, err := repo.Get(ctx, "main", epID)
@@ -39,6 +41,7 @@ func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
 	assert.True(t, got.Monitored)
 	require.NotNil(t, got.Quality)
 	assert.Equal(t, "WEBDL-1080p", *got.Quality)
+	assert.Equal(t, int64(123456789), *got.SizeBytes)
 }
 
 func TestEpisodeStatesRepository_Get_NotFound(t *testing.T) {
@@ -101,3 +104,39 @@ func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+func TestEpisodeStatesRepository_MediaMeta_RoundTrip(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("MediaMeta"))
+	require.NoError(t, err)
+	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+		SeriesID: seriesID, SeasonNumber: 5, EpisodeNumber: 1,
+	})
+	require.NoError(t, err)
+	repo := NewEpisodeStatesRepository(db)
+
+	vc := "HEVC"
+	ac := "DDP"
+	ach := "5.1"
+	rg := "RARBG"
+	st := series.EpisodeState{
+		InstanceName:  "main",
+		EpisodeID:     epID,
+		Monitored:     true,
+		HasFile:       true,
+		VideoCodec:    &vc,
+		AudioCodec:    &ac,
+		AudioChannels: &ach,
+		ReleaseGroup:  &rg,
+	}
+	require.NoError(t, repo.Upsert(ctx, st))
+
+	got, err := repo.Get(ctx, "main", epID)
+	require.NoError(t, err)
+	require.Equal(t, &vc, got.VideoCodec)
+	require.Equal(t, &ac, got.AudioCodec)
+	require.Equal(t, &ach, got.AudioChannels)
+	require.Equal(t, &rg, got.ReleaseGroup)
+}

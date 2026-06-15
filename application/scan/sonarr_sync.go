@@ -429,6 +429,22 @@ func syncEpisodes(
 					sb := f.SizeBytes
 					state.SizeBytes = &sb
 				}
+				if f.VideoCodec != "" {
+					vc := f.VideoCodec
+					state.VideoCodec = &vc
+				}
+				if f.AudioCodec != "" {
+					ac := f.AudioCodec
+					state.AudioCodec = &ac
+				}
+				if f.AudioChannels != "" {
+					ach := f.AudioChannels
+					state.AudioChannels = &ach
+				}
+				if f.ReleaseGroup != "" {
+					rg := f.ReleaseGroup
+					state.ReleaseGroup = &rg
+				}
 			}
 		}
 		if serr := deps.EpisodeStates.Upsert(ctx, state); serr != nil {

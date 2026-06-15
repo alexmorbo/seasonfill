@@ -1,6 +1,9 @@
 package sonarr
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type systemStatusDTO struct {
 	Version     string `json:"version"`
@@ -92,15 +95,27 @@ type episodeDTO struct {
 }
 
 type episodeFileDTO struct {
-	ID           int        `json:"id"`
-	SeriesID     int        `json:"seriesId"`
-	SeasonNumber int        `json:"seasonNumber"`
-	EpisodeIDs   []int      `json:"episodeIds,omitempty"`
-	Path         string     `json:"path,omitempty"`
-	RelativePath string     `json:"relativePath"`
-	Size         int64      `json:"size"`
-	ReleaseGroup string     `json:"releaseGroup,omitempty"`
-	Quality      qualityRef `json:"quality"`
+	ID           int            `json:"id"`
+	SeriesID     int            `json:"seriesId"`
+	SeasonNumber int            `json:"seasonNumber"`
+	EpisodeIDs   []int          `json:"episodeIds,omitempty"`
+	Path         string         `json:"path,omitempty"`
+	RelativePath string         `json:"relativePath"`
+	Size         int64          `json:"size"`
+	ReleaseGroup string         `json:"releaseGroup,omitempty"`
+	Quality      qualityRef     `json:"quality"`
+	MediaInfo    *mediaInfoDTO  `json:"mediaInfo,omitempty"`
+}
+
+// mediaInfoDTO mirrors Sonarr's episodeFile.mediaInfo subset we read.
+// videoCodec / audioCodec are strings ("HEVC", "DDP"). audioChannels is
+// a JSON number that Sonarr serialises as a decimal (5.1, 2.0) — we
+// decode into json.Number to preserve the trailing ".0" if Sonarr sends
+// it that way, then stringify on the payload side.
+type mediaInfoDTO struct {
+	VideoCodec    string      `json:"videoCodec,omitempty"`
+	AudioCodec    string      `json:"audioCodec,omitempty"`
+	AudioChannels json.Number `json:"audioChannels,omitempty"`
 }
 
 type qualityRef struct {

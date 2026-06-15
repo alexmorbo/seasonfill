@@ -245,3 +245,66 @@ func TestSyncSeriesFromSonarr_Idempotent(t *testing.T) {
 	assert.Equal(t, 1, f.countTable(t, "genres"))
 	assert.Equal(t, 1, f.countTable(t, "series_genres"))
 }
+
+// TestSyncEpisodes_PopulatesMediaMeta — verify that episode-file media
+// metadata (codecs, channels, release group) propagates from the payload
+// into episode_states.
+func TestSyncEpisodes_PopulatesMediaMeta(t *testing.T) {
+	t.Parallel()
+	f := newSyncFixture(t)
+	ctx := context.Background()
+
+	seriesPayload := sonarr.SeriesPayload{
+		ID:       1,
+		Title:    "MediaMetaTest",
+		TVDBID:   888,
+		Year:     2024,
+		Monitored: true,
+		TitleSlug: "test",
+	}
+	canonID, err := scan.SyncSeriesFromSonarr(ctx, f.deps, "main", scan.SonarrPayloadBundle{Series: seriesPayload})
+	require.NoError(t, err)
+
+	// Now sync episodes with mediaInfo. We need to call SyncSeriesFromSonarr
+	// with the full bundle including episodes and files.
+	bundleWithFiles := scan.SonarrPayloadBundle{
+		Series: seriesPayload,
+		Episodes: []sonarr.EpisodePayload{{
+			ID:            10,
+			EpisodeNumber: 1,
+			SeasonNumber:  5,
+			HasFile:       true,
+			EpisodeFileID: 100,
+			AirDateUTC:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		}},
+		EpisodeFiles: []sonarr.EpisodeFilePayload{{
+			ID:            100,
+			QualityName:   "WEBDL-1080p",
+			SizeBytes:     1024,
+			VideoCodec:    "HEVC",
+			AudioCodec:    "DDP",
+			AudioChannels: "5.1",
+			ReleaseGroup:  "RARBG",
+		}},
+	}
+	_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "main", bundleWithFiles)
+	require.NoError(t, err)
+
+	// Look up the episode state we just created
+	// The episode ID comes from the database — we can query by series + season + episode
+	var ep database.EpisodeModel
+	require.NoError(t, f.db.Where("series_id = ? AND season_number = ? AND episode_number = ?",
+		canonID, 5, 1).First(&ep).Error)
+
+	// Query the episode_states table directly
+	var state database.EpisodeStateModel
+	require.NoError(t, f.db.Where("instance_name = ? AND episode_id = ?", "main", ep.ID).First(&state).Error)
+	require.NotNil(t, state.VideoCodec)
+	assert.Equal(t, "HEVC", *state.VideoCodec)
+	require.NotNil(t, state.AudioCodec)
+	assert.Equal(t, "DDP", *state.AudioCodec)
+	require.NotNil(t, state.AudioChannels)
+	assert.Equal(t, "5.1", *state.AudioChannels)
+	require.NotNil(t, state.ReleaseGroup)
+	assert.Equal(t, "RARBG", *state.ReleaseGroup)
+}

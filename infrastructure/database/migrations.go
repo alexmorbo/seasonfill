@@ -319,6 +319,14 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	if hasV39 {
 		version = 39
 	}
+	// 355 (B-13): Detect v40 by checking for episode_states.video_codec.
+	hasV40, err := columnExists(ctx, sqlDB, dialect, "episode_states", "video_codec")
+	if err != nil {
+		return err
+	}
+	if hasV40 {
+		version = 40
+	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {
 		return fmt.Errorf("unsupported dialect: %s", dialect)

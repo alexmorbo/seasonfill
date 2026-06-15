@@ -352,3 +352,32 @@ func TestMapHero_StudioAndCountry(t *testing.T) {
 		})
 	}
 }
+
+func TestMapSeasons_PopulatesMediaMeta(t *testing.T) {
+	t.Parallel()
+	vc, ac, ach, rg := "HEVC", "DDP", "5.1", "RARBG"
+	qn := "WEBDL-1080p"
+	seasons := []seriesdetail.SeasonDetail{{
+		Canon: series.CanonSeason{SeasonNumber: 5},
+		Episodes: []seriesdetail.EpisodeDetail{{
+			Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 5},
+			State: &series.EpisodeState{
+				HasFile:       true,
+				Quality:       &qn,
+				VideoCodec:    &vc,
+				AudioCodec:    &ac,
+				AudioChannels: &ach,
+				ReleaseGroup:  &rg,
+			},
+		}},
+	}}
+	out := mapSeasons(seasons)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Episodes, 1)
+	ep := out[0].Episodes[0]
+	require.Equal(t, &vc, ep.VideoCodec)
+	require.Equal(t, &ac, ep.AudioCodec)
+	require.Equal(t, &ach, ep.AudioChannels)
+	require.Equal(t, &rg, ep.ReleaseGroup)
+	require.Equal(t, &qn, ep.Quality)
+}

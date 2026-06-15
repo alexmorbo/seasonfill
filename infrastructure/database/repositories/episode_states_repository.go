@@ -129,6 +129,10 @@ func toEpisodeState(m database.EpisodeStateModel) series.EpisodeState {
 		EpisodeFileID: m.EpisodeFileID,
 		Quality:       m.Quality,
 		SizeBytes:     m.SizeBytes,
+		VideoCodec:    m.VideoCodec,
+		AudioCodec:    m.AudioCodec,
+		AudioChannels: m.AudioChannels,
+		ReleaseGroup:  m.ReleaseGroup,
 		UpdatedAt:     m.UpdatedAt,
 	}
 }
@@ -142,6 +146,10 @@ func fromEpisodeState(s series.EpisodeState) database.EpisodeStateModel {
 		EpisodeFileID: s.EpisodeFileID,
 		Quality:       s.Quality,
 		SizeBytes:     s.SizeBytes,
+		VideoCodec:    s.VideoCodec,
+		AudioCodec:    s.AudioCodec,
+		AudioChannels: s.AudioChannels,
+		ReleaseGroup:  s.ReleaseGroup,
 		UpdatedAt:     s.UpdatedAt,
 	}
 }
