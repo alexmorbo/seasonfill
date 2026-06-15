@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import { ChevronLeft, TriangleAlert } from 'lucide-react';
@@ -6,16 +6,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useSeriesDetail, parseStatus, isSonarrOnly, isDegraded } from '@/api/seriesDetail';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
-import { NextEpisodeCard } from '@/components/series-detail/NextEpisodeCard';
-import { LibraryStatusCard } from '@/components/series-detail/LibraryStatusCard';
+import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
+import { RailCard } from '@/components/series-detail/RailCard';
+import { CastStrip } from '@/components/series-detail/CastStrip';
+import { RecentStrip } from '@/components/series-detail/RecentStrip';
 import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
-import { KeywordChips } from '@/components/series-detail/KeywordChips';
-import { CastCarousel } from '@/components/series-detail/CastCarousel';
 import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
 import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
-import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
 import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
 import { TorrentsSection } from '@/components/torrents/TorrentsSection';
 import { useFormatDate } from '@/lib/timezone';
@@ -26,6 +25,7 @@ export function SeriesDetail() {
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const fmt = useFormatDate();
+  const torrentsRef = useRef<HTMLDivElement | null>(null);
 
   const detail = useSeriesDetail({
     instance,
@@ -45,6 +45,10 @@ export function SeriesDetail() {
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
+  const scrollToTorrents = useCallback(() => {
+    torrentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   if (!instance || !seriesId || Number.isNaN(seriesId)) {
     return (
       <div className="p-4">
@@ -57,15 +61,12 @@ export function SeriesDetail() {
     );
   }
 
-  // Per-section TMDB stale affordance — passed into each carousel/accordion
-  // via the `staleBadge` slot so it renders inline with the existing
-  // section heading instead of double-wrapping with a second header row.
   const tmdbStaleSlot = tmdbDegraded && syncedAt
     ? <StaleBadge asOf={syncedAt} source="tmdb" />
     : undefined;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="sd-real flex flex-col gap-5 px-[36px] lg:px-[36px]">
       <nav className="flex items-center gap-2 text-[12.5px] text-tx-muted">
         <Link
           to="/series"
@@ -95,69 +96,65 @@ export function SeriesDetail() {
             instance={instance}
             seriesId={seriesId}
             hero={hero}
-            {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
-            {...(imdbStaleAt ? { imdbStaleAt } : {})}
-          />
-
-          <div className="grid grid-cols-1 min-[1440px]:grid-cols-[1fr_380px] gap-4">
-            <div className="flex flex-col gap-3 min-w-0">
-              <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
-                {t('seriesDetail.overview.label')}
-                <LanguageFallbackTag
-                  contentLang={data.overview?.language}
-                  {...(lang ? { requestedLang: lang } : {})}
-                  testid="overview-lang-fallback"
-                />
-              </div>
-              <p data-testid="overview-text" className="text-[13.5px] leading-relaxed text-tx-secondary whitespace-pre-line">
-                {data.overview?.overview || t('seriesDetail.overview.empty')}
-              </p>
-            </div>
-            <aside className="flex flex-col gap-3 min-w-0">
-              <NextEpisodeCard
-                {...(hero?.next_episode ? { nextEpisode: hero.next_episode } : {})}
-                status={status}
-                {...(hero?.year_end ? { yearEnd: hero.year_end } : {})}
-              />
-              {!sonarrOnly && data.overview?.keywords && data.overview.keywords.length > 0 && (
-                <div
-                  data-testid="overview-keywords"
-                  className="flex flex-col gap-2 rounded-lg border border-border-faint bg-bg-surface/60 px-4 py-3"
-                >
-                  <div className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
-                    {t('seriesDetail.overview.keywords')}
-                  </div>
-                  <KeywordChips chips={data.overview.keywords} />
-                </div>
-              )}
-              <AwardsBlock
-                awards={data.overview?.awards}
-                omdbDegraded={omdbDegraded}
-                {...(syncedAt ? { syncedAt } : {})}
-              />
-            </aside>
-          </div>
-
-          <LibraryStatusCard
             {...(data.library ? { library: data.library } : {})}
             {...(data.download ? { download: data.download } : {})}
-            {...(data.recent ? { recent: data.recent } : {})}
+            {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
+            {...(imdbStaleAt ? { imdbStaleAt } : {})}
+            onScrollToTorrents={scrollToTorrents}
           />
 
-          <TorrentsSection instance={instance} seriesId={seriesId} />
+          <section data-testid="overview-section">
+            <OverviewGrid
+              left={
+                <>
+                  <div className="flex flex-col gap-3 min-w-0">
+                    <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
+                      {t('seriesDetail.overview.label')}
+                      <LanguageFallbackTag
+                        contentLang={data.overview?.language}
+                        {...(lang ? { requestedLang: lang } : {})}
+                        testid="overview-lang-fallback"
+                      />
+                    </div>
+                    <p
+                      data-testid="overview-text"
+                      className="text-[13.5px] leading-relaxed text-tx-secondary whitespace-pre-line max-w-[64ch]"
+                    >
+                      {data.overview?.overview || t('seriesDetail.overview.empty')}
+                    </p>
+                  </div>
+                  {!sonarrOnly && (
+                    <CastStrip
+                      instance={instance}
+                      seriesId={seriesId}
+                      {...(data.cast ? { cast: data.cast } : {})}
+                    />
+                  )}
+                </>
+              }
+              right={
+                <RailCard
+                  status={status}
+                  hero={hero}
+                  {...(data.overview?.awards ? { awards: data.overview.awards } : {})}
+                  omdbDegraded={omdbDegraded}
+                  {...(data.overview?.keywords ? { keywords: data.overview.keywords } : {})}
+                />
+              }
+            />
+          </section>
+
+          <RecentStrip {...(data.recent ? { recent: data.recent } : {})} />
+
+          <div ref={torrentsRef}>
+            <TorrentsSection instance={instance} seriesId={seriesId} />
+          </div>
 
           <SeasonsAccordion
             instance={instance}
             seriesId={seriesId}
             seasons={data.seasons}
             {...(lang ? { lang } : {})}
-            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
-          />
-
-          <CastCarousel
-            instance={instance}
-            seriesId={seriesId}
-            cast={data.cast}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
           />
 

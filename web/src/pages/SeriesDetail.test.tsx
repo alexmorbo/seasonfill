@@ -103,11 +103,12 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('hero-title')).toHaveTextContent('For All Mankind');
     expect(screen.getByTestId('rating-tmdb')).toBeInTheDocument();
     expect(screen.getByTestId('rating-imdb')).toBeInTheDocument();
-    expect(screen.getByTestId('library-status-card')).toBeInTheDocument();
-    expect(screen.getByTestId('library-missing-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-library-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('overview-section')).toBeInTheDocument();
+    expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-card')).toBeInTheDocument();
     expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
     expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();
-    expect(screen.getByTestId('cast-carousel')).toBeInTheDocument();
     expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument();
     // The three deferred placeholders are gone:
     expect(screen.queryByTestId('placeholder-seasons')).not.toBeInTheDocument();
@@ -115,6 +116,24 @@ describe('<SeriesDetail />', () => {
     expect(screen.queryByTestId('placeholder-recommendations')).not.toBeInTheDocument();
     // Torrents placeholder is gone — K-1 mounts the real TorrentsSection.
     expect(screen.queryByTestId('placeholder-torrents')).not.toBeInTheDocument();
+    // Legacy surfaces removed
+    expect(screen.queryByTestId('library-status-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cast-carousel')).not.toBeInTheDocument();
+  });
+
+  it('renders sections in v2 order', async () => {
+    mockApi.mockResolvedValue(fullFixture);
+    renderRoute('/series/homelab/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    const order = ['series-hero', 'overview-section',
+                   'seasons-accordion', 'recommendations-carousel', 'external-links-footer'];
+    const elements = order.map(id => screen.getByTestId(id) as HTMLElement);
+    for (let i = 1; i < elements.length; i++) {
+      const prev = elements[i - 1] as Node;
+      const curr = elements[i] as Node;
+      expect(prev.compareDocumentPosition(curr))
+        .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
   });
 
   it('renders the Sonarr-only state with no TMDB blocks', async () => {
