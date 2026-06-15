@@ -288,3 +288,66 @@ test.describe('B-13 Series Detail v2 — 366 hero topbar + overview + cast clip'
     expect(headerHasSpacer).toBe(false);
   });
 });
+
+test.describe('B-13 Series Detail v2 — hero flush to topbar + extended backdrop (story 367)', () => {
+  test('hero top sits flush with topbar bottom (no empty band)', async ({ page }) => {
+    await goto(page);
+    const measurements = await page.evaluate(() => {
+      const topbar = document.querySelector('header');
+      const hero = document.querySelector('[data-testid="series-hero"]');
+      if (!topbar || !hero) return null;
+      const tb = topbar.getBoundingClientRect();
+      const hb = hero.getBoundingClientRect();
+      return { topbarBottom: tb.bottom, heroTop: hb.top, gap: hb.top - tb.bottom };
+    });
+    expect(measurements).not.toBeNull();
+    expect(measurements!.gap).toBeGreaterThanOrEqual(-2);
+    expect(measurements!.gap).toBeLessThanOrEqual(5);
+  });
+
+  test('backdrop layer height is at least 700px', async ({ page }) => {
+    await goto(page);
+    const height = await page.evaluate(() => {
+      const layer = document.querySelector('[data-testid="hero-backdrop-layer"]');
+      return layer ? parseFloat(getComputedStyle(layer).height) : 0;
+    });
+    expect(height).toBeGreaterThanOrEqual(700);
+  });
+
+  test('no hard horizontal divider at hero bottom (no border / shadow on hero or its children)', async ({ page }) => {
+    await goto(page);
+    const offenders = await page.evaluate(() => {
+      const hero = document.querySelector('[data-testid="series-hero"]');
+      if (!hero) return ['missing-hero'];
+      const heroRect = hero.getBoundingClientRect();
+      const bad: string[] = [];
+      const all: Element[] = [hero, ...Array.from(hero.querySelectorAll('*'))];
+      for (const node of all) {
+        const cs = getComputedStyle(node);
+        const r = node.getBoundingClientRect();
+        const nearBottom = Math.abs(r.bottom - heroRect.bottom) < 12;
+        if (!nearBottom) continue;
+        if (cs.borderBottomWidth !== '0px' && cs.borderBottomStyle !== 'none') {
+          bad.push(`${node.tagName}.${(node as HTMLElement).className} border-bottom=${cs.borderBottom}`);
+        }
+        if (cs.boxShadow && cs.boxShadow !== 'none') {
+          bad.push(`${node.tagName}.${(node as HTMLElement).className} shadow=${cs.boxShadow}`);
+        }
+      }
+      return bad;
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test('overview section sits below hero with no overlap', async ({ page }) => {
+    await goto(page);
+    const rects = await page.evaluate(() => {
+      const hero = document.querySelector('[data-testid="series-hero"]');
+      const ov = document.querySelector('[data-testid="overview-section"]');
+      if (!hero || !ov) return null;
+      return { heroBottom: hero.getBoundingClientRect().bottom, overviewTop: ov.getBoundingClientRect().top };
+    });
+    expect(rects).not.toBeNull();
+    expect(rects!.overviewTop).toBeGreaterThan(rects!.heroBottom);
+  });
+});

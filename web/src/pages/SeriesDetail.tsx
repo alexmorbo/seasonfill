@@ -66,7 +66,7 @@ export function SeriesDetail() {
     : undefined;
 
   return (
-    <div className="sd-real flex flex-col gap-5 px-[36px] lg:px-[36px]">
+    <div className="sd-real -mt-5 flex flex-col gap-5 px-[36px] lg:px-[36px]">
       {detail.isPending && <SeriesDetailSkeleton />}
 
       {detail.isError && (
