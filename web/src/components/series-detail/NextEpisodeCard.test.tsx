@@ -4,33 +4,51 @@ import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
 import { NextEpisodeCard } from './NextEpisodeCard';
 
-function r(node: React.ReactElement) {
-  return render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
+function withI18n(ui: React.ReactElement) {
+  return <I18nextProvider i18n={i18n}>{ui}</I18nextProvider>;
 }
 
-describe('<NextEpisodeCard />', () => {
-  it('renders the "next" variant with code and title', () => {
-    r(<NextEpisodeCard
-      nextEpisode={{ season_number: 5, episode_number: 3, title: 'Glasnost', air_date: '2026-07-14' }}
+const futureISO = new Date(Date.now() + 4 * 86_400_000).toISOString();
+
+describe('NextEpisodeCard', () => {
+  it('renders the counter variant for a continuing series with a date', () => {
+    render(withI18n(<NextEpisodeCard
       status="continuing"
-    />);
-    expect(screen.getByTestId('next-episode-card').getAttribute('data-variant')).toBe('next');
-    expect(screen.getByText(/S05E03/)).toBeInTheDocument();
-    expect(screen.getByText(/Glasnost/)).toBeInTheDocument();
+      nextEpisode={{ season_number: 5, episode_number: 3, title: 'Glasnost', air_date: futureISO }}
+    />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.dataset['variant']).toBe('default');
+    expect(screen.getByTestId('ip-cd-badge').dataset['variant']).toBe('counter');
+    expect(el.textContent).toMatch(/S05E03/);
+    expect(el.textContent).toMatch(/Glasnost/);
   });
 
-  it('renders the "ended" variant when status=ended', () => {
-    r(<NextEpisodeCard status="ended" yearEnd={2024} />);
-    expect(screen.getByTestId('next-episode-card').getAttribute('data-variant')).toBe('ended');
+  it('renders the ended variant with a flag badge', () => {
+    render(withI18n(<NextEpisodeCard status="ended" yearEnd={2024} />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.dataset['variant']).toBe('ended');
+    expect(screen.getByTestId('ip-cd-badge').dataset['variant']).toBe('muted');
+    expect(el.textContent).toMatch(/2024/);
   });
 
-  it('renders the "production" variant when status=in_production', () => {
-    r(<NextEpisodeCard status="in_production" />);
-    expect(screen.getByTestId('next-episode-card').getAttribute('data-variant')).toBe('production');
+  it('renders the production variant with a hammer badge', () => {
+    render(withI18n(<NextEpisodeCard status="in_production" />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.dataset['variant']).toBe('production');
+    expect(screen.getByTestId('ip-cd-badge').dataset['variant']).toBe('muted');
   });
 
-  it('renders the "unscheduled" variant when continuing with no nextEpisode', () => {
-    r(<NextEpisodeCard status="continuing" />);
-    expect(screen.getByTestId('next-episode-card').getAttribute('data-variant')).toBe('unscheduled');
+  it('returns null for continuing without a scheduled next episode', () => {
+    const { container } = render(withI18n(<NextEpisodeCard status="continuing" />));
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('panel variant uses bordered surface (no glass blur)', () => {
+    render(withI18n(<NextEpisodeCard
+      status="ended" yearEnd={2024} variant="panel"
+    />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.className).toMatch(/border-border-faint/);
+    expect(el.className).not.toMatch(/backdrop-filter:blur/);
   });
 });
