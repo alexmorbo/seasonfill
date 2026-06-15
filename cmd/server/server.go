@@ -11,9 +11,11 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -307,6 +309,28 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, bootCfg, enrichRepos, txr, quotaCounter, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
+	}
+
+	// Story 352 — register OMDb + TMDB client reload subscribers on the
+	// external services subscriber's listener fan-out. The OMDb holder
+	// is allocated unconditionally so the subscriber is always wired;
+	// TMDB holder is nil when TMDB was disabled at boot (in which case
+	// the subscriber would only ever log the "boot_disabled" warn so we
+	// skip registration to keep the log quiet).
+	if enrichBundle != nil && enrichBundle.OMDbHolder != nil {
+		omdbSub := adapters.NewOMDbClientSubscriber(enrichBundle.OMDbHolder, log)
+		extSub.RegisterListener(infraextsvc.ServiceOMDB, omdbSub.Apply)
+		// Prime by reading the current cached settings — the listener
+		// fan-out only fires on future apply() calls, but Story 352
+		// scenarios (operator change before any other reload) need an
+		// initial seed so the "first apply with no prior baseline"
+		// path is exercised in production exactly as in tests.
+		omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB))
+	}
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		tmdbSub := adapters.NewTMDBClientSubscriber(enrichBundle.TMDBHolder, enrichBundle.TMDBFactoryCfg, log)
+		extSub.RegisterListener(infraextsvc.ServiceTMDB, tmdbSub.Apply)
+		tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB))
 	}
 
 	// ───────── LATE BIND ZONE ─────────

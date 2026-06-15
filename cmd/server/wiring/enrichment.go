@@ -18,7 +18,6 @@ import (
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
-	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -60,6 +59,15 @@ type EnrichmentBundle struct {
 	// the legacy `omdb-budget-reset` cron (in-process path) or
 	// the daily `quota-counter-gc` cron (DB-backed path).
 	UsesQuotaCounter bool
+	// Story 352 — runtime-swappable client holders. server.go hands
+	// each holder + its factory to the matching reload subscriber so a
+	// settings change (UI Upsert) rebuilds the client in-place. nil
+	// when the corresponding subsystem was unavailable at boot:
+	//   - TMDBHolder nil  → TMDB disabled at boot (no workers).
+	//   - OMDbHolder nil  → never (always allocated; may be empty).
+	TMDBHolder     *adapters.TMDBClientHolder
+	OMDbHolder     *adapters.OMDbClientHolder
+	TMDBFactoryCfg adapters.TMDBClientFactoryConfig
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -80,6 +88,12 @@ func BuildEnrichment(
 		log.InfoContext(rootCtx, "enrichment.disabled",
 			slog.Bool("enabled", settings.Enabled),
 			slog.Bool("api_key", settings.APIKey != ""))
+		// Story 352 — return an empty bundle with NO holders. A from-
+		// disabled→enabled flip at runtime requires a process restart
+		// because the workers / dispatcher don't exist yet, and
+		// constructing them post-boot would tangle with bus / scheduler
+		// ordering. The operator-facing UI logs this explicitly when the
+		// reload subscriber declines a same-restart enable.
 		return &EnrichmentBundle{}, nil
 	}
 
@@ -127,16 +141,30 @@ func BuildEnrichment(
 	// client="tmdb_cdn" — no double-write. Canary check: a
 	// client="tmdb_cdn" row with endpoint matching a /tv/... or /search/...
 	// path means the order is broken.
+	//
+	// Story 352 — the factory below mirrors this boot path verbatim so
+	// the reload subscriber can rebuild a metric-wrapped TMDB API client
+	// on key/proxy change. The downloader's "tmdb_cdn" wrap is NOT
+	// rebuilt by the subscriber because the downloader was constructed
+	// with the SHARED httpClient pointer below — Story 352 is scoped to
+	// the api.themoviedb.org client only.
+	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
+		Language: tmdb.DefaultLanguage,
+		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
+		Logger:   log,
+	}
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
 		HTTPClient: httpClient,
-		Language:   tmdb.DefaultLanguage,
-		RPS:        bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:     log,
+		Language:   tmdbFactoryCfg.Language,
+		RPS:        tmdbFactoryCfg.RPS,
+		Logger:     tmdbFactoryCfg.Logger,
 	})
 	if err != nil {
 		return nil, err
 	}
+	tmdbHolder := adapters.NewTMDBClientHolder()
+	tmdbHolder.Set(tmdbClient)
 	// Story 351 — see comment block above. tmdb.New has captured the
 	// pre-wrap Transport into its clone; now we wrap the SHARED pointer
 	// for the downloader's use.
@@ -197,8 +225,13 @@ func BuildEnrichment(
 	// dispatcher.Start.
 	holder := &dispatcherHolder{}
 
+	// Story 352 — workers receive the holder (not the bare client) so
+	// the reload subscriber can swap the underlying *tmdb.Client without
+	// rebuilding the worker. The holder satisfies appenrich.TMDBClient
+	// via a thin atomic.Pointer indirection (one extra load per call —
+	// negligible vs the network round-trip).
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
-		TMDB:            tmdbClient,
+		TMDB:            tmdbHolder,
 		Tx:              tx,
 		Language:        tmdb.DefaultLanguage,
 		Series:          repos.Series,
@@ -225,13 +258,17 @@ func BuildEnrichment(
 		return nil, err
 	}
 
-	// 212: person worker — REUSES the SAME tmdbClient pointer
-	// constructed above. Sharing the pointer preserves the 5-rps
-	// token bucket (Client.limiter); a second tmdb.New(...) here
-	// would fragment the bucket and let the worker pool burst at
-	// 10 rps. NEVER call tmdb.New again in this function.
+	// 212: person worker — REUSES the SAME tmdbHolder pointer
+	// constructed above. The holder shares the live *tmdb.Client between
+	// both workers; the limiter's 5-rps token bucket stays unified.
+	// A second tmdb.New(...) in this function would fragment the bucket
+	// and let the worker pool burst at 10 rps. NEVER call tmdb.New
+	// again in this function — Story 352's reload subscriber Swap()s the
+	// holder's inner pointer atomically, which preserves the single-
+	// limiter invariant across rebuilds (the previous client is Close()d
+	// after a drain delay).
 	personWorker, err := appenrich.NewPersonWorker(appenrich.PersonWorkerDeps{
-		TMDB:              tmdbClient,
+		TMDB:              tmdbHolder,
 		Tx:                tx,
 		Language:          tmdb.DefaultLanguage,
 		People:            repos.People,
@@ -245,56 +282,53 @@ func BuildEnrichment(
 		return nil, err
 	}
 
-	// 213 (D-1) — OMDb client + budget + worker. Best-effort: when
-	// OMDb is disabled / unconfigured we leave omdbHolder nil and
-	// the cron closure short-circuits. The dispatcher's EntityOMDb
-	// goroutine STILL spawns (so a manual enqueue is not silently
-	// dropped) but every dequeue logs "handler_nil" because
-	// OMDbHandler is wired only when the holder is non-nil.
+	// 213 (D-1) — OMDb client + budget + worker. Story 352 — the holder
+	// is allocated unconditionally so the reload subscriber can lift the
+	// worker from "disabled at boot" → "enabled by operator" without a
+	// process restart. When OMDb is disabled at boot the holder is empty
+	// and the dispatcher's EntityOMDb goroutine logs "handler_nil" on
+	// every dequeue until the subscriber populates it.
+	omdbHolder := adapters.NewOMDbClientHolder()
+	// 305: Story 305 — DB-backed quota counter when available; fall back
+	// to in-process for backward-compat (and as a degrade path when the
+	// DB row is unreadable). quotaCounter is nil when main.go fails to
+	// construct the repo (defensive).
+	//
+	// Story 352 — budget + worker are constructed unconditionally so the
+	// reload subscriber can flip OMDb from disabled→enabled at runtime
+	// without touching the dispatcher. When the holder is empty the
+	// worker's getter returns nil and the dequeue logs "handler_nil".
+	var omdbBudget *appenrich.OMDbBudgetGuard
+	if quotaCounter != nil {
+		omdbBudget = appenrich.NewOMDbBudgetGuardDB(
+			appenrich.DefaultOMDbBudget, quotaCounter, log, nil)
+	} else {
+		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
+	}
+	omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
+		Client:  omdbHolder.Get,
+		Budget:  omdbBudget,
+		Tx:      tx,
+		Series:  repos.Series,
+		SyncLog: repos.SyncLog,
+		Logger:  log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("new omdb worker: %w", err)
+	}
+	omdbWorkerHandle := omdbWorker.Handle
 	var (
-		omdbHolder       *omdbClientHolder
-		omdbBudget       *appenrich.OMDbBudgetGuard
-		omdbWorkerHandle func(context.Context, int64) error
-		omdbDailyBatch   func(context.Context)
-		omdbBudgetReset  func(context.Context)
+		omdbDailyBatch  func(context.Context)
+		omdbBudgetReset func(context.Context)
 	)
 	omdbSettings := extSub.Get(infraextsvc.ServiceOMDB)
-	if omdbSettings.Enabled && omdbSettings.APIKey != "" {
-		omdbHTTPClient, err := infraextsvc.HttpClientFor(omdbSettings)
+	omdbEnabledAtBoot := omdbSettings.Enabled && omdbSettings.APIKey != ""
+	if omdbEnabledAtBoot {
+		omdbClient, err := adapters.BuildOMDbClient(omdbSettings)
 		if err != nil {
-			return nil, fmt.Errorf("omdb http client: %w", err)
+			return nil, err
 		}
-		omdbClient, err := infraomdb.New(infraomdb.Config{
-			APIKey:     omdbSettings.APIKey,
-			HTTPClient: omdbHTTPClient,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("omdb client: %w", err)
-		}
-		omdbHolder = &omdbClientHolder{inner: omdbClient}
-		// 305: Story 305 — DB-backed quota counter when available;
-		// fall back to in-process for backward-compat (and as a
-		// degrade path when the DB row is unreadable). quotaCounter
-		// is nil when main.go fails to construct the repo (defensive).
-		if quotaCounter != nil {
-			omdbBudget = appenrich.NewOMDbBudgetGuardDB(
-				appenrich.DefaultOMDbBudget, quotaCounter, log, nil)
-		} else {
-			omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
-		}
-
-		omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
-			Client:  omdbHolder.get,
-			Budget:  omdbBudget,
-			Tx:      tx,
-			Series:  repos.Series,
-			SyncLog: repos.SyncLog,
-			Logger:  log,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("new omdb worker: %w", err)
-		}
-		omdbWorkerHandle = omdbWorker.Handle
+		omdbHolder.Set(omdbClient)
 	} else {
 		log.InfoContext(rootCtx, "enrichment.omdb.disabled",
 			slog.Bool("enabled", omdbSettings.Enabled),
@@ -304,15 +338,21 @@ func BuildEnrichment(
 	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
 		SeriesHandler: worker.Handle,
 		PersonHandler: personWorker.Handle,
-		OMDbHandler:   omdbWorkerHandle, // nil-OK
+		// Story 352 — omdbWorkerHandle is unconditional; the worker
+		// itself short-circuits to "handler_nil" when the holder is
+		// empty (OMDb disabled at boot, awaiting operator enable).
+		OMDbHandler: omdbWorkerHandle,
 	}, log)
 	holder.set(dispatcher)
 
 	// 213: Daily-batch + budget-reset closures (cron 04:30 / 04:00).
 	// Constructed AFTER dispatcher exists so the batch closure can
-	// reference dispatcher.Enqueue. omdbBudget may be nil (OMDb
-	// disabled) — closures stay nil and main.go skips Register.
-	if omdbBudget != nil {
+	// reference dispatcher.Enqueue. Cron registration is gated by
+	// boot-time OMDb enablement — runtime enable lifts the worker but
+	// the cron stays off until the next process restart (the scheduler
+	// itself is reload-aware via a separate subscriber; new jobs are
+	// not registered post-boot).
+	if omdbEnabledAtBoot {
 		omdbDailyBatch = func(ctx context.Context) {
 			if repos.LibraryWithIMDB == nil {
 				log.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
@@ -468,7 +508,10 @@ func BuildEnrichment(
 		MediaDownloader:  mediaDownloader,
 		MediaOnDemand:    mediaOnDemand,
 		MediaHTTP:        httpClient,
-		UsesQuotaCounter: quotaCounter != nil && omdbBudget != nil,
+		UsesQuotaCounter: quotaCounter != nil && omdbEnabledAtBoot,
+		TMDBHolder:       tmdbHolder,
+		OMDbHolder:       omdbHolder,
+		TMDBFactoryCfg:   tmdbFactoryCfg,
 	}, nil
 }
 
@@ -544,29 +587,6 @@ type EnrichmentRepoBundle struct {
 type OMDbBatchScanner interface {
 	ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error)
 }
-
-// omdbClientHolder is the late-binding holder satisfying the
-// appenrich.OMDbWorker getter contract. It exists so the wiring
-// layer can swap the underlying *omdb.Client on a future S-2
-// reload subscriber without rebuilding the worker. Story 213 only
-// constructs the holder once at boot; the reload subscriber lands
-// in a follow-up.
-type omdbClientHolder struct {
-	inner *infraomdb.Client
-}
-
-func (h *omdbClientHolder) get() appenrich.OMDbClient {
-	if h == nil || h.inner == nil {
-		return nil
-	}
-	return h.inner
-}
-
-// set swaps the underlying client. Reserved for the future S-2 reload
-// subscriber per Story 213 §10 — not wired in this story.
-//
-//nolint:unused // wire-up lands with the OMDb reload subscriber follow-up
-func (h *omdbClientHolder) set(c *infraomdb.Client) { h.inner = c }
 
 // omdbBatchScannerAdapter wraps *SeriesRepository to satisfy
 // OMDbBatchScanner. Out-of-application boundary, no

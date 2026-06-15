@@ -26,6 +26,13 @@ import (
 // with a nil use case (so it can be injected as Publisher into the use
 // case). SetUseCase MUST be called before Start. Get() before SetUseCase
 // returns a zero-value Settings for any service.
+//
+// Story 352 — RegisterListener lets downstream client subscribers
+// (OMDb/TMDB client holders) react to a settings change synchronously
+// after the cache has been refreshed. Listeners are invoked from apply()
+// while no internal lock is held, so callees may call back into Get()
+// without deadlocking. Listeners MUST be cheap (atomic.Pointer.Store,
+// short factory call); they run on the bus goroutine.
 type ExternalServicesSubscriber struct {
 	bus    *runtime.Bus
 	logger *slog.Logger
@@ -35,17 +42,41 @@ type ExternalServicesSubscriber struct {
 
 	mu      sync.RWMutex
 	current map[infra.Service]infra.Settings
+
+	listenersMu sync.RWMutex
+	listeners   map[infra.Service][]SettingsListener
 }
+
+// SettingsListener is the callback shape RegisterListener consumes.
+// Invoked synchronously after each apply() with the post-merge Settings
+// for the watched service. Implementations are expected to compare the
+// received settings against their own cached state and rebuild only on a
+// material change.
+type SettingsListener func(ctx context.Context, s infra.Settings)
 
 func NewExternalServicesSubscriber(bus *runtime.Bus, logger *slog.Logger) *ExternalServicesSubscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &ExternalServicesSubscriber{
-		bus:     bus,
-		logger:  logger,
-		current: make(map[infra.Service]infra.Settings),
+		bus:       bus,
+		logger:    logger,
+		current:   make(map[infra.Service]infra.Settings),
+		listeners: make(map[infra.Service][]SettingsListener),
 	}
+}
+
+// RegisterListener appends fn to the listener list for svc. Listeners
+// fire AFTER every successful apply() with the post-merge Settings.
+// Multiple listeners per service are supported (insertion order is
+// preserved). nil-fn is silently dropped. Safe to call before Start.
+func (s *ExternalServicesSubscriber) RegisterListener(svc infra.Service, fn SettingsListener) {
+	if fn == nil {
+		return
+	}
+	s.listenersMu.Lock()
+	s.listeners[svc] = append(s.listeners[svc], fn)
+	s.listenersMu.Unlock()
 }
 
 // SetUseCase wires the use case after construction. Required to break
@@ -118,6 +149,58 @@ func (s *ExternalServicesSubscriber) apply(ctx context.Context) {
 	s.mu.Lock()
 	s.current = next
 	s.mu.Unlock()
+
+	s.fanOut(ctx, next)
+}
+
+// fanOut invokes every per-service listener with the post-merge Settings.
+// Snapshots the listener slice under the read lock so a concurrent
+// RegisterListener cannot race with the call; the actual callbacks run
+// UNLOCKED so they may call back into Get() / RegisterListener without
+// self-deadlock.
+func (s *ExternalServicesSubscriber) fanOut(ctx context.Context, next map[infra.Service]infra.Settings) {
+	s.listenersMu.RLock()
+	fans := make(map[infra.Service][]SettingsListener, len(next))
+	for svc, fns := range s.listeners {
+		if len(fns) == 0 {
+			continue
+		}
+		cp := make([]SettingsListener, len(fns))
+		copy(cp, fns)
+		fans[svc] = cp
+	}
+	s.listenersMu.RUnlock()
+	for svc, fns := range fans {
+		settings := next[svc]
+		for _, fn := range fns {
+			fn(ctx, settings)
+		}
+	}
+}
+
+// SetCurrentForTest hand-primes the internal cache; test-only helper
+// for the Story 352 listener fan-out tests so they don't need to spin
+// up a use case + bus.
+func (s *ExternalServicesSubscriber) SetCurrentForTest(m map[infra.Service]infra.Settings) {
+	s.mu.Lock()
+	s.current = make(map[infra.Service]infra.Settings, len(m))
+	for k, v := range m {
+		s.current[k] = v
+	}
+	s.mu.Unlock()
+}
+
+// FanOutForTest invokes the listener fan-out path directly; test-only.
+// Mirrors the tail of apply() — production callers should let apply()
+// drive this.
+func (s *ExternalServicesSubscriber) FanOutForTest(ctx context.Context) {
+	s.mu.RLock()
+	next := make(map[infra.Service]infra.Settings, len(s.current))
+	for k, v := range s.current {
+		next[k] = v
+	}
+	s.mu.RUnlock()
+	s.fanOut(ctx, next)
 }
 
 // Get returns the latest merged Settings for svc. Returns a zero-value
