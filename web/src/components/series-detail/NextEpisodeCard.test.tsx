@@ -38,8 +38,21 @@ describe('NextEpisodeCard', () => {
     expect(screen.getByTestId('ip-cd-badge').dataset['variant']).toBe('muted');
   });
 
-  it('returns null for continuing without a scheduled next episode', () => {
-    const { container } = render(withI18n(<NextEpisodeCard status="continuing" />));
+  it('renders the production variant for continuing without a scheduled next episode', () => {
+    render(withI18n(<NextEpisodeCard status="continuing" />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.dataset['variant']).toBe('production');
+    expect(screen.getByTestId('ip-cd-badge').dataset['variant']).toBe('muted');
+  });
+
+  it('renders the production variant for upcoming series with no schedule', () => {
+    render(withI18n(<NextEpisodeCard status="upcoming" />));
+    const el = screen.getByTestId('next-episode-card');
+    expect(el.dataset['variant']).toBe('production');
+  });
+
+  it('still returns null for unknown status', () => {
+    const { container } = render(withI18n(<NextEpisodeCard status="unknown" />));
     expect(container.firstChild).toBeNull();
   });
 

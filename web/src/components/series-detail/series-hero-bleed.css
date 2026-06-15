@@ -15,11 +15,22 @@
   isolation: isolate;
 }
 
+/* Bleed layer anchor — spans the AppShell right pane (sidebar excluded).
+ * Right pane width = 100vw - sidebar. Layer is centered on the parent
+ * (.sd-real), which is centered in the right pane via main's mx-auto, so
+ * we offset left by minus the distance from the parent's left edge to the
+ * right-pane's left edge: 50vw - 50% - (sidebar/2). */
+.sd-hero-bleed {
+  --sd-sidebar-w: 244px;
+  --sd-bleed-shift: calc(50vw - 50% - (var(--sd-sidebar-w) / 2));
+}
+
 .sd-hero-bleed .sd-backdrop-layer {
   position: absolute;
   top: 0;
-  left: -36px;
-  right: -36px;
+  left: calc(-1 * var(--sd-bleed-shift));
+  right: auto;
+  width: calc(100vw - var(--sd-sidebar-w));
   bottom: auto;
   height: 600px;
   z-index: 0;
@@ -39,8 +50,9 @@
 .sd-hero-bleed .sd-scrim-layer {
   position: absolute;
   top: 0;
-  left: -36px;
-  right: -36px;
+  left: calc(-1 * var(--sd-bleed-shift));
+  right: auto;
+  width: calc(100vw - var(--sd-sidebar-w));
   bottom: auto;
   height: 600px;
   z-index: 1;
@@ -56,7 +68,7 @@
   display: flex;
   align-items: flex-end;
   gap: 24px;
-  padding: 300px 0 0;
+  padding: 150px 0 0;
 }
 
 .sd-hero-bleed .sd-poster {
@@ -107,6 +119,7 @@
   background: var(--bg-surface);
   left: 0;
   right: 0;
+  width: auto;
 }
 .sd-hero-bleed[data-fallback="sonarr-only"] .sd-scrim-layer {
   display: none;
@@ -127,6 +140,7 @@
             mask-image: none;
     left: 0;
     right: 0;
+    width: auto;
   }
   .sd-hero-bleed .sd-scrim-layer {
     display: none;

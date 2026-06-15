@@ -125,8 +125,12 @@ export function NextEpisodeCard({
     );
   }
 
-  // In production / upcoming → hammer badge.
-  if (status === 'in_production' || status === 'upcoming') {
+  // In production / upcoming / continuing-without-date → hammer badge.
+  // "Continuing without a scheduled next" was previously rendered as null
+  // (legacy v2 handoff §1.4). Operator feedback for Star City: an empty
+  // .sd-next-wrap looks like a bug. Render the production variant instead —
+  // it's the same "no schedule yet" semantic and matches the design intent.
+  if (status === 'in_production' || status === 'upcoming' || status === 'continuing') {
     return (
       <div
         data-testid="next-episode-card"
@@ -158,8 +162,6 @@ export function NextEpisodeCard({
     );
   }
 
-  // Continuing without a scheduled next → don't render in hero (per
-  // v2 handoff: no card when there's nothing to say). Story 358 may
-  // still render the row in the legacy panel variant for the right rail.
+  // Unknown / other → don't render in hero.
   return null;
 }
