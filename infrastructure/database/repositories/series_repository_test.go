@@ -559,6 +559,206 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 	assert.Len(t, ids, 2)
 }
 
+// Sonarr-sync prod bug — a stub-input Upsert MUST NOT null an existing
+// row's poster_asset. The Sonarr canonOut path emits PosterAsset=nil
+// because Sonarr's payload has no poster; the pre-fix Upsert blanked
+// the TMDB-enriched poster every scan.
+func TestSeriesRepository_Upsert_PreservesPosterOnStubInput(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70001
+	poster := "/canonical-poster.jpg"
+	backdrop := "/canonical-backdrop.jpg"
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:        ptrInt(tmdbID),
+		Title:         "Full Row",
+		Hydration:     series.HydrationFull,
+		PosterAsset:   &poster,
+		BackdropAsset: &backdrop,
+	})
+	require.NoError(t, err)
+
+	// Sonarr-shape canonOut: stub hydration, no poster, no backdrop.
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Sonarr Refresh",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.PosterAsset, "poster MUST survive stub-input upsert")
+	assert.Equal(t, poster, *got.PosterAsset)
+}
+
+// Sonarr-sync prod bug — same guarantee for backdrop_asset.
+func TestSeriesRepository_Upsert_PreservesBackdropOnStubInput(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70002
+	poster := "/canonical-poster.jpg"
+	backdrop := "/canonical-backdrop.jpg"
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:        ptrInt(tmdbID),
+		Title:         "Full Row",
+		Hydration:     series.HydrationFull,
+		PosterAsset:   &poster,
+		BackdropAsset: &backdrop,
+	})
+	require.NoError(t, err)
+
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Sonarr Refresh",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.BackdropAsset, "backdrop MUST survive stub-input upsert")
+	assert.Equal(t, backdrop, *got.BackdropAsset)
+}
+
+// Sonarr-sync prod bug — a stub-input Upsert MUST NOT downgrade a
+// 'full' canon row back to 'stub'.
+func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70003
+	poster := "/canonical-poster.jpg"
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:      ptrInt(tmdbID),
+		Title:       "Full Row",
+		Hydration:   series.HydrationFull,
+		PosterAsset: &poster,
+	})
+	require.NoError(t, err)
+
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Sonarr Refresh",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, series.HydrationFull, got.Hydration,
+		"hydration 'full' is sticky — stub input MUST NOT downgrade")
+}
+
+// TMDB enrichment path — when the existing row has NULL poster and the
+// incoming Upsert carries a valid poster (e.g., TMDB enrichment of a
+// previously stub row), the new value MUST land.
+func TestSeriesRepository_Upsert_UpdatesPosterFromNullOnTMDBInput(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70004
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "No Poster Yet",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.Nil(t, got.PosterAsset, "pre-condition: existing poster is NULL")
+
+	newPoster := "/tmdb-poster.jpg"
+	newBackdrop := "/tmdb-backdrop.jpg"
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:        ptrInt(tmdbID),
+		Title:         "TMDB Enriched",
+		Hydration:     series.HydrationFull,
+		PosterAsset:   &newPoster,
+		BackdropAsset: &newBackdrop,
+	})
+	require.NoError(t, err)
+
+	got, err = repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.PosterAsset, "TMDB-provided poster MUST land when previous was NULL")
+	assert.Equal(t, newPoster, *got.PosterAsset)
+	require.NotNil(t, got.BackdropAsset)
+	assert.Equal(t, newBackdrop, *got.BackdropAsset)
+}
+
+// TMDB enrichment path — a 'full' hydration value upgrades a 'stub' row.
+func TestSeriesRepository_Upsert_UpgradesHydrationStubToFull(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70005
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Stub Row",
+		Hydration: series.HydrationStub,
+	})
+	require.NoError(t, err)
+
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Full Now",
+		Hydration: series.HydrationFull,
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, series.HydrationFull, got.Hydration,
+		"hydration upgrade stub -> full MUST work")
+}
+
+// TMDB re-enrichment — a non-NULL incoming poster MUST overwrite a
+// non-NULL existing poster (TMDB stays authoritative on enrichment).
+func TestSeriesRepository_Upsert_OverwritesPosterFromValidToValid(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 70006
+	oldPoster := "/old-poster.jpg"
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:      ptrInt(tmdbID),
+		Title:       "Initial",
+		Hydration:   series.HydrationFull,
+		PosterAsset: &oldPoster,
+	})
+	require.NoError(t, err)
+
+	newPoster := "/refreshed-poster.jpg"
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:      ptrInt(tmdbID),
+		Title:       "Refreshed",
+		Hydration:   series.HydrationFull,
+		PosterAsset: &newPoster,
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.PosterAsset)
+	assert.Equal(t, newPoster, *got.PosterAsset,
+		"non-NULL excluded value MUST win over existing non-NULL value")
+}
+
 // Story 346 — CountCanonImagesBreakdown returns (poster_null,
 // backdrop_null) counts over the SAME population
 // ListCanonImagesCorrupted draws from.

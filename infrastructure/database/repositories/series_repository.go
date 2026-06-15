@@ -136,7 +136,7 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, e
 	case m.ID != 0:
 		conflict = clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
-			DoUpdates: clause.AssignmentColumns(seriesUpdateCols()),
+			DoUpdates: clause.Assignments(seriesUpsertAssignments()),
 		}
 	case m.TMDBID != nil:
 		// Partial unique index on tmdb_id WHERE tmdb_id IS NOT NULL —
@@ -146,7 +146,7 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, e
 		conflict = clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
-			DoUpdates:   clause.AssignmentColumns(seriesUpdateCols()),
+			DoUpdates:   clause.Assignments(seriesUpsertAssignments()),
 		}
 	default:
 		// No PK and no natural key — pure insert. GORM will assign id.
@@ -457,21 +457,56 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64
 	})
 }
 
-// seriesUpdateCols lists the columns updated on a conflict. id /
-// created_at are deliberately excluded so the row's identity and
-// insertion timestamp survive the upsert path.
-func seriesUpdateCols() []string {
-	return []string{
-		"tmdb_id", "tvdb_id", "imdb_id",
-		"hydration", "title", "original_title", "status",
-		"first_air_date", "last_air_date", "next_air_date",
-		"year", "runtime_minutes", "homepage",
-		"original_language", "origin_country", "popularity",
-		"in_production", "poster_asset", "backdrop_asset",
-		"tmdb_rating", "tmdb_votes",
-		"imdb_rating", "imdb_votes",
-		"omdb_rated", "omdb_awards",
-		"updated_at",
+// seriesUpsertAssignments builds the DO UPDATE SET map for Upsert.
+//
+// Most columns are direct assignments (excluded.X) — Upsert is the
+// authoritative path for TMDB enrichment and merge-boundary writes, so
+// new values overwrite. The exceptions are three "additive-only" columns
+// that a Sonarr-driven canonOut (PRD §5.4) carries as NULL even though
+// the existing row may already hold valid TMDB-enriched values:
+//
+//   - poster_asset / backdrop_asset: COALESCE(excluded.X, series.X)
+//     — non-NULL input wins (TMDB sync stays authoritative); NULL input
+//     keeps the existing value (Sonarr-only payloads don't clobber).
+//   - hydration: CASE — 'full' is sticky in both directions. Once the
+//     row is enriched the Sonarr canonOut's 'stub' value MUST NOT
+//     downgrade it back to stub.
+//
+// The pre-fix path used clause.AssignmentColumns over the full column
+// set, which blanked posters/backdrops and downgraded hydration whenever
+// a Sonarr scan re-emitted an already-enriched series. Shared across
+// the id-conflict and tmdb_id-conflict branches: callers reach the
+// id-conflict branch with a row they already loaded, but their canonOut
+// may still be a Sonarr-merge product missing the image fields, so the
+// same guard applies.
+func seriesUpsertAssignments() map[string]interface{} {
+	return map[string]interface{}{
+		"tmdb_id":           gorm.Expr("excluded.tmdb_id"),
+		"tvdb_id":           gorm.Expr("excluded.tvdb_id"),
+		"imdb_id":           gorm.Expr("excluded.imdb_id"),
+		"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN 'full' WHEN excluded.hydration = 'full' THEN 'full' ELSE excluded.hydration END"),
+		"title":             gorm.Expr("excluded.title"),
+		"original_title":    gorm.Expr("excluded.original_title"),
+		"status":            gorm.Expr("excluded.status"),
+		"first_air_date":    gorm.Expr("excluded.first_air_date"),
+		"last_air_date":     gorm.Expr("excluded.last_air_date"),
+		"next_air_date":     gorm.Expr("excluded.next_air_date"),
+		"year":              gorm.Expr("excluded.year"),
+		"runtime_minutes":   gorm.Expr("excluded.runtime_minutes"),
+		"homepage":          gorm.Expr("excluded.homepage"),
+		"original_language": gorm.Expr("excluded.original_language"),
+		"origin_country":    gorm.Expr("excluded.origin_country"),
+		"popularity":        gorm.Expr("excluded.popularity"),
+		"in_production":     gorm.Expr("excluded.in_production"),
+		"poster_asset":      gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
+		"backdrop_asset":    gorm.Expr("COALESCE(excluded.backdrop_asset, series.backdrop_asset)"),
+		"tmdb_rating":       gorm.Expr("excluded.tmdb_rating"),
+		"tmdb_votes":        gorm.Expr("excluded.tmdb_votes"),
+		"imdb_rating":       gorm.Expr("excluded.imdb_rating"),
+		"imdb_votes":        gorm.Expr("excluded.imdb_votes"),
+		"omdb_rated":        gorm.Expr("excluded.omdb_rated"),
+		"omdb_awards":       gorm.Expr("excluded.omdb_awards"),
+		"updated_at":        gorm.Expr("excluded.updated_at"),
 	}
 }
 
