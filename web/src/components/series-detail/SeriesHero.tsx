@@ -10,6 +10,7 @@ import { StatusPill } from './StatusPill';
 import { RatingDuo } from './RatingDuo';
 import { StaleBadge } from './StaleBadge';
 import { TrailerModal } from './TrailerModal';
+import { MonogramFallback } from '@/components/MonogramFallback';
 
 export interface SeriesHeroProps {
   readonly instance: string;
@@ -58,7 +59,6 @@ export function SeriesHero({
   const sonarrHref = sonarrPublic
     ? buildSonarrSeriesHref(sonarrPublic, titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title))
     : undefined;
-  const monogram = (title.charAt(0) || '?').toUpperCase();
   const showRatings = !sonarrOnly && (hero?.tmdb_rating || hero?.imdb_rating);
 
   const [trailerOpen, setTrailerOpen] = useState(false);
@@ -85,6 +85,14 @@ export function SeriesHero({
           data-testid="hero-backdrop"
         />
       )}
+      {!sonarrOnly && !backdropSrc && (
+        <div
+          data-testid="hero-backdrop-fallback"
+          className="absolute inset-0 z-0"
+        >
+          <MonogramFallback title={title} kind="backdrop" />
+        </div>
+      )}
       {!sonarrOnly && (
         <div
           aria-hidden="true"
@@ -110,9 +118,7 @@ export function SeriesHero({
           {posterSrc ? (
             <img src={posterSrc} alt="" aria-hidden="true" className="w-full h-full object-cover" />
           ) : (
-            <span className="flex items-center justify-center w-full h-full font-mono font-bold text-[64px] text-tx-faint">
-              {monogram}
-            </span>
+            <MonogramFallback title={title} kind="poster" />
           )}
         </div>
 

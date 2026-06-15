@@ -53,6 +53,11 @@
   --color-status-info:     oklch(0.74 0.13 230);
   --color-status-neutral:  oklch(0.65 0.005 270);
 
+  /* ----- brand blue (story 353, sampled from sf logo rgb(127,184,232)) ----- */
+  --sf-blue:        oklch(0.745 0.090 252);
+  --sf-blue-bright: oklch(0.795 0.082 250);
+  --sf-blue-deep:   oklch(0.690 0.102 255);
+
   --color-background:      oklch(0.16 0.005 270);
   --color-card:            oklch(0.198 0.006 270);
   --color-card-foreground: oklch(0.965 0.004 270);
@@ -151,4 +156,51 @@
     border: 2px solid var(--color-bg-base);
   }
   *::-webkit-scrollbar-track { background: transparent; }
+}
+
+/* ============================================================
+   Story 353 — engraved monogram placeholder
+   Pixel-matched twin of interface/http/handlers/assets/media_placeholder.svg.
+   Used by <MonogramFallback /> in poster / backdrop / avatar variants.
+   ============================================================ */
+.ph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-tx-faint);
+}
+.ph-b {
+  background: linear-gradient(
+    165deg,
+    oklch(0.213 0.009 268),
+    oklch(0.165 0.006 270)
+  );
+}
+.ph-b .glyph {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+  font-size: var(--gs, 108px);
+  color: oklch(0.205 0.012 262);
+  /* engraved s: stroke = tinted blue so it reads against the dark bg;
+     paint-order keeps the stroke under the fill so the letterform
+     shape stays intact. */
+  -webkit-text-stroke: 1.5px oklch(0.30 0.045 252);
+  paint-order: stroke fill;
+  text-shadow:
+    0 2px 1px oklch(1 0 0 / 0.035),
+    0 -1px 2px oklch(0 0 0 / 0.55);
+}
+.ph-b .glyph b {
+  color: oklch(0.30 0.045 252);
+  font-weight: 800;
+  -webkit-text-stroke: 0; /* f is solid blue, no outline */
+}
+.ph--avatar {
+  border-radius: 50%;
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/seriesDetail';
-import { MonogramFallback } from './MonogramFallback';
+import { MonogramFallback, type MonogramKind } from './MonogramFallback';
 
 export type MediaImageKind =
   | 'series_poster'
@@ -10,6 +10,15 @@ export type MediaImageKind =
   | 'still'
   | 'profile'
   | 'logo';
+
+// Map the asset-kind taxonomy onto the placeholder-kind taxonomy.
+// `still` + `logo` keep poster sizing — neither has a dedicated
+// placeholder slot today and 108px reads cleanly in any aspect.
+function monogramKindFor(kind: MediaImageKind | undefined): MonogramKind {
+  if (kind === 'backdrop') return 'backdrop';
+  if (kind === 'profile') return 'avatar';
+  return 'poster';
+}
 
 export type MediaImageFallback = 'monogram' | 'svg';
 
@@ -87,7 +96,11 @@ export function MediaImage({
       )}
     >
       {!showImg && fallback === 'monogram' && (
-        <MonogramFallback hueKey={effectiveHueKey} title={title} />
+        <MonogramFallback
+          title={title}
+          kind={monogramKindFor(rest.kind)}
+          hueKey={effectiveHueKey}
+        />
       )}
       {!showImg && fallback === 'svg' && <SvgFallback />}
       {showImg && (

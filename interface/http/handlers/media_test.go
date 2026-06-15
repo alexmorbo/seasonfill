@@ -662,7 +662,9 @@ func TestMediaHandler_Placeholder_ContentAndHeaders(t *testing.T) {
 		t.Errorf("X-Media-Placeholder want 1, got %q", got)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "<svg") || !strings.Contains(body, "no image") {
+	// Story 353 — the placeholder is now the engraved "sf" monogram SVG.
+	// Assert the root <svg> element + the aria-label declared by the new asset.
+	if !strings.Contains(body, "<svg") || !strings.Contains(body, `aria-label="No image"`) {
 		t.Errorf("body must be the no-image SVG, got %q", body[:min(200, len(body))])
 	}
 }

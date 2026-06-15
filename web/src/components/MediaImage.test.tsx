@@ -110,9 +110,9 @@ describe('<MediaImage />', () => {
       />,
     );
     const mono = screen.getByTestId('monogram-fallback') as HTMLElement;
-    // The MonogramFallback renders the first letter of `title` —
+    // The engraved MonogramFallback renders the brand "sf" glyph —
     // confirms the monogram path was selected (rather than svg).
-    expect(mono.textContent).toContain('A');
+    expect(mono.textContent).toBe('sf');
   });
 
   it('encodes the hash safely', () => {

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/seriesDetail';
+import { MonogramFallback } from '@/components/MonogramFallback';
 import type { components } from '@/api/schema';
 
 type CastMember = components['schemas']['dto.CastMember'];
@@ -16,12 +17,6 @@ export interface CastCarouselProps {
   // Optional badge rendered inline with the section heading
   // (used for per-section StaleBadge wire-up from SeriesDetail).
   readonly staleBadge?: ReactNode;
-}
-
-function initials(name: string | undefined): string {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p.charAt(0).toUpperCase()).join('') || '?';
 }
 
 export function CastCarousel({ instance, seriesId, cast, className, staleBadge }: CastCarouselProps) {
@@ -74,7 +69,7 @@ export function CastCarousel({ instance, seriesId, cast, className, staleBadge }
                 'md:min-w-0',
               )}
             >
-              <div className="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full overflow-hidden border border-border-subtle bg-bg-surface-2 shrink-0">
+              <div className="relative w-16 h-16 md:w-[72px] md:h-[72px] rounded-full overflow-hidden border border-border-subtle bg-bg-surface-2 shrink-0">
                 {src ? (
                   <img
                     src={src}
@@ -85,9 +80,7 @@ export function CastCarousel({ instance, seriesId, cast, className, staleBadge }
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="flex items-center justify-center w-full h-full text-[18px] font-bold text-tx-faint">
-                    {initials(name)}
-                  </span>
+                  <MonogramFallback title={name} kind="avatar" />
                 )}
               </div>
               <div className="text-[12px] font-semibold text-tx-primary text-center max-w-[120px] truncate w-full">

@@ -1,10 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" role="img" aria-label="No image">
-  <rect width="320" height="180" fill="#1f2937"/>
-  <g stroke="#6b7280" stroke-width="2" fill="none">
-    <rect x="110" y="55" width="100" height="70" rx="4"/>
-    <circle cx="135" cy="78" r="6"/>
-    <path d="M115 120 L150 90 L175 110 L205 80 L205 121 Z" fill="#374151" stroke="none"/>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 320 180"
+     preserveAspectRatio="xMidYMid slice"
+     role="img"
+     aria-label="No image">
+  <!-- Background: linear gradient matching .ph-b in web/src/index.css.
+       oklch(0.213 0.009 268) → #17191D (top)
+       oklch(0.165 0.006 270) → #0D0E11 (bottom)
+       165deg in CSS ≈ x1=0%/y1=0% → x2=15%/y2=100% in SVG units; we
+       use the simpler vertical gradient because slice-cropping makes
+       the angle visually negligible at our aspect ratios. -->
+  <defs>
+    <linearGradient id="sf-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#17191D"/>
+      <stop offset="100%" stop-color="#0D0E11"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="180" fill="url(#sf-bg)"/>
+  <!-- Engraved sf glyph. Two <text> nodes so the s and f get
+       independent fills/strokes — mirrors the FE's <span>s<b>f</b></span>.
+       paint-order="stroke fill" puts the tinted-blue outline under the
+       engraved fill so the letterform stays crisp.
+       Font-size 120 in viewBox units ≈ the FE's --gs:108px at poster scale;
+       slice-cropping enlarges it for backdrop and avatar contexts. -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+     font-weight="800"
+     font-size="120"
+     text-anchor="middle"
+     dominant-baseline="central">
+    <text x="135" y="92"
+          fill="#14171D"
+          stroke="#1D2F44"
+          stroke-width="1.5"
+          paint-order="stroke fill">s</text>
+    <text x="195" y="92"
+          fill="#1D2F44">f</text>
   </g>
-  <text x="160" y="155" text-anchor="middle" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="11" font-weight="500">no image</text>
 </svg>
