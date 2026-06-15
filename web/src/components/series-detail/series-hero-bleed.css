@@ -35,8 +35,8 @@
   height: 600px;
   z-index: 0;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 44%, transparent 94%);
-          mask-image: linear-gradient(to bottom, #000 0%, #000 44%, transparent 94%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 38%, transparent 78%);
+          mask-image: linear-gradient(to bottom, #000 0%, #000 38%, transparent 78%);
 }
 
 .sd-hero-bleed .sd-backdrop-layer img {
@@ -109,6 +109,32 @@
   align-self: flex-end;
 }
 
+/* Glass back-link — anchored top-left of the hero, above scrim + inner. */
+.sd-hero-bleed .sd-back-link {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid oklch(0.85 0.005 270 / .18);
+  background: oklch(0.15 0.006 270 / .6);
+  -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
+  color: oklch(0.95 0.005 270 / .92);
+  font-size: 12.5px;
+  line-height: 1;
+  text-decoration: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.sd-hero-bleed .sd-back-link:hover {
+  background: oklch(0.18 0.006 270 / .72);
+  color: oklch(1 0 0 / 1);
+}
+
 /* Sonarr-only fallback — flat header, no absolute layers, on-disk strip
  * still renders inside the right column. */
 .sd-hero-bleed[data-fallback="sonarr-only"] .sd-backdrop-layer {
@@ -127,11 +153,24 @@
 .sd-hero-bleed[data-fallback="sonarr-only"] .sd-hero-inner {
   padding: 0;
 }
+.sd-hero-bleed[data-fallback="sonarr-only"] .sd-back-link {
+  position: static;
+  background: transparent;
+  border: 0;
+  padding: 0 0 8px;
+  color: var(--tx-muted, #9aa4b2);
+  -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+}
 
 /* Mobile — drop bleed; stack poster / meta / next vertically. */
 @media (max-width: 1023px) {
   .sd-hero-bleed {
     margin-bottom: 14px;
+  }
+  .sd-hero-bleed .sd-back-link {
+    position: static;
+    margin-bottom: 8px;
   }
   .sd-hero-bleed .sd-backdrop-layer {
     position: static;

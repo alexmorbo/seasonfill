@@ -29,18 +29,20 @@ export function CastStrip({
       aria-labelledby="cast-strip-heading"
       className={cn('flex flex-col gap-3', className)}
     >
-      <div className="flex items-center gap-2.5 mb-3.5">
+      <div
+        data-testid="cast-strip-header"
+        className="flex items-center justify-between gap-2.5 mb-3.5 min-w-0"
+      >
         <h2
           id="cast-strip-heading"
-          className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tx-faint"
+          className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tx-faint truncate"
         >
           {t('seriesDetail.cast.label')}
         </h2>
-        <span className="flex-1" />
         <Link
           to={`/series/${encodeURIComponent(instance)}/${seriesId}/cast`}
           data-testid="cast-strip-view-all"
-          className="inline-flex items-center gap-1 text-[12.5px] text-tx-muted hover:text-tx-primary transition-colors"
+          className="shrink-0 inline-flex items-center gap-1 text-[12.5px] text-tx-muted hover:text-tx-primary transition-colors"
         >
           {t('seriesDetail.cast.viewAll')}
           <ArrowRight className="w-[13px] h-[13px]" aria-hidden="true" />
@@ -50,7 +52,7 @@ export function CastStrip({
       <div
         data-testid="cast-strip-grid"
         className="grid gap-2.5"
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}
       >
         {items.map((m) => {
           const src = mediaUrl(m.profile_asset);

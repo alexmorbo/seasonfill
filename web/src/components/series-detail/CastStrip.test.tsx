@@ -55,4 +55,19 @@ describe('CastStrip', () => {
     const link = screen.getByTestId('cast-strip-view-all');
     expect(link.getAttribute('href')).toBe('/series/homelab/369/cast');
   });
+
+  it('header uses justify-between and the view-all link is a sibling of the heading', () => {
+    const cast = [
+      { person_id: 1, name: 'Alex', character_name: 'Alex' },
+      { person_id: 2, name: 'Sam', character_name: 'Sam' },
+    ];
+    render(wrap(<CastStrip instance="homelab" seriesId={377} cast={cast as any} />));
+    const header = screen.getByTestId('cast-strip-header');
+    expect(header.className).toContain('justify-between');
+    // view-all is a direct child of the header.
+    const viewAll = screen.getByTestId('cast-strip-view-all');
+    expect(viewAll.parentElement).toBe(header);
+    // No flex-1 spacer in the header.
+    expect(header.querySelector('.flex-1')).toBeNull();
+  });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, TriangleAlert } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useSeriesDetail, parseStatus, isSonarrOnly, isDegraded } from '@/api/seriesDetail';
@@ -67,17 +67,6 @@ export function SeriesDetail() {
 
   return (
     <div className="sd-real flex flex-col gap-5 px-[36px] lg:px-[36px]">
-      <nav className="flex items-center gap-2 text-[12.5px] text-tx-muted">
-        <Link
-          to="/series"
-          className="inline-flex items-center gap-1 hover:text-tx-primary transition-colors"
-          data-testid="series-detail-back"
-        >
-          <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
-          {t('seriesDetail.back')}
-        </Link>
-      </nav>
-
       {detail.isPending && <SeriesDetailSkeleton />}
 
       {detail.isError && (
@@ -103,7 +92,10 @@ export function SeriesDetail() {
             onScrollToTorrents={scrollToTorrents}
           />
 
-          <section data-testid="overview-section">
+          <section
+            data-testid="overview-section"
+            className="relative z-[2] bg-bg-base rounded-md"
+          >
             <OverviewGrid
               left={
                 <>

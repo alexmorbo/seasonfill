@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, Play, BookmarkCheck, Ellipsis } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ExternalLink, Play, BookmarkCheck, Ellipsis, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
@@ -77,6 +78,18 @@ export function SeriesHero({
       data-fallback={fallback}
       className={cn('sd-hero-bleed')}
     >
+      {/* In-hero back-link — glass chip at top-left, above scrim/inner. */}
+      <Link
+        to="/series"
+        className="sd-back-link"
+        data-testid="hero-back-link"
+      >
+        <span data-testid="series-detail-back" className="inline-flex items-center gap-1">
+          <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+          {t('seriesDetail.back')}
+        </span>
+      </Link>
+
       {/* Backdrop layer — full-bleed, masked. */}
       <div className="sd-backdrop-layer" aria-hidden="true" data-testid="hero-backdrop-layer">
         {!sonarrOnly && backdropSrc && (

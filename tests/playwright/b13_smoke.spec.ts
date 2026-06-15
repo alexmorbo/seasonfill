@@ -213,3 +213,78 @@ test.describe('B-13 Series Detail v2 — rail network logo dedup (Star City)', (
     });
   });
 });
+
+test.describe('B-13 Series Detail v2 — 366 hero topbar + overview + cast clip', () => {
+  test('back-link lives inside hero (no standalone nav above)', async ({ page }) => {
+    await goto(page);
+
+    // hero-back-link is rendered inside series-hero.
+    const heroBack = page.getByTestId('hero-back-link');
+    await expect(heroBack).toBeVisible();
+    const inHero = await page.evaluate(() => {
+      const back = document.querySelector('[data-testid="hero-back-link"]');
+      const hero = document.querySelector('[data-testid="series-hero"]');
+      return back && hero ? hero.contains(back) : false;
+    });
+    expect(inHero).toBe(true);
+
+    // No <nav> element precedes series-hero inside .sd-real.
+    const navAboveHero = await page.evaluate(() => {
+      const sd = document.querySelector('.sd-real');
+      const hero = document.querySelector('[data-testid="series-hero"]');
+      if (!sd || !hero) return null;
+      const navs = sd.querySelectorAll(':scope > nav');
+      for (const n of Array.from(navs)) {
+        const pos = n.compareDocumentPosition(hero);
+        // hero follows nav => nav is above hero.
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return true;
+      }
+      return false;
+    });
+    expect(navAboveHero).toBe(false);
+  });
+
+  test('backdrop fade ends before overview section', async ({ page }) => {
+    await goto(page);
+    const backdrop = await page.getByTestId('hero-backdrop-layer').boundingBox();
+    const overview = await page.getByTestId('overview-section').boundingBox();
+    if (!backdrop || !overview) throw new Error('missing measurement target');
+    // Backdrop physical layer (600px tall) may still extend past overview top,
+    // but its mask fades to transparent at 78% of its height — well above
+    // overview-section.top. Assert the overview has its own background.
+    const overviewBg = await page.getByTestId('overview-section').evaluate(
+      (el) => window.getComputedStyle(el).backgroundColor,
+    );
+    expect(overviewBg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(overviewBg).not.toBe('transparent');
+    // Sanity: mask stops update means visual fade ends at top+0.78*600 = top+468.
+    const fadeEnd = backdrop.y + 0.78 * backdrop.height;
+    expect(overview.y).toBeGreaterThan(fadeEnd - 1);
+  });
+
+  test('cast strip view-all link is visible and not clipped', async ({ page }) => {
+    await goto(page);
+    const viewAll = page.getByTestId('cast-strip-view-all');
+    await expect(viewAll).toBeVisible();
+    const viewAllBox = await viewAll.boundingBox();
+    if (!viewAllBox) throw new Error('view-all missing');
+
+    // The cast-strip's section is inside the overview-grid left column.
+    // The view-all's right edge must sit within the left column right edge
+    // (±4px slack).
+    const leftColRight = await page.evaluate(() => {
+      const grid = document.querySelector('[data-testid="overview-grid"]');
+      const leftCol = grid?.children[0] as HTMLElement | undefined;
+      return leftCol ? leftCol.getBoundingClientRect().right : -1;
+    });
+    expect(leftColRight).toBeGreaterThan(0);
+    expect(Math.abs(viewAllBox.x + viewAllBox.width - leftColRight)).toBeLessThan(8);
+
+    // Header uses justify-between (no flex-1 spacer).
+    const headerHasSpacer = await page.evaluate(() => {
+      const h = document.querySelector('[data-testid="cast-strip-header"]');
+      return h ? !!h.querySelector('.flex-1') : null;
+    });
+    expect(headerHasSpacer).toBe(false);
+  });
+});

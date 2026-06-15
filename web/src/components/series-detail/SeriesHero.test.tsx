@@ -73,4 +73,22 @@ describe('SeriesHero v2 bleed', () => {
     expect(screen.getByTestId('series-hero').dataset['fallback']).toBe('sonarr-only');
     expect(screen.queryByTestId('hero-scrim')).toBeNull();
   });
+
+  it('renders the in-hero back-link with the seriesDetail.back label', () => {
+    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as any} />));
+    const link = screen.getByTestId('hero-back-link');
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/series');
+    // Legacy testid preserved as inner span for backwards selector compat.
+    expect(screen.getByTestId('series-detail-back')).toBeInTheDocument();
+  });
+
+  it('renders the in-hero back-link in the sonarr-only fallback too', () => {
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={{ title: 'Cold', status: 'unknown' } as any}
+    />));
+    expect(screen.getByTestId('hero-back-link')).toBeInTheDocument();
+  });
 });
