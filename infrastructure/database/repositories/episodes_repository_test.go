@@ -58,9 +58,11 @@ func TestEpisodesRepository_BatchUpsert_Idempotent(t *testing.T) {
 	require.Len(t, ids, n)
 	// Budget covers single-round-trip semantics under `-race`. Reference
 	// non-race timing on dev macOS is ~150ms for 500 rows; -race + parallel
-	// test load inflates that ~5x, so a 5s budget catches the regression
-	// shape ("N round-trips" would be 10s+) without flaking on machine load.
-	assert.Less(t, time.Since(start), 5*time.Second, "batch upsert must complete in one round-trip for 500 rows")
+	// test load inflates that significantly, and shared GitHub Actions
+	// runners add further variance (observed 5.2-5.4s). A 7s budget keeps
+	// margin for CI runner jitter while still catching the regression
+	// shape ("N round-trips" would be 10s+).
+	assert.Less(t, time.Since(start), 7*time.Second, "batch upsert must complete in one round-trip for 500 rows")
 
 	// Re-batch with the same payload — every id must round-trip equal.
 	ids2, err := repo.BatchUpsert(ctx, episodes)
