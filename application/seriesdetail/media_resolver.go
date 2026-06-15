@@ -27,9 +27,35 @@ import (
 	"log/slog"
 	"sync/atomic"
 
+	"github.com/VictoriaMetrics/metrics"
+
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 )
+
+// sentinelEmitCounter increments every time Resolve/ResolveSync hands
+// back the sentinel hash. Labels split the cases an operator wants to
+// triage independently:
+//
+//   - reason="nil_path"   — canon row carries a NULL/empty raw asset
+//     path. Typical root cause is a known prior merge-policy bug that
+//     zeroed canon.poster_asset / canon.backdrop_asset on upsert; the
+//     fix is a backfill (see `cli backfill-assets`), not a code change.
+//   - reason="empty_url"  — BuildTMDBImageURL returned empty (path was
+//     whitespace-only or unmappable). Rare; usually a mapper bug.
+//   - reason="ensure_pending_failed" — eager-hash path failed to write
+//     a pending media_assets row; resolver fell back to sentinel so
+//     the FE renders a stable visual instead of a broken slot.
+//
+// Diagnoses Bug B class: "every series tile renders sentinel" — the
+// counter pinpoints whether the cause is data (nil_path), mapper
+// (empty_url), or persistence (ensure_pending_failed) without
+// requiring repro tracing.
+func sentinelEmitCounter(reason, kind string) *metrics.Counter {
+	return metrics.GetOrCreateCounter(
+		`seasonfill_media_resolver_sentinel_emit_total{reason="` + reason +
+			`",kind="` + kind + `"}`)
+}
 
 // MediaResolver wraps a MediaHashLookupPort with the URL-construction
 // convention the pre-warm pipeline uses. Stateless for reads; the
@@ -145,6 +171,7 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 	unified := r.unifiedResolve.Load()
 	if rawPath == nil || *rawPath == "" {
 		if unified {
+			r.emitSentinel(ctx, "nil_path", kind, "")
 			h := appmedia.SentinelMissingHash
 			return &h
 		}
@@ -153,6 +180,7 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 	url := appmedia.BuildTMDBImageURL(size, *rawPath)
 	if url == "" {
 		if unified {
+			r.emitSentinel(ctx, "empty_url", kind, *rawPath)
 			h := appmedia.SentinelMissingHash
 			return &h
 		}
@@ -182,6 +210,7 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 				slog.String("source_url", url),
 				slog.String("error", perr.Error()))
 			r.enqueueAsync(ctx, url, kind, ext)
+			r.emitSentinel(ctx, "ensure_pending_failed", kind, url)
 			sentinel := appmedia.SentinelMissingHash
 			return &sentinel
 		}
@@ -212,6 +241,7 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 	unified := r.unifiedResolve.Load()
 	if rawPath == nil || *rawPath == "" {
 		if unified {
+			r.emitSentinel(ctx, "nil_path", kind, "")
 			h := appmedia.SentinelMissingHash
 			return &h
 		}
@@ -220,6 +250,7 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 	url := appmedia.BuildTMDBImageURL(size, *rawPath)
 	if url == "" {
 		if unified {
+			r.emitSentinel(ctx, "empty_url", kind, *rawPath)
 			h := appmedia.SentinelMissingHash
 			return &h
 		}
@@ -265,6 +296,27 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 	// next request races for them. Cheap; FIFO-deduped on hash.
 	r.enqueueAsync(ctx, url, kind, ext)
 	return &eagerHash
+}
+
+// emitSentinel records a sentinel-hash emission for production
+// diagnostics. Two surfaces — a Debug log line with the reason / kind
+// (so a single-series grep correlates) and a labelled counter (so the
+// VictoriaMetrics dashboard can plot per-reason rates without
+// requiring trace digging). source is the offending path / URL when
+// known; empty when the trigger was a nil pointer.
+//
+// Cheap — the metric handle is interned by VictoriaMetrics on
+// reason+kind so we don't churn allocs in the hot composer loop.
+func (r *MediaResolver) emitSentinel(ctx context.Context, reason, kind, source string) {
+	sentinelEmitCounter(reason, kind).Inc()
+	if r == nil || r.logger == nil {
+		return
+	}
+	r.logger.DebugContext(ctx, "media_resolver.sentinel_emitted",
+		slog.String("reason", reason),
+		slog.String("kind", kind),
+		slog.String("source", source),
+	)
 }
 
 // enqueueAsync fires a best-effort hot enqueue. Nil enqueuer / context done

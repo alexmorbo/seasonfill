@@ -332,3 +332,69 @@ func TestMediaResolver_ResolveSync_FlagOn_SentinelOnNilPath(t *testing.T) {
 	require.NotNil(t, got, "ResolveSync nil path under flag-on must yield sentinel")
 	assert.Equal(t, appmedia.SentinelMissingHash, *got)
 }
+
+// Regression — the sentinel emission must increment the
+// per-reason counter so prod can plot why series tiles render the
+// SVG placeholder without trace correlation. Series 288/140/372
+// scenario: canon.poster_asset NULL (data backlog from the prior
+// merge-policy zeroing bug) → resolver returns sentinel; the
+// counter labels the case `reason=nil_path,kind=poster_w342` so an
+// operator can grep the metric instead of opening logs.
+//
+// Not parallel — the counter is process-wide, so two tests
+// touching the same reason+kind would race the snapshot reads.
+func TestMediaResolver_SentinelEmitCounter_LabelsReason(t *testing.T) {
+	lookup := &fakeMediaLookup{}
+	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+
+	// Snapshot the counters before the call so a re-run inside the
+	// same `go test` invocation doesn't double-count.
+	nilBefore := sentinelEmitCounter("nil_path", "poster_w342").Get()
+	emptyURLBefore := sentinelEmitCounter("empty_url", "poster_w342").Get()
+
+	// nil rawPath → reason=nil_path
+	_ = r.Resolve(t.Context(), nil, "w342", "poster_w342")
+	if got := sentinelEmitCounter("nil_path", "poster_w342").Get(); got != nilBefore+1 {
+		t.Fatalf("nil_path counter: want +1 (%d), got %d", nilBefore+1, got)
+	}
+
+	// empty rawPath via ResolveSync also counts as nil_path.
+	empty := ""
+	_ = r.ResolveSync(t.Context(), &empty, "w342", "poster_w342")
+	if got := sentinelEmitCounter("nil_path", "poster_w342").Get(); got != nilBefore+2 {
+		t.Fatalf("nil_path counter after empty: want +2 (%d), got %d", nilBefore+2, got)
+	}
+
+	// empty-url path: BuildTMDBImageURL returns "" only when raw is
+	// whitespace-only; the rawPath != empty guard above short-circuits
+	// any literal "". Compose a single-space path to drive the
+	// empty_url branch.
+	space := " "
+	_ = r.Resolve(t.Context(), &space, "w342", "poster_w342")
+	if got := sentinelEmitCounter("empty_url", "poster_w342").Get(); got != emptyURLBefore+1 {
+		t.Fatalf("empty_url counter: want +1 (%d), got %d", emptyURLBefore+1, got)
+	}
+}
+
+// Regression — when EnsurePending fails under unified-on, Resolve
+// returns the sentinel (per Story 347 fallback) and the counter
+// labels the reason `ensure_pending_failed`. This is the third
+// reason class operators need split visibility for: data backlog
+// (nil_path) vs mapper miss (empty_url) vs persistence pressure
+// (ensure_pending_failed) drive different runbooks.
+func TestMediaResolver_SentinelEmitCounter_EnsurePendingFailureReason(t *testing.T) {
+	lookup := &fakeMediaLookup{ensureErr: errors.New("write_timeout")}
+	enq := &stubEnqueuer{}
+	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r.SetUnifiedResolve(true)
+
+	before := sentinelEmitCounter("ensure_pending_failed", "poster_w342").Get()
+	path := "/sentinel-on-pending-fail.jpg"
+	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
+	require.NotNil(t, got)
+	assert.Equal(t, appmedia.SentinelMissingHash, *got)
+	if after := sentinelEmitCounter("ensure_pending_failed", "poster_w342").Get(); after != before+1 {
+		t.Fatalf("ensure_pending_failed counter: want +1 (%d), got %d", before+1, after)
+	}
+}
