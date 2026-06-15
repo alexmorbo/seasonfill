@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func TestMetricsTransport_RoundTrip_Success_200(t *testing.T) {
 	tr := NewMetricsTransport("testclient", endpoints, http.DefaultTransport)
 	c := &http.Client{Transport: tr}
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/anything", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/anything", nil)
 	resp, err := c.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -46,7 +47,7 @@ func TestMetricsTransport_RoundTrip_429_Literal(t *testing.T) {
 	tr := NewMetricsTransport("testclient2", func(*http.Request) string { return "/rl" }, nil)
 	c := &http.Client{Transport: tr}
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rl", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/rl", nil)
 	resp, err := c.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -63,7 +64,7 @@ func TestMetricsTransport_RoundTrip_502_Literal(t *testing.T) {
 
 	tr := NewMetricsTransport("testclient3", func(*http.Request) string { return "/5xx" }, nil)
 	c := &http.Client{Transport: tr}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/anything", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/anything", nil)
 	resp, err := c.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -79,7 +80,7 @@ func TestMetricsTransport_RoundTrip_504_Literal(t *testing.T) {
 
 	tr := NewMetricsTransport("testclient3b", func(*http.Request) string { return "/timeout" }, nil)
 	c := &http.Client{Transport: tr}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/anything", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/anything", nil)
 	resp, err := c.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -95,7 +96,7 @@ func TestMetricsTransport_RoundTrip_OffSet_Bucketed_As_Other(t *testing.T) {
 
 	tr := NewMetricsTransport("testclient3c", func(*http.Request) string { return "/teapot" }, nil)
 	c := &http.Client{Transport: tr}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/anything", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/anything", nil)
 	resp, err := c.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -106,7 +107,7 @@ func TestMetricsTransport_RoundTrip_OffSet_Bucketed_As_Other(t *testing.T) {
 func TestMetricsTransport_RoundTrip_NetworkError_Classified_As_Error(t *testing.T) {
 	tr := NewMetricsTransport("testclient4", func(*http.Request) string { return "/neterr" }, &erringTransport{})
 	c := &http.Client{Transport: tr}
-	req, _ := http.NewRequest(http.MethodGet, "http://example.invalid/x", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid/x", nil)
 	_, err := c.Do(req)
 	require.Error(t, err)
 
@@ -126,7 +127,7 @@ func TestMetricsTransport_InFlight_UpAndDown(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/", nil)
 		resp, _ := c.Do(req)
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -174,7 +175,7 @@ func TestMetricsTransport_NilEndpointFunc_FallsBackToUnknown(t *testing.T) {
 
 	tr := NewMetricsTransport("nilfn", nil, nil)
 	c := &http.Client{Transport: tr}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/any", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/any", nil)
 	resp, _ := c.Do(req)
 	if resp != nil {
 		_ = resp.Body.Close()

@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestTMDBEndpointFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.raw, func(t *testing.T) {
-			req, _ := http.NewRequest(http.MethodGet, "https://api.themoviedb.org"+tc.raw, nil)
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.themoviedb.org"+tc.raw, nil)
 			got := TMDBEndpointFor(req)
 			assert.Equal(t, tc.want, got)
 		})
