@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/seriesDetail';
 import { relativeTime } from '@/lib/format';
 import { useFormatDate } from '@/lib/timezone';
+import { formatEpisodeMeta } from '@/lib/episodeMeta';
 import type { components } from '@/api/schema';
 
 type Episode = components['schemas']['dto.Episode'];
@@ -113,9 +114,6 @@ export function EpisodeRow({ episode, seasonNumber, className }: EpisodeRowProps
 
         <div className="flex items-center gap-2 text-[11px] text-tx-muted">
           <span aria-hidden="true" className={cn('w-1.5 h-1.5 rounded-full', dot.color)} data-testid={dot.testId} />
-          {episode.has_file && episode.quality && (
-            <span className="font-mono text-[10.5px] text-tx-secondary truncate">{episode.quality}</span>
-          )}
           {!episode.has_file && (
             <span className="text-[10.5px] text-tx-faint">
               {episode.monitored
@@ -123,6 +121,18 @@ export function EpisodeRow({ episode, seasonNumber, className }: EpisodeRowProps
                 : t('seriesDetail.seasons.unmonitored')}
             </span>
           )}
+          {episode.has_file && (() => {
+            const meta = formatEpisodeMeta(episode);
+            if (!meta) return null;
+            return (
+              <span
+                data-testid="episode-row-eq"
+                className="ml-auto font-mono text-[11px] text-tx-muted truncate"
+              >
+                {meta}
+              </span>
+            );
+          })()}
         </div>
 
         {episode.overview && (

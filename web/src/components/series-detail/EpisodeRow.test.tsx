@@ -53,4 +53,33 @@ describe('<EpisodeRow />', () => {
     fireEvent.click(ov);
     expect(ov.getAttribute('aria-expanded')).toBe('true');
   });
+
+  it('renders the .eq chip with combined codec line when present', () => {
+    r(<EpisodeRow episode={{
+      episode_number: 1,
+      has_file: true,
+      monitored: true,
+      quality: 'WEB-DL 1080p',
+      video_codec: 'HEVC',
+      audio_codec: 'DDP',
+      audio_channels: '5.1',
+      release_group: 'RARBG',
+    } as any} />);
+    const chip = screen.getByTestId('episode-row-eq');
+    expect(chip.textContent).toBe('WEB-DL 1080p · HEVC · DD+ 5.1 · RARBG');
+  });
+
+  it('suppresses the .eq chip when episode has no file', () => {
+    r(<EpisodeRow episode={{
+      episode_number: 1, has_file: false, monitored: true,
+    } as any} />);
+    expect(screen.queryByTestId('episode-row-eq')).toBeNull();
+  });
+
+  it('suppresses the .eq chip when no media-meta fields are populated', () => {
+    r(<EpisodeRow episode={{
+      episode_number: 1, has_file: true, monitored: true,
+    } as any} />);
+    expect(screen.queryByTestId('episode-row-eq')).toBeNull();
+  });
 });
