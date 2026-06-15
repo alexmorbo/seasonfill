@@ -183,7 +183,7 @@ func doMissing(t *testing.T, name string, clients map[string]ports.SonarrClient,
 // doMissingWithCache mirrors doMissing but wires a SeriesCacheRepository
 // stub so 041g enrichment tests can drive the join path. Cache=nil
 // reproduces the pre-041g behaviour (no enrichment, every row's
-// TitleSlug/Year/PosterPath stays at zero value).
+// TitleSlug/Year/PosterHash stays at zero value).
 func doMissingWithCache(t *testing.T, name string, clients map[string]ports.SonarrClient, modes map[string]string, cache ports.SeriesCacheRepository) *httptest.ResponseRecorder {
 	t.Helper()
 	c := healthcheck.New(openInstancesDB(t), nil)
@@ -960,11 +960,11 @@ func missingFixtureTwo() []series.Series {
 
 // enrichedItem captures the 041g fields plus series_id for ordering.
 // 348b: PosterHash captured to assert the cache-join propagation.
+// Story 350 dropped the legacy poster_path field.
 type enrichedItem struct {
 	SeriesID   int     `json:"series_id"`
 	TitleSlug  string  `json:"title_slug"`
 	Year       *int    `json:"year,omitempty"`
-	PosterPath *string `json:"poster_path,omitempty"`
 	PosterHash *string `json:"poster_hash,omitempty"`
 }
 
@@ -983,11 +983,9 @@ func decodeEnrichedItems(t *testing.T, raw []byte) []enrichedItem {
 // shape assertions stay uniform.
 func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
-		TitleSlug: "severance", Year: intPtr(2022),
-		PosterPath: strPtr("/MediaCover/1/poster.jpg")}
+		TitleSlug: "severance", Year: intPtr(2022)}
 	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
-		TitleSlug: "andor", Year: intPtr(2022),
-		PosterPath: strPtr("/MediaCover/2/poster.jpg")}
+		TitleSlug: "andor", Year: intPtr(2022)}
 
 	tests := []struct {
 		name    string
@@ -1003,8 +1001,6 @@ func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 				assert.Equal(t, "severance", items[0].TitleSlug)
 				require.NotNil(t, items[0].Year)
 				assert.Equal(t, 2022, *items[0].Year)
-				require.NotNil(t, items[0].PosterPath)
-				assert.Equal(t, "/MediaCover/1/poster.jpg", *items[0].PosterPath)
 				assert.Equal(t, "andor", items[1].TitleSlug)
 				// AC-3: single batch lookup, not N+1.
 				assert.Equal(t, 1, cache.listCall)
@@ -1018,7 +1014,7 @@ func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 				for _, it := range items {
 					assert.Equal(t, "", it.TitleSlug)
 					assert.Nil(t, it.Year)
-					assert.Nil(t, it.PosterPath)
+					assert.Nil(t, it.PosterHash)
 				}
 			},
 		},
@@ -1069,12 +1065,10 @@ func TestInstancesHandler_Missing_PosterHashField(t *testing.T) {
 	hash := "3a2b1c4d5e6f7890abcdef0123456789abcdef0123456789abcdef0123456789"
 	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
 		TitleSlug: "severance", Year: intPtr(2022),
-		PosterPath: strPtr("/MediaCover/1/poster.jpg"),
 		PosterHash: strPtr(hash)}
 	// Series 2 has no hash — proves omitempty + nil propagation.
 	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
-		TitleSlug: "andor", Year: intPtr(2022),
-		PosterPath: strPtr("/MediaCover/2/poster.jpg")}
+		TitleSlug: "andor", Year: intPtr(2022)}
 
 	mf := &missingFakeSonarr{fakeSonarr: &fakeSonarr{name: "alpha"}, all: missingFixtureTwo()}
 	cache := &stubSeriesCache{entries: []series.CacheEntry{entryOne, entryTwo}}

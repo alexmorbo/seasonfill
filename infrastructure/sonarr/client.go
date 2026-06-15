@@ -43,11 +43,7 @@ type Client struct {
 	// supplied (last write wins in functional-options order).
 	global    *ratelimit.Limiter
 	globalPtr *atomic.Pointer[ratelimit.Limiter]
-	// poster is a dedicated limiter for MediaCover requests. It exists
-	// so frontend-driven poster bursts can't starve watchdog
-	// SystemStatus calls that share the global limiter. nil = unlimited.
-	poster *ratelimit.Limiter
-	logger *slog.Logger
+	logger    *slog.Logger
 }
 
 // Option configures a Client at construction.
@@ -79,14 +75,6 @@ func (c *Client) globalLimiter() *ratelimit.Limiter {
 		return c.globalPtr.Load()
 	}
 	return c.global
-}
-
-// WithPosterLimiter sets the dedicated MediaCover rate limiter. The
-// poster path does NOT share the global limiter — bursts from the
-// frontend grid (60+ posters/page) would otherwise starve concurrent
-// /system/status calls used by the watchdog. Pass nil for unlimited.
-func WithPosterLimiter(l *ratelimit.Limiter) Option {
-	return func(c *Client) { c.poster = l }
 }
 
 // WithSearchTimeout installs a separate http.Client used ONLY by
@@ -361,17 +349,15 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		v := *d.PreviousAiring
 		entry.LastAiredAt = &v
 	}
-	// First image per cover type wins.
+	// First image per cover type wins. Poster path no longer flows into
+	// CacheEntry — the FE consumes media_assets via PosterHash. Fanart
+	// and banner stay until their own media migration ships.
 	for _, img := range d.Images {
 		if img.URL == "" {
 			continue
 		}
 		url := img.URL
 		switch img.CoverType {
-		case "poster":
-			if entry.PosterPath == nil {
-				entry.PosterPath = &url
-			}
 		case "fanart":
 			if entry.FanartPath == nil {
 				entry.FanartPath = &url

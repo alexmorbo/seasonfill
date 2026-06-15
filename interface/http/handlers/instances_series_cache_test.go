@@ -76,14 +76,12 @@ func (f *seriesCacheFixture) seedWith(
 ) {
 	t.Helper()
 	year := 2024
-	poster := "/MediaCover/" + title + "/poster.jpg"
 	e := series.CacheEntry{
 		InstanceName:   instance,
 		SonarrSeriesID: id,
 		Title:          title,
 		TitleSlug:      strings.ToLower(strings.ReplaceAll(title, " ", "-")),
 		Year:           &year,
-		PosterPath:     &poster,
 		Monitored:      true,
 		MissingCount:   missing,
 		UpdatedAt:      ts,
@@ -100,11 +98,10 @@ func (f *seriesCacheFixture) seedWith(
 func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title string, missing int, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
-	poster := "/MediaCover/" + title + "/poster.jpg"
 	entry := series.CacheEntry{
 		InstanceName: instance, SonarrSeriesID: id,
 		Title: title, TitleSlug: title,
-		Year: &year, PosterPath: &poster,
+		Year:         &year,
 		Monitored:    true,
 		MissingCount: missing,
 	}
@@ -117,11 +114,10 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title s
 func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, title string, lastAired *time.Time, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
-	poster := "/MediaCover/" + title + "/poster.jpg"
 	entry := series.CacheEntry{
 		InstanceName: instance, SonarrSeriesID: id,
 		Title: title, TitleSlug: title,
-		Year: &year, PosterPath: &poster,
+		Year:        &year,
 		Monitored:   true,
 		LastAiredAt: lastAired,
 	}

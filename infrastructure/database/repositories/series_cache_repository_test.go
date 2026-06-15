@@ -44,7 +44,6 @@ func sampleEntry(instance string, id int) series.CacheEntry {
 		RuntimeMinutes: ptrInt(60),
 		Monitored:      true,
 		Overview:       ptrString("Overview text."),
-		PosterPath:     ptrString("/MediaCover/12/poster.jpg?lastWrite=999"),
 		FanartPath:     ptrString("/MediaCover/12/fanart.jpg"),
 		BannerPath:     ptrString("/MediaCover/12/banner.jpg"),
 	}
@@ -98,10 +97,6 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	// series_texts, media_assets). Production DTO already drops them.
 	assert.Nil(t, got.Genres)
 	assert.True(t, got.Monitored)
-	// Post B-1b cutover: PosterPath projects from canon.poster_asset,
-	// which is NULL until F-1 media-prewarm lands. Sonarr URLs are NOT
-	// written into canon (F-1 invariant: poster_asset is a media-store hash).
-	assert.Nil(t, got.PosterPath)
 	assert.False(t, got.UpdatedAt.IsZero())
 	assert.Nil(t, got.DeletedAt)
 	assert.True(t, got.IsActive())
@@ -231,7 +226,7 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 		got.Year, got.TVDBID, got.IMDBID, got.TMDBID,
 		got.Status, got.Genres,
 		got.RuntimeMinutes, got.Overview,
-		got.PosterPath, got.FanartPath, got.BannerPath,
+		got.FanartPath, got.BannerPath,
 	} {
 		assert.Nil(t, p)
 	}
@@ -893,9 +888,6 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_StoredHash(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.PosterHash, "stored media_assets row → hash projected")
 	assert.Equal(t, "deadbeef00", *got.PosterHash)
-	// PosterPath (raw asset path) still ships for FE backward compat.
-	require.NotNil(t, got.PosterPath)
-	assert.Equal(t, "/abc.jpg", *got.PosterPath)
 }
 
 func TestSeriesCacheRepository_LeftJoinMediaAssets_PendingStatus_NoHash(t *testing.T) {
@@ -910,7 +902,6 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_PendingStatus_NoHash(t *testi
 	got, err := repo.Get(ctx, "main", 13)
 	require.NoError(t, err)
 	assert.Nil(t, got.PosterHash, "status=pending → join filtered → nil hash")
-	require.NotNil(t, got.PosterPath)
 }
 
 func TestSeriesCacheRepository_LeftJoinMediaAssets_FailedStatus_NoHash(t *testing.T) {
@@ -938,7 +929,6 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_NullPosterAsset_NoHash(t *tes
 	got, err := repo.Get(ctx, "main", 15)
 	require.NoError(t, err)
 	assert.Nil(t, got.PosterHash, "NULL s.poster_asset → no join match → nil hash")
-	assert.Nil(t, got.PosterPath, "NULL s.poster_asset → nil PosterPath too")
 }
 
 func TestSeriesCacheRepository_LeftJoinMediaAssets_NoMediaRow_NoHash(t *testing.T) {
@@ -954,8 +944,6 @@ func TestSeriesCacheRepository_LeftJoinMediaAssets_NoMediaRow_NoHash(t *testing.
 	got, err := repo.Get(ctx, "main", 16)
 	require.NoError(t, err)
 	assert.Nil(t, got.PosterHash, "no media_assets row → LEFT JOIN nil → nil hash")
-	require.NotNil(t, got.PosterPath)
-	assert.Equal(t, "/jkl.jpg", *got.PosterPath)
 }
 
 // TestSeriesCacheRepository_LeftJoinMediaAssets_CardinalityPreserved

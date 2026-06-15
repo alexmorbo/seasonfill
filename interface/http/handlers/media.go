@@ -23,9 +23,8 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
-// mediaCacheMaxBytes is the LRU's byte cap — 32 MiB, matches the
-// existing sonarr.LRUPosterCache budget. Sized for hot-path series
-// detail browsing (a few hundred small images).
+// mediaCacheMaxBytes is the LRU's byte cap — 32 MiB. Sized for hot-path
+// series detail browsing (a few hundred small images).
 const mediaCacheMaxBytes int64 = 32 << 20
 
 // mediaCacheMaxEntries is the defensive entry cap; byte-size eviction
@@ -625,9 +624,8 @@ func extFromContentType(ct string) string {
 	return ""
 }
 
-// byteCappedLRU is the LRU with byte-size eviction. Same shape as
-// sonarr.LRUPosterCache (32 MiB cap, hashicorp/golang-lru v2
-// store, sync.Mutex + size accountant).
+// byteCappedLRU is the LRU with byte-size eviction (32 MiB cap,
+// hashicorp/golang-lru v2 store, sync.Mutex + size accountant).
 type byteCappedLRU struct {
 	mu        sync.Mutex
 	store     *lru.Cache[string, mediaCacheEntry]

@@ -38,7 +38,6 @@ type CacheEntry struct {
 	RuntimeMinutes *int
 	Monitored      bool
 	Overview       *string
-	PosterPath     *string
 	// PosterHash is the content-addressed sha256 of the stored w342
 	// hero poster, joined from media_assets when status='stored'. nil
 	// when the row has not been warmed yet — the FE falls back to a
@@ -61,5 +60,5 @@ type CacheEntry struct {
 // repository's ListActiveByInstance only returns entries where
 // IsActive() would return true, but Get() returns soft-deleted rows
 // too (so the webhook SeriesAdd path can resurrect an undeleted
-// version without losing the historical poster_path).
+// version without losing companion fields).
 func (e CacheEntry) IsActive() bool { return e.DeletedAt == nil }

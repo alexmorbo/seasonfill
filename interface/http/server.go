@@ -161,14 +161,6 @@ func NewServer(
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series-cache/networks", instancesHandler.ListSeriesCacheNetworks)
 		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
-		// Singleton poster cache. Lives for the life of the process
-		// — there's no reload path because the cap + TTL are
-		// package-level constants (see internal/runtime/snapshot.go).
-		posterCache := sonarr.NewLRUPosterCache(
-			runtime.PosterCacheMaxBytes, runtime.PosterCacheTTL)
-		seriesPosterHandler := handlers.NewSeriesPosterHandler(
-			instanceReg, logger, handlers.WithPosterCache(posterCache))
-		guarded.GET("/instances/:name/series/:id/poster", seriesPosterHandler.Proxy)
 		// Story 215 (G-1) — composite series-detail document + per-
 		// season subset. The composer reads only from the local entity
 		// tables (no synchronous external fetches); the single live

@@ -48,7 +48,7 @@ type InstancesHandler struct {
 // url/mode-defaulting-to-auto, Missing/SearchSeries 404 every name).
 // seriesCache defaults to nil; production wires it via WithSeriesCache.
 // Nil cache → Missing returns the same shape with empty TitleSlug /
-// nil Year / nil PosterPath on every row (same as a cold cache).
+// nil Year / nil PosterHash on every row (same as a cold cache).
 func NewInstancesHandler(
 	checker *healthcheck.Checker,
 	reg InstanceRegistry,
@@ -337,7 +337,7 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 	}
 }
 
-// enrichMissingFromCache joins TitleSlug / Year / PosterPath from
+// enrichMissingFromCache joins TitleSlug / Year / PosterHash from
 // series_cache onto every item. ONE query per request — the in-memory
 // map lookup is O(1) per item, no N+1. Repository errors WARN-log and
 // the response continues unenriched (the queue page must NOT 5xx when
@@ -363,7 +363,6 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 		}
 		items[i].TitleSlug = e.TitleSlug
 		items[i].Year = e.Year
-		items[i].PosterPath = e.PosterPath
 		items[i].PosterHash = e.PosterHash
 	}
 }
@@ -996,7 +995,6 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		TitleSlug:           e.TitleSlug,
 		Year:                e.Year,
 		Status:              e.Status,
-		PosterPath:          e.PosterPath,
 		PosterHash:          e.PosterHash,
 		Monitored:           e.Monitored,
 		MissingCount:        e.MissingCount,

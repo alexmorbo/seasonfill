@@ -59,10 +59,10 @@ type cacheRow struct {
 	// card lands in a future story.
 	RuntimeMinutes *int       `gorm:"column:s_runtime_minutes"`
 	LastAiredAt    *time.Time `gorm:"column:s_last_air_date"`
-	PosterPath     *string    `gorm:"column:s_poster_asset"`
 	// PosterHash is projected via LEFT JOIN media_assets on the
 	// synthetic TMDB CDN URL for the w342 hero (story 348a). nil when
-	// the join misses (no row, or status != 'stored').
+	// the join misses (no row, or status != 'stored'). Story 350 dropped
+	// the s_poster_asset projection — the FE consumes media_assets only.
 	PosterHash *string `gorm:"column:s_poster_hash"`
 	// Genres / Overview / FanartPath / BannerPath: post-cutover canon
 	// does not store these in the same form as the old series_cache
@@ -97,7 +97,6 @@ const seriesCacheSelect = `
 		s.status                        AS s_status,
 		s.runtime_minutes               AS s_runtime_minutes,
 		s.last_air_date                 AS s_last_air_date,
-		s.poster_asset                  AS s_poster_asset,
 		ma_poster.hash                  AS s_poster_hash
 	`
 
@@ -654,7 +653,6 @@ func rowToCacheEntry(r cacheRow) series.CacheEntry {
 		RuntimeMinutes: r.RuntimeMinutes,
 		Monitored:      r.Monitored,
 		Overview:       nil,
-		PosterPath:     r.PosterPath,
 		PosterHash:     r.PosterHash,
 		FanartPath:     nil,
 		BannerPath:     nil,

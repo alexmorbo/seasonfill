@@ -112,3 +112,9 @@ func TestEpisodesCacheKey_StableShape(t *testing.T) {
 	assert.Equal(t, "alpha:42", EpisodesCacheKey("alpha", 42))
 	assert.Equal(t, "beta:7", EpisodesCacheKey("beta", 7))
 }
+
+// fakeClock is a manually-advanced time source for TTL tests.
+type fakeClock struct{ t time.Time }
+
+func (f *fakeClock) Now() time.Time          { return f.t }
+func (f *fakeClock) advance(d time.Duration) { f.t = f.t.Add(d) }

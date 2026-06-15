@@ -50,11 +50,11 @@ type EpisodesCache interface {
 	Put(key string, episodes []series.Episode)
 }
 
-// LRUEpisodesCache is a byte-capped LRU with lazy TTL expiry,
-// modeled after LRUPosterCache. The hashicorp/golang-lru/v2 store
-// does entry-count cap + recency tracking; sync.Mutex + size
-// accountant on top enforce the byte cap. On every Put we evict
-// the LRU tail until the new entry fits under maxBytes.
+// LRUEpisodesCache is a byte-capped LRU with lazy TTL expiry.
+// The hashicorp/golang-lru/v2 store does entry-count cap + recency
+// tracking; sync.Mutex + size accountant on top enforce the byte cap.
+// On every Put we evict the LRU tail until the new entry fits under
+// maxBytes.
 type LRUEpisodesCache struct {
 	mu        sync.Mutex
 	store     *lru.Cache[string, EpisodesCacheEntry]

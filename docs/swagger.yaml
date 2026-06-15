@@ -1226,10 +1226,6 @@ components:
           example: 3a2b1c...
           type: string
           x-content-addressed: "true"
-        poster_path:
-          description: deprecated — use poster_hash + mediaUrl()
-          example: /MediaCover/122/poster.jpg
-          type: string
         seasons:
           items:
             $ref: '#/components/schemas/dto.MissingSeasonStat'
@@ -1967,15 +1963,9 @@ components:
             PosterHash is the content-addressed sha256 of the stored w342
             hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
             URL). Absent when the row has not been warmed yet — the FE falls
-            back to a monogram placeholder. Story 348a.
+            back to a monogram placeholder. Story 348a; Story 350 dropped the
+            legacy poster_path companion.
           example: 3a2b1c...
-          type: string
-        poster_path:
-          description: |-
-            PosterPath is the legacy raw TMDB path. Deprecated by Story 348a
-            in favour of PosterHash + mediaUrl(hash); kept for one release so
-            the FE cutover (Story 349a) is reversible.
-          example: /MediaCover/122/poster.jpg
           type: string
         sonarr_series_id:
           example: 122
@@ -4547,78 +4537,6 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Full series cast & crew
-      tags:
-      - instances
-  /instances/{name}/series/{id}/poster:
-    get:
-      description: |-
-        Streams the poster image from the upstream Sonarr at
-        /api/v3/MediaCover/{seriesId}/poster[-500].jpg with
-        authentication injected server-side. size=small returns
-        the 500px variant; default is the full-size poster.
-        Responses are served from an in-process LRU cache after
-        the first fetch; ETag is synthesized server-side so
-        If-None-Match cheaply produces a 304 without touching
-        Sonarr.
-      parameters:
-      - description: Instance name
-        in: path
-        name: name
-        required: true
-        schema:
-          type: string
-      - description: Sonarr series id
-        in: path
-        name: id
-        required: true
-        schema:
-          type: integer
-      - description: full (default) or small
-        in: query
-        name: size
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                type: string
-            image/jpeg:
-              schema:
-                format: binary
-                type: string
-          description: poster image bytes
-        "304":
-          description: not modified (when If-None-Match matched cache or upstream)
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Unauthorized
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: unknown instance or poster missing
-        "502":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Gateway
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Stream a Sonarr series poster
       tags:
       - instances
   /instances/{name}/series/{id}/refresh:

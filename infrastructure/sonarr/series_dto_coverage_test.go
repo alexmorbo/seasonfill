@@ -61,9 +61,8 @@ func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
 	assert.Equal(t, []string{"Crime", "Drama"}, e.Genres)
 	require.NotNil(t, e.LastAiredAt)
 	assert.Equal(t, prev, *e.LastAiredAt)
-	// First-wins for poster/fanart/banner.
-	require.NotNil(t, e.PosterPath)
-	assert.Equal(t, "/p1.jpg", *e.PosterPath)
+	// First-wins for fanart/banner. Story 350 removed poster from the
+	// CacheEntry — the FE consumes posters via media_assets/poster_hash.
 	require.NotNil(t, e.FanartPath)
 	assert.Equal(t, "/f1.jpg", *e.FanartPath)
 	require.NotNil(t, e.BannerPath)
@@ -89,7 +88,6 @@ func TestSeriesDTOToCacheEntry_EmptyOptionalFieldsRemainNil(t *testing.T) {
 	assert.Nil(t, e.RuntimeMinutes)
 	assert.Nil(t, e.Overview)
 	assert.Nil(t, e.Genres)
-	assert.Nil(t, e.PosterPath)
 	assert.Nil(t, e.FanartPath)
 	assert.Nil(t, e.BannerPath)
 	assert.Nil(t, e.LastAiredAt)
@@ -100,13 +98,13 @@ func TestSeriesDTOToCacheEntry_EmptyImageURLSkipped(t *testing.T) {
 		ID:    1,
 		Title: "T",
 		Images: []imageDTO{
-			{CoverType: "poster", URL: ""},          // skipped
-			{CoverType: "poster", URL: "/real.jpg"}, // takes the slot
+			{CoverType: "fanart", URL: ""},          // skipped
+			{CoverType: "fanart", URL: "/real.jpg"}, // takes the slot
 		},
 	}
 	e := seriesDTOToCacheEntry(d, "alpha")
-	require.NotNil(t, e.PosterPath)
-	assert.Equal(t, "/real.jpg", *e.PosterPath)
+	require.NotNil(t, e.FanartPath)
+	assert.Equal(t, "/real.jpg", *e.FanartPath)
 }
 
 func TestSeriesDTOToCacheEntry_NoStatisticsLeavesMissingCountZero(t *testing.T) {
