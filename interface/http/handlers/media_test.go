@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -700,7 +701,7 @@ func TestMediaHandler_PlaceholderSVG_IsWellFormedXML(t *testing.T) {
 	dec := xml.NewDecoder(bytes.NewReader(body))
 	for {
 		_, err := dec.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
