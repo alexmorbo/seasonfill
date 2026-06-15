@@ -107,6 +107,14 @@ type SeriesHero struct {
 	Genres []TaxonomyChip `json:"genres"`
 	// Networks are the network-logo strip (max 3 displayed).
 	Networks []NetworkChip `json:"networks"`
+	// Studio is the headline production company name (first row of
+	// series_companies ordered by position). nil when the series has
+	// no companies attached (cold series, no TMDB sync).
+	Studio *string `json:"studio,omitempty" example:"Sony Pictures Television"`
+	// Country is the ISO 3166-1 alpha-2 origin country code (e.g. "US",
+	// "RU"). FE maps the token to a localised label. nil when the canon
+	// row has no origin_country (cold series).
+	Country *string `json:"country,omitempty" example:"US"`
 	// ContentRating is the displayed age-rating badge. nil when no
 	// content_ratings row matches the user locale OR en-US OR US
 	// fallback.

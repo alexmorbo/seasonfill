@@ -295,3 +295,60 @@ func TestSeriesDetailHandler_StatusPillMapping(t *testing.T) {
 		require.Equalf(t, tc.want, got, "status=%q in_production=%v", tc.status, tc.inProduction)
 	}
 }
+
+func TestMapHero_StudioAndCountry(t *testing.T) {
+	t.Parallel()
+
+	studio := "Sony Pictures Television"
+	country := "US"
+
+	cases := []struct {
+		name      string
+		companies []taxonomy.ProductionCompany
+		origin    *string
+		wantStud  *string
+		wantCty   *string
+	}{
+		{
+			name:      "both present",
+			companies: []taxonomy.ProductionCompany{{ID: 1, Name: studio}, {ID: 2, Name: "Tall Ship"}},
+			origin:    &country,
+			wantStud:  &studio,
+			wantCty:   &country,
+		},
+		{
+			name:      "studio only — no origin country",
+			companies: []taxonomy.ProductionCompany{{ID: 1, Name: studio}},
+			origin:    nil,
+			wantStud:  &studio,
+			wantCty:   nil,
+		},
+		{
+			name:      "country only — no companies",
+			companies: nil,
+			origin:    &country,
+			wantStud:  nil,
+			wantCty:   &country,
+		},
+		{
+			name:      "neither — both omitted",
+			companies: []taxonomy.ProductionCompany{{ID: 1, Name: ""}}, // empty name treated as absent
+			origin:    func() *string { s := ""; return &s }(),
+			wantStud:  nil,
+			wantCty:   nil,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := &seriesdetail.Detail{
+				Canon:     series.Canon{Title: "X", OriginCountry: tc.origin},
+				Companies: tc.companies,
+			}
+			h := mapHero(d)
+			require.Equal(t, tc.wantStud, h.Studio, "studio")
+			require.Equal(t, tc.wantCty, h.Country, "country")
+		})
+	}
+}

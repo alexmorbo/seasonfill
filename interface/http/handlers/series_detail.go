@@ -152,6 +152,14 @@ func mapHero(d *seriesdetail.Detail) dto.SeriesHero {
 	for _, n := range d.Networks {
 		h.Networks = append(h.Networks, dto.NetworkChip{ID: n.ID, Name: n.Name, LogoAsset: n.LogoAsset})
 	}
+	if len(d.Companies) > 0 && d.Companies[0].Name != "" {
+		name := d.Companies[0].Name
+		h.Studio = &name
+	}
+	if d.Canon.OriginCountry != nil && *d.Canon.OriginCountry != "" {
+		c := *d.Canon.OriginCountry
+		h.Country = &c
+	}
 	if d.ContentRating != nil {
 		h.ContentRating = &dto.ContentRatingBadge{CountryCode: d.ContentRating.CountryCode, Rating: d.ContentRating.Rating}
 	}
