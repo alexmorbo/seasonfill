@@ -839,3 +839,119 @@ func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
 	assert.Equal(t, 2, posterNull, "PosterNull + BothNull = 2 poster-null rows")
 	assert.Equal(t, 2, backdropNull, "BackdropNull + BothNull = 2 backdrop-null rows")
 }
+
+// FIX-B13-HERO prod regression — a Sonarr-shape Upsert (canonOut from
+// MergeSeries(SourceSonarr) carrying NULL for every TMDB/OMDb-only
+// column) MUST NOT overwrite the previously-enriched row's canon
+// columns. Live evidence (delta sha-0a2a816, 2026-06-17): series id=8
+// R&M and id=96 Star City had their tmdb_rating, imdb_rating,
+// first_air_date, original_language, origin_countries etc cleared
+// between a /refresh enrichment and the next 0 */6 scan tick.
+func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 80001
+	firstAir := time.Date(2013, 12, 2, 0, 0, 0, 0, time.UTC)
+	lastAir := time.Date(2020, 9, 11, 0, 0, 0, 0, time.UTC)
+	originalTitle := "Rick and Morty"
+	status := "Returning Series"
+	homepage := "https://www.adultswim.com/videos/rick-and-morty"
+	origLang := "en"
+	origCountry := "US"
+	originCountries := []string{"US"}
+	tmdbRating := 8.7
+	tmdbVotes := 9100
+	imdbRating := 9.1
+	imdbVotes := 590000
+	omdbRated := "TV-14"
+	omdbAwards := "Won 4 Primetime Emmys"
+	popularity := 425.7
+	runtime := 22
+
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:           ptrInt(tmdbID),
+		Title:            "Rick and Morty",
+		Hydration:        series.HydrationFull,
+		OriginalTitle:    &originalTitle,
+		Status:           &status,
+		FirstAirDate:     &firstAir,
+		LastAirDate:      &lastAir,
+		Year:             ptrInt(2013),
+		RuntimeMinutes:   &runtime,
+		Homepage:         &homepage,
+		OriginalLanguage: &origLang,
+		OriginCountry:    &origCountry,
+		OriginCountries:  originCountries,
+		Popularity:       &popularity,
+		InProduction:     true,
+		TMDBRating:       &tmdbRating,
+		TMDBVotes:        &tmdbVotes,
+		IMDBRating:       &imdbRating,
+		IMDBVotes:        &imdbVotes,
+		OMDBRated:        &omdbRated,
+		OMDBAwards:       &omdbAwards,
+	})
+	require.NoError(t, err)
+
+	// Sonarr-shape canonOut: every TMDB/OMDb-only column = nil.
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Rick and Morty",
+		Hydration: series.HydrationStub,
+		Year:      ptrInt(2013),
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+
+	assert.Equal(t, series.HydrationFull, got.Hydration)
+
+	if assert.NotNil(t, got.OriginalTitle) {
+		assert.Equal(t, originalTitle, *got.OriginalTitle)
+	}
+	if assert.NotNil(t, got.Status) {
+		assert.Equal(t, status, *got.Status)
+	}
+	if assert.NotNil(t, got.FirstAirDate) {
+		assert.True(t, got.FirstAirDate.Equal(firstAir))
+	}
+	if assert.NotNil(t, got.LastAirDate) {
+		assert.True(t, got.LastAirDate.Equal(lastAir))
+	}
+	if assert.NotNil(t, got.Homepage) {
+		assert.Equal(t, homepage, *got.Homepage)
+	}
+	if assert.NotNil(t, got.OriginalLanguage) {
+		assert.Equal(t, origLang, *got.OriginalLanguage)
+	}
+	if assert.NotNil(t, got.OriginCountry) {
+		assert.Equal(t, origCountry, *got.OriginCountry)
+	}
+	assert.Equal(t, originCountries, got.OriginCountries)
+	if assert.NotNil(t, got.Popularity) {
+		assert.InEpsilon(t, popularity, *got.Popularity, 1e-9)
+	}
+	if assert.NotNil(t, got.TMDBRating) {
+		assert.InEpsilon(t, tmdbRating, *got.TMDBRating, 1e-9)
+	}
+	if assert.NotNil(t, got.TMDBVotes) {
+		assert.Equal(t, tmdbVotes, *got.TMDBVotes)
+	}
+	if assert.NotNil(t, got.IMDBRating) {
+		assert.InEpsilon(t, imdbRating, *got.IMDBRating, 1e-9)
+	}
+	if assert.NotNil(t, got.IMDBVotes) {
+		assert.Equal(t, imdbVotes, *got.IMDBVotes)
+	}
+	if assert.NotNil(t, got.OMDBRated) {
+		assert.Equal(t, omdbRated, *got.OMDBRated)
+	}
+	if assert.NotNil(t, got.OMDBAwards) {
+		assert.Equal(t, omdbAwards, *got.OMDBAwards)
+	}
+	assert.Equal(t, "Rick and Morty", got.Title)
+}

@@ -483,33 +483,41 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64
 // may still be a Sonarr-merge product missing the image fields, so the
 // same guard applies.
 func seriesUpsertAssignments() map[string]interface{} {
+	// COALESCE(excluded.X, series.X) on TMDB/OMDb-owned columns: a
+	// Sonarr-driven Upsert (MergeSeries(SourceSonarr) path) leaves
+	// those columns nil in canonOut whenever the in-memory canon read
+	// was stale or raced. excluded.X then writes NULL on top of a
+	// previously-enriched row. Mirror of Story 552's poster/backdrop
+	// protection, extended after live regression on series.id=8 R&M
+	// and id=96 Star City lost tmdb_rating + first_air_date +
+	// origin_countries between /refresh and the next scan tick.
 	return map[string]interface{}{
 		"tmdb_id":           gorm.Expr("excluded.tmdb_id"),
 		"tvdb_id":           gorm.Expr("excluded.tvdb_id"),
 		"imdb_id":           gorm.Expr("excluded.imdb_id"),
 		"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN 'full' WHEN excluded.hydration = 'full' THEN 'full' ELSE excluded.hydration END"),
 		"title":             gorm.Expr("excluded.title"),
-		"original_title":    gorm.Expr("excluded.original_title"),
-		"status":            gorm.Expr("excluded.status"),
-		"first_air_date":    gorm.Expr("excluded.first_air_date"),
-		"last_air_date":     gorm.Expr("excluded.last_air_date"),
+		"original_title":    gorm.Expr("COALESCE(excluded.original_title, series.original_title)"),
+		"status":            gorm.Expr("COALESCE(excluded.status, series.status)"),
+		"first_air_date":    gorm.Expr("COALESCE(excluded.first_air_date, series.first_air_date)"),
+		"last_air_date":     gorm.Expr("COALESCE(excluded.last_air_date, series.last_air_date)"),
 		"next_air_date":     gorm.Expr("excluded.next_air_date"),
 		"year":              gorm.Expr("excluded.year"),
 		"runtime_minutes":   gorm.Expr("excluded.runtime_minutes"),
-		"homepage":          gorm.Expr("excluded.homepage"),
-		"original_language": gorm.Expr("excluded.original_language"),
-		"origin_country":    gorm.Expr("excluded.origin_country"),
-		"origin_countries":  gorm.Expr("excluded.origin_countries"),
-		"popularity":        gorm.Expr("excluded.popularity"),
+		"homepage":          gorm.Expr("COALESCE(excluded.homepage, series.homepage)"),
+		"original_language": gorm.Expr("COALESCE(excluded.original_language, series.original_language)"),
+		"origin_country":    gorm.Expr("COALESCE(excluded.origin_country, series.origin_country)"),
+		"origin_countries":  gorm.Expr("COALESCE(excluded.origin_countries, series.origin_countries)"),
+		"popularity":        gorm.Expr("COALESCE(excluded.popularity, series.popularity)"),
 		"in_production":     gorm.Expr("excluded.in_production"),
 		"poster_asset":      gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
 		"backdrop_asset":    gorm.Expr("COALESCE(excluded.backdrop_asset, series.backdrop_asset)"),
-		"tmdb_rating":       gorm.Expr("excluded.tmdb_rating"),
-		"tmdb_votes":        gorm.Expr("excluded.tmdb_votes"),
-		"imdb_rating":       gorm.Expr("excluded.imdb_rating"),
-		"imdb_votes":        gorm.Expr("excluded.imdb_votes"),
-		"omdb_rated":        gorm.Expr("excluded.omdb_rated"),
-		"omdb_awards":       gorm.Expr("excluded.omdb_awards"),
+		"tmdb_rating":       gorm.Expr("COALESCE(excluded.tmdb_rating, series.tmdb_rating)"),
+		"tmdb_votes":        gorm.Expr("COALESCE(excluded.tmdb_votes, series.tmdb_votes)"),
+		"imdb_rating":       gorm.Expr("COALESCE(excluded.imdb_rating, series.imdb_rating)"),
+		"imdb_votes":        gorm.Expr("COALESCE(excluded.imdb_votes, series.imdb_votes)"),
+		"omdb_rated":        gorm.Expr("COALESCE(excluded.omdb_rated, series.omdb_rated)"),
+		"omdb_awards":       gorm.Expr("COALESCE(excluded.omdb_awards, series.omdb_awards)"),
 		"updated_at":        gorm.Expr("excluded.updated_at"),
 	}
 }
