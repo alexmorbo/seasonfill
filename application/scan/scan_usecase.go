@@ -191,7 +191,7 @@ func (u *UseCase) WithSeriesCache(c ports.SeriesCacheRepository) *UseCase {
 // Nil-OK — fillSeriesCache no-ops when unset (same pattern as seriesCache).
 func (u *UseCase) WithSeasonStats(s SeasonStatsRepository) *UseCase { u.seasonStats = s; return u }
 func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase     { u.health = r; return u }
-func (u *UseCase) WithBarrier(b Barrier) *UseCase               { u.barrier = b; return u }
+func (u *UseCase) WithBarrier(b Barrier) *UseCase                   { u.barrier = b; return u }
 
 // WithWaitGroup wires the process-wide background wait group so
 // async scan goroutines block graceful shutdown's drainBackground.
