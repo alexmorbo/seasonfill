@@ -84,4 +84,20 @@ describe('<TorrentRow />', () => {
     const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
     expect(meta?.textContent ?? '').not.toMatch(/^S\d/);
   });
+
+  it('declares 8 grid tracks at @max-[1280px] so all 8 visible cells fit on row 1 (regression: B-13 #370)', () => {
+    // At container widths 1024 ≤ w < 1280 the Ratio cell hides
+    // (@max-[1280px]:hidden) but Name, Added, Size, Progress, Status,
+    // Seeds/Peers, Speeds, ETA all remain — eight visible children.
+    // If the grid-cols declares only 7 tracks the 8th cell auto-flows
+    // into an implicit row 2 and visually doubles the row height.
+    r(<TorrentRow row={base} />);
+    const row = screen.getByTestId('torrent-row');
+    const cls = row.className;
+    // Track count is encoded in the underscore-separated track list.
+    const m = cls.match(/@max-\[1280px\]:grid-cols-\[([^\]]+)\]/);
+    expect(m, 'expected @max-[1280px]:grid-cols-[...] class').not.toBeNull();
+    const tracks = (m![1] ?? '').split('_');
+    expect(tracks).toHaveLength(8);
+  });
 });

@@ -68,7 +68,7 @@ export function TorrentRow({ row, className }: TorrentRowProps) {
       className={cn(
         'grid items-center gap-3 px-3 py-2 rounded-md border border-border-faint/40',
         'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
-        '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto]',
+        '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto]',
         '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto]',
         deleted && 'opacity-50',
         className,

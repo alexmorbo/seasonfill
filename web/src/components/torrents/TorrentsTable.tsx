@@ -50,7 +50,7 @@ export function TorrentsTable({ rows, className }: TorrentsTableProps) {
         className={cn(
           'hidden md:grid items-center gap-3 px-3 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint',
           'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
-          '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto]',
+          '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto]',
           '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto]',
         )}
       >
