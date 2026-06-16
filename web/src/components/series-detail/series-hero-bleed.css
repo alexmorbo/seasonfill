@@ -59,6 +59,8 @@
   pointer-events: none;
   background:
     linear-gradient(100deg, oklch(0.16 0.005 270 / .92) 0%, oklch(0.16 0.005 270 / .5) 34%, transparent 64%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
 }
 
 .sd-hero-bleed .sd-hero-inner {
