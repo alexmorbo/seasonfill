@@ -351,3 +351,57 @@ test.describe('B-13 Series Detail v2 — hero flush to topbar + extended backdro
     expect(rects!.overviewTop).toBeGreaterThan(rects!.heroBottom);
   });
 });
+
+test.describe('B-13 overview rail transparency (story 368)', () => {
+  test('overview section has no solid background', async ({ page }) => {
+    await goto(page);
+    const overview = page.getByTestId('overview-section');
+    await expect(overview).toBeVisible();
+    const bg = await overview.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  test('rail card surface is translucent', async ({ page }) => {
+    await goto(page);
+    const card = page.getByTestId('rail-card');
+    await expect(card).toBeVisible();
+    const alpha = await card.evaluate((el) => {
+      const bg = getComputedStyle(el).backgroundColor;
+      // Parse alpha out of `rgba(r, g, b, a)` or `rgb(r, g, b)` or
+      // `oklab(... / a)` / `lab(... / a)` — browsers normalise to
+      // either rgba(...) or color(...). Pull the trailing number
+      // before the closing `)` if a slash is present, else 1.
+      const m = bg.match(/\/\s*([\d.]+)\s*\)/);
+      if (m) return parseFloat(m[1]);
+      const r = bg.match(/rgba?\(([^)]+)\)/);
+      if (r) {
+        const parts = r[1].split(',').map((s) => s.trim());
+        return parts.length === 4 ? parseFloat(parts[3]) : 1;
+      }
+      return 1;
+    });
+    expect(alpha).toBeLessThan(0.7);
+  });
+
+  test('backdrop layer reaches into overview/rail area', async ({ page }) => {
+    await goto(page);
+    const h = await page.getByTestId('hero-backdrop-layer').evaluate(
+      (el) => parseFloat(getComputedStyle(el).height),
+    );
+    expect(h).toBeGreaterThanOrEqual(1080);
+  });
+
+  test('overview bottom sits inside the backdrop fade region', async ({ page }) => {
+    await goto(page);
+    const overviewBox = await page.getByTestId('overview-section').boundingBox();
+    const backdropBox = await page.getByTestId('hero-backdrop-layer').boundingBox();
+    if (!overviewBox || !backdropBox) throw new Error('layout missing');
+    const overviewBottom = overviewBox.y + overviewBox.height;
+    const backdropBottom = backdropBox.y + backdropBox.height;
+    expect(overviewBottom).toBeLessThanOrEqual(backdropBottom);
+    await page.screenshot({
+      path: 'test-results/b13-overview-transparency-4k.png',
+      clip: { x: 0, y: 0, width: 3840, height: 1600 },
+    });
+  });
+});

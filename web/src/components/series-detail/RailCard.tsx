@@ -71,7 +71,7 @@ export function RailCard({
     <div
       data-testid="rail-card"
       className={cn(
-        'flex flex-col overflow-hidden rounded-lg border border-border-faint bg-bg-surface',
+        'flex flex-col overflow-hidden rounded-lg border border-white/10 bg-bg-surface/40 backdrop-blur-md',
         'lg:sticky lg:top-[64px]',
         className,
       )}

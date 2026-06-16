@@ -94,13 +94,13 @@ export function SeriesDetail() {
 
           <section
             data-testid="overview-section"
-            className="relative z-[2] bg-bg-base rounded-md"
+            className="relative z-[2] rounded-md"
           >
             <OverviewGrid
               left={
                 <>
                   <div className="flex flex-col gap-3 min-w-0">
-                    <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
+                    <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint [text-shadow:0_1px_2px_oklch(0_0_0/.55)]">
                       {t('seriesDetail.overview.label')}
                       <LanguageFallbackTag
                         contentLang={data.overview?.language}
@@ -110,7 +110,7 @@ export function SeriesDetail() {
                     </div>
                     <p
                       data-testid="overview-text"
-                      className="text-[13.5px] leading-relaxed text-tx-secondary whitespace-pre-line max-w-[64ch]"
+                      className="text-[13.5px] leading-relaxed text-tx-primary whitespace-pre-line max-w-[64ch] [text-shadow:0_1px_2px_oklch(0_0_0/.55)]"
                     >
                       {data.overview?.overview || t('seriesDetail.overview.empty')}
                     </p>
