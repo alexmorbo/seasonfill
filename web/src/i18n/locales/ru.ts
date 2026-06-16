@@ -1786,6 +1786,7 @@ export const ru: Translations = {
       missing: 'нет {{count}} серий',
       nothingOnDisk: 'На диске пока ничего нет',
       downloadingFallback: 'Скачивается…',
+      inProgress: '{{episode}} · {{percent}}%',
       recent: 'Недавно',
       event: {
         imported: 'Импортирован',
@@ -1875,6 +1876,10 @@ export const ru: Translations = {
       unmonitored: 'Не отслеживается',
       empty: 'В этом сезоне пока нет эпизодов.',
       none: 'Сезоны пока недоступны.',
+      downloading_one: '{{count}} загружается',
+      downloading_few: '{{count}} загружаются',
+      downloading_many: '{{count}} загружаются',
+      downloading_other: '{{count}} загружаются',
       finale: {
         mid_season: 'Финал половины сезона',
         season: 'Финал сезона',

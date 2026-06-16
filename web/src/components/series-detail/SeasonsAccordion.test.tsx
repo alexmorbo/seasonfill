@@ -99,4 +99,27 @@ describe('<SeasonsAccordion />', () => {
     r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={[]} />);
     expect(screen.getByText(/No seasons available yet/)).toBeInTheDocument();
   });
+
+  // Story 379: per-season downloading chip.
+  it('renders the downloading chip when season.downloading_count > 0', () => {
+    const fixture = [{
+      season_number: 5, episode_count: 10, on_disk_count: 7, monitored: true,
+      downloading_count: 2,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={fixture} />);
+    const chip = screen.getByTestId('season-downloading-chip');
+    expect(chip.getAttribute('data-season')).toBe('5');
+    expect(chip.textContent).toMatch(/2/);
+  });
+
+  it('omits the downloading chip when downloading_count is 0', () => {
+    const fixture = [{
+      season_number: 5, episode_count: 10, on_disk_count: 7, monitored: true,
+      downloading_count: 0,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={fixture} />);
+    expect(screen.queryByTestId('season-downloading-chip')).not.toBeInTheDocument();
+  });
 });

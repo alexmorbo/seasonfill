@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, FolderInput, Inbox, PieChart } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowRight, FolderInput, Inbox, PieChart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { LibraryStrip, DownloadChip } from '@/api/seriesDetail';
@@ -103,6 +103,24 @@ export function HeroLibraryStrip({
             >
               <AlertTriangle className="w-3 h-3" aria-hidden="true" />
               {t('seriesDetail.library.missing', { count: missing })}
+            </span>
+          )}
+          {library?.in_progress && (
+            <span
+              data-testid="hero-library-in-progress"
+              className={cn(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border tabular-nums',
+                chipBase,
+              )}
+            >
+              <ArrowDown className="w-3 h-3" aria-hidden="true" />
+              <span>
+                {t('seriesDetail.library.inProgress', {
+                  episode: `S${String(library.in_progress.season_number ?? 0).padStart(2, '0')}E${String(library.in_progress.episode_number ?? 0).padStart(2, '0')}`,
+                  percent: library.in_progress.percent ?? 0,
+                })}
+              </span>
+              <ArrowRight className="w-3 h-3" aria-hidden="true" />
             </span>
           )}
           {download && (

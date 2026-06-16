@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Accordion,
@@ -102,8 +103,20 @@ function SeasonAccordionItem({
               {year && <> · <span className="tabular-nums">{year}</span></>}
             </div>
           </div>
-          <div className="text-[11.5px] text-tx-secondary tabular-nums whitespace-nowrap pr-2">
-            {t('seriesDetail.seasons.onDisk', { on: onDisk, total })}
+          <div className="flex items-center gap-2 pr-2 whitespace-nowrap">
+            {(season.downloading_count ?? 0) > 0 && (
+              <span
+                data-testid="season-downloading-chip"
+                data-season={seasonNumber}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border-faint bg-bg-surface-2 text-tx-secondary tabular-nums"
+              >
+                <ArrowDown className="w-3 h-3" aria-hidden="true" />
+                {t('seriesDetail.seasons.downloading', { count: season.downloading_count ?? 0 })}
+              </span>
+            )}
+            <div className="text-[11.5px] text-tx-secondary tabular-nums">
+              {t('seriesDetail.seasons.onDisk', { on: onDisk, total })}
+            </div>
           </div>
         </div>
       </AccordionTrigger>

@@ -96,7 +96,7 @@ func toSeriesDetailResponse(d *seriesdetail.Detail) dto.SeriesDetailResponse {
 		Overview:        mapOverview(d),
 		Recent:          mapRecent(d.Recent),
 		Torrents:        dto.TorrentsHint{SyncPending: d.Torrents.SyncPending, Count: d.Torrents.Count, TotalSizeBytes: d.Torrents.TotalSizeBytes},
-		Seasons:         mapSeasons(d.Seasons),
+		Seasons:         mapSeasons(d),
 		Cast:            mapCast(d.Cast),
 		Recommendations: mapRecommendations(d.Recommendations),
 		ExternalLinks:   mapExternalLinks(d.ExternalIDs, d.Canon),
@@ -274,6 +274,17 @@ func mapLibrary(d *seriesdetail.Detail) dto.LibraryStrip {
 		}
 	}
 	lib.DominantQuality = dominant
+	// Story 379: project the composer's in-progress pick onto the
+	// LibraryStrip for the hero pill. nil when no record is downloading
+	// OR Sonarr is unreachable (degraded[] already includes "sonarr").
+	if d.InProgress != nil {
+		lib.InProgress = &dto.InProgress{
+			SeasonNumber:  d.InProgress.SeasonNumber,
+			EpisodeNumber: d.InProgress.EpisodeNumber,
+			Title:         d.InProgress.Title,
+			Percent:       d.InProgress.Percent,
+		}
+	}
 	return lib
 }
 
@@ -328,9 +339,15 @@ func mapRecent(items []seriesdetail.RecentItem) []dto.RecentEvent {
 	return out
 }
 
-func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
-	out := make([]dto.Season, 0, len(seasons))
-	for _, s := range seasons {
+// mapSeasons projects the composer's SeasonDetail slice onto the DTO.
+// Story 379 refactor: takes *Detail so it can read d.QueueRecords for
+// the per-season downloading_count chip. Pure projection; no DB / IO.
+func mapSeasons(d *seriesdetail.Detail) []dto.Season {
+	if d == nil {
+		return []dto.Season{}
+	}
+	out := make([]dto.Season, 0, len(d.Seasons))
+	for _, s := range d.Seasons {
 		ds := dto.Season{
 			SeasonNumber: s.Canon.SeasonNumber,
 			Name:         s.Canon.Name,
@@ -405,6 +422,14 @@ func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
 		}
 		if ds.EpisodeCount == 0 {
 			ds.EpisodeCount = len(s.Episodes)
+		}
+		// Story 379: per-season downloading chip. Count Sonarr queue
+		// records with status=="downloading" whose seasonNumber matches.
+		// 0 when no records OR Sonarr unreachable (degraded[]).
+		for _, q := range d.QueueRecords {
+			if q.SeasonNumber == s.Canon.SeasonNumber && q.Status == "downloading" {
+				ds.DownloadingCount++
+			}
 		}
 		out = append(out, ds)
 	}

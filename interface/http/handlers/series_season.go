@@ -85,7 +85,7 @@ func (h *SeriesSeasonHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "season not found"})
 		return
 	}
-	seasons := mapSeasons(detail.Seasons)
+	seasons := mapSeasons(detail)
 	resp := dto.SeasonDetailResponse{
 		Instance:       detail.Instance,
 		SonarrSeriesID: detail.SonarrSeriesID,

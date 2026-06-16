@@ -747,6 +747,27 @@ components:
           example: ok
           type: string
       type: object
+    dto.InProgress:
+      description: |-
+        InProgress — story 379. Live Sonarr queue best pick for the
+        in-progress pill. nil when no record is downloading OR Sonarr
+        is unreachable (then degraded[] includes "sonarr").
+      properties:
+        episode_number:
+          example: 3
+          type: integer
+        percent:
+          description: |-
+            Percent is computed server-side from (size − sizeleft) / size, rounded
+            to integer 0..100. 0 when upstream reports zero size.
+          example: 45
+          type: integer
+        season_number:
+          example: 5
+          type: integer
+        title:
+          type: string
+      type: object
     dto.Instance:
       properties:
         health:
@@ -1202,6 +1223,8 @@ components:
           type: integer
         episodes_total:
           type: integer
+        in_progress:
+          $ref: '#/components/schemas/dto.InProgress'
         missing_count:
           type: integer
         monitored:
@@ -1863,6 +1886,12 @@ components:
       properties:
         air_date:
           type: string
+        downloading_count:
+          description: |-
+            DownloadingCount — story 379. Count of Sonarr queue records with
+            status=="downloading" matching this season number. 0 when nothing
+            is downloading OR Sonarr is unreachable.
+          type: integer
         episode_count:
           type: integer
         episodes:

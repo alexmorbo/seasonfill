@@ -43,9 +43,11 @@ type Detail struct {
 	Networks        []taxonomy.Network
 	Companies       []taxonomy.ProductionCompany
 	Queue           *QueueRecordDetail
+	QueueRecords    []QueueRecordDetail // story 379 — all records
 	Torrents        TorrentsPlaceholder
 	Recent          []RecentItem
 	NextEpisode     *NextEpisodeDetail
+	InProgress      *InProgressDetail // story 379 — composer pick
 	Degraded        []enrichment.Source
 	SyncedAt        time.Time
 }
@@ -64,13 +66,16 @@ type NextEpisodeDetail struct {
 // Kept local so the domain object stays independent of the live
 // client struct (helps tests).
 type QueueRecordDetail struct {
-	QueueID      int
-	EpisodeID    int
-	SeasonNumber int
-	Title        string
-	Status       string
-	DownloadID   string
-	Protocol     string
+	QueueID       int
+	EpisodeID     int
+	SeasonNumber  int
+	Title         string
+	Status        string
+	DownloadID    string
+	Protocol      string
+	EpisodeNumber int   // story 379
+	Size          int64 // story 379
+	SizeLeft      int64 // story 379
 }
 
 // SeasonDetail — one season + episodes + per-instance states +
@@ -310,6 +315,10 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	// have populated it. Runs synchronously post-wait so it sees the final
 	// seasons slice; cheap (O(episodes)) and never fails.
 	d.NextEpisode = pickNextEpisode(d, c.d.Now())
+	// Story 379 — pick the best in-flight Sonarr queue record for the
+	// LibraryStrip in-progress pill + per-season chip. Runs post-wait so
+	// d.QueueRecords is populated; nil-safe + never fails.
+	d.InProgress = pickInProgress(d)
 
 	// Degraded computation: walk sync_log for the four enrichment
 	// sources, then call enrichment.Degraded with the branch-failure
@@ -630,16 +639,23 @@ func (c *Composer) loadSonarrQueue(ctx context.Context, d *Detail) error {
 	if len(q.Records) == 0 {
 		return nil
 	}
-	rec := q.Records[0]
-	d.Queue = &QueueRecordDetail{
-		QueueID:      rec.ID,
-		EpisodeID:    rec.EpisodeID,
-		SeasonNumber: rec.SeasonNumber,
-		Title:        rec.Title,
-		Status:       rec.Status,
-		DownloadID:   rec.DownloadID,
-		Protocol:     rec.Protocol,
+	d.QueueRecords = make([]QueueRecordDetail, 0, len(q.Records))
+	for _, rec := range q.Records {
+		d.QueueRecords = append(d.QueueRecords, QueueRecordDetail{
+			QueueID:       rec.ID,
+			EpisodeID:     rec.EpisodeID,
+			EpisodeNumber: rec.EpisodeNumber,
+			SeasonNumber:  rec.SeasonNumber,
+			Title:         rec.Title,
+			Status:        rec.Status,
+			DownloadID:    rec.DownloadID,
+			Protocol:      rec.Protocol,
+			Size:          rec.Size,
+			SizeLeft:      rec.SizeLeft,
+		})
 	}
+	first := d.QueueRecords[0]
+	d.Queue = &first
 	return nil
 }
 
@@ -878,6 +894,77 @@ func isEarlier(a, b *NextEpisodeDetail) bool {
 	}
 	if a.AirDate.After(*b.AirDate) {
 		return false
+	}
+	if a.SeasonNumber != b.SeasonNumber {
+		return a.SeasonNumber < b.SeasonNumber
+	}
+	return a.EpisodeNumber < b.EpisodeNumber
+}
+
+// InProgressDetail — composer's pick of the best in-flight Sonarr queue
+// record. Story 379. Surfaced on Detail so mapLibrary projects it onto
+// LibraryStrip.in_progress for the hero pill.
+type InProgressDetail struct {
+	SeasonNumber  int
+	EpisodeNumber int
+	Title         *string
+	Percent       int
+}
+
+// pickInProgress — story 379. Returns nil when no record has
+// status=="downloading". Picks the highest-percent record; ties broken by
+// (season ASC, episode ASC) so the pick stays deterministic.
+func pickInProgress(d *Detail) *InProgressDetail {
+	if d == nil || len(d.QueueRecords) == 0 {
+		return nil
+	}
+	var best *InProgressDetail
+	for _, rec := range d.QueueRecords {
+		if rec.Status != "downloading" {
+			continue
+		}
+		cand := &InProgressDetail{
+			SeasonNumber:  rec.SeasonNumber,
+			EpisodeNumber: rec.EpisodeNumber,
+			Percent:       computePercent(rec.Size, rec.SizeLeft),
+		}
+		if rec.Title != "" {
+			t := rec.Title
+			cand.Title = &t
+		}
+		if best == nil || isMoreProgressed(cand, best) {
+			best = cand
+		}
+	}
+	return best
+}
+
+// computePercent — (size − sizeleft) / size rounded to integer 0..100.
+// Returns 0 when upstream reports zero size or partial progress is
+// negative (Sonarr edge case).
+func computePercent(size, sizeLeft int64) int {
+	if size <= 0 {
+		return 0
+	}
+	done := size - sizeLeft
+	if done <= 0 {
+		return 0
+	}
+	p := int((done*100 + size/2) / size)
+	if p < 0 {
+		return 0
+	}
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// isMoreProgressed — story 379 comparator. Highest percent wins; tie
+// broken by season ASC then episode ASC.
+func isMoreProgressed(a, b *InProgressDetail) bool {
+	if a.Percent != b.Percent {
+		return a.Percent > b.Percent
 	}
 	if a.SeasonNumber != b.SeasonNumber {
 		return a.SeasonNumber < b.SeasonNumber

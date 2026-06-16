@@ -371,7 +371,7 @@ func TestMapSeasons_PopulatesMediaMeta(t *testing.T) {
 			},
 		}},
 	}}
-	out := mapSeasons(seasons)
+	out := mapSeasons(&seriesdetail.Detail{Seasons: seasons})
 	require.Len(t, out, 1)
 	require.Len(t, out[0].Episodes, 1)
 	ep := out[0].Episodes[0]
@@ -589,7 +589,7 @@ func TestMapSeasons_PrefersStatsOverEpisodeWalk(t *testing.T) {
 			{Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 1}},
 		},
 	}}
-	out := mapSeasons(d)
+	out := mapSeasons(&seriesdetail.Detail{Seasons: d})
 	require.Len(t, out, 1)
 	require.Equal(t, 10, out[0].OnDiskCount)
 	require.Equal(t, 0, out[0].MissingCount)
@@ -609,7 +609,7 @@ func TestMapSeasons_ClampsMissingNegative(t *testing.T) {
 		Canon: series.CanonSeason{SeasonNumber: 1},
 		Stats: stats,
 	}}
-	out := mapSeasons(d)
+	out := mapSeasons(&seriesdetail.Detail{Seasons: d})
 	require.Len(t, out, 1)
 	require.Equal(t, 12, out[0].OnDiskCount)
 	require.Equal(t, 0, out[0].MissingCount, "missing must clamp to 0 when file_count > aired")
@@ -635,7 +635,7 @@ func TestMapSeasons_FallsBackToEpisodeWalkWhenStatsNil(t *testing.T) {
 			},
 		},
 	}}
-	out := mapSeasons(d)
+	out := mapSeasons(&seriesdetail.Detail{Seasons: d})
 	require.Len(t, out, 1)
 	require.Equal(t, 1, out[0].OnDiskCount)
 	require.Equal(t, 2, out[0].MissingCount)
@@ -656,7 +656,7 @@ func TestMapSeasons_PartialPack_FROM(t *testing.T) {
 		Canon: series.CanonSeason{SeasonNumber: 4},
 		Stats: stats,
 	}}
-	out := mapSeasons(d)
+	out := mapSeasons(&seriesdetail.Detail{Seasons: d})
 	require.Len(t, out, 1)
 	require.Equal(t, 8, out[0].OnDiskCount)
 	require.Equal(t, 0, out[0].MissingCount, "all aired episodes are on disk")

@@ -4377,6 +4377,24 @@ export type components = {
             /** @example ok */
             readonly status?: string;
         };
+        /**
+         * @description InProgress — story 379. Live Sonarr queue best pick for the
+         *     in-progress pill. nil when no record is downloading OR Sonarr
+         *     is unreachable (then degraded[] includes "sonarr").
+         */
+        readonly "dto.InProgress": {
+            /** @example 3 */
+            readonly episode_number?: number;
+            /**
+             * @description Percent is computed server-side from (size − sizeleft) / size, rounded
+             *     to integer 0..100. 0 when upstream reports zero size.
+             * @example 45
+             */
+            readonly percent?: number;
+            /** @example 5 */
+            readonly season_number?: number;
+            readonly title?: string;
+        };
         readonly "dto.Instance": {
             /**
              * @example Available
@@ -4690,6 +4708,7 @@ export type components = {
             readonly episodes_aired?: number;
             readonly episodes_on_disk?: number;
             readonly episodes_total?: number;
+            readonly in_progress?: components["schemas"]["dto.InProgress"];
             readonly missing_count?: number;
             readonly monitored?: boolean;
             /**
@@ -5114,6 +5133,12 @@ export type components = {
         };
         readonly "dto.Season": {
             readonly air_date?: string;
+            /**
+             * @description DownloadingCount — story 379. Count of Sonarr queue records with
+             *     status=="downloading" matching this season number. 0 when nothing
+             *     is downloading OR Sonarr is unreachable.
+             */
+            readonly downloading_count?: number;
             readonly episode_count?: number;
             readonly episodes?: readonly components["schemas"]["dto.Episode"][];
             readonly missing_count?: number;

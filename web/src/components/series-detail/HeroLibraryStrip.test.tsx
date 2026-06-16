@@ -107,4 +107,34 @@ describe('HeroLibraryStrip', () => {
     const html = document.body.innerHTML;
     expect(html).toMatch(/100%/);
   });
+
+  // Story 379: hero in-progress pill from Sonarr queue.
+  it('renders the in-progress pill when library.in_progress is set', () => {
+    render(withI18n(<HeroLibraryStrip library={{
+      monitored: true,
+      episodes_total: 48,
+      episodes_aired: 48,
+      episodes_on_disk: 42,
+      missing_count: 0,
+      size_on_disk_bytes: 1024,
+      dominant_quality: 'WEB-DL 1080p',
+      in_progress: { season_number: 5, episode_number: 3, percent: 45, title: 'A Rickconvenient Mort' },
+    }} />));
+    const pill = screen.getByTestId('hero-library-in-progress');
+    expect(pill.textContent).toMatch(/S05E03/);
+    expect(pill.textContent).toMatch(/45%/);
+  });
+
+  it('omits the in-progress pill when undefined', () => {
+    render(withI18n(<HeroLibraryStrip library={{
+      monitored: true,
+      episodes_total: 1,
+      episodes_aired: 1,
+      episodes_on_disk: 1,
+      missing_count: 0,
+      size_on_disk_bytes: 1,
+      dominant_quality: '',
+    }} />));
+    expect(screen.queryByTestId('hero-library-in-progress')).not.toBeInTheDocument();
+  });
 });

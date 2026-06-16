@@ -265,3 +265,61 @@ func TestMapHero_NoNextEpisodeWhenBothNil(t *testing.T) {
 	h := mapHero(d)
 	assert.Nil(t, h.NextEpisode)
 }
+
+// --- Story 379: in-progress projection + per-season downloading_count ---
+
+// TestMapLibrary_InProgress_FromComposer — when the composer fills
+// d.InProgress, mapLibrary must surface the same fields onto
+// LibraryStrip.in_progress (Title, percent, season, episode).
+func TestMapLibrary_InProgress_FromComposer(t *testing.T) {
+	title := "A Rickconvenient Mort"
+	d := &seriesdetail.Detail{
+		Canon: series.Canon{Title: "Rick and Morty"},
+		InProgress: &seriesdetail.InProgressDetail{
+			SeasonNumber:  5,
+			EpisodeNumber: 3,
+			Title:         &title,
+			Percent:       45,
+		},
+	}
+	lib := mapLibrary(d)
+	require.NotNil(t, lib.InProgress)
+	assert.Equal(t, 5, lib.InProgress.SeasonNumber)
+	assert.Equal(t, 3, lib.InProgress.EpisodeNumber)
+	require.NotNil(t, lib.InProgress.Title)
+	assert.Equal(t, "A Rickconvenient Mort", *lib.InProgress.Title)
+	assert.Equal(t, 45, lib.InProgress.Percent)
+}
+
+// TestMapLibrary_InProgress_NilWhenComposerEmpty — composer nil → DTO nil.
+func TestMapLibrary_InProgress_NilWhenComposerEmpty(t *testing.T) {
+	d := &seriesdetail.Detail{Canon: series.Canon{Title: "X"}}
+	lib := mapLibrary(d)
+	assert.Nil(t, lib.InProgress)
+}
+
+// TestMapSeasons_DownloadingCount — every downloading queue record whose
+// season_number matches a SeasonDetail must bump that season's
+// downloading_count. Queued / completed records must NOT count.
+func TestMapSeasons_DownloadingCount(t *testing.T) {
+	d := &seriesdetail.Detail{
+		Seasons: []seriesdetail.SeasonDetail{
+			{Canon: series.CanonSeason{SeasonNumber: 1}},
+			{Canon: series.CanonSeason{SeasonNumber: 5}},
+		},
+		QueueRecords: []seriesdetail.QueueRecordDetail{
+			{SeasonNumber: 5, EpisodeNumber: 3, Status: "downloading"},
+			{SeasonNumber: 5, EpisodeNumber: 4, Status: "downloading"},
+			{SeasonNumber: 5, EpisodeNumber: 5, Status: "queued"}, // not downloading
+			{SeasonNumber: 1, EpisodeNumber: 1, Status: "downloading"},
+		},
+	}
+	out := mapSeasons(d)
+	require.Len(t, out, 2)
+	// out[0] is season 1.
+	assert.Equal(t, 1, out[0].SeasonNumber)
+	assert.Equal(t, 1, out[0].DownloadingCount)
+	// out[1] is season 5.
+	assert.Equal(t, 5, out[1].SeasonNumber)
+	assert.Equal(t, 2, out[1].DownloadingCount, "queued record must not count")
+}

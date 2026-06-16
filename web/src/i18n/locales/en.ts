@@ -1788,6 +1788,7 @@ export const en = {
       missing: '{{count}} missing',
       nothingOnDisk: 'Nothing on disk yet',
       downloadingFallback: 'Downloading…',
+      inProgress: '{{episode}} · {{percent}}%',
       recent: 'Recent',
       event: {
         imported: 'Imported',
@@ -1877,6 +1878,10 @@ export const en = {
       unmonitored: 'Unmonitored',
       empty: 'No episodes in this season yet.',
       none: 'No seasons available yet.',
+      downloading_one: '{{count}} downloading',
+      downloading_few: '{{count}} downloading', // CLDR fallback for Russian compat (not used in en)
+      downloading_many: '{{count}} downloading', // CLDR fallback for Russian compat (not used in en)
+      downloading_other: '{{count}} downloading',
       finale: {
         mid_season: 'Mid-season finale',
         season: 'Season finale',

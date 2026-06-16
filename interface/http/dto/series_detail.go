@@ -187,6 +187,17 @@ type NextEpisode struct {
 	AirDate       *time.Time `json:"air_date,omitempty"`
 }
 
+// InProgress — single best in-flight Sonarr queue episode for the LibraryStrip
+// in-progress pill. nil when no record has status=="downloading". Story 379.
+type InProgress struct {
+	SeasonNumber  int     `json:"season_number" example:"5"`
+	EpisodeNumber int     `json:"episode_number" example:"3"`
+	Title         *string `json:"title,omitempty"`
+	// Percent is computed server-side from (size − sizeleft) / size, rounded
+	// to integer 0..100. 0 when upstream reports zero size.
+	Percent int `json:"percent" example:"45"`
+}
+
 // LibraryStrip — Sonarr-derived "what's on disk" tile (design
 // brief §2.4). The progress bar + count line are derived from
 // these fields on the client.
@@ -203,6 +214,10 @@ type LibraryStrip struct {
 	// on-disk episode_states rows (e.g., "WEB-DL 1080p"). Empty
 	// when nothing on disk.
 	DominantQuality string `json:"dominant_quality"`
+	// InProgress — story 379. Live Sonarr queue best pick for the
+	// in-progress pill. nil when no record is downloading OR Sonarr
+	// is unreachable (then degraded[] includes "sonarr").
+	InProgress *InProgress `json:"in_progress,omitempty"`
 }
 
 // DownloadChip — single in-flight Sonarr queue item (design brief
@@ -269,7 +284,11 @@ type Season struct {
 	EpisodeCount int        `json:"episode_count"`
 	OnDiskCount  int        `json:"on_disk_count"`
 	MissingCount int        `json:"missing_count"`
-	Episodes     []Episode  `json:"episodes"`
+	// DownloadingCount — story 379. Count of Sonarr queue records with
+	// status=="downloading" matching this season number. 0 when nothing
+	// is downloading OR Sonarr is unreachable.
+	DownloadingCount int       `json:"downloading_count"`
+	Episodes         []Episode `json:"episodes"`
 }
 
 // Episode — one row of a season's expanded episode list. Quality /

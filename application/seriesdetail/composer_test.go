@@ -989,3 +989,53 @@ func TestComposer_LoadSeasonsAndEpisodes_SeasonStatsError_Degrades(t *testing.T)
 	require.Len(t, d.Seasons, 1)
 	require.Nil(t, d.Seasons[0].Stats, "season_stats error must degrade silently with Stats nil")
 }
+
+// --- Story 379: pickInProgress table test ---
+
+func TestPickInProgress(t *testing.T) {
+	mk := func(season, ep int, status string, size, left int64, title string) QueueRecordDetail {
+		return QueueRecordDetail{
+			SeasonNumber:  season,
+			EpisodeNumber: ep,
+			Status:        status,
+			Size:          size,
+			SizeLeft:      left,
+			Title:         title,
+		}
+	}
+	tests := []struct {
+		name        string
+		records     []QueueRecordDetail
+		wantNil     bool
+		wantSeason  int
+		wantEpisode int
+		wantPercent int
+	}{
+		{"downloading wins over queued", []QueueRecordDetail{mk(5, 1, "queued", 1000, 200, ""), mk(5, 3, "downloading", 1000, 700, "S05E03")}, false, 5, 3, 30},
+		{"highest percent wins", []QueueRecordDetail{mk(1, 1, "downloading", 1000, 550, ""), mk(1, 2, "downloading", 1000, 200, "")}, false, 1, 2, 80},
+		{"tie broken by season ASC", []QueueRecordDetail{mk(5, 1, "downloading", 1000, 500, ""), mk(2, 1, "downloading", 1000, 500, "")}, false, 2, 1, 50},
+		{"tie broken by episode ASC within season", []QueueRecordDetail{mk(5, 7, "downloading", 1000, 500, ""), mk(5, 3, "downloading", 1000, 500, "")}, false, 5, 3, 50},
+		{"zero size yields zero percent", []QueueRecordDetail{mk(1, 1, "downloading", 0, 0, "")}, false, 1, 1, 0},
+		{"all queued returns nil", []QueueRecordDetail{mk(1, 1, "queued", 1000, 800, ""), mk(1, 2, "warning", 1000, 800, "")}, true, 0, 0, 0},
+		{"empty queue returns nil", nil, true, 0, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Detail{QueueRecords: tt.records}
+			got := pickInProgress(d)
+			if tt.wantNil {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tt.wantSeason, got.SeasonNumber)
+			require.Equal(t, tt.wantEpisode, got.EpisodeNumber)
+			require.Equal(t, tt.wantPercent, got.Percent)
+		})
+	}
+}
+
+func TestPickInProgress_NilSafe(t *testing.T) {
+	require.Nil(t, pickInProgress(nil))
+	require.Nil(t, pickInProgress(&Detail{}))
+}

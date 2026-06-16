@@ -104,6 +104,8 @@ type queueRecordDTO struct {
 	TrackedDownloadState  string      `json:"trackedDownloadState,omitempty"`
 	DownloadID            string      `json:"downloadId,omitempty"`
 	Protocol              string      `json:"protocol,omitempty"`
+	Size                  int64       `json:"size,omitempty"`
+	SizeLeft              int64       `json:"sizeleft,omitempty"`
 	Series                *seriesDTO  `json:"series,omitempty"`
 	Episode               *episodeDTO `json:"episode,omitempty"`
 }
@@ -116,14 +118,17 @@ type QueuePayload struct {
 
 // QueueRecord is one queue entry (PRD §4.5 torrent→series bridge).
 type QueueRecord struct {
-	ID           int
-	SeriesID     int
-	EpisodeID    int
-	SeasonNumber int
-	Title        string
-	Status       string
-	DownloadID   string
-	Protocol     string
+	ID            int
+	SeriesID      int
+	EpisodeID     int
+	SeasonNumber  int
+	Title         string
+	Status        string
+	DownloadID    string
+	Protocol      string
+	EpisodeNumber int   // story 379 — populated when /queue?includeEpisode=true
+	Size          int64 // bytes, 0 when unknown
+	SizeLeft      int64 // bytes remaining, 0 when complete/unknown
 }
 
 func seriesPayloadFromDTO(d seriesDTO) SeriesPayload {
@@ -268,7 +273,7 @@ func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
 		Records:      make([]QueueRecord, 0, len(dto.Records)),
 	}
 	for _, r := range dto.Records {
-		out.Records = append(out.Records, QueueRecord{
+		rec := QueueRecord{
 			ID:           r.ID,
 			SeriesID:     r.SeriesID,
 			EpisodeID:    r.EpisodeID,
@@ -277,7 +282,19 @@ func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
 			Status:       r.Status,
 			DownloadID:   r.DownloadID,
 			Protocol:     r.Protocol,
-		})
+			Size:         r.Size,
+			SizeLeft:     r.SizeLeft,
+		}
+		if r.Episode != nil {
+			rec.EpisodeNumber = r.Episode.EpisodeNumber
+			if r.Episode.Title != "" {
+				rec.Title = r.Episode.Title
+			}
+			if rec.SeasonNumber == 0 {
+				rec.SeasonNumber = r.Episode.SeasonNumber
+			}
+		}
+		out.Records = append(out.Records, rec)
 	}
 	return out, nil
 }
@@ -376,7 +393,7 @@ func (c *Client) Queue(ctx context.Context, seriesID int) (QueuePayload, error) 
 		Records:      make([]QueueRecord, 0, len(dto.Records)),
 	}
 	for _, r := range dto.Records {
-		out.Records = append(out.Records, QueueRecord{
+		rec := QueueRecord{
 			ID:           r.ID,
 			SeriesID:     r.SeriesID,
 			EpisodeID:    r.EpisodeID,
@@ -385,7 +402,19 @@ func (c *Client) Queue(ctx context.Context, seriesID int) (QueuePayload, error) 
 			Status:       r.Status,
 			DownloadID:   r.DownloadID,
 			Protocol:     r.Protocol,
-		})
+			Size:         r.Size,
+			SizeLeft:     r.SizeLeft,
+		}
+		if r.Episode != nil {
+			rec.EpisodeNumber = r.Episode.EpisodeNumber
+			if r.Episode.Title != "" {
+				rec.Title = r.Episode.Title
+			}
+			if rec.SeasonNumber == 0 {
+				rec.SeasonNumber = r.Episode.SeasonNumber
+			}
+		}
+		out.Records = append(out.Records, rec)
 	}
 	return out, nil
 }
