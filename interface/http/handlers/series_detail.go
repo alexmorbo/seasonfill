@@ -192,10 +192,17 @@ func mapHero(d *seriesdetail.Detail) dto.SeriesHero {
 		name = d.Trailer.Name
 		h.Trailer = &dto.Trailer{Site: site, Key: key, Name: name, PublishedAt: d.Trailer.PublishedAt}
 	}
-	if d.Canon.NextAirDate != nil {
-		// Best-effort: the canon row carries the next air datetime
-		// but not the season/episode tuple. Set a minimal NextEpisode
-		// when the date is known; richer fields land in a follow-up.
+	// Story 373: prefer the composer's pick from d.Seasons[].Episodes[].
+	// Falls back to canon.next_air_date when the episode-table scan came
+	// up empty (truly cold series or seasons branch degraded).
+	if d.NextEpisode != nil {
+		h.NextEpisode = &dto.NextEpisode{
+			SeasonNumber:  d.NextEpisode.SeasonNumber,
+			EpisodeNumber: d.NextEpisode.EpisodeNumber,
+			Title:         d.NextEpisode.Title,
+			AirDate:       d.NextEpisode.AirDate,
+		}
+	} else if d.Canon.NextAirDate != nil {
 		h.NextEpisode = &dto.NextEpisode{AirDate: d.Canon.NextAirDate}
 	}
 	return h

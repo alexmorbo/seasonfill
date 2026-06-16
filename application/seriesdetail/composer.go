@@ -45,8 +45,19 @@ type Detail struct {
 	Queue           *QueueRecordDetail
 	Torrents        TorrentsPlaceholder
 	Recent          []RecentItem
+	NextEpisode     *NextEpisodeDetail
 	Degraded        []enrichment.Source
 	SyncedAt        time.Time
+}
+
+// NextEpisodeDetail — the composer's pick of the earliest future-dated
+// non-Specials episode across d.Seasons. Surfaced on Detail so the
+// handler can prefer it over canon.next_air_date. Story 373.
+type NextEpisodeDetail struct {
+	SeasonNumber  int
+	EpisodeNumber int
+	Title         *string
+	AirDate       *time.Time
 }
 
 // QueueRecordDetail mirrors the Sonarr queue fields the DTO needs.
@@ -286,6 +297,11 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	// swallow them), so Wait returns nil. We keep the call so
 	// goroutine fan-in is deterministic.
 	_ = g.Wait()
+
+	// Story 373 — pick the next episode from d.Seasons after all branches
+	// have populated it. Runs synchronously post-wait so it sees the final
+	// seasons slice; cheap (O(episodes)) and never fails.
+	d.NextEpisode = pickNextEpisode(d, c.d.Now())
 
 	// Degraded computation: walk sync_log for the four enrichment
 	// sources, then call enrichment.Degraded with the branch-failure
@@ -768,6 +784,71 @@ func sourceStrings(s []enrichment.Source) []string {
 		out = append(out, string(v))
 	}
 	return out
+}
+
+// pickNextEpisode returns the earliest future-dated non-Specials episode
+// across d.Seasons. Prefers monitored episodes; falls back to any episode
+// when no monitored future episode exists. Returns nil when no future
+// episode is present — caller (mapHero) may then fall back to
+// d.Canon.NextAirDate. Story 373.
+//
+// Ties are broken by (air_date, season_number, episode_number) ASC so the
+// pick stays deterministic across composer runs.
+func pickNextEpisode(d *Detail, now time.Time) *NextEpisodeDetail {
+	if d == nil || len(d.Seasons) == 0 {
+		return nil
+	}
+	var bestMonitored, bestAny *NextEpisodeDetail
+	for _, s := range d.Seasons {
+		// Specials (S0) are TBA-by-nature; skip them for the next-airing card.
+		if s.Canon.SeasonNumber <= 0 {
+			continue
+		}
+		for _, ep := range s.Episodes {
+			if ep.Canon.AirDate == nil {
+				continue
+			}
+			if !ep.Canon.AirDate.After(now) {
+				continue
+			}
+			cand := &NextEpisodeDetail{
+				SeasonNumber:  ep.Canon.SeasonNumber,
+				EpisodeNumber: ep.Canon.EpisodeNumber,
+				AirDate:       ep.Canon.AirDate,
+			}
+			if ep.Text != nil && ep.Text.Title != nil && *ep.Text.Title != "" {
+				cand.Title = ep.Text.Title
+			}
+			if bestAny == nil || isEarlier(cand, bestAny) {
+				bestAny = cand
+			}
+			monitored := ep.State != nil && ep.State.Monitored
+			if monitored {
+				if bestMonitored == nil || isEarlier(cand, bestMonitored) {
+					bestMonitored = cand
+				}
+			}
+		}
+	}
+	if bestMonitored != nil {
+		return bestMonitored
+	}
+	return bestAny
+}
+
+// isEarlier — composite (air_date, season, episode) ASC comparator used by
+// pickNextEpisode. a.AirDate / b.AirDate are guaranteed non-nil by callers.
+func isEarlier(a, b *NextEpisodeDetail) bool {
+	if a.AirDate.Before(*b.AirDate) {
+		return true
+	}
+	if a.AirDate.After(*b.AirDate) {
+		return false
+	}
+	if a.SeasonNumber != b.SeasonNumber {
+		return a.SeasonNumber < b.SeasonNumber
+	}
+	return a.EpisodeNumber < b.EpisodeNumber
 }
 
 // --- branchTracker ---

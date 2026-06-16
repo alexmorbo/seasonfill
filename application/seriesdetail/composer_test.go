@@ -743,3 +743,171 @@ func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
 	require.Equal(t, hashA, *d.Seasons[0].Canon.PosterAsset)
 	require.Nil(t, d.Seasons[1].Canon.PosterAsset, "miss must return nil, NOT raw path")
 }
+
+// --- story 373: pickNextEpisode table test ---
+
+func TestPickNextEpisode(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	yesterday := now.Add(-24 * time.Hour)
+	tomorrow := now.Add(24 * time.Hour)
+	in2days := now.Add(48 * time.Hour)
+	in3days := now.Add(72 * time.Hour)
+	titleA := "Jer Bud"
+	titleB := "Specials Title"
+
+	makeEp := func(season, ep int, air *time.Time, monitored bool, title *string) EpisodeDetail {
+		e := EpisodeDetail{
+			Canon: series.CanonEpisode{
+				SeasonNumber:  season,
+				EpisodeNumber: ep,
+				AirDate:       air,
+			},
+		}
+		if monitored {
+			e.State = &series.EpisodeState{Monitored: true}
+		}
+		if title != nil {
+			e.Text = &series.EpisodeText{Title: title}
+		}
+		return e
+	}
+
+	tests := []struct {
+		name        string
+		seasons     []SeasonDetail
+		wantNil     bool
+		wantSeason  int
+		wantEpisode int
+		wantAir     *time.Time
+		wantTitle   *string
+	}{
+		{
+			name: "future monitored wins over future unmonitored",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 9},
+					Episodes: []EpisodeDetail{
+						makeEp(9, 1, &tomorrow, false, nil),
+						makeEp(9, 5, &in2days, true, &titleA),
+					},
+				},
+			},
+			wantSeason:  9,
+			wantEpisode: 5,
+			wantAir:     &in2days,
+			wantTitle:   &titleA,
+		},
+		{
+			name: "future unmonitored wins when no monitored future episode",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 9},
+					Episodes: []EpisodeDetail{
+						makeEp(9, 1, &tomorrow, false, nil),
+						makeEp(9, 2, &in2days, false, nil),
+					},
+				},
+			},
+			wantSeason:  9,
+			wantEpisode: 1,
+			wantAir:     &tomorrow,
+		},
+		{
+			name: "specials (season 0) excluded even when earliest future",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 0},
+					Episodes: []EpisodeDetail{
+						makeEp(0, 1, &tomorrow, true, &titleB),
+					},
+				},
+				{
+					Canon: series.CanonSeason{SeasonNumber: 9},
+					Episodes: []EpisodeDetail{
+						makeEp(9, 1, &in3days, true, &titleA),
+					},
+				},
+			},
+			wantSeason:  9,
+			wantEpisode: 1,
+			wantAir:     &in3days,
+			wantTitle:   &titleA,
+		},
+		{
+			name: "past episodes excluded",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 1},
+					Episodes: []EpisodeDetail{
+						makeEp(1, 1, &yesterday, true, nil),
+						makeEp(1, 2, &in3days, true, nil),
+					},
+				},
+			},
+			wantSeason:  1,
+			wantEpisode: 2,
+			wantAir:     &in3days,
+		},
+		{
+			name: "ties broken by air_date then season then episode",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 2},
+					Episodes: []EpisodeDetail{
+						makeEp(2, 3, &tomorrow, true, nil),
+					},
+				},
+				{
+					Canon: series.CanonSeason{SeasonNumber: 1},
+					Episodes: []EpisodeDetail{
+						makeEp(1, 9, &tomorrow, true, nil),
+					},
+				},
+			},
+			wantSeason:  1,
+			wantEpisode: 9,
+			wantAir:     &tomorrow,
+		},
+		{
+			name: "no future episode anywhere returns nil",
+			seasons: []SeasonDetail{
+				{
+					Canon: series.CanonSeason{SeasonNumber: 1},
+					Episodes: []EpisodeDetail{
+						makeEp(1, 1, &yesterday, true, nil),
+						makeEp(1, 2, nil, true, nil),
+					},
+				},
+			},
+			wantNil: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Detail{Seasons: tc.seasons}
+			got := pickNextEpisode(d, now)
+			if tc.wantNil {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tc.wantSeason, got.SeasonNumber)
+			require.Equal(t, tc.wantEpisode, got.EpisodeNumber)
+			require.NotNil(t, got.AirDate)
+			require.Equal(t, *tc.wantAir, *got.AirDate)
+			if tc.wantTitle != nil {
+				require.NotNil(t, got.Title)
+				require.Equal(t, *tc.wantTitle, *got.Title)
+			} else {
+				require.Nil(t, got.Title)
+			}
+		})
+	}
+}
+
+func TestPickNextEpisode_NilSafe(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	require.Nil(t, pickNextEpisode(nil, now))
+	require.Nil(t, pickNextEpisode(&Detail{}, now))
+}

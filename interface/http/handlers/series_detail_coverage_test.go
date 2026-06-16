@@ -218,3 +218,50 @@ func TestMapHero_OriginalTitleAndAssets(t *testing.T) {
 	require.NotNil(t, h.RuntimeMinutes)
 	assert.Equal(t, 47, *h.RuntimeMinutes)
 }
+
+// --- story 373: NextEpisode prefers composer pick over canon ---
+
+func TestMapHero_ComposerNextEpisodePreferredOverCanon(t *testing.T) {
+	canonNext := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	composerNext := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	title := "Jer Bud"
+	d := &seriesdetail.Detail{
+		Canon: series.Canon{Title: "Rick and Morty", NextAirDate: &canonNext},
+		NextEpisode: &seriesdetail.NextEpisodeDetail{
+			SeasonNumber:  9,
+			EpisodeNumber: 5,
+			Title:         &title,
+			AirDate:       &composerNext,
+		},
+	}
+	h := mapHero(d)
+	require.NotNil(t, h.NextEpisode)
+	require.Equal(t, 9, h.NextEpisode.SeasonNumber)
+	require.Equal(t, 5, h.NextEpisode.EpisodeNumber)
+	require.NotNil(t, h.NextEpisode.Title)
+	assert.Equal(t, "Jer Bud", *h.NextEpisode.Title)
+	require.NotNil(t, h.NextEpisode.AirDate)
+	assert.Equal(t, composerNext, *h.NextEpisode.AirDate)
+}
+
+func TestMapHero_CanonFallbackWhenComposerNil(t *testing.T) {
+	canonNext := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &seriesdetail.Detail{
+		Canon: series.Canon{Title: "X", NextAirDate: &canonNext},
+	}
+	h := mapHero(d)
+	require.NotNil(t, h.NextEpisode)
+	require.Nil(t, h.NextEpisode.Title)
+	require.NotNil(t, h.NextEpisode.AirDate)
+	assert.Equal(t, canonNext, *h.NextEpisode.AirDate)
+	assert.Equal(t, 0, h.NextEpisode.SeasonNumber)
+	assert.Equal(t, 0, h.NextEpisode.EpisodeNumber)
+}
+
+func TestMapHero_NoNextEpisodeWhenBothNil(t *testing.T) {
+	d := &seriesdetail.Detail{
+		Canon: series.Canon{Title: "X"},
+	}
+	h := mapHero(d)
+	assert.Nil(t, h.NextEpisode)
+}
