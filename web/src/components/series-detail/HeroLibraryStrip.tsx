@@ -1,4 +1,4 @@
-import { ArrowDown, CircleAlert, FolderInput, Inbox } from 'lucide-react';
+import { AlertTriangle, ArrowDown, FolderInput, Inbox, PieChart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { LibraryStrip, DownloadChip } from '@/api/seriesDetail';
@@ -74,17 +74,14 @@ export function HeroLibraryStrip({
         </span>
       ) : (
         <>
-          <span className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border',
-            chipBase,
-          )}>
-            <span
-              aria-hidden="true"
-              className="inline-block w-[13px] h-[13px] rounded-full"
-              style={{
-                background: `conic-gradient(var(--accent) ${pct * 3.6}deg, transparent 0)`,
-              }}
-            />
+          <span
+            data-testid="hero-library-percent"
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border',
+              chipBase,
+            )}
+          >
+            <PieChart className="w-3 h-3" aria-hidden="true" />
             {pct}%
           </span>
           <span className={cn(
@@ -104,7 +101,7 @@ export function HeroLibraryStrip({
               data-testid="hero-library-missing"
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border bg-warn-dim/30 border-warn/40 text-warn"
             >
-              <CircleAlert className="w-3 h-3" aria-hidden="true" />
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
               {t('seriesDetail.library.missing', { count: missing })}
             </span>
           )}

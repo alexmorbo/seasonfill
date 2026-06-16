@@ -14,7 +14,7 @@ describe('HeroLibraryStrip', () => {
     expect(screen.getByTestId('hero-library-empty')).toBeInTheDocument();
   });
 
-  it('renders percent + counts + size chips', () => {
+  it('renders percent + counts + size chips with icons on % and missing', () => {
     render(withI18n(<HeroLibraryStrip library={{
       monitored: true,
       episodes_total: 48,
@@ -26,7 +26,17 @@ describe('HeroLibraryStrip', () => {
     }} />));
     expect(screen.getByTestId('hero-library-counts').textContent).toMatch(/42\/48/);
     expect(screen.getByTestId('hero-library-size').textContent).toMatch(/GB/);
-    expect(screen.getByTestId('hero-library-missing')).toBeInTheDocument();
+
+    const pctChip = screen.getByTestId('hero-library-percent');
+    expect(pctChip.querySelector('svg')).not.toBeNull();
+
+    const missingChip = screen.getByTestId('hero-library-missing');
+    expect(missingChip).toBeInTheDocument();
+    expect(missingChip.querySelector('svg')).not.toBeNull();
+
+    // X/Y and size chips stay icon-free.
+    expect(screen.getByTestId('hero-library-counts').querySelector('svg')).toBeNull();
+    expect(screen.getByTestId('hero-library-size').querySelector('svg')).toBeNull();
   });
 
   it('fires onDownloadClick when the download chip is activated', () => {
