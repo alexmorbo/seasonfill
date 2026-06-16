@@ -113,6 +113,7 @@ type UseCase struct {
 	cooldowns   ports.CooldownRepository
 	origins     ports.OriginReleaseRepository
 	seriesCache ports.SeriesCacheRepository
+	seasonStats SeasonStatsRepository
 	health      HealthRegistry
 	logger      *slog.Logger
 	dryRun      atomic.Bool
@@ -182,7 +183,14 @@ func (u *UseCase) WithSeriesCache(c ports.SeriesCacheRepository) *UseCase {
 	u.seriesCache = c
 	return u
 }
-func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase { u.health = r; return u }
+
+// WithSeasonStats wires the per-(instance, sonarr_series_id, season_number)
+// stats writer used by fillSeriesCache. Story 380: without this, the scan
+// loop never populated season_stats so SeriesSeasonsAccordion rendered
+// 0/N for every season the scan_skip_handled_seasons fast-path covered.
+// Nil-OK — fillSeriesCache no-ops when unset (same pattern as seriesCache).
+func (u *UseCase) WithSeasonStats(s SeasonStatsRepository) *UseCase { u.seasonStats = s; return u }
+func (u *UseCase) WithHealthRegistry(r HealthRegistry) *UseCase     { u.health = r; return u }
 func (u *UseCase) WithBarrier(b Barrier) *UseCase               { u.barrier = b; return u }
 
 // WithWaitGroup wires the process-wide background wait group so
@@ -490,7 +498,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
 	}
 
-	u.fillSeriesCache(ctx, inst)
+	u.fillSeriesCache(ctx, inst, seriesList)
 
 	if len(seriesIDs) > 0 {
 		// Q-010-3: stale UI cache may reference IDs not in this
@@ -1233,29 +1241,71 @@ func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pen
 	return 0
 }
 
-// fillSeriesCache lazily refreshes series_cache for the instance.
-// Runs after every successful ListSeries. Errors are warn-logged and
-// NEVER propagate — this is a best-effort sidecar (D-2.5 pattern).
-// No-op when the repo dependency wasn't injected.
-func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance) {
-	if u.seriesCache == nil {
-		return
-	}
-	entries, err := inst.Client.ListSeriesCache(ctx, inst.Config.Name)
-	if err != nil {
-		u.logger.WarnContext(ctx, "series_cache_list_failed",
-			slog.String("instance", inst.Config.Name),
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-	for _, e := range entries {
-		if uerr := u.seriesCache.Upsert(ctx, e); uerr != nil {
-			u.logger.WarnContext(ctx, "series_cache_upsert_failed",
+// fillSeriesCache lazily refreshes series_cache and season_stats for the
+// instance. Runs after every successful ListSeries. Errors are warn-logged
+// and NEVER propagate — this is a best-effort sidecar (D-2.5 pattern).
+// No-ops for series_cache when u.seriesCache is unset; no-ops for
+// season_stats when u.seasonStats is unset.
+//
+// Story 380: seriesList is the already-fetched ListSeries result the caller
+// holds. We use its Seasons[].Statistics block to write season_stats per
+// season — the writer was only wired into the webhook E-1 path before so
+// scans that ran without any webhook activity left season_stats empty,
+// which made SeriesSeasonsAccordion render 0/N for every season the
+// scan_skip_handled_seasons fast-path covered.
+func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList []series.Series) {
+	if u.seriesCache != nil {
+		entries, err := inst.Client.ListSeriesCache(ctx, inst.Config.Name)
+		if err != nil {
+			u.logger.WarnContext(ctx, "series_cache_list_failed",
 				slog.String("instance", inst.Config.Name),
-				slog.Int("series_id", e.SonarrSeriesID),
-				slog.String("error", uerr.Error()),
+				slog.String("error", err.Error()),
 			)
+		} else {
+			for _, e := range entries {
+				if uerr := u.seriesCache.Upsert(ctx, e); uerr != nil {
+					u.logger.WarnContext(ctx, "series_cache_upsert_failed",
+						slog.String("instance", inst.Config.Name),
+						slog.Int("series_id", e.SonarrSeriesID),
+						slog.String("error", uerr.Error()),
+					)
+				}
+			}
+		}
+	}
+
+	if u.seasonStats == nil {
+		return
+	}
+	for _, s := range seriesList {
+		for _, season := range s.Seasons {
+			// Same aired fallback as cacheEntryFromPayload: Sonarr's
+			// per-season block reliably ships airedEpisodeCount, but
+			// belt-and-braces in case a future Sonarr response omits
+			// it the way the series-level block does.
+			aired := season.Statistics.Aired
+			if aired == 0 {
+				aired = season.Statistics.EpisodeCount
+			}
+			stat := series.SeasonStat{
+				InstanceName:      inst.Config.Name,
+				SonarrSeriesID:    s.ID,
+				SeasonNumber:      season.Number,
+				Monitored:         season.Monitored,
+				EpisodeCount:      season.Statistics.EpisodeCount,
+				EpisodeFileCount:  season.Statistics.EpisodeFileCount,
+				TotalEpisodeCount: season.Statistics.Total,
+				AiredEpisodeCount: aired,
+				SizeOnDiskBytes:   season.Statistics.SizeOnDisk,
+			}
+			if uerr := u.seasonStats.Upsert(ctx, stat); uerr != nil {
+				u.logger.WarnContext(ctx, "season_stats_upsert_failed",
+					slog.String("instance", inst.Config.Name),
+					slog.Int("series_id", s.ID),
+					slog.Int("season_number", season.Number),
+					slog.String("error", uerr.Error()),
+				)
+			}
 		}
 	}
 }

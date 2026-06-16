@@ -278,7 +278,7 @@ func cacheEntryFromPayload(instanceName string, p sonarr.SeriesPayload) series.C
 		}.AiredMissing(),
 		EpisodeFileCount:  p.Statistics.EpisodeFileCount,
 		SizeOnDiskBytes:   p.Statistics.SizeOnDisk,
-		AiredEpisodeCount: p.Statistics.Aired,
+		AiredEpisodeCount: airedOrEpisodeCount(p.Statistics),
 	}
 	if p.TMDBID > 0 {
 		v := p.TMDBID
@@ -309,6 +309,19 @@ func cacheEntryFromPayload(instanceName string, p sonarr.SeriesPayload) series.C
 		e.LastAiredAt = &v
 	}
 	return e
+}
+
+// airedOrEpisodeCount mirrors the LIST-endpoint fallback in
+// seriesDTOToCacheEntry (story 380): Sonarr's series-level statistics
+// block omits airedEpisodeCount on /api/v3/series LIST responses;
+// episodeCount carries the same semantic there (legacy v3 naming = aired
+// count). Falling back keeps the LibraryStrip denominator non-zero on
+// the scan path that pulls the LIST endpoint.
+func airedOrEpisodeCount(s series.Statistics) int {
+	if s.Aired > 0 {
+		return s.Aired
+	}
+	return s.EpisodeCount
 }
 
 // syncGenres resolves every Sonarr-supplied genre string to a canon

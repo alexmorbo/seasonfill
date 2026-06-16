@@ -119,12 +119,18 @@ func BuildScan(
 	// seriesCacheRepo is local to this wirer — see godoc above.
 	seriesRepo := repositories.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	// Story 380: season_stats writer was only wired into webhook.go and
+	// seriesdetail.go before — the scan loop's fillSeriesCache never wrote
+	// per-season counters, so DB stayed empty for any instance whose
+	// webhook never fired. Mirrors the BuildWebhook pattern.
+	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 
 	scanUC := scan.NewUseCase(sonarrBundle.ScanInstances, evaluator, scanRepo, log, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
 		WithOrigins(originRepo).
 		WithSeriesCache(seriesCacheRepo).
+		WithSeasonStats(seasonStatsRepo).
 		WithHealthRegistry(watchdogBundle.Checker.Registry()).
 		WithWaitGroup(bgWG)
 

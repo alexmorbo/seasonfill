@@ -310,7 +310,18 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		}.AiredMissing()
 		entry.EpisodeFileCount = d.Statistics.EpisodeFileCount
 		entry.SizeOnDiskBytes = d.Statistics.SizeOnDisk
-		entry.AiredEpisodeCount = d.Statistics.AiredEpisodeCount
+		// Story 380: Sonarr's /api/v3/series LIST endpoint omits
+		// airedEpisodeCount from the series-level statistics block —
+		// only the per-season blocks include it. episodeCount carries
+		// the same semantic at the series level (legacy v3 naming =
+		// aired count). Fall back to episodeCount when
+		// airedEpisodeCount is absent/zero so the LibraryStrip
+		// denominator works against the LIST endpoint.
+		aired := d.Statistics.AiredEpisodeCount
+		if aired == 0 {
+			aired = d.Statistics.EpisodeCount
+		}
+		entry.AiredEpisodeCount = aired
 	}
 	// Pointer fields: nil unless Sonarr returned a non-zero value.
 	if d.Year > 0 {

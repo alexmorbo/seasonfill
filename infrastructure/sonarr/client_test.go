@@ -787,3 +787,42 @@ func TestSeriesDTOToCacheEntry_OmitsPreviousAiringWhenAbsent(t *testing.T) {
 	entry := seriesDTOToCacheEntry(d, "homelab")
 	assert.Nil(t, entry.LastAiredAt)
 }
+
+// TestSeriesDTOToCacheEntry_AiredFallbackToEpisodeCount — story 380.
+// Sonarr's /api/v3/series LIST endpoint omits airedEpisodeCount from the
+// series-level statistics block (only per-season blocks include it).
+// episodeCount on the LIST response carries the same semantic, so the
+// writer must fall back when airedEpisodeCount is zero.
+func TestSeriesDTOToCacheEntry_AiredFallbackToEpisodeCount(t *testing.T) {
+	t.Parallel()
+	d := seriesDTO{
+		ID: 42, Title: "Sample", TitleSlug: "sample",
+		Statistics: &statisticsDTO{
+			EpisodeCount:     38,
+			EpisodeFileCount: 38,
+			SizeOnDisk:       42_000_000_000,
+			// AiredEpisodeCount intentionally absent — mirrors live LIST shape.
+		},
+	}
+	entry := seriesDTOToCacheEntry(d, "homelab")
+	assert.Equal(t, 38, entry.AiredEpisodeCount, "fallback should pick up episodeCount when airedEpisodeCount is missing")
+	assert.Equal(t, 38, entry.EpisodeFileCount)
+	assert.Equal(t, int64(42_000_000_000), entry.SizeOnDiskBytes)
+}
+
+// TestSeriesDTOToCacheEntry_AiredPrefersExplicit — defensive: if Sonarr
+// ever starts emitting airedEpisodeCount at the series level (or fixture
+// callers set both), the explicit value wins.
+func TestSeriesDTOToCacheEntry_AiredPrefersExplicit(t *testing.T) {
+	t.Parallel()
+	d := seriesDTO{
+		ID: 42, Title: "Sample", TitleSlug: "sample",
+		Statistics: &statisticsDTO{
+			EpisodeCount:      40,
+			AiredEpisodeCount: 38,
+			EpisodeFileCount:  38,
+		},
+	}
+	entry := seriesDTOToCacheEntry(d, "homelab")
+	assert.Equal(t, 38, entry.AiredEpisodeCount, "explicit airedEpisodeCount wins over episodeCount fallback")
+}

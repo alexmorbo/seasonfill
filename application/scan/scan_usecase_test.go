@@ -1522,3 +1522,146 @@ func TestScanUseCase_SeriesCache_NilRepo_NoCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "completed", res.Status)
 }
+
+// fakeSeasonStats is a minimal SeasonStatsRepository stand-in for the
+// story 380 wiring test. Records every Upsert call so the test can
+// assert per-season fanout.
+type fakeSeasonStats struct {
+	mu        sync.Mutex
+	upserted  []series.SeasonStat
+	upsertErr error
+}
+
+func (f *fakeSeasonStats) Upsert(_ context.Context, s series.SeasonStat) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
+	f.upserted = append(f.upserted, s)
+	return nil
+}
+
+func (f *fakeSeasonStats) SoftDeleteBySeries(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
+
+var _ SeasonStatsRepository = (*fakeSeasonStats)(nil)
+
+// multiSeasonSeries returns a single series with two seasons whose
+// statistics differ so the fanout assertion can distinguish them.
+func multiSeasonSeries(id int, title string) series.Series {
+	return series.Series{
+		ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
+		QualityProfile: 14,
+		Seasons: []series.Season{
+			{
+				Number: 1, Monitored: true,
+				Statistics: series.Statistics{
+					EpisodeCount: 10, EpisodeFileCount: 10,
+					Total: 10, Aired: 10, SizeOnDisk: 1_000_000,
+				},
+			},
+			{
+				Number: 2, Monitored: true,
+				Statistics: series.Statistics{
+					EpisodeCount: 8, EpisodeFileCount: 3,
+					Total: 10, Aired: 8, SizeOnDisk: 500_000,
+				},
+			},
+		},
+	}
+}
+
+// TestScanUseCase_SeasonStats_UpsertsEverySeason — story 380 fix:
+// fillSeriesCache must write one season_stats row per Sonarr season per
+// series, not only via the webhook E-1 path.
+func TestScanUseCase_SeasonStats_UpsertsEverySeason(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{
+		multiSeasonSeries(140, "Rick"),
+		multiSeasonSeries(369, "FROM"),
+	}}
+	stats := &fakeSeasonStats{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeasonStats(stats)
+
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	require.Len(t, stats.upserted, 4, "two series x two seasons each = four rows")
+
+	// Spot-check one season for correct field projection.
+	var s140s2 *series.SeasonStat
+	for i, s := range stats.upserted {
+		if s.SonarrSeriesID == 140 && s.SeasonNumber == 2 {
+			s140s2 = &stats.upserted[i]
+			break
+		}
+	}
+	require.NotNil(t, s140s2)
+	assert.Equal(t, "main", s140s2.InstanceName)
+	assert.Equal(t, 8, s140s2.EpisodeCount)
+	assert.Equal(t, 3, s140s2.EpisodeFileCount)
+	assert.Equal(t, 10, s140s2.TotalEpisodeCount)
+	assert.Equal(t, 8, s140s2.AiredEpisodeCount)
+	assert.Equal(t, int64(500_000), s140s2.SizeOnDiskBytes)
+	assert.True(t, s140s2.Monitored)
+}
+
+// TestScanUseCase_SeasonStats_AiredFallback — defensive: if a future
+// Sonarr response omits Aired at the season level too, the writer
+// falls back to EpisodeCount (same belt-and-braces fix as the series-
+// level path).
+func TestScanUseCase_SeasonStats_AiredFallback(t *testing.T) {
+	t.Parallel()
+	s := series.Series{
+		ID: 372, Title: "Star City", Type: series.SeriesTypeStandard, Monitored: true,
+		QualityProfile: 14,
+		Seasons: []series.Season{{
+			Number: 1, Monitored: true,
+			Statistics: series.Statistics{
+				EpisodeCount: 5, EpisodeFileCount: 4,
+				// Aired intentionally zero.
+			},
+		}},
+	}
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{s}}
+	stats := &fakeSeasonStats{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeasonStats(stats)
+
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	require.Len(t, stats.upserted, 1)
+	assert.Equal(t, 5, stats.upserted[0].AiredEpisodeCount,
+		"AiredEpisodeCount should fall back to EpisodeCount when Aired is zero")
+}
+
+// TestScanUseCase_SeasonStats_UpsertErrorDoesNotFailScan — best-effort
+// sidecar contract: a season_stats writer failure must not abort the
+// scan (same D-2.5 pattern as series_cache).
+func TestScanUseCase_SeasonStats_UpsertErrorDoesNotFailScan(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{multiSeasonSeries(140, "Rick")}}
+	stats := &fakeSeasonStats{upsertErr: errors.New("disk full")}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeasonStats(stats)
+
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+}
+
+// TestScanUseCase_SeasonStats_NilRepo_NoCall — without the dep wired
+// the use case must still complete cleanly (legacy callers).
+func TestScanUseCase_SeasonStats_NilRepo_NoCall(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{multiSeasonSeries(140, "Rick")}}
+	uc := newScanUseCaseForTest(t, sonarrFake) // no WithSeasonStats
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+}
