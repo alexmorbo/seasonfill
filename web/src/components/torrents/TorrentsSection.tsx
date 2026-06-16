@@ -77,14 +77,14 @@ export function TorrentsSection({ instance, seriesId, className }: TorrentsSecti
       data-visible={visible ? 'true' : 'false'}
       data-stale={isStale ? 'true' : 'false'}
       className={cn(
-        'flex flex-col gap-3 rounded-lg border border-border-faint bg-bg-surface/60 px-4 py-3',
+        'flex flex-col gap-3 rounded-lg border border-border-faint bg-bg-surface/40 px-3 py-3',
         className,
       )}
       id="torrents"
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h2 className="text-[10.5px] font-bold uppercase tracking-wide text-tx-faint">
+          <h2 className="text-[12px] font-bold uppercase tracking-wide text-tx-muted">
             {t('seriesDetail.torrents.label')}
             <span className="ml-1 text-tx-secondary tabular-nums">({rows.length})</span>
           </h2>
