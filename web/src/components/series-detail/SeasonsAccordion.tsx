@@ -27,13 +27,13 @@ export interface SeasonsAccordionProps {
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
-  // Regular seasons ASC, Specials (season 0) pushed to the end.
+  // Regular seasons DESC, Specials (season 0) always pinned to the end.
   return [...seasons].sort((a, b) => {
     const aS = a.season_number ?? 0;
     const bS = b.season_number ?? 0;
     if (aS === 0 && bS !== 0) return 1;
     if (bS === 0 && aS !== 0) return -1;
-    return aS - bS;
+    return bS - aS;
   });
 }
 
@@ -64,7 +64,13 @@ function SeasonAccordionItem({
     enabled: expanded,
   });
   // Lazy data overrides composite payload only when present.
-  const episodes = lazy.data?.season?.episodes ?? season.episodes ?? [];
+  // Episodes always render DESC (latest first).
+  const lazyEpisodes = lazy.data?.season?.episodes;
+  const compositeEpisodes = season.episodes;
+  const episodes = useMemo(() => {
+    const raw = lazyEpisodes ?? compositeEpisodes ?? [];
+    return [...raw].reverse();
+  }, [lazyEpisodes, compositeEpisodes]);
   const isSpecial = seasonNumber === 0;
   const onDisk = season.on_disk_count ?? 0;
   const total = season.episode_count ?? episodes.length;

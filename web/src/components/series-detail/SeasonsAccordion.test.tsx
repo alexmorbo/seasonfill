@@ -32,25 +32,67 @@ const seasons = [
     ],
   },
   {
+    season_number: 3, episode_count: 1, air_date: '2026-01-12',
+    on_disk_count: 0, monitored: true, poster_asset: 'pa',
+    episodes: [{ episode_number: 1, title: 'S3E1', has_file: false, monitored: true }],
+  },
+  {
+    season_number: 2, episode_count: 1, air_date: '2025-01-12',
+    on_disk_count: 0, monitored: true, poster_asset: 'pa',
+    episodes: [{ episode_number: 1, title: 'S2E1', has_file: false, monitored: true }],
+  },
+  {
     season_number: 0, episode_count: 1, on_disk_count: 0, monitored: false,
     episodes: [{ episode_number: 1, title: 'Special', has_file: false, monitored: false }],
   },
 ];
 
 describe('<SeasonsAccordion />', () => {
-  it('renders one accordion item per season, Specials pushed to the end', () => {
+  it('renders seasons DESC with Specials pinned to the end', () => {
     r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
     const items = screen.getAllByTestId('season-accordion-item');
-    expect(items).toHaveLength(2);
-    expect(items[0]!.getAttribute('data-season')).toBe('1');
-    expect(items[1]!.getAttribute('data-season')).toBe('0');
-    expect(items[1]!.getAttribute('data-special')).toBe('true');
+    expect(items).toHaveLength(4);
+    expect(items[0]!.getAttribute('data-season')).toBe('3');
+    expect(items[1]!.getAttribute('data-season')).toBe('2');
+    expect(items[2]!.getAttribute('data-season')).toBe('1');
+    expect(items[3]!.getAttribute('data-season')).toBe('0');
+    expect(items[3]!.getAttribute('data-special')).toBe('true');
   });
 
   it('expands and renders episodes (lazy fetch overrides composite payload)', () => {
     r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
     fireEvent.click(screen.getAllByRole('button')[0]!);
     expect(screen.getByText('Lazy')).toBeInTheDocument();
+  });
+
+  it('renders episodes in DESC order (highest episode_number first)', async () => {
+    const { useSeriesSeason } = await import('@/api/seriesSeason');
+    const mocked = vi.mocked(useSeriesSeason);
+    mocked.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+      data: enabled ? { season: { episodes: [
+        { episode_number: 1, title: 'EpOne',   has_file: false, monitored: true },
+        { episode_number: 2, title: 'EpTwo',   has_file: false, monitored: true },
+        { episode_number: 3, title: 'EpThree', has_file: false, monitored: true },
+      ] } } : undefined,
+      isPending: false,
+      isError: false,
+    }) as unknown as ReturnType<typeof useSeriesSeason>);
+    try {
+      r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
+      fireEvent.click(screen.getAllByRole('button')[0]!);
+      const rows = screen.getAllByTestId('episode-row');
+      expect(rows).toHaveLength(3);
+      expect(rows[0]!.textContent).toContain('EpThree');
+      expect(rows[1]!.textContent).toContain('EpTwo');
+      expect(rows[2]!.textContent).toContain('EpOne');
+    } finally {
+      mocked.mockReset();
+      mocked.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+        data: enabled ? { season: { episodes: [{ episode_number: 1, title: 'Lazy', has_file: false, monitored: true }] } } : undefined,
+        isPending: false,
+        isError: false,
+      }) as unknown as ReturnType<typeof useSeriesSeason>);
+    }
   });
 
   it('renders the empty-state line when seasons is empty', () => {
