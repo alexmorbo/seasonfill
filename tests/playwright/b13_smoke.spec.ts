@@ -388,7 +388,10 @@ test.describe('B-13 overview rail transparency (story 368)', () => {
     const h = await page.getByTestId('hero-backdrop-layer').evaluate(
       (el) => parseFloat(getComputedStyle(el).height),
     );
-    expect(h).toBeGreaterThanOrEqual(1080);
+    // Story 369: backdrop shortened to land before cast strip
+    // (was >= 1080, now ~800 — still well past the hero box at 450).
+    expect(h).toBeGreaterThan(500);
+    expect(h).toBeLessThan(900);
   });
 
   test('overview bottom sits inside the backdrop fade region', async ({ page }) => {
@@ -402,6 +405,57 @@ test.describe('B-13 overview rail transparency (story 368)', () => {
     await page.screenshot({
       path: 'test-results/b13-overview-transparency-4k.png',
       clip: { x: 0, y: 0, width: 3840, height: 1600 },
+    });
+  });
+});
+
+test.describe('B-13 backdrop shortened before cast (story 369)', () => {
+  test('backdrop layer is shorter than 900px', async ({ page }) => {
+    await goto(page);
+    const h = await page.getByTestId('hero-backdrop-layer').evaluate(
+      (el) => parseFloat(getComputedStyle(el).height),
+    );
+    expect(h).toBeLessThan(900);
+    expect(h).toBeGreaterThan(500);
+  });
+
+  test('cast strip starts after the backdrop fade endpoint', async ({ page }) => {
+    await goto(page);
+    const backdrop = await page.getByTestId('hero-backdrop-layer').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const mask = getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage;
+      const stops = (mask.match(/(\d+(?:\.\d+)?)%/g) || []).map((s) => parseFloat(s));
+      const endpointPct = stops.length > 0 ? stops[stops.length - 1] / 100 : 1;
+      return { top: r.y, height: r.height, endpointPct };
+    });
+    const castStrip = await page.getByTestId('cast-strip').boundingBox();
+    if (!castStrip) throw new Error('cast-strip missing');
+    const fadeEndpointY = backdrop.top + backdrop.height * backdrop.endpointPct;
+    expect(castStrip.y).toBeGreaterThan(fadeEndpointY);
+  });
+
+  test('backdrop is invisible at cast strip top y-coordinate', async ({ page }) => {
+    await goto(page);
+    const sample = await page.getByTestId('hero-backdrop-layer').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const mask = getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage;
+      const stops = (mask.match(/(\d+(?:\.\d+)?)%/g) || []).map((s) => parseFloat(s) / 100);
+      const plateauPct = stops.length >= 2 ? stops[stops.length - 2] : 0;
+      const endpointPct = stops.length >= 1 ? stops[stops.length - 1] : 1;
+      return { top: r.y, height: r.height, plateauPct, endpointPct };
+    });
+    const castStrip = await page.getByTestId('cast-strip').boundingBox();
+    if (!castStrip) throw new Error('cast-strip missing');
+    const position = (castStrip.y - sample.top) / sample.height;
+    let alpha;
+    if (position <= sample.plateauPct) alpha = 1;
+    else if (position >= sample.endpointPct) alpha = 0;
+    else alpha = (sample.endpointPct - position) / (sample.endpointPct - sample.plateauPct);
+    expect(alpha).toBeLessThanOrEqual(0.05);
+
+    await page.screenshot({
+      path: 'test-results/b13-backdrop-shorten-near-cast-4k.png',
+      clip: { x: 0, y: 0, width: 3840, height: 1400 },
     });
   });
 });

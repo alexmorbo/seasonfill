@@ -32,11 +32,11 @@
   right: auto;
   width: calc(100vw - var(--sd-sidebar-w));
   bottom: auto;
-  height: 1100px;
+  height: 800px;
   z-index: 0;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 22%, transparent 98%);
-          mask-image: linear-gradient(to bottom, #000 0%, #000 22%, transparent 98%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 22%, transparent 72%);
+          mask-image: linear-gradient(to bottom, #000 0%, #000 22%, transparent 72%);
 }
 
 .sd-hero-bleed .sd-backdrop-layer img {
@@ -54,7 +54,7 @@
   right: auto;
   width: calc(100vw - var(--sd-sidebar-w));
   bottom: auto;
-  height: 1100px;
+  height: 800px;
   z-index: 1;
   pointer-events: none;
   background:
