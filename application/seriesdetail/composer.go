@@ -139,22 +139,22 @@ type Deps struct {
 	// SeasonStats — story 377. Per-(instance, series, season) Sonarr
 	// statistics projection. Nil-OK: when not wired the composer skips
 	// the load + the handler falls back to walking episode_states.
-	SeasonStats  SeasonStatsPort
-	EpisodeTexts EpisodeTextsPort
-	SeriesPeople      SeriesPeoplePort
-	People            PeoplePort
-	Genres            GenresPort
-	Keywords          KeywordsPort
-	Networks          NetworksPort
-	Companies         CompaniesPort
-	Videos            VideosPort
-	ContentRatings    ContentRatingsPort
-	ExternalIDs       ExternalIDsPort
-	Recommendations   RecommendationsPort
-	SyncLog           SyncLogPort
-	SonarrFor         func(instanceName string) (SonarrQueueLister, bool)
-	Logger            *slog.Logger
-	Now               func() time.Time
+	SeasonStats     SeasonStatsPort
+	EpisodeTexts    EpisodeTextsPort
+	SeriesPeople    SeriesPeoplePort
+	People          PeoplePort
+	Genres          GenresPort
+	Keywords        KeywordsPort
+	Networks        NetworksPort
+	Companies       CompaniesPort
+	Videos          VideosPort
+	ContentRatings  ContentRatingsPort
+	ExternalIDs     ExternalIDsPort
+	Recommendations RecommendationsPort
+	SyncLog         SyncLogPort
+	SonarrFor       func(instanceName string) (SonarrQueueLister, bool)
+	Logger          *slog.Logger
+	Now             func() time.Time
 	// MediaResolver translates raw TMDB image paths on canon entities into the
 	// sha256 hash the frontend serves via /api/v1/media/:hash. Story 312. Pass
 	// NewNopMediaResolver() when the media subsystem is disabled — every wire
