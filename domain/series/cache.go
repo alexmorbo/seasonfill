@@ -55,6 +55,11 @@ type CacheEntry struct {
 	// episode_states rollups.
 	EpisodeFileCount int
 	SizeOnDiskBytes  int64
+	// Story 376: AiredEpisodeCount is Sonarr's airedEpisodeCount —
+	// the number of episodes whose air date is in the past. Used as
+	// the denominator for LibraryStrip percentage so unaired future
+	// episodes do not depress the headline.
+	AiredEpisodeCount int
 	// LastAiredAt mirrors Sonarr's `previousAiring` — the datetime of
 	// the most recently aired episode for this series. Nil when no
 	// episode has aired yet (upcoming series). Powers the F11

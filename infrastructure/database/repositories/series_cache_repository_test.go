@@ -1083,3 +1083,38 @@ func TestSeriesCacheRepository_LibraryStats_DefaultZero(t *testing.T) {
 	require.Equal(t, 0, got.EpisodeFileCount)
 	require.Equal(t, int64(0), got.SizeOnDiskBytes)
 }
+
+// Story 376: AiredEpisodeCount round-trips through Upsert/Get and powers
+// the LibraryStrip denominator (so unaired future episodes don't depress
+// the headline percentage).
+func TestSeriesCacheRepository_AiredEpisodeCount_RoundTrip(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	e := sampleEntry("main", 903)
+	e.AiredEpisodeCount = 85
+	require.NoError(t, repo.Upsert(ctx, e))
+	got, err := repo.Get(ctx, "main", 903)
+	require.NoError(t, err)
+	require.Equal(t, 85, got.AiredEpisodeCount)
+
+	e.AiredEpisodeCount = 86
+	require.NoError(t, repo.Upsert(ctx, e))
+	got, err = repo.Get(ctx, "main", 903)
+	require.NoError(t, err)
+	require.Equal(t, 86, got.AiredEpisodeCount)
+}
+
+// Story 376: default 0 for entries that don't set AiredEpisodeCount.
+func TestSeriesCacheRepository_AiredEpisodeCount_DefaultZero(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 904)))
+	got, err := repo.Get(ctx, "main", 904)
+	require.NoError(t, err)
+	require.Equal(t, 0, got.AiredEpisodeCount)
+}

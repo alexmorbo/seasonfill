@@ -194,6 +194,7 @@ type LibraryStrip struct {
 	Monitored      bool `json:"monitored"`
 	EpisodesTotal  int  `json:"episodes_total"`
 	EpisodesOnDisk int  `json:"episodes_on_disk"`
+	EpisodesAired  int  `json:"episodes_aired"`
 	MissingCount   int  `json:"missing_count"`
 	// SizeOnDiskBytes is the sum of episode_states.size_bytes for
 	// this series + instance. 0 when nothing on disk yet.

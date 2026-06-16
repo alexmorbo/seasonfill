@@ -4687,6 +4687,7 @@ export type components = {
              *     when nothing on disk.
              */
             readonly dominant_quality?: string;
+            readonly episodes_aired?: number;
             readonly episodes_on_disk?: number;
             readonly episodes_total?: number;
             readonly missing_count?: number;

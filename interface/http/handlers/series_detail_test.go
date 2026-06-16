@@ -538,3 +538,32 @@ func TestMapLibrary_DominantQualityFromEpisodeStates(t *testing.T) {
 	require.Equal(t, qWEB, lib.DominantQuality)
 	require.Equal(t, 3, lib.EpisodesOnDisk)
 }
+
+// Story 376: mapLibrary projects AiredEpisodeCount onto the wire
+// `episodes_aired` field so the FE can use it as the percentage
+// denominator (covers FROM 38/38 case where 2 unaired episodes would
+// otherwise depress the headline to 95%).
+func TestMapLibrary_ProjectsAiredEpisodeCount(t *testing.T) {
+	t.Parallel()
+	d := &seriesdetail.Detail{
+		CacheEntry: series.CacheEntry{
+			Monitored:         true,
+			MissingCount:      0,
+			EpisodeFileCount:  38,
+			SizeOnDiskBytes:   12_400_000_000,
+			AiredEpisodeCount: 38,
+		},
+		Seasons: []seriesdetail.SeasonDetail{
+			{
+				Canon: series.CanonSeason{SeasonNumber: 4},
+				Episodes: []seriesdetail.EpisodeDetail{
+					{Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 4}},
+					{Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 4}},
+				},
+			},
+		},
+	}
+	lib := mapLibrary(d)
+	require.Equal(t, 38, lib.EpisodesAired)
+	require.Equal(t, 38, lib.EpisodesOnDisk)
+}

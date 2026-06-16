@@ -248,8 +248,9 @@ func cacheEntryFromPayload(instanceName string, p sonarr.SeriesPayload) series.C
 			Total:            p.Statistics.Total,
 			Aired:            p.Statistics.Aired,
 		}.AiredMissing(),
-		EpisodeFileCount: p.Statistics.EpisodeFileCount,
-		SizeOnDiskBytes:  p.Statistics.SizeOnDisk,
+		EpisodeFileCount:  p.Statistics.EpisodeFileCount,
+		SizeOnDiskBytes:   p.Statistics.SizeOnDisk,
+		AiredEpisodeCount: p.Statistics.Aired,
 	}
 	if p.TMDBID > 0 {
 		v := p.TMDBID

@@ -1196,6 +1196,8 @@ components:
             on-disk episode_states rows (e.g., "WEB-DL 1080p"). Empty
             when nothing on disk.
           type: string
+        episodes_aired:
+          type: integer
         episodes_on_disk:
           type: integer
         episodes_total:

@@ -310,6 +310,7 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
 		}.AiredMissing()
 		entry.EpisodeFileCount = d.Statistics.EpisodeFileCount
 		entry.SizeOnDiskBytes = d.Statistics.SizeOnDisk
+		entry.AiredEpisodeCount = d.Statistics.AiredEpisodeCount
 	}
 	// Pointer fields: nil unless Sonarr returned a non-zero value.
 	if d.Year > 0 {

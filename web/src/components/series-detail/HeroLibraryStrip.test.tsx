@@ -18,6 +18,7 @@ describe('HeroLibraryStrip', () => {
     render(withI18n(<HeroLibraryStrip library={{
       monitored: true,
       episodes_total: 48,
+      episodes_aired: 48,
       episodes_on_disk: 42,
       missing_count: 6,
       size_on_disk_bytes: 12_400_000_000,
@@ -34,6 +35,7 @@ describe('HeroLibraryStrip', () => {
       library={{
         monitored: true,
         episodes_total: 48,
+        episodes_aired: 48,
         episodes_on_disk: 42,
         missing_count: 0,
         size_on_disk_bytes: 1024,
@@ -48,9 +50,51 @@ describe('HeroLibraryStrip', () => {
 
   it('emits data-tone for downstream styling overrides', () => {
     render(withI18n(<HeroLibraryStrip tone="light" library={{
-      monitored: true, episodes_total: 1, episodes_on_disk: 1,
+      monitored: true, episodes_total: 1, episodes_aired: 1, episodes_on_disk: 1,
       missing_count: 0, size_on_disk_bytes: 1, dominant_quality: '',
     }} />));
     expect(screen.getByTestId('hero-library-strip').dataset['tone']).toBe('light');
+  });
+
+  // Story 376: prefer episodes_aired as the denominator so unaired
+  // future episodes don't depress the headline percentage.
+  it('uses episodes_aired as the denominator when present', () => {
+    render(withI18n(<HeroLibraryStrip library={{
+      monitored: true,
+      episodes_total: 40,
+      episodes_aired: 38,
+      episodes_on_disk: 38,
+      missing_count: 0,
+      size_on_disk_bytes: 12_400_000_000,
+      dominant_quality: 'WEB-DL 1080p',
+    }} />));
+    expect(screen.getByTestId('hero-library-counts').textContent).toMatch(/38\/38/);
+  });
+
+  it('falls back to episodes_total when episodes_aired is 0', () => {
+    render(withI18n(<HeroLibraryStrip library={{
+      monitored: true,
+      episodes_total: 48,
+      episodes_aired: 0,
+      episodes_on_disk: 42,
+      missing_count: 6,
+      size_on_disk_bytes: 12_400_000_000,
+      dominant_quality: 'WEB-DL 1080p',
+    }} />));
+    expect(screen.getByTestId('hero-library-counts').textContent).toMatch(/42\/48/);
+  });
+
+  it('caps percentage at 100% when episodes_on_disk exceeds episodes_aired', () => {
+    render(withI18n(<HeroLibraryStrip library={{
+      monitored: true,
+      episodes_total: 40,
+      episodes_aired: 38,
+      episodes_on_disk: 39,
+      missing_count: 0,
+      size_on_disk_bytes: 12_400_000_000,
+      dominant_quality: 'WEB-DL 1080p',
+    }} />));
+    const html = document.body.innerHTML;
+    expect(html).toMatch(/100%/);
   });
 });

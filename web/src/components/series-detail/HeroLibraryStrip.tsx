@@ -32,10 +32,15 @@ export function HeroLibraryStrip({
 }: HeroLibraryStripProps) {
   const { t } = useTranslation();
   const total = library?.episodes_total ?? 0;
+  const aired = library?.episodes_aired ?? 0;
   const onDisk = library?.episodes_on_disk ?? 0;
   const missing = library?.missing_count ?? 0;
   const size = library?.size_on_disk_bytes ?? 0;
-  const pct = percent(onDisk, total);
+  // Story 376: prefer airedEpisodeCount as the denominator so unaired
+  // future episodes don't depress the on-disk headline. Backward-compat
+  // fallback to episodes_total when aired is 0 (legacy cached rows).
+  const denominator = aired > 0 ? aired : total;
+  const pct = percent(onDisk, denominator);
   const hasAnything = total > 0;
 
   // Tone-driven chip palette. "dark" — light-on-dark for use over the
@@ -86,7 +91,7 @@ export function HeroLibraryStrip({
             'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-mono border tabular-nums',
             chipBase,
           )} data-testid="hero-library-counts">
-            {onDisk}/{total}
+            {onDisk}/{denominator}
           </span>
           <span className={cn(
             'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-mono border tabular-nums',

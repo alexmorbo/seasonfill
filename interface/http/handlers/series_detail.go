@@ -248,6 +248,7 @@ func mapLibrary(d *seriesdetail.Detail) dto.LibraryStrip {
 		Monitored:       d.CacheEntry.Monitored,
 		MissingCount:    d.CacheEntry.MissingCount,
 		EpisodesOnDisk:  d.CacheEntry.EpisodeFileCount,
+		EpisodesAired:   d.CacheEntry.AiredEpisodeCount,
 		SizeOnDiskBytes: d.CacheEntry.SizeOnDiskBytes,
 	}
 	var total int

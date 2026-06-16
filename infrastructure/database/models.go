@@ -367,16 +367,17 @@ func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }
 // series stay readable. No DB-level FK on instance_name (consistent
 // with the rest of the schema).
 type SeriesCacheModel struct {
-	InstanceName     string     `gorm:"primaryKey;size:128;column:instance_name"`
-	SonarrSeriesID   int        `gorm:"primaryKey;column:sonarr_series_id"`
-	SeriesID         *int64     `gorm:"column:series_id;index:series_cache_series_id;not null"`
-	TitleSlug        string     `gorm:"type:text;not null;column:title_slug"`
-	Monitored        bool       `gorm:"column:monitored;not null;default:false"`
-	MissingCount     int        `gorm:"column:missing_count;not null;default:0"`
-	EpisodeFileCount int        `gorm:"column:episode_file_count;not null;default:0"`
-	SizeOnDiskBytes  int64      `gorm:"column:size_on_disk_bytes;not null;default:0"`
-	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
-	DeletedAt        *time.Time `gorm:"column:deleted_at"`
+	InstanceName      string     `gorm:"primaryKey;size:128;column:instance_name"`
+	SonarrSeriesID    int        `gorm:"primaryKey;column:sonarr_series_id"`
+	SeriesID          *int64     `gorm:"column:series_id;index:series_cache_series_id;not null"`
+	TitleSlug         string     `gorm:"type:text;not null;column:title_slug"`
+	Monitored         bool       `gorm:"column:monitored;not null;default:false"`
+	MissingCount      int        `gorm:"column:missing_count;not null;default:0"`
+	EpisodeFileCount  int        `gorm:"column:episode_file_count;not null;default:0"`
+	SizeOnDiskBytes   int64      `gorm:"column:size_on_disk_bytes;not null;default:0"`
+	AiredEpisodeCount int        `gorm:"column:aired_episode_count;not null;default:0"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time `gorm:"column:deleted_at"`
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
