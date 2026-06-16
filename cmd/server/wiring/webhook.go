@@ -71,6 +71,7 @@ type WebhookBundle struct {
 	ReconcilerAdapter    adapters.ReconcilerAdapter
 	TorrentSeriesMapRepo *repositories.TorrentSeriesMapRepository
 	EpisodeStatesRepo    *repositories.EpisodeStatesRepository
+	SeasonStatsRepo      *repositories.SeasonStatsRepository
 }
 
 // BuildWebhook wires the webhook UC + Syncer + Reconciler + StatusCache
@@ -127,6 +128,7 @@ func BuildWebhook(
 	// episode_states under the deleted series. Repo is constructed
 	// here so the cascade port is wired at boot.
 	webhookEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
+	webhookSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 	// 221 (A-3) — torrent_series_map repo wired here so the webhook
 	// path can write the bridge row in the same tx as the
 	// grab_records.torrent_hash update. Repo also feeds the
@@ -160,6 +162,7 @@ func BuildWebhook(
 			Episodes:      webhookEpisodesRepo,
 			EpisodeStates: webhookEpisodeStatesRepo,
 			EpisodeTexts:  webhookEpisodeTextsRepo,
+			SeasonStats:   webhookSeasonStatsRepo,
 			Genres:        scan.NewGenresAdapter(webhookGenresRepo, webhookGenresI18nRepo),
 			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),
 			Logger:        log,
@@ -191,6 +194,7 @@ func BuildWebhook(
 		SeriesCache:      seriesCacheRepo,
 		Tx:               scanBundle.Txr,
 		EpisodeStates:    webhookEpisodeStatesRepo,
+		SeasonStats:      webhookSeasonStatsRepo,
 		TorrentSeriesMap: torrentSeriesMapRepo,
 		SeriesSyncer:     webhookSeriesSyncer,
 		GUIDCooldownLookup: func(name string) time.Duration {
@@ -236,5 +240,6 @@ func BuildWebhook(
 		ReconcilerAdapter:    adapters.ReconcilerAdapter{Inner: webhookReconciler},
 		TorrentSeriesMapRepo: torrentSeriesMapRepo,
 		EpisodeStatesRepo:    webhookEpisodeStatesRepo,
+		SeasonStatsRepo:      webhookSeasonStatsRepo,
 	}, nil
 }

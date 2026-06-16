@@ -31,6 +31,7 @@ import (
 type CascadeDeleteDeps struct {
 	SeriesCache   ports.SeriesCacheRepository
 	EpisodeStates EpisodeStatesSoftDeleter
+	SeasonStats   SeasonStatsSoftDeleter
 	Tx            ports.Transactor
 	Logger        *slog.Logger
 }
@@ -38,6 +39,12 @@ type CascadeDeleteDeps struct {
 // EpisodeStatesSoftDeleter is the new narrow port the cascade adds.
 // Implemented by EpisodeStatesRepository in 218.
 type EpisodeStatesSoftDeleter interface {
+	SoftDeleteBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) (int, error)
+}
+
+// SeasonStatsSoftDeleter — story 377 cascade port. Implemented by
+// SeasonStatsRepository.
+type SeasonStatsSoftDeleter interface {
 	SoftDeleteBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) (int, error)
 }
 
@@ -55,15 +62,15 @@ func CascadeSeriesDelete(
 	deps CascadeDeleteDeps,
 	instanceName string,
 	sonarrSeriesID int,
-) (cacheDeleted bool, episodeRows int, err error) {
+) (cacheDeleted bool, episodeRows int, seasonRows int, err error) {
 	if instanceName == "" {
-		return false, 0, errors.New("cascade series delete: instance_name must be non-empty")
+		return false, 0, 0, errors.New("cascade series delete: instance_name must be non-empty")
 	}
 	if sonarrSeriesID == 0 {
-		return false, 0, errors.New("cascade series delete: sonarr_series_id must be non-zero")
+		return false, 0, 0, errors.New("cascade series delete: sonarr_series_id must be non-zero")
 	}
 	if deps.SeriesCache == nil {
-		return false, 0, errors.New("cascade series delete: SeriesCache required")
+		return false, 0, 0, errors.New("cascade series delete: SeriesCache required")
 	}
 	log := deps.Logger
 	if log == nil {
@@ -75,24 +82,30 @@ func CascadeSeriesDelete(
 			return fmt.Errorf("soft delete series_cache: %w", serr)
 		}
 		cacheDeleted = true
-		if deps.EpisodeStates == nil {
-			return nil
+		if deps.EpisodeStates != nil {
+			n, ierr := deps.EpisodeStates.SoftDeleteBySeries(txCtx, instanceName, sonarrSeriesID)
+			if ierr != nil {
+				return fmt.Errorf("soft delete episode_states: %w", ierr)
+			}
+			episodeRows = n
 		}
-		n, ierr := deps.EpisodeStates.SoftDeleteBySeries(txCtx, instanceName, sonarrSeriesID)
-		if ierr != nil {
-			return fmt.Errorf("soft delete episode_states: %w", ierr)
+		if deps.SeasonStats != nil {
+			n, ierr := deps.SeasonStats.SoftDeleteBySeries(txCtx, instanceName, sonarrSeriesID)
+			if ierr != nil {
+				return fmt.Errorf("soft delete season_stats: %w", ierr)
+			}
+			seasonRows = n
 		}
-		episodeRows = n
 		return nil
 	}
 
 	if deps.Tx != nil {
 		if terr := deps.Tx.Transaction(ctx, work); terr != nil {
-			return cacheDeleted, episodeRows, terr
+			return cacheDeleted, episodeRows, seasonRows, terr
 		}
 	} else {
 		if werr := work(ctx); werr != nil {
-			return cacheDeleted, episodeRows, werr
+			return cacheDeleted, episodeRows, seasonRows, werr
 		}
 	}
 
@@ -101,6 +114,7 @@ func CascadeSeriesDelete(
 		slog.Int("sonarr_series_id", sonarrSeriesID),
 		slog.Bool("cache_deleted", cacheDeleted),
 		slog.Int("episode_states_deleted", episodeRows),
+		slog.Int("season_stats_deleted", seasonRows),
 	)
-	return cacheDeleted, episodeRows, nil
+	return cacheDeleted, episodeRows, seasonRows, nil
 }

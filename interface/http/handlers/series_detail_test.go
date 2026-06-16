@@ -567,3 +567,98 @@ func TestMapLibrary_ProjectsAiredEpisodeCount(t *testing.T) {
 	require.Equal(t, 38, lib.EpisodesAired)
 	require.Equal(t, 38, lib.EpisodesOnDisk)
 }
+
+// --- Story 377: mapSeasons SeasonStats branches ---
+
+func TestMapSeasons_PrefersStatsOverEpisodeWalk(t *testing.T) {
+	t.Parallel()
+	stats := &series.SeasonStat{
+		SeasonNumber:      1,
+		EpisodeFileCount:  10,
+		AiredEpisodeCount: 10,
+		TotalEpisodeCount: 10,
+		Monitored:         true,
+	}
+	d := []seriesdetail.SeasonDetail{{
+		Canon: series.CanonSeason{SeasonNumber: 1},
+		Stats: stats,
+		// Episode walk would yield 0 on disk if we were reading State;
+		// the stats branch must win.
+		Episodes: []seriesdetail.EpisodeDetail{
+			{Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 1}},
+			{Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 1}},
+		},
+	}}
+	out := mapSeasons(d)
+	require.Len(t, out, 1)
+	require.Equal(t, 10, out[0].OnDiskCount)
+	require.Equal(t, 0, out[0].MissingCount)
+	require.Equal(t, 10, out[0].EpisodeCount)
+	require.True(t, out[0].Monitored)
+}
+
+func TestMapSeasons_ClampsMissingNegative(t *testing.T) {
+	t.Parallel()
+	stats := &series.SeasonStat{
+		SeasonNumber:      1,
+		EpisodeFileCount:  12,
+		AiredEpisodeCount: 10,
+		TotalEpisodeCount: 10,
+	}
+	d := []seriesdetail.SeasonDetail{{
+		Canon: series.CanonSeason{SeasonNumber: 1},
+		Stats: stats,
+	}}
+	out := mapSeasons(d)
+	require.Len(t, out, 1)
+	require.Equal(t, 12, out[0].OnDiskCount)
+	require.Equal(t, 0, out[0].MissingCount, "missing must clamp to 0 when file_count > aired")
+}
+
+func TestMapSeasons_FallsBackToEpisodeWalkWhenStatsNil(t *testing.T) {
+	t.Parallel()
+	qWEB := "WEB-DL 1080p"
+	d := []seriesdetail.SeasonDetail{{
+		Canon: series.CanonSeason{SeasonNumber: 1},
+		Episodes: []seriesdetail.EpisodeDetail{
+			{
+				Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 1},
+				State: &series.EpisodeState{HasFile: true, Quality: &qWEB},
+			},
+			{
+				Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 1},
+				State: &series.EpisodeState{HasFile: false},
+			},
+			{
+				Canon: series.CanonEpisode{EpisodeNumber: 3, SeasonNumber: 1},
+				// no State — counts toward missing
+			},
+		},
+	}}
+	out := mapSeasons(d)
+	require.Len(t, out, 1)
+	require.Equal(t, 1, out[0].OnDiskCount)
+	require.Equal(t, 2, out[0].MissingCount)
+	require.Equal(t, 3, out[0].EpisodeCount)
+}
+
+func TestMapSeasons_PartialPack_FROM(t *testing.T) {
+	t.Parallel()
+	// Acceptance smoke shape: FROM S4 with 8 aired / 10 total / 8 on disk.
+	stats := &series.SeasonStat{
+		SeasonNumber:      4,
+		EpisodeFileCount:  8,
+		AiredEpisodeCount: 8,
+		TotalEpisodeCount: 10,
+		Monitored:         true,
+	}
+	d := []seriesdetail.SeasonDetail{{
+		Canon: series.CanonSeason{SeasonNumber: 4},
+		Stats: stats,
+	}}
+	out := mapSeasons(d)
+	require.Len(t, out, 1)
+	require.Equal(t, 8, out[0].OnDiskCount)
+	require.Equal(t, 0, out[0].MissingCount, "all aired episodes are on disk")
+	require.Equal(t, 10, out[0].EpisodeCount, "EpisodeCount must surface TotalEpisodeCount")
+}

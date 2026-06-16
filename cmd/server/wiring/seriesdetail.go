@@ -135,6 +135,7 @@ func BuildSeriesDetail(
 	sdSeasonsRepo := repositories.NewSeasonsRepository(db)
 	sdEpisodesRepo := repositories.NewEpisodesRepository(db)
 	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
+	sdSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
 	sdSeriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
 	sdPeopleRepo := repositories.NewPeopleRepository(db)
@@ -156,6 +157,7 @@ func BuildSeriesDetail(
 		Seasons:           sdSeasonsRepo,
 		Episodes:          sdEpisodesRepo,
 		EpisodeStates:     sdEpisodeStatesRepo,
+		SeasonStats:       sdSeasonStatsRepo,
 		EpisodeTexts:      sdEpisodeTextsRepo,
 		SeriesPeople:      sdSeriesPeopleRepo,
 		People:            sdPeopleRepo,

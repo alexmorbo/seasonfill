@@ -86,6 +86,14 @@ type EpisodeStatesPort interface {
 	ListBySeries(ctx context.Context, instanceName string, seriesID int64) ([]series.EpisodeState, error)
 }
 
+// SeasonStatsPort lists the per-(instance, series, season) Sonarr
+// statistics projection persisted by SyncSeriesFromSonarr (story 377).
+// Empty result OR an error both degrade silently — mapSeasons falls
+// back to walking d.Seasons[].Episodes[].State.HasFile.
+type SeasonStatsPort interface {
+	ListBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) ([]series.SeasonStat, error)
+}
+
 // EpisodeTextsPort fetches localised episode text by composite PK.
 // The composer falls back per-row via the helper's two-LEFT-JOIN
 // pattern (PRD §5.6), but the simpler interface used here is the

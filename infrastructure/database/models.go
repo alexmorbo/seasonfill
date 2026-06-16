@@ -539,6 +539,27 @@ type EpisodeStateModel struct {
 
 func (EpisodeStateModel) TableName() string { return "episode_states" }
 
+// SeasonStatModel — per-(instance, series, season) Sonarr statistics
+// projection. PK (instance_name, sonarr_series_id, season_number).
+// Story 377. Soft-deleted via DeletedAt; the SeriesDelete cascade
+// (scan.CascadeSeriesDelete) stamps it alongside series_cache +
+// episode_states.
+type SeasonStatModel struct {
+	InstanceName      string     `gorm:"primaryKey;column:instance_name;type:text;size:128"`
+	SonarrSeriesID    int        `gorm:"primaryKey;column:sonarr_series_id"`
+	SeasonNumber      int        `gorm:"primaryKey;column:season_number"`
+	EpisodeCount      int        `gorm:"column:episode_count;not null;default:0"`
+	EpisodeFileCount  int        `gorm:"column:episode_file_count;not null;default:0"`
+	TotalEpisodeCount int        `gorm:"column:total_episode_count;not null;default:0"`
+	AiredEpisodeCount int        `gorm:"column:aired_episode_count;not null;default:0"`
+	Monitored         bool       `gorm:"column:monitored;not null;default:false"`
+	SizeOnDiskBytes   int64      `gorm:"column:size_on_disk_bytes;not null;default:0"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time `gorm:"column:deleted_at"`
+}
+
+func (SeasonStatModel) TableName() string { return "season_stats" }
+
 // PeopleModel — canonical local person entity (PRD §5.3, migration
 // 000027). One row per real person; tmdb_id has a partial unique
 // index where not NULL so non-TMDB stubs (rare — should only happen

@@ -37,6 +37,14 @@ type EpisodeStatesRepository interface {
 	Upsert(ctx context.Context, s series.EpisodeState) error
 }
 
+// SeasonStatsRepository — per-(instance, sonarr_series_id, season_number)
+// writer. Story 377. SyncSeriesFromSonarr calls Upsert per season; the
+// SeriesDelete cascade calls SoftDeleteBySeries via scan.CascadeDeleteDeps.
+type SeasonStatsRepository interface {
+	Upsert(ctx context.Context, s series.SeasonStat) error
+	SoftDeleteBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) (int, error)
+}
+
 // EpisodeTextsRepository — episode_texts(en-US) writer for the
 // Sonarr-shipped title (TMDB enrichment later writes ru / overwrites
 // en when TMDB has authority).

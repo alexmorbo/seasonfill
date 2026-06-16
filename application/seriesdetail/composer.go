@@ -74,10 +74,14 @@ type QueueRecordDetail struct {
 }
 
 // SeasonDetail — one season + episodes + per-instance states +
-// localised texts, fully composed.
+// localised texts, fully composed. Story 377 attaches the persisted
+// season-level Sonarr statistics under Stats so mapSeasons does not
+// have to walk episode_states (which is empty for seasons skipped by
+// scan_skip_handled_seasons).
 type SeasonDetail struct {
 	Canon    series.CanonSeason
 	Episodes []EpisodeDetail
+	Stats    *series.SeasonStat
 }
 
 // EpisodeDetail — canon episode + state + localised text bundle.
@@ -127,7 +131,11 @@ type Deps struct {
 	Seasons           SeasonsPort
 	Episodes          EpisodesPort
 	EpisodeStates     EpisodeStatesPort
-	EpisodeTexts      EpisodeTextsPort
+	// SeasonStats — story 377. Per-(instance, series, season) Sonarr
+	// statistics projection. Nil-OK: when not wired the composer skips
+	// the load + the handler falls back to walking episode_states.
+	SeasonStats  SeasonStatsPort
+	EpisodeTexts EpisodeTextsPort
 	SeriesPeople      SeriesPeoplePort
 	People            PeoplePort
 	Genres            GenresPort
@@ -405,6 +413,27 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 	for _, st := range states {
 		stateByEpID[st.EpisodeID] = st
 	}
+
+	// Story 377: per-season stats projection. Nil port disables the
+	// load — handler falls back to walking episode_states. ListBySeries
+	// failure is degraded silently (warn-logged, empty map) for the
+	// same reason episode_states is: per-instance projection failure
+	// should NOT 5xx the composer.
+	statsBySeason := map[int]series.SeasonStat{}
+	if c.d.SeasonStats != nil {
+		stats, serr := c.d.SeasonStats.ListBySeries(ctx, d.Instance, d.SonarrSeriesID)
+		if serr != nil {
+			c.d.Logger.WarnContext(ctx, "season_stats_failed",
+				slog.String("instance_name", d.Instance),
+				slog.Int("sonarr_series_id", d.SonarrSeriesID),
+				slog.String("error", serr.Error()))
+		} else {
+			for _, st := range stats {
+				statsBySeason[st.SeasonNumber] = st
+			}
+		}
+	}
+
 	// Group episodes by season number.
 	bySeason := make(map[int][]series.CanonEpisode)
 	for _, e := range episodes {
@@ -433,7 +462,12 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 			}
 			epDetails = append(epDetails, ed)
 		}
-		out = append(out, SeasonDetail{Canon: s, Episodes: epDetails})
+		sd := SeasonDetail{Canon: s, Episodes: epDetails}
+		if st, ok := statsBySeason[s.SeasonNumber]; ok {
+			stCopy := st
+			sd.Stats = &stCopy
+		}
+		out = append(out, sd)
 	}
 	d.Seasons = out
 	return nil

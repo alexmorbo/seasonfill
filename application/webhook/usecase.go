@@ -60,6 +60,9 @@ type UseCase struct {
 	// the SeriesDelete cascade only soft-deletes the cache row (pre-E-2
 	// behaviour preserved). Production wiring passes the live repo.
 	episodeStates scan.EpisodeStatesSoftDeleter
+	// seasonStats — story 377 cascade hook. Nil-OK: when not supplied the
+	// SeriesDelete cascade skips the season_stats stamp (older wiring).
+	seasonStats scan.SeasonStatsSoftDeleter
 	// torrentSeriesMap is the narrow port the reconciler also writes
 	// through. Webhook captures invoke UpsertTx inside the same tx as
 	// the grab_records.torrent_hash update so a rollback of either
@@ -89,6 +92,8 @@ type Deps struct {
 	SeriesSyncer SeriesSyncer
 	// EpisodeStates is the E-2 SeriesDelete cascade hook. Nil-OK.
 	EpisodeStates scan.EpisodeStatesSoftDeleter
+	// SeasonStats — story 377. Nil-OK.
+	SeasonStats scan.SeasonStatsSoftDeleter
 	// TorrentSeriesMap is the torrentsync bridge port — webhook
 	// grab captures invoke UpsertTx in the same tx as
 	// UpdateTorrentHash so a rollback of either rolls both back.
@@ -128,6 +133,7 @@ func New(d Deps) *UseCase {
 		instanceFor:        instFor,
 		seriesSyncer:       d.SeriesSyncer,
 		episodeStates:      d.EpisodeStates,
+		seasonStats:        d.SeasonStats,
 		torrentSeriesMap:   d.TorrentSeriesMap,
 	}
 }
@@ -470,11 +476,12 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 		)
 		return nil
 	}
-	cacheDeleted, episodeRows, err := scan.CascadeSeriesDelete(
+	cacheDeleted, episodeRows, seasonRows, err := scan.CascadeSeriesDelete(
 		ctx,
 		scan.CascadeDeleteDeps{
 			SeriesCache:   u.seriesCache,
 			EpisodeStates: u.episodeStates,
+			SeasonStats:   u.seasonStats,
 			Tx:            u.tx,
 			Logger:        u.logger,
 		},
@@ -493,6 +500,7 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 		slog.Int("series_id", evt.SeriesID),
 		slog.Bool("cache_deleted", cacheDeleted),
 		slog.Int("episode_states_deleted", episodeRows),
+		slog.Int("season_stats_deleted", seasonRows),
 	)
 	return nil
 }

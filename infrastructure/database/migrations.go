@@ -22,7 +22,7 @@ var migrationsFS embed.FS
 
 const (
 	baselineVersion = 1
-	latestVersion   = 43
+	latestVersion   = 44
 )
 
 // Migrate applies all pending versioned migrations. Signature is preserved
@@ -350,6 +350,14 @@ func stampBaselineIfNeeded(ctx context.Context, sqlDB *sql.DB, dialect string) e
 	}
 	if hasV43 {
 		version = 43
+	}
+	// Story 377: v44 = season_stats table exists.
+	hasV44, err := tableExists(ctx, sqlDB, dialect, "season_stats")
+	if err != nil {
+		return err
+	}
+	if hasV44 {
+		version = 44
 	}
 	createStmt, insertStmt := stampStatements(dialect)
 	if createStmt == "" {

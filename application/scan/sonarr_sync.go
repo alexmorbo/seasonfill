@@ -34,10 +34,14 @@ type SyncDeps struct {
 	Episodes      EpisodesRepository
 	EpisodeStates EpisodeStatesRepository
 	EpisodeTexts  EpisodeTextsRepository
-	Genres        GenresPort
-	Networks      NetworksPort
-	Logger        *slog.Logger
-	PostSync      func(ctx context.Context, seriesID int64)
+	// SeasonStats — story 377. Nil-OK for tests / older callers; when
+	// set, SyncSeriesFromSonarr writes one row per Sonarr season alongside
+	// the series_cache upsert.
+	SeasonStats SeasonStatsRepository
+	Genres      GenresPort
+	Networks    NetworksPort
+	Logger      *slog.Logger
+	PostSync    func(ctx context.Context, seriesID int64)
 }
 
 // SonarrPayloadBundle groups the three Sonarr fetches the sync needs.
@@ -101,6 +105,30 @@ func SyncSeriesFromSonarr(
 
 	if err := deps.SeriesCache.Upsert(ctx, cacheEntryFromPayload(instanceName, p)); err != nil {
 		return canonID, fmt.Errorf("sync sonarr series: cache upsert: %w", err)
+	}
+
+	if deps.SeasonStats != nil {
+		for _, s := range p.Seasons {
+			stat := series.SeasonStat{
+				InstanceName:      instanceName,
+				SonarrSeriesID:    p.ID,
+				SeasonNumber:      s.Number,
+				Monitored:         s.Monitored,
+				EpisodeCount:      s.Statistics.EpisodeCount,
+				EpisodeFileCount:  s.Statistics.EpisodeFileCount,
+				TotalEpisodeCount: s.Statistics.Total,
+				AiredEpisodeCount: s.Statistics.Aired,
+				SizeOnDiskBytes:   s.Statistics.SizeOnDisk,
+			}
+			if uerr := deps.SeasonStats.Upsert(ctx, stat); uerr != nil {
+				// season_stats is best-effort for one season — a single
+				// row failure must NOT abort the whole sync (episodes
+				// still need to land). Warn-log and continue.
+				log.WarnContext(ctx, "sync_sonarr_season_stats_upsert_failed",
+					slog.Int("season_number", s.Number),
+					slog.String("error", uerr.Error()))
+			}
+		}
 	}
 
 	if len(bundle.Episodes) > 0 {

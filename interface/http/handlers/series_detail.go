@@ -343,7 +343,6 @@ func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
 		if s.Canon.EpisodeCount != nil {
 			ds.EpisodeCount = *s.Canon.EpisodeCount
 		}
-		var onDisk, missing int
 		for _, e := range s.Episodes {
 			ep := dto.Episode{
 				EpisodeNumber:  e.Canon.EpisodeNumber,
@@ -371,19 +370,39 @@ func mapSeasons(seasons []seriesdetail.SeasonDetail) []dto.Season {
 				ep.AudioCodec = e.State.AudioCodec
 				ep.AudioChannels = e.State.AudioChannels
 				ep.ReleaseGroup = e.State.ReleaseGroup
-				if e.State.HasFile {
+			}
+			ds.Episodes = append(ds.Episodes, ep)
+		}
+		// Story 377: prefer the persisted Sonarr season.statistics
+		// projection over walking episode_states. episode_states is
+		// empty for fully-on-disk seasons skipped by
+		// scan_skip_handled_seasons, which is the bug this fixes.
+		// EpisodeCount on the dto is the "rendered episodes total" — we
+		// prefer Stats.TotalEpisodeCount (includes unaired episodes) so
+		// the accordion header "X/Y на диске" matches Sonarr.
+		if s.Stats != nil {
+			ds.Monitored = s.Stats.Monitored
+			ds.OnDiskCount = s.Stats.EpisodeFileCount
+			missing := s.Stats.AiredEpisodeCount - s.Stats.EpisodeFileCount
+			if missing < 0 {
+				missing = 0
+			}
+			ds.MissingCount = missing
+			if s.Stats.TotalEpisodeCount > 0 {
+				ds.EpisodeCount = s.Stats.TotalEpisodeCount
+			}
+		} else {
+			var onDisk, missing int
+			for _, e := range s.Episodes {
+				if e.State != nil && e.State.HasFile {
 					onDisk++
 				} else {
 					missing++
 				}
-			} else {
-				missing++
 			}
-			ds.Episodes = append(ds.Episodes, ep)
+			ds.OnDiskCount = onDisk
+			ds.MissingCount = missing
 		}
-		ds.OnDiskCount = onDisk
-		ds.MissingCount = missing
-		// EpisodeCount fallback to actual count when canon is nil.
 		if ds.EpisodeCount == 0 {
 			ds.EpisodeCount = len(s.Episodes)
 		}

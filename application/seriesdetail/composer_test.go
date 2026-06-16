@@ -136,6 +136,20 @@ func (fakeEpisodeTexts) GetWithFallback(_ context.Context, _ int64, _ string) (s
 	return series.EpisodeText{}, ports.ErrNotFound
 }
 
+type fakeSeasonStatsPort struct {
+	rows []series.SeasonStat
+	err  error
+}
+
+func (f *fakeSeasonStatsPort) ListBySeries(
+	_ context.Context, _ string, _ int,
+) ([]series.SeasonStat, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.rows, nil
+}
+
 type fakeSeriesPeople struct {
 	rows []people.SeriesCredit
 	err  error
@@ -910,4 +924,68 @@ func TestPickNextEpisode_NilSafe(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	require.Nil(t, pickNextEpisode(nil, now))
 	require.Nil(t, pickNextEpisode(&Detail{}, now))
+}
+
+// --- Story 377: SeasonStats wiring through composer ---
+
+// TestComposer_LoadSeasonsAndEpisodes_AttachesSeasonStats — story 377.
+// When the SeasonStats port returns rows for the (instance, sonarr_series_id),
+// each SeasonDetail.Stats must be populated by season_number.
+func TestComposer_LoadSeasonsAndEpisodes_AttachesSeasonStats(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := baseDeps(t)
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1},
+		{ID: 2, SeriesID: 42, SeasonNumber: 2},
+	}}
+	deps.SeasonStats = &fakeSeasonStatsPort{rows: []series.SeasonStat{
+		{
+			InstanceName: "alpha", SonarrSeriesID: 1, SeasonNumber: 1,
+			EpisodeFileCount: 10, AiredEpisodeCount: 10, TotalEpisodeCount: 10,
+			Monitored: true,
+		},
+	}}
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 2)
+	require.NotNil(t, d.Seasons[0].Stats, "season 1 must have stats attached")
+	require.Equal(t, 10, d.Seasons[0].Stats.EpisodeFileCount)
+	require.Equal(t, 10, d.Seasons[0].Stats.AiredEpisodeCount)
+	require.True(t, d.Seasons[0].Stats.Monitored)
+	require.Nil(t, d.Seasons[1].Stats, "season 2 must have no stats row")
+}
+
+// TestComposer_LoadSeasonsAndEpisodes_SeasonStatsNilPort — nil port
+// must NOT break the composer; SeasonDetail.Stats stays nil and the
+// handler falls back to the episode_states walk.
+func TestComposer_LoadSeasonsAndEpisodes_SeasonStatsNilPort(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := baseDeps(t)
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1},
+	}}
+	deps.SeasonStats = nil
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 1)
+	require.Nil(t, d.Seasons[0].Stats, "nil SeasonStats port must not surface a Stats row")
+}
+
+// TestComposer_LoadSeasonsAndEpisodes_SeasonStatsError_Degrades — port
+// error is warn-logged and degraded; Stats stays nil but the composer
+// still returns the seasons slice.
+func TestComposer_LoadSeasonsAndEpisodes_SeasonStatsError_Degrades(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := baseDeps(t)
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1},
+	}}
+	deps.SeasonStats = &fakeSeasonStatsPort{err: errors.New("db down")}
+	c := NewComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 1)
+	require.Nil(t, d.Seasons[0].Stats, "season_stats error must degrade silently with Stats nil")
 }

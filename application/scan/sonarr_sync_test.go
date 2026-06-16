@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -34,6 +35,7 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	episodesRepo := repositories.NewEpisodesRepository(db)
 	episodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
 	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
+	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 	genresRepo := repositories.NewGenresRepository(db)
 	genresI18nRepo := repositories.NewGenresI18nRepository(db)
 	networksRepo := repositories.NewNetworksRepository(db)
@@ -46,6 +48,7 @@ func newSyncFixture(t *testing.T) *syncFixture {
 		Episodes:      episodesRepo,
 		EpisodeStates: episodeStatesRepo,
 		EpisodeTexts:  episodeTextsRepo,
+		SeasonStats:   seasonStatsRepo,
 		Genres:        scan.NewGenresAdapter(genresRepo, genresI18nRepo),
 		Networks:      scan.NewNetworksAdapter(networksRepo),
 		Logger:        lg,
@@ -307,4 +310,90 @@ func TestSyncEpisodes_PopulatesMediaMeta(t *testing.T) {
 	assert.Equal(t, "5.1", *state.AudioChannels)
 	require.NotNil(t, state.ReleaseGroup)
 	assert.Equal(t, "RARBG", *state.ReleaseGroup)
+}
+
+// TestSyncSeriesFromSonarr_WritesSeasonStats — story 377.
+// One Upsert per Sonarr season; counters come straight from
+// p.Seasons[].Statistics.
+func TestSyncSeriesFromSonarr_WritesSeasonStats(t *testing.T) {
+	t.Parallel()
+	f := newSyncFixture(t)
+	ctx := context.Background()
+
+	p := sonarr.SeriesPayload{
+		ID: 140, Title: "Rick and Morty", TitleSlug: "rick-and-morty",
+		Monitored: true,
+		Seasons: []series.Season{
+			{
+				Number: 1, Monitored: true,
+				Statistics: series.Statistics{
+					EpisodeCount:     11,
+					EpisodeFileCount: 11,
+					Total:            11,
+					Aired:            11,
+					SizeOnDisk:       12_000_000_000,
+				},
+			},
+			{
+				Number: 2, Monitored: true,
+				Statistics: series.Statistics{
+					EpisodeCount:     10,
+					EpisodeFileCount: 10,
+					Total:            10,
+					Aired:            10,
+					SizeOnDisk:       11_000_000_000,
+				},
+			},
+		},
+	}
+
+	_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+	require.NoError(t, err)
+	require.Equal(t, 2, f.countTable(t, "season_stats"))
+
+	repo := repositories.NewSeasonStatsRepository(f.db)
+	got, err := repo.ListBySeries(ctx, "homelab", 140)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, 11, got[0].EpisodeFileCount)
+	require.Equal(t, 11, got[0].TotalEpisodeCount)
+	require.Equal(t, 11, got[0].AiredEpisodeCount)
+	require.Equal(t, int64(12_000_000_000), got[0].SizeOnDiskBytes)
+	require.Equal(t, 10, got[1].EpisodeFileCount)
+}
+
+// TestSyncSeriesFromSonarr_SeasonStats_PartialPack — story 377 covers
+// the "aired-but-not-on-disk" delta the handler will clamp into
+// MissingCount. Aired=10, on disk=8 → expected missing=2.
+func TestSyncSeriesFromSonarr_SeasonStats_PartialPack(t *testing.T) {
+	t.Parallel()
+	f := newSyncFixture(t)
+	ctx := context.Background()
+
+	p := sonarr.SeriesPayload{
+		ID: 369, Title: "FROM", TitleSlug: "from",
+		Monitored: true,
+		Seasons: []series.Season{
+			{
+				Number: 4, Monitored: true,
+				Statistics: series.Statistics{
+					EpisodeCount:     8,
+					EpisodeFileCount: 8,
+					Total:            10,
+					Aired:            8,
+					SizeOnDisk:       9_000_000_000,
+				},
+			},
+		},
+	}
+	_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+	require.NoError(t, err)
+	repo := repositories.NewSeasonStatsRepository(f.db)
+	got, err := repo.ListBySeries(ctx, "homelab", 369)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, 4, got[0].SeasonNumber)
+	assert.Equal(t, 8, got[0].EpisodeFileCount)
+	assert.Equal(t, 8, got[0].AiredEpisodeCount)
+	assert.Equal(t, 10, got[0].TotalEpisodeCount)
 }
