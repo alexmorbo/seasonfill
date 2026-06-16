@@ -466,3 +466,75 @@ func TestMapHero_PremiereLanguageCountries(t *testing.T) {
 		})
 	}
 }
+
+// Story 374: mapLibrary reads EpisodesOnDisk + SizeOnDiskBytes from
+// the cache row (Sonarr statistics) instead of summing episode_states.
+func TestMapLibrary_ReadsOnDiskAndSizeFromCache(t *testing.T) {
+	t.Parallel()
+	d := &seriesdetail.Detail{
+		CacheEntry: series.CacheEntry{
+			Monitored:        true,
+			MissingCount:     0,
+			EpisodeFileCount: 128,
+			SizeOnDiskBytes:  142_300_000_000,
+		},
+		Seasons: []seriesdetail.SeasonDetail{
+			{
+				Canon: series.CanonSeason{SeasonNumber: 1},
+				Episodes: []seriesdetail.EpisodeDetail{
+					{Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 1}},
+					{Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 1}},
+				},
+			},
+			{
+				Canon: series.CanonSeason{SeasonNumber: 2},
+				Episodes: []seriesdetail.EpisodeDetail{
+					{Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 2}},
+					{Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 2}},
+					{Canon: series.CanonEpisode{EpisodeNumber: 3, SeasonNumber: 2}},
+				},
+			},
+		},
+	}
+	lib := mapLibrary(d)
+	require.Equal(t, 128, lib.EpisodesOnDisk)
+	require.Equal(t, int64(142_300_000_000), lib.SizeOnDiskBytes)
+	require.Equal(t, 5, lib.EpisodesTotal)
+	require.True(t, lib.Monitored)
+	require.Empty(t, lib.DominantQuality)
+}
+
+// Story 374: DominantQuality still derives from episode_states because
+// per-episode quality strings are not cached on the row.
+func TestMapLibrary_DominantQualityFromEpisodeStates(t *testing.T) {
+	t.Parallel()
+	qWEB := "WEB-DL 1080p"
+	qBR := "Bluray-1080p"
+	d := &seriesdetail.Detail{
+		CacheEntry: series.CacheEntry{
+			Monitored:        true,
+			EpisodeFileCount: 3,
+			SizeOnDiskBytes:  3_000_000_000,
+		},
+		Seasons: []seriesdetail.SeasonDetail{{
+			Canon: series.CanonSeason{SeasonNumber: 1},
+			Episodes: []seriesdetail.EpisodeDetail{
+				{
+					Canon: series.CanonEpisode{EpisodeNumber: 1, SeasonNumber: 1},
+					State: &series.EpisodeState{HasFile: true, Quality: &qWEB},
+				},
+				{
+					Canon: series.CanonEpisode{EpisodeNumber: 2, SeasonNumber: 1},
+					State: &series.EpisodeState{HasFile: true, Quality: &qWEB},
+				},
+				{
+					Canon: series.CanonEpisode{EpisodeNumber: 3, SeasonNumber: 1},
+					State: &series.EpisodeState{HasFile: true, Quality: &qBR},
+				},
+			},
+		}},
+	}
+	lib := mapLibrary(d)
+	require.Equal(t, qWEB, lib.DominantQuality)
+	require.Equal(t, 3, lib.EpisodesOnDisk)
+}

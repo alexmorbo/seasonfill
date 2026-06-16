@@ -1042,3 +1042,44 @@ func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
 	}
 	assert.Equal(t, 2, withPath, "ListByFilter projects PosterAsset via the same SELECT")
 }
+
+// Story 374: EpisodeFileCount + SizeOnDiskBytes round-trip through Upsert/Get.
+// These power the LibraryStrip hero tile straight off the cache row.
+func TestSeriesCacheRepository_LibraryStats_RoundTrip(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	e := sampleEntry("main", 901)
+	e.EpisodeFileCount = 128
+	e.SizeOnDiskBytes = 142_300_000_000
+
+	require.NoError(t, repo.Upsert(ctx, e))
+	got, err := repo.Get(ctx, "main", 901)
+	require.NoError(t, err)
+	require.Equal(t, 128, got.EpisodeFileCount)
+	require.Equal(t, int64(142_300_000_000), got.SizeOnDiskBytes)
+
+	e.EpisodeFileCount = 129
+	e.SizeOnDiskBytes = 143_000_000_000
+	require.NoError(t, repo.Upsert(ctx, e))
+	got, err = repo.Get(ctx, "main", 901)
+	require.NoError(t, err)
+	require.Equal(t, 129, got.EpisodeFileCount)
+	require.Equal(t, int64(143_000_000_000), got.SizeOnDiskBytes)
+}
+
+// Story 374: defaults of 0/0 for entries that don't set the fields.
+func TestSeriesCacheRepository_LibraryStats_DefaultZero(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+	ctx := context.Background()
+
+	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 902)))
+	got, err := repo.Get(ctx, "main", 902)
+	require.NoError(t, err)
+	require.Equal(t, 0, got.EpisodeFileCount)
+	require.Equal(t, int64(0), got.SizeOnDiskBytes)
+}

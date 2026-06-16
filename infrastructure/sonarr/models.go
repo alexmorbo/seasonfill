@@ -73,10 +73,11 @@ type seasonDTO struct {
 // Sonarr v3 has emitted these fields since forever; older fixtures that
 // only set episodeCount still decode cleanly (zero defaults).
 type statisticsDTO struct {
-	EpisodeCount      int `json:"episodeCount"`
-	EpisodeFileCount  int `json:"episodeFileCount"`
-	TotalEpisodeCount int `json:"totalEpisodeCount"`
-	AiredEpisodeCount int `json:"airedEpisodeCount"`
+	EpisodeCount      int   `json:"episodeCount"`
+	EpisodeFileCount  int   `json:"episodeFileCount"`
+	TotalEpisodeCount int   `json:"totalEpisodeCount"`
+	AiredEpisodeCount int   `json:"airedEpisodeCount"`
+	SizeOnDisk        int64 `json:"sizeOnDisk"`
 }
 
 type episodeDTO struct {

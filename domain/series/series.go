@@ -42,6 +42,9 @@ type Statistics struct {
 	EpisodeFileCount int
 	Total            int // NEW: Sonarr totalEpisodeCount
 	Aired            int // NEW: Sonarr airedEpisodeCount
+	// Story 374: bytes Sonarr tracks for this series; authoritative for
+	// the LibraryStrip hero tile (sum of episode-file sizes).
+	SizeOnDisk int64
 }
 
 // AiredMissing returns aired-but-not-on-disk count, clamped to 0

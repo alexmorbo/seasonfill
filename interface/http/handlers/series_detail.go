@@ -236,23 +236,26 @@ func mapStatusPill(status *string, inProduction bool) string {
 }
 
 func mapLibrary(d *seriesdetail.Detail) dto.LibraryStrip {
+	// Story 374: EpisodesOnDisk + SizeOnDiskBytes come straight from
+	// the cache row populated by the Sonarr sync writer (series
+	// statistics). This decouples the LibraryStrip totals from the
+	// episode_states branch — which can degrade silently (218 soft-
+	// delete + missing resurrection) — and matches Sonarr's authoritative
+	// counters. Total episode count + DominantQuality still derive from
+	// the seasons/episodes branch because per-season totals and per-
+	// episode quality strings are not cached on the row.
 	lib := dto.LibraryStrip{
-		Monitored:    d.CacheEntry.Monitored,
-		MissingCount: d.CacheEntry.MissingCount,
+		Monitored:       d.CacheEntry.Monitored,
+		MissingCount:    d.CacheEntry.MissingCount,
+		EpisodesOnDisk:  d.CacheEntry.EpisodeFileCount,
+		SizeOnDiskBytes: d.CacheEntry.SizeOnDiskBytes,
 	}
-	// Counts derived from the seasons/episodes branch; this is best-
-	// effort and graceful when the branch degraded (zero-fill).
-	var onDisk, total int
-	var sizeBytes int64
+	var total int
 	qualityCount := map[string]int{}
 	for _, s := range d.Seasons {
 		for _, e := range s.Episodes {
 			total++
 			if e.State != nil && e.State.HasFile {
-				onDisk++
-				if e.State.SizeBytes != nil {
-					sizeBytes += *e.State.SizeBytes
-				}
 				if e.State.Quality != nil && *e.State.Quality != "" {
 					qualityCount[*e.State.Quality]++
 				}
@@ -260,8 +263,6 @@ func mapLibrary(d *seriesdetail.Detail) dto.LibraryStrip {
 		}
 	}
 	lib.EpisodesTotal = total
-	lib.EpisodesOnDisk = onDisk
-	lib.SizeOnDiskBytes = sizeBytes
 	// Dominant quality = the quality with the highest count.
 	var dominant string
 	highest := 0

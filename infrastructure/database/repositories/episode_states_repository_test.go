@@ -103,6 +103,61 @@ func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
 	require.Len(t, rows, 3)
 }
 
+// Story 374: Upsert must clear deleted_at on conflict so a soft-deleted
+// row is resurrected by the next scan tick. Before this fix the
+// SoftDeleteBySeries cascade (story 218) left rows hidden forever
+// because the DO UPDATE SET did not include deleted_at.
+func TestEpisodeStatesRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	sr := NewSeriesRepository(db)
+	// Seed the cache row first; its resolveOrCreateCanon will pick or
+	// create the canon series_id. We then look it up and seed the
+	// episode against the same id so SoftDeleteBySeries' JOIN walks
+	// episodes → series_cache through a real (cache.series_id =
+	// episode.series_id) edge.
+	scr := NewSeriesCacheRepository(db, sr)
+	require.NoError(t, scr.Upsert(ctx, series.CacheEntry{
+		InstanceName:   "main",
+		SonarrSeriesID: 42,
+		Title:          "X",
+		TitleSlug:      "x",
+	}))
+	cached, err := scr.Get(ctx, "main", 42)
+	require.NoError(t, err)
+	require.NotNil(t, cached.SeriesID, "cache row must resolve to a canon series_id")
+
+	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+		SeriesID: *cached.SeriesID, SeasonNumber: 1, EpisodeNumber: 1,
+	})
+	require.NoError(t, err)
+
+	repo := NewEpisodeStatesRepository(db)
+	st := series.EpisodeState{
+		InstanceName: "main",
+		EpisodeID:    epID,
+		Monitored:    true,
+		HasFile:      true,
+	}
+	require.NoError(t, repo.Upsert(ctx, st))
+	_, err = repo.Get(ctx, "main", epID)
+	require.NoError(t, err, "row should be visible after insert")
+
+	n, err := repo.SoftDeleteBySeries(ctx, "main", 42)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	_, err = repo.Get(ctx, "main", epID)
+	require.ErrorIs(t, err, ports.ErrNotFound, "row should be hidden after soft-delete")
+
+	// Story 374 fix: re-upserting must clear deleted_at.
+	require.NoError(t, repo.Upsert(ctx, st))
+	got, err := repo.Get(ctx, "main", epID)
+	require.NoError(t, err, "row must be visible after resurrecting Upsert")
+	require.True(t, got.HasFile)
+}
+
 func TestEpisodeStatesRepository_MediaMeta_RoundTrip(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

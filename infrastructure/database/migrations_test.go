@@ -121,8 +121,8 @@ func TestMigrate_StampsBaselineOnExistingDB(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty))
-	// 365a: latest migration is 000041_series_origin_countries.
-	assert.Equal(t, 41, version)
+	// Story 374: latest migration is 000042_series_cache_episode_file_count_and_size_on_disk.
+	assert.Equal(t, 42, version)
 	assert.False(t, dirty)
 }
 

@@ -78,7 +78,8 @@ func (r *EpisodeStatesRepository) Upsert(ctx context.Context, s series.EpisodeSt
 		DoUpdates: clause.AssignmentColumns([]string{
 			"monitored", "has_file",
 			"episode_file_id", "quality", "size_bytes",
-			"updated_at",
+			"video_codec", "audio_codec", "audio_channels", "release_group",
+			"updated_at", "deleted_at",
 		}),
 	}).Create(&m).Error
 	if err != nil {

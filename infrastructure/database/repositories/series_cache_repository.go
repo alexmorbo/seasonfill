@@ -38,14 +38,16 @@ func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCach
 // shape so callers see no change.
 type cacheRow struct {
 	// series_cache columns
-	InstanceName   string     `gorm:"column:instance_name"`
-	SonarrSeriesID int        `gorm:"column:sonarr_series_id"`
-	SeriesID       *int64     `gorm:"column:series_id"`
-	TitleSlug      string     `gorm:"column:title_slug"`
-	Monitored      bool       `gorm:"column:monitored"`
-	MissingCount   int        `gorm:"column:missing_count"`
-	UpdatedAt      time.Time  `gorm:"column:updated_at"`
-	DeletedAt      *time.Time `gorm:"column:deleted_at"`
+	InstanceName     string     `gorm:"column:instance_name"`
+	SonarrSeriesID   int        `gorm:"column:sonarr_series_id"`
+	SeriesID         *int64     `gorm:"column:series_id"`
+	TitleSlug        string     `gorm:"column:title_slug"`
+	Monitored        bool       `gorm:"column:monitored"`
+	MissingCount     int        `gorm:"column:missing_count"`
+	EpisodeFileCount int        `gorm:"column:episode_file_count"`
+	SizeOnDiskBytes  int64      `gorm:"column:size_on_disk_bytes"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at"`
+	DeletedAt        *time.Time `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
 	Title  string  `gorm:"column:s_title"`
 	Year   *int    `gorm:"column:s_year"`
@@ -92,6 +94,8 @@ const seriesCacheSelect = `
 		series_cache.title_slug         AS title_slug,
 		series_cache.monitored          AS monitored,
 		series_cache.missing_count      AS missing_count,
+		series_cache.episode_file_count AS episode_file_count,
+		series_cache.size_on_disk_bytes AS size_on_disk_bytes,
 		series_cache.updated_at         AS updated_at,
 		series_cache.deleted_at         AS deleted_at,
 		s.title                         AS s_title,
@@ -157,14 +161,16 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 	}
 
 	m := database.SeriesCacheModel{
-		InstanceName:   entry.InstanceName,
-		SonarrSeriesID: entry.SonarrSeriesID,
-		SeriesID:       &canonID,
-		TitleSlug:      entry.TitleSlug,
-		Monitored:      entry.Monitored,
-		MissingCount:   entry.MissingCount,
-		UpdatedAt:      entry.UpdatedAt,
-		DeletedAt:      nil,
+		InstanceName:     entry.InstanceName,
+		SonarrSeriesID:   entry.SonarrSeriesID,
+		SeriesID:         &canonID,
+		TitleSlug:        entry.TitleSlug,
+		Monitored:        entry.Monitored,
+		MissingCount:     entry.MissingCount,
+		EpisodeFileCount: entry.EpisodeFileCount,
+		SizeOnDiskBytes:  entry.SizeOnDiskBytes,
+		UpdatedAt:        entry.UpdatedAt,
+		DeletedAt:        nil,
 	}
 	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
@@ -173,6 +179,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"series_id", "title_slug", "monitored", "missing_count",
+			"episode_file_count", "size_on_disk_bytes",
 			"updated_at", "deleted_at",
 		}),
 	}).Create(&m)
@@ -625,27 +632,29 @@ func formatSeasonTag(season int) string {
 // them. Production reads never hit these fields.
 func rowToCacheEntry(r cacheRow) series.CacheEntry {
 	return series.CacheEntry{
-		InstanceName:   r.InstanceName,
-		SonarrSeriesID: r.SonarrSeriesID,
-		SeriesID:       r.SeriesID,
-		Title:          r.Title,
-		TitleSlug:      r.TitleSlug,
-		Year:           r.Year,
-		TVDBID:         r.TVDBID,
-		IMDBID:         r.IMDBID,
-		TMDBID:         r.TMDBID,
-		Status:         r.Status,
-		Genres:         nil,
-		RuntimeMinutes: r.RuntimeMinutes,
-		Monitored:      r.Monitored,
-		Overview:       nil,
-		PosterAsset:    r.PosterAsset,
-		FanartPath:     nil,
-		BannerPath:     nil,
-		MissingCount:   r.MissingCount,
-		LastAiredAt:    r.LastAiredAt,
-		UpdatedAt:      r.UpdatedAt,
-		DeletedAt:      r.DeletedAt,
+		InstanceName:     r.InstanceName,
+		SonarrSeriesID:   r.SonarrSeriesID,
+		SeriesID:         r.SeriesID,
+		Title:            r.Title,
+		TitleSlug:        r.TitleSlug,
+		Year:             r.Year,
+		TVDBID:           r.TVDBID,
+		IMDBID:           r.IMDBID,
+		TMDBID:           r.TMDBID,
+		Status:           r.Status,
+		Genres:           nil,
+		RuntimeMinutes:   r.RuntimeMinutes,
+		Monitored:        r.Monitored,
+		Overview:         nil,
+		PosterAsset:      r.PosterAsset,
+		FanartPath:       nil,
+		BannerPath:       nil,
+		MissingCount:     r.MissingCount,
+		EpisodeFileCount: r.EpisodeFileCount,
+		SizeOnDiskBytes:  r.SizeOnDiskBytes,
+		LastAiredAt:      r.LastAiredAt,
+		UpdatedAt:        r.UpdatedAt,
+		DeletedAt:        r.DeletedAt,
 	}
 }
 

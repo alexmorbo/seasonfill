@@ -50,6 +50,11 @@ type CacheEntry struct {
 	FanartPath   *string
 	BannerPath   *string
 	MissingCount int
+	// Story 374: cached Sonarr statistics. EpisodeFileCount and
+	// SizeOnDiskBytes power LibraryStrip without depending on
+	// episode_states rollups.
+	EpisodeFileCount int
+	SizeOnDiskBytes  int64
 	// LastAiredAt mirrors Sonarr's `previousAiring` — the datetime of
 	// the most recently aired episode for this series. Nil when no
 	// episode has aired yet (upcoming series). Powers the F11
