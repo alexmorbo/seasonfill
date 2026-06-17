@@ -8,7 +8,7 @@ import (
 
 func TestMatchesWebhookURL(t *testing.T) {
 	t.Parallel()
-	field := func(v interface{}) []sonarr.NotificationField {
+	field := func(v any) []sonarr.NotificationField {
 		return []sonarr.NotificationField{{Name: "url", Value: v}}
 	}
 	tests := []struct {

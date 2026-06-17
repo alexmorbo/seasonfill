@@ -44,7 +44,7 @@ func (g *gormSlog) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	return &cp
 }
 
-func (g *gormSlog) Info(ctx context.Context, msg string, data ...interface{}) {
+func (g *gormSlog) Info(ctx context.Context, msg string, data ...any) {
 	if g.cfg.LogLevel < gormlogger.Info {
 		return
 	}
@@ -54,7 +54,7 @@ func (g *gormSlog) Info(ctx context.Context, msg string, data ...interface{}) {
 	)
 }
 
-func (g *gormSlog) Warn(ctx context.Context, msg string, data ...interface{}) {
+func (g *gormSlog) Warn(ctx context.Context, msg string, data ...any) {
 	if g.cfg.LogLevel < gormlogger.Warn {
 		return
 	}
@@ -64,7 +64,7 @@ func (g *gormSlog) Warn(ctx context.Context, msg string, data ...interface{}) {
 	)
 }
 
-func (g *gormSlog) Error(ctx context.Context, msg string, data ...interface{}) {
+func (g *gormSlog) Error(ctx context.Context, msg string, data ...any) {
 	if g.cfg.LogLevel < gormlogger.Error {
 		return
 	}
@@ -121,7 +121,7 @@ func (g *gormSlog) Trace(ctx context.Context, begin time.Time, fc func() (string
 	}
 }
 
-func formatMsg(msg string, data ...interface{}) string {
+func formatMsg(msg string, data ...any) string {
 	if len(data) == 0 {
 		return msg
 	}

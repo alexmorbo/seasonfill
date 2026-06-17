@@ -73,7 +73,7 @@ func (r *SeriesRepository) FindByExternalIDs(
 	imdbID *string,
 ) (series.Canon, error) {
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	probe := func(where string, args ...interface{}) (series.Canon, bool, error) {
+	probe := func(where string, args ...any) (series.Canon, bool, error) {
 		var m database.SeriesModel
 		err := db.Where(where, args...).First(&m).Error
 		if err == nil {
@@ -214,7 +214,7 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (int6
 		// prefix references the existing row in both Postgres and
 		// SQLite ON CONFLICT semantics; `excluded.` is the proposed
 		// row in both dialects, so no branching is needed.
-		DoUpdates: clause.Assignments(map[string]interface{}{
+		DoUpdates: clause.Assignments(map[string]any{
 			"tvdb_id":           gorm.Expr("COALESCE(series.tvdb_id, excluded.tvdb_id)"),
 			"imdb_id":           gorm.Expr("COALESCE(series.imdb_id, excluded.imdb_id)"),
 			"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN series.hydration ELSE excluded.hydration END"),
@@ -419,37 +419,37 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64
 		stmts := []struct {
 			name string
 			sql  string
-			args []interface{}
+			args []any
 		}{
 			{"episode_people",
 				`DELETE FROM episode_people
 				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
-				[]interface{}{seriesID}},
+				[]any{seriesID}},
 			{"episode_texts",
 				`DELETE FROM episode_texts
 				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
-				[]interface{}{seriesID}},
+				[]any{seriesID}},
 			{"episode_states",
 				`DELETE FROM episode_states
 				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
-				[]interface{}{seriesID}},
-			{"episodes", `DELETE FROM episodes WHERE series_id = ?`, []interface{}{seriesID}},
-			{"seasons", `DELETE FROM seasons WHERE series_id = ?`, []interface{}{seriesID}},
-			{"series_people", `DELETE FROM series_people WHERE series_id = ?`, []interface{}{seriesID}},
-			{"series_genres", `DELETE FROM series_genres WHERE series_id = ?`, []interface{}{seriesID}},
-			{"series_networks", `DELETE FROM series_networks WHERE series_id = ?`, []interface{}{seriesID}},
-			{"series_companies", `DELETE FROM series_companies WHERE series_id = ?`, []interface{}{seriesID}},
-			{"series_keywords", `DELETE FROM series_keywords WHERE series_id = ?`, []interface{}{seriesID}},
-			{"videos", `DELETE FROM videos WHERE series_id = ?`, []interface{}{seriesID}},
-			{"content_ratings", `DELETE FROM content_ratings WHERE series_id = ?`, []interface{}{seriesID}},
+				[]any{seriesID}},
+			{"episodes", `DELETE FROM episodes WHERE series_id = ?`, []any{seriesID}},
+			{"seasons", `DELETE FROM seasons WHERE series_id = ?`, []any{seriesID}},
+			{"series_people", `DELETE FROM series_people WHERE series_id = ?`, []any{seriesID}},
+			{"series_genres", `DELETE FROM series_genres WHERE series_id = ?`, []any{seriesID}},
+			{"series_networks", `DELETE FROM series_networks WHERE series_id = ?`, []any{seriesID}},
+			{"series_companies", `DELETE FROM series_companies WHERE series_id = ?`, []any{seriesID}},
+			{"series_keywords", `DELETE FROM series_keywords WHERE series_id = ?`, []any{seriesID}},
+			{"videos", `DELETE FROM videos WHERE series_id = ?`, []any{seriesID}},
+			{"content_ratings", `DELETE FROM content_ratings WHERE series_id = ?`, []any{seriesID}},
 			{"external_ids",
 				`DELETE FROM external_ids WHERE entity_type = 'series' AND entity_id = ?`,
-				[]interface{}{seriesID}},
-			{"series_texts", `DELETE FROM series_texts WHERE series_id = ?`, []interface{}{seriesID}},
+				[]any{seriesID}},
+			{"series_texts", `DELETE FROM series_texts WHERE series_id = ?`, []any{seriesID}},
 			{"series_recommendations",
 				`DELETE FROM series_recommendations WHERE series_id = ? OR recommended_series_id = ?`,
-				[]interface{}{seriesID, seriesID}},
-			{"series", `DELETE FROM series WHERE id = ?`, []interface{}{seriesID}},
+				[]any{seriesID, seriesID}},
+			{"series", `DELETE FROM series WHERE id = ?`, []any{seriesID}},
 		}
 		for _, s := range stmts {
 			if err := tx.Exec(s.sql, s.args...).Error; err != nil {
@@ -482,7 +482,7 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64
 // id-conflict branch with a row they already loaded, but their canonOut
 // may still be a Sonarr-merge product missing the image fields, so the
 // same guard applies.
-func seriesUpsertAssignments() map[string]interface{} {
+func seriesUpsertAssignments() map[string]any {
 	// COALESCE(excluded.X, series.X) on TMDB/OMDb-owned columns: a
 	// Sonarr-driven Upsert (MergeSeries(SourceSonarr) path) leaves
 	// those columns nil in canonOut whenever the in-memory canon read
@@ -491,7 +491,7 @@ func seriesUpsertAssignments() map[string]interface{} {
 	// protection, extended after live regression on series.id=8 R&M
 	// and id=96 Star City lost tmdb_rating + first_air_date +
 	// origin_countries between /refresh and the next scan tick.
-	return map[string]interface{}{
+	return map[string]any{
 		"tmdb_id":           gorm.Expr("excluded.tmdb_id"),
 		"tvdb_id":           gorm.Expr("excluded.tvdb_id"),
 		"imdb_id":           gorm.Expr("excluded.imdb_id"),

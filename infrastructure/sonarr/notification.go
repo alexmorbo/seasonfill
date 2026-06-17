@@ -27,8 +27,8 @@ type downloadClientDTO struct {
 // by `name` rather than decoding into a typed struct because Sonarr's
 // download-client field set varies per implementation.
 type downloadClientField struct {
-	Name  string      `json:"name"`
-	Value interface{} `json:"value,omitempty"`
+	Name  string `json:"name"`
+	Value any    `json:"value,omitempty"`
 }
 
 // DownloadClient is the trimmed, typed shape ListDownloadClients
@@ -63,11 +63,11 @@ type notificationDTO struct {
 }
 
 // NotificationField is the field-array entry shape on
-// /api/v3/notification. Value is preserved as interface{} so JSON
+// /api/v3/notification. Value is preserved as any so JSON
 // numbers, strings, and bools round-trip without coercion.
 type NotificationField struct {
-	Name  string      `json:"name"`
-	Value interface{} `json:"value,omitempty"`
+	Name  string `json:"name"`
+	Value any    `json:"value,omitempty"`
 }
 
 // Notification is the trimmed, typed shape Sonarr-list methods return.
@@ -324,7 +324,7 @@ func buildNotificationFields(p NotificationPayload) []NotificationField {
 // toInt is a lenient JSON-number → int coercion. Sonarr emits port as
 // either a JSON number (float64 after decode) or an int-shaped string
 // depending on field type; we tolerate both.
-func toInt(v interface{}) int {
+func toInt(v any) int {
 	switch x := v.(type) {
 	case float64:
 		return int(x)

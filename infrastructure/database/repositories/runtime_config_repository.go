@@ -292,7 +292,7 @@ func (r *RuntimeConfigRepository) UpsertOIDCSecret(ctx context.Context, plaintex
 	}
 	res := db.Model(&database.RuntimeConfigModel{}).
 		Where("id = ?", runtimeConfigID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"oidc_client_secret_ciphertext": ct,
 			"updated_at":                    now,
 		})

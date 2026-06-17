@@ -34,13 +34,13 @@ func newStatusRig(t *testing.T, cache *webhookinstall.StatusCache) *gin.Engine {
 	return r
 }
 
-func getStatus(t *testing.T, r *gin.Engine) (int, map[string]interface{}) {
+func getStatus(t *testing.T, r *gin.Engine) (int, map[string]any) {
 	t.Helper()
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/instances/alpha/webhook/status", nil)
 	r.ServeHTTP(w, req)
-	var got map[string]interface{}
+	var got map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	return w.Code, got
 }

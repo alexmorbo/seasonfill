@@ -40,7 +40,7 @@ func pickLanguageFallback(
 	table, entityCol string,
 	entityID int64,
 	lang string,
-	dst interface{},
+	dst any,
 ) error {
 	if lang == "" {
 		lang = fallbackLanguage

@@ -242,7 +242,7 @@ func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName str
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instanceName, sonarrSeriesID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"deleted_at": now,
 			"updated_at": now,
 		})

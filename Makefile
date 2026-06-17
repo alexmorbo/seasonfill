@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage test-integration test-integration-e2e test-all lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -37,6 +37,11 @@ test-all: test-race test-integration test-integration-e2e
 
 lint:
 	golangci-lint run ./...
+
+# test-lint-rule runs the use-any regression guard. Requires
+# golangci-lint on PATH; opt-in via the `lint` build tag.
+test-lint-rule:
+	go test -tags lint -run TestForbidigoRejectsInterfaceLiteral ./tests/...
 
 vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
 

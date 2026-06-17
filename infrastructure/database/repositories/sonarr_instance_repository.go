@@ -189,7 +189,7 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(
 
 		res := tx.Model(&database.InstanceSecretModel{}).
 			Where("instance_id = ? AND secret_name = ?", m.ID, "api_key").
-			Updates(map[string]interface{}{"ciphertext": ct, "updated_at": now})
+			Updates(map[string]any{"ciphertext": ct, "updated_at": now})
 		if res.Error != nil {
 			return fmt.Errorf("upsert api key secret: %w", res.Error)
 		}

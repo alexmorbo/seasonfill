@@ -111,7 +111,7 @@ func (r *EpisodeStatesRepository) SoftDeleteBySeries(
 		       WHERE sc.instance_name = ? AND sc.sonarr_series_id = ?
 		   )`,
 			instanceName, instanceName, sonarrSeriesID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"deleted_at": now,
 			"updated_at": now,
 		})

@@ -357,7 +357,7 @@ func (h *MediaHandler) loadFromStoreOrRefetch(ctx context.Context, asset media.A
 	}
 
 	// Lost object — singleflight refetch from upstream.
-	sfRes, sfErr, _ := h.sf.Do(asset.Hash, func() (interface{}, error) {
+	sfRes, sfErr, _ := h.sf.Do(asset.Hash, func() (any, error) {
 		return h.refetchAndStore(ctx, asset)
 	})
 	if sfErr != nil {
@@ -458,7 +458,7 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 		ok    bool
 		asset media.Asset
 	}
-	resAny, _, _ := h.sf.Do("ondemand:"+hash, func() (interface{}, error) {
+	resAny, _, _ := h.sf.Do("ondemand:"+hash, func() (any, error) {
 		_, ok := h.ondemandFetcher.FetchSync(fetchCtx, sourceURL, kind, extFromSourceURL(sourceURL))
 		if !ok {
 			// No negative-cache persist: leave the row's current status

@@ -179,12 +179,12 @@ type historyResponse struct {
 }
 
 type historyRecord struct {
-	EventType  string                 `json:"eventType"`
-	Indexer    string                 `json:"indexer,omitempty"`
-	Episode    *episodeDTO            `json:"episode,omitempty"`
-	Data       map[string]interface{} `json:"data"`
-	SeriesID   int                    `json:"seriesId,omitempty"`
-	DownloadID string                 `json:"downloadId,omitempty"`
+	EventType  string         `json:"eventType"`
+	Indexer    string         `json:"indexer,omitempty"`
+	Episode    *episodeDTO    `json:"episode,omitempty"`
+	Data       map[string]any `json:"data"`
+	SeriesID   int            `json:"seriesId,omitempty"`
+	DownloadID string         `json:"downloadId,omitempty"`
 }
 
 // historyPagedResponse is the cursor-aware shape consumed by

@@ -222,7 +222,7 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 	got, err := repo.Get(ctx, "main", 7)
 	require.NoError(t, err)
 	assert.Equal(t, "Minimal", got.Title)
-	for _, p := range []interface{}{
+	for _, p := range []any{
 		got.Year, got.TVDBID, got.IMDBID, got.TMDBID,
 		got.Status, got.Genres,
 		got.RuntimeMinutes, got.Overview,

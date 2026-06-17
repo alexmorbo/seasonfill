@@ -26,6 +26,12 @@ linters:
           disabled: true
         - name: package-comments
           disabled: true
+        # use-any: reject the literal `interface{}` token. `any` is the
+        # Go 1.18+ alias and is the only spelling allowed in this
+        # codebase. Implemented via revive's purpose-built `use-any`
+        # rule (forbidigo can't match type literals — it operates on
+        # identifiers/calls only).
+        - name: use-any
     gocritic:
       enabled-checks:
         - appendAssign
@@ -53,6 +59,28 @@ linters:
       - path: fixtures
         linters:
           - misspell
+      # Generated code is allowed to keep interface{} — the use-any
+      # rule targets human-authored code only.
+      - path: '\.pb\.go$'
+        linters:
+          - revive
+        text: 'use-any'
+      - path: '_gen\.go$'
+        linters:
+          - revive
+        text: 'use-any'
+      - path: 'mocks/'
+        linters:
+          - revive
+        text: 'use-any'
+      # Regression test deliberately contains `interface{}` to verify
+      # the lint rule actually rejects it. The test file itself must
+      # not trip the lint run; the assertion runs golangci-lint as a
+      # subprocess against a temp fixture file outside the module.
+      - path: 'tests/lint_forbidigo_test\.go$'
+        linters:
+          - revive
+        text: 'use-any'
 
 formatters:
   enable:
