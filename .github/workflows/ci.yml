@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,6 +15,7 @@ permissions:
 jobs:
   lint:
     name: Lint
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,6 +34,7 @@ jobs:
 
   unit:
     name: Unit
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -50,7 +55,7 @@ jobs:
       - name: Test (unit)
         run: |
           PKGS=$(go list ./... | grep -v '/cmd/')
-          go test -short -race -timeout 20m -coverprofile=coverage.out $PKGS
+          go test -short -race -timeout 5m -coverprofile=coverage.out $PKGS
 
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1
@@ -69,6 +74,7 @@ jobs:
 
   openapi:
     name: OpenAPI drift
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -88,6 +94,7 @@ jobs:
 
   integration:
     name: Integration
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,10 +109,45 @@ jobs:
       - name: Test (integration)
         run: |
           PKGS=$(go list ./... | grep -v '/cmd/')
-          go test -timeout 10m $PKGS
+          go test -tags integration -race -timeout 15m $PKGS
+
+  nightly-deep:
+    name: Nightly deep
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Test (integration + e2e)
+        run: |
+          PKGS=$(go list ./... | grep -v '/cmd/')
+          go test -tags "integration integration_e2e" -race -timeout 30m -coverprofile=coverage-deep.out $PKGS
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage-deep.out ]; then
+            go tool cover -func=coverage-deep.out | tail -1
+          fi
+
+      - name: Upload nightly coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-nightly
+          path: coverage-deep.out
+          if-no-files-found: ignore
 
   vuln:
     name: Vuln Scan
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

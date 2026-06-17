@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage test-integration lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration test-integration-e2e test-all lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -20,12 +20,20 @@ test-coverage:
 	go test $$PKGS -short -race -coverprofile=coverage.out -covermode=atomic; \
 	go tool cover -func=coverage.out | tail -1
 
-# test-integration runs tests gated by the `integration` build tag.
-# These boot the full server in-process with SQLite; they are self-contained
-# but slower and excluded from the default `make test` / `make test-race` runs.
-# CI must call both `make test-race` AND `make test-integration` for full coverage.
+# test-integration runs the `integration` build tag suite (CI integration job).
+# Tests boot the full server in-process with SQLite; self-contained,
+# ~3min total. Excluded from default `make test` / `make test-race` runs.
 test-integration:
-	go test -tags integration -race -count=1 -timeout 5m ./...
+	go test -tags integration -race -count=1 -timeout 15m ./...
+
+# test-integration-e2e runs the `integration_e2e` build tag suite (CI nightly-deep job).
+# Long-running end-to-end flows (regrab full lifecycle, OIDC callback E2E).
+# Always implies `integration` tag so middleware suites also load.
+test-integration-e2e:
+	go test -tags "integration integration_e2e" -race -count=1 -timeout 30m ./...
+
+# test-all runs unit + integration + e2e in sequence. Mirrors nightly CI.
+test-all: test-race test-integration test-integration-e2e
 
 lint:
 	golangci-lint run ./...

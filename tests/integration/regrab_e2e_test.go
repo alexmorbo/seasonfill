@@ -1,3 +1,5 @@
+//go:build integration_e2e
+
 package integration
 
 import (
