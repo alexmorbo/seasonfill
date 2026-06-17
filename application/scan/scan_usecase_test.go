@@ -1665,3 +1665,55 @@ func TestScanUseCase_SeasonStats_NilRepo_NoCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "completed", res.Status)
 }
+
+// TestScanUseCase_SeasonStats_RegressionStory380Wiring is the
+// named-for-what-it-protects regression test for Story 380. The pre-fix
+// scan loop silently skipped season_stats writes — webhook E-1 path
+// wrote them, but the 6h scan tick did not, leaving
+// SeriesSeasonsAccordion rendering 0/N for every season on instances
+// whose webhook never fired.
+//
+// Distinct from TestScanUseCase_SeasonStats_UpsertsEverySeason (which
+// uses 2x2 matrix to test fanout): this test uses the simplest possible
+// 1x1 fixture so a regression ("the call disappeared from
+// fillSeriesCache") fails with the cleanest possible message.
+func TestScanUseCase_SeasonStats_RegressionStory380Wiring(t *testing.T) {
+	t.Parallel()
+
+	single := series.Series{
+		ID: 140, Title: "Rick and Morty",
+		Type:           series.SeriesTypeStandard,
+		Monitored:      true,
+		QualityProfile: 14,
+		Seasons: []series.Season{{
+			Number: 2, Monitored: true,
+			Statistics: series.Statistics{
+				EpisodeCount: 5, EpisodeFileCount: 5,
+				Total: 5, Aired: 5, SizeOnDisk: 2_000_000,
+			},
+		}},
+	}
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{single}}
+	stats := &fakeSeasonStats{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithSeasonStats(stats)
+
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	require.Len(t, stats.upserted, 1,
+		"REGRESSION Story 380: fillSeriesCache must call SeasonStats.Upsert exactly once per Sonarr season")
+
+	got := stats.upserted[0]
+	assert.Equal(t, "main", got.InstanceName)
+	assert.Equal(t, 140, got.SonarrSeriesID,
+		"REGRESSION: SonarrSeriesID must be projected from payload")
+	assert.Equal(t, 2, got.SeasonNumber,
+		"REGRESSION: SeasonNumber must be projected from payload")
+	assert.Equal(t, 5, got.EpisodeCount)
+	assert.Equal(t, 5, got.EpisodeFileCount)
+	assert.Equal(t, 5, got.AiredEpisodeCount)
+	assert.Equal(t, int64(2_000_000), got.SizeOnDiskBytes)
+	assert.True(t, got.Monitored)
+}

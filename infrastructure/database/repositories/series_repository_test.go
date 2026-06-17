@@ -955,3 +955,98 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 	}
 	assert.Equal(t, "Rick and Morty", got.Title)
 }
+
+// TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO is
+// the explicit live regression named after the FIX-B13-HERO ship
+// (sha-d1cd972). Pre-fix, a Sonarr scan tick wrote canonOut with
+// TMDB/OMDb-shape fields = nil over an already-enriched row, nuking
+// OriginCountries, TMDBRating, IMDBRating, FirstAirDate (observed live
+// on id=8 R&M and id=96 Star City). COALESCE shield in
+// seriesUpsertAssignments protects against the regression; this test
+// fails the moment that shield is removed.
+func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSeriesRepository(db)
+	ctx := context.Background()
+
+	tmdbID := 80002
+	firstAir := time.Date(2013, 12, 2, 0, 0, 0, 0, time.UTC)
+	tmdbRating := 8.7
+	imdbRating := 9.1
+	originCountries := []string{"US"}
+
+	id, err := repo.Upsert(ctx, series.Canon{
+		TMDBID:          ptrInt(tmdbID),
+		Title:           "Rick and Morty",
+		Hydration:       series.HydrationFull,
+		FirstAirDate:    &firstAir,
+		OriginCountries: originCountries,
+		TMDBRating:      &tmdbRating,
+		IMDBRating:      &imdbRating,
+		Year:            ptrInt(2013),
+	})
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	// Mimic the Sonarr-driven scan tick: same canon row, but every
+	// TMDB/OMDb-owned column nil — exactly the regression shape that
+	// nuked id=8 R&M and id=96 Star City in production.
+	_, err = repo.Upsert(ctx, series.Canon{
+		TMDBID:    ptrInt(tmdbID),
+		Title:     "Rick and Morty",
+		Hydration: series.HydrationStub,
+		Year:      ptrInt(2013),
+	})
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, id)
+	require.NoError(t, err)
+
+	cases := []struct {
+		column string
+		check  func(t *testing.T)
+	}{
+		{
+			column: "origin_countries",
+			check: func(t *testing.T) {
+				assert.Equal(t, originCountries, got.OriginCountries,
+					"REGRESSION: origin_countries nuked by Sonarr-only Upsert (FIX-B13-HERO reverted?)")
+			},
+		},
+		{
+			column: "tmdb_rating",
+			check: func(t *testing.T) {
+				if assert.NotNil(t, got.TMDBRating, "REGRESSION: tmdb_rating nuked") {
+					assert.InEpsilon(t, tmdbRating, *got.TMDBRating, 1e-9)
+				}
+			},
+		},
+		{
+			column: "imdb_rating",
+			check: func(t *testing.T) {
+				if assert.NotNil(t, got.IMDBRating, "REGRESSION: imdb_rating nuked") {
+					assert.InEpsilon(t, imdbRating, *got.IMDBRating, 1e-9)
+				}
+			},
+		},
+		{
+			column: "first_air_date",
+			check: func(t *testing.T) {
+				if assert.NotNil(t, got.FirstAirDate, "REGRESSION: first_air_date nuked") {
+					assert.True(t, got.FirstAirDate.Equal(firstAir))
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.column, func(t *testing.T) {
+			t.Parallel()
+			tc.check(t)
+		})
+	}
+
+	assert.Equal(t, series.HydrationFull, got.Hydration,
+		"REGRESSION: hydration downgraded full->stub")
+}

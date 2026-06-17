@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/interface/http/dto"
 )
 
 // --- mapHero — branch coverage ---
@@ -341,4 +343,129 @@ func TestMapSeasons_DownloadingCount(t *testing.T) {
 	// out[1] is season 5.
 	assert.Equal(t, 5, out[1].SeasonNumber)
 	assert.Equal(t, 2, out[1].DownloadingCount, "queued record must not count")
+}
+
+// TestMapHero_NullableFieldsJSONProjection_OmitemptyContract proves the
+// JSON wire contract for the three nullable hero fields the live B-13
+// regression list highlighted: premiere_date, original_language,
+// countries. Different from the struct-equality tests — this catches
+// wrong KEY-PRESENCE (someone dropping `,omitempty` from the dto tag).
+// json.Marshal -> map[string]any asserts against the wire.
+func TestMapHero_NullableFieldsJSONProjection_OmitemptyContract(t *testing.T) {
+	t.Parallel()
+
+	date := time.Date(2026, 5, 28, 0, 0, 0, 0, time.UTC)
+	langEN := "en"
+	langRU := "ru"
+	langEmpty := ""
+
+	cases := []struct {
+		name              string
+		firstAirDate      *time.Time
+		originalLanguage  *string
+		originCountries   []string
+		expectPremiere    bool
+		wantPremiereValue string
+		expectLanguage    bool
+		wantLanguageValue string
+		expectCountries   bool
+		wantCountriesLen  int
+	}{
+		{
+			name:           "all_nil_all_keys_absent",
+			expectPremiere: false, expectLanguage: false, expectCountries: false,
+		},
+		{
+			name:            "empty_countries_slice_key_absent",
+			originCountries: []string{},
+			expectPremiere:  false, expectLanguage: false, expectCountries: false,
+		},
+		{
+			name:            "countries_only_present",
+			originCountries: []string{"US"},
+			expectCountries: true, wantCountriesLen: 1,
+		},
+		{
+			name:             "language_only_present",
+			originalLanguage: &langEN,
+			expectLanguage:   true, wantLanguageValue: "en",
+		},
+		{
+			name:           "premiere_only_present",
+			firstAirDate:   &date,
+			expectPremiere: true, wantPremiereValue: "2026-05-28",
+		},
+		{
+			name:             "all_three_present",
+			firstAirDate:     &date,
+			originalLanguage: &langEN,
+			originCountries:  []string{"US", "CA"},
+			expectPremiere:   true, wantPremiereValue: "2026-05-28",
+			expectLanguage: true, wantLanguageValue: "en",
+			expectCountries: true, wantCountriesLen: 2,
+		},
+		{
+			name:             "empty_language_string_treated_as_absent",
+			firstAirDate:     &date,
+			originalLanguage: &langEmpty,
+			originCountries:  []string{"US"},
+			expectPremiere:   true, wantPremiereValue: "2026-05-28",
+			expectLanguage:  false,
+			expectCountries: true, wantCountriesLen: 1,
+		},
+		{
+			name:             "ru_language_with_country",
+			originalLanguage: &langRU,
+			originCountries:  []string{"RU"},
+			expectLanguage:   true, wantLanguageValue: "ru",
+			expectCountries: true, wantCountriesLen: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := &seriesdetail.Detail{
+				Canon: series.Canon{
+					Title:            "X",
+					FirstAirDate:     tc.firstAirDate,
+					OriginalLanguage: tc.originalLanguage,
+					OriginCountries:  tc.originCountries,
+				},
+			}
+
+			var hero dto.SeriesHero
+			require.NotPanics(t, func() { hero = mapHero(d) },
+				"REGRESSION: mapHero must not panic on any nullable combo")
+
+			raw, err := json.Marshal(hero)
+			require.NoError(t, err)
+			var wire map[string]any
+			require.NoError(t, json.Unmarshal(raw, &wire))
+
+			_, hasPremiere := wire["premiere_date"]
+			_, hasLanguage := wire["original_language"]
+			_, hasCountries := wire["countries"]
+
+			assert.Equal(t, tc.expectPremiere, hasPremiere,
+				"premiere_date key presence — omitempty contract")
+			assert.Equal(t, tc.expectLanguage, hasLanguage,
+				"original_language key presence — omitempty contract")
+			assert.Equal(t, tc.expectCountries, hasCountries,
+				"countries key presence — omitempty contract")
+
+			if tc.expectPremiere {
+				assert.Equal(t, tc.wantPremiereValue, wire["premiere_date"])
+			}
+			if tc.expectLanguage {
+				assert.Equal(t, tc.wantLanguageValue, wire["original_language"])
+			}
+			if tc.expectCountries {
+				arr, ok := wire["countries"].([]any)
+				require.True(t, ok, "countries should be a JSON array")
+				assert.Len(t, arr, tc.wantCountriesLen)
+			}
+		})
+	}
 }
