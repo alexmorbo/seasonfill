@@ -38,6 +38,7 @@ func (n *fakeReconcileNotifier) UpdateNotification(_ context.Context, existing s
 func (n *fakeReconcileNotifier) DeleteNotification(context.Context, int) error { return nil }
 
 func TestAggregate_MixedInstalledAndError(t *testing.T) {
+	t.Parallel()
 	good := &fakeReconcileNotifier{installed: true, id: 7}
 	bad := &fakeReconcileNotifier{listErr: errors.New("sonarr 503")}
 	lookup := func(name string) (runtime.InstanceSnapshot, SonarrNotifier, bool) {
@@ -79,6 +80,7 @@ func TestAggregate_MixedInstalledAndError(t *testing.T) {
 }
 
 func TestAggregate_EmptyNames(t *testing.T) {
+	t.Parallel()
 	cache := NewStatusCache()
 	r := New(Deps{
 		Lookup: func(string) (runtime.InstanceSnapshot, SonarrNotifier, bool) {
@@ -97,6 +99,7 @@ func TestAggregate_EmptyNames(t *testing.T) {
 }
 
 func TestAggregate_ContextCanceledShortCircuits(t *testing.T) {
+	t.Parallel()
 	cache := NewStatusCache()
 	r := New(Deps{
 		Lookup: func(string) (runtime.InstanceSnapshot, SonarrNotifier, bool) {

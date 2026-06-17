@@ -14,6 +14,7 @@ import (
 )
 
 func TestQbitTorrentEventsRepository_InsertStateChange(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentEventsRepository(db)
 	ctx := context.Background()
@@ -37,6 +38,7 @@ func TestQbitTorrentEventsRepository_InsertStateChange(t *testing.T) {
 }
 
 func TestQbitTorrentEventsRepository_InsertDeletedHasNilToGroup(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentEventsRepository(db)
 	ctx := context.Background()

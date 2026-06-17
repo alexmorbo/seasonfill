@@ -52,6 +52,7 @@ func (m *mockRuntimeConfigRepository) DecryptOIDCSecret(_ context.Context) (stri
 }
 
 func TestResolveAPIKey_ProvidedKeyValidatesProbe(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	log := slog.Default()
 
@@ -73,6 +74,7 @@ func TestResolveAPIKey_ProvidedKeyValidatesProbe(t *testing.T) {
 }
 
 func TestResolveAPIKey_ProvidedKeyMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	log := slog.Default()
 
@@ -94,6 +96,9 @@ func TestResolveAPIKey_ProvidedKeyMismatch(t *testing.T) {
 }
 
 func TestResolveAPIKey_NoKeyNoRowAutoGen(t *testing.T) {
+	// NOT t.Parallel: ResolveAPIKey writes the auto-generated key to
+	// os.Stdout, which is a process-global resource — racing with
+	// TestResolveAPIKey_AutoGenKeyNotInSlog which swaps os.Stdout.
 	ctx := context.Background()
 	log := slog.Default()
 
@@ -108,6 +113,7 @@ func TestResolveAPIKey_NoKeyNoRowAutoGen(t *testing.T) {
 }
 
 func TestResolveAPIKey_NoKeyWithRowFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	log := slog.Default()
 
@@ -126,6 +132,7 @@ func TestResolveAPIKey_NoKeyWithRowFails(t *testing.T) {
 }
 
 func TestResolveAPIKey_ProvidedKeySavesProbe(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	log := slog.Default()
 

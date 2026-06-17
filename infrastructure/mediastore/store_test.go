@@ -20,6 +20,7 @@ import (
 type storeFactory func(t *testing.T) Store
 
 func TestNullStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := newNullStore()
 
@@ -36,6 +37,7 @@ func TestNullStore(t *testing.T) {
 }
 
 func TestFSStore_Contract(t *testing.T) {
+	t.Parallel()
 	runContract(t, func(t *testing.T) Store {
 		t.Helper()
 		s, err := newFSStore(t.TempDir())
@@ -109,6 +111,7 @@ func runContract(t *testing.T, factory storeFactory) {
 }
 
 func TestFSStore_AtomicPut_NoPartialOnFailure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, err := newFSStore(root)
 	require.NoError(t, err)
@@ -138,9 +141,11 @@ func TestFSStore_AtomicPut_NoPartialOnFailure(t *testing.T) {
 }
 
 func TestNew_ModeDispatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("default mode is off", func(t *testing.T) {
+		t.Parallel()
 		s, err := New(ctx, Config{})
 		require.NoError(t, err)
 		_, putErr := s.Stat(ctx, "any")
@@ -148,22 +153,26 @@ func TestNew_ModeDispatch(t *testing.T) {
 	})
 
 	t.Run("fs mode requires path", func(t *testing.T) {
+		t.Parallel()
 		_, err := New(ctx, Config{Mode: ModeFS})
 		require.ErrorIs(t, err, ErrInvalidConfig)
 	})
 
 	t.Run("fs mode constructs store", func(t *testing.T) {
+		t.Parallel()
 		s, err := New(ctx, Config{Mode: ModeFS, FSPath: t.TempDir()})
 		require.NoError(t, err)
 		require.NotNil(t, s)
 	})
 
 	t.Run("s3 mode validates required fields", func(t *testing.T) {
+		t.Parallel()
 		_, err := New(ctx, Config{Mode: ModeS3})
 		require.ErrorIs(t, err, ErrInvalidConfig)
 	})
 
 	t.Run("unknown mode rejected", func(t *testing.T) {
+		t.Parallel()
 		_, err := New(ctx, Config{Mode: Mode("weird")})
 		require.ErrorIs(t, err, ErrInvalidConfig)
 	})

@@ -27,6 +27,7 @@ func bufferLogger() (*slog.Logger, *bytes.Buffer) {
 }
 
 func TestLifecycleGroup_DrainsOnCancel(t *testing.T) {
+	t.Parallel()
 	g := newLifecycleGroup(discardLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -49,6 +50,7 @@ func TestLifecycleGroup_DrainsOnCancel(t *testing.T) {
 }
 
 func TestLifecycleGroup_Drain_RespectsTimeout(t *testing.T) {
+	t.Parallel()
 	log, buf := bufferLogger()
 	g := newLifecycleGroup(log)
 
@@ -83,6 +85,7 @@ func TestLifecycleGroup_Drain_RespectsTimeout(t *testing.T) {
 }
 
 func TestLifecycleGroup_PanicRecovers(t *testing.T) {
+	t.Parallel()
 	log, buf := bufferLogger()
 	g := newLifecycleGroup(log)
 
@@ -107,6 +110,7 @@ func TestLifecycleGroup_PanicRecovers(t *testing.T) {
 }
 
 func TestLifecycleGroup_TracksPendingNames(t *testing.T) {
+	t.Parallel()
 	g := newLifecycleGroup(discardLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -177,6 +181,7 @@ func TestLifecycleGroup_TracksPendingNames(t *testing.T) {
 }
 
 func TestLifecycleGroup_ConcurrentGoNoRace(t *testing.T) {
+	t.Parallel()
 	g := newLifecycleGroup(discardLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

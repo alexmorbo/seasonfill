@@ -33,6 +33,7 @@ func (f *fakeClient) NewSyncSession(ctx context.Context) (SyncSession, error) {
 func (f *fakeClient) Close() error { return nil }
 
 func TestDetector_Detect(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		trackers     []Tracker
@@ -141,6 +142,7 @@ func TestDetector_Detect(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fc := &fakeClient{trackersByHash: map[string][]Tracker{"H": tc.trackers}}
 			d := NewDetector(fc, tc.custom)
 			res, err := d.Detect(context.Background(), "H")
@@ -164,6 +166,7 @@ func TestDetector_Detect(t *testing.T) {
 }
 
 func TestDetector_EmptyHash(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{}
 	d := NewDetector(fc, nil)
 	_, err := d.Detect(context.Background(), "")
@@ -173,6 +176,7 @@ func TestDetector_EmptyHash(t *testing.T) {
 }
 
 func TestDetector_PropagatesClientError(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{err: errors.New("transport down")}
 	d := NewDetector(fc, nil)
 	res, err := d.Detect(context.Background(), "H")
@@ -185,6 +189,7 @@ func TestDetector_PropagatesClientError(t *testing.T) {
 }
 
 func TestDetector_NilCustomList(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {{URL: "http://tr/announce", Status: 4, Msg: "Unregistered"}},
 	}}
@@ -206,6 +211,7 @@ func TestDetector_NilCustomList(t *testing.T) {
 // Y.F.A.N. S02 (hash 10b5dcf4…) repro: 3 synthetic entries at
 // Status=2 plus 3 real trackers at Status=5 with the unreg message.
 func TestDetect_SyntheticDHTDoesNotMaskUnregistered(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "** [DHT] **", Status: 2, Msg: ""},
@@ -239,6 +245,7 @@ func TestDetect_SyntheticDHTDoesNotMaskUnregistered(t *testing.T) {
 // After filtering, active is empty so no verdict can be made — must
 // return all-false, never crash.
 func TestDetect_SyntheticPeXAlone(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "** [DHT] **", Status: 2, Msg: ""},
@@ -262,6 +269,7 @@ func TestDetect_SyntheticPeXAlone(t *testing.T) {
 // report unregistered AND synthetic DHT is present. The synthetic
 // filter must not weaken C-4 for real trackers.
 func TestDetect_OneRealWorkingTrackerKeepsItAlive(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "** [DHT] **", Status: 2, Msg: ""},
@@ -285,6 +293,7 @@ func TestDetect_OneRealWorkingTrackerKeepsItAlive(t *testing.T) {
 // case-variant, partial match) returns false. Case-sensitivity is
 // intentional — qBit's strings are stable literals.
 func TestIsSyntheticTracker(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		url  string
 		want bool
@@ -306,6 +315,7 @@ func TestIsSyntheticTracker(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.url, func(t *testing.T) {
+			t.Parallel()
 			got := isSyntheticTracker(tc.url)
 			if got != tc.want {
 				t.Fatalf("isSyntheticTracker(%q) = %v, want %v", tc.url, got, tc.want)
@@ -325,6 +335,7 @@ func TestIsSyntheticTracker(t *testing.T) {
 // precedence flip, Unregistered wins and TrackerURL points at the
 // first unregistered tracker in list order (bt).
 func TestDetect_UnregisteredWinsOverTrackerDownAcrossTrackers(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "http://bt.t-ru.org/ann?magnet", Status: 5, Msg: "Torrent not registered"},
@@ -359,6 +370,7 @@ func TestDetect_UnregisteredWinsOverTrackerDownAcrossTrackers(t *testing.T) {
 // empty-handed → Pass 2 returns TrackerDown on the first matching
 // tracker in list order.
 func TestDetect_TrackerDownStillWinsWhenNoUnregistered(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "http://tr1/announce", Status: 4, Msg: "Service Unavailable"},
@@ -395,6 +407,7 @@ func TestDetect_TrackerDownStillWinsWhenNoUnregistered(t *testing.T) {
 // Pass 2 returns TrackerDown. This confirms the inter-tracker flip
 // does not break per-message resolution.
 func TestDetect_SingleAmbiguousMessageStillNotUnregistered(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "http://tr1/announce", Status: 4, Msg: "Internal Server Error: uploaded body too large"},
@@ -423,6 +436,7 @@ func TestDetect_SingleAmbiguousMessageStillNotUnregistered(t *testing.T) {
 // resolve to tracker-down via IsTrackerDown; none match IsUnregistered.
 // Pass 2 fires and returns TrackerDown on the first matching tracker.
 func TestDetect_TwoTrackerDownOneAmbiguous(t *testing.T) {
+	t.Parallel()
 	fc := &fakeClient{trackersByHash: map[string][]Tracker{
 		"H": {
 			{URL: "http://tr1/announce", Status: 4, Msg: "Tracker is down"},

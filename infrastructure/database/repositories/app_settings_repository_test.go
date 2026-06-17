@@ -9,6 +9,7 @@ import (
 )
 
 func TestAppSettingsRepository_GetTimezone_SeededNull(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewAppSettingsRepository(db)
 
@@ -18,6 +19,7 @@ func TestAppSettingsRepository_GetTimezone_SeededNull(t *testing.T) {
 }
 
 func TestAppSettingsRepository_SetThenGet(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewAppSettingsRepository(db)
 	ctx := context.Background()
@@ -30,6 +32,7 @@ func TestAppSettingsRepository_SetThenGet(t *testing.T) {
 }
 
 func TestAppSettingsRepository_SetEmpty_ClearsToNull(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewAppSettingsRepository(db)
 	ctx := context.Background()
@@ -43,6 +46,7 @@ func TestAppSettingsRepository_SetEmpty_ClearsToNull(t *testing.T) {
 }
 
 func TestAppSettingsRepository_SetTimezone_Idempotent(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewAppSettingsRepository(db)
 	ctx := context.Background()

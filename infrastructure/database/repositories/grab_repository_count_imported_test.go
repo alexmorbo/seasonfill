@@ -17,6 +17,7 @@ import (
 // Decision. Three rows are seeded; only the two "imported" rows in the
 // target triple should count.
 func TestGrabRepository_CountImportedEpisodes(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
 	ctx := context.Background()

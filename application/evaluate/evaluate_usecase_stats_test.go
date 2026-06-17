@@ -97,6 +97,7 @@ func newLoggerDiscard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Di
 // counter fields land on every persisted Decision row even on skip
 // branches (when full season already exists).
 func TestExecute_PopulatesSeasonStats_HappyPath(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	grabs := &stubGrabRepo{count: 5}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard()).WithGrabRepository(grabs)
@@ -139,6 +140,7 @@ func TestExecute_PopulatesSeasonStats_HappyPath(t *testing.T) {
 // land even on skip branches that exit before SearchReleases — the
 // snapshot is populated unconditionally before any short-circuit.
 func TestExecute_PopulatesSeasonStats_OnEarlySkip(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard())
 	s := series.Series{ID: 200, Title: "Specials Only", Type: series.SeriesTypeStandard, Monitored: true}
@@ -168,6 +170,7 @@ func TestExecute_PopulatesSeasonStats_OnEarlySkip(t *testing.T) {
 // optional-port pattern: without WithGrabRepository, GrabbedEpisodes
 // remains 0 and no panic occurs.
 func TestExecute_GrabRepoUnwired_GrabbedEpisodesZero(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard())
 	s := series.Series{ID: 300, Title: "T", Type: series.SeriesTypeStandard, Monitored: true}
@@ -188,6 +191,7 @@ func TestExecute_GrabRepoUnwired_GrabbedEpisodesZero(t *testing.T) {
 // read for GrabbedEpisodes is logged and swallowed (Decision still
 // persists with GrabbedEpisodes=0).
 func TestExecute_GrabRepoError_LogsAndContinues(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	grabs := &stubGrabRepo{err: errInjected}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard()).WithGrabRepository(grabs)
@@ -219,6 +223,7 @@ var _ release.Release // silence unused import on test-only files
 // pre-filter helper persists a Skip decision with the given reason and
 // snapshots SeasonStats into the four counter fields.
 func TestRecordSkip_PersistsSyntheticSkipDecision(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	grabs := &stubGrabRepo{count: 3}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard()).WithGrabRepository(grabs)
@@ -249,6 +254,7 @@ func TestRecordSkip_PersistsSyntheticSkipDecision(t *testing.T) {
 // TestRecordSkip_HonoursPreferredDecisionID exercises the supersede-ready
 // branch that overrides the auto-generated decision ID.
 func TestRecordSkip_HonoursPreferredDecisionID(t *testing.T) {
+	t.Parallel()
 	decisions := &recordingDecisionRepo{}
 	uc := NewPerInstanceUseCase(decisions, newLoggerDiscard())
 

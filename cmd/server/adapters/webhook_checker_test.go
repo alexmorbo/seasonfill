@@ -38,6 +38,7 @@ func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handle
 }
 
 func TestWebhookChecker_UnknownInstance(t *testing.T) {
+	t.Parallel()
 	reg := handlers.InstanceRegistry{
 		Load: func() map[string]scan.Instance {
 			return map[string]scan.Instance{}
@@ -52,6 +53,7 @@ func TestWebhookChecker_UnknownInstance(t *testing.T) {
 }
 
 func TestWebhookChecker_NilLoadIsUnknown(t *testing.T) {
+	t.Parallel()
 	c := NewWebhookChecker(handlers.InstanceRegistry{})
 
 	ok, err := c.IsInstalled(context.Background(), "alpha")
@@ -60,6 +62,7 @@ func TestWebhookChecker_NilLoadIsUnknown(t *testing.T) {
 }
 
 func TestWebhookChecker_MatchExact(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -83,6 +86,7 @@ func TestWebhookChecker_MatchExact(t *testing.T) {
 }
 
 func TestWebhookChecker_MatchPrefixIgnoresPublicURLDrift(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{
@@ -103,6 +107,7 @@ func TestWebhookChecker_MatchPrefixIgnoresPublicURLDrift(t *testing.T) {
 }
 
 func TestWebhookChecker_NoMatch(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{
@@ -127,6 +132,7 @@ func TestWebhookChecker_NoMatch(t *testing.T) {
 }
 
 func TestWebhookChecker_OnGrabFalseRejectsMatch(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{
@@ -145,6 +151,7 @@ func TestWebhookChecker_OnGrabFalseRejectsMatch(t *testing.T) {
 }
 
 func TestWebhookChecker_SonarrErrorPropagates(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)

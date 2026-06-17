@@ -7,6 +7,7 @@ import (
 )
 
 func TestRuntimeStateStore_StampAndSnapshot(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	now := time.Date(2026, 6, 7, 1, 30, 0, 0, time.UTC)
 	s.Stamp("alpha", RuntimeState{LastPollAt: now, LastPollResult: PollResultOK, QbitReachable: true, Watched: 12})
@@ -21,6 +22,7 @@ func TestRuntimeStateStore_StampAndSnapshot(t *testing.T) {
 }
 
 func TestRuntimeStateStore_SnapshotMissReturnsFalse(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	if _, ok := s.Snapshot("nope"); ok {
 		t.Fatal("expected miss")
@@ -28,6 +30,7 @@ func TestRuntimeStateStore_SnapshotMissReturnsFalse(t *testing.T) {
 }
 
 func TestRuntimeStateStore_StampPartialPreservesWatchedOnFailure(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	t0 := time.Date(2026, 6, 7, 1, 0, 0, 0, time.UTC)
 	t1 := t0.Add(30 * time.Minute)
@@ -44,6 +47,7 @@ func TestRuntimeStateStore_StampPartialPreservesWatchedOnFailure(t *testing.T) {
 }
 
 func TestRuntimeStateStore_StampPartialOverwritesOnOK(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	t0 := time.Date(2026, 6, 7, 1, 0, 0, 0, time.UTC)
 	s.StampPartial("alpha", t0, PollResultOK, true, 5)
@@ -55,6 +59,7 @@ func TestRuntimeStateStore_StampPartialOverwritesOnOK(t *testing.T) {
 }
 
 func TestRuntimeStateStore_SnapshotAllReturnsCopy(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	s.Stamp("alpha", RuntimeState{Watched: 1})
 	s.Stamp("beta", RuntimeState{Watched: 2})
@@ -69,6 +74,7 @@ func TestRuntimeStateStore_SnapshotAllReturnsCopy(t *testing.T) {
 }
 
 func TestRuntimeStateStore_Forget(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	s.Stamp("alpha", RuntimeState{Watched: 1})
 	s.Forget("alpha")
@@ -78,6 +84,7 @@ func TestRuntimeStateStore_Forget(t *testing.T) {
 }
 
 func TestRuntimeStateStore_EmptyInstanceIsNoOp(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	s.Stamp("", RuntimeState{Watched: 9})
 	s.StampPartial("", time.Now(), PollResultOK, true, 5)
@@ -88,6 +95,7 @@ func TestRuntimeStateStore_EmptyInstanceIsNoOp(t *testing.T) {
 }
 
 func TestRuntimeStateStore_ConcurrentStamps(t *testing.T) {
+	t.Parallel()
 	s := NewRuntimeStateStore()
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

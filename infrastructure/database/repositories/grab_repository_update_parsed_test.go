@@ -13,6 +13,7 @@ import (
 )
 
 func TestGrabRepository_UpdateParsed_HappyPath(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewGrabRepository(db)
 
@@ -41,6 +42,7 @@ func TestGrabRepository_UpdateParsed_HappyPath(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateParsed_NotFound(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewGrabRepository(db)
 	err := r.UpdateParsed(context.Background(), uuid.New(), &grab.Parsed{}, time.Now())
@@ -50,6 +52,7 @@ func TestGrabRepository_UpdateParsed_NotFound(t *testing.T) {
 }
 
 func TestGrabRepository_ListUnparsedSince(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewGrabRepository(db)
 

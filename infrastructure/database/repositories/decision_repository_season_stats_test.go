@@ -18,6 +18,7 @@ import (
 // helper in this package) and asserts the 4 new fields round-trip
 // through Save → GetByID.
 func TestDecisionRepository_SaveAndLoad_SeasonStatsRoundTrip(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewDecisionRepository(db)
 
@@ -52,6 +53,7 @@ func TestDecisionRepository_SaveAndLoad_SeasonStatsRoundTrip(t *testing.T) {
 // TestDecisionRepository_List_ReturnsSeasonStats asserts the new fields
 // also flow through the List path that powers GET /api/v1/decisions.
 func TestDecisionRepository_List_ReturnsSeasonStats(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewDecisionRepository(db)
 

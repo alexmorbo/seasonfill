@@ -31,6 +31,7 @@ type capturedGrab struct {
 }
 
 func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(loadFixture(t, "system-status.json"))
@@ -175,6 +176,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 }
 
 func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(loadFixture(t, "system-status.json"))

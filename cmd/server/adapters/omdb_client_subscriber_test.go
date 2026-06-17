@@ -18,6 +18,7 @@ import (
 // initial "no prior baseline" path: a first call with enabled+key MUST
 // rebuild even though the cached state is the zero value.
 func TestOMDbClientSubscriber_FirstApplyRebuildsWhenEnabled(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	logBuf := &bytes.Buffer{}
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(logBuf))
@@ -39,6 +40,7 @@ func TestOMDbClientSubscriber_FirstApplyRebuildsWhenEnabled(t *testing.T) {
 // guarantee: calling Apply twice with byte-identical Settings must NOT
 // rebuild on the second call.
 func TestOMDbClientSubscriber_SamePayloadNoRebuild(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
 
@@ -62,6 +64,7 @@ func TestOMDbClientSubscriber_SamePayloadNoRebuild(t *testing.T) {
 // last_test_at/outcome/message immutability — those fields change on
 // every Test() persistence but MUST NOT trigger a rebuild.
 func TestOMDbClientSubscriber_TestVerdictChangesIgnored(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
 
@@ -87,6 +90,7 @@ func TestOMDbClientSubscriber_TestVerdictChangesIgnored(t *testing.T) {
 // operator rotates the API key, the subscriber rebuilds and swaps in a
 // fresh client.
 func TestOMDbClientSubscriber_NewKeyRebuilds(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
 
@@ -112,6 +116,7 @@ func TestOMDbClientSubscriber_NewKeyRebuilds(t *testing.T) {
 // TestOMDbClientSubscriber_DisabledClearsHolder covers the "operator
 // disables OMDb" path: holder.Load returns nil; worker logs handler_nil.
 func TestOMDbClientSubscriber_DisabledClearsHolder(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	logBuf := &bytes.Buffer{}
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(logBuf))
@@ -137,6 +142,7 @@ func TestOMDbClientSubscriber_DisabledClearsHolder(t *testing.T) {
 // race detector. 16 goroutines call Apply with the same payload in
 // parallel; only one rebuild should result.
 func TestOMDbClientSubscriber_ConcurrentApplyIsSafe(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
 
@@ -171,6 +177,7 @@ func TestOMDbClientSubscriber_ConcurrentApplyIsSafe(t *testing.T) {
 // failure mode: a malformed proxy URL fails the factory; the previous
 // client stays live.
 func TestOMDbClientSubscriber_FactoryErrorLeavesPrevious(t *testing.T) {
+	t.Parallel()
 	holder := NewOMDbClientHolder()
 	logBuf := &bytes.Buffer{}
 	sub := NewOMDbClientSubscriber(holder, newTestLogger(logBuf))

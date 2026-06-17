@@ -81,6 +81,7 @@ func (fakeSonarrQ2) Queue(_ context.Context, _ int) (sonarr.QueuePayload, error)
 }
 
 func TestSeriesSeasonHandler_Get_200(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
@@ -98,6 +99,7 @@ func TestSeriesSeasonHandler_Get_200(t *testing.T) {
 }
 
 func TestSeriesSeasonHandler_Get_404_UnknownSeason(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
@@ -110,6 +112,7 @@ func TestSeriesSeasonHandler_Get_404_UnknownSeason(t *testing.T) {
 }
 
 func TestSeriesSeasonHandler_Get_400_BadInputs(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()

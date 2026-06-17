@@ -16,6 +16,7 @@ import (
 // verifies the Story 352 listener fan-out: a registered listener fires
 // for the correct service AND only that service.
 func TestExternalServicesSubscriber_RegisterListener_FiresAfterApply(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewJSONHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	sub := NewExternalServicesSubscriber(nil, logger)
 
@@ -54,6 +55,7 @@ func TestExternalServicesSubscriber_RegisterListener_FiresAfterApply(t *testing.
 // TestExternalServicesSubscriber_RegisterListener_NilFnIsDropped
 // guards against a nil callback panicking the apply path.
 func TestExternalServicesSubscriber_RegisterListener_NilFnIsDropped(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewJSONHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	sub := NewExternalServicesSubscriber(nil, logger)
 	// Should be a no-op.

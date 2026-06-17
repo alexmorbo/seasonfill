@@ -12,6 +12,7 @@ import (
 )
 
 func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewGrabRepository(db)
 
@@ -54,6 +55,7 @@ func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
 }
 
 func TestGrabRepository_Parsed_AbsentRow_StaysNil(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewGrabRepository(db)
 

@@ -16,6 +16,7 @@ import (
 // --- mapHero — branch coverage ---
 
 func TestMapHero_MinimalCanon(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "Bare"},
 	}
@@ -33,6 +34,7 @@ func TestMapHero_MinimalCanon(t *testing.T) {
 }
 
 func TestMapHero_LocalisedTitleOverridesCanon(t *testing.T) {
+	t.Parallel()
 	titleLocal := "Локализованный"
 	tagline := "тагnine"
 	d := &seriesdetail.Detail{
@@ -47,6 +49,7 @@ func TestMapHero_LocalisedTitleOverridesCanon(t *testing.T) {
 }
 
 func TestMapHero_EmptyLocalisedTitleFallsBack(t *testing.T) {
+	t.Parallel()
 	empty := ""
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "Canon Title"},
@@ -57,6 +60,7 @@ func TestMapHero_EmptyLocalisedTitleFallsBack(t *testing.T) {
 }
 
 func TestMapHero_YearStartAndEnd(t *testing.T) {
+	t.Parallel()
 	year := 2008
 	lastAir := time.Date(2013, 9, 29, 0, 0, 0, 0, time.UTC)
 	d := &seriesdetail.Detail{
@@ -74,6 +78,7 @@ func TestMapHero_YearStartAndEnd(t *testing.T) {
 }
 
 func TestMapHero_TMDBRatingWithVotes(t *testing.T) {
+	t.Parallel()
 	rating := 9.5
 	votes := 1234
 	d := &seriesdetail.Detail{
@@ -90,6 +95,7 @@ func TestMapHero_TMDBRatingWithVotes(t *testing.T) {
 }
 
 func TestMapHero_TMDBRatingWithoutVotesDefaultsZero(t *testing.T) {
+	t.Parallel()
 	rating := 7.0
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X", TMDBRating: &rating},
@@ -100,6 +106,7 @@ func TestMapHero_TMDBRatingWithoutVotesDefaultsZero(t *testing.T) {
 }
 
 func TestMapHero_IMDBRatingWithVotes(t *testing.T) {
+	t.Parallel()
 	rating := 8.5
 	votes := 5555
 	d := &seriesdetail.Detail{
@@ -116,6 +123,7 @@ func TestMapHero_IMDBRatingWithVotes(t *testing.T) {
 }
 
 func TestMapHero_PopulatesGenresAndNetworks(t *testing.T) {
+	t.Parallel()
 	logoURL := "https://example.com/amc.png"
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X"},
@@ -137,6 +145,7 @@ func TestMapHero_PopulatesGenresAndNetworks(t *testing.T) {
 }
 
 func TestMapHero_ContentRatingBadge(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X"},
 		ContentRating: &database.ContentRatingModel{
@@ -151,6 +160,7 @@ func TestMapHero_ContentRatingBadge(t *testing.T) {
 }
 
 func TestMapHero_TrailerWithSiteAndKey(t *testing.T) {
+	t.Parallel()
 	site := "YouTube"
 	key := "abc123"
 	pub := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -171,6 +181,7 @@ func TestMapHero_TrailerWithSiteAndKey(t *testing.T) {
 }
 
 func TestMapHero_TrailerWithNilSiteAndKey(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X"},
 		Trailer: &database.VideoModel{
@@ -184,6 +195,7 @@ func TestMapHero_TrailerWithNilSiteAndKey(t *testing.T) {
 }
 
 func TestMapHero_NextAirDateSetsNextEpisode(t *testing.T) {
+	t.Parallel()
 	nextAir := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X", NextAirDate: &nextAir},
@@ -195,6 +207,7 @@ func TestMapHero_NextAirDateSetsNextEpisode(t *testing.T) {
 }
 
 func TestMapHero_OriginalTitleAndAssets(t *testing.T) {
+	t.Parallel()
 	orig := "Better Call Saul"
 	poster := "/p/x.jpg"
 	backdrop := "/b/x.jpg"
@@ -222,6 +235,7 @@ func TestMapHero_OriginalTitleAndAssets(t *testing.T) {
 // --- story 373: NextEpisode prefers composer pick over canon ---
 
 func TestMapHero_ComposerNextEpisodePreferredOverCanon(t *testing.T) {
+	t.Parallel()
 	canonNext := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	composerNext := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
 	title := "Jer Bud"
@@ -245,6 +259,7 @@ func TestMapHero_ComposerNextEpisodePreferredOverCanon(t *testing.T) {
 }
 
 func TestMapHero_CanonFallbackWhenComposerNil(t *testing.T) {
+	t.Parallel()
 	canonNext := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X", NextAirDate: &canonNext},
@@ -259,6 +274,7 @@ func TestMapHero_CanonFallbackWhenComposerNil(t *testing.T) {
 }
 
 func TestMapHero_NoNextEpisodeWhenBothNil(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "X"},
 	}
@@ -272,6 +288,7 @@ func TestMapHero_NoNextEpisodeWhenBothNil(t *testing.T) {
 // d.InProgress, mapLibrary must surface the same fields onto
 // LibraryStrip.in_progress (Title, percent, season, episode).
 func TestMapLibrary_InProgress_FromComposer(t *testing.T) {
+	t.Parallel()
 	title := "A Rickconvenient Mort"
 	d := &seriesdetail.Detail{
 		Canon: series.Canon{Title: "Rick and Morty"},
@@ -293,6 +310,7 @@ func TestMapLibrary_InProgress_FromComposer(t *testing.T) {
 
 // TestMapLibrary_InProgress_NilWhenComposerEmpty — composer nil → DTO nil.
 func TestMapLibrary_InProgress_NilWhenComposerEmpty(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{Canon: series.Canon{Title: "X"}}
 	lib := mapLibrary(d)
 	assert.Nil(t, lib.InProgress)
@@ -302,6 +320,7 @@ func TestMapLibrary_InProgress_NilWhenComposerEmpty(t *testing.T) {
 // season_number matches a SeasonDetail must bump that season's
 // downloading_count. Queued / completed records must NOT count.
 func TestMapSeasons_DownloadingCount(t *testing.T) {
+	t.Parallel()
 	d := &seriesdetail.Detail{
 		Seasons: []seriesdetail.SeasonDetail{
 			{Canon: series.CanonSeason{SeasonNumber: 1}},

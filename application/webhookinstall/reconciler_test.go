@@ -65,6 +65,7 @@ func newReconciler(t *testing.T, snap runtime.InstanceSnapshot, n *fakeNotifier,
 }
 
 func TestReconcile_CreateWhenMissing(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{createResp: sonarr.Notification{ID: 7, Implementation: "Webhook"}}
 	r, _ := newReconciler(t, snap, n, "https://sf.example")
@@ -78,6 +79,7 @@ func TestReconcile_CreateWhenMissing(t *testing.T) {
 }
 
 func TestReconcile_UpdateWhenURLChanged(t *testing.T) {
+	t.Parallel()
 	override := "https://new.example"
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true, WebhookURLOverride: &override}
 	n := &fakeNotifier{
@@ -95,6 +97,7 @@ func TestReconcile_UpdateWhenURLChanged(t *testing.T) {
 }
 
 func TestReconcile_RecordsErrorOnListFailure(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{listErr: errors.New("boom")}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")
@@ -108,6 +111,7 @@ func TestReconcile_RecordsErrorOnListFailure(t *testing.T) {
 }
 
 func TestHandleInstanceDeleted_CleansSonarrAndCache(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")
@@ -123,6 +127,7 @@ func TestHandleInstanceDeleted_CleansSonarrAndCache(t *testing.T) {
 }
 
 func TestReconcile_DisabledNoOp(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: false}
 	n := &fakeNotifier{}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")
@@ -140,6 +145,7 @@ func TestReconcile_DisabledNoOp(t *testing.T) {
 }
 
 func TestReconcile_NoOpWhenURLMatches(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{
 		list: []sonarr.Notification{{
@@ -160,6 +166,7 @@ func TestReconcile_NoOpWhenURLMatches(t *testing.T) {
 }
 
 func TestReconcile_PublicURLUndetermined(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{}
 	r, cache := newReconciler(t, snap, n, "")
@@ -177,6 +184,7 @@ func TestReconcile_PublicURLUndetermined(t *testing.T) {
 }
 
 func TestReconcile_UnknownInstance(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{}
 	r, _ := newReconciler(t, snap, n, "https://sf.example")
@@ -187,6 +195,7 @@ func TestReconcile_UnknownInstance(t *testing.T) {
 }
 
 func TestGetStatus_LazyRefreshOnEmpty(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{createResp: sonarr.Notification{ID: 77, Implementation: "Webhook"}}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")
@@ -205,6 +214,7 @@ func TestGetStatus_LazyRefreshOnEmpty(t *testing.T) {
 }
 
 func TestGetStatus_WarmCacheServedDirect(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")
@@ -233,6 +243,7 @@ func TestGetStatus_WarmCacheServedDirect(t *testing.T) {
 }
 
 func TestGetStatus_StaleErrorTriggersRefresh(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &fakeNotifier{createResp: sonarr.Notification{ID: 88, Implementation: "Webhook"}}
 	r, cache := newReconciler(t, snap, n, "https://sf.example")

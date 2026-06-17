@@ -3,6 +3,7 @@ package qbit
 import "testing"
 
 func TestIsTrackerDown(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		msg  string
@@ -24,6 +25,7 @@ func TestIsTrackerDown(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := IsTrackerDown(tc.msg)
 			if got != tc.want {
 				t.Fatalf("IsTrackerDown(%q) = %v, want %v", tc.msg, got, tc.want)
@@ -33,6 +35,7 @@ func TestIsTrackerDown(t *testing.T) {
 }
 
 func TestIsUnregistered(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		msg    string
@@ -59,6 +62,7 @@ func TestIsUnregistered(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := IsUnregistered(tc.msg, tc.custom)
 			if got != tc.want {
 				t.Fatalf("IsUnregistered(%q, %v) = %v, want %v", tc.msg, tc.custom, got, tc.want)
@@ -68,6 +72,7 @@ func TestIsUnregistered(t *testing.T) {
 }
 
 func TestPatternListsNonEmpty(t *testing.T) {
+	t.Parallel()
 	// Guard against accidental clobber of the embedded lists.
 	if len(defaultUnregisteredStatuses) < 20 {
 		t.Fatalf("defaultUnregisteredStatuses unexpectedly short: %d", len(defaultUnregisteredStatuses))

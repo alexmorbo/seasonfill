@@ -70,6 +70,7 @@ func hydrationOf(t *testing.T, db *gorm.DB, id int) string {
 // = 'full', (c) the named asset column IS NULL. Rows missing any of
 // those conditions are left alone.
 func TestRunBackfillAssets_DemotesBackdropNullRowsOnly(t *testing.T) {
+	t.Parallel()
 	db := newBackfillTestDB(t)
 	// Row 1: full hydration, no backdrop → SHOULD demote.
 	seedRow(t, db, 1, ptrInt(100), "full", ptrString("/p.jpg"), nil)
@@ -97,6 +98,7 @@ func TestRunBackfillAssets_DemotesBackdropNullRowsOnly(t *testing.T) {
 // TestRunBackfillAssets_DryRunNoMutation — --dry-run counts but never
 // modifies the DB.
 func TestRunBackfillAssets_DryRunNoMutation(t *testing.T) {
+	t.Parallel()
 	db := newBackfillTestDB(t)
 	seedRow(t, db, 1, ptrInt(100), "full", ptrString("/p.jpg"), nil)
 	seedRow(t, db, 2, ptrInt(101), "full", ptrString("/p.jpg"), nil)
@@ -116,6 +118,7 @@ func TestRunBackfillAssets_DryRunNoMutation(t *testing.T) {
 // poster_asset column. Mirrors the backdrop test for the symmetric
 // path.
 func TestRunBackfillAssets_PosterKind(t *testing.T) {
+	t.Parallel()
 	db := newBackfillTestDB(t)
 	seedRow(t, db, 1, ptrInt(100), "full", nil, ptrString("/b.jpg"))
 	seedRow(t, db, 2, ptrInt(101), "full", ptrString("/p.jpg"), nil)
@@ -130,6 +133,7 @@ func TestRunBackfillAssets_PosterKind(t *testing.T) {
 // TestBackfillAssets_RejectsInvalidKind — argparse rejects --kind=logo
 // before any DB call lands.
 func TestBackfillAssets_RejectsInvalidKind(t *testing.T) {
+	t.Parallel()
 	err := BackfillAssets([]string{"--kind", "logo"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --kind")
@@ -137,6 +141,7 @@ func TestBackfillAssets_RejectsInvalidKind(t *testing.T) {
 
 // TestBackfillAssets_RejectsMissingKind — --kind is mandatory.
 func TestBackfillAssets_RejectsMissingKind(t *testing.T) {
+	t.Parallel()
 	err := BackfillAssets([]string{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--kind")

@@ -70,6 +70,7 @@ func (m *fakeMetrics) streak(name string) int {
 }
 
 func TestRegrabLoop_StartSpawnsNoGoroutines(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	loop := NewRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
 
@@ -81,6 +82,7 @@ func TestRegrabLoop_StartSpawnsNoGoroutines(t *testing.T) {
 }
 
 func TestRegrabLoop_SwapSettingsBeforeStartIsNoOp(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	loop := NewRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
 
@@ -92,6 +94,7 @@ func TestRegrabLoop_SwapSettingsBeforeStartIsNoOp(t *testing.T) {
 }
 
 func TestRegrabLoop_SwapSpawnsEnabledLoops(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
@@ -118,6 +121,7 @@ func TestRegrabLoop_SwapSpawnsEnabledLoops(t *testing.T) {
 }
 
 func TestRegrabLoop_SwapStopsDisabledInstance(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
@@ -140,6 +144,7 @@ func TestRegrabLoop_SwapStopsDisabledInstance(t *testing.T) {
 }
 
 func TestRegrabLoop_SwapStopsRemovedInstance(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
@@ -164,6 +169,7 @@ func TestRegrabLoop_SwapStopsRemovedInstance(t *testing.T) {
 }
 
 func TestRegrabLoop_SwapRetunesInterval(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
@@ -191,6 +197,7 @@ func TestRegrabLoop_SwapRetunesInterval(t *testing.T) {
 }
 
 func TestRegrabLoop_QbitErrorBumpsStreakGauge(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	r.qbitErr["alpha"] = errFakeQbit
 	m := newFakeMetrics()
@@ -220,6 +227,7 @@ func TestRegrabLoop_QbitErrorBumpsStreakGauge(t *testing.T) {
 }
 
 func TestRegrabLoop_CtxCancelDrainsGoroutines(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
@@ -240,6 +248,7 @@ func TestRegrabLoop_CtxCancelDrainsGoroutines(t *testing.T) {
 }
 
 func TestRegrabLoop_SetIntervalChangesAreApplied(t *testing.T) {
+	t.Parallel()
 	r := newFakeRunner()
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())

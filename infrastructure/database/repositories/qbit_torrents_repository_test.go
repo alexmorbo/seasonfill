@@ -25,6 +25,7 @@ func mkEntry(hash, name string, group qbit.StateGroup) torrentsync.Entry {
 }
 
 func TestQbitTorrentsRepository_Upsert(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -37,6 +38,7 @@ func TestQbitTorrentsRepository_Upsert(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_MarkAbsent(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -49,6 +51,7 @@ func TestQbitTorrentsRepository_MarkAbsent(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_BatchUpsertSingleTx(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -65,6 +68,7 @@ func TestQbitTorrentsRepository_BatchUpsertSingleTx(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_FindByHashes(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -87,6 +91,7 @@ func TestQbitTorrentsRepository_FindByHashes(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -101,6 +106,7 @@ func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
 // it; the DoUpdate column list includes it so Upsert overwrites the
 // stored value on every refresh.
 func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()
@@ -134,6 +140,7 @@ func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
 // across rows in the same transaction — the column is in the
 // BatchUpsert DoUpdate list, not just Upsert.
 func TestQbitTorrentsRepository_SeasonNumber_BatchUpsertSurvivesAcrossRows(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	r := NewQbitTorrentsRepository(db)
 	ctx := context.Background()

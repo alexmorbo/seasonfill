@@ -91,6 +91,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func TestNewClient_Validation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		cfg  Config
@@ -104,6 +105,7 @@ func TestNewClient_Validation(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := NewClient(tc.cfg)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("want %v, got %v", tc.want, err)
@@ -113,6 +115,7 @@ func TestNewClient_Validation(t *testing.T) {
 }
 
 func TestClient_AnonLogin(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	c, err := NewClient(Config{URL: f.srv.URL, Timeout: 2 * time.Second})
@@ -128,6 +131,7 @@ func TestClient_AnonLogin(t *testing.T) {
 }
 
 func TestClient_BasicLoginSucceeds(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("admin", "secret")
 	defer f.close()
 	c, err := NewClient(Config{URL: f.srv.URL, Username: "admin", Password: "secret", Timeout: 2 * time.Second})
@@ -143,6 +147,7 @@ func TestClient_BasicLoginSucceeds(t *testing.T) {
 }
 
 func TestClient_LoginBadCredentialsMapsAuth(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("admin", "secret")
 	defer f.close()
 	c, _ := NewClient(Config{URL: f.srv.URL, Username: "admin", Password: "WRONG", Timeout: 2 * time.Second})
@@ -156,6 +161,7 @@ func TestClient_LoginBadCredentialsMapsAuth(t *testing.T) {
 }
 
 func TestClient_LoginIPBannedMapsAuth(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("admin", "secret")
 	defer f.close()
 	f.ipBanned.Store(true)
@@ -170,6 +176,7 @@ func TestClient_LoginIPBannedMapsAuth(t *testing.T) {
 }
 
 func TestClient_LoginNetworkFailureMapsNetwork(t *testing.T) {
+	t.Parallel()
 	// Point at a server that immediately closes — upstream wraps the
 	// transport error which we then join with ErrInstanceNetwork.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +203,7 @@ func TestClient_LoginNetworkFailureMapsNetwork(t *testing.T) {
 }
 
 func TestClient_ListTorrents_Filtered(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	f.torrents = []map[string]any{
@@ -216,6 +224,7 @@ func TestClient_ListTorrents_Filtered(t *testing.T) {
 }
 
 func TestClient_ListTorrents_AllCategories(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	f.torrents = []map[string]any{
@@ -233,6 +242,7 @@ func TestClient_ListTorrents_AllCategories(t *testing.T) {
 }
 
 func TestClient_GetTrackers_OK(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	f.trackersByHash["AAA"] = []map[string]any{
@@ -250,6 +260,7 @@ func TestClient_GetTrackers_OK(t *testing.T) {
 }
 
 func TestClient_GetTrackers_NotFound(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	c, _ := NewClient(Config{URL: f.srv.URL, Timeout: 2 * time.Second})
@@ -263,6 +274,7 @@ func TestClient_GetTrackers_NotFound(t *testing.T) {
 }
 
 func TestClient_GetTrackers_EmptyHash(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	c, _ := NewClient(Config{URL: f.srv.URL, Timeout: 2 * time.Second})
@@ -273,6 +285,7 @@ func TestClient_GetTrackers_EmptyHash(t *testing.T) {
 }
 
 func TestClient_Close_NoOp(t *testing.T) {
+	t.Parallel()
 	f := newFakeQbit("", "")
 	defer f.close()
 	c, _ := NewClient(Config{URL: f.srv.URL, Timeout: 2 * time.Second})

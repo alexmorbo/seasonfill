@@ -68,6 +68,7 @@ func postInstall(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 }
 
 func TestWebhookInstall_201CreateNew(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	r := newInstallTestRig(t, snap, &stubNotifier{createResp: sonarr.Notification{ID: 99}}, "https://sf.example")
 	w := postInstall(t, r)
@@ -77,6 +78,7 @@ func TestWebhookInstall_201CreateNew(t *testing.T) {
 }
 
 func TestWebhookInstall_200NoopOnExisting(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	n := &stubNotifier{
 		list: []sonarr.Notification{{
@@ -114,12 +116,14 @@ func TestWebhookInstall_200NoopOnExisting(t *testing.T) {
 }
 
 func TestWebhookInstall_502OnSonarrError(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	r := newInstallTestRig(t, snap, &stubNotifier{createErr: errors.New("boom")}, "https://sf.example")
 	require.Equal(t, http.StatusBadGateway, postInstall(t, r).Code)
 }
 
 func TestWebhookInstall_412OnUnresolvedPublicURL(t *testing.T) {
+	t.Parallel()
 	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
 	r := newInstallTestRig(t, snap, &stubNotifier{}, "")
 	require.Equal(t, http.StatusPreconditionFailed, postInstall(t, r).Code)

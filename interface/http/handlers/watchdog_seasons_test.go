@@ -81,6 +81,7 @@ func newSeasonsRouter(h *WatchdogSeasonsHandler) *gin.Engine {
 }
 
 func TestWatchdogSeasons_List_Empty(t *testing.T) {
+	t.Parallel()
 	lister := &stubSeasonsLister{}
 	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil)
 	r := newSeasonsRouter(h)
@@ -98,6 +99,7 @@ func TestWatchdogSeasons_List_Empty(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_FullRow(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	expires := now.Add(2 * time.Hour)
 	cd := cooldown.Cooldown{
@@ -161,6 +163,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
+	t.Parallel()
 	lister := &stubSeasonsLister{
 		next: &repositories.WatchdogSeasonsCursor{InstanceName: "homelab", SeriesID: 200, SeasonNumber: 1},
 	}
@@ -201,6 +204,7 @@ func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_RejectsInvalidLimit(t *testing.T) {
+	t.Parallel()
 	lister := &stubSeasonsLister{}
 	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil)
 	r := newSeasonsRouter(h)
@@ -212,6 +216,7 @@ func TestWatchdogSeasons_List_RejectsInvalidLimit(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_RejectsInvalidCursor(t *testing.T) {
+	t.Parallel()
 	lister := &stubSeasonsLister{}
 	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil)
 	r := newSeasonsRouter(h)
@@ -223,6 +228,7 @@ func TestWatchdogSeasons_List_RejectsInvalidCursor(t *testing.T) {
 }
 
 func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	row := repositories.WatchdogSeasonRow{
 		InstanceID:        1,
@@ -276,6 +282,7 @@ func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 }
 
 func TestWatchdogSeasons_Series_RejectsInvalidID(t *testing.T) {
+	t.Parallel()
 	h := NewWatchdogSeasonsHandler(&stubSeasonsLister{}, &stubSeriesLister{}, stubSettingsLookup{}, nil)
 	r := newSeasonsRouter(h)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -286,6 +293,7 @@ func TestWatchdogSeasons_Series_RejectsInvalidID(t *testing.T) {
 }
 
 func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	hash := "a1b2c3d4e5f60718293a4b5c6d7e8f9001122334"
 	row := repositories.WatchdogSeasonRow{
@@ -326,6 +334,7 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 }
 
 func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	row := repositories.WatchdogSeasonRow{
 		InstanceID:        1,

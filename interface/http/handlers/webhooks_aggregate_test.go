@@ -34,6 +34,7 @@ func (n *aggFakeNotifier) UpdateNotification(_ context.Context, existing sonarr.
 func (n *aggFakeNotifier) DeleteNotification(context.Context, int) error { return nil }
 
 func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	healthy := &aggFakeNotifier{notifications: []sonarr.Notification{
@@ -88,6 +89,7 @@ func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {
 }
 
 func TestWebhooksAggregateHandler_UnknownInstanceFallsToUnhealthy(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
@@ -124,6 +126,7 @@ func TestWebhooksAggregateHandler_UnknownInstanceFallsToUnhealthy(t *testing.T) 
 }
 
 func TestWebhooksAggregateHandler_EmptyInstanceList(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {

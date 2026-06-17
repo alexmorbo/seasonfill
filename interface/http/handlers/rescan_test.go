@@ -351,6 +351,7 @@ func (f *rescanFixture) drain(t *testing.T) {
 }
 
 func TestRescan_OK_Returns202WithScanTriggerItem(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, []release.Release{
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	})
@@ -370,6 +371,7 @@ func TestRescan_OK_Returns202WithScanTriggerItem(t *testing.T) {
 }
 
 func TestRescan_OriginalMarkedSuperseded(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, []release.Release{
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	})
@@ -382,16 +384,19 @@ func TestRescan_OriginalMarkedSuperseded(t *testing.T) {
 }
 
 func TestRescan_BadID(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, http.StatusBadRequest,
 		newRescanFixture(t, nil).do(t, "not-a-uuid").Code)
 }
 
 func TestRescan_NotFound(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, http.StatusNotFound,
 		newRescanFixture(t, nil).do(t, uuid.New().String()).Code)
 }
 
 func TestRescan_AlreadySuperseded_409(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, nil)
 	d := f.seed(t, false)
 	require.NoError(t, f.dec.UpdateSupersededBy(context.Background(), d.ID, uuid.New()))
@@ -403,6 +408,7 @@ func TestRescan_AlreadySuperseded_409(t *testing.T) {
 }
 
 func TestRescan_AlreadyExecuted_409(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, nil)
 	d := f.seed(t, true)
 	require.NoError(t, f.gr.Create(context.Background(), grab.Record{
@@ -418,6 +424,7 @@ func TestRescan_AlreadyExecuted_409(t *testing.T) {
 }
 
 func TestRescan_UnknownInstance_404(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, nil)
 	d := f.seed(t, false)
 	d.InstanceName = "ghost"
@@ -426,6 +433,7 @@ func TestRescan_UnknownInstance_404(t *testing.T) {
 }
 
 func TestRescan_ScanAlreadyRunning_409(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, nil)
 	d := f.seed(t, false)
 	f.inflight.preFail.Store(true)
@@ -446,6 +454,7 @@ func TestRescan_ScanAlreadyRunning_409(t *testing.T) {
 // rest 409 (SCAN_IN_PROGRESS) until the goroutine releases. We assert ≥1
 // 202 and ≥1 409 (the runner-up); supersede pointer set after drain.
 func TestRescan_ConcurrentRequests_NoCrash(t *testing.T) {
+	t.Parallel()
 	f := newRescanFixture(t, []release.Release{
 		{GUID: "g-new", Title: "fresh", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	})

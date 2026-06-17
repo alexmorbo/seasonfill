@@ -12,6 +12,7 @@ import (
 )
 
 func TestBus_Subscribe_PublishFanOut(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -37,6 +38,7 @@ func TestBus_Subscribe_PublishFanOut(t *testing.T) {
 }
 
 func TestBus_Publish_NonBlocking(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -54,6 +56,7 @@ func TestBus_Publish_NonBlocking(t *testing.T) {
 }
 
 func TestBus_Unsubscribe(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -69,6 +72,7 @@ func TestBus_Unsubscribe(t *testing.T) {
 }
 
 func TestBus_Close(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 
 	ch := bus.Subscribe("test")
@@ -86,12 +90,14 @@ func TestBus_Close(t *testing.T) {
 }
 
 func TestBus_CloseIdempotent(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	bus.Close()
 	bus.Close()
 }
 
 func TestBus_SubscribeAfterClose(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	bus.Close()
 
@@ -106,6 +112,7 @@ func TestBus_SubscribeAfterClose(t *testing.T) {
 }
 
 func TestBus_ResubscribeClosesOld(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -132,12 +139,14 @@ func TestBus_ResubscribeClosesOld(t *testing.T) {
 }
 
 func TestBus_NilLogger(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(nil)
 	require.NotNil(t, bus)
 	bus.Close()
 }
 
 func TestBus_Subscribe_OnReadyFiresBeforeReturn(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -151,6 +160,7 @@ func TestBus_Subscribe_OnReadyFiresBeforeReturn(t *testing.T) {
 }
 
 func TestBus_Subscribe_OnReadyFiresAfterRegistration(t *testing.T) {
+	t.Parallel()
 	bus := NewBus(slog.Default())
 	defer bus.Close()
 
@@ -181,6 +191,7 @@ func TestBus_Subscribe_OnReadyFiresAfterRegistration(t *testing.T) {
 }
 
 func TestBus_Subscribe_NoOptionPreservesBehaviour(t *testing.T) {
+	t.Parallel()
 	// Belt-and-suspenders: the zero-option call must behave exactly
 	// like the original Subscribe(name).
 	bus := NewBus(slog.Default())

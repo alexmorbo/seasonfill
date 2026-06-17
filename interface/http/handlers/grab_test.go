@@ -245,6 +245,7 @@ func assertErrBody(t *testing.T, w *httptest.ResponseRecorder, code int, contain
 // --- tests ----------------------------------------------------------------
 
 func TestGrabHandler_ByDecision_OK(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 	w := f.do(t, d.ID.String())
@@ -258,17 +259,20 @@ func TestGrabHandler_ByDecision_OK(t *testing.T) {
 }
 
 func TestGrabHandler_ByDecision_BadID(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	w := f.do(t, "not-a-uuid")
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestGrabHandler_ByDecision_NotFound(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	assertErrBody(t, f.do(t, uuid.New().String()), http.StatusNotFound, "decision not found")
 }
 
 func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*decision.Decision)
@@ -282,6 +286,7 @@ func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newGrabFixture(t, nil)
 			d := f.seedEligible(t)
 			tc.mutate(&d)
@@ -295,6 +300,7 @@ func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {
 // the same release still returns 409 (the fast-path is kept). Story
 // 038 narrowed the rule — only non-terminal rows block.
 func TestGrabHandler_ByDecision_AlreadyInFlight(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 	require.NoError(t, f.grabRepo.Create(context.Background(), grab.Record{
@@ -310,6 +316,7 @@ func TestGrabHandler_ByDecision_AlreadyInFlight(t *testing.T) {
 // (grab_failed / import_failed / imported), the user can press the
 // button again and get a fresh row. No 409, two rows in store.
 func TestGrabHandler_ByDecision_PriorTerminalAllowsRegrab(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 	require.NoError(t, f.grabRepo.Create(context.Background(), grab.Record{
@@ -327,6 +334,7 @@ func TestGrabHandler_ByDecision_PriorTerminalAllowsRegrab(t *testing.T) {
 }
 
 func TestGrabHandler_ByDecision_CooldownBlocked(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 	f.cooldowns.active = map[cooldown.Scope]map[string]bool{
@@ -336,12 +344,14 @@ func TestGrabHandler_ByDecision_CooldownBlocked(t *testing.T) {
 }
 
 func TestGrabHandler_ByDecision_SonarrUnauthorized(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, domain.ErrInstanceUnauthorized)
 	d := f.seedEligible(t)
 	assertErrBody(t, f.do(t, d.ID.String()), http.StatusBadGateway, "sonarr unauthorized")
 }
 
 func TestGrabHandler_ByDecision_DoublePost_TwoRows(t *testing.T) {
+	t.Parallel()
 	f := newGrabFixture(t, nil)
 	d := f.seedEligible(t)
 

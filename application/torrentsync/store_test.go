@@ -21,6 +21,7 @@ func mkInfo(hash, name string, group qbit.StateGroup) qbit.TorrentInfo {
 }
 
 func TestStore_PutGet(t *testing.T) {
+	t.Parallel()
 	s := NewStore()
 	s.EnsureInstance("alpha")
 	e := Entry{
@@ -37,6 +38,7 @@ func TestStore_PutGet(t *testing.T) {
 }
 
 func TestStore_DropInstance(t *testing.T) {
+	t.Parallel()
 	s := NewStore()
 	s.EnsureInstance("alpha")
 	s.Put("alpha", Entry{Info: mkInfo("aaaa", "x", qbit.StateGroupDownloading)})
@@ -47,6 +49,7 @@ func TestStore_DropInstance(t *testing.T) {
 }
 
 func TestStore_SeriesMapping(t *testing.T) {
+	t.Parallel()
 	s := NewStore()
 	s.EnsureInstance("alpha")
 	s.SetSeriesMapping("alpha", "aaaa", 42)
@@ -56,6 +59,7 @@ func TestStore_SeriesMapping(t *testing.T) {
 }
 
 func TestStore_DeletePrunesSeriesIndex(t *testing.T) {
+	t.Parallel()
 	s := NewStore()
 	s.EnsureInstance("alpha")
 	s.SetSeriesMapping("alpha", "aaaa", 42)
@@ -64,6 +68,7 @@ func TestStore_DeletePrunesSeriesIndex(t *testing.T) {
 }
 
 func TestCountersFrom(t *testing.T) {
+	t.Parallel()
 	info := qbit.TorrentInfo{
 		Ratio:        2.5,
 		Uploaded:     10_000,
@@ -79,6 +84,7 @@ func TestCountersFrom(t *testing.T) {
 }
 
 func TestCountersDirty(t *testing.T) {
+	t.Parallel()
 	a := Counters{Ratio: 1.0, Uploaded: 100, TimeActiveS: 60}
 	b := a
 	assert.False(t, CountersDirty(a, b))

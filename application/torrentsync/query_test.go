@@ -67,6 +67,7 @@ func liveInfo(hash, name string, addedOn time.Time) qbit.TorrentInfo {
 }
 
 func TestQuery_BySeriesID_LiveAndDeadMerged(t *testing.T) {
+	t.Parallel()
 	store := NewStore()
 	store.EnsureInstance("alpha")
 
@@ -125,6 +126,7 @@ func TestQuery_BySeriesID_LiveAndDeadMerged(t *testing.T) {
 }
 
 func TestQuery_BySeriesID_EmptyWhenNoMapping(t *testing.T) {
+	t.Parallel()
 	store := NewStore()
 	store.EnsureInstance("alpha")
 	repo := &fakeTorrentsRepoWithFind{}
@@ -138,6 +140,7 @@ func TestQuery_BySeriesID_EmptyWhenNoMapping(t *testing.T) {
 }
 
 func TestQuery_BySeriesID_SortByAddedOnDesc(t *testing.T) {
+	t.Parallel()
 	store := NewStore()
 	store.EnsureInstance("alpha")
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
@@ -163,6 +166,7 @@ func TestQuery_BySeriesID_SortByAddedOnDesc(t *testing.T) {
 }
 
 func TestQuery_BySeriesID_LookupErrorBubbles(t *testing.T) {
+	t.Parallel()
 	store := NewStore()
 	store.EnsureInstance("alpha")
 	repo := &fakeTorrentsRepoWithFind{}

@@ -18,6 +18,7 @@ import (
 // back to the nested episode block for season/episode number + title
 // when the top-level fields are zero.
 func TestQueuePayloadDTO_ParsesSizeAndProgress(t *testing.T) {
+	t.Parallel()
 	body := `{
         "totalRecords": 1,
         "records": [{

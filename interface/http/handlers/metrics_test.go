@@ -12,6 +12,7 @@ import (
 )
 
 func TestMetricsHandler_Returns200_WithPrometheusContentType(t *testing.T) {
+	t.Parallel()
 	r := gin.New()
 	r.GET("/metrics", MetricsHandler())
 

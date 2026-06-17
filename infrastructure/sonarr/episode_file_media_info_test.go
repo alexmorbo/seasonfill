@@ -8,6 +8,7 @@ import (
 )
 
 func TestEpisodeFileDTO_DecodesMediaInfo(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{
 		"id":12345,
 		"seriesId":1,
@@ -34,6 +35,7 @@ func TestEpisodeFileDTO_DecodesMediaInfo(t *testing.T) {
 }
 
 func TestEpisodeFileDTO_NoMediaInfo(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{"id":1,"quality":{"quality":{"id":1,"name":"Unknown"}}}`)
 	var d episodeFileDTO
 	require.NoError(t, json.Unmarshal(raw, &d))

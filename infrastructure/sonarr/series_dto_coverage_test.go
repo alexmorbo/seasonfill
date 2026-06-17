@@ -11,6 +11,7 @@ import (
 // Directly exercises seriesDTOToCacheEntry's optional-field branches.
 
 func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
+	t.Parallel()
 	prev := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
 	d := seriesDTO{
 		ID:        7,
@@ -72,6 +73,7 @@ func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
 }
 
 func TestSeriesDTOToCacheEntry_EmptyOptionalFieldsRemainNil(t *testing.T) {
+	t.Parallel()
 	d := seriesDTO{
 		ID:    3,
 		Title: "T",
@@ -94,6 +96,7 @@ func TestSeriesDTOToCacheEntry_EmptyOptionalFieldsRemainNil(t *testing.T) {
 }
 
 func TestSeriesDTOToCacheEntry_EmptyImageURLSkipped(t *testing.T) {
+	t.Parallel()
 	d := seriesDTO{
 		ID:    1,
 		Title: "T",
@@ -108,6 +111,7 @@ func TestSeriesDTOToCacheEntry_EmptyImageURLSkipped(t *testing.T) {
 }
 
 func TestSeriesDTOToCacheEntry_NoStatisticsLeavesMissingCountZero(t *testing.T) {
+	t.Parallel()
 	d := seriesDTO{ID: 1, Title: "T"}
 	e := seriesDTOToCacheEntry(d, "alpha")
 	assert.Equal(t, 0, e.MissingCount)

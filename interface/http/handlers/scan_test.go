@@ -130,6 +130,7 @@ func setupScanRouter(uc *scan.UseCase) *gin.Engine {
 }
 
 func TestScanHandler_Trigger_AllInstances(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", bytes.NewReader([]byte(`{}`)))
@@ -146,6 +147,7 @@ func TestScanHandler_Trigger_AllInstances(t *testing.T) {
 }
 
 func TestScanHandler_Trigger_SpecificInstance(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 
 	body, _ := json.Marshal(map[string]string{"instance": "main"})
@@ -163,6 +165,7 @@ func TestScanHandler_Trigger_SpecificInstance(t *testing.T) {
 }
 
 func TestScanHandler_Trigger_UnknownInstance(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 
 	body, _ := json.Marshal(map[string]string{"instance": "does-not-exist"})
@@ -180,6 +183,7 @@ func TestScanHandler_Trigger_UnknownInstance(t *testing.T) {
 }
 
 func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", nil)
 	w := httptest.NewRecorder()
@@ -192,6 +196,7 @@ func TestScanHandler_Trigger_EmptyBody(t *testing.T) {
 // io.EOF branch is the documented shape used by `curl -X POST`
 // without a body and the cron-trigger scheduler.
 func TestScanHandler_Trigger_EmptyBody_StillScans(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", nil)
 	w := httptest.NewRecorder()
@@ -203,6 +208,7 @@ func TestScanHandler_Trigger_EmptyBody_StillScans(t *testing.T) {
 // TestScanHandler_Trigger_MalformedJSON_Returns400 — Story 121b §E:
 // malformed JSON body must 400, not silently degrade to scan-all.
 func TestScanHandler_Trigger_MalformedJSON_Returns400(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 	body := bytes.NewReader([]byte(`{"instance": "homelab"`)) // missing }
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", body)
@@ -217,6 +223,7 @@ func TestScanHandler_Trigger_MalformedJSON_Returns400(t *testing.T) {
 // Story 121b §E: type-mismatch (e.g. instance=42 instead of string)
 // MUST 400 not silently degrade.
 func TestScanHandler_Trigger_TypeMismatchOnOptionalField_Returns400(t *testing.T) {
+	t.Parallel()
 	r := setupScanRouter(newScanUseCase())
 	body := bytes.NewReader([]byte(`{"instance": 42}`))
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/scan", body)
@@ -232,6 +239,7 @@ func TestScanHandler_Trigger_TypeMismatchOnOptionalField_Returns400(t *testing.T
 // backward-compatibility contract: an old client that never knew about
 // dry_run sees identical behaviour.
 func TestScanHandler_Trigger_DryRunOverride_NilOmitted(t *testing.T) {
+	t.Parallel()
 	uc := newScanUseCase()
 	r := setupScanRouter(uc)
 
@@ -256,6 +264,7 @@ func TestScanHandler_Trigger_DryRunOverride_NilOmitted(t *testing.T) {
 // dry_run=true. The handler must accept the field without 400-ing and
 // return 202.
 func TestScanHandler_Trigger_DryRunOverride_ForceTrue(t *testing.T) {
+	t.Parallel()
 	uc := newScanUseCase()
 	r := setupScanRouter(uc)
 
@@ -278,6 +287,7 @@ func TestScanHandler_Trigger_DryRunOverride_ForceTrue(t *testing.T) {
 // `TestStartInstanceWithDryRun_ForceFalse` covers the behavioural
 // assertion that ScanRecord.DryRun = false.
 func TestScanHandler_Trigger_DryRunOverride_ForceFalse(t *testing.T) {
+	t.Parallel()
 	uc := newScanUseCase()
 	r := setupScanRouter(uc)
 
@@ -306,6 +316,7 @@ func setupCancelRouter(uc *scan.UseCase) *gin.Engine {
 // either 202 or 404 to avoid a timing-flake; §2 use-case tests pin the
 // terminal-status path against a controlled stub.
 func TestScanHandler_Cancel_OK(t *testing.T) {
+	t.Parallel()
 	uc := newScanUseCase()
 	res, err := uc.StartInstance(t.Context(), "main", scan.TriggerManual)
 	require.NoError(t, err)
@@ -318,6 +329,7 @@ func TestScanHandler_Cancel_OK(t *testing.T) {
 }
 
 func TestScanHandler_Cancel_NotRunning(t *testing.T) {
+	t.Parallel()
 	r := setupCancelRouter(newScanUseCase())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 		"/api/v1/scans/"+uuid.New().String()+"/cancel", nil)
@@ -330,6 +342,7 @@ func TestScanHandler_Cancel_NotRunning(t *testing.T) {
 }
 
 func TestScanHandler_Cancel_BadID(t *testing.T) {
+	t.Parallel()
 	r := setupCancelRouter(newScanUseCase())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 		"/api/v1/scans/not-a-uuid/cancel", nil)

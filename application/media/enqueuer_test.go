@@ -11,6 +11,7 @@ import (
 )
 
 func TestEnqueuer_Dedup(t *testing.T) {
+	t.Parallel()
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	defer eq.Close()
 	url := "https://image.tmdb.org/t/p/w342/abc.jpg"
@@ -28,6 +29,7 @@ func TestEnqueuer_Dedup(t *testing.T) {
 }
 
 func TestEnqueuer_QueueFull(t *testing.T) {
+	t.Parallel()
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	defer eq.Close()
 	// Stuff > channelCap unique URLs without a consumer running.
@@ -42,6 +44,7 @@ func TestEnqueuer_QueueFull(t *testing.T) {
 }
 
 func TestBuildTMDBImageURL(t *testing.T) {
+	t.Parallel()
 	got := BuildTMDBImageURL("w342", "/abc.jpg")
 	want := "https://image.tmdb.org/t/p/w342/abc.jpg"
 	if got != want {
@@ -59,6 +62,7 @@ func TestBuildTMDBImageURL(t *testing.T) {
 }
 
 func TestExtractExt(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"/abc.jpg":  "jpg",
 		"/abc.png":  "png",
@@ -75,6 +79,7 @@ func TestExtractExt(t *testing.T) {
 // Story 347 — sentinel-missing hash invariants.
 
 func TestSentinelMissingHash_Deterministic(t *testing.T) {
+	t.Parallel()
 	sum := sha256.Sum256([]byte("seasonfill:media:sentinel:missing:v1"))
 	want := hex.EncodeToString(sum[:])
 	if SentinelMissingHash != want {
@@ -88,6 +93,7 @@ func TestSentinelMissingHash_Deterministic(t *testing.T) {
 }
 
 func TestSentinelMissingHash_NoCollisionWithRealURL(t *testing.T) {
+	t.Parallel()
 	urls := []string{
 		"https://image.tmdb.org/t/p/w342/abc.jpg",
 		"https://image.tmdb.org/t/p/w1280/abc.jpg",

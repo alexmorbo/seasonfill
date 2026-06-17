@@ -3,6 +3,7 @@ package series
 import "testing"
 
 func TestSeasonStats_Missing(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   SeasonStats
@@ -16,6 +17,7 @@ func TestSeasonStats_Missing(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.in.Missing(); got != tt.want {
 				t.Fatalf("Missing() = %d, want %d", got, tt.want)
 			}
@@ -24,6 +26,7 @@ func TestSeasonStats_Missing(t *testing.T) {
 }
 
 func TestSeasonStats_IsComplete(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   SeasonStats
@@ -36,6 +39,7 @@ func TestSeasonStats_IsComplete(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.in.IsComplete(); got != tt.want {
 				t.Fatalf("IsComplete() = %v, want %v", got, tt.want)
 			}
@@ -44,6 +48,7 @@ func TestSeasonStats_IsComplete(t *testing.T) {
 }
 
 func TestSeasonStats_HasNoLocal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   SeasonStats
@@ -56,6 +61,7 @@ func TestSeasonStats_HasNoLocal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.in.HasNoLocal(); got != tt.want {
 				t.Fatalf("HasNoLocal() = %v, want %v", got, tt.want)
 			}
@@ -64,6 +70,7 @@ func TestSeasonStats_HasNoLocal(t *testing.T) {
 }
 
 func TestSeasonStatsFromStatistics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		st   Statistics
@@ -87,6 +94,7 @@ func TestSeasonStatsFromStatistics(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := SeasonStatsFromStatistics(tt.st)
 			if got != tt.want {
 				t.Fatalf("SeasonStatsFromStatistics() = %#v, want %#v", got, tt.want)

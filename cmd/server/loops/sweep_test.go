@@ -23,6 +23,7 @@ func (r *countingSweepRepo) Sweep(_ context.Context, _ time.Time) (int64, error)
 }
 
 func TestSweepLoop_ReloadShortensCadence(t *testing.T) {
+	t.Parallel()
 	repo := &countingSweepRepo{}
 	s := NewSweepLoop(repo, 200*time.Millisecond, nullLogger())
 
@@ -63,6 +64,7 @@ func TestSweepLoop_ReloadShortensCadence(t *testing.T) {
 }
 
 func TestSweepLoop_DisabledBySetIntervalZero(t *testing.T) {
+	t.Parallel()
 	repo := &countingSweepRepo{}
 	s := NewSweepLoop(repo, 30*time.Millisecond, nullLogger())
 

@@ -57,6 +57,7 @@ const (
 )
 
 func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
+	t.Parallel()
 	h := newRegrabHarness(t)
 
 	ctx := context.Background()

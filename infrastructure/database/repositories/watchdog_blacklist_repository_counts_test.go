@@ -9,6 +9,7 @@ import (
 )
 
 func TestWatchdogBlacklistRepository_CountByInstance(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewWatchdogBlacklistRepository(db)
 	ctx := context.Background()

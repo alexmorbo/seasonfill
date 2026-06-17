@@ -69,6 +69,7 @@ func newTestLoop(t *testing.T, cache *webhookinstall.StatusCache, rec WebhookRec
 }
 
 func TestWebhookReconcileLoop_StaleCacheTriggersReconcile(t *testing.T) {
+	t.Parallel()
 	rec := &fakeWebhookReconciler{}
 	loop := newTestLoop(t, webhookinstall.NewStatusCache(), rec, instMap("alpha", true))
 	loop.SetTickInterval(40 * time.Millisecond)
@@ -79,6 +80,7 @@ func TestWebhookReconcileLoop_StaleCacheTriggersReconcile(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_FreshCacheSkipsReconcile(t *testing.T) {
+	t.Parallel()
 	cache := webhookinstall.NewStatusCache()
 	rec := &fakeWebhookReconciler{}
 	now := time.Now().UTC()
@@ -94,6 +96,7 @@ func TestWebhookReconcileLoop_FreshCacheSkipsReconcile(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_DisabledInstanceSkipsReconcile(t *testing.T) {
+	t.Parallel()
 	rec := &fakeWebhookReconciler{}
 	loop := newTestLoop(t, webhookinstall.NewStatusCache(), rec, instMap("alpha", false))
 	loop.SetTickInterval(30 * time.Millisecond)
@@ -104,6 +107,7 @@ func TestWebhookReconcileLoop_DisabledInstanceSkipsReconcile(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_BackoffSkipsReconcile(t *testing.T) {
+	t.Parallel()
 	cache := webhookinstall.NewStatusCache()
 	rec := &fakeWebhookReconciler{}
 	now := time.Now().UTC()
@@ -122,6 +126,7 @@ func TestWebhookReconcileLoop_BackoffSkipsReconcile(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_ReconcileErrorDoesNotKillLoop(t *testing.T) {
+	t.Parallel()
 	rec := &fakeWebhookReconciler{}
 	rec.setError(errors.New("sonarr unreachable"))
 	loop := newTestLoop(t, webhookinstall.NewStatusCache(), rec, instMap("alpha", true))
@@ -133,6 +138,7 @@ func TestWebhookReconcileLoop_ReconcileErrorDoesNotKillLoop(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_SetTickIntervalChangesCadence(t *testing.T) {
+	t.Parallel()
 	rec := &fakeWebhookReconciler{}
 	instances := instMap("alpha", true)
 	loop := NewWebhookReconcileLoop(rec, webhookinstall.NewStatusCache(),
@@ -160,6 +166,7 @@ func TestWebhookReconcileLoop_SetTickIntervalChangesCadence(t *testing.T) {
 }
 
 func TestWebhookReconcileLoop_ZeroIntervalFallsBackToDefault(t *testing.T) {
+	t.Parallel()
 	loop := NewWebhookReconcileLoop(&fakeWebhookReconciler{}, webhookinstall.NewStatusCache(),
 		func() map[string]scan.Instance { return nil }, nullLogger())
 	loop.SetTickInterval(0)

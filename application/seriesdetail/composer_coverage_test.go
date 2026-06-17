@@ -61,6 +61,7 @@ func (e *errVideos) ListBySeriesAndType(_ context.Context, _ int64, _ string) ([
 // --- loadTopCast ---
 
 func TestComposer_loadTopCast_RepoError(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.SeriesPeople = &errSeriesPeople{err: errors.New("db down")}
 	c := NewComposer(deps)
@@ -71,6 +72,7 @@ func TestComposer_loadTopCast_RepoError(t *testing.T) {
 }
 
 func TestComposer_loadTopCast_NoCredits(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	// fakeSeriesPeople with nil rows.
 	c := NewComposer(deps)
@@ -81,6 +83,7 @@ func TestComposer_loadTopCast_NoCredits(t *testing.T) {
 }
 
 func TestComposer_loadTopCast_TrimsToLimit(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	co0, co1, co2 := 0, 1, 2
 	creds := []people.SeriesCredit{
@@ -100,6 +103,7 @@ func TestComposer_loadTopCast_TrimsToLimit(t *testing.T) {
 }
 
 func TestComposer_loadTopCast_SkipsMissingPersonRows(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	creds := []people.SeriesCredit{
 		{PersonID: 1}, {PersonID: 2}, {PersonID: 99}, // 99 missing
@@ -118,6 +122,7 @@ func TestComposer_loadTopCast_SkipsMissingPersonRows(t *testing.T) {
 // --- loadTaxonomy ---
 
 func TestComposer_loadTaxonomy_GenresErrorPropagates(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Genres = &errGenres{err: errors.New("genres list down")}
 	c := NewComposer(deps)
@@ -127,6 +132,7 @@ func TestComposer_loadTaxonomy_GenresErrorPropagates(t *testing.T) {
 }
 
 func TestComposer_loadTaxonomy_KeywordsErrorPropagates(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Keywords = &errKeywords{err: errors.New("keywords list down")}
 	c := NewComposer(deps)
@@ -136,6 +142,7 @@ func TestComposer_loadTaxonomy_KeywordsErrorPropagates(t *testing.T) {
 }
 
 func TestComposer_loadTaxonomy_NetworksErrorPropagates(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Networks = &errNetworks{listErr: errors.New("net list down")}
 	c := NewComposer(deps)
@@ -145,6 +152,7 @@ func TestComposer_loadTaxonomy_NetworksErrorPropagates(t *testing.T) {
 }
 
 func TestComposer_loadTaxonomy_NetworksByIDsErrorPropagates(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Networks = &errNetworks{ids: []int64{1, 2}, idsErr: errors.New("net by-ids down")}
 	c := NewComposer(deps)
@@ -154,6 +162,7 @@ func TestComposer_loadTaxonomy_NetworksByIDsErrorPropagates(t *testing.T) {
 }
 
 func TestComposer_loadTaxonomy_HappyPath_PopulatesAll(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Genres = &fakeGenres{ids: []int64{10, 11}}
 	deps.Keywords = &fakeKeywords{ids: []int64{20}}
@@ -170,6 +179,7 @@ func TestComposer_loadTaxonomy_HappyPath_PopulatesAll(t *testing.T) {
 // --- loadBestTrailer ---
 
 func TestComposer_loadBestTrailer_RepoError(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	deps.Videos = &errVideos{err: errors.New("videos down")}
 	c := NewComposer(deps)
@@ -179,6 +189,7 @@ func TestComposer_loadBestTrailer_RepoError(t *testing.T) {
 }
 
 func TestComposer_loadBestTrailer_PicksLatestOfficialYouTube(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -200,6 +211,7 @@ func TestComposer_loadBestTrailer_PicksLatestOfficialYouTube(t *testing.T) {
 }
 
 func TestComposer_loadBestTrailer_NoEligibleTrailers(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := baseDeps(t)
 	siteVimeo := "Vimeo"
 	deps.Videos = &fakeVideos{rows: []database.VideoModel{

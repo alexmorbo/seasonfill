@@ -16,6 +16,7 @@ import (
 )
 
 func TestMetricsTransport_RoundTrip_Success_200(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -39,6 +40,7 @@ func TestMetricsTransport_RoundTrip_Success_200(t *testing.T) {
 }
 
 func TestMetricsTransport_RoundTrip_429_Literal(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
@@ -57,6 +59,7 @@ func TestMetricsTransport_RoundTrip_429_Literal(t *testing.T) {
 }
 
 func TestMetricsTransport_RoundTrip_502_Literal(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -73,6 +76,7 @@ func TestMetricsTransport_RoundTrip_502_Literal(t *testing.T) {
 }
 
 func TestMetricsTransport_RoundTrip_504_Literal(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusGatewayTimeout)
 	}))
@@ -89,6 +93,7 @@ func TestMetricsTransport_RoundTrip_504_Literal(t *testing.T) {
 }
 
 func TestMetricsTransport_RoundTrip_OffSet_Bucketed_As_Other(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
@@ -105,6 +110,7 @@ func TestMetricsTransport_RoundTrip_OffSet_Bucketed_As_Other(t *testing.T) {
 }
 
 func TestMetricsTransport_RoundTrip_NetworkError_Classified_As_Error(t *testing.T) {
+	t.Parallel()
 	tr := NewMetricsTransport("testclient4", func(*http.Request) string { return "/neterr" }, &erringTransport{})
 	c := &http.Client{Transport: tr}
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid/x", nil)
@@ -116,6 +122,7 @@ func TestMetricsTransport_RoundTrip_NetworkError_Classified_As_Error(t *testing.
 }
 
 func TestMetricsTransport_InFlight_UpAndDown(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		<-release
@@ -163,11 +170,13 @@ func TestMetricsTransport_InFlight_UpAndDown(t *testing.T) {
 }
 
 func TestMetricsTransport_NilInner_FallsBackToDefault(t *testing.T) {
+	t.Parallel()
 	tr := NewMetricsTransport("nilinner", func(*http.Request) string { return "/" }, nil)
 	require.NotNil(t, tr.inner)
 }
 
 func TestMetricsTransport_NilEndpointFunc_FallsBackToUnknown(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -185,6 +194,7 @@ func TestMetricsTransport_NilEndpointFunc_FallsBackToUnknown(t *testing.T) {
 }
 
 func TestNormalizeStatus(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		code int
@@ -208,6 +218,7 @@ func TestNormalizeStatus(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var resp *http.Response
 			if tc.err == nil {
 				resp = &http.Response{StatusCode: tc.code}
@@ -219,6 +230,7 @@ func TestNormalizeStatus(t *testing.T) {
 }
 
 func TestNormalizeStatus_NilResp_NilErr_BucketsAsError(t *testing.T) {
+	t.Parallel()
 	got := normalizeStatus(nil, nil)
 	assert.Equal(t, "error", got)
 }

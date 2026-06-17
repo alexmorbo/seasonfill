@@ -17,6 +17,7 @@ import (
 )
 
 func TestRequestLogging_GeneratesRequestID_WhenAbsent(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
@@ -47,6 +48,7 @@ func TestRequestLogging_GeneratesRequestID_WhenAbsent(t *testing.T) {
 }
 
 func TestRequestLogging_PropagatesProvidedRequestID(t *testing.T) {
+	t.Parallel()
 	buf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(buf, nil))
 

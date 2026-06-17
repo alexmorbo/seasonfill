@@ -62,6 +62,7 @@ func (l *fakeTorrentsyncLoop) SetInterval(d time.Duration) {
 }
 
 func TestTorrentsyncLoop_SwapSpawnsEnabled(t *testing.T) {
+	t.Parallel()
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
 	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
@@ -82,6 +83,7 @@ func TestTorrentsyncLoop_SwapSpawnsEnabled(t *testing.T) {
 }
 
 func TestTorrentsyncLoop_SubMinuteCadenceFallsBackToDefault(t *testing.T) {
+	t.Parallel()
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
 	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
@@ -99,6 +101,7 @@ func TestTorrentsyncLoop_SubMinuteCadenceFallsBackToDefault(t *testing.T) {
 }
 
 func TestTorrentsyncLoop_SwapStopsRemoved(t *testing.T) {
+	t.Parallel()
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
 	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
@@ -118,6 +121,7 @@ func TestTorrentsyncLoop_SwapStopsRemoved(t *testing.T) {
 }
 
 func TestTorrentsyncLoop_HydrateRunsOncePerSpawn(t *testing.T) {
+	t.Parallel()
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
 	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())

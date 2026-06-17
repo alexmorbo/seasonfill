@@ -40,6 +40,7 @@ func newDiscoverTestRig(t *testing.T, sonarrHandler http.HandlerFunc) (*gin.Engi
 }
 
 func TestQbitDiscover_200MatchFirstEnabled(t *testing.T) {
+	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
 			{"id":1,"name":"qb-disabled","implementation":"QBittorrent","enable":false,
@@ -62,6 +63,7 @@ func TestQbitDiscover_200MatchFirstEnabled(t *testing.T) {
 }
 
 func TestQbitDiscover_200FallbackWhenAllDisabled(t *testing.T) {
+	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
 			{"id":1,"name":"qb-disabled","implementation":"qbittorrent","enable":false,
@@ -75,6 +77,7 @@ func TestQbitDiscover_200FallbackWhenAllDisabled(t *testing.T) {
 }
 
 func TestQbitDiscover_404NoQbit(t *testing.T) {
+	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
 			{"id":1,"name":"tr","implementation":"Transmission","enable":true,"fields":[]}
@@ -90,6 +93,7 @@ func TestQbitDiscover_404NoQbit(t *testing.T) {
 }
 
 func TestQbitDiscover_404UnknownInstance(t *testing.T) {
+	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {})
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/ghost/discover/qbit", nil)
@@ -99,6 +103,7 @@ func TestQbitDiscover_404UnknownInstance(t *testing.T) {
 }
 
 func TestQbitDiscover_502SonarrUnauthorized(t *testing.T) {
+	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
@@ -110,6 +115,7 @@ func TestQbitDiscover_502SonarrUnauthorized(t *testing.T) {
 }
 
 func TestQbitDiscover_502SonarrNetworkError(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	client := sonarr.New("alpha", "http://127.0.0.1:1", "k", 200*time.Millisecond,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))

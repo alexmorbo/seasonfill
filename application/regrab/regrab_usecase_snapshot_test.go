@@ -3,6 +3,7 @@ package regrab
 import "testing"
 
 func TestUseCase_ConstructorWiresRuntimeStateStore(t *testing.T) {
+	t.Parallel()
 	u := NewUseCase(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if u.state == nil {
 		t.Fatal("NewUseCase must wire a RuntimeStateStore")
@@ -16,6 +17,7 @@ func TestUseCase_ConstructorWiresRuntimeStateStore(t *testing.T) {
 }
 
 func TestUseCase_ForgetStateRemovesEntry(t *testing.T) {
+	t.Parallel()
 	u := NewUseCase(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	u.state.Stamp("alpha", RuntimeState{Watched: 7})
 	u.ForgetState("alpha")

@@ -26,6 +26,7 @@ import (
 //	MEDIASTORE_S3_TEST_ACCESS_KEY=minioadmin
 //	MEDIASTORE_S3_TEST_SECRET_KEY=minioadmin
 func TestS3Store_RoundTrip(t *testing.T) {
+	t.Parallel()
 	endpoint := os.Getenv("MEDIASTORE_S3_TEST_ENDPOINT")
 	if endpoint == "" {
 		t.Skip("MEDIASTORE_S3_TEST_ENDPOINT not set; skipping s3 integration test")

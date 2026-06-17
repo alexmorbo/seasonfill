@@ -102,6 +102,7 @@ func buildTorrentsHandler(t *testing.T, store *torrentsync.Store, lookup stubTor
 }
 
 func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	store.EnsureInstance("alpha")
@@ -167,6 +168,7 @@ func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
 }
 
 func TestSeriesTorrents_304_OnIfNoneMatch(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	store.EnsureInstance("alpha")
@@ -196,6 +198,7 @@ func TestSeriesTorrents_304_OnIfNoneMatch(t *testing.T) {
 }
 
 func TestSeriesTorrents_404_UnknownSeries(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	repo := stubTorrentsRepo{}
@@ -215,6 +218,7 @@ func TestSeriesTorrents_404_UnknownSeries(t *testing.T) {
 }
 
 func TestSeriesTorrents_400_InvalidID(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	repo := stubTorrentsRepo{}
@@ -230,6 +234,7 @@ func TestSeriesTorrents_400_InvalidID(t *testing.T) {
 }
 
 func TestSeriesTorrents_DefaultSortAddedOnDesc(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	store.EnsureInstance("alpha")
@@ -278,6 +283,7 @@ func (errSeriesPort) GetByTMDBID(_ context.Context, _ int) (series.Canon, error)
 }
 
 func TestSeriesTorrents_500_OnCanonError(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	store := torrentsync.NewStore()
 	repo := stubTorrentsRepo{}

@@ -8,6 +8,7 @@ import (
 )
 
 func TestStatusCache_GetSetDelete(t *testing.T) {
+	t.Parallel()
 	c := NewStatusCache()
 	if _, ok := c.Get("alpha"); ok {
 		t.Fatalf("empty cache should miss")
@@ -25,6 +26,7 @@ func TestStatusCache_GetSetDelete(t *testing.T) {
 }
 
 func TestStatusCache_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	c := NewStatusCache()
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -36,6 +38,7 @@ func TestStatusCache_ConcurrentAccess(t *testing.T) {
 }
 
 func TestPublicURLFromContext(t *testing.T) {
+	t.Parallel()
 	if got := PublicURLFromContext(context.Background()); got != "" {
 		t.Fatalf("empty context should return empty string, got %q", got)
 	}

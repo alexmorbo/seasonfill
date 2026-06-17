@@ -71,6 +71,7 @@ func mustNewRefreshHandler(t *testing.T, uc *seriesrefresh.UseCase) *SeriesRefre
 }
 
 func TestSeriesRefreshHandler_202_Accepted(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &refreshHandlerFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(42)}}
 	canon := &refreshHandlerFakeSeries{canon: seriesrefresh.CanonView{ID: 42, IMDBID: ptrString("tt9")}}
@@ -103,6 +104,7 @@ func TestSeriesRefreshHandler_202_Accepted(t *testing.T) {
 }
 
 func TestSeriesRefreshHandler_400_BadID(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &refreshHandlerFakeCache{}
 	canon := &refreshHandlerFakeSeries{}
@@ -121,6 +123,7 @@ func TestSeriesRefreshHandler_400_BadID(t *testing.T) {
 }
 
 func TestSeriesRefreshHandler_404_NotFound(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &refreshHandlerFakeCache{err: ports.ErrNotFound}
 	canon := &refreshHandlerFakeSeries{}
@@ -139,6 +142,7 @@ func TestSeriesRefreshHandler_404_NotFound(t *testing.T) {
 }
 
 func TestSeriesRefreshHandler_Idempotent_Repeat(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &refreshHandlerFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(42)}}
 	canon := &refreshHandlerFakeSeries{canon: seriesrefresh.CanonView{ID: 42}}

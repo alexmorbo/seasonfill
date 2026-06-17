@@ -102,6 +102,7 @@ func setupRouter(t *testing.T, checker *healthcheck.Checker) *gin.Engine {
 }
 
 func TestHealthHandler_Live_AlwaysOK(t *testing.T) {
+	t.Parallel()
 	r := setupRouter(t, newChecker(t, &fakeSonarr{name: "main"}, false))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
@@ -115,6 +116,7 @@ func TestHealthHandler_Live_AlwaysOK(t *testing.T) {
 }
 
 func TestHealthHandler_Ready_OK(t *testing.T) {
+	t.Parallel()
 	r := setupRouter(t, newChecker(t, &fakeSonarr{name: "main"}, false))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
@@ -136,6 +138,7 @@ func TestHealthHandler_Ready_OK(t *testing.T) {
 }
 
 func TestHealthHandler_Ready_SonarrDown_StillReady(t *testing.T) {
+	t.Parallel()
 	// Regression guard for the 2026-05-26 incident: an unauthorised
 	// or unreachable Sonarr instance must NOT fail readiness — the pod
 	// has to stay in the K8s Service so the operator can reach the UI
@@ -154,6 +157,7 @@ func TestHealthHandler_Ready_SonarrDown_StillReady(t *testing.T) {
 }
 
 func TestHealthHandler_Ready_NoInstancesIsReady(t *testing.T) {
+	t.Parallel()
 	r := setupRouter(t, newCheckerNoInstances(t))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)
@@ -168,6 +172,7 @@ func TestHealthHandler_Ready_NoInstancesIsReady(t *testing.T) {
 }
 
 func TestHealthHandler_Ready_DBDown(t *testing.T) {
+	t.Parallel()
 	r := setupRouter(t, newChecker(t, &fakeSonarr{name: "main"}, true))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil)

@@ -9,12 +9,14 @@ import (
 )
 
 func TestNew_EmptyMasterKey(t *testing.T) {
+	t.Parallel()
 	_, err := New("")
 	require.Error(t, err)
 	assert.Equal(t, ErrEmptyMasterKey, err)
 }
 
 func TestSealOpen_RoundTrip(t *testing.T) {
+	t.Parallel()
 	masterKey := "test-master-key-for-aes-gcm"
 	c, err := New(masterKey)
 	require.NoError(t, err)
@@ -30,6 +32,7 @@ func TestSealOpen_RoundTrip(t *testing.T) {
 }
 
 func TestSealOpen_DifferentKey(t *testing.T) {
+	t.Parallel()
 	c1, err := New("key1")
 	require.NoError(t, err)
 
@@ -45,6 +48,7 @@ func TestSealOpen_DifferentKey(t *testing.T) {
 }
 
 func TestSealOpen_TamperDetect(t *testing.T) {
+	t.Parallel()
 	c, err := New("key")
 	require.NoError(t, err)
 
@@ -59,6 +63,7 @@ func TestSealOpen_TamperDetect(t *testing.T) {
 }
 
 func TestOpen_CiphertextTooShort(t *testing.T) {
+	t.Parallel()
 	c, err := New("key")
 	require.NoError(t, err)
 
@@ -68,6 +73,7 @@ func TestOpen_CiphertextTooShort(t *testing.T) {
 }
 
 func TestSeal_NonceUniqueness(t *testing.T) {
+	t.Parallel()
 	c, err := New("key")
 	require.NoError(t, err)
 
@@ -91,6 +97,7 @@ func TestSeal_NonceUniqueness(t *testing.T) {
 }
 
 func TestSeal_Empty(t *testing.T) {
+	t.Parallel()
 	c, err := New("key")
 	require.NoError(t, err)
 
@@ -104,6 +111,7 @@ func TestSeal_Empty(t *testing.T) {
 }
 
 func TestSeal_Large(t *testing.T) {
+	t.Parallel()
 	c, err := New("key")
 	require.NoError(t, err)
 

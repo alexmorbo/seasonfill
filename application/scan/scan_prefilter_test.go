@@ -23,6 +23,7 @@ import (
 // permutation of (stats, flag) → (reason, skip) without touching any
 // Sonarr stub or repo.
 func TestDecidePrefilter(t *testing.T) {
+	t.Parallel()
 	mkInst := func(flag bool) Instance {
 		return Instance{Config: config.SonarrInstance{
 			Name: "homelab", ScanSkipHandledSeasons: flag,
@@ -46,6 +47,7 @@ func TestDecidePrefilter(t *testing.T) {
 	uc := &UseCase{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			gotReason, gotSkip := uc.decidePrefilter(tt.stats, mkInst(tt.flag))
 			assert.Equal(t, tt.wantSkip, gotSkip)
 			assert.Equal(t, tt.wantReason, gotReason)
@@ -55,6 +57,7 @@ func TestDecidePrefilter(t *testing.T) {
 
 // TestPrefilterReasonLabel asserts the metric-label collapse.
 func TestPrefilterReasonLabel(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "all_complete", prefilterReasonLabel(decision.ReasonAllComplete))
 	assert.Equal(t, "sonarr_handles", prefilterReasonLabel(decision.ReasonSonarrHandles))
 	// Fallback: any other reason returns the bare reason string. Not
@@ -116,6 +119,7 @@ func buildUC(t *testing.T, sonarr *prefilterSonarr, flag bool) (*UseCase, *fakeD
 // #4, #6: mixed seasons with flag=true; partial-only ListEpisodes +
 // SearchReleases; pre-filter Decisions carry season-stats snapshot.
 func TestScan_PrefilterSkipsCompleteAndSonarrHandles(t *testing.T) {
+	t.Parallel()
 	sonarr := &prefilterSonarr{fakeSonarr: &fakeSonarr{
 		name: "homelab",
 		series: []series.Series{{
@@ -158,6 +162,7 @@ func TestScan_PrefilterSkipsCompleteAndSonarrHandles(t *testing.T) {
 // TestScan_PrefilterFlagOff — PRD #5. Flag=false: sonarr_handles routes
 // to evaluator; all_complete still short-circuits (unconditional).
 func TestScan_PrefilterFlagOff(t *testing.T) {
+	t.Parallel()
 	sonarr := &prefilterSonarr{fakeSonarr: &fakeSonarr{
 		name: "homelab",
 		series: []series.Series{{
@@ -193,6 +198,7 @@ func TestScan_PrefilterFlagOff(t *testing.T) {
 // TestSeriesAllSeasonsComplete is the pure unit for the series-level
 // fast-path helper. Mirrors decidePrefilter's table-driven style.
 func TestSeriesAllSeasonsComplete(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		s    series.Series
@@ -240,6 +246,7 @@ func TestSeriesAllSeasonsComplete(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, seriesAllSeasonsComplete(tt.s))
 		})
 	}
@@ -267,6 +274,7 @@ func (p *panicSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, e
 //   - NOT call GetQualityProfile or ListEpisodeFiles (the panicSonarr
 //     would otherwise crash the scan).
 func TestScan_SeriesAllSeasonsComplete_SkipsBeforeSonarrCalls(t *testing.T) {
+	t.Parallel()
 	sonarr := &panicSonarr{fakeSonarr: &fakeSonarr{
 		name: "homelab",
 		series: []series.Series{{

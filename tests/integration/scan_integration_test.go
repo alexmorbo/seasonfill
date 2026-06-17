@@ -32,6 +32,7 @@ func loadFixture(t *testing.T, name string) []byte {
 }
 
 func TestIntegration_ScanHijackSeason2_DryRun_LogsGrabDecision(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {

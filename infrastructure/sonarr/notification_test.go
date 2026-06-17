@@ -25,6 +25,7 @@ func newNotifTestClient(t *testing.T, mux *http.ServeMux) *Client {
 }
 
 func TestClient_ListDownloadClients_Empty(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[]`))
@@ -36,6 +37,7 @@ func TestClient_ListDownloadClients_Empty(t *testing.T) {
 }
 
 func TestClient_ListDownloadClients_WithQbit(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -63,6 +65,7 @@ func TestClient_ListDownloadClients_WithQbit(t *testing.T) {
 }
 
 func TestClient_ListDownloadClients_WithNoQbit(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -78,6 +81,7 @@ func TestClient_ListDownloadClients_WithNoQbit(t *testing.T) {
 }
 
 func TestClient_ListNotifications_Empty(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[]`))
@@ -89,6 +93,7 @@ func TestClient_ListNotifications_Empty(t *testing.T) {
 }
 
 func TestClient_ListNotifications_WithWebhook(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -112,6 +117,7 @@ func TestClient_ListNotifications_WithWebhook(t *testing.T) {
 }
 
 func TestClient_CreateNotification_Success(t *testing.T) {
+	t.Parallel()
 	var gotBody string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +145,7 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 }
 
 func TestClient_CreateNotification_409Conflict(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
@@ -156,6 +163,7 @@ func TestClient_CreateNotification_409Conflict(t *testing.T) {
 }
 
 func TestClient_CreateNotification_TemplateMirroring(t *testing.T) {
+	t.Parallel()
 	var gotBody string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +190,7 @@ func TestClient_CreateNotification_TemplateMirroring(t *testing.T) {
 }
 
 func TestClient_Notification_Unauthorized(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -193,6 +202,7 @@ func TestClient_Notification_Unauthorized(t *testing.T) {
 }
 
 func TestClient_Notification_NetworkError(t *testing.T) {
+	t.Parallel()
 	c := New("t", "http://127.0.0.1:1", "k", 200*time.Millisecond,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.ListDownloadClients(context.Background())
@@ -201,6 +211,7 @@ func TestClient_Notification_NetworkError(t *testing.T) {
 }
 
 func TestClient_CreateNotification_FallbackOnUnknownSeriesTrigger(t *testing.T) {
+	t.Parallel()
 	var bodies []string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +241,7 @@ func TestClient_CreateNotification_FallbackOnUnknownSeriesTrigger(t *testing.T) 
 }
 
 func TestClient_CreateNotification_400WithoutSeriesTrigger_NoRetry(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/notification", func(w http.ResponseWriter, _ *http.Request) {
@@ -249,6 +261,7 @@ func TestClient_CreateNotification_400WithoutSeriesTrigger_NoRetry(t *testing.T)
 }
 
 func TestClient_UpdateNotification_PUTsExpectedPath(t *testing.T) {
+	t.Parallel()
 	var gotBody string
 	var gotMethod string
 	mux := http.NewServeMux()
@@ -279,6 +292,7 @@ func TestClient_UpdateNotification_PUTsExpectedPath(t *testing.T) {
 }
 
 func TestClient_UpdateNotification_RejectsZeroID(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	c := newNotifTestClient(t, mux)
 	_, err := c.UpdateNotification(context.Background(), Notification{ID: 0}, NotificationPayload{
@@ -289,6 +303,7 @@ func TestClient_UpdateNotification_RejectsZeroID(t *testing.T) {
 }
 
 func TestClient_DeleteNotification_DELETEsExpectedPath(t *testing.T) {
+	t.Parallel()
 	var gotMethod string
 	var gotPath string
 	mux := http.NewServeMux()
@@ -305,6 +320,7 @@ func TestClient_DeleteNotification_DELETEsExpectedPath(t *testing.T) {
 }
 
 func TestClient_DeleteNotification_RejectsZeroID(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
 	c := newNotifTestClient(t, mux)
 	err := c.DeleteNotification(context.Background(), 0)
@@ -313,6 +329,7 @@ func TestClient_DeleteNotification_RejectsZeroID(t *testing.T) {
 }
 
 func TestWebhookFieldURL_Present(t *testing.T) {
+	t.Parallel()
 	fields := []NotificationField{
 		{Name: "url", Value: "https://example.com/api/v1/webhook/sonarr/alpha"},
 		{Name: "method", Value: 1},
@@ -322,6 +339,7 @@ func TestWebhookFieldURL_Present(t *testing.T) {
 }
 
 func TestWebhookFieldURL_NonString(t *testing.T) {
+	t.Parallel()
 	fields := []NotificationField{
 		{Name: "url", Value: 42},
 		{Name: "method", Value: 1},
@@ -331,6 +349,7 @@ func TestWebhookFieldURL_NonString(t *testing.T) {
 }
 
 func TestWebhookFieldURL_Absent(t *testing.T) {
+	t.Parallel()
 	fields := []NotificationField{
 		{Name: "method", Value: 1},
 		{Name: "headers", Value: "X-Api-Key=test"},

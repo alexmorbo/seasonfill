@@ -9,6 +9,7 @@ import (
 )
 
 func TestTMDBCDNEndpointFor(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		raw  string
 		want string
@@ -31,6 +32,7 @@ func TestTMDBCDNEndpointFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.raw, func(t *testing.T) {
+			t.Parallel()
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://image.tmdb.org"+tc.raw, nil)
 			got := TMDBCDNEndpointFor(req)
 			assert.Equal(t, tc.want, got)

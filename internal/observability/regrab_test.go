@@ -16,6 +16,7 @@ func dumpMetrics(t *testing.T) string {
 }
 
 func TestWatchdogPollResult_EmitsCounter(t *testing.T) {
+	t.Parallel()
 	IncWatchdogPollResult("alpha", WatchdogPollResultOK)
 	IncWatchdogPollResult("alpha", WatchdogPollResultQbitError)
 	IncWatchdogPollResult("alpha", WatchdogPollResultOK)
@@ -26,6 +27,7 @@ func TestWatchdogPollResult_EmitsCounter(t *testing.T) {
 }
 
 func TestWatchdogUnregistered_EmitsCounter(t *testing.T) {
+	t.Parallel()
 	IncWatchdogUnregisteredDetected("alpha", "tracker.example.com")
 
 	out := dumpMetrics(t)
@@ -34,6 +36,7 @@ func TestWatchdogUnregistered_EmitsCounter(t *testing.T) {
 }
 
 func TestWatchdogRegrabResult_EmitsCounter(t *testing.T) {
+	t.Parallel()
 	IncWatchdogRegrabResult("alpha", "grabbed")
 	IncWatchdogRegrabResult("alpha", "nothing_better")
 
@@ -43,6 +46,7 @@ func TestWatchdogRegrabResult_EmitsCounter(t *testing.T) {
 }
 
 func TestWatchdogBlacklistSize_EmitsGauge(t *testing.T) {
+	t.Parallel()
 	SetWatchdogBlacklistSize("alpha", 3)
 
 	out := dumpMetrics(t)
@@ -54,6 +58,7 @@ func TestWatchdogBlacklistSize_EmitsGauge(t *testing.T) {
 }
 
 func TestWatchdogStreak_EmitsGauge(t *testing.T) {
+	t.Parallel()
 	SetWatchdogQbitUnreachableStreak("alpha", 5)
 	SetWatchdogQbitUnreachableStreak("alpha", 0) // recovery
 
@@ -62,6 +67,7 @@ func TestWatchdogStreak_EmitsGauge(t *testing.T) {
 }
 
 func TestWatchdogMetricsAdapter_DelegatesAll(t *testing.T) {
+	t.Parallel()
 	var a WatchdogMetricsAdapter
 	a.IncPollResult("beta", "ok")
 	a.IncUnregistered("beta", "t.example")

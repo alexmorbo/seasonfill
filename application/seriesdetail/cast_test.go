@@ -139,6 +139,7 @@ func crewCredit(personID int64, dept, job string, episodes *int) people.SeriesCr
 // --- tests ---
 
 func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
+	t.Parallel()
 	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
 	// 3 cast: Pedro (order=0, in current+other), Bella (order=1, current only),
 	// Anna (order=2, current+Mindhunter).
@@ -189,6 +190,7 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 }
 
 func TestCastComposer_CastSortedByCreditOrder(t *testing.T) {
+	t.Parallel()
 	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
 	seedPerson(persons, 1, "A", nil)
 	seedPerson(persons, 2, "B", nil)
@@ -212,6 +214,7 @@ func TestCastComposer_CastSortedByCreditOrder(t *testing.T) {
 }
 
 func TestCastComposer_CrewGroupedByDepartmentThenName(t *testing.T) {
+	t.Parallel()
 	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
 	seedPerson(persons, 1, "Z", nil)
 	seedPerson(persons, 2, "A", nil)
@@ -236,6 +239,7 @@ func TestCastComposer_CrewGroupedByDepartmentThenName(t *testing.T) {
 }
 
 func TestCastComposer_DuplicateCrewJobsPreserved(t *testing.T) {
+	t.Parallel()
 	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
 	// Vince Gilligan: EP (Production) AND Director (Directing) on
 	// the same series.
@@ -258,7 +262,9 @@ func TestCastComposer_DuplicateCrewJobsPreserved(t *testing.T) {
 }
 
 func TestCastComposer_TotalEpisodeCount_HappyAndZeroFallback(t *testing.T) {
+	t.Parallel()
 	t.Run("happy path", func(t *testing.T) {
+		t.Parallel()
 		deps, _, _, _, _, _, counts := castBaseDeps(t)
 		counts.counts[42] = 62
 		c := NewCastComposer(deps)
@@ -277,6 +283,7 @@ func TestCastComposer_TotalEpisodeCount_HappyAndZeroFallback(t *testing.T) {
 }
 
 func TestCastComposer_404_MissingCache(t *testing.T) {
+	t.Parallel()
 	deps, _, _, _, _, _, _ := castBaseDeps(t)
 	c := NewCastComposer(deps)
 	_, err := c.Get(context.Background(), "alpha", 999, "en-US")
@@ -284,6 +291,7 @@ func TestCastComposer_404_MissingCache(t *testing.T) {
 }
 
 func TestCastComposer_404_NilSeriesIDInCache(t *testing.T) {
+	t.Parallel()
 	deps, cache, _, _, _, _, _ := castBaseDeps(t)
 	cache.entries[cacheKey("alpha", 2)] = series.CacheEntry{
 		InstanceName: "alpha", SonarrSeriesID: 2, SeriesID: nil,
@@ -294,6 +302,7 @@ func TestCastComposer_404_NilSeriesIDInCache(t *testing.T) {
 }
 
 func TestCastComposer_CanonMissingPropagates(t *testing.T) {
+	t.Parallel()
 	deps, cache, _, _, _, _, _ := castBaseDeps(t)
 	cache.entries[cacheKey("alpha", 3)] = series.CacheEntry{
 		InstanceName: "alpha", SonarrSeriesID: 3, SeriesID: i64ptr(999),
@@ -307,6 +316,7 @@ func TestCastComposer_CanonMissingPropagates(t *testing.T) {
 }
 
 func TestCastComposer_SelfLinkSuppression(t *testing.T) {
+	t.Parallel()
 	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
 	seedPerson(persons, 1, "Solo Actor", intPtr(5001))
 	sp.cast = []people.SeriesCredit{castCredit(1, intPtr(0), "Hero", intPtr(9))}
@@ -324,6 +334,7 @@ func TestCastComposer_SelfLinkSuppression(t *testing.T) {
 }
 
 func TestCastComposer_PersonRowMissing_SkippedGracefully(t *testing.T) {
+	t.Parallel()
 	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
 	seedPerson(persons, 1, "A", nil)
 	// credit references person_id=9 which has no people row.
@@ -339,6 +350,7 @@ func TestCastComposer_PersonRowMissing_SkippedGracefully(t *testing.T) {
 }
 
 func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
+	t.Parallel()
 	deps, _, canon, _, _, _, _ := castBaseDeps(t)
 	// Replace the default canon row with a richer one so we can
 	// assert every summary field individually.
@@ -376,6 +388,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 }
 
 func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
+	t.Parallel()
 	// Walk the mapStatusToken switch arms to lock the contract.
 	cases := []struct {
 		name         string
@@ -395,6 +408,7 @@ func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			deps, _, canon, _, _, _, _ := castBaseDeps(t)
 			canon.rows[42] = series.Canon{
 				ID:           42,
@@ -411,6 +425,7 @@ func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
 }
 
 func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
+	t.Parallel()
 	deps, _, canon, _, _, _, _ := castBaseDeps(t)
 	canon.rows[42] = series.Canon{
 		ID:    42,
@@ -444,6 +459,7 @@ func (f *fakeMediaLookupCast) EnsurePending(_ context.Context, _, _, _ string) e
 }
 
 func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
+	t.Parallel()
 	deps, _, canon, sp, persons, _, _ := castBaseDeps(t)
 	// Seed canon poster + one cast member with raw profile path.
 	canon.rows[42] = series.Canon{

@@ -333,6 +333,7 @@ func drain(t *testing.T, inflight *fakeInflight) {
 }
 
 func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
+	t.Parallel()
 	// gate blocks the goroutine inside GetSeries until we release it,
 	// making the pre-drain assertions race-free regardless of scheduler.
 	gate := make(chan struct{})
@@ -386,6 +387,7 @@ func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 }
 
 func TestStart_RollsBackSupersedeOnEvaluatorError(t *testing.T) {
+	t.Parallel()
 	sn := &rescanFakeSonarr{failOn: "search"}
 	uc, dec, _, scans, inflight := newUC(t, sn)
 	original := seedOriginal(t, dec, false)
@@ -408,6 +410,7 @@ func TestStart_RollsBackSupersedeOnEvaluatorError(t *testing.T) {
 }
 
 func TestStart_ReturnsConflictWhenAcquireFails(t *testing.T) {
+	t.Parallel()
 	sn := &rescanFakeSonarr{releases: []release.Release{
 		{GUID: "g-new", Title: "rescan-pick", QualityID: 19, Seeders: 100, SizeBytes: 1e9},
 	}}
@@ -426,6 +429,7 @@ func TestStart_ReturnsConflictWhenAcquireFails(t *testing.T) {
 }
 
 func TestStart_AlreadySuperseded(t *testing.T) {
+	t.Parallel()
 	uc, dec, _, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, false)
 	require.NoError(t, dec.UpdateSupersededBy(context.Background(), original.ID, uuid.New()))
@@ -436,6 +440,7 @@ func TestStart_AlreadySuperseded(t *testing.T) {
 }
 
 func TestStart_AlreadyExecuted(t *testing.T) {
+	t.Parallel()
 	uc, dec, gr, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, true) // with GUID "g-orig"
 	require.NoError(t, gr.Create(context.Background(), grab.Record{
@@ -450,6 +455,7 @@ func TestStart_AlreadyExecuted(t *testing.T) {
 }
 
 func TestStart_NotFound(t *testing.T) {
+	t.Parallel()
 	uc, _, _, scans, _ := newUC(t, &rescanFakeSonarr{})
 	_, err := uc.Start(context.Background(), Input{DecisionID: uuid.New()})
 	require.True(t, errors.Is(err, ports.ErrNotFound))
@@ -457,6 +463,7 @@ func TestStart_NotFound(t *testing.T) {
 }
 
 func TestStart_UnknownInstance(t *testing.T) {
+	t.Parallel()
 	uc, dec, _, scans, _ := newUC(t, &rescanFakeSonarr{})
 	original := seedOriginal(t, dec, false)
 	original.InstanceName = "ghost"

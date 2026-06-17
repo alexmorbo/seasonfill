@@ -123,6 +123,7 @@ func (f *fakeGrabs) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UU
 // --- tests ---------------------------------------------------------------
 
 func TestRunParseOnGrab_HappyPath_PersistsParsed(t *testing.T) {
+	t.Parallel()
 	grabs := &fakeGrabs{rec: grab.Record{ID: uuid.New(), InstanceName: "alpha"}}
 	sc := &fakeSonarr{parseFn: func(_ context.Context, _ string) (ports.ParseResult, error) {
 		return ports.ParseResult{Quality: "WEBDL-2160p", Source: "WEB-DL", Resolution: 2160,
@@ -150,6 +151,7 @@ func TestRunParseOnGrab_HappyPath_PersistsParsed(t *testing.T) {
 }
 
 func TestRunParseOnGrab_Disabled_NoCall(t *testing.T) {
+	t.Parallel()
 	grabs := &fakeGrabs{rec: grab.Record{ID: uuid.New(), InstanceName: "alpha"}}
 	sc := &fakeSonarr{parseFn: func(_ context.Context, _ string) (ports.ParseResult, error) {
 		t.Fatal("ParseRelease must not be called when disabled")
@@ -176,6 +178,7 @@ func TestRunParseOnGrab_Disabled_NoCall(t *testing.T) {
 }
 
 func TestRunParseOnGrab_SonarrErr_GrabStillSucceeds(t *testing.T) {
+	t.Parallel()
 	grabs := &fakeGrabs{rec: grab.Record{ID: uuid.New(), InstanceName: "alpha"}}
 	sc := &fakeSonarr{parseFn: func(_ context.Context, _ string) (ports.ParseResult, error) {
 		return ports.ParseResult{}, errors.New("503")

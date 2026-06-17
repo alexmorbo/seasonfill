@@ -9,6 +9,7 @@ import (
 )
 
 func TestKey_Deterministic(t *testing.T) {
+	t.Parallel()
 	const url = "https://image.tmdb.org/t/p/w342/abc.jpg"
 	k1 := Key(url, "jpg")
 	k2 := Key(url, "jpg")
@@ -16,6 +17,7 @@ func TestKey_Deterministic(t *testing.T) {
 }
 
 func TestKey_Shape(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		sourceURL string
@@ -29,6 +31,7 @@ func TestKey_Shape(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			k := Key(tt.sourceURL, tt.ext)
 			require.True(t, strings.HasPrefix(k, "media/v1/"), "key %q must carry layout prefix", k)
 			parts := strings.Split(k, "/")
@@ -49,12 +52,14 @@ func TestKey_Shape(t *testing.T) {
 }
 
 func TestKey_DifferentURLsDifferentKeys(t *testing.T) {
+	t.Parallel()
 	a := Key("https://image.tmdb.org/t/p/w342/abc.jpg", "jpg")
 	b := Key("https://image.tmdb.org/t/p/original/abc.jpg", "jpg")
 	assert.NotEqual(t, a, b, "size variants must hash to different keys")
 }
 
 func TestHashFromKey(t *testing.T) {
+	t.Parallel()
 	const url = "https://image.tmdb.org/t/p/w342/abc.jpg"
 	k := Key(url, "jpg")
 	hash := HashFromKey(k)

@@ -14,6 +14,7 @@ import (
 )
 
 func TestClient_ParseRelease_HappyPath(t *testing.T) {
+	t.Parallel()
 	const fixture = `{"title":"any","parsedEpisodeInfo":{"releaseTitle":"Foundation.S02.2160p.WEB-DL.HEVC","seasonNumber":2,"releaseGroup":"NTb","quality":{"quality":{"id":19,"name":"WEBDL-2160p","source":"webdl","resolution":2160}},"languages":[{"id":26,"name":"Russian"},{"id":1,"name":"English"}]}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v3/parse" || r.URL.Query().Get("title") == "" || r.Header.Get("X-Api-Key") != "k" {
@@ -38,6 +39,7 @@ func TestClient_ParseRelease_HappyPath(t *testing.T) {
 }
 
 func TestClient_ParseRelease_EmptyTitle(t *testing.T) {
+	t.Parallel()
 	c := sonarr.New("test", "http://unreachable", "k", time.Second, nil)
 	got, err := c.ParseRelease(context.Background(), "   ")
 	if err != nil {
@@ -49,6 +51,7 @@ func TestClient_ParseRelease_EmptyTitle(t *testing.T) {
 }
 
 func TestClient_ParseRelease_UnrecognisedTitle(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"title": "bogus", "parsedEpisodeInfo": nil})
 	}))
@@ -64,6 +67,7 @@ func TestClient_ParseRelease_UnrecognisedTitle(t *testing.T) {
 }
 
 func TestClient_ParseRelease_5xxPropagates(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))

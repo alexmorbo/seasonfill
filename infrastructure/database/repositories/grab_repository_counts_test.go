@@ -11,6 +11,7 @@ import (
 )
 
 func TestGrabRepository_CountReplays(t *testing.T) {
+	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
 	ctx := context.Background()

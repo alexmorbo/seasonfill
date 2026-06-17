@@ -9,6 +9,7 @@ import (
 )
 
 func TestExtractExtras(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		title    string
@@ -95,6 +96,7 @@ func TestExtractExtras(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := sonarr.ExtractExtras(tt.title)
 			if got.Codec != tt.wantCdc {
 				t.Fatalf("Codec=%q want %q", got.Codec, tt.wantCdc)

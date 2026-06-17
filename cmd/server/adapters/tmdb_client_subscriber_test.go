@@ -36,6 +36,7 @@ func newStubTMDBClient(t *testing.T, token string) *tmdb.Client {
 // TestTMDBClientSubscriber_FirstApplyRebuilds confirms a first call
 // with enabled+key swaps the holder + bumps the rebuild counter.
 func TestTMDBClientSubscriber_FirstApplyRebuilds(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	logBuf := &bytes.Buffer{}
 	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(logBuf)).
@@ -63,6 +64,7 @@ func TestTMDBClientSubscriber_FirstApplyRebuilds(t *testing.T) {
 
 // TestTMDBClientSubscriber_SamePayloadNoRebuild covers idempotency.
 func TestTMDBClientSubscriber_SamePayloadNoRebuild(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
 		WithCloseDelay(0).
@@ -93,6 +95,7 @@ func TestTMDBClientSubscriber_SamePayloadNoRebuild(t *testing.T) {
 // the subscriber swaps, the previous client gets Close()d after the
 // drain window.
 func TestTMDBClientSubscriber_KeyRotationSwapsAndClosesPrevious(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 
 	var closed atomic.Int32
@@ -136,6 +139,7 @@ func TestTMDBClientSubscriber_KeyRotationSwapsAndClosesPrevious(t *testing.T) {
 // initiated disable: holder returns nil, future GetTV calls fail with
 // ErrTMDBClientNotReady.
 func TestTMDBClientSubscriber_DisabledClearsHolder(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	var closed atomic.Int32
 	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
@@ -172,6 +176,7 @@ func TestTMDBClientSubscriber_DisabledClearsHolder(t *testing.T) {
 // disabled path: the subscriber sees holder=nil and logs a single warn
 // without panicking.
 func TestTMDBClientSubscriber_NilHolderShortCircuits(t *testing.T) {
+	t.Parallel()
 	logBuf := &bytes.Buffer{}
 	sub := NewTMDBClientSubscriber(nil, TMDBClientFactoryConfig{}, newTestLogger(logBuf))
 
@@ -187,6 +192,7 @@ func TestTMDBClientSubscriber_NilHolderShortCircuits(t *testing.T) {
 // TestTMDBClientSubscriber_FactoryErrorLeavesPrevious covers the
 // failure mode.
 func TestTMDBClientSubscriber_FactoryErrorLeavesPrevious(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	logBuf := &bytes.Buffer{}
 	factoryErr := errors.New("simulated factory failure")
@@ -223,6 +229,7 @@ func TestTMDBClientSubscriber_FactoryErrorLeavesPrevious(t *testing.T) {
 
 // TestTMDBClientSubscriber_ConcurrentApply stresses the race detector.
 func TestTMDBClientSubscriber_ConcurrentApply(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
 		WithCloseDelay(0).
@@ -257,6 +264,7 @@ func TestTMDBClientSubscriber_ConcurrentApply(t *testing.T) {
 // TestTMDBClientSubscriber_CloseDelayHonoured verifies the drain delay
 // is respected.
 func TestTMDBClientSubscriber_CloseDelayHonoured(t *testing.T) {
+	t.Parallel()
 	holder := NewTMDBClientHolder()
 	var closedAt atomic.Int64
 	start := time.Now()

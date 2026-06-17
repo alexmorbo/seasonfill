@@ -54,6 +54,7 @@ func newBlacklistRouter(h *WatchdogBlacklistHandler) *gin.Engine {
 }
 
 func TestWatchdogBlacklistHandler_ListJoinsSeriesTitle(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
 	pager := &stubPager{rows: []regrab.BlacklistEntry{
 		{ID: 1, InstanceID: 1, SeriesID: 100, SeasonNumber: 2, Reason: regrab.ReasonConsecutiveNoBetter, Consecutive: 3, CreatedAt: now},
@@ -89,6 +90,7 @@ func TestWatchdogBlacklistHandler_ListJoinsSeriesTitle(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_DeleteScopedToInstance(t *testing.T) {
+	t.Parallel()
 	called := struct {
 		instanceID uint
 		id         uint
@@ -114,6 +116,7 @@ func TestWatchdogBlacklistHandler_DeleteScopedToInstance(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_DeleteUnknownReturns404(t *testing.T) {
+	t.Parallel()
 	pager := &stubPager{deleteFn: func(uint, uint) error { return ports.ErrNotFound }}
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
@@ -128,6 +131,7 @@ func TestWatchdogBlacklistHandler_DeleteUnknownReturns404(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_DeleteUnknownInstance(t *testing.T) {
+	t.Parallel()
 	pager := &stubPager{}
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{}, nil)
 	r := newBlacklistRouter(h)
@@ -142,6 +146,7 @@ func TestWatchdogBlacklistHandler_DeleteUnknownInstance(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
 	pager := &stubPager{}
 	for i := 0; i < 2; i++ {
@@ -179,6 +184,7 @@ func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_ListInvalidLimit(t *testing.T) {
+	t.Parallel()
 	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 	for _, q := range []string{"?limit=0", "?limit=-1", "?limit=abc", "?limit=10000"} {
@@ -192,6 +198,7 @@ func TestWatchdogBlacklistHandler_ListInvalidLimit(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_ListInvalidCursor(t *testing.T) {
+	t.Parallel()
 	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/blacklist?cursor=not-base64!", nil)
@@ -203,6 +210,7 @@ func TestWatchdogBlacklistHandler_ListInvalidCursor(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_DeleteRepoError(t *testing.T) {
+	t.Parallel()
 	pager := &stubPager{deleteFn: func(uint, uint) error { return errors.New("db down") }}
 	h := NewWatchdogBlacklistHandler(pager, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
@@ -215,6 +223,7 @@ func TestWatchdogBlacklistHandler_DeleteRepoError(t *testing.T) {
 }
 
 func TestWatchdogBlacklistHandler_DeleteInvalidID(t *testing.T) {
+	t.Parallel()
 	h := NewWatchdogBlacklistHandler(&stubPager{}, stubTitles{}, stubLookup{"homelab": 1}, nil)
 	r := newBlacklistRouter(h)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/instances/homelab/watchdog/blacklist/not-a-number", nil)
@@ -226,6 +235,7 @@ func TestWatchdogBlacklistHandler_DeleteInvalidID(t *testing.T) {
 }
 
 func TestDeriveSource_Reasons(t *testing.T) {
+	t.Parallel()
 	if deriveSource(regrab.ReasonConsecutiveNoBetter) != "auto" {
 		t.Error("ReasonConsecutiveNoBetter should map to auto")
 	}
@@ -236,6 +246,7 @@ func TestDeriveSource_Reasons(t *testing.T) {
 
 // Defensive: ensure ports.ErrNotFound is the sentinel the handler expects.
 func TestPortsErrNotFoundIsSentinel(t *testing.T) {
+	t.Parallel()
 	if !errors.Is(ports.ErrNotFound, ports.ErrNotFound) {
 		t.Fatal("sanity check failed")
 	}

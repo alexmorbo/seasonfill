@@ -8,6 +8,7 @@ import (
 )
 
 func TestMergeParse_HappyPath(t *testing.T) {
+	t.Parallel()
 	pr := sonarr.ParseResult{
 		Quality:      "WEBDL-2160p",
 		Source:       "WEB-DL",
@@ -38,6 +39,7 @@ func TestMergeParse_HappyPath(t *testing.T) {
 }
 
 func TestMergeParse_Empty(t *testing.T) {
+	t.Parallel()
 	got := sonarr.MergeParse(sonarr.ParseResult{}, sonarr.Extras{})
 	if !got.IsZero() {
 		t.Fatalf("expected IsZero, got %+v", got)
@@ -48,6 +50,7 @@ func TestMergeParse_Empty(t *testing.T) {
 }
 
 func TestMergeParse_DeduplicatesAndTrims(t *testing.T) {
+	t.Parallel()
 	got := sonarr.MergeParse(
 		sonarr.ParseResult{Languages: []string{"Russian", " Russian ", "English", ""}},
 		sonarr.Extras{HDRFlags: []string{"HDR10", "HDR10", "DV"}, Subs: []string{"RUS", "RUS"}},

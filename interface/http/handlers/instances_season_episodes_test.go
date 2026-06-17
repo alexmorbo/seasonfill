@@ -65,6 +65,7 @@ func doSeasonEpisodes(
 }
 
 func TestInstancesHandler_SeasonEpisodes_OK(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	past := now.Add(-7 * 24 * time.Hour)
 	future := now.Add(7 * 24 * time.Hour)
@@ -109,6 +110,7 @@ func TestInstancesHandler_SeasonEpisodes_OK(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_Empty(t *testing.T) {
+	t.Parallel()
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
 		eps:        map[int]map[int][]series.Episode{},
@@ -130,6 +132,7 @@ func TestInstancesHandler_SeasonEpisodes_Empty(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_UnknownInstance(t *testing.T) {
+	t.Parallel()
 	w := doSeasonEpisodes(t, "ghost", 1, 1,
 		map[string]ports.SonarrClient{})
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -139,6 +142,7 @@ func TestInstancesHandler_SeasonEpisodes_UnknownInstance(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_BadID(t *testing.T) {
+	t.Parallel()
 	mf := &episodesFakeSonarr{fakeSonarr: &fakeSonarr{name: "alpha"}}
 	c := healthcheck.New(openInstancesDB(t), nil)
 	r := gin.New()
@@ -159,6 +163,7 @@ func TestInstancesHandler_SeasonEpisodes_BadID(t *testing.T) {
 		{"negative season", "/api/v1/instances/alpha/series/1/seasons/-1/episodes"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequestWithContext(
 				context.Background(), http.MethodGet, tc.url, nil)
 			w := httptest.NewRecorder()
@@ -169,6 +174,7 @@ func TestInstancesHandler_SeasonEpisodes_BadID(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_SonarrUnauthorized(t *testing.T) {
+	t.Parallel()
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
 		err:        domain.ErrInstanceUnauthorized,
@@ -182,6 +188,7 @@ func TestInstancesHandler_SeasonEpisodes_SonarrUnauthorized(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_SonarrUnavailable(t *testing.T) {
+	t.Parallel()
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
 		err:        errors.New("dial tcp: nope"),
@@ -195,6 +202,7 @@ func TestInstancesHandler_SeasonEpisodes_SonarrUnavailable(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_Season0(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
@@ -218,6 +226,7 @@ func TestInstancesHandler_SeasonEpisodes_Season0(t *testing.T) {
 }
 
 func TestInstancesHandler_SeasonEpisodes_SortedAscending(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Add(-30 * 24 * time.Hour)
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},

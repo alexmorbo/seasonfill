@@ -7,6 +7,7 @@ import (
 )
 
 func TestMatchesWebhookURL(t *testing.T) {
+	t.Parallel()
 	field := func(v interface{}) []sonarr.NotificationField {
 		return []sonarr.NotificationField{{Name: "url", Value: v}}
 	}
@@ -28,6 +29,7 @@ func TestMatchesWebhookURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := MatchesWebhookURL(tt.fields, tt.instance); got != tt.want {
 				t.Errorf("got %v want %v", got, tt.want)
 			}
@@ -36,6 +38,7 @@ func TestMatchesWebhookURL(t *testing.T) {
 }
 
 func TestCanonicalPath(t *testing.T) {
+	t.Parallel()
 	if got := CanonicalPath("alpha"); got != "/api/v1/webhook/sonarr/alpha" {
 		t.Fatalf("unexpected canonical path: %s", got)
 	}

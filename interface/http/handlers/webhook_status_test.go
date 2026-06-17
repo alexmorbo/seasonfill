@@ -46,6 +46,7 @@ func getStatus(t *testing.T, r *gin.Engine) (int, map[string]interface{}) {
 }
 
 func TestWebhookStatus_ReadsCache(t *testing.T) {
+	t.Parallel()
 	cache := webhookinstall.NewStatusCache()
 	id := 7
 	url := "https://sf.example/api/v1/webhook/sonarr/alpha"
@@ -59,6 +60,7 @@ func TestWebhookStatus_ReadsCache(t *testing.T) {
 }
 
 func TestWebhookStatus_PropagatesLastError(t *testing.T) {
+	t.Parallel()
 	cache := webhookinstall.NewStatusCache()
 	msg := "sonarr unauthorized"
 	future := time.Now().Add(time.Hour)

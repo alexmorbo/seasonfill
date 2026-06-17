@@ -109,6 +109,7 @@ func setupHandler(t *testing.T) (*gin.Engine, *stubGrabs, stubBlacklistCount, st
 }
 
 func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
+	t.Parallel()
 	r, grabs, blist, snaps, settings := setupHandler(t)
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -152,6 +153,7 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_OneUnknownInstance(t *testing.T) {
+	t.Parallel()
 	r, _, _, _, _ := setupHandler(t)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/ghost/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
@@ -162,6 +164,7 @@ func TestWatchdogRollupHandler_OneUnknownInstance(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_OneNoSettings(t *testing.T) {
+	t.Parallel()
 	r, _, _, _, _ := setupHandler(t)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
@@ -177,6 +180,7 @@ func TestWatchdogRollupHandler_OneNoSettings(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_AllSorted(t *testing.T) {
+	t.Parallel()
 	r, _, _, _, settings := setupHandler(t)
 	settings["homelab"] = regrab.Settings{InstanceID: 1, InstanceName: "homelab", Enabled: true, PollInterval: 30 * time.Minute}
 	settings["4k"] = regrab.Settings{InstanceID: 2, InstanceName: "4k", Enabled: true, PollInterval: 30 * time.Minute}
@@ -198,6 +202,7 @@ func TestWatchdogRollupHandler_AllSorted(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	names := make([]string, 10)
 	lookup := stubLookup{}
@@ -278,6 +283,7 @@ func setupProbeHandler(t *testing.T, snaps stubSnapshots, settings stubSettings,
 }
 
 func TestWatchdogRollupHandler_ProbeWhenSnapshotMissing(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -308,6 +314,7 @@ func TestWatchdogRollupHandler_ProbeWhenSnapshotMissing(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_ProbeCached(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -330,6 +337,7 @@ func TestWatchdogRollupHandler_ProbeCached(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_ProbeSkippedWhenDisabled(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: false,
@@ -347,6 +355,7 @@ func TestWatchdogRollupHandler_ProbeSkippedWhenDisabled(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_ProbeSkippedWhenSnapshotFresh(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -423,6 +432,7 @@ func setupListerHandler(t *testing.T, snaps stubSnapshots, settings stubSettings
 }
 
 func TestWatchdogRollupHandler_ListTorrentsFillsCountersWhenSnapshotMissing(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -461,6 +471,7 @@ func TestWatchdogRollupHandler_ListTorrentsFillsCountersWhenSnapshotMissing(t *t
 }
 
 func TestWatchdogRollupHandler_ListTorrentsCached(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -484,6 +495,7 @@ func TestWatchdogRollupHandler_ListTorrentsCached(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_ListTorrentsFallsBackToSnapshotOnError(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -515,6 +527,7 @@ func TestWatchdogRollupHandler_ListTorrentsFallsBackToSnapshotOnError(t *testing
 }
 
 func TestWatchdogRollupHandler_ListTorrentsSkippedWhenSnapshotFresh(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -543,6 +556,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenSnapshotFresh(t *testing.T
 }
 
 func TestWatchdogRollupHandler_ListTorrentsSkippedWhenQbitUnreachable(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,
@@ -561,6 +575,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenQbitUnreachable(t *testing
 }
 
 func TestWatchdogRollupHandler_ListTorrentsSkippedWhenDisabled(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: false,
@@ -579,6 +594,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenDisabled(t *testing.T) {
 }
 
 func TestCountTorrentsAndUnregisteredTagHeuristic(t *testing.T) {
+	t.Parallel()
 	torrents := []qbit.Torrent{
 		{Category: "sonarr", Tags: ""},
 		{Category: "sonarr", Tags: "issue"},
@@ -606,6 +622,7 @@ func TestCountTorrentsAndUnregisteredTagHeuristic(t *testing.T) {
 }
 
 func TestWatchdogRollupHandler_ProbeRecoveryAfterStaleUnreachable(t *testing.T) {
+	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
 		InstanceID: 1, InstanceName: "homelab", Enabled: true,

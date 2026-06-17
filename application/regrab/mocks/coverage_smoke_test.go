@@ -18,6 +18,7 @@ import (
 )
 
 func TestMocks_GrabRepository_AllMethods(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	m := NewMockGrabRepository(ctrl)

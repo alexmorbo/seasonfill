@@ -53,6 +53,7 @@ func (f fakeFactory) NewSyncSession(_ context.Context, _ string) (qbit.SyncSessi
 }
 
 func TestUseCase_RestartRecoveryPopulatesStore(t *testing.T) {
+	t.Parallel()
 	repo := &fakeTorrentsRepo{
 		listResp: []Entry{
 			{
@@ -79,6 +80,7 @@ func TestUseCase_RestartRecoveryPopulatesStore(t *testing.T) {
 }
 
 func TestUseCase_TorrentRemovedStampsAbsent(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{stages: []qbit.Snapshot{
 		{Torrents: map[string]qbit.TorrentInfo{
 			"aaaa": {Hash: "aaaa", StateGroup: qbit.StateGroupSeeding, StateRaw: "uploading"},
@@ -101,6 +103,7 @@ func TestUseCase_TorrentRemovedStampsAbsent(t *testing.T) {
 }
 
 func TestUseCase_CounterFlushCoalesces(t *testing.T) {
+	t.Parallel()
 	// Three Refresh ticks within 5 min: counter changes accumulate.
 	// Fourth tick crosses the 5m boundary → one BatchUpsert call.
 	stage := func(uploaded int64) qbit.Snapshot {
@@ -140,6 +143,7 @@ func TestUseCase_CounterFlushCoalesces(t *testing.T) {
 }
 
 func TestUseCase_SessionRebuildAfterRefreshError(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{
 		errs:   []error{errors.New("boom")},
 		stages: []qbit.Snapshot{{Torrents: map[string]qbit.TorrentInfo{}}},
@@ -156,6 +160,7 @@ func TestUseCase_SessionRebuildAfterRefreshError(t *testing.T) {
 }
 
 func TestLoop_DegradesAfterThreeFailures(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{errs: []error{errors.New("e1"), errors.New("e2"), errors.New("e3")}}
 	repo := &fakeTorrentsRepo{}
 	events := &fakeEventsRepo{}
@@ -171,6 +176,7 @@ func TestLoop_DegradesAfterThreeFailures(t *testing.T) {
 }
 
 func TestLoop_RecoversOnSuccess(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{
 		errs:   []error{errors.New("e1"), errors.New("e2"), errors.New("e3"), nil},
 		stages: []qbit.Snapshot{{Torrents: map[string]qbit.TorrentInfo{}}},
@@ -191,6 +197,7 @@ func TestLoop_RecoversOnSuccess(t *testing.T) {
 }
 
 func TestLoop_SetIntervalRespectsDegradedMode(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{errs: []error{errors.New("e"), errors.New("e"), errors.New("e")}}
 	repo := &fakeTorrentsRepo{}
 	events := &fakeEventsRepo{}
@@ -210,6 +217,7 @@ func TestLoop_SetIntervalRespectsDegradedMode(t *testing.T) {
 }
 
 func TestLoop_RunExitsOnCtxCancel(t *testing.T) {
+	t.Parallel()
 	sess := &fakeSession{stages: []qbit.Snapshot{
 		{Torrents: map[string]qbit.TorrentInfo{}},
 	}}

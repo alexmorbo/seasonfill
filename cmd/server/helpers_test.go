@@ -52,6 +52,7 @@ func captureLogger() (*slog.Logger, *bytes.Buffer) {
 // --- runCooldownSweep ---
 
 func TestRunCooldownSweep_ExitsOnContextCancel(t *testing.T) {
+	t.Parallel()
 	repo := &fakeCooldownRepo{}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -71,6 +72,7 @@ func TestRunCooldownSweep_ExitsOnContextCancel(t *testing.T) {
 }
 
 func TestRunCooldownSweep_CallsSweepOnTick(t *testing.T) {
+	t.Parallel()
 	repo := &fakeCooldownRepo{swept: 3}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -92,6 +94,7 @@ func TestRunCooldownSweep_CallsSweepOnTick(t *testing.T) {
 }
 
 func TestRunCooldownSweep_LogsErrorOnSweepFailure(t *testing.T) {
+	t.Parallel()
 	repo := &fakeCooldownRepo{sweepErr: errors.New("db gone")}
 	log, buf := captureLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -116,6 +119,7 @@ func TestRunCooldownSweep_LogsErrorOnSweepFailure(t *testing.T) {
 }
 
 func TestRunCooldownSweep_LogsDebugWhenRowsRemoved(t *testing.T) {
+	t.Parallel()
 	repo := &fakeCooldownRepo{swept: 5}
 	log, buf := captureLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -137,6 +141,7 @@ func TestRunCooldownSweep_LogsDebugWhenRowsRemoved(t *testing.T) {
 }
 
 func TestRunCooldownSweep_NoLogWhenZeroRowsRemoved(t *testing.T) {
+	t.Parallel()
 	repo := &fakeCooldownRepo{swept: 0}
 	log, buf := captureLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,6 +165,7 @@ func TestRunCooldownSweep_NoLogWhenZeroRowsRemoved(t *testing.T) {
 // --- drainBackground ---
 
 func TestDrainBackground_ReturnsWhenWGDoneBeforeTimeout(t *testing.T) {
+	t.Parallel()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -178,6 +184,7 @@ func TestDrainBackground_ReturnsWhenWGDoneBeforeTimeout(t *testing.T) {
 }
 
 func TestDrainBackground_ReturnsOnTimeout(t *testing.T) {
+	t.Parallel()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	// Intentionally never call wg.Done() to force the timeout path.
@@ -197,6 +204,7 @@ func TestDrainBackground_ReturnsOnTimeout(t *testing.T) {
 }
 
 func TestDrainBackground_EmptyWGReturnsImmediately(t *testing.T) {
+	t.Parallel()
 	var wg sync.WaitGroup
 	start := time.Now()
 	drainBackground(&wg, 2*time.Second, nullLogger())
@@ -235,6 +243,7 @@ func (f *fakeAborter) MarkAborted(_ context.Context, id uuid.UUID, _ string) err
 var _ scanAborter = (*fakeAborter)(nil)
 
 func TestWaitForScans_ReturnsImmediatelyWhenNotRunning(t *testing.T) {
+	t.Parallel()
 	uc := &fakeScanner{running: false}
 	repo := &fakeAborter{}
 	ctx := context.Background()
@@ -251,6 +260,7 @@ func TestWaitForScans_ReturnsImmediatelyWhenNotRunning(t *testing.T) {
 }
 
 func TestWaitForScans_MarksAbortedAfterGraceExpires(t *testing.T) {
+	t.Parallel()
 	id1 := uuid.New()
 	uc := &fakeScanner{
 		running:  true,
@@ -275,6 +285,7 @@ func TestWaitForScans_MarksAbortedAfterGraceExpires(t *testing.T) {
 }
 
 func TestWaitForScans_LogsErrorWhenMarkAbortedFails(t *testing.T) {
+	t.Parallel()
 	id1 := uuid.New()
 	uc := &fakeScanner{
 		running:  true,
@@ -292,6 +303,7 @@ func TestWaitForScans_LogsErrorWhenMarkAbortedFails(t *testing.T) {
 }
 
 func TestWaitForScans_ReturnsAfterScanStops(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	running := true
 	uc := &fakeScannerFunc{

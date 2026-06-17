@@ -116,6 +116,7 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 }
 
 func TestSeriesCastHandler_Get_200(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	tmdbID := 1001
 	character := "Joel Miller"
@@ -180,6 +181,7 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 }
 
 func TestSeriesCastHandler_Get_400_BadID(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	composer := newCastComposerForHandlerTest(
 		series.Canon{ID: 42},
@@ -197,6 +199,7 @@ func TestSeriesCastHandler_Get_400_BadID(t *testing.T) {
 }
 
 func TestSeriesCastHandler_Get_404_Unknown(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	composer := newCastComposerForHandlerTest(
 		series.Canon{ID: 42},
@@ -214,6 +217,7 @@ func TestSeriesCastHandler_Get_404_Unknown(t *testing.T) {
 }
 
 func TestSeriesCastHandler_Get_LangEcho(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	composer := newCastComposerForHandlerTest(
 		series.Canon{ID: 42, Title: "X"},

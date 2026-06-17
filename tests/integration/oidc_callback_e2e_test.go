@@ -47,13 +47,16 @@ import (
 // signing.
 
 func TestOIDC_FullCallbackFlow_MintsCookie(t *testing.T) {
+	t.Parallel()
 	t.Skip("Implementation Agent: build stub server + flesh out per file comment")
 }
 
 func TestOIDC_GroupACL_Denied(t *testing.T) {
+	t.Parallel()
 	t.Skip("Implementation Agent: build stub server + flesh out per file comment")
 }
 
 func TestOIDC_GroupACL_AllowedWhenIntersects(t *testing.T) {
+	t.Parallel()
 	t.Skip("Implementation Agent: build stub server + flesh out per file comment")
 }
