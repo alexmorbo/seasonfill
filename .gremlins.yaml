@@ -1,0 +1,23 @@
+# Gremlins v0.6.0 config — https://gremlins.dev/v0.6.0/usage/configuration/
+silent: false
+unleash:
+  workers: 4
+  test-cpu: 2
+  exclude-files:
+    - "^infrastructure/"
+    - "^interface/"
+    - "^internal/"
+    - "^cmd/"
+    - "^tests/"
+    - "^web/"
+    - "^scripts/"
+    - "^bin/"
+    - "^data/"
+    - "^deploy/"
+    - "^docs/"
+    - "^documentation/"
+    - "_gen\\.go$"
+    - "\\.pb\\.go$"
+  threshold:
+    efficacy: 40
+    mutant-coverage: 0

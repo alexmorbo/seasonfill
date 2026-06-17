@@ -1,0 +1,76 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"  # Sundays 04:00 UTC weekly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gremlins:
+    name: Gremlins mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+      - name: Run mutation tests
+        id: gremlins
+        run: |
+          set +e
+          gremlins unleash --output mutation-report.json
+          EC=$?
+          echo "exit_code=$EC" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Show summary
+        if: always()
+        run: |
+          if [ -f mutation-report.json ]; then
+            python3 -c "
+          import json
+          with open('mutation-report.json') as f:
+              r = json.load(f)
+          print(f\"module: {r.get('go_module')}\")
+          print(f\"efficacy: {r.get('test_efficacy', 0):.2f}%\")
+          print(f\"coverage: {r.get('mutations_coverage', 0):.2f}%\")
+          print(f\"killed: {r.get('mutants_killed')}\")
+          print(f\"lived: {r.get('mutants_lived')}\")
+          print(f\"not_covered: {r.get('mutants_not_covered')}\")
+          print(f\"not_viable: {r.get('mutants_not_viable')}\")
+          print(f\"total: {r.get('mutants_total')}\")
+          print(f\"elapsed: {r.get('elapsed_time', 0):.1f}s\")
+            "
+          else
+            echo "No mutation report produced — check previous step output."
+          fi
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: mutation-report.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Fail workflow if threshold not met
+        if: steps.gremlins.outputs.exit_code != '0'
+        run: |
+          echo "gremlins exited with code ${{ steps.gremlins.outputs.exit_code }}"
+          echo "  - 10 = efficacy below threshold"
+          echo "  - 11 = mutant-coverage below threshold"
+          echo "  - other = runtime failure"
+          exit 1
