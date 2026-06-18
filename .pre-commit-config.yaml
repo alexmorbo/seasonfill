@@ -1,5 +1,5 @@
 # Pre-commit hooks for seasonfill (LOCAL ONLY).
-# Install: brew install pre-commit && pre-commit install
+# Install: brew install pre-commit && make pre-commit-install
 # Run all: pre-commit run --all-files
 #
 # Philosophy:
@@ -7,6 +7,12 @@
 #   - Minimal, fast, deterministic.
 #   - Exclude codegen and generated files.
 #   - Local enforcement only; not wired into CI.
+
+# Install both pre-commit and pre-push git hooks so the pre-push stage
+# (go-test-short) actually fires on push. Without this, `pre-commit
+# install` only registers .git/hooks/pre-commit and the pre-push stage
+# silently skips.
+default_install_hook_types: [pre-commit, pre-push]
 
 repos:
   - repo: local
@@ -64,3 +70,82 @@ repos:
         exclude: '^web/src/(api/schema\.ts|components/ui/.*)$'
         pass_filenames: true
         require_serial: true
+
+      # golangci-lint over the packages that contain staged .go files.
+      # Per-package keeps p95 < 5s vs ~30s for `golangci-lint run ./...`.
+      # Catches F-1 revive `use-any` rule + the full linter suite.
+      # Excludes:
+      #   - generated code (*.pb.go, *_gen.go, mocks/)
+      #   - tests/ and tests/integration/ — these packages are
+      #     build-tag-gated (//go:build integration, integration_e2e,
+      #     lint). golangci-lint v2 exits 7 when all files in a package
+      #     are excluded by build constraints, even with 0 lint issues.
+      #     CI gates them explicitly with the right tags; locally
+      #     skipping keeps the hook deterministic.
+      - id: golangci-lint
+        name: golangci-lint (changed packages)
+        description: Run golangci-lint on packages containing staged Go files
+        entry: bash -c 'set -e; pkgs=$(printf "%s\n" "$@" | xargs -n1 dirname | sort -u | sed "s|^|./|" | tr "\n" " "); [ -z "$pkgs" ] && exit 0; exec golangci-lint run --timeout 2m $pkgs' --
+        language: system
+        types: [go]
+        exclude: |
+          (?x)^(
+            .*\.pb\.go|
+            .*_gen\.go|
+            application/regrab/mocks/.*\.go|
+            tests/.*\.go
+          )$
+        pass_filenames: true
+        require_serial: true
+
+      # tsc --noEmit on web/ when any TS/TSX changes. pass_filenames: false
+      # because `tsc -b` always typechecks the whole project anyway.
+      - id: web-typecheck
+        name: tsc --noEmit (web)
+        description: Strict TypeScript typecheck when staged TS/TSX changes
+        entry: bash -c 'cd web && npm run typecheck'
+        language: system
+        files: '^web/.*\.(ts|tsx)$'
+        exclude: '^web/node_modules/'
+        pass_filenames: false
+        require_serial: true
+
+      # OpenAPI drift: docs/swagger.yaml and web/src/api/schema.ts must
+      # stay in sync with handler annotations. Triggered only on handler
+      # or generated-artifact changes — rare commits, low cost.
+      - id: openapi-drift
+        name: openapi drift check
+        description: Fail if docs/swagger.yaml or web/src/api/schema.ts are stale relative to handlers
+        entry: bash -c 'make openapi-check'
+        language: system
+        files: '^(interface/http/.*\.go|docs/swagger\.(yaml|json)|web/src/api/schema\.ts)$'
+        pass_filenames: false
+        require_serial: true
+
+      # i18n key drift: every t('key') used in web/src must exist in ru.ts
+      # AND en.ts, including RU plural buckets. Script lives at
+      # web/scripts/i18n-audit.mjs (created during Phase 8 story 121c).
+      - id: i18n-audit
+        name: i18n audit (ru + en completeness)
+        description: Fail if any i18next key used in web/src/**/*.tsx missing from ru.ts OR en.ts, or RU plural buckets incomplete
+        entry: bash -c 'cd web && npm run i18n-audit'
+        language: system
+        files: '^web/src/.*\.(tsx|ts)$'
+        exclude: '^web/(node_modules|src/api/schema\.ts)'
+        pass_filenames: false
+        require_serial: true
+
+      # Fast unit tests gate on push, not commit. Moved out of pre-commit
+      # because tmdb backoff timers structurally take ~60s — too slow for
+      # the < 30s pre-commit budget. Runs without -race (CI unit job
+      # already gates -race).
+      - id: go-test-short
+        name: go test -short ./... (pre-push only)
+        description: Run fast unit tests before push. Blocks push on red. Skipped on commit due to >30s runtime.
+        entry: go test -short -timeout 120s ./...
+        language: system
+        stages: [pre-push]
+        types: [go]
+        pass_filenames: false
+        require_serial: true
+        always_run: true

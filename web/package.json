@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen-types": "node scripts/gen-types.mjs"
+    "gen-types": "node scripts/gen-types.mjs",
+    "i18n-audit": "node scripts/i18n-audit.mjs"
   },
   "dependencies": {
     "@eslint/js": "^10.0.1",

@@ -114,3 +114,20 @@ web-image:
 # /healthz endpoint without booting the full Helm chart.
 web-image-run: web-image
 	docker run --rm -p 8081:8080 --name seasonfill-web-dev seasonfill-web:latest
+
+# Install local pre-commit + pre-push git hooks. Requires `pre-commit`
+# on PATH (brew install pre-commit OR pip install pre-commit). The
+# config (.pre-commit-config.yaml) declares both hook types so a single
+# `pre-commit install --install-hooks` registers .git/hooks/pre-commit
+# AND .git/hooks/pre-push. Local-only gate; CI does not run pre-commit.
+pre-commit-install: ## Install local pre-commit + pre-push hooks (local-only gate)
+	@command -v pre-commit >/dev/null || { echo "Install: brew install pre-commit OR pip install pre-commit"; exit 1; }
+	@# pre-commit refuses to install when core.hooksPath is set, even to the default.
+	@# Unset locally if present so a fresh clone or a stale config doesn't break install.
+	@git config --local --unset-all core.hooksPath 2>/dev/null || true
+	pre-commit install --install-hooks
+
+# Run the full pre-commit suite over every file in the tree. Useful
+# before opening an MR or to sanity-check a freshly cloned checkout.
+pre-commit-run: ## Run all pre-commit hooks on the whole tree
+	pre-commit run --all-files

@@ -412,21 +412,31 @@ code changes, open a pull request against `main`.
 
 ### Developer setup
 
-Pre-commit hooks catch `gofmt`, `go vet`, and ESLint regressions before
-you commit. Enforcement is **local only** — CI does not run pre-commit;
-install the hook on your checkout to get the benefit.
+Pre-commit hooks gate the local workflow against regressions that the CI
+later catches — `gofmt`, `go vet`, `golangci-lint`, `tsc --noEmit`, OpenAPI
+drift, i18n key drift, ESLint, and `go test -short`. Enforcement is **local
+only**; CI does not run pre-commit and remains the independent ground truth.
+
+Install once after cloning:
 
 ```sh
-pip install pre-commit        # or: brew install pre-commit
-pre-commit install            # registers .git/hooks/pre-commit
+brew install pre-commit       # or: pip install pre-commit
+make pre-commit-install        # registers .git/hooks/{pre-commit,pre-push}
 ```
 
-Every `git commit` then runs the configured hooks against staged files.
-To run the full suite manually:
+Each `git commit` then runs the fast hooks (gofmt, vet, golangci-lint over
+changed packages, eslint on staged TS, tsc on web changes, OpenAPI drift
+and i18n audit). Each `git push` additionally runs `go test -short ./...`
+so red builds never reach the remote.
+
+Run the full suite manually:
 
 ```sh
-pre-commit run --all-files
+make pre-commit-run
 ```
+
+`git commit --no-verify` is forbidden by repo policy (see CLAUDE.md
+"NEVER skip hooks").
 
 ## License
 
