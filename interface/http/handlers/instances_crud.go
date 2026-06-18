@@ -1,12 +1,9 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +11,9 @@ import (
 	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
-
-const instanceBodyLimit = 64 << 10
 
 // InstanceCRUDHandler is the GET/POST/PUT/DELETE handler for
 // `/api/v1/instances[/:name]` excluding List (kept on
@@ -73,7 +69,7 @@ func (h *InstanceCRUDHandler) Get(c *gin.Context) {
 // @Router      /instances [post]
 func (h *InstanceCRUDHandler) Create(c *gin.Context) {
 	var req dto.InstanceCreateRequest
-	if !readJSONBody(c, &req) {
+	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
 	snap := requestToSnapshot(req)
@@ -116,7 +112,7 @@ func (h *InstanceCRUDHandler) Create(c *gin.Context) {
 func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	name := c.Param("name")
 	var req dto.InstanceUpdateRequest
-	if !readJSONBody(c, &req) {
+	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
 	var iusPtr *time.Time
@@ -219,37 +215,6 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 			Error: "internal server error",
 		})
 	}
-}
-
-// readJSONBody enforces application/json + body cap + parses into out.
-// Mirrors AuthHandler.readLoginBody so the two paths share an
-// envelope shape.
-func readJSONBody(c *gin.Context, out any) bool {
-	ct := c.GetHeader("Content-Type")
-	if !strings.HasPrefix(ct, "application/json") {
-		c.AbortWithStatusJSON(http.StatusBadRequest,
-			dto.ErrorResponse{Error: "content-type must be application/json", Code: "BAD_REQUEST"})
-		return false
-	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, instanceBodyLimit)
-	raw, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			c.AbortWithStatusJSON(http.StatusBadRequest,
-				dto.ErrorResponse{Error: "payload too large", Code: "BAD_REQUEST"})
-			return false
-		}
-		c.AbortWithStatusJSON(http.StatusBadRequest,
-			dto.ErrorResponse{Error: "cannot read body", Code: "BAD_REQUEST"})
-		return false
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest,
-			dto.ErrorResponse{Error: "malformed body", Code: "BAD_REQUEST"})
-		return false
-	}
-	return true
 }
 
 func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {

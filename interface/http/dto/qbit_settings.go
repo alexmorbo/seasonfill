@@ -40,13 +40,13 @@ type QbitSettingsDTO struct {
 // INVALID_QBIT_PUBLIC_URL).
 type QbitSettingsUpsertRequest struct {
 	Enabled                bool     `json:"enabled"                     example:"true"`
-	URL                    string   `json:"url"                         example:"http://qbit.local:8080"`
-	QbitPublicURL          string   `json:"qbit_public_url,omitempty"   example:"https://qbit.example.com"`
+	URL                    string   `json:"url"                         example:"http://qbit.local:8080" validate:"required,url"`
+	QbitPublicURL          string   `json:"qbit_public_url,omitempty"   example:"https://qbit.example.com" validate:"omitempty,url"`
 	Username               string   `json:"username,omitempty"          example:"admin"`
 	Password               string   `json:"password,omitempty"          example:"hunter2"`
-	Category               string   `json:"category"                    example:"sonarr"`
-	PollIntervalMinutes    int      `json:"poll_interval_minutes"       example:"30"`
-	RegrabCooldownHours    int      `json:"regrab_cooldown_hours"       example:"120"`
-	MaxConsecutiveNoBetter int      `json:"max_consecutive_no_better"   example:"3"`
+	Category               string   `json:"category"                    example:"sonarr" validate:"required,min=1,max=64"`
+	PollIntervalMinutes    int      `json:"poll_interval_minutes"       example:"30"     validate:"required,gt=0,lte=1440"`
+	RegrabCooldownHours    int      `json:"regrab_cooldown_hours"       example:"120"    validate:"gte=0,lte=8760"`
+	MaxConsecutiveNoBetter int      `json:"max_consecutive_no_better"   example:"3"      validate:"gte=0,lte=100"`
 	CustomUnregisteredMsgs []string `json:"custom_unregistered_msgs"`
 }

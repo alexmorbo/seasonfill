@@ -10,6 +10,7 @@ import (
 	appext "github.com/alexmorbo/seasonfill/application/externalservices"
 	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 )
 
 // ExternalServicesHandler exposes the runtime config for the three
@@ -71,7 +72,7 @@ func (h *ExternalServicesHandler) Upsert(c *gin.Context) {
 		return
 	}
 	var req dto.ExternalServiceUpsertRequest
-	if !readJSONBody(c, &req) {
+	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
 	in := appext.UpsertInput{

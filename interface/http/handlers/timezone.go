@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
 )
 
@@ -64,7 +65,7 @@ func (h *TimezoneHandler) Get(c *gin.Context) {
 // @Router      /settings/timezone [patch]
 func (h *TimezoneHandler) Patch(c *gin.Context) {
 	var req dto.TimezonePatchRequest
-	if !readJSONBody(c, &req) {
+	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
 	if err := h.resolver.Set(c.Request.Context(), req.Timezone); err != nil {

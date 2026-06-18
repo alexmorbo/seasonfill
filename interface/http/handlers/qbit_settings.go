@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 )
 
 // QbitSettingsHandler exposes the per-instance Watchdog settings
@@ -68,7 +69,7 @@ func (h *QbitSettingsHandler) Get(c *gin.Context) {
 func (h *QbitSettingsHandler) Upsert(c *gin.Context) {
 	name := c.Param("name")
 	var req dto.QbitSettingsUpsertRequest
-	if !readJSONBody(c, &req) {
+	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
 	in := regrab.UpsertInput{

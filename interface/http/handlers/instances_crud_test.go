@@ -17,6 +17,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -329,11 +330,12 @@ func TestCRUD_Update_IUS_BadFormat(t *testing.T) {
 }
 
 // TestCRUD_readJSONBody_TooLarge exercises the MaxBytesError branch in
-// readJSONBody by sending a body larger than instanceBodyLimit (64 KiB).
+// middleware.ReadJSONBody by sending a body larger than MaxJSONBodyBytes
+// (64 KiB).
 func TestCRUD_readJSONBody_TooLarge(t *testing.T) {
 	t.Parallel()
 	r, _ := setupCRUD(t)
-	body := bytes.Repeat([]byte("x"), instanceBodyLimit+1)
+	body := bytes.Repeat([]byte("x"), middleware.MaxJSONBodyBytes+1)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
 		"/api/v1/instances", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -341,6 +343,79 @@ func TestCRUD_readJSONBody_TooLarge(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+}
+
+// TestCRUD_Create_Validation_EmptyName guards F-3: an empty `name`
+// trips the validator's `required` tag and produces the structured
+// 400 envelope before the use case sees the payload.
+func TestCRUD_Create_Validation_EmptyName(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("")
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+
+	var resp struct {
+		Error  string `json:"error"`
+		Fields []struct {
+			Field, Tag, Message string
+		} `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "validation_failed", resp.Error)
+	require.NotEmpty(t, resp.Fields)
+	seen := map[string]string{}
+	for _, fe := range resp.Fields {
+		seen[fe.Field] = fe.Tag
+	}
+	assert.Equal(t, "required", seen["name"])
+}
+
+// TestCRUD_Create_Validation_BadURL guards F-3: a malformed `url` trips
+// the `url` tag in the validator.
+func TestCRUD_Create_Validation_BadURL(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("alpha")
+	body["url"] = "::not a url::"
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+
+	var resp struct {
+		Error  string `json:"error"`
+		Fields []struct {
+			Field, Tag string
+		} `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "validation_failed", resp.Error)
+	require.NotEmpty(t, resp.Fields)
+	assert.Equal(t, "url", resp.Fields[0].Field)
+	assert.Equal(t, "url", resp.Fields[0].Tag)
+}
+
+// TestCRUD_Create_Validation_BadMode guards F-3: `mode` of "bogus"
+// trips the validator's `oneof` tag.
+func TestCRUD_Create_Validation_BadMode(t *testing.T) {
+	t.Parallel()
+	r, _ := setupCRUD(t)
+	body := createBody("alpha")
+	body["mode"] = "bogus"
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+
+	var resp struct {
+		Error  string `json:"error"`
+		Fields []struct {
+			Field, Tag, Message string
+		} `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "validation_failed", resp.Error)
+	require.NotEmpty(t, resp.Fields)
+	assert.Equal(t, "mode", resp.Fields[0].Field)
+	assert.Equal(t, "oneof", resp.Fields[0].Tag)
+	assert.Contains(t, resp.Fields[0].Message, "auto, manual")
 }
 
 // TestCRUD_Create_TypedCode_TimeoutOutOfRange locks H-2 + H-3: a
@@ -359,18 +434,34 @@ func TestCRUD_Create_TypedCode_TimeoutOutOfRange(t *testing.T) {
 		"per-field code must reach the wire via errors.As branch")
 }
 
-// TestCRUD_Create_TypedCode_RateLimitRPMOutOfRange exercises the
-// rate_limit_rpm bound (max 10000). Same contract as above.
-func TestCRUD_Create_TypedCode_RateLimitRPMOutOfRange(t *testing.T) {
+// TestCRUD_Create_RateLimitRPMOutOfRange_ValidatorRejects locks the F-3
+// validator path: rate_limit_rpm > 10000 trips the `lte=10000` tag at the
+// middleware before the use case sees the payload. The wire envelope is
+// the validator's structured {error:"validation_failed", fields[]} shape.
+//
+// The use case retains its own RATE_LIMIT_RPM bound check for defence in
+// depth (and is exercised at the application-layer unit test), but
+// the handler-level wire response is now anchored to the validator
+// rejection because the tag-level bound matches the use-case bound.
+func TestCRUD_Create_RateLimitRPMOutOfRange_ValidatorRejects(t *testing.T) {
 	t.Parallel()
 	r, _ := setupCRUD(t)
 	body := createBody("alpha")
 	body["rate_limit_rpm"] = 10001
 	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
 	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
-	var resp map[string]any
+	var resp struct {
+		Error  string `json:"error"`
+		Fields []struct {
+			Field string `json:"field"`
+			Tag   string `json:"tag"`
+		} `json:"fields"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "INVALID_INSTANCE_RATE_LIMIT_RPM_OUT_OF_RANGE", resp["code"])
+	assert.Equal(t, "validation_failed", resp.Error)
+	require.Len(t, resp.Fields, 1)
+	assert.Equal(t, "rate_limit_rpm", resp.Fields[0].Field)
+	assert.Equal(t, "lte", resp.Fields[0].Tag)
 }
 
 // TestCRUD_Create_TypedCode_RetryMaxAttemptsOutOfRange exercises the

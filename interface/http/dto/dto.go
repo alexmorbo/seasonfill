@@ -478,20 +478,27 @@ type InstanceHealthCheck struct {
 // InstanceCreateRequest — body of POST /api/v1/instances. `api_key`
 // is required on create; everything else has server-side defaults
 // applied via runtime.ApplyInstanceDefaults.
+//
+// F-3 validation: api_key is NOT tagged `required` at the DTO layer.
+// InstanceUpdateRequest is an alias of this type and Update tolerates
+// `api_key == ""` ("preserve stored secret"). The use case enforces
+// the "non-empty on create" rule via instance.UseCase.Create —
+// see handlers/instances_crud.go writeError dispatch for the typed
+// per-field code.
 type InstanceCreateRequest struct {
-	Name             string              `json:"name"             example:"alpha"`
-	URL              string              `json:"url"              example:"http://sonarr:8989"`
+	Name             string              `json:"name"             example:"alpha"           validate:"required,min=1,max=64"`
+	URL              string              `json:"url"              example:"http://sonarr:8989" validate:"required,url"`
 	APIKey           string              `json:"api_key"          example:"abcd..."`
-	Mode             string              `json:"mode,omitempty"   example:"auto"`
-	TimeoutSec       int                 `json:"timeout_sec,omitempty"`
-	SearchTimeoutSec int                 `json:"search_timeout_sec,omitempty"`
+	Mode             string              `json:"mode,omitempty"   example:"auto"            validate:"omitempty,oneof=auto manual"`
+	TimeoutSec       int                 `json:"timeout_sec,omitempty" validate:"omitempty,gte=0,lte=3600"`
+	SearchTimeoutSec int                 `json:"search_timeout_sec,omitempty" validate:"omitempty,gte=0,lte=3600"`
 	DryRun           *bool               `json:"dry_run,omitempty"`
 	Tags             InstanceTags        `json:"tags"`
 	Search           InstanceSearch      `json:"search"`
 	Ranking          InstanceRanking     `json:"ranking"`
 	Limits           InstanceLimits      `json:"limits"`
-	RateLimitRPM     int                 `json:"rate_limit_rpm"`
-	RateLimitBurst   int                 `json:"rate_limit_burst"`
+	RateLimitRPM     int                 `json:"rate_limit_rpm"   validate:"gte=0,lte=10000"`
+	RateLimitBurst   int                 `json:"rate_limit_burst" validate:"gte=0,lte=10000"`
 	Cooldown         InstanceCooldown    `json:"cooldown"`
 	Retry            InstanceRetry       `json:"retry"`
 	HealthCheck      InstanceHealthCheck `json:"health_check"`

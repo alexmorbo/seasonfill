@@ -269,18 +269,27 @@ func TestHandler_PutEnableWithWebhookSucceeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestHandler_PutValidationErrors(t *testing.T) {
+func TestHandler_PutValidationErrors_UseCaseCodes(t *testing.T) {
 	t.Parallel()
+	// These cases pass the F-3 validator middleware (tag-level checks)
+	// and reach the use case, which enforces domain-specific bounds and
+	// emits the typed wire code.
 	cases := []struct {
 		name string
 		mut  func(*dto.QbitSettingsUpsertRequest)
 		code string
 	}{
-		{"empty url", func(b *dto.QbitSettingsUpsertRequest) { b.URL = "" }, "INVALID_QBIT_URL"},
+		// scheme rejection — validator's `url` tag accepts ftp; use case
+		// rejects on http/https-only.
 		{"bad scheme", func(b *dto.QbitSettingsUpsertRequest) { b.URL = "ftp://x" }, "INVALID_QBIT_URL"},
-		{"empty category", func(b *dto.QbitSettingsUpsertRequest) { b.Category = "" }, "INVALID_QBIT_CATEGORY"},
+		// 1 minute passes `gt=0,lte=1440` but fails the use case minimum
+		// of 5 minutes → use case rejects with INVALID_POLL_INTERVAL.
 		{"poll too small", func(b *dto.QbitSettingsUpsertRequest) { b.PollIntervalMinutes = 1 }, "INVALID_POLL_INTERVAL"},
-		{"cooldown too big", func(b *dto.QbitSettingsUpsertRequest) { b.RegrabCooldownHours = 9999 }, "INVALID_REGRAB_COOLDOWN"},
+		// 725 hours passes validator's `lte=8760` cap but fails the use
+		// case 30-day cap → use case rejects with INVALID_REGRAB_COOLDOWN.
+		{"cooldown above use-case cap", func(b *dto.QbitSettingsUpsertRequest) { b.RegrabCooldownHours = 725 }, "INVALID_REGRAB_COOLDOWN"},
+		// public_url scheme rejection — validator `omitempty,url` accepts
+		// ftp; use case requires http/https.
 		{"public_url bad scheme", func(b *dto.QbitSettingsUpsertRequest) { b.QbitPublicURL = "ftp://x" }, "INVALID_QBIT_PUBLIC_URL"},
 	}
 	for _, tc := range cases {
@@ -291,10 +300,55 @@ func TestHandler_PutValidationErrors(t *testing.T) {
 			body := validUpsertBody()
 			tc.mut(&body)
 			w := f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", body)
-			require.Equal(t, http.StatusBadRequest, w.Code)
+			require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
 			var resp dto.ErrorResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			assert.Equal(t, tc.code, resp.Code)
+		})
+	}
+}
+
+// TestHandler_PutValidationErrors_ValidatorTagged covers the F-3
+// validator middleware path: tag-level rejections produce the structured
+// {error:"validation_failed", fields[]} envelope instead of the legacy
+// per-field code envelope.
+func TestHandler_PutValidationErrors_ValidatorTagged(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		mut   func(*dto.QbitSettingsUpsertRequest)
+		field string
+		tag   string
+	}{
+		{"empty url", func(b *dto.QbitSettingsUpsertRequest) { b.URL = "" }, "url", "required"},
+		{"empty category", func(b *dto.QbitSettingsUpsertRequest) { b.Category = "" }, "category", "required"},
+		{"cooldown above validator cap", func(b *dto.QbitSettingsUpsertRequest) { b.RegrabCooldownHours = 9999 }, "regrab_cooldown_hours", "lte"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newTestFixture(t)
+			body := validUpsertBody()
+			tc.mut(&body)
+			w := f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", body)
+			require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+			var got struct {
+				Error  string `json:"error"`
+				Fields []struct {
+					Field string `json:"field"`
+					Tag   string `json:"tag"`
+				} `json:"fields"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+			assert.Equal(t, "validation_failed", got.Error)
+			require.NotEmpty(t, got.Fields)
+			seen := map[string]string{}
+			for _, fe := range got.Fields {
+				seen[fe.Field] = fe.Tag
+			}
+			assert.Equal(t, tc.tag, seen[tc.field],
+				"field %q must surface tag %q; got %+v", tc.field, tc.tag, got.Fields)
 		})
 	}
 }
