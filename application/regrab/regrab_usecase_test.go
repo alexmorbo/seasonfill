@@ -27,13 +27,17 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 const (
-	testInstance = "alpha"
-	testHash     = "abcdef0123456789abcdef0123456789abcdef01"
-	testSeries   = 122
-	testSeason   = 2
+	testInstance domain.InstanceName = "alpha"
+)
+
+const (
+	testHash   = "abcdef0123456789abcdef0123456789abcdef01"
+	testSeries = 122
+	testSeason = 2
 )
 
 func enabledSettings() regrab.Settings {
@@ -122,7 +126,7 @@ func (fakeSonarr) SystemStatus(ctx context.Context) (ports.SystemStatus, error) 
 func (fakeSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
 	return nil, nil
 }
-func (fakeSonarr) ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+func (fakeSonarr) ListSeriesCache(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (fakeSonarr) GetSeries(ctx context.Context, id int) (series.Series, error) {
@@ -260,7 +264,7 @@ func TestRunInstance_TorrentHashNotInGrabs_Skips(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(mocks.NewMockDetector(ctrl))
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(domaingrab.Record{}, ports.ErrNotFound)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
 
@@ -284,7 +288,7 @@ func TestRunInstance_DetectorSaysAlive_Skips(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(successGrab(), nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(aliveVerdict(), nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -311,7 +315,7 @@ func TestRunInstance_CooldownActive_Skips(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(successGrab(), nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -342,7 +346,7 @@ func TestRunInstance_Blacklisted_Skips(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(successGrab(), nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -375,7 +379,7 @@ func TestRunInstance_EvaluateGrab_HappyPath(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{
 		Client: fakeSonarr{},
 	}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
@@ -424,7 +428,7 @@ func TestRunInstance_NothingBetter_IncrementsCounterAndMaybeBlacklists(t *testin
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -473,7 +477,7 @@ func TestRunInstance_DualTorrentSameTriple_EvaluatesOnce(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), hashA).Return(orig, nil)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), hashB).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), hashA).Return(unregisteredVerdict(), nil)
@@ -510,7 +514,7 @@ func TestRunInstance_EvaluateError_CountsErrorActivatesCooldown(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -540,7 +544,7 @@ func TestRunInstance_InstanceNotInRegistry_ReturnsError(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(mocks.NewMockDetector(ctrl))
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{}, false)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{}, false)
 
 	_, err := uc.RunInstance(context.Background(), testInstance)
 	require.Error(t, err)
@@ -595,7 +599,7 @@ func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
 	}, nil)
 	qclient.EXPECT().Close().Return(nil)
 	detFac.EXPECT().NewDetector(qclient, s.CustomUnregisteredMsgs).Return(det)
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: fakeSonarr{}}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: fakeSonarr{}}, true)
 
 	// Owned torrent → HIT, unregistered, passes both gates, evaluator grabs.
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
@@ -700,7 +704,7 @@ func TestRunInstance_ReplayByGUID_Success(t *testing.T) {
 			return "", nil
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -787,7 +791,7 @@ func TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator(t *testing
 		return errors.As(err, &target)
 	})
 
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -835,7 +839,7 @@ func TestRunInstance_ReplayByGUID_TransientError_SurfacesAsError(t *testing.T) {
 		},
 	}
 	// Default classifier returns false for plain errors → surface.
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -881,7 +885,7 @@ func TestRunInstance_ReplayByGUID_NoGUID_SkipsReplayPath(t *testing.T) {
 			return "", nil
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -926,7 +930,7 @@ func TestRunInstance_ReplayByGUID_NoIndexerID_SkipsReplayPath(t *testing.T) {
 			return "", nil
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -981,7 +985,7 @@ func TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab(t *testing.T) {
 			return "", nil
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -1043,7 +1047,7 @@ func TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab(t *testing.T) {
 			return "", nil
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -1104,7 +1108,7 @@ func TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone(t *testing.T) {
 		return errors.As(err, &target)
 	})
 
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -1163,7 +1167,7 @@ func TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed(t *testing.T) {
 		return errors.As(err, &target)
 	})
 
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -1259,7 +1263,7 @@ func TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision(t *testing.T) {
 	}
 	// Both classifiers default to false → falls into the "other error"
 	// branch which persists a SKIP audit decision.
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
@@ -1349,7 +1353,7 @@ func TestRunInstance_ReplayByGUID_OtherError_DecisionRepoNil_LegacyLogPath(t *te
 			return "", errors.New("sonarr 503 service unavailable")
 		},
 	}
-	instances.EXPECT().Get(testInstance).Return(scan.Instance{Client: sonarrStub}, true)
+	instances.EXPECT().Get(string(testInstance)).Return(scan.Instance{Client: sonarrStub}, true)
 	grabs.EXPECT().FindLatestSuccessByHash(gomock.Any(), testHash).Return(orig, nil)
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")

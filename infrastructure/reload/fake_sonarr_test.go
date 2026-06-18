@@ -6,6 +6,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeSonarrClient stubs ports.SonarrClient for tests in this package.
@@ -18,7 +19,7 @@ func (f *fakeSonarrClient) SystemStatus(_ context.Context) (ports.SystemStatus, 
 	return ports.SystemStatus{}, nil
 }
 func (f *fakeSonarrClient) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (f *fakeSonarrClient) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *fakeSonarrClient) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *fakeSonarrClient) GetSeries(_ context.Context, _ int) (series.Series, error) {

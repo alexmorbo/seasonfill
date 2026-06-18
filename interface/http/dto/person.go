@@ -88,8 +88,8 @@ type LibraryCreditEntry struct {
 // kept for client-side keys and analytics but is NOT a valid URL
 // parameter for /series/:instance/:id.
 type LibraryCreditInstance struct {
-	Instance       string `json:"instance" example:"alpha"`
-	SonarrSeriesID int    `json:"sonarr_series_id" example:"42"`
+	Instance       domain.InstanceName `json:"instance" example:"alpha"`
+	SonarrSeriesID int                 `json:"sonarr_series_id" example:"42"`
 }
 
 // OtherCreditEntry is one TMDB-only credit (no canon series row

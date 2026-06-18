@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 const testMasterKey = "test-master-key-32-bytes-for-aes-gcm"
@@ -118,7 +119,7 @@ type stubWebhookChecker struct {
 	calls     atomic.Int32
 }
 
-func (s *stubWebhookChecker) IsInstalled(_ context.Context, _ string) (bool, error) {
+func (s *stubWebhookChecker) IsInstalled(_ context.Context, _ domain.InstanceName) (bool, error) {
 	s.calls.Add(1)
 	return s.installed, s.err
 }

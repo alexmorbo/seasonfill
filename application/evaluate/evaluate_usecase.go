@@ -15,11 +15,12 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type Input struct {
 	ScanRunID            uuid.UUID
-	Instance             string
+	Instance             domain.InstanceName
 	Sonarr               ports.SonarrClient
 	Series               series.Series
 	Season               series.Season
@@ -164,7 +165,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 			active, cdErr := in.Cooldowns.FilterActive(ctx, cooldown.ScopeGUID, keys, in.Now)
 			if cdErr != nil {
 				u.logger.WarnContext(ctx, "guid cooldown lookup failed",
-					slog.String("instance", in.Instance),
+					slog.String("instance", string(in.Instance)),
 					slog.Int("series_id", in.Series.ID),
 					slog.String("error", cdErr.Error()),
 				)
@@ -288,7 +289,7 @@ func (u *UseCase) finalize(ctx context.Context, d decision.Decision, in Input) (
 		grabbed, gerr := u.grabs.CountImportedEpisodes(ctx, in.Instance, in.Series.ID, in.Season.Number)
 		if gerr != nil {
 			u.logger.WarnContext(ctx, "count_imported_episodes_failed",
-				slog.String("instance", in.Instance),
+				slog.String("instance", string(in.Instance)),
 				slog.Int("series_id", in.Series.ID),
 				slog.Int("season_number", in.Season.Number),
 				slog.String("error", gerr.Error()))
@@ -317,7 +318,7 @@ func (u *UseCase) persist(ctx context.Context, d decision.Decision) error {
 func (u *UseCase) emitLog(ctx context.Context, d decision.Decision, in Input) {
 	attrs := []any{
 		slog.String("scan_run_id", d.ScanRunID.String()),
-		slog.String("instance", d.InstanceName),
+		slog.String("instance", string(d.InstanceName)),
 		slog.Int("series_id", d.SeriesID),
 		slog.String("series_title", d.SeriesTitle),
 		slog.Int("season_number", d.SeasonNumber),

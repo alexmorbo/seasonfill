@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // recordingDecisionRepo captures every Save call for assertion.
@@ -46,10 +47,10 @@ func (r *recordingDecisionRepo) UpdateIntent(context.Context, uuid.UUID, *decisi
 type stubGrabRepo struct {
 	count    int
 	err      error
-	calledFn func(string, int, int)
+	calledFn func(domain.InstanceName, int, int)
 }
 
-func (s *stubGrabRepo) CountImportedEpisodes(_ context.Context, inst string, sid, sn int) (int, error) {
+func (s *stubGrabRepo) CountImportedEpisodes(_ context.Context, inst domain.InstanceName, sid, sn int) (int, error) {
 	if s.calledFn != nil {
 		s.calledFn(inst, sid, sn)
 	}
@@ -80,10 +81,12 @@ func (s *stubGrabRepo) UpdateSizeBytes(context.Context, uuid.UUID, int64) error 
 func (s *stubGrabRepo) GetByID(context.Context, uuid.UUID) (grab.Record, error) {
 	return grab.Record{}, nil
 }
-func (s *stubGrabRepo) CountReplaysSince(context.Context, string, time.Time) (int, error) {
+func (s *stubGrabRepo) CountReplaysSince(context.Context, domain.InstanceName, time.Time) (int, error) {
 	return 0, nil
 }
-func (s *stubGrabRepo) CountReplaysAll(context.Context, string) (int, error) { return 0, nil }
+func (s *stubGrabRepo) CountReplaysAll(context.Context, domain.InstanceName) (int, error) {
+	return 0, nil
+}
 func (s *stubGrabRepo) ListUnparsedSince(context.Context, time.Time, int) ([]grab.Record, error) {
 	return nil, nil
 }
@@ -131,7 +134,7 @@ func TestExecute_PopulatesSeasonStats_HappyPath(t *testing.T) {
 	assert.Equal(t, 8, got.AiredEpisodes)
 	assert.Equal(t, 10, got.ExistingEpisodes)
 	assert.Equal(t, 5, got.GrabbedEpisodes)
-	assert.Equal(t, "homelab", d.InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), d.InstanceName)
 	assert.Equal(t, decision.OutcomeSkip, got.Outcome)
 	assert.Equal(t, decision.ReasonSkipNoMissing, got.Reason)
 }
@@ -241,7 +244,7 @@ func TestRecordSkip_PersistsSyntheticSkipDecision(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, decisions.saved, 1)
 	got := decisions.saved[0]
-	assert.Equal(t, "homelab", d.InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), d.InstanceName)
 	assert.Equal(t, decision.OutcomeSkip, got.Outcome)
 	assert.Equal(t, decision.ReasonSonarrHandles, got.Reason)
 	assert.Equal(t, 10, got.TotalEpisodes)

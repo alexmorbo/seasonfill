@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type Outcome string
@@ -46,7 +47,7 @@ type FilteredCandidate struct {
 type Decision struct {
 	ID              uuid.UUID
 	ScanRunID       uuid.UUID
-	InstanceName    string
+	InstanceName    domain.InstanceName
 	SeriesID        int
 	SeriesTitle     string
 	SeasonNumber    int
@@ -85,7 +86,7 @@ type Decision struct {
 	CreatedAt time.Time
 }
 
-func New(scanRunID uuid.UUID, instance, seriesTitle string, seriesID, season int) Decision {
+func New(scanRunID uuid.UUID, instance domain.InstanceName, seriesTitle string, seriesID, season int) Decision {
 	return Decision{
 		ID:           uuid.New(),
 		ScanRunID:    scanRunID,

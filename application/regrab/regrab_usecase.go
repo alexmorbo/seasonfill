@@ -27,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -63,7 +64,7 @@ type SettingsLookup interface {
 	// decrypts the password, and returns a Settings projection ready
 	// to feed QbitClientFactory. ports.ErrNotFound bubbles for both
 	// "instance not found" and "settings not found" paths.
-	Lookup(ctx context.Context, instanceName string) (Settings, error)
+	Lookup(ctx context.Context, instanceName domain.InstanceName) (Settings, error)
 }
 
 // InstanceRegistry is the regrab use case's view of the running Sonarr
@@ -223,7 +224,7 @@ func (u *UseCase) WithReleaseAlreadyAddedClassifier(fn func(error) bool) *UseCas
 // invoke concurrently for DIFFERENT instance names; concurrent invocation
 // for the SAME instance is the subscriber's contract to prevent (it
 // uses a single per-instance ticker, so there's no overlap by design).
-func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResult, error) {
+func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceName) (RunResult, error) {
 	startedAt := u.now()
 	res := RunResult{InstanceName: instanceName, StartedAt: startedAt}
 
@@ -250,7 +251,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 	if err != nil {
 		u.metrics.IncPollResult(instanceName, "qbit_error")
 		u.logger.WarnContext(ctx, "regrab_qbit_client_failed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
@@ -261,7 +262,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 	if err := client.Login(ctx); err != nil {
 		u.metrics.IncPollResult(instanceName, "qbit_error")
 		u.logger.WarnContext(ctx, "regrab_qbit_login_failed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
@@ -275,7 +276,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 	if err != nil {
 		u.metrics.IncPollResult(instanceName, "qbit_error")
 		u.logger.WarnContext(ctx, "regrab_list_torrents_failed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("error", err.Error()))
 		res.QbitError = err
 		res.FinishedAt = u.now()
@@ -294,7 +295,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			sampleHashes = append(sampleHashes, torrents[i].Hash)
 		}
 		u.logger.DebugContext(ctx, "regrab_torrents_listed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.Int("count", len(torrents)),
 			slog.String("category_filter", sett.Category),
 			slog.Any("sample_hashes", sampleHashes))
@@ -311,7 +312,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		watched++
 	}
 
-	inst, ok := u.instances.Get(instanceName)
+	inst, ok := u.instances.Get(string(instanceName))
 	if !ok {
 		res.FinishedAt = u.now()
 		u.state.StampPartial(instanceName, res.FinishedAt, PollResultQbitError, true, watched)
@@ -336,7 +337,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		}
 
 		u.logger.DebugContext(ctx, "regrab_iter_torrent",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
 			slog.String("category", t.Category),
 			slog.String("state", t.State))
@@ -346,20 +347,20 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		if err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
 				u.logger.DebugContext(ctx, "regrab_grab_lookup_miss",
-					slog.String("instance", instanceName),
+					slog.String("instance", string(instanceName)),
 					slog.String("hash", t.Hash),
 					slog.String("category", t.Category),
 					slog.String("name", t.Name))
 				continue // D63: untracked torrent, not ours
 			}
 			u.logger.WarnContext(ctx, "regrab_lookup_grab_failed",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.String("hash", t.Hash),
 				slog.String("error", err.Error()))
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_grab_lookup_hit",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
 			slog.String("grab_id", origGrab.ID.String()),
 			slog.Int("series_id", origGrab.SeriesID),
@@ -370,13 +371,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		verdict, err := det.Detect(ctx, t.Hash)
 		if err != nil {
 			u.logger.WarnContext(ctx, "regrab_detect_failed",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.String("hash", t.Hash),
 				slog.String("error", err.Error()))
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_verdict",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
 			slog.Bool("unregistered", verdict.Unregistered),
 			slog.Bool("tracker_down", verdict.TrackerDown),
@@ -403,13 +404,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		// Step 6 — cooldown gate.
 		if active, err := u.isCooldownActive(ctx, cdKey, startedAt); err != nil {
 			u.logger.WarnContext(ctx, "regrab_cooldown_lookup_failed",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.String("key", cdKey),
 				slog.String("error", err.Error()))
 			continue
 		} else if active {
 			u.logger.DebugContext(ctx, "regrab_cooldown_skipped",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.String("key", cdKey),
 				slog.Int("series_id", origGrab.SeriesID),
 				slog.Int("season", origGrab.SeasonNumber))
@@ -418,7 +419,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_cooldown_passed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("key", cdKey),
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber))
@@ -426,7 +427,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 		// Step 7 — blacklist gate.
 		if _, err := u.blacklist.Find(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber); err == nil {
 			u.logger.DebugContext(ctx, "regrab_blacklist_skipped",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.Int("series_id", origGrab.SeriesID),
 				slog.Int("season", origGrab.SeasonNumber))
 			res.SkippedBlacklist++
@@ -434,13 +435,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			continue
 		} else if !errors.Is(err, ports.ErrNotFound) {
 			u.logger.WarnContext(ctx, "regrab_blacklist_lookup_failed",
-				slog.String("instance", instanceName),
+				slog.String("instance", string(instanceName)),
 				slog.Int("series_id", origGrab.SeriesID),
 				slog.String("error", err.Error()))
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_blacklist_passed",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber))
 
@@ -456,7 +457,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				// Pre-117 audit-trail behaviour: no decision row was
 				// written, so the slog WARN IS the audit trail.
 				u.logger.WarnContext(ctx, "regrab_evaluate_failed",
-					slog.String("instance", instanceName),
+					slog.String("instance", string(instanceName)),
 					slog.Int("series_id", origGrab.SeriesID),
 					slog.Int("season", origGrab.SeasonNumber),
 					slog.String("error", evalErr.Error()))
@@ -465,7 +466,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				// Emit a lower-volume INFO referencing the decision
 				// so operators can correlate logs ↔ Activity Feed.
 				u.logger.InfoContext(ctx, "regrab_replay_error_persisted",
-					slog.String("instance", instanceName),
+					slog.String("instance", string(instanceName)),
 					slog.Int("series_id", origGrab.SeriesID),
 					slog.Int("season", origGrab.SeasonNumber),
 					slog.String("decision_id", decisionRow.ID.String()),
@@ -474,7 +475,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_evaluated",
-			slog.String("instance", instanceName),
+			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber),
@@ -494,7 +495,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 				// Step 10a — reset counter on success.
 				if rstErr := u.counter.Reset(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt); rstErr != nil && !errors.Is(rstErr, ports.ErrNotFound) {
 					u.logger.WarnContext(ctx, "regrab_counter_reset_failed",
-						slog.String("instance", instanceName),
+						slog.String("instance", string(instanceName)),
 						slog.String("error", rstErr.Error()))
 				}
 			}
@@ -503,7 +504,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 			counter, incErr := u.counter.Increment(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
 			if incErr != nil {
 				u.logger.WarnContext(ctx, "regrab_counter_increment_failed",
-					slog.String("instance", instanceName),
+					slog.String("instance", string(instanceName)),
 					slog.String("error", incErr.Error()))
 			} else if counter.HasReachedThreshold(sett.MaxConsecutiveNoBetter) {
 				entry, blErr := domainregrab.NewBlacklistEntry(
@@ -512,11 +513,11 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 					startedAt)
 				if blErr != nil {
 					u.logger.WarnContext(ctx, "regrab_blacklist_construct_failed",
-						slog.String("instance", instanceName),
+						slog.String("instance", string(instanceName)),
 						slog.String("error", blErr.Error()))
 				} else if wErr := u.blacklist.Upsert(ctx, entry); wErr != nil {
 					u.logger.WarnContext(ctx, "regrab_blacklist_write_failed",
-						slog.String("instance", instanceName),
+						slog.String("instance", string(instanceName)),
 						slog.String("error", wErr.Error()))
 				} else {
 					res.BlacklistedThisCycle = append(res.BlacklistedThisCycle, TripleKey{
@@ -525,7 +526,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName string) (RunResu
 					})
 					_ = u.counter.Reset(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
 					u.logger.InfoContext(ctx, "regrab_blacklisted",
-						slog.String("instance", instanceName),
+						slog.String("instance", string(instanceName)),
 						slog.Int("series_id", origGrab.SeriesID),
 						slog.Int("season", origGrab.SeasonNumber),
 						slog.Int("consecutive", counter.Consecutive))
@@ -590,7 +591,7 @@ func (u *UseCase) runEvaluator(
 			// the transition is visible in logs without ratcheting up
 			// volume.
 			u.logger.InfoContext(ctx, "regrab_replay_falls_through",
-				slog.String("instance", origGrab.InstanceName),
+				slog.String("instance", string(origGrab.InstanceName)),
 				slog.String("guid", origGrab.ReleaseGUID),
 				slog.Int("indexer_id", origGrab.IndexerID),
 				slog.Int("series_id", origGrab.SeriesID),
@@ -704,7 +705,7 @@ func (u *UseCase) tryReplayByGUID(
 	runCtx := logger.WithTraceID(context.Background(), origGrab.ID.String())
 
 	u.logger.InfoContext(ctx, "regrab_replay_attempt",
-		slog.String("instance", origGrab.InstanceName),
+		slog.String("instance", string(origGrab.InstanceName)),
 		slog.String("guid", origGrab.ReleaseGUID),
 		slog.Int("indexer_id", origGrab.IndexerID),
 		slog.Int("series_id", origGrab.SeriesID),
@@ -727,14 +728,14 @@ func (u *UseCase) tryReplayByGUID(
 		// ForceGrab; if the cache is still cold the existing 404
 		// fall-through catches it.
 		u.logger.WarnContext(ctx, "regrab_replay_warm_failed",
-			slog.String("instance", origGrab.InstanceName),
+			slog.String("instance", string(origGrab.InstanceName)),
 			slog.String("guid", origGrab.ReleaseGUID),
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.String("error", warmErr.Error()))
 	} else {
 		u.logger.DebugContext(ctx, "regrab_replay_warmed",
-			slog.String("instance", origGrab.InstanceName),
+			slog.String("instance", string(origGrab.InstanceName)),
 			slog.Int("series_id", origGrab.SeriesID),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.Int("releases", len(warmed)))
@@ -763,7 +764,7 @@ func (u *UseCase) tryReplayByGUID(
 			}
 		}
 		u.logger.InfoContext(ctx, "regrab_replay_succeeded",
-			slog.String("instance", origGrab.InstanceName),
+			slog.String("instance", string(origGrab.InstanceName)),
 			slog.String("guid", origGrab.ReleaseGUID),
 			slog.Int("indexer_id", origGrab.IndexerID),
 			slog.String("decision_id", d.ID.String()),
@@ -789,7 +790,7 @@ func (u *UseCase) tryReplayByGUID(
 			}
 		}
 		u.logger.InfoContext(ctx, "regrab_replay_already_added",
-			slog.String("instance", origGrab.InstanceName),
+			slog.String("instance", string(origGrab.InstanceName)),
 			slog.String("guid", origGrab.ReleaseGUID),
 			slog.Int("indexer_id", origGrab.IndexerID),
 			slog.String("decision_id", d.ID.String()),
@@ -829,12 +830,12 @@ func (u *UseCase) tryReplayByGUID(
 			// the caller falls back to the legacy
 			// regrab_evaluate_failed log path.
 			u.logger.WarnContext(ctx, "regrab_replay_error_persist_failed",
-				slog.String("instance", origGrab.InstanceName),
+				slog.String("instance", string(origGrab.InstanceName)),
 				slog.String("error", perr.Error()))
 			return OutcomeError, decision.Decision{}, forceErr
 		}
 		u.logger.WarnContext(ctx, "regrab_replay_error",
-			slog.String("instance", origGrab.InstanceName),
+			slog.String("instance", string(origGrab.InstanceName)),
 			slog.String("guid", origGrab.ReleaseGUID),
 			slog.Int("indexer_id", origGrab.IndexerID),
 			slog.String("decision_id", d.ID.String()),
@@ -1014,7 +1015,7 @@ func (u *UseCase) runGrab(ctx context.Context, inst scan.Instance, sett Settings
 		// but the row itself is fine. Do NOT fail the regrab outcome.
 	}
 	u.logger.InfoContext(runCtx, "regrab_grabbed",
-		slog.String("instance", origGrab.InstanceName),
+		slog.String("instance", string(origGrab.InstanceName)),
 		slog.Int("series_id", origGrab.SeriesID),
 		slog.Int("season", origGrab.SeasonNumber),
 		slog.String("original_grab_id", origGrab.ID.String()),
@@ -1074,18 +1075,18 @@ var _ = release.Scored{}
 
 // Snapshot returns the latest per-instance state recorded by RunInstance.
 // (zero, false) when the instance has never run.
-func (u *UseCase) Snapshot(instance string) (RuntimeState, bool) {
+func (u *UseCase) Snapshot(instance domain.InstanceName) (RuntimeState, bool) {
 	return u.state.Snapshot(instance)
 }
 
 // SnapshotAll returns every instance's state. Used by the aggregate
 // rollup handler.
-func (u *UseCase) SnapshotAll() map[string]RuntimeState {
+func (u *UseCase) SnapshotAll() map[domain.InstanceName]RuntimeState {
 	return u.state.SnapshotAll()
 }
 
 // ForgetState drops the per-instance bookkeeping. Called by the
 // instance CRUD delete subscriber.
-func (u *UseCase) ForgetState(instance string) {
+func (u *UseCase) ForgetState(instance domain.InstanceName) {
 	u.state.Forget(instance)
 }

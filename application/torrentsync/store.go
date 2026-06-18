@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Entry is the in-memory snapshot of a single torrent. It carries
@@ -71,29 +72,29 @@ func CountersFrom(info qbit.TorrentInfo) Counters {
 type Store struct {
 	mu sync.RWMutex
 	// rows is the primary index: instance → hash → Entry.
-	rows map[string]map[string]Entry
+	rows map[domain.InstanceName]map[string]Entry
 	// bySeries is the secondary index: instance →
 	// sonarrSeriesID → set-of-hashes. Populated by the
 	// reconciler (story 221) via SetSeriesMapping; consumed by
 	// the read endpoint (story 222). Empty in 220 — the index
 	// exists so 221 can wire writes without retro-fitting
 	// the store shape.
-	bySeries map[string]map[int]map[string]struct{}
+	bySeries map[domain.InstanceName]map[int]map[string]struct{}
 }
 
 // NewStore constructs an empty Store ready to receive an
 // `EnsureInstance` per qBit-enabled Sonarr instance.
 func NewStore() *Store {
 	return &Store{
-		rows:     make(map[string]map[string]Entry),
-		bySeries: make(map[string]map[int]map[string]struct{}),
+		rows:     make(map[domain.InstanceName]map[string]Entry),
+		bySeries: make(map[domain.InstanceName]map[int]map[string]struct{}),
 	}
 }
 
 // EnsureInstance is idempotent. SwapSettings (cmd/server/
 // torrentsync_loop.go) calls it on every reload publish so a
 // newly-enabled instance gets its sub-map without racing the loop.
-func (s *Store) EnsureInstance(instance string) {
+func (s *Store) EnsureInstance(instance domain.InstanceName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.rows[instance]; !ok {
@@ -108,7 +109,7 @@ func (s *Store) EnsureInstance(instance string) {
 // when the operator disables qBit on an instance — the loop is
 // already cancelled by then, so this call cannot race with a
 // Refresh.
-func (s *Store) DropInstance(instance string) {
+func (s *Store) DropInstance(instance domain.InstanceName) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.rows, instance)
@@ -117,7 +118,7 @@ func (s *Store) DropInstance(instance string) {
 
 // Get returns the current Entry for (instance, hash) and a boolean
 // presence flag. The returned Entry is a value copy.
-func (s *Store) Get(instance, hash string) (Entry, bool) {
+func (s *Store) Get(instance domain.InstanceName, hash string) (Entry, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	inst, ok := s.rows[instance]
@@ -131,7 +132,7 @@ func (s *Store) Get(instance, hash string) (Entry, bool) {
 // Put writes the Entry. Used by the loop on every Refresh tick.
 // The store stamps SyncedAt if the caller left it zero — the loop
 // always sets it explicitly so this is a defensive default.
-func (s *Store) Put(instance string, e Entry) {
+func (s *Store) Put(instance domain.InstanceName, e Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	inst, ok := s.rows[instance]
@@ -149,7 +150,7 @@ func (s *Store) Put(instance string, e Entry) {
 // Snapshot.Removed once the persist layer has stamped the row
 // `present=false` — keeping the row in memory after we have told
 // the DB it is gone would lie to the read endpoint.
-func (s *Store) Delete(instance, hash string) {
+func (s *Store) Delete(instance domain.InstanceName, hash string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if inst, ok := s.rows[instance]; ok {
@@ -173,7 +174,7 @@ func (s *Store) Delete(instance, hash string) {
 // Story 220 returns nothing here (the bySeries index is empty
 // until 221 calls SetSeriesMapping). The accessor exists so 222's
 // endpoint can read the store through one stable surface.
-func (s *Store) HashesFor(instance string, seriesID int) []string {
+func (s *Store) HashesFor(instance domain.InstanceName, seriesID int) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.bySeries[instance]
@@ -196,7 +197,7 @@ func (s *Store) HashesFor(instance string, seriesID int) []string {
 // decide whether a given hash is still "unmapped". Reverse-index
 // over bySeries — O(seriesCount) per lookup, acceptable at <= 500
 // series per instance.
-func (s *Store) SeriesForHash(instance, hash string) int {
+func (s *Store) SeriesForHash(instance domain.InstanceName, hash string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.bySeries[instance]
@@ -216,7 +217,7 @@ func (s *Store) SeriesForHash(instance, hash string) int {
 // not called from any production path; the unit test in
 // store_test.go exercises it to assert the secondary index
 // behaves correctly.
-func (s *Store) SetSeriesMapping(instance, hash string, seriesID int) {
+func (s *Store) SetSeriesMapping(instance domain.InstanceName, hash string, seriesID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx, ok := s.bySeries[instance]
@@ -235,7 +236,7 @@ func (s *Store) SetSeriesMapping(instance, hash string, seriesID int) {
 // All returns every (hash → Entry) tuple for one instance. Used
 // by the test harness and the read endpoint's "list all torrents
 // regardless of series" path. The returned map is a fresh copy.
-func (s *Store) All(instance string) map[string]Entry {
+func (s *Store) All(instance domain.InstanceName) map[string]Entry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	inst, ok := s.rows[instance]
@@ -251,7 +252,7 @@ func (s *Store) All(instance string) map[string]Entry {
 
 // Len returns the count of entries currently held for the named
 // instance. Cheap accessor for metrics + tests.
-func (s *Store) Len(instance string) int {
+func (s *Store) Len(instance domain.InstanceName) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.rows[instance])

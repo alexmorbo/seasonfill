@@ -32,8 +32,8 @@ type fakeCachePort struct {
 	byCanon map[domain.SeriesID][]series.CacheEntry
 }
 
-func (f *fakeCachePort) Get(_ context.Context, instance string, sonarrID int) (series.CacheEntry, error) {
-	k := instance + "|" + itoa(sonarrID)
+func (f *fakeCachePort) Get(_ context.Context, instance domain.InstanceName, sonarrID int) (series.CacheEntry, error) {
+	k := string(instance) + "|" + itoa(sonarrID)
 	e, ok := f.entries[k]
 	if !ok {
 		return series.CacheEntry{}, ports.ErrNotFound
@@ -111,7 +111,7 @@ func (emptyEpisodes) ListBySeries(_ context.Context, _ domain.SeriesID) ([]serie
 
 type emptyStates struct{}
 
-func (emptyStates) ListBySeries(_ context.Context, _ string, _ domain.SeriesID) ([]series.EpisodeState, error) {
+func (emptyStates) ListBySeries(_ context.Context, _ domain.InstanceName, _ domain.SeriesID) ([]series.EpisodeState, error) {
 	return nil, nil
 }
 
@@ -213,7 +213,7 @@ func newComposerForHandlerTest(canon series.Canon, cacheEntries map[string]serie
 		ExternalIDs:       emptyExtIDs{},
 		Recommendations:   emptyRecs{},
 		SyncLog:           emptySyncLog{},
-		SonarrFor: func(_ string) (seriesdetail.SonarrQueueLister, bool) {
+		SonarrFor: func(_ domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			return fakeSonarrQ{}, true
 		},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -248,7 +248,7 @@ func TestSeriesDetailHandler_Get_200(t *testing.T) {
 
 	var body dto.SeriesDetailResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "alpha", body.Instance)
+	require.Equal(t, domain.InstanceName("alpha"), body.Instance)
 	require.Equal(t, 1, body.SonarrSeriesID)
 	require.Equal(t, domain.SeriesID(42), body.SeriesID)
 	require.Equal(t, "en-US", body.Lang)

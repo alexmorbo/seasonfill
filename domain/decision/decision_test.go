@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestNew(t *testing.T) {
@@ -19,7 +21,7 @@ func TestNew(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, d.ID)
 	assert.NotEqual(t, scanID, d.ID, "decision ID must be a fresh UUID, not the scan ID")
 	assert.Equal(t, scanID, d.ScanRunID)
-	assert.Equal(t, "main", d.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), d.InstanceName)
 	assert.Equal(t, 122, d.SeriesID)
 	assert.Equal(t, "Hijack", d.SeriesTitle)
 	assert.Equal(t, 2, d.SeasonNumber)

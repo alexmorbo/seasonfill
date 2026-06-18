@@ -182,7 +182,7 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 			return Notification{}, err
 		}
 		c.logger.WarnContext(ctx, "sonarr_notification_unsupported_series_triggers_fallback",
-			slog.String("instance", c.name),
+			slog.String("instance", string(c.name)),
 			slog.String("error", err.Error()),
 		)
 		body.OnSeriesAdd = false

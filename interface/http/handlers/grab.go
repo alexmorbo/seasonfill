@@ -91,12 +91,12 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 		return
 	}
 
-	inst, ok := h.reg.snapshot()[d.InstanceName]
+	inst, ok := h.reg.snapshot()[string(d.InstanceName)]
 	if !ok {
 		h.logger.WarnContext(ctx, "grab_unknown_instance",
 			slog.String("decision_id", id.String()),
-			slog.String("instance", d.InstanceName))
-		writeError(c, http.StatusNotFound, "unknown instance: "+d.InstanceName)
+			slog.String("instance", string(d.InstanceName)))
+		writeError(c, http.StatusNotFound, "unknown instance: "+string(d.InstanceName))
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 		}
 		h.logger.LogAttrs(ctx, slog.LevelWarn, lvl,
 			slog.String("decision_id", id.String()),
-			slog.String("instance", d.InstanceName),
+			slog.String("instance", string(d.InstanceName)),
 			slog.String("error", out.Err.Error()))
 		c.JSON(status, dto.ErrorResponse{Error: msg})
 		return
@@ -155,7 +155,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 
 	h.logger.InfoContext(ctx, "grab_by_decision_succeeded",
 		slog.String("decision_id", id.String()),
-		slog.String("instance", d.InstanceName),
+		slog.String("instance", string(d.InstanceName)),
 		slog.Int("series_id", d.SeriesID),
 		slog.Int("season", d.SeasonNumber),
 		slog.String("guid", d.Selected.Release.GUID),

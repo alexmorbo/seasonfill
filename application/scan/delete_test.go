@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type cascadeFakeCache struct {
@@ -18,24 +19,24 @@ type cascadeFakeCache struct {
 	softDeleteErr   error
 }
 
-func (f *cascadeFakeCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+func (f *cascadeFakeCache) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (f *cascadeFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
-func (f *cascadeFakeCache) SoftDelete(_ context.Context, _ string, _ int) error {
+func (f *cascadeFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ int) error {
 	atomic.AddInt32(&f.softDeleteCalls, 1)
 	return f.softDeleteErr
 }
-func (f *cascadeFakeCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *cascadeFakeCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *cascadeFakeCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+func (f *cascadeFakeCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *cascadeFakeCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+func (f *cascadeFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
-func (f *cascadeFakeCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+func (f *cascadeFakeCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
 
@@ -45,7 +46,7 @@ type cascadeFakeEpisodes struct {
 	errToReturn  error
 }
 
-func (f *cascadeFakeEpisodes) SoftDeleteBySeries(_ context.Context, _ string, _ int) (int, error) {
+func (f *cascadeFakeEpisodes) SoftDeleteBySeries(_ context.Context, _ domain.InstanceName, _ int) (int, error) {
 	atomic.AddInt32(&f.calls, 1)
 	if f.errToReturn != nil {
 		return 0, f.errToReturn
@@ -195,7 +196,7 @@ type fakeSeasonStatsSoftDelete struct {
 }
 
 func (f *fakeSeasonStatsSoftDelete) SoftDeleteBySeries(
-	_ context.Context, _ string, _ int,
+	_ context.Context, _ domain.InstanceName, _ int,
 ) (int, error) {
 	atomic.AddInt32(&f.calls, 1)
 	if f.err != nil {

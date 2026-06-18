@@ -28,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- harness --------------------------------------------------------------
@@ -107,7 +108,7 @@ func (f *auditFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsR
 	return mediaRepo
 }
 
-func (f *auditFixture) seedScan(t *testing.T, instance, status string, createdAt time.Time) ports.ScanRecord {
+func (f *auditFixture) seedScan(t *testing.T, instance domain.InstanceName, status string, createdAt time.Time) ports.ScanRecord {
 	t.Helper()
 	rec := ports.ScanRecord{
 		ID:           uuid.New(),
@@ -122,7 +123,7 @@ func (f *auditFixture) seedScan(t *testing.T, instance, status string, createdAt
 	return rec
 }
 
-func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance string, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
+func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = outcome
@@ -135,7 +136,7 @@ func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance 
 // seedDecisionWithError seeds an error-outcome decision. Distinct
 // helper (vs new param on seedDecision) keeps existing call sites
 // untouched.
-func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, instance string, seriesID, season int, errDetail string, createdAt time.Time) decision.Decision {
+func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, errDetail string, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = decision.OutcomeError
@@ -146,7 +147,7 @@ func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, 
 	return d
 }
 
-func (f *auditFixture) seedGrab(t *testing.T, instance string, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
+func (f *auditFixture) seedGrab(t *testing.T, instance domain.InstanceName, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:           uuid.New(),

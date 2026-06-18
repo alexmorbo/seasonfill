@@ -27,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type rescanFakeDec struct {
@@ -136,15 +137,15 @@ func (f *rescanFakeGrab) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, e
 	return grab.Record{}, ports.ErrNotFound
 }
 
-func (f *rescanFakeGrab) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (f *rescanFakeGrab) CountReplaysSince(_ context.Context, _ domain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ domain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (f *rescanFakeGrab) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
@@ -231,7 +232,7 @@ func (f *rescanFakeSonarr) SystemStatus(context.Context) (ports.SystemStatus, er
 	return ports.SystemStatus{}, nil
 }
 func (f *rescanFakeSonarr) ListSeries(context.Context) ([]series.Series, error) { return nil, nil }
-func (f *rescanFakeSonarr) ListSeriesCache(context.Context, string) ([]series.CacheEntry, error) {
+func (f *rescanFakeSonarr) ListSeriesCache(context.Context, domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *rescanFakeSonarr) ListIndexers(context.Context) ([]ports.Indexer, error) { return nil, nil }
@@ -250,21 +251,21 @@ func (f *rescanFakeSonarr) Name() string { return "alpha" }
 // exposes a WaitGroup so test cases can drain in-flight goroutines.
 type fakeInflight struct {
 	mu       sync.Mutex
-	busy     map[string]uuid.UUID
-	cancels  map[string]context.CancelFunc
+	busy     map[domain.InstanceName]uuid.UUID
+	cancels  map[domain.InstanceName]context.CancelFunc
 	wg       sync.WaitGroup
 	preFail  atomic.Bool // when true, AcquireInstance returns ErrScanAlreadyRunning
 	acquired int32
 }
 
-func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
+func (f *fakeInflight) AcquireInstance(name domain.InstanceName, scanID uuid.UUID) error {
 	if f.preFail.Load() {
 		return scan.ErrScanAlreadyRunning
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.busy == nil {
-		f.busy = map[string]uuid.UUID{}
+		f.busy = map[domain.InstanceName]uuid.UUID{}
 	}
 	if _, ok := f.busy[name]; ok {
 		return scan.ErrScanAlreadyRunning
@@ -273,17 +274,17 @@ func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
 	atomic.AddInt32(&f.acquired, 1)
 	return nil
 }
-func (f *fakeInflight) ReleaseInstance(name string) {
+func (f *fakeInflight) ReleaseInstance(name domain.InstanceName) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.busy, name)
 	delete(f.cancels, name)
 }
-func (f *fakeInflight) SetInflightCancel(name string, cancel context.CancelFunc) {
+func (f *fakeInflight) SetInflightCancel(name domain.InstanceName, cancel context.CancelFunc) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.cancels == nil {
-		f.cancels = map[string]context.CancelFunc{}
+		f.cancels = map[domain.InstanceName]context.CancelFunc{}
 	}
 	f.cancels[name] = cancel
 }
@@ -362,7 +363,7 @@ func TestRescan_OK_Returns202WithScanTriggerItem(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body, 1)
 	assert.NotEmpty(t, body[0].ScanRunID)
-	assert.Equal(t, "alpha", body[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), body[0].InstanceName)
 	assert.Equal(t, "running", body[0].Status)
 	// scan_run_id is fresh (not the original's)
 	assert.NotEqual(t, d.ScanRunID.String(), body[0].ScanRunID,
@@ -443,7 +444,7 @@ func TestRescan_ScanAlreadyRunning_409(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "SCAN_IN_PROGRESS", body.Code)
 	assert.Equal(t, "scan already running", body.Error)
-	assert.Equal(t, "alpha", body.Instance)
+	assert.Equal(t, domain.InstanceName("alpha"), body.Instance)
 	// no scan row was created, supersede pointer untouched
 	loaded, _ := f.dec.GetByID(context.Background(), d.ID)
 	assert.Nil(t, loaded.SupersededByID)

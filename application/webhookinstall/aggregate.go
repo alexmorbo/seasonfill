@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // AggregateItem is one row of the GET /api/v1/webhooks/status payload —
@@ -12,7 +14,7 @@ import (
 // so the HTTP handler can read it without re-exporting the internals
 // of Status (kept untyped at the application boundary).
 type AggregateItem struct {
-	InstanceName   string
+	InstanceName   domain.InstanceName
 	Installed      bool
 	Healthy        bool
 	NotificationID *int
@@ -39,7 +41,7 @@ func Aggregate(ctx context.Context, r *Reconciler, names []string) ([]AggregateI
 		g.Go(func() error {
 			st, err := r.GetStatus(gctx, name)
 			item := AggregateItem{
-				InstanceName:   name,
+				InstanceName:   domain.InstanceName(name),
 				Installed:      st.Installed,
 				NotificationID: st.NotificationID,
 				URL:            st.InstalledURL,

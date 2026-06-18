@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
@@ -32,13 +33,13 @@ func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
 	return m.ID
 }
 
-func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instance string, seriesID, season int, indexer string, now time.Time) {
+func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instance domain.InstanceName, seriesID, season int, indexer string, now time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), ports.OriginRelease{
 		InstanceName: instance,
 		SeriesID:     seriesID,
 		SeasonNumber: season,
-		GUID:         "g-" + instance,
+		GUID:         "g-" + string(instance),
 		IndexerName:  indexer,
 		Source:       "our_grab",
 		FirstSeenAt:  now,
@@ -47,7 +48,7 @@ func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instan
 	}))
 }
 
-func seedSeriesCache(t *testing.T, db *gorm.DB, repo *SeriesCacheRepository, instance string, seriesID int, title string, monitored bool, missing int, lastAired time.Time) {
+func seedSeriesCache(t *testing.T, db *gorm.DB, repo *SeriesCacheRepository, instance domain.InstanceName, seriesID int, title string, monitored bool, missing int, lastAired time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   instance,
@@ -89,7 +90,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 	assert.Nil(t, next)
 
 	row := rows[0]
-	assert.Equal(t, "homelab", row.InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), row.InstanceName)
 	assert.Equal(t, 169, row.SeriesID)
 	assert.Equal(t, 2, row.SeasonNumber)
 	assert.Equal(t, "Prowlarr", row.OriginIndexerName)
@@ -125,7 +126,7 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 10, nil, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "homelab", rows[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), rows[0].InstanceName)
 	assert.Equal(t, "FROM", rows[0].SeriesTitle)
 }
 
@@ -249,7 +250,7 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{Instance: "4k"}, 10, nil, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "4k", rows[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("4k"), rows[0].InstanceName)
 }
 
 func TestWatchdogSeasons_List_Pagination(t *testing.T) {

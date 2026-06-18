@@ -16,6 +16,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // classifier separates transient (retry) from permanent (give-up) Sonarr errors.
@@ -91,7 +92,7 @@ func (u *UseCase) WithSleeper(s Sleeper) *UseCase { u.sleep = s; return u }
 
 type Input struct {
 	ScanRunID    uuid.UUID
-	InstanceName string
+	InstanceName shareddomain.InstanceName
 	SeriesID     int
 	SeriesTitle  string
 	SeasonNumber int
@@ -152,7 +153,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 				// Surface as a failure so the scan loop's counters and the
 				// /grabs list agree with reality.
 				u.logger.ErrorContext(ctx, "grab_persist_failed",
-					slog.String("instance", in.InstanceName),
+					slog.String("instance", string(in.InstanceName)),
 					slog.String("guid", in.Selected.Release.GUID),
 					slog.String("download_id", downloadID),
 					slog.Int("attempt", attempt),
@@ -169,7 +170,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "success")
 			observability.GrabAttempt(in.InstanceName, "grabbed")
 			u.logger.InfoContext(ctx, "grab_succeeded",
-				slog.String("instance", in.InstanceName),
+				slog.String("instance", string(in.InstanceName)),
 				slog.Int("series_id", in.SeriesID),
 				slog.Int("season", in.SeasonNumber),
 				slog.String("guid", in.Selected.Release.GUID),
@@ -184,7 +185,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 
 		if u.classify.Is4xx(err) {
 			u.logger.ErrorContext(ctx, "grab_permanent_failure",
-				slog.String("instance", in.InstanceName),
+				slog.String("instance", string(in.InstanceName)),
 				slog.String("guid", in.Selected.Release.GUID),
 				slog.String("error", err.Error()),
 				slog.Int("attempt", attempt),
@@ -194,7 +195,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 
 		if !u.classify.IsTransient(err) {
 			u.logger.ErrorContext(ctx, "grab_unclassified_failure",
-				slog.String("instance", in.InstanceName),
+				slog.String("instance", string(in.InstanceName)),
 				slog.String("guid", in.Selected.Release.GUID),
 				slog.String("error", err.Error()),
 				slog.Int("attempt", attempt),
@@ -210,7 +211,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			}
 			observability.GrabAttempt(in.InstanceName, "retried")
 			u.logger.WarnContext(ctx, "grab_transient_retry",
-				slog.String("instance", in.InstanceName),
+				slog.String("instance", string(in.InstanceName)),
 				slog.String("guid", in.Selected.Release.GUID),
 				slog.Int("attempt", attempt),
 				slog.Duration("next_backoff", d),
@@ -315,7 +316,7 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 	}
 	if err := u.cooldowns.Set(ctx, cd); err != nil {
 		u.logger.ErrorContext(ctx, "set guid cooldown failed",
-			slog.String("instance", in.InstanceName),
+			slog.String("instance", string(in.InstanceName)),
 			slog.String("guid", in.Selected.Release.GUID),
 			slog.String("error", err.Error()),
 		)

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // seedScans inserts n scan rows for (instance, status) with a deterministic
@@ -19,7 +20,7 @@ import (
 // filters and paginates by started_at (created_at is unreliable — it was
 // historically zeroed by the completion Save), so distinct StartedAt values
 // are all that is needed to drive a known order.
-func seedScans(t *testing.T, db *gorm.DB, n int, instance, status string, base time.Time) []ports.ScanRecord {
+func seedScans(t *testing.T, db *gorm.DB, n int, instance domain.InstanceName, status string, base time.Time) []ports.ScanRecord {
 	t.Helper()
 	repo := NewScanRepository(db)
 	ctx := context.Background()
@@ -146,12 +147,12 @@ func TestScanRepository_List_InstanceFilter(t *testing.T) {
 	seedScans(t, db, 2, "secondary", "completed", base.Add(time.Hour))
 
 	repo := NewScanRepository(db)
-	want := "secondary"
+	want := domain.InstanceName("secondary")
 	got, _, err := repo.List(context.Background(), ports.ScanFilter{Instance: &want}, ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, r := range got {
-		assert.Equal(t, "secondary", r.InstanceName)
+		assert.Equal(t, domain.InstanceName("secondary"), r.InstanceName)
 	}
 }
 

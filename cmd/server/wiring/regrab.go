@@ -12,6 +12,7 @@ import (
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -221,7 +222,7 @@ func BuildRegrab(
 			if name == "" {
 				continue
 			}
-			s, err := regrab.NewSettingsFromRecord(rec, name, cipher)
+			s, err := regrab.NewSettingsFromRecord(rec, domain.InstanceName(name), cipher)
 			if err != nil {
 				watchdogLog.WarnContext(ctx, "qbit_settings_decrypt_failed",
 					slog.String("instance", name),

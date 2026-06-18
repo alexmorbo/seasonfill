@@ -60,7 +60,7 @@ type SonarrPayloadBundle struct {
 func SyncSeriesFromSonarr(
 	ctx context.Context,
 	deps SyncDeps,
-	instanceName string,
+	instanceName domain.InstanceName,
 	bundle SonarrPayloadBundle,
 ) (domain.SeriesID, error) {
 	if instanceName == "" {
@@ -75,7 +75,7 @@ func SyncSeriesFromSonarr(
 		logger = sharedports.DomainLogger(slog.Default(), "scan")
 	}
 	log := logger.With(
-		slog.String("instance_name", instanceName),
+		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", p.ID),
 		slog.Int("tmdb_id", p.TMDBID),
 		slog.Int("tvdb_id", p.TVDBID),
@@ -265,7 +265,7 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 // SeriesCacheRepository.Upsert reads them on the resolve path; after
 // E-1 the merge policy has already populated canon, so the legacy
 // resolveOrCreateCanon writes a redundant (but consistent) row.
-func cacheEntryFromPayload(instanceName string, p sonarr.SeriesPayload) series.CacheEntry {
+func cacheEntryFromPayload(instanceName domain.InstanceName, p sonarr.SeriesPayload) series.CacheEntry {
 	e := series.CacheEntry{
 		InstanceName:   instanceName,
 		SonarrSeriesID: p.ID,
@@ -395,7 +395,7 @@ func syncEpisodes(
 	ctx context.Context,
 	deps SyncDeps,
 	canonSeriesID domain.SeriesID,
-	instanceName string,
+	instanceName domain.InstanceName,
 	bundle SonarrPayloadBundle,
 	log *slog.Logger,
 ) error {

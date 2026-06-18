@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/dto"
 )
 
@@ -69,7 +70,7 @@ func TestListQuery_EmbeddingFieldAccess(t *testing.T) {
 
 	// Each embedded field is reachable via the outer ListQuery without
 	// qualifying the embedded struct name — go embedding contract.
-	assert.Equal(t, "sonarr-1", q.Instance)
+	assert.Equal(t, domain.InstanceName("sonarr-1"), q.Instance)
 	assert.Equal(t, "en", q.Lang)
 	assert.Equal(t, 2, q.Page)
 	assert.Equal(t, 50, q.PerPage)

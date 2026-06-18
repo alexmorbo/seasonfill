@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -182,12 +183,12 @@ func BuildSeriesDetail(
 		ExternalIDs:       sdExternalIDsRepo,
 		Recommendations:   sdRecommendationsRepo,
 		SyncLog:           sdSyncLogRepo,
-		SonarrFor: func(name string) (seriesdetail.SonarrQueueLister, bool) {
+		SonarrFor: func(name domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			h := holder.Load()
 			if h == nil {
 				return nil, false
 			}
-			inst, ok := h[name]
+			inst, ok := h[string(name)]
 			if !ok || inst.Client == nil {
 				return nil, false
 			}

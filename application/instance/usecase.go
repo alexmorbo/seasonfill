@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 var (
@@ -120,8 +121,8 @@ type UseCase struct {
 // package graph hub-and-spoke (webhookinstall depends on sonarr;
 // instance must NOT).
 type WebhookReconciler interface {
-	Reconcile(ctx context.Context, instanceName string) (any, error)
-	HandleInstanceDeleted(ctx context.Context, instanceName string)
+	Reconcile(ctx context.Context, instanceName domain.InstanceName) (any, error)
+	HandleInstanceDeleted(ctx context.Context, instanceName domain.InstanceName)
 }
 
 // WebhookCacheCleanup is the narrow subset of StatusCache used on
@@ -297,7 +298,7 @@ func (u *UseCase) Delete(ctx context.Context, name string) error {
 		return err
 	}
 	if u.webhookReconciler != nil {
-		u.webhookReconciler.HandleInstanceDeleted(ctx, name)
+		u.webhookReconciler.HandleInstanceDeleted(ctx, domain.InstanceName(name))
 	} else if u.webhookCache != nil {
 		u.webhookCache.Delete(name)
 	}
@@ -580,7 +581,7 @@ func (u *UseCase) tryReconcileWebhook(ctx context.Context, name string) {
 	}
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if _, err := u.webhookReconciler.Reconcile(rctx, name); err != nil {
+	if _, err := u.webhookReconciler.Reconcile(rctx, domain.InstanceName(name)); err != nil {
 		u.logger.WarnContext(ctx, "instance.crud.webhook_reconcile_failed",
 			slog.String("instance", name), slog.String("error", err.Error()))
 	}

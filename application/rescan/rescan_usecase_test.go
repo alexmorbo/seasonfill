@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type rescanFakeDec struct {
@@ -131,15 +132,15 @@ func (f *rescanFakeGrab) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, e
 	return grab.Record{}, ports.ErrNotFound
 }
 
-func (f *rescanFakeGrab) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (f *rescanFakeGrab) CountReplaysSince(_ context.Context, _ domain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ domain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (f *rescanFakeGrab) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
@@ -241,7 +242,7 @@ func (f *rescanFakeSonarr) SystemStatus(context.Context) (ports.SystemStatus, er
 	return ports.SystemStatus{}, nil
 }
 func (f *rescanFakeSonarr) ListSeries(context.Context) ([]series.Series, error) { return nil, nil }
-func (f *rescanFakeSonarr) ListSeriesCache(context.Context, string) ([]series.CacheEntry, error) {
+func (f *rescanFakeSonarr) ListSeriesCache(context.Context, domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *rescanFakeSonarr) ListIndexers(context.Context) ([]ports.Indexer, error) { return nil, nil }
@@ -258,20 +259,20 @@ func (f *rescanFakeSonarr) Name() string                                        
 // fakeInflight: minimal scan.InflightController + drain hook.
 type fakeInflight struct {
 	mu      sync.Mutex
-	busy    map[string]uuid.UUID
-	cancels map[string]context.CancelFunc
+	busy    map[domain.InstanceName]uuid.UUID
+	cancels map[domain.InstanceName]context.CancelFunc
 	wg      sync.WaitGroup
 	preFail atomic.Bool
 }
 
-func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
+func (f *fakeInflight) AcquireInstance(name domain.InstanceName, scanID uuid.UUID) error {
 	if f.preFail.Load() {
 		return scan.ErrScanAlreadyRunning
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.busy == nil {
-		f.busy = map[string]uuid.UUID{}
+		f.busy = map[domain.InstanceName]uuid.UUID{}
 	}
 	if _, ok := f.busy[name]; ok {
 		return scan.ErrScanAlreadyRunning
@@ -279,17 +280,17 @@ func (f *fakeInflight) AcquireInstance(name string, scanID uuid.UUID) error {
 	f.busy[name] = scanID
 	return nil
 }
-func (f *fakeInflight) ReleaseInstance(name string) {
+func (f *fakeInflight) ReleaseInstance(name domain.InstanceName) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.busy, name)
 	delete(f.cancels, name)
 }
-func (f *fakeInflight) SetInflightCancel(name string, cancel context.CancelFunc) {
+func (f *fakeInflight) SetInflightCancel(name domain.InstanceName, cancel context.CancelFunc) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.cancels == nil {
-		f.cancels = map[string]context.CancelFunc{}
+		f.cancels = map[domain.InstanceName]context.CancelFunc{}
 	}
 	f.cancels[name] = cancel
 }
@@ -351,7 +352,7 @@ func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, res.ScanRunID)
 	assert.NotEqual(t, original.ScanRunID, res.ScanRunID,
 		"async rescan creates a NEW scan_run_id (breaks 017 §3.4)")
-	assert.Equal(t, "alpha", res.Instance)
+	assert.Equal(t, domain.InstanceName("alpha"), res.Instance)
 	assert.Equal(t, "running", res.Status)
 
 	// Scan row created with trigger=rescan, status=running BEFORE the
@@ -361,7 +362,7 @@ func TestStart_HappyPath_CreatesScanAndSupersedes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "running", created.Status)
 	assert.Equal(t, string(scan.TriggerRescan), created.Trigger)
-	assert.Equal(t, "alpha", created.InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), created.InstanceName)
 	assert.False(t, created.DryRun, "rescan is never dry")
 
 	// Supersede pointer is set before the goroutine runs (rescan pre-applies).

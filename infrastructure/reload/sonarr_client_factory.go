@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // NewSonarrClientFactory returns the production SonarrClientFactory
@@ -23,13 +24,13 @@ import (
 // parent main package.
 func NewSonarrClientFactory(globalLimiterPtr *atomic.Pointer[ratelimit.Limiter], log *slog.Logger) SonarrClientFactory {
 	return func(s runtime.InstanceSnapshot) ports.SonarrClient {
-		instanceName := s.Name
+		instanceName := domain.InstanceName(s.Name)
 		instLimiter := ratelimit.NewFromRPMWithOptions(
 			s.RateLimit.RPM, s.RateLimit.Burst,
 			ratelimit.WithObserver("per_instance", func(scope string) {
 				observability.IncRateLimitThrottled(instanceName, scope)
 			}))
-		return sonarr.NewWithOptions(s.Name, s.URL, s.APIKey, s.Timeout,
+		return sonarr.NewWithOptions(instanceName, s.URL, s.APIKey, s.Timeout,
 			instLimiter, log,
 			sonarr.WithGlobalLimiterPointer(globalLimiterPtr),
 			sonarr.WithSearchTimeout(s.SearchTimeout))

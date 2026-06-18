@@ -22,7 +22,7 @@ type SeriesCanonRepository interface {
 // per-instance projection upsert + soft-delete.
 type SyncSeriesCacheRepository interface {
 	Upsert(ctx context.Context, e series.CacheEntry) error
-	SoftDelete(ctx context.Context, instanceName string, sonarrSeriesID int) error
+	SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error
 }
 
 // EpisodesRepository — BatchUpsert is the E-1 fast path; one
@@ -43,7 +43,7 @@ type EpisodeStatesRepository interface {
 // SeriesDelete cascade calls SoftDeleteBySeries via scan.CascadeDeleteDeps.
 type SeasonStatsRepository interface {
 	Upsert(ctx context.Context, s series.SeasonStat) error
-	SoftDeleteBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) (int, error)
+	SoftDeleteBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (int, error)
 }
 
 // EpisodeTextsRepository — episode_texts(en-US) writer for the

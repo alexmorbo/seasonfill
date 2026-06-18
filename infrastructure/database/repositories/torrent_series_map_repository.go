@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // TorrentSeriesMapRepository persists the torrent_series_map table
@@ -90,7 +91,7 @@ func (r *TorrentSeriesMapRepository) upsert(ctx context.Context, row torrentsync
 // every torrent_hash mapped to (instance, sonarr_series_id)
 // regardless of source. Empty result on no rows. Implements
 // application/torrentsync.LookupRepo.
-func (r *TorrentSeriesMapRepository) HashesForSeries(ctx context.Context, instance string, sonarrSeriesID int) ([]string, error) {
+func (r *TorrentSeriesMapRepository) HashesForSeries(ctx context.Context, instance domain.InstanceName, sonarrSeriesID int) ([]string, error) {
 	var rows []database.TorrentSeriesMapModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Select("torrent_hash").

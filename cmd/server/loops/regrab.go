@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -15,14 +16,14 @@ import (
 // production type is *regrab.UseCase; tests inject stubs without
 // pulling the full use-case.
 type RegrabRunner interface {
-	RunInstance(ctx context.Context, instanceName string) (regrab.RunResult, error)
+	RunInstance(ctx context.Context, instanceName domain.InstanceName) (regrab.RunResult, error)
 }
 
 // InstanceLoopMetrics is the subset of regrab.Metrics the per-instance
 // loop emits directly. Currently only the qbit_unreachable_streak gauge
 // is owned at this level — the rest are owned inside RunInstance.
 type InstanceLoopMetrics interface {
-	SetQbitUnreachableStreak(instance string, streak int)
+	SetQbitUnreachableStreak(instance domain.InstanceName, streak int)
 }
 
 // RegrabLoop owns one polling goroutine per qBit-enabled Sonarr
@@ -96,7 +97,7 @@ func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.
 // panics when callers wire nil metrics.
 type nullStreakMetrics struct{}
 
-func (nullStreakMetrics) SetQbitUnreachableStreak(string, int) {}
+func (nullStreakMetrics) SetQbitUnreachableStreak(domain.InstanceName, int) {}
 
 // Start records the parent context. Must be called before SwapSettings.
 // The actual goroutines are spawned by SwapSettings on the first
@@ -273,7 +274,8 @@ func (il *instanceLoop) run(ctx context.Context) {
 // removal); shortening it via the request scope would surprise
 // the use case.
 func (il *instanceLoop) iterate(ctx context.Context) {
-	res, err := il.parent.runner.RunInstance(ctx, il.name)
+	instName := domain.InstanceName(il.name)
+	res, err := il.parent.runner.RunInstance(ctx, instName)
 	if err != nil {
 		il.parent.logger.WarnContext(ctx, "regrab_iteration_failed",
 			slog.String("instance", il.name),
@@ -281,9 +283,9 @@ func (il *instanceLoop) iterate(ctx context.Context) {
 	}
 	if res.QbitError != nil {
 		s := il.streak.Add(1)
-		il.parent.metrics.SetQbitUnreachableStreak(il.name, int(s))
+		il.parent.metrics.SetQbitUnreachableStreak(instName, int(s))
 	} else if il.streak.Load() > 0 {
 		il.streak.Store(0)
-		il.parent.metrics.SetQbitUnreachableStreak(il.name, 0)
+		il.parent.metrics.SetQbitUnreachableStreak(instName, 0)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // boolPtr is a tiny helper to take the address of a literal bool value
@@ -112,7 +113,7 @@ func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, erro
 	f.grabCnt++
 	return "", f.grabErr
 }
-func (f *fakeSonarr) ListSeriesCache(_ context.Context, instanceName string) ([]series.CacheEntry, error) {
+func (f *fakeSonarr) ListSeriesCache(_ context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	if f.seriesCacheErr != nil {
 		return nil, f.seriesCacheErr
 	}
@@ -469,7 +470,7 @@ func TestScan_CronSkipsManualInstance(t *testing.T) {
 	results, err := uc.Run(context.Background(), TriggerCron)
 	require.NoError(t, err)
 	require.Len(t, results, 1, "cron must skip the manual instance")
-	assert.Equal(t, "auto1", results[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("auto1"), results[0].InstanceName)
 	assert.Equal(t, 1, autoWrap.calls)
 	assert.Equal(t, 0, manualWrap.calls, "manual instance must be skipped on cron")
 }
@@ -616,7 +617,7 @@ func newBarrier() *barrier {
 	return &barrier{enterCh: make(chan struct{}), leaveCh: make(chan struct{})}
 }
 
-func (b *barrier) Reached(_ string) {
+func (b *barrier) Reached(_ domain.InstanceName) {
 	b.mu.Lock()
 	first := !b.entered
 	b.entered = true
@@ -1445,7 +1446,7 @@ type fakeSeriesCache struct {
 	upsertErr error
 }
 
-func (f *fakeSeriesCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
@@ -1457,17 +1458,19 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upserted = append(f.upserted, e)
 	return nil
 }
-func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ string, _ int) error { return nil }
-func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ int) error {
+	return nil
+}
+func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
-func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
 
@@ -1499,7 +1502,7 @@ func TestScanUseCase_SeriesCache_UpsertsEverySeries(t *testing.T) {
 	defer cache.mu.Unlock()
 	require.Len(t, cache.upserted, 2)
 	for _, e := range cache.upserted {
-		assert.Equal(t, "main", e.InstanceName)
+		assert.Equal(t, domain.InstanceName("main"), e.InstanceName)
 	}
 }
 
@@ -1542,7 +1545,7 @@ func (f *fakeSeasonStats) Upsert(_ context.Context, s series.SeasonStat) error {
 	return nil
 }
 
-func (f *fakeSeasonStats) SoftDeleteBySeries(_ context.Context, _ string, _ int) (int, error) {
+func (f *fakeSeasonStats) SoftDeleteBySeries(_ context.Context, _ domain.InstanceName, _ int) (int, error) {
 	return 0, nil
 }
 
@@ -1601,7 +1604,7 @@ func TestScanUseCase_SeasonStats_UpsertsEverySeason(t *testing.T) {
 		}
 	}
 	require.NotNil(t, s140s2)
-	assert.Equal(t, "main", s140s2.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), s140s2.InstanceName)
 	assert.Equal(t, 8, s140s2.EpisodeCount)
 	assert.Equal(t, 3, s140s2.EpisodeFileCount)
 	assert.Equal(t, 10, s140s2.TotalEpisodeCount)
@@ -1706,7 +1709,7 @@ func TestScanUseCase_SeasonStats_RegressionStory380Wiring(t *testing.T) {
 		"REGRESSION Story 380: fillSeriesCache must call SeasonStats.Upsert exactly once per Sonarr season")
 
 	got := stats.upserted[0]
-	assert.Equal(t, "main", got.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
 	assert.Equal(t, 140, got.SonarrSeriesID,
 		"REGRESSION: SonarrSeriesID must be projected from payload")
 	assert.Equal(t, 2, got.SeasonNumber,

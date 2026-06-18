@@ -39,17 +39,17 @@ func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCach
 // shape so callers see no change.
 type cacheRow struct {
 	// series_cache columns
-	InstanceName      string           `gorm:"column:instance_name"`
-	SonarrSeriesID    int              `gorm:"column:sonarr_series_id"`
-	SeriesID          *domain.SeriesID `gorm:"column:series_id"`
-	TitleSlug         string           `gorm:"column:title_slug"`
-	Monitored         bool             `gorm:"column:monitored"`
-	MissingCount      int              `gorm:"column:missing_count"`
-	EpisodeFileCount  int              `gorm:"column:episode_file_count"`
-	SizeOnDiskBytes   int64            `gorm:"column:size_on_disk_bytes"`
-	AiredEpisodeCount int              `gorm:"column:aired_episode_count"`
-	UpdatedAt         time.Time        `gorm:"column:updated_at"`
-	DeletedAt         *time.Time       `gorm:"column:deleted_at"`
+	InstanceName      domain.InstanceName `gorm:"column:instance_name"`
+	SonarrSeriesID    int                 `gorm:"column:sonarr_series_id"`
+	SeriesID          *domain.SeriesID    `gorm:"column:series_id"`
+	TitleSlug         string              `gorm:"column:title_slug"`
+	Monitored         bool                `gorm:"column:monitored"`
+	MissingCount      int                 `gorm:"column:missing_count"`
+	EpisodeFileCount  int                 `gorm:"column:episode_file_count"`
+	SizeOnDiskBytes   int64               `gorm:"column:size_on_disk_bytes"`
+	AiredEpisodeCount int                 `gorm:"column:aired_episode_count"`
+	UpdatedAt         time.Time           `gorm:"column:updated_at"`
+	DeletedAt         *time.Time          `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
 	Title  string  `gorm:"column:s_title"`
 	Year   *int    `gorm:"column:s_year"`
@@ -118,7 +118,7 @@ const seriesCacheSelect = `
 // in the handler layer.
 const seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
 
-func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error) {
+func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error) {
 	var row cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
@@ -238,7 +238,7 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 // already-deleted row both return nil. The 041f webhook fires
 // SeriesDelete for IDs that may never have been cached; surfacing
 // ErrNotFound would just spam logs without driving any action.
-func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName string, sonarrSeriesID int) error {
+func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error {
 	now := time.Now().UTC()
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.SeriesCacheModel{}).
@@ -277,7 +277,7 @@ func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID dom
 	return out, nil
 }
 
-func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	var rows []cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
@@ -305,7 +305,7 @@ func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instan
 // query runs over the JOIN.
 func (r *SeriesCacheRepository) ListByFilter(
 	ctx context.Context,
-	instanceName string,
+	instanceName domain.InstanceName,
 	filter ports.SeriesCacheFilter,
 	sort ports.SeriesCacheSort,
 	page ports.Pagination,
@@ -554,7 +554,7 @@ func splitTitleCursorID(raw string) (string, int) {
 // grab_records does not store the episode list. F11 can later upgrade
 // this by joining a future episodes table.
 func (r *SeriesCacheRepository) FetchLastGrabInfo(
-	ctx context.Context, instanceName string, seriesIDs []int,
+	ctx context.Context, instanceName domain.InstanceName, seriesIDs []int,
 ) (map[int]ports.LastGrabInfo, error) {
 	out := make(map[int]ports.LastGrabInfo, len(seriesIDs))
 	if len(seriesIDs) == 0 {
@@ -597,7 +597,7 @@ func (r *SeriesCacheRepository) FetchLastGrabInfo(
 // → networks and project networks.name.
 func (r *SeriesCacheRepository) ListDistinctNetworks(
 	ctx context.Context,
-	instanceName string,
+	instanceName domain.InstanceName,
 ) ([]string, error) {
 	if instanceName == "" {
 		return nil, fmt.Errorf("list distinct networks: instance_name must be non-empty")

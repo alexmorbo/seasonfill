@@ -19,7 +19,7 @@ import (
 // series.Statistics.AiredMissing(). Pre-migration rows default to 0;
 // the list endpoint's state=missing filter treats 0 as "not missing".
 type CacheEntry struct {
-	InstanceName   string
+	InstanceName   domain.InstanceName
 	SonarrSeriesID int
 	// SeriesID is the resolved canon series.id (set post-cutover
 	// when the cache row's INNER JOIN to `series` succeeds). nil

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // TestGrabRepository_CountImportedEpisodes verifies the SQL counter
@@ -23,7 +24,7 @@ func TestGrabRepository_CountImportedEpisodes(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	mk := func(status grab.Status, season int, instance string) grab.Record {
+	mk := func(status grab.Status, season int, instance domain.InstanceName) grab.Record {
 		return grab.Record{
 			ID:           uuid.New(),
 			InstanceName: instance,

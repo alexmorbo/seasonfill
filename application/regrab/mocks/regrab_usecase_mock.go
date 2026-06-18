@@ -16,6 +16,7 @@ import (
 	regrab "github.com/alexmorbo/seasonfill/application/regrab"
 	scan "github.com/alexmorbo/seasonfill/application/scan"
 	qbit "github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -160,7 +161,7 @@ func (m *MockSettingsLookup) EXPECT() *MockSettingsLookupMockRecorder {
 }
 
 // Lookup mocks base method.
-func (m *MockSettingsLookup) Lookup(ctx context.Context, instanceName string) (regrab.Settings, error) {
+func (m *MockSettingsLookup) Lookup(ctx context.Context, instanceName domain.InstanceName) (regrab.Settings, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Lookup", ctx, instanceName)
 	ret0, _ := ret[0].(regrab.Settings)

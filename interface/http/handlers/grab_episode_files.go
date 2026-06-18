@@ -84,10 +84,10 @@ func (h *GrabEpisodeFilesHandler) List(c *gin.Context) {
 	// Defence-in-depth: refuse to enumerate a grab from a different
 	// instance via this path. 404 (not 403) to avoid leaking
 	// existence.
-	if rec.InstanceName != name {
+	if string(rec.InstanceName) != name {
 		h.logger.WarnContext(ctx, "grab_episode_files_instance_mismatch",
 			slog.String("path_instance", name),
-			slog.String("grab_instance", rec.InstanceName),
+			slog.String("grab_instance", string(rec.InstanceName)),
 			slog.String("grab_id", id.String()))
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "grab not found"})
 		return

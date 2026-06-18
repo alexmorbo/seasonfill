@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func newGrabRecord(t *testing.T) grab.Record {
@@ -347,7 +348,7 @@ func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
 	// Round-trip via List — confirms ReplayOfID lands in the DB and
 	// comes back unmarshalled.
 	rows, _, err := repo.List(ctx, ports.GrabFilter{
-		Instance:     ptrString("alpha"),
+		Instance:     ptrInstanceName("alpha"),
 		SeriesID:     ptrInt(122),
 		SeasonNumber: ptrInt(2),
 	}, ports.Pagination{Limit: 10})
@@ -373,7 +374,7 @@ func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
 // with a fresh uuid + status=grabbed + the supplied (instance, series,
 // season, guid, hash). All other fields are populated with sensible
 // defaults the DB INSERT accepts.
-func buildSuccessRec(t *testing.T, instance string, seriesID, season int, guid, hash string) grab.Record {
+func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID, season int, guid, hash string) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:                uuid.New(),
@@ -403,6 +404,10 @@ func buildSuccessRec(t *testing.T, instance string, seriesID, season int, guid, 
 
 func ptrString(s string) *string { return &s }
 func ptrInt(i int) *int          { return &i }
+func ptrInstanceName(s string) *domain.InstanceName {
+	n := domain.InstanceName(s)
+	return &n
+}
 
 func TestGrabRepository_ListReplaysOf_EmptyParents_EmptyResult(t *testing.T) {
 	t.Parallel()

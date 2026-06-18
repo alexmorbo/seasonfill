@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeTorrentsyncRunner struct {
@@ -28,18 +29,18 @@ func newFakeTorrentsyncRunner() *fakeTorrentsyncRunner {
 	}
 }
 
-func (f *fakeTorrentsyncRunner) Hydrate(_ context.Context, name string) error {
+func (f *fakeTorrentsyncRunner) Hydrate(_ context.Context, name domain.InstanceName) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.hydrated[name]++
+	f.hydrated[string(name)]++
 	return nil
 }
 
-func (f *fakeTorrentsyncRunner) NewLoop(name string, cadence time.Duration) TorrentsyncRunningLoop {
+func (f *fakeTorrentsyncRunner) NewLoop(name domain.InstanceName, cadence time.Duration) TorrentsyncRunningLoop {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	l := &fakeTorrentsyncLoop{name: name, cadence: cadence, done: make(chan struct{})}
-	f.loops[name] = l
+	l := &fakeTorrentsyncLoop{name: string(name), cadence: cadence, done: make(chan struct{})}
+	f.loops[string(name)] = l
 	return l
 }
 

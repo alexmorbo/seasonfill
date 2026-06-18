@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestMocks_GrabRepository_AllMethods(t *testing.T) {
@@ -64,12 +65,12 @@ func TestMocks_GrabRepository_AllMethods(t *testing.T) {
 	m.EXPECT().UpdateParsed(gomock.Any(), id, gomock.Any(), gomock.Any()).Return(nil)
 	_ = m.UpdateParsed(ctx, id, nil, time.Now())
 
-	m.EXPECT().CountImportedEpisodes(gomock.Any(), "i", 1, 1).Return(0, nil)
+	m.EXPECT().CountImportedEpisodes(gomock.Any(), domain.InstanceName("i"), 1, 1).Return(0, nil)
 	_, _ = m.CountImportedEpisodes(ctx, "i", 1, 1)
 
-	m.EXPECT().CountReplaysSince(gomock.Any(), "i", gomock.Any()).Return(0, nil)
+	m.EXPECT().CountReplaysSince(gomock.Any(), domain.InstanceName("i"), gomock.Any()).Return(0, nil)
 	_, _ = m.CountReplaysSince(ctx, "i", time.Now())
 
-	m.EXPECT().CountReplaysAll(gomock.Any(), "i").Return(0, nil)
+	m.EXPECT().CountReplaysAll(gomock.Any(), domain.InstanceName("i")).Return(0, nil)
 	_, _ = m.CountReplaysAll(ctx, "i")
 }

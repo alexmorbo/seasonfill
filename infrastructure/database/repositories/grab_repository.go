@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type GrabRepository struct {
@@ -653,7 +654,7 @@ func nilIfZeroInt(n int) any {
 // torrent the qBit instance actually holds, and using them would
 // race the reconciler against the (much later) successful grab
 // for the same release.
-func (r *GrabRepository) FindSeriesByTorrentHashes(ctx context.Context, instance string, hashes []string) ([]torrentsync.GrabHashRow, error) {
+func (r *GrabRepository) FindSeriesByTorrentHashes(ctx context.Context, instance domain.InstanceName, hashes []string) ([]torrentsync.GrabHashRow, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesDetailHandler serves the composite series-detail document
@@ -68,7 +69,7 @@ func (h *SeriesDetailHandler) Get(c *gin.Context) {
 	lang := strings.TrimSpace(c.Query("lang"))
 
 	ctx := c.Request.Context()
-	detail, err := h.composer.Get(ctx, name, sonarrID, lang)
+	detail, err := h.composer.Get(ctx, domain.InstanceName(name), sonarrID, lang)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})

@@ -26,7 +26,7 @@ func NewEpisodeStatesRepository(db *gorm.DB) *EpisodeStatesRepository {
 	return &EpisodeStatesRepository{db: db}
 }
 
-func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName string, episodeID int64) (series.EpisodeState, error) {
+func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.InstanceName, episodeID int64) (series.EpisodeState, error) {
 	var m database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND episode_id = ? AND deleted_at IS NULL", instanceName, episodeID).
@@ -44,7 +44,7 @@ func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName string, 
 // whose episode belongs to seriesID. JOINs against `episodes` to walk
 // only the series's slice rather than scanning the whole per-instance
 // state table.
-func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName string, seriesID domain.SeriesID) ([]series.EpisodeState, error) {
+func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName domain.InstanceName, seriesID domain.SeriesID) ([]series.EpisodeState, error) {
 	var models []database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.EpisodeStateModel{}).
@@ -97,7 +97,7 @@ func (r *EpisodeStatesRepository) Upsert(ctx context.Context, s series.EpisodeSt
 // Story 218 (E-2). episode_states.deleted_at is added by migration
 // 000034 (paired with this story).
 func (r *EpisodeStatesRepository) SoftDeleteBySeries(
-	ctx context.Context, instanceName string, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
 ) (int, error) {
 	if instanceName == "" {
 		return 0, fmt.Errorf("soft delete episode_states by series: instance_name must be non-empty")

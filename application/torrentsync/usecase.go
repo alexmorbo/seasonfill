@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -26,19 +27,19 @@ type UseCase struct {
 	// Per-instance session cache: rebuilt lazily on first
 	// RunInstance and after any Refresh error so a re-login is
 	// transparent to the loop.
-	sessionByInstance map[string]qbit.SyncSession
+	sessionByInstance map[domain.InstanceName]qbit.SyncSession
 	// lastFlush records the wall-clock of the last counter flush
 	// per instance. The use case decides whether the pending set
 	// is due based on this + policy.FlushInterval().
-	lastFlush map[string]time.Time
+	lastFlush map[domain.InstanceName]time.Time
 	// pending holds rows whose counters changed but have not yet
 	// been flushed. Keyed by hash. The use case rebuilds this on
 	// every tick from the store diff.
-	pending map[string]map[string]Entry
+	pending map[domain.InstanceName]map[string]Entry
 	// hydrated tracks which instances have already had their
 	// memory store populated from `qbit_torrents`. Restart
 	// recovery runs exactly once per instance lifetime.
-	hydrated map[string]bool
+	hydrated map[domain.InstanceName]bool
 	// reconciler runs the 4-source torrent->series mapping pass
 	// every 10th tick (PRD §4.5). Nil-OK: pre-Story-221 wiring
 	// runs the qBit refresh without the bridge.
@@ -57,10 +58,10 @@ func NewUseCase(store *Store, policy *PersistPolicy, sessions SyncSessionFactory
 		sessions:          sessions,
 		repo:              repo,
 		logger:            logger,
-		sessionByInstance: make(map[string]qbit.SyncSession),
-		lastFlush:         make(map[string]time.Time),
-		pending:           make(map[string]map[string]Entry),
-		hydrated:          make(map[string]bool),
+		sessionByInstance: make(map[domain.InstanceName]qbit.SyncSession),
+		lastFlush:         make(map[domain.InstanceName]time.Time),
+		pending:           make(map[domain.InstanceName]map[string]Entry),
+		hydrated:          make(map[domain.InstanceName]bool),
 	}
 }
 
@@ -79,7 +80,7 @@ func (u *UseCase) WithReconciler(r *Reconciler) *UseCase {
 // no-ops. Called once per instance by the loop launcher before
 // Run is invoked; live fields are zero until the first successful
 // Refresh.
-func (u *UseCase) Hydrate(ctx context.Context, instance string) error {
+func (u *UseCase) Hydrate(ctx context.Context, instance domain.InstanceName) error {
 	u.mu.Lock()
 	if u.hydrated[instance] {
 		u.mu.Unlock()
@@ -110,7 +111,7 @@ func (u *UseCase) Hydrate(ctx context.Context, instance string) error {
 	u.hydrated[instance] = true
 	u.mu.Unlock()
 	u.logger.InfoContext(ctx, "torrentsync_hydrated",
-		slog.String("instance_name", instance),
+		slog.String("instance_name", string(instance)),
 		slog.Int("rows", len(rows)),
 		slog.String("outcome", "hydrated"))
 	return nil
@@ -126,7 +127,7 @@ func (u *UseCase) Hydrate(ctx context.Context, instance string) error {
 //     through BatchUpsert.
 //
 // `now` is plumbed by the caller so tests can pin the clock.
-func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Time) error {
+func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName, now time.Time) error {
 	sess, err := u.session(ctx, instance)
 	if err != nil {
 		return fmt.Errorf("torrentsync session %s: %w", instance, err)
@@ -157,7 +158,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 		persisted, perr := u.policy.HandleTransition(ctx, instance, prevPtr, next)
 		if perr != nil {
 			u.logger.ErrorContext(ctx, "torrentsync_persist_failed",
-				slog.String("instance_name", instance),
+				slog.String("instance_name", string(instance)),
 				slog.String("hash", info.Hash),
 				slog.String("outcome", "persist_error"),
 				slog.String("error", perr.Error()))
@@ -178,7 +179,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 	for _, hash := range snap.Removed {
 		if err := u.policy.HandleRemoval(ctx, instance, hash); err != nil {
 			u.logger.ErrorContext(ctx, "torrentsync_remove_failed",
-				slog.String("instance_name", instance),
+				slog.String("instance_name", string(instance)),
 				slog.String("hash", hash),
 				slog.String("outcome", "remove_error"),
 				slog.String("error", err.Error()))
@@ -197,7 +198,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 			// success signal; counter persistence is best-effort.
 			u.restorePending(instance, pending)
 			u.logger.ErrorContext(ctx, "torrentsync_flush_failed",
-				slog.String("instance_name", instance),
+				slog.String("instance_name", string(instance)),
 				slog.Int("rows", len(pending)),
 				slog.String("outcome", "flush_error"),
 				slog.String("error", err.Error()))
@@ -219,7 +220,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 			// past the loop. MaybeRun already logged WARN per
 			// failing source.
 			u.logger.WarnContext(ctx, "torrentsync_reconciler_pass_failed",
-				slog.String("instance_name", instance),
+				slog.String("instance_name", string(instance)),
 				slog.String("outcome", "reconciler_error"),
 				slog.String("error", err.Error()))
 		}
@@ -229,7 +230,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance string, now time.Tim
 
 // session is a one-method helper that returns (and caches) the
 // SyncSession for the instance, building it on demand.
-func (u *UseCase) session(ctx context.Context, instance string) (qbit.SyncSession, error) {
+func (u *UseCase) session(ctx context.Context, instance domain.InstanceName) (qbit.SyncSession, error) {
 	u.mu.Lock()
 	sess, ok := u.sessionByInstance[instance]
 	u.mu.Unlock()
@@ -246,7 +247,7 @@ func (u *UseCase) session(ctx context.Context, instance string) (qbit.SyncSessio
 	return sess, nil
 }
 
-func (u *UseCase) markPending(instance string, e Entry) {
+func (u *UseCase) markPending(instance domain.InstanceName, e Entry) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	inst, ok := u.pending[instance]
@@ -257,7 +258,7 @@ func (u *UseCase) markPending(instance string, e Entry) {
 	inst[e.Info.Hash] = e
 }
 
-func (u *UseCase) dropPending(instance, hash string) {
+func (u *UseCase) dropPending(instance domain.InstanceName, hash string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if inst, ok := u.pending[instance]; ok {
@@ -265,7 +266,7 @@ func (u *UseCase) dropPending(instance, hash string) {
 	}
 }
 
-func (u *UseCase) takePending(instance string) []Entry {
+func (u *UseCase) takePending(instance domain.InstanceName) []Entry {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	inst, ok := u.pending[instance]
@@ -280,7 +281,7 @@ func (u *UseCase) takePending(instance string) []Entry {
 	return out
 }
 
-func (u *UseCase) restorePending(instance string, rows []Entry) {
+func (u *UseCase) restorePending(instance domain.InstanceName, rows []Entry) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	inst, ok := u.pending[instance]
@@ -296,7 +297,7 @@ func (u *UseCase) restorePending(instance string, rows []Entry) {
 	}
 }
 
-func (u *UseCase) flushDue(instance string, now time.Time) bool {
+func (u *UseCase) flushDue(instance domain.InstanceName, now time.Time) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	inst, ok := u.pending[instance]

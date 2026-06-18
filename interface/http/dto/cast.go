@@ -17,7 +17,7 @@ type SeriesCastResponse struct {
 	// Instance is the Sonarr instance the request hit. Echoed so
 	// the client can disambiguate when a person is in multiple
 	// instances.
-	Instance string `json:"instance" example:"alpha"`
+	Instance domain.InstanceName `json:"instance" example:"alpha"`
 	// SonarrSeriesID is the Sonarr-side id from the URL.
 	SonarrSeriesID int `json:"sonarr_series_id" example:"1"`
 	// SeriesID is the resolved canonical series.id.

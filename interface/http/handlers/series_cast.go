@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesCastHandler serves the full cast & crew payload for the
@@ -77,7 +78,7 @@ func (h *SeriesCastHandler) Get(c *gin.Context) {
 	lang := strings.TrimSpace(c.Query("lang"))
 
 	ctx := c.Request.Context()
-	detail, err := h.composer.Get(ctx, name, sonarrID, lang)
+	detail, err := h.composer.Get(ctx, domain.InstanceName(name), sonarrID, lang)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})

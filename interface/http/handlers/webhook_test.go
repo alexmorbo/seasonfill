@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeProcessor struct {
@@ -125,7 +126,7 @@ func TestWebhookHandler_Imported_200(t *testing.T) {
 	require.JSONEq(t, `{"ok": true}`, w.Body.String())
 	assert.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, domainwebhook.EventTypeImported, f.proc.lastEvt.Type)
-	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName,
+	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName,
 		"InstanceName must come from URL path, not payload")
 	assert.Equal(t, "ABC123", f.proc.lastEvt.DownloadID)
 }
@@ -154,7 +155,7 @@ func TestWebhookHandler_Grabbed_FortyCharHex_200(t *testing.T) {
 	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567",
 		f.proc.lastEvt.DownloadID,
 		"40-char hex downloadId must reach the use case verbatim — parsing happens application-side")
-	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
+	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
 }
 
 func TestWebhookHandler_Grabbed_ShortDownloadId_StillReaches_200(t *testing.T) {
@@ -177,7 +178,7 @@ func TestWebhookHandler_SeriesAdd_ReachesProcessor_200(t *testing.T) {
 	assert.Equal(t, "black-ish", f.proc.lastEvt.SeriesTitleSlug)
 	assert.Equal(t, 269578, f.proc.lastEvt.SeriesTVDBID)
 	assert.Equal(t, "tt3487356", f.proc.lastEvt.SeriesIMDBID)
-	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
+	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
 }
 
 func TestWebhookHandler_SeriesDelete_ReachesProcessor_200(t *testing.T) {
@@ -187,7 +188,7 @@ func TestWebhookHandler_SeriesDelete_ReachesProcessor_200(t *testing.T) {
 	require.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, domainwebhook.EventTypeSeriesDeleted, f.proc.lastEvt.Type)
 	assert.Equal(t, 42, f.proc.lastEvt.SeriesID)
-	assert.Equal(t, "sonarr-main", f.proc.lastEvt.InstanceName)
+	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
 }
 
 // --- 400 paths ------------------------------------------------------------

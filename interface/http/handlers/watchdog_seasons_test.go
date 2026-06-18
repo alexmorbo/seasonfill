@@ -18,6 +18,7 @@ import (
 	domainregrab "github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type stubSeasonsLister struct {
@@ -49,23 +50,23 @@ type stubSeriesLister struct {
 	grabs     map[int][]repositories.RecentGrabRow
 }
 
-func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ string, _ int, _ time.Time) ([]repositories.WatchdogSeasonRow, error) {
+func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ domain.InstanceName, _ int, _ time.Time) ([]repositories.WatchdogSeasonRow, error) {
 	return s.rows, nil
 }
-func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ string, _ int) (map[int]repositories.WatchdogSeasonStats, error) {
+func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ domain.InstanceName, _ int) (map[int]repositories.WatchdogSeasonStats, error) {
 	return s.stats, nil
 }
-func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ string, _ int, _ int) (map[int][]repositories.RecentDecisionRow, error) {
+func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ domain.InstanceName, _ int, _ int) (map[int][]repositories.RecentDecisionRow, error) {
 	return s.decisions, nil
 }
-func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ string, _ int, _ int) (map[int][]repositories.RecentGrabRow, error) {
+func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ domain.InstanceName, _ int, _ int) (map[int][]repositories.RecentGrabRow, error) {
 	return s.grabs, nil
 }
 
 type stubSettingsLookup map[string]regrab.Settings
 
-func (s stubSettingsLookup) Lookup(_ context.Context, name string) (regrab.Settings, error) {
-	v, ok := s[name]
+func (s stubSettingsLookup) Lookup(_ context.Context, name domain.InstanceName) (regrab.Settings, error) {
+	v, ok := s[string(name)]
 	if !ok {
 		return regrab.Settings{}, ports.ErrNotFound
 	}
@@ -149,7 +150,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 	require.Len(t, got.Items, 1)
 
 	item := got.Items[0]
-	assert.Equal(t, "homelab", item.Instance)
+	assert.Equal(t, domain.InstanceName("homelab"), item.Instance)
 	assert.Equal(t, 169, item.SeriesID)
 	assert.Equal(t, "Friends", item.SeriesTitle)
 	require.NotNil(t, item.Origin)
@@ -176,7 +177,7 @@ func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
-	assert.Equal(t, "homelab", lister.gotFilter.Instance)
+	assert.Equal(t, domain.InstanceName("homelab"), lister.gotFilter.Instance)
 	assert.True(t, lister.gotFilter.CooldownOnly)
 	assert.True(t, lister.gotFilter.BlacklistedOnly)
 	assert.Equal(t, "Friends", lister.gotFilter.Q)
@@ -189,7 +190,7 @@ func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 	// Round-trip cursor.
 	cur, err := decodeSeasonsCursor(got.NextCursor)
 	require.NoError(t, err)
-	assert.Equal(t, "homelab", cur.InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), cur.InstanceName)
 	assert.Equal(t, 200, cur.SeriesID)
 	assert.Equal(t, 1, cur.SeasonNumber)
 
@@ -265,7 +266,7 @@ func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 
 	var got dto.WatchdogSeriesDetail
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.Equal(t, "homelab", got.Instance)
+	assert.Equal(t, domain.InstanceName("homelab"), got.Instance)
 	assert.Equal(t, 169, got.SeriesID)
 	assert.Equal(t, "Friends", got.SeriesTitle)
 	require.Len(t, got.Seasons, 1)

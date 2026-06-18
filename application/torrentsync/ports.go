@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SyncSessionFactory is the use case's view of
@@ -13,7 +14,7 @@ import (
 // hand in a fake without dragging the qBit client construction
 // into the application layer.
 type SyncSessionFactory interface {
-	NewSyncSession(ctx context.Context, instance string) (qbit.SyncSession, error)
+	NewSyncSession(ctx context.Context, instance domain.InstanceName) (qbit.SyncSession, error)
 }
 
 // TorrentsRepo is the persistence surface the persist policy
@@ -27,25 +28,25 @@ type SyncSessionFactory interface {
 type TorrentsRepo interface {
 	// Upsert writes / overwrites the row for (instance, info.Hash).
 	// Persists every column except live telemetry (PRD §4.6).
-	Upsert(ctx context.Context, instance string, e Entry) error
+	Upsert(ctx context.Context, instance domain.InstanceName, e Entry) error
 
 	// BatchUpsert writes the supplied entries inside a single
 	// transaction. Used by FlushCounters; entries beyond the
 	// counter set ride along (cheap to write the whole row when
 	// we're already holding the lock).
-	BatchUpsert(ctx context.Context, instance string, entries []Entry, updatedAt time.Time) error
+	BatchUpsert(ctx context.Context, instance domain.InstanceName, entries []Entry, updatedAt time.Time) error
 
 	// MarkAbsent flips present=false + deleted_at=now for an
 	// existing row. Returning nil on "row not found" is allowed —
 	// removal of a hash we never persisted is a no-op.
-	MarkAbsent(ctx context.Context, instance, hash string, when time.Time) error
+	MarkAbsent(ctx context.Context, instance domain.InstanceName, hash string, when time.Time) error
 
 	// List returns every persisted Entry for the instance,
 	// including `present=false` rows. Used by restart recovery
 	// to repopulate the memory store. The returned Entry.Info
 	// live fields (DlSpeed/UpSpeed/ETA/NumSeeds/NumLeechs/
 	// Progress) are zero — never persisted in the first place.
-	List(ctx context.Context, instance string) ([]Entry, error)
+	List(ctx context.Context, instance domain.InstanceName) ([]Entry, error)
 
 	// FindByHashes returns one Entry per matching
 	// (instance, hash) tuple — including rows with present=false
@@ -53,7 +54,7 @@ type TorrentsRepo interface {
 	// read endpoint's DB fallback path. Empty input returns
 	// nil, nil (no round-trip). Live fields on the returned
 	// Entries are zero; the schema does not persist them.
-	FindByHashes(ctx context.Context, instance string, hashes []string) ([]Entry, error)
+	FindByHashes(ctx context.Context, instance domain.InstanceName, hashes []string) ([]Entry, error)
 }
 
 // LookupRepo is the narrow read-only surface story 222 exercises
@@ -65,7 +66,7 @@ type TorrentsRepo interface {
 // Implemented in production by
 // repositories.TorrentSeriesMapRepository.HashesForSeries.
 type LookupRepo interface {
-	HashesForSeries(ctx context.Context, instance string, sonarrSeriesID int) ([]string, error)
+	HashesForSeries(ctx context.Context, instance domain.InstanceName, sonarrSeriesID int) ([]string, error)
 }
 
 // EventsRepo is the append-only surface for state-transition and
@@ -79,7 +80,7 @@ type EventsRepo interface {
 // here (application layer) rather than on the infra side so the
 // persist policy does not need to import a database model.
 type EventRow struct {
-	Instance string
+	Instance domain.InstanceName
 	Hash     string
 	Event    EventKind
 	From     qbit.StateGroup // empty when not a state_change

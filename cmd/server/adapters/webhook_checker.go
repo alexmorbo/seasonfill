@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // WebhookChecker satisfies regrab.WebhookChecker. It looks up the
@@ -48,11 +49,11 @@ func NewWebhookChecker(reg handlers.InstanceRegistry) *WebhookChecker {
 //
 // Transport / type errors propagate as (false, err); pure misses
 // return (false, nil) so the use case maps to ErrWebhookNotInstalled.
-func (w *WebhookChecker) IsInstalled(ctx context.Context, instanceName string) (bool, error) {
+func (w *WebhookChecker) IsInstalled(ctx context.Context, instanceName domain.InstanceName) (bool, error) {
 	var inst scan.Instance
 	var ok bool
 	if w.reg.Load != nil {
-		inst, ok = w.reg.Load()[instanceName]
+		inst, ok = w.reg.Load()[string(instanceName)]
 	}
 	if !ok {
 		return false, fmt.Errorf("webhook check: %w", ErrUnknownInstance)
@@ -69,7 +70,7 @@ func (w *WebhookChecker) IsInstalled(ctx context.Context, instanceName string) (
 		return false, fmt.Errorf("webhook check: list notifications for %q: %w", instanceName, err)
 	}
 
-	canonical := strings.ToLower("/api/v1/webhook/sonarr/" + instanceName)
+	canonical := strings.ToLower("/api/v1/webhook/sonarr/" + string(instanceName))
 	for _, n := range notifications {
 		if !strings.EqualFold(n.Implementation, "Webhook") {
 			continue

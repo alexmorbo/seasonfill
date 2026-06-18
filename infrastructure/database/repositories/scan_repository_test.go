@@ -18,6 +18,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Story 314 (B-6) — repository test fixture speedup.
@@ -344,7 +345,7 @@ func TestScanRepository_Create_Then_GetByID(t *testing.T) {
 	got, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, id, got.ID)
-	assert.Equal(t, "main", got.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
 	assert.Equal(t, "running", got.Status)
 	assert.True(t, got.DryRun)
 }

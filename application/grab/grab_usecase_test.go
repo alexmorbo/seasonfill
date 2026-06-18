@@ -21,6 +21,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeClassifier struct {
@@ -54,7 +55,7 @@ func (f *fakeSonarrGrab) SystemStatus(_ context.Context) (ports.SystemStatus, er
 	return ports.SystemStatus{}, nil
 }
 func (f *fakeSonarrGrab) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (f *fakeSonarrGrab) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *fakeSonarrGrab) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *fakeSonarrGrab) GetSeries(_ context.Context, _ int) (series.Series, error) {
@@ -167,15 +168,15 @@ func (r *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (domaingrab.Recor
 	return domaingrab.Record{}, ports.ErrNotFound
 }
 
-func (r *fakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (r *fakeGrabRepo) CountReplaysSince(_ context.Context, _ shareddomain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (r *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
@@ -209,7 +210,7 @@ type fakeOriginRepo struct {
 	ups []ports.OriginRelease
 }
 
-func (r *fakeOriginRepo) Get(_ context.Context, _ string, _, _ int) (ports.OriginRelease, bool, error) {
+func (r *fakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 func (r *fakeOriginRepo) Upsert(_ context.Context, rec ports.OriginRelease) error {

@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type stubPager struct {
@@ -38,7 +39,7 @@ func (s *stubPager) DeleteByID(_ context.Context, instanceID, id uint) error {
 
 type stubTitles map[int]string
 
-func (s stubTitles) Get(_ context.Context, _ string, seriesID int) (series.CacheEntry, error) {
+func (s stubTitles) Get(_ context.Context, _ domain.InstanceName, seriesID int) (series.CacheEntry, error) {
 	if t, ok := s[seriesID]; ok {
 		return series.CacheEntry{Title: t}, nil
 	}

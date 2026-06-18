@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // WatchdogSeasonsLister is the narrow slice of
@@ -31,10 +32,10 @@ type WatchdogSeasonsLister interface {
 // WatchdogSeasonsSeriesLister is the narrow slice for the per-series
 // drill endpoint. Production: *repositories.WatchdogSeasonsRepository.
 type WatchdogSeasonsSeriesLister interface {
-	SeasonsForSeries(ctx context.Context, instance string, seriesID int, now time.Time) ([]repositories.WatchdogSeasonRow, error)
-	SeasonStatsFromDecisions(ctx context.Context, instance string, seriesID int) (map[int]repositories.WatchdogSeasonStats, error)
-	RecentDecisionsBySeason(ctx context.Context, instance string, seriesID int, perSeason int) (map[int][]repositories.RecentDecisionRow, error)
-	RecentGrabsBySeason(ctx context.Context, instance string, seriesID int, perSeason int) (map[int][]repositories.RecentGrabRow, error)
+	SeasonsForSeries(ctx context.Context, instance domain.InstanceName, seriesID int, now time.Time) ([]repositories.WatchdogSeasonRow, error)
+	SeasonStatsFromDecisions(ctx context.Context, instance domain.InstanceName, seriesID int) (map[int]repositories.WatchdogSeasonStats, error)
+	RecentDecisionsBySeason(ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int) (map[int][]repositories.RecentDecisionRow, error)
+	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int) (map[int][]repositories.RecentGrabRow, error)
 }
 
 // Limits for the `/watchdog/seasons` page. The defaults match the
@@ -128,7 +129,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 	}
 
 	filter := repositories.WatchdogSeasonsFilter{
-		Instance:        strings.TrimSpace(c.Query("instance")),
+		Instance:        domain.InstanceName(strings.TrimSpace(c.Query("instance"))),
 		Q:               strings.TrimSpace(c.Query("q")),
 		CooldownOnly:    boolQuery(c, "cooldown_only"),
 		BlacklistedOnly: boolQuery(c, "blacklisted_only"),
@@ -137,7 +138,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 	rows, next, err := h.repo.ListSeasons(ctx, filter, limit, cur, h.now())
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_seasons_list_failed", err,
-			slog.String("instance", filter.Instance))
+			slog.String("instance", string(filter.Instance)))
 		return
 	}
 
@@ -168,12 +169,13 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	instance := strings.TrimSpace(c.Param("instance"))
+	instanceRaw := strings.TrimSpace(c.Param("instance"))
 	rawID := c.Param("id")
-	if instance == "" {
+	if instanceRaw == "" {
 		writeError(c, http.StatusBadRequest, "instance required")
 		return
 	}
+	instance := domain.InstanceName(instanceRaw)
 	seriesID, err := strconv.Atoi(rawID)
 	if err != nil || seriesID <= 0 {
 		writeError(c, http.StatusBadRequest, "invalid series id")
@@ -183,28 +185,28 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 	rows, err := h.series.SeasonsForSeries(ctx, instance, seriesID, h.now())
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_load_failed", err,
-			slog.String("instance", instance),
+			slog.String("instance", instanceRaw),
 			slog.Int("series_id", seriesID))
 		return
 	}
 	stats, err := h.series.SeasonStatsFromDecisions(ctx, instance, seriesID)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_stats_failed", err,
-			slog.String("instance", instance),
+			slog.String("instance", instanceRaw),
 			slog.Int("series_id", seriesID))
 		return
 	}
 	decisionsBySeason, err := h.series.RecentDecisionsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_decisions_failed", err,
-			slog.String("instance", instance),
+			slog.String("instance", instanceRaw),
 			slog.Int("series_id", seriesID))
 		return
 	}
 	grabsBySeason, err := h.series.RecentGrabsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_grabs_failed", err,
-			slog.String("instance", instance),
+			slog.String("instance", instanceRaw),
 			slog.Int("series_id", seriesID))
 		return
 	}
@@ -274,7 +276,7 @@ func (h *WatchdogSeasonsHandler) toSeasonDTO(ctx context.Context, row repositori
 // setting, or zero when the settings lookup is unwired or the
 // instance has no row. Cached per-call would be marginally faster on
 // the list endpoint but the lookup is in-memory in production.
-func (h *WatchdogSeasonsHandler) noBetterMaxFor(ctx context.Context, instance string) int {
+func (h *WatchdogSeasonsHandler) noBetterMaxFor(ctx context.Context, instance domain.InstanceName) int {
 	if h.settings == nil {
 		return 0
 	}
@@ -282,7 +284,7 @@ func (h *WatchdogSeasonsHandler) noBetterMaxFor(ctx context.Context, instance st
 	if err != nil {
 		if !errors.Is(err, ports.ErrNotFound) {
 			h.logger.DebugContext(ctx, "watchdog_seasons_settings_lookup_failed",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("error", err.Error()))
 		}
 		return 0
@@ -407,7 +409,7 @@ func boolQuery(c *gin.Context, name string) bool {
 // string. The decoder rejects any payload with a different number of
 // segments so a hand-crafted cursor can't trip the keyset predicate.
 func encodeSeasonsCursor(c repositories.WatchdogSeasonsCursor) string {
-	raw := c.InstanceName + "\x00" + strconv.Itoa(c.SeriesID) + "\x00" + strconv.Itoa(c.SeasonNumber)
+	raw := string(c.InstanceName) + "\x00" + strconv.Itoa(c.SeriesID) + "\x00" + strconv.Itoa(c.SeasonNumber)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -429,7 +431,7 @@ func decodeSeasonsCursor(s string) (*repositories.WatchdogSeasonsCursor, error) 
 		return nil, err
 	}
 	return &repositories.WatchdogSeasonsCursor{
-		InstanceName: parts[0],
+		InstanceName: domain.InstanceName(parts[0]),
 		SeriesID:     seriesID,
 		SeasonNumber: season,
 	}, nil

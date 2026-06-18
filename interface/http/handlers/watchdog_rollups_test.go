@@ -17,12 +17,13 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type stubSettings map[string]regrab.Settings
 
-func (s stubSettings) Lookup(_ context.Context, name string) (regrab.Settings, error) {
-	v, ok := s[name]
+func (s stubSettings) Lookup(_ context.Context, name domain.InstanceName) (regrab.Settings, error) {
+	v, ok := s[string(name)]
 	if !ok {
 		return regrab.Settings{}, ports.ErrNotFound
 	}
@@ -31,14 +32,14 @@ func (s stubSettings) Lookup(_ context.Context, name string) (regrab.Settings, e
 
 type stubSnapshots map[string]regrab.RuntimeState
 
-func (s stubSnapshots) Snapshot(name string) (regrab.RuntimeState, bool) {
-	v, ok := s[name]
+func (s stubSnapshots) Snapshot(name domain.InstanceName) (regrab.RuntimeState, bool) {
+	v, ok := s[string(name)]
 	return v, ok
 }
-func (s stubSnapshots) SnapshotAll() map[string]regrab.RuntimeState {
-	out := make(map[string]regrab.RuntimeState, len(s))
+func (s stubSnapshots) SnapshotAll() map[domain.InstanceName]regrab.RuntimeState {
+	out := make(map[domain.InstanceName]regrab.RuntimeState, len(s))
 	for k, v := range s {
-		out[k] = v
+		out[domain.InstanceName(k)] = v
 	}
 	return out
 }
@@ -52,8 +53,8 @@ type stubGrabs struct {
 	replaysAll   map[string]int
 }
 
-func (s *stubGrabs) CountReplaysSince(_ context.Context, name string, since time.Time) (int, error) {
-	for delta, v := range s.replaysSince[name] {
+func (s *stubGrabs) CountReplaysSince(_ context.Context, name domain.InstanceName, since time.Time) (int, error) {
+	for delta, v := range s.replaysSince[string(name)] {
 		want := fixedNow.Add(-delta)
 		if absDuration(since.Sub(want)) < time.Minute {
 			return v, nil
@@ -61,8 +62,8 @@ func (s *stubGrabs) CountReplaysSince(_ context.Context, name string, since time
 	}
 	return 0, nil
 }
-func (s *stubGrabs) CountReplaysAll(_ context.Context, name string) (int, error) {
-	return s.replaysAll[name], nil
+func (s *stubGrabs) CountReplaysAll(_ context.Context, name domain.InstanceName) (int, error) {
+	return s.replaysAll[string(name)], nil
 }
 
 func absDuration(d time.Duration) time.Duration {
@@ -195,7 +196,7 @@ func TestWatchdogRollupHandler_AllSorted(t *testing.T) {
 	if len(got.Items) != 2 {
 		t.Fatalf("len: %d", len(got.Items))
 	}
-	names := []string{got.Items[0].InstanceName, got.Items[1].InstanceName}
+	names := []string{string(got.Items[0].InstanceName), string(got.Items[1].InstanceName)}
 	if !sort.StringsAreSorted(names) {
 		t.Errorf("names not sorted: %v", names)
 	}
@@ -212,7 +213,7 @@ func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
 		name := "inst" + string(rune('a'+i))
 		names[i] = name
 		lookup[name] = uint(i + 1)
-		settings[name] = regrab.Settings{InstanceID: uint(i + 1), InstanceName: name, Enabled: true, PollInterval: time.Minute}
+		settings[name] = regrab.Settings{InstanceID: uint(i + 1), InstanceName: domain.InstanceName(name), Enabled: true, PollInterval: time.Minute}
 		snaps[name] = regrab.RuntimeState{LastPollAt: fixedNow, LastPollResult: regrab.PollResultOK, QbitReachable: true, Watched: i}
 	}
 	h := NewWatchdogRollupHandler(
@@ -254,7 +255,7 @@ func newStubProbe(reachable bool, err error) *stubProbe {
 func (p *stubProbe) Probe(_ context.Context, s regrab.Settings) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.calls[s.InstanceName]++
+	p.calls[string(s.InstanceName)]++
 	return p.reachable, p.err
 }
 
@@ -401,7 +402,7 @@ func newStubLister(torrents []qbit.Torrent, err error) *stubLister2 {
 func (s *stubLister2) ListTorrents(_ context.Context, sett regrab.Settings) ([]qbit.Torrent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls[sett.InstanceName]++
+	s.calls[string(sett.InstanceName)]++
 	return s.torrents, s.err
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeCounterRepo lets handler tests skip the DB entirely.
@@ -24,14 +25,14 @@ type fakeCounterRepo struct {
 	err     error
 }
 
-func (f *fakeCounterRepo) BucketCounters(_ context.Context, _ string, _ ports.CounterWindow, _ time.Time) ([]ports.CounterBucket, error) {
+func (f *fakeCounterRepo) BucketCounters(_ context.Context, _ domain.InstanceName, _ ports.CounterWindow, _ time.Time) ([]ports.CounterBucket, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.buckets, nil
 }
 
-func (f *fakeCounterRepo) AvgGrabsLast7Days(_ context.Context, _ string, _ time.Time) (float64, error) {
+func (f *fakeCounterRepo) AvgGrabsLast7Days(_ context.Context, _ domain.InstanceName, _ time.Time) (float64, error) {
 	if f.err != nil {
 		return 0, f.err
 	}
@@ -69,7 +70,7 @@ func TestCountersHandler_ForInstance_OK(t *testing.T) {
 
 	var body dto.InstanceCountersDTO
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "alpha", body.InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), body.InstanceName)
 	assert.Equal(t, "24h", body.Window)
 	assert.Equal(t, 4, body.Totals.Grabs)
 	assert.Equal(t, 3, body.Totals.Imports)
@@ -148,8 +149,8 @@ func TestCountersHandler_Aggregate_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body.Items, 2)
 	// Sorted alphabetically — alpha first.
-	assert.Equal(t, "alpha", body.Items[0].InstanceName)
-	assert.Equal(t, "beta", body.Items[1].InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), body.Items[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("beta"), body.Items[1].InstanceName)
 }
 
 func TestCountersHandler_Aggregate_InvalidWindow(t *testing.T) {

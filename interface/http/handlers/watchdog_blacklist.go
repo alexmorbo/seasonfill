@@ -14,13 +14,14 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesTitleResolver looks up the cached series title for one
 // (instance, series_id) pair. ports.SeriesCacheRepository.Get satisfies
 // it directly; tests stub it.
 type SeriesTitleResolver interface {
-	Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
 }
 
 // BlacklistPager is the narrowed slice of WatchdogBlacklistRepository
@@ -114,12 +115,12 @@ func (h *WatchdogBlacklistHandler) List(c *gin.Context) {
 	out := dto.WatchdogBlacklistList{Items: make([]dto.WatchdogBlacklistItem, 0, len(rows))}
 	for _, r := range rows {
 		title := ""
-		if entry, terr := h.titles.Get(ctx, name, r.SeriesID); terr == nil {
+		if entry, terr := h.titles.Get(ctx, domain.InstanceName(name), r.SeriesID); terr == nil {
 			title = entry.Title
 		}
 		out.Items = append(out.Items, dto.WatchdogBlacklistItem{
 			ID:           r.ID,
-			InstanceName: name,
+			InstanceName: domain.InstanceName(name),
 			SeriesID:     r.SeriesID,
 			SeriesTitle:  title,
 			SeasonNumber: r.SeasonNumber,

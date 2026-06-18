@@ -1,11 +1,15 @@
 package errors
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SonarrUnreachableError signals a transport-layer failure talking to a
 // Sonarr instance (DNS, dial, TLS, 5xx upstream). Maps to HTTP 502.
 type SonarrUnreachableError struct {
-	Instance string
+	Instance domain.InstanceName
 	Cause    error
 }
 
@@ -26,7 +30,7 @@ func (e *SonarrUnreachableError) Unwrap() error { return e.Cause }
 // instance reference (caller-supplied name doesn't match runtime config).
 // Maps to HTTP 400.
 type SonarrInstanceInvalidError struct {
-	Instance string
+	Instance domain.InstanceName
 }
 
 func (e *SonarrInstanceInvalidError) Error() string {

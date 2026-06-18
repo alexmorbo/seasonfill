@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // QbitSettingsDTO — body of GET /api/v1/instances/:name/qbit/settings
 // and the response of PUT (same shape, post-persist). The password
@@ -12,21 +16,21 @@ import "time"
 // falling back to URL when empty. Always emitted (even when empty)
 // so the frontend zod schema can rely on string-typed presence.
 type QbitSettingsDTO struct {
-	ID                     uint      `json:"id"                          example:"1"`
-	InstanceID             uint      `json:"instance_id"                 example:"7"`
-	InstanceName           string    `json:"instance_name"               example:"alpha"`
-	Enabled                bool      `json:"enabled"                     example:"true"`
-	URL                    string    `json:"url"                         example:"http://qbit.local:8080"`
-	QbitPublicURL          string    `json:"qbit_public_url"             example:"https://qbit.example.com"`
-	Username               string    `json:"username,omitempty"          example:"admin"`
-	PasswordSet            bool      `json:"password_set"                example:"true"`
-	Category               string    `json:"category"                    example:"sonarr"`
-	PollIntervalMinutes    int       `json:"poll_interval_minutes"       example:"30"`
-	RegrabCooldownHours    int       `json:"regrab_cooldown_hours"       example:"120"`
-	MaxConsecutiveNoBetter int       `json:"max_consecutive_no_better"   example:"3"`
-	CustomUnregisteredMsgs []string  `json:"custom_unregistered_msgs"`
-	CreatedAt              time.Time `json:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at"`
+	ID                     uint                `json:"id"                          example:"1"`
+	InstanceID             uint                `json:"instance_id"                 example:"7"`
+	InstanceName           domain.InstanceName `json:"instance_name"               example:"alpha"`
+	Enabled                bool                `json:"enabled"                     example:"true"`
+	URL                    string              `json:"url"                         example:"http://qbit.local:8080"`
+	QbitPublicURL          string              `json:"qbit_public_url"             example:"https://qbit.example.com"`
+	Username               string              `json:"username,omitempty"          example:"admin"`
+	PasswordSet            bool                `json:"password_set"                example:"true"`
+	Category               string              `json:"category"                    example:"sonarr"`
+	PollIntervalMinutes    int                 `json:"poll_interval_minutes"       example:"30"`
+	RegrabCooldownHours    int                 `json:"regrab_cooldown_hours"       example:"120"`
+	MaxConsecutiveNoBetter int                 `json:"max_consecutive_no_better"   example:"3"`
+	CustomUnregisteredMsgs []string            `json:"custom_unregistered_msgs"`
+	CreatedAt              time.Time           `json:"created_at"`
+	UpdatedAt              time.Time           `json:"updated_at"`
 }
 
 // QbitSettingsUpsertRequest — body of PUT

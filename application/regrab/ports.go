@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // WebhookChecker is the boundary the Watchdog settings use case
@@ -36,7 +37,7 @@ import (
 //   - (_,     err) only on transport / Sonarr-side failures —
 //     the use case maps this to 502 and skips persistence.
 type WebhookChecker interface {
-	IsInstalled(ctx context.Context, instanceName string) (bool, error)
+	IsInstalled(ctx context.Context, instanceName domain.InstanceName) (bool, error)
 }
 
 // nullWebhookChecker is the bootstrap-time default. Used when
@@ -45,7 +46,7 @@ type WebhookChecker interface {
 // gate). Always reports installed=true so the gate is open.
 type nullWebhookChecker struct{}
 
-func (nullWebhookChecker) IsInstalled(_ context.Context, _ string) (bool, error) {
+func (nullWebhookChecker) IsInstalled(_ context.Context, _ domain.InstanceName) (bool, error) {
 	return true, nil
 }
 
@@ -78,24 +79,24 @@ type GrabExecutor interface {
 // keys from parent D-T5). Unit tests use the package-private
 // nullMetrics default — emits nothing, never panics.
 //
-// All three method signatures share `(instance string)` as the first
-// arg because every Watchdog metric has `instance` as its primary
-// label.
+// All three method signatures share `(instance domain.InstanceName)` as
+// the first arg because every Watchdog metric has `instance` as its
+// primary label.
 type Metrics interface {
 	// IncPollResult bumps seasonfill_watchdog_poll_total{instance, result}.
-	IncPollResult(instance, result string)
+	IncPollResult(instance domain.InstanceName, result string)
 
 	// IncUnregistered bumps seasonfill_watchdog_unregistered_detected_total{instance, tracker}.
-	IncUnregistered(instance, tracker string)
+	IncUnregistered(instance domain.InstanceName, tracker string)
 
 	// IncRegrabResult bumps seasonfill_watchdog_regrab_triggered_total{instance, result}.
-	IncRegrabResult(instance, result string)
+	IncRegrabResult(instance domain.InstanceName, result string)
 
 	// SetBlacklistSize replaces the gauge seasonfill_watchdog_blacklist_size{instance}.
-	SetBlacklistSize(instance string, size int)
+	SetBlacklistSize(instance domain.InstanceName, size int)
 
 	// SetQbitUnreachableStreak replaces the gauge seasonfill_watchdog_qbit_unreachable_streak{instance}.
-	SetQbitUnreachableStreak(instance string, streak int)
+	SetQbitUnreachableStreak(instance domain.InstanceName, streak int)
 }
 
 // nullMetrics is the bootstrap-time default. The regrab use case
@@ -104,11 +105,11 @@ type Metrics interface {
 // to thread mocks through.
 type nullMetrics struct{}
 
-func (nullMetrics) IncPollResult(string, string)         {}
-func (nullMetrics) IncUnregistered(string, string)       {}
-func (nullMetrics) IncRegrabResult(string, string)       {}
-func (nullMetrics) SetBlacklistSize(string, int)         {}
-func (nullMetrics) SetQbitUnreachableStreak(string, int) {}
+func (nullMetrics) IncPollResult(domain.InstanceName, string)         {}
+func (nullMetrics) IncUnregistered(domain.InstanceName, string)       {}
+func (nullMetrics) IncRegrabResult(domain.InstanceName, string)       {}
+func (nullMetrics) SetBlacklistSize(domain.InstanceName, int)         {}
+func (nullMetrics) SetQbitUnreachableStreak(domain.InstanceName, int) {}
 
 // Compile-time blank assignments — keep the deferred-import compiler
 // happy so a future refactor that drops one of the import sites here

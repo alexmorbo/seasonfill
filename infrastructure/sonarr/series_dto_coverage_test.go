@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Directly exercises seriesDTOToCacheEntry's optional-field branches.
@@ -40,7 +42,7 @@ func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
 		},
 	}
 	e := seriesDTOToCacheEntry(d, "alpha")
-	assert.Equal(t, "alpha", e.InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), e.InstanceName)
 	assert.Equal(t, 7, e.SonarrSeriesID)
 	assert.Equal(t, "Breaking Bad", e.Title)
 	assert.Equal(t, "breaking-bad", e.TitleSlug)
@@ -80,7 +82,7 @@ func TestSeriesDTOToCacheEntry_EmptyOptionalFieldsRemainNil(t *testing.T) {
 		// all optional fields zero/empty.
 	}
 	e := seriesDTOToCacheEntry(d, "beta")
-	assert.Equal(t, "beta", e.InstanceName)
+	assert.Equal(t, domain.InstanceName("beta"), e.InstanceName)
 	assert.Equal(t, 3, e.SonarrSeriesID)
 	assert.Nil(t, e.Year)
 	assert.Nil(t, e.TVDBID)

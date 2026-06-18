@@ -19,6 +19,7 @@ import (
 	decision "github.com/alexmorbo/seasonfill/domain/decision"
 	grab "github.com/alexmorbo/seasonfill/domain/grab"
 	regrab "github.com/alexmorbo/seasonfill/domain/regrab"
+	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -48,7 +49,7 @@ func (m *MockGrabRepository) EXPECT() *MockGrabRepositoryMockRecorder {
 }
 
 // CountImportedEpisodes mocks base method.
-func (m *MockGrabRepository) CountImportedEpisodes(ctx context.Context, instance string, seriesID, seasonNumber int) (int, error) {
+func (m *MockGrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID, seasonNumber int) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountImportedEpisodes", ctx, instance, seriesID, seasonNumber)
 	ret0, _ := ret[0].(int)
@@ -63,7 +64,7 @@ func (mr *MockGrabRepositoryMockRecorder) CountImportedEpisodes(ctx, instance, s
 }
 
 // CountReplaysAll mocks base method.
-func (m *MockGrabRepository) CountReplaysAll(ctx context.Context, instanceName string) (int, error) {
+func (m *MockGrabRepository) CountReplaysAll(ctx context.Context, instanceName domain.InstanceName) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountReplaysAll", ctx, instanceName)
 	ret0, _ := ret[0].(int)
@@ -78,7 +79,7 @@ func (mr *MockGrabRepositoryMockRecorder) CountReplaysAll(ctx, instanceName any)
 }
 
 // CountReplaysSince mocks base method.
-func (m *MockGrabRepository) CountReplaysSince(ctx context.Context, instanceName string, since time.Time) (int, error) {
+func (m *MockGrabRepository) CountReplaysSince(ctx context.Context, instanceName domain.InstanceName, since time.Time) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountReplaysSince", ctx, instanceName, since)
 	ret0, _ := ret[0].(int)

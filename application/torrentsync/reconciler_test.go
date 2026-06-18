@@ -14,6 +14,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeMapRepo struct {
@@ -50,10 +51,10 @@ type fakeGrabHashLookup struct {
 	err     error
 	calls   int
 	gotHash []string
-	gotInst string
+	gotInst domain.InstanceName
 }
 
-func (f *fakeGrabHashLookup) FindSeriesByTorrentHashes(_ context.Context, instance string, hashes []string) ([]GrabHashRow, error) {
+func (f *fakeGrabHashLookup) FindSeriesByTorrentHashes(_ context.Context, instance domain.InstanceName, hashes []string) ([]GrabHashRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -100,15 +101,15 @@ func (f *fakeSonarr) GrabHistoryPaged(_ context.Context, page, _ int) (sonarr.Hi
 
 type fakeGauge struct {
 	mu   sync.Mutex
-	last map[string]int
+	last map[domain.InstanceName]int
 	hits int
 }
 
-func (f *fakeGauge) SetTorrentsyncUnmapped(instance string, count int) {
+func (f *fakeGauge) SetTorrentsyncUnmapped(instance domain.InstanceName, count int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.last == nil {
-		f.last = make(map[string]int)
+		f.last = make(map[domain.InstanceName]int)
 	}
 	f.last[instance] = count
 	f.hits++
@@ -116,7 +117,7 @@ func (f *fakeGauge) SetTorrentsyncUnmapped(instance string, count int) {
 
 func newQuietLogger() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
 
-func putUnmappedHash(t *testing.T, store *Store, instance, hash string) {
+func putUnmappedHash(t *testing.T, store *Store, instance domain.InstanceName, hash string) {
 	t.Helper()
 	store.EnsureInstance(instance)
 	store.Put(instance, Entry{
@@ -185,7 +186,7 @@ func TestReconciler_FourSources_SonarrQueue(t *testing.T) {
 			{SeriesID: 77, SeasonNumber: 2, DownloadID: "BBBB"},
 		},
 	}}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "bbbb")
 
@@ -215,7 +216,7 @@ func TestReconciler_FourSources_SonarrHistory(t *testing.T) {
 			},
 		},
 	}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "cccc")
 
@@ -244,7 +245,7 @@ func TestReconciler_HistoryPriorityIsLast(t *testing.T) {
 			{DownloadID: "dddd", SeriesID: 52, SeasonNumber: 1},
 		}}},
 	}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "dddd")
 
@@ -279,7 +280,7 @@ func TestReconciler_HistoryCursorAdvancesAndCaps(t *testing.T) {
 		pages[i] = sonarr.HistoryPage{Records: recs}
 	}
 	sn := &fakeSonarr{historyResp: pages}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "eeee")
 
@@ -317,7 +318,7 @@ func TestReconciler_HistoryCursorResetsAtEnd(t *testing.T) {
 		{Records: full},
 		{Records: short},
 	}}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "ffff")
 
@@ -385,7 +386,7 @@ func TestReconciler_GrabLookupErrorDoesNotStallOtherSources(t *testing.T) {
 	sn := &fakeSonarr{queueResp: sonarr.QueuePayload{Records: []sonarr.QueueRecord{
 		{SeriesID: 7, DownloadID: "GGGG"},
 	}}}
-	sonarrFor := func(_ string) (SonarrReconciler, bool) { return sn, true }
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
 	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(1)
 	putUnmappedHash(t, store, "alpha", "gggg")
 

@@ -3,7 +3,11 @@
 // struct-tag annotations consumed by the spec generator.
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // OKResponse — canonical success envelope.
 type OKResponse struct {
@@ -22,16 +26,16 @@ type ErrorResponse struct {
 // is preserved on the wire so clients can identify the busy target;
 // dedicated DTO so the generated TS sees the field.
 type ScanConflictResponse struct {
-	Error    string `json:"error"    example:"scan already running"`
-	Instance string `json:"instance" example:"alpha"`
-	Code     string `json:"code"     example:"SCAN_IN_PROGRESS"`
+	Error    string              `json:"error"    example:"scan already running"`
+	Instance domain.InstanceName `json:"instance" example:"alpha"`
+	Code     string              `json:"code"     example:"SCAN_IN_PROGRESS"`
 }
 
 // ScanNotFoundResponse — POST /scan 404 envelope (unknown instance).
 // No Code field — historical wire shape is just error+instance.
 type ScanNotFoundResponse struct {
-	Error    string `json:"error"    example:"unknown instance"`
-	Instance string `json:"instance" example:"alpha"`
+	Error    string              `json:"error"    example:"unknown instance"`
+	Instance domain.InstanceName `json:"instance" example:"alpha"`
 }
 
 // LoginRequest — JSON body for POST /auth/login (D48).
@@ -60,21 +64,21 @@ type SessionResponse struct {
 // setting. nil = use instance default; *true = force dry run;
 // *false = force real grab regardless of instance config.
 type ScanTriggerRequest struct {
-	Instance  string `json:"instance,omitempty"   example:"alpha"`
-	SeriesIDs []int  `json:"series_ids,omitempty"`
-	DryRun    *bool  `json:"dry_run,omitempty"`
+	Instance  domain.InstanceName `json:"instance,omitempty"   example:"alpha"`
+	SeriesIDs []int               `json:"series_ids,omitempty"`
+	DryRun    *bool               `json:"dry_run,omitempty"`
 }
 
 // ScanTriggerItem — one row in the 202 array response of POST /scan.
 type ScanTriggerItem struct {
-	ScanRunID    string    `json:"scan_run_id" example:"7b3d4a92-1234-4abc-9def-000000000001"`
-	InstanceName string    `json:"instance"    example:"alpha"`
-	Status       string    `json:"status"      example:"completed" enums:"completed,failed,running,aborted,cancelled"`
-	Series       int       `json:"series_scanned"`
-	Candidates   int       `json:"candidates_found"`
-	Errors       int       `json:"errors"`
-	Started      time.Time `json:"started_at"`
-	Finished     time.Time `json:"finished_at"`
+	ScanRunID    string              `json:"scan_run_id" example:"7b3d4a92-1234-4abc-9def-000000000001"`
+	InstanceName domain.InstanceName `json:"instance"    example:"alpha"`
+	Status       string              `json:"status"      example:"completed" enums:"completed,failed,running,aborted,cancelled"`
+	Series       int                 `json:"series_scanned"`
+	Candidates   int                 `json:"candidates_found"`
+	Errors       int                 `json:"errors"`
+	Started      time.Time           `json:"started_at"`
+	Finished     time.Time           `json:"finished_at"`
 }
 
 // Instance — Sonarr-instance health snapshot. Mode always emitted
@@ -103,20 +107,20 @@ type InstanceList struct {
 
 // Scan — one ScanRun row.
 type Scan struct {
-	ID              string     `json:"id"               example:"7b3d4a92-1234-4abc-9def-000000000001"`
-	Instance        string     `json:"instance"         example:"alpha"`
-	Trigger         string     `json:"trigger"          example:"cron" enums:"cron,manual,webhook"`
-	CreatedAt       time.Time  `json:"created_at"`
-	StartedAt       time.Time  `json:"started_at"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Status          string     `json:"status"           example:"completed" enums:"running,completed,failed,aborted,cancelled"`
-	SeriesScanned   int        `json:"series_scanned"`
-	CandidatesFound int        `json:"candidates_found"`
-	GrabsPerformed  int        `json:"grabs_performed"`
-	GrabsFailed     int        `json:"grabs_failed"`
-	ErrorsCount     int        `json:"errors_count"`
-	ErrorMessage    string     `json:"error_message,omitempty"`
-	DryRun          bool       `json:"dry_run"`
+	ID              string              `json:"id"               example:"7b3d4a92-1234-4abc-9def-000000000001"`
+	Instance        domain.InstanceName `json:"instance"         example:"alpha"`
+	Trigger         string              `json:"trigger"          example:"cron" enums:"cron,manual,webhook"`
+	CreatedAt       time.Time           `json:"created_at"`
+	StartedAt       time.Time           `json:"started_at"`
+	FinishedAt      *time.Time          `json:"finished_at,omitempty"`
+	Status          string              `json:"status"           example:"completed" enums:"running,completed,failed,aborted,cancelled"`
+	SeriesScanned   int                 `json:"series_scanned"`
+	CandidatesFound int                 `json:"candidates_found"`
+	GrabsPerformed  int                 `json:"grabs_performed"`
+	GrabsFailed     int                 `json:"grabs_failed"`
+	ErrorsCount     int                 `json:"errors_count"`
+	ErrorMessage    string              `json:"error_message,omitempty"`
+	DryRun          bool                `json:"dry_run"`
 }
 
 // Decision — one decisions row.
@@ -129,27 +133,27 @@ type Scan struct {
 // per-season statistics block. Pre-046a rows render with all four new
 // fields = 0 — the UI treats 0 as "unknown" (em-dash placeholder).
 type Decision struct {
-	ID               string `json:"id"               example:"dec_001"`
-	ScanRunID        string `json:"scan_run_id"`
-	Instance         string `json:"instance"         example:"alpha"`
-	SeriesID         int    `json:"series_id"`
-	SeriesTitle      string `json:"series_title"     example:"Severance"`
-	SeasonNumber     int    `json:"season_number"`
-	Decision         string `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
-	Reason           string `json:"reason"           example:"upgrade_available"`
-	Category         string `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
-	MissingCount     int    `json:"missing_count"`
-	ExistingCount    int    `json:"existing_count"`
-	ReleasesFound    int    `json:"releases_found"`
-	CandidatesCount  int    `json:"candidates_count"`
-	SelectedGUID     string `json:"selected_guid,omitempty"`
-	DryRunWouldGrab  bool   `json:"dry_run_would_grab"`
-	ErrorDetail      string `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
-	SupersededByID   string `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
-	TotalEpisodes    int    `json:"total_episodes"    example:"10"`
-	AiredEpisodes    int    `json:"aired_episodes"    example:"8"`
-	ExistingEpisodes int    `json:"existing_episodes" example:"3"`
-	GrabbedEpisodes  int    `json:"grabbed_episodes"  example:"5"`
+	ID               string              `json:"id"               example:"dec_001"`
+	ScanRunID        string              `json:"scan_run_id"`
+	Instance         domain.InstanceName `json:"instance"         example:"alpha"`
+	SeriesID         int                 `json:"series_id"`
+	SeriesTitle      string              `json:"series_title"     example:"Severance"`
+	SeasonNumber     int                 `json:"season_number"`
+	Decision         string              `json:"decision"         example:"grab" enums:"grab,skip,blocked_cooldown,already_optimal,expired,error"`
+	Reason           string              `json:"reason"           example:"upgrade_available"`
+	Category         string              `json:"category"         example:"action_taken" enums:"all_complete,sonarr_handles,action_taken,blocked,nothing_found,error,unknown"`
+	MissingCount     int                 `json:"missing_count"`
+	ExistingCount    int                 `json:"existing_count"`
+	ReleasesFound    int                 `json:"releases_found"`
+	CandidatesCount  int                 `json:"candidates_count"`
+	SelectedGUID     string              `json:"selected_guid,omitempty"`
+	DryRunWouldGrab  bool                `json:"dry_run_would_grab"`
+	ErrorDetail      string              `json:"error_detail,omitempty" example:"sonarr: 503 service unavailable"`
+	SupersededByID   string              `json:"superseded_by_id,omitempty" example:"7b3d4a92-1234-4abc-9def-000000000005"`
+	TotalEpisodes    int                 `json:"total_episodes"    example:"10"`
+	AiredEpisodes    int                 `json:"aired_episodes"    example:"8"`
+	ExistingEpisodes int                 `json:"existing_episodes" example:"3"`
+	GrabbedEpisodes  int                 `json:"grabbed_episodes"  example:"5"`
 	// Intent — the F-P2-2 "why this grab" capture (091a). nil for
 	// pre-091a rows AND for any decision path that couldn't infer a
 	// reason (synthetic skip rows, error rows). Frontend GrabDrawer
@@ -176,24 +180,24 @@ type DecisionIntent struct {
 
 // Grab — one grab_records row.
 type Grab struct {
-	ID                string    `json:"id"                  example:"grb_001"`
-	Instance          string    `json:"instance"            example:"alpha"`
-	SeriesID          int       `json:"series_id"`
-	SeriesTitle       string    `json:"series_title"        example:"Severance"`
-	SeasonNumber      int       `json:"season_number"`
-	ReleaseGUID       string    `json:"release_guid"`
-	ReleaseTitle      string    `json:"release_title"`
-	IndexerID         int       `json:"indexer_id"`
-	IndexerName       string    `json:"indexer_name"        example:"tracker.x"`
-	CustomFormatScore int       `json:"custom_format_score"`
-	Quality           string    `json:"quality"             example:"WEBDL-1080p"`
-	CoverageCount     int       `json:"coverage_count"`
-	Status            string    `json:"status"              example:"imported" enums:"grabbed,imported,import_failed,grab_failed,expired"`
-	ErrorMessage      string    `json:"error_message,omitempty"`
-	ScanRunID         string    `json:"scan_run_id"`
-	Attempts          int       `json:"attempts"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                string              `json:"id"                  example:"grb_001"`
+	Instance          domain.InstanceName `json:"instance"            example:"alpha"`
+	SeriesID          int                 `json:"series_id"`
+	SeriesTitle       string              `json:"series_title"        example:"Severance"`
+	SeasonNumber      int                 `json:"season_number"`
+	ReleaseGUID       string              `json:"release_guid"`
+	ReleaseTitle      string              `json:"release_title"`
+	IndexerID         int                 `json:"indexer_id"`
+	IndexerName       string              `json:"indexer_name"        example:"tracker.x"`
+	CustomFormatScore int                 `json:"custom_format_score"`
+	Quality           string              `json:"quality"             example:"WEBDL-1080p"`
+	CoverageCount     int                 `json:"coverage_count"`
+	Status            string              `json:"status"              example:"imported" enums:"grabbed,imported,import_failed,grab_failed,expired"`
+	ErrorMessage      string              `json:"error_message,omitempty"`
+	ScanRunID         string              `json:"scan_run_id"`
+	Attempts          int                 `json:"attempts"`
+	CreatedAt         time.Time           `json:"created_at"`
+	UpdatedAt         time.Time           `json:"updated_at"`
 	// TorrentHash — qBit info-hash (40-char lowercase hex) captured
 	// by the OnGrab webhook (Phase 10) or stamped at force-grab time.
 	// Omitted from wire when nil so pre-Phase-10 rows stay clean.
@@ -692,11 +696,11 @@ type EpisodeFileList struct {
 // grab_records (imported status, latest created_at per series). Empty
 // means "no imported grab on file".
 type SeriesCacheItem struct {
-	SonarrSeriesID int    `json:"sonarr_series_id"        example:"122"`
-	InstanceName   string `json:"instance_name"           example:"homelab"`
-	Title          string `json:"title"                   example:"For All Mankind"`
-	TitleSlug      string `json:"title_slug"              example:"for-all-mankind"`
-	Year           *int   `json:"year,omitempty"          example:"2019"`
+	SonarrSeriesID int                 `json:"sonarr_series_id"        example:"122"`
+	InstanceName   domain.InstanceName `json:"instance_name"           example:"homelab"`
+	Title          string              `json:"title"                   example:"For All Mankind"`
+	TitleSlug      string              `json:"title_slug"              example:"for-all-mankind"`
+	Year           *int                `json:"year,omitempty"          example:"2019"`
 	// Network field REMOVED in E-1 (Story 210). Network membership lives
 	// in series_networks join; the catalog tile omits the network line
 	// until the detail-card endpoint (future story) projects per-row.
@@ -740,21 +744,21 @@ type SeriesCacheNetworksList struct {
 // WatchdogRollup is the per-instance F4 dashboard projection. Pointer
 // fields are nil when the instance has never been polled.
 type WatchdogRollup struct {
-	InstanceName    string     `json:"instance_name"    example:"homelab"`
-	Enabled         bool       `json:"enabled"          example:"true"`
-	Active          bool       `json:"active"           example:"true"`
-	Watched         int        `json:"watched"          example:"12"`
-	Unregistered    int        `json:"unregistered"     example:"24"`
-	Regrabs24h      int        `json:"regrabs_24h"      example:"1"`
-	Regrabs7d       int        `json:"regrabs_7d"       example:"5"`
-	BlacklistSize   int        `json:"blacklist_size"   example:"3"`
-	LastPollAt      *time.Time `json:"last_poll_at,omitempty"`
-	LastPollResult  *string    `json:"last_poll_result,omitempty" example:"ok"`
-	NextPollAt      *time.Time `json:"next_poll_at,omitempty"`
-	QbitReachable   bool       `json:"qbit_reachable"   example:"true"`
-	PollIntervalSec int        `json:"poll_interval_seconds" example:"1800"`
-	CooldownHours   int        `json:"cooldown_hours"        example:"120"`
-	NoBetterMax     int        `json:"no_better_max"         example:"3"`
+	InstanceName    domain.InstanceName `json:"instance_name"    example:"homelab"`
+	Enabled         bool                `json:"enabled"          example:"true"`
+	Active          bool                `json:"active"           example:"true"`
+	Watched         int                 `json:"watched"          example:"12"`
+	Unregistered    int                 `json:"unregistered"     example:"24"`
+	Regrabs24h      int                 `json:"regrabs_24h"      example:"1"`
+	Regrabs7d       int                 `json:"regrabs_7d"       example:"5"`
+	BlacklistSize   int                 `json:"blacklist_size"   example:"3"`
+	LastPollAt      *time.Time          `json:"last_poll_at,omitempty"`
+	LastPollResult  *string             `json:"last_poll_result,omitempty" example:"ok"`
+	NextPollAt      *time.Time          `json:"next_poll_at,omitempty"`
+	QbitReachable   bool                `json:"qbit_reachable"   example:"true"`
+	PollIntervalSec int                 `json:"poll_interval_seconds" example:"1800"`
+	CooldownHours   int                 `json:"cooldown_hours"        example:"120"`
+	NoBetterMax     int                 `json:"no_better_max"         example:"3"`
 }
 
 // WatchdogRollupList — body of GET /api/v1/watchdog/rollups.
@@ -773,16 +777,16 @@ type WatchdogRollupList struct {
 // future operator-driven blacklist UI. The column is derived at read
 // time so the wire shape can stabilise before the migration ships.
 type WatchdogBlacklistItem struct {
-	ID           uint       `json:"id"            example:"42"`
-	InstanceName string     `json:"instance_name" example:"homelab"`
-	SeriesID     int        `json:"series_id"     example:"122"`
-	SeriesTitle  string     `json:"series_title"  example:"Severance"`
-	SeasonNumber int        `json:"season_number" example:"3"`
-	Reason       string     `json:"reason"        example:"consecutive_no_better"`
-	Source       string     `json:"source"        example:"auto" enums:"auto,manual"`
-	Consecutive  int        `json:"consecutive"   example:"3"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	ID           uint                `json:"id"            example:"42"`
+	InstanceName domain.InstanceName `json:"instance_name" example:"homelab"`
+	SeriesID     int                 `json:"series_id"     example:"122"`
+	SeriesTitle  string              `json:"series_title"  example:"Severance"`
+	SeasonNumber int                 `json:"season_number" example:"3"`
+	Reason       string              `json:"reason"        example:"consecutive_no_better"`
+	Source       string              `json:"source"        example:"auto" enums:"auto,manual"`
+	Consecutive  int                 `json:"consecutive"   example:"3"`
+	CreatedAt    time.Time           `json:"created_at"`
+	ExpiresAt    *time.Time          `json:"expires_at,omitempty"`
 }
 
 // WatchdogBlacklistList — body of GET /api/v1/instances/:name/watchdog/blacklist.
@@ -836,7 +840,7 @@ type WatchdogSeasonBlacklist struct {
 // optional sub-objects are nil when their backing table has no row for
 // the (instance, series, season) triple.
 type WatchdogSeason struct {
-	Instance          string                   `json:"instance"           example:"homelab"`
+	Instance          domain.InstanceName      `json:"instance"           example:"homelab"`
 	SeriesID          int                      `json:"series_id"          example:"169"`
 	SeriesTitle       string                   `json:"series_title"       example:"Your Friends & Neighbors"`
 	SeasonNumber      int                      `json:"season_number"      example:"2"`
@@ -907,7 +911,7 @@ type WatchdogSeriesSeason struct {
 // SeasonNumber so the SPA can render them in airing order without a
 // client-side sort.
 type WatchdogSeriesDetail struct {
-	Instance    string                 `json:"instance"     example:"homelab"`
+	Instance    domain.InstanceName    `json:"instance"     example:"homelab"`
 	SeriesID    int                    `json:"series_id"    example:"169"`
 	SeriesTitle string                 `json:"series_title" example:"Your Friends & Neighbors"`
 	Monitored   bool                   `json:"monitored"    example:"true"`
@@ -920,12 +924,12 @@ type WatchdogSeriesDetail struct {
 // Mirrors dto.WebhookStatusDTO plus the instance name and the explicit
 // Healthy convenience boolean (avoids the SPA reimplementing the rule).
 type WebhookStatusAggregateItem struct {
-	InstanceName   string  `json:"instance_name"             example:"homelab"`
-	Installed      bool    `json:"installed"                 example:"true"`
-	Healthy        bool    `json:"healthy"                   example:"true"`
-	NotificationID *int    `json:"notification_id,omitempty" example:"42"`
-	URL            *string `json:"url,omitempty"             example:"https://sf.example/api/v1/webhook/sonarr/homelab"`
-	Error          *string `json:"error,omitempty"           example:"sonarr 503"`
+	InstanceName   domain.InstanceName `json:"instance_name"             example:"homelab"`
+	Installed      bool                `json:"installed"                 example:"true"`
+	Healthy        bool                `json:"healthy"                   example:"true"`
+	NotificationID *int                `json:"notification_id,omitempty" example:"42"`
+	URL            *string             `json:"url,omitempty"             example:"https://sf.example/api/v1/webhook/sonarr/homelab"`
+	Error          *string             `json:"error,omitempty"           example:"sonarr 503"`
 }
 
 // WebhookStatusAggregate — body of GET /api/v1/webhooks/status.

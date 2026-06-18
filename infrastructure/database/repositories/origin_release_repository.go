@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type OriginReleaseRepository struct {
@@ -20,7 +21,7 @@ func NewOriginReleaseRepository(db *gorm.DB) *OriginReleaseRepository {
 	return &OriginReleaseRepository{db: db}
 }
 
-func (r *OriginReleaseRepository) Get(ctx context.Context, instance string, seriesID, season int) (ports.OriginRelease, bool, error) {
+func (r *OriginReleaseRepository) Get(ctx context.Context, instance domain.InstanceName, seriesID, season int) (ports.OriginRelease, bool, error) {
 	var model database.OriginReleaseModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		First(&model, "instance_name = ? AND series_id = ? AND season_number = ?", instance, seriesID, season).Error

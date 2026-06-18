@@ -26,21 +26,23 @@ type refreshHandlerFakeCache struct {
 	err   error
 }
 
-func (f *refreshHandlerFakeCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+func (f *refreshHandlerFakeCache) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
 	return f.entry, f.err
 }
 func (f *refreshHandlerFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
-func (f *refreshHandlerFakeCache) SoftDelete(_ context.Context, _ string, _ int) error { return nil }
-func (f *refreshHandlerFakeCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *refreshHandlerFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ int) error {
+	return nil
+}
+func (f *refreshHandlerFakeCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *refreshHandlerFakeCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+func (f *refreshHandlerFakeCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *refreshHandlerFakeCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+func (f *refreshHandlerFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
-func (f *refreshHandlerFakeCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+func (f *refreshHandlerFakeCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
 

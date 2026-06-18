@@ -27,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type stubSonarrEF struct {
@@ -38,7 +39,7 @@ func (s stubSonarrEF) SystemStatus(_ context.Context) (ports.SystemStatus, error
 	return ports.SystemStatus{}, nil
 }
 func (s stubSonarrEF) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (s stubSonarrEF) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (s stubSonarrEF) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (s stubSonarrEF) GetSeries(_ context.Context, _ int) (series.Series, error) {
@@ -96,7 +97,7 @@ func setupEFTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func makeEFGrabRecord(t *testing.T, instance string, status grab.Status) grab.Record {
+func makeEFGrabRecord(t *testing.T, instance shareddomain.InstanceName, status grab.Status) grab.Record {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	return grab.Record{

@@ -11,11 +11,12 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type ScanRecord struct {
 	ID              uuid.UUID
-	InstanceName    string
+	InstanceName    domain.InstanceName
 	Trigger         string
 	CreatedAt       time.Time
 	StartedAt       time.Time
@@ -33,7 +34,7 @@ type ScanRecord struct {
 // ScanFilter narrows ScanRepository.List. Pointer fields; nil = no filter.
 // From is inclusive, To is exclusive (created_at < To).
 type ScanFilter struct {
-	Instance *string
+	Instance *domain.InstanceName
 	Status   *string
 	From     *time.Time
 	To       *time.Time
@@ -54,7 +55,7 @@ type ScanRepository interface {
 
 type DecisionFilter struct {
 	ScanRunID    *uuid.UUID
-	Instance     *string
+	Instance     *domain.InstanceName
 	SeriesID     *int
 	SeasonNumber *int
 	Decision     *string
@@ -83,7 +84,7 @@ type DecisionRepository interface {
 }
 
 type GrabFilter struct {
-	Instance     *string
+	Instance     *domain.InstanceName
 	SeriesID     *int
 	SeasonNumber *int
 	Status       *string
@@ -104,7 +105,7 @@ type MatchKey struct {
 	ReleaseTitle string
 	SeriesID     int
 	SeasonNumber int
-	InstanceName string
+	InstanceName domain.InstanceName
 }
 
 type GrabRepository interface {
@@ -194,7 +195,7 @@ type GrabRepository interface {
 	// the decision was made). A zero return on a missing-triple query
 	// is NOT an error — it is the normal "this scan has never grabbed
 	// here" case. Errors should surface only on real DB failures.
-	CountImportedEpisodes(ctx context.Context, instance string, seriesID, seasonNumber int) (int, error)
+	CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID, seasonNumber int) (int, error)
 
 	// GetByID returns the grab_records row matching the supplied uuid.
 	// Returns ErrNotFound on miss. 043c: powers the episode-files
@@ -204,10 +205,10 @@ type GrabRepository interface {
 
 	// CountReplaysSince — count of grab_records rows for instanceName
 	// whose replay_of_id IS NOT NULL AND created_at >= since.
-	CountReplaysSince(ctx context.Context, instanceName string, since time.Time) (int, error)
+	CountReplaysSince(ctx context.Context, instanceName domain.InstanceName, since time.Time) (int, error)
 
 	// CountReplaysAll — lifetime count of replays for instanceName.
-	CountReplaysAll(ctx context.Context, instanceName string) (int, error)
+	CountReplaysAll(ctx context.Context, instanceName domain.InstanceName) (int, error)
 }
 
 type CooldownRepository interface {
@@ -218,7 +219,7 @@ type CooldownRepository interface {
 }
 
 type OriginRelease struct {
-	InstanceName string
+	InstanceName domain.InstanceName
 	SeriesID     int
 	SeasonNumber int
 	GUID         string
@@ -243,7 +244,7 @@ type Transactor interface {
 }
 
 type OriginReleaseRepository interface {
-	Get(ctx context.Context, instance string, seriesID, season int) (OriginRelease, bool, error)
+	Get(ctx context.Context, instance domain.InstanceName, seriesID, season int) (OriginRelease, bool, error)
 	Upsert(ctx context.Context, rec OriginRelease) error
 }
 
@@ -374,7 +375,7 @@ type NoBetterCounterRepository interface {
 type SeriesCacheRepository interface {
 	// Get returns the cache row matching (instance_name, sonarr_series_id)
 	// regardless of soft-delete state. ports.ErrNotFound on miss.
-	Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
 
 	// Upsert writes or replaces the row keyed on the composite PK. If
 	// the entry's DeletedAt is non-nil the row is stored as soft-deleted;
@@ -384,12 +385,12 @@ type SeriesCacheRepository interface {
 
 	// SoftDelete sets deleted_at to now on the matching row.
 	// ports.ErrNotFound on miss.
-	SoftDelete(ctx context.Context, instanceName string, sonarrSeriesID int) error
+	SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error
 
 	// ListActiveByInstance returns every non-soft-deleted row for the
 	// instance. Used by the queue handler (041g) to join cache metadata
 	// onto live queue items.
-	ListActiveByInstance(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
+	ListActiveByInstance(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error)
 
 	// ListByFilter returns active (non-soft-deleted) cache rows for an
 	// instance, narrowed by SeriesCacheFilter, sorted per
@@ -399,7 +400,7 @@ type SeriesCacheRepository interface {
 	// repo edge; the HTTP edge (045b) clamps tighter.
 	ListByFilter(
 		ctx context.Context,
-		instanceName string,
+		instanceName domain.InstanceName,
 		filter SeriesCacheFilter,
 		sort SeriesCacheSort,
 		page Pagination,
@@ -410,7 +411,7 @@ type SeriesCacheRepository interface {
 	// series id; missing ids map to zero-value LastGrabInfo (empty time +
 	// empty string).
 	FetchLastGrabInfo(
-		ctx context.Context, instanceName string, seriesIDs []int,
+		ctx context.Context, instanceName domain.InstanceName, seriesIDs []int,
 	) (map[int]LastGrabInfo, error)
 
 	// ListDistinctNetworks returns the sorted, distinct, non-empty
@@ -422,7 +423,7 @@ type SeriesCacheRepository interface {
 	// dropdown render perf).
 	ListDistinctNetworks(
 		ctx context.Context,
-		instanceName string,
+		instanceName domain.InstanceName,
 	) ([]string, error)
 }
 

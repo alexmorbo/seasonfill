@@ -119,7 +119,7 @@ type CanonEpisode struct {
 // episode. Composite key (InstanceName, EpisodeID); rows are written
 // by the Sonarr sync path only (§5.4).
 type EpisodeState struct {
-	InstanceName  string
+	InstanceName  domain.InstanceName
 	EpisodeID     int64
 	Monitored     bool
 	HasFile       bool

@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 const (
@@ -267,7 +268,7 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 				hit bool
 			)
 			if h.episodesCache != nil {
-				key := sonarr.EpisodesCacheKey(name, seriesID)
+				key := sonarr.EpisodesCacheKey(shareddomain.InstanceName(name), seriesID)
 				if cached, ok := h.episodesCache.Get(key); ok {
 					eps = cached
 					hit = true
@@ -289,7 +290,7 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 				}
 				eps = fetched
 				if h.episodesCache != nil {
-					h.episodesCache.Put(sonarr.EpisodesCacheKey(name, seriesID), eps)
+					h.episodesCache.Put(sonarr.EpisodesCacheKey(shareddomain.InstanceName(name), seriesID), eps)
 				}
 			}
 			resultsMu.Lock()
@@ -368,7 +369,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 	if h.seriesCache == nil || len(items) == 0 {
 		return
 	}
-	entries, err := h.seriesCache.ListActiveByInstance(ctx, name)
+	entries, err := h.seriesCache.ListActiveByInstance(ctx, shareddomain.InstanceName(name))
 	if err != nil {
 		h.logger.WarnContext(ctx, "missing_cache_lookup_failed",
 			slog.String("instance", name), slog.String("error", err.Error()))
@@ -758,7 +759,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	entries, total, hasMore, next, lErr := lister.ListByFilter(
-		ctx, name,
+		ctx, shareddomain.InstanceName(name),
 		ports.SeriesCacheFilter{
 			State:         state,
 			Search:        q,
@@ -786,7 +787,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 	}
 	lastGrabs := map[int]ports.LastGrabInfo{}
 	if grabFetcher, ok := h.seriesCache.(seriesCacheLastGrabFetcher); ok && len(ids) > 0 {
-		lg, gErr := grabFetcher.FetchLastGrabInfo(ctx, name, ids)
+		lg, gErr := grabFetcher.FetchLastGrabInfo(ctx, shareddomain.InstanceName(name), ids)
 		if gErr != nil {
 			// Soft-fail: never 5xx on the aggregate fetch — render
 			// rows without the derived fields. Mirrors
@@ -821,7 +822,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 type seriesCacheLister interface {
 	ListByFilter(
 		ctx context.Context,
-		instanceName string,
+		instanceName shareddomain.InstanceName,
 		filter ports.SeriesCacheFilter,
 		sort ports.SeriesCacheSort,
 		page ports.Pagination,
@@ -831,7 +832,7 @@ type seriesCacheLister interface {
 // seriesCacheLastGrabFetcher is a capability check — handler degrades
 // gracefully if the backing repo doesn't satisfy it.
 type seriesCacheLastGrabFetcher interface {
-	FetchLastGrabInfo(ctx context.Context, instanceName string, seriesIDs []int) (map[int]ports.LastGrabInfo, error)
+	FetchLastGrabInfo(ctx context.Context, instanceName shareddomain.InstanceName, seriesIDs []int) (map[int]ports.LastGrabInfo, error)
 }
 
 // kickPendingForSeriesCacheEntries is the shared kick: lifts
@@ -1002,7 +1003,7 @@ func (h *InstancesHandler) ListSeriesCacheNetworks(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	nets, err := lister.ListDistinctNetworks(ctx, name)
+	nets, err := lister.ListDistinctNetworks(ctx, shareddomain.InstanceName(name))
 	if err != nil {
 		h.logger.ErrorContext(ctx, "series_cache_networks_failed",
 			slog.String("instance", name),
@@ -1017,7 +1018,7 @@ func (h *InstancesHandler) ListSeriesCacheNetworks(c *gin.Context) {
 // distinct-networks capability. The production repository satisfies
 // it; tests can supply a focused fake.
 type seriesCacheDistinctNetworksLister interface {
-	ListDistinctNetworks(ctx context.Context, instanceName string) ([]string, error)
+	ListDistinctNetworks(ctx context.Context, instanceName shareddomain.InstanceName) ([]string, error)
 }
 
 // toSeriesCacheItem maps the domain CacheEntry + the aggregated grab

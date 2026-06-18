@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -65,7 +66,7 @@ type Input struct {
 // shape into one dto.ScanTriggerItem for the 202 response.
 type StartResult struct {
 	ScanRunID uuid.UUID
-	Instance  string
+	Instance  domain.InstanceName
 	Started   time.Time
 	Status    string
 }
@@ -92,7 +93,7 @@ func (u *UseCase) Start(ctx context.Context, in Input) (StartResult, error) {
 		return StartResult{}, err
 	}
 
-	inst, ok := u.instancesByName()[original.InstanceName]
+	inst, ok := u.instancesByName()[string(original.InstanceName)]
 	if !ok {
 		return StartResult{}, fmt.Errorf("unknown instance: %s", original.InstanceName)
 	}
@@ -143,7 +144,7 @@ func (u *UseCase) Start(ctx context.Context, in Input) (StartResult, error) {
 	u.logger.InfoContext(createCtx, "rescan_started",
 		slog.String("original_id", original.ID.String()),
 		slog.String("new_decision_id", newDecisionID.String()),
-		slog.String("instance", original.InstanceName),
+		slog.String("instance", string(original.InstanceName)),
 		slog.String("scan_run_id", newScanID.String()),
 		slog.Bool("async", true),
 	)
@@ -228,7 +229,7 @@ func (u *UseCase) runDetached(ctx context.Context, original decision.Decision,
 	u.logger.InfoContext(ctx, "rescan_succeeded",
 		slog.String("original_id", original.ID.String()),
 		slog.String("new_id", newDec.ID.String()),
-		slog.String("instance", original.InstanceName),
+		slog.String("instance", string(original.InstanceName)),
 		slog.Int("series_id", original.SeriesID),
 		slog.Int("season", original.SeasonNumber),
 		slog.String("new_outcome", string(newDec.Outcome)),
@@ -266,7 +267,7 @@ func (u *UseCase) finalizeAsFailed(rec ports.ScanRecord, started time.Time, caus
 	}
 	u.logger.WarnContext(writeCtx, "rescan_failed",
 		slog.String("scan_run_id", rec.ID.String()),
-		slog.String("instance", rec.InstanceName),
+		slog.String("instance", string(rec.InstanceName)),
 		slog.Float64("duration_seconds", finish.Sub(started).Seconds()),
 		slog.String("error", rec.ErrorMessage),
 	)

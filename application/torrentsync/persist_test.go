@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeTorrentsRepo records every call so tests can assert
@@ -27,7 +28,7 @@ type fakeTorrentsRepo struct {
 	batchErr error
 }
 
-func (f *fakeTorrentsRepo) Upsert(_ context.Context, _ string, e Entry) error {
+func (f *fakeTorrentsRepo) Upsert(_ context.Context, _ domain.InstanceName, e Entry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.upsErr != nil {
@@ -37,7 +38,7 @@ func (f *fakeTorrentsRepo) Upsert(_ context.Context, _ string, e Entry) error {
 	return nil
 }
 
-func (f *fakeTorrentsRepo) BatchUpsert(_ context.Context, _ string, entries []Entry, _ time.Time) error {
+func (f *fakeTorrentsRepo) BatchUpsert(_ context.Context, _ domain.InstanceName, entries []Entry, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.batchErr != nil {
@@ -49,14 +50,14 @@ func (f *fakeTorrentsRepo) BatchUpsert(_ context.Context, _ string, entries []En
 	return nil
 }
 
-func (f *fakeTorrentsRepo) MarkAbsent(_ context.Context, _ string, hash string, _ time.Time) error {
+func (f *fakeTorrentsRepo) MarkAbsent(_ context.Context, _ domain.InstanceName, hash string, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.absent = append(f.absent, hash)
 	return nil
 }
 
-func (f *fakeTorrentsRepo) List(_ context.Context, _ string) ([]Entry, error) {
+func (f *fakeTorrentsRepo) List(_ context.Context, _ domain.InstanceName) ([]Entry, error) {
 	return f.listResp, f.listErr
 }
 
@@ -64,7 +65,7 @@ func (f *fakeTorrentsRepo) List(_ context.Context, _ string) ([]Entry, error) {
 // exercise this path; default to nil to keep the stub minimal.
 // Tests that need it (query_test.go) embed fakeTorrentsRepo and
 // override the method.
-func (f *fakeTorrentsRepo) FindByHashes(_ context.Context, _ string, _ []string) ([]Entry, error) {
+func (f *fakeTorrentsRepo) FindByHashes(_ context.Context, _ domain.InstanceName, _ []string) ([]Entry, error) {
 	return nil, nil
 }
 

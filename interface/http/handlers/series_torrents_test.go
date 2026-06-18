@@ -29,7 +29,7 @@ type stubTorrentsCachePort struct {
 	err   error
 }
 
-func (s stubTorrentsCachePort) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+func (s stubTorrentsCachePort) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
 	return s.entry, s.err
 }
 
@@ -53,7 +53,7 @@ type stubTorrentsLookup struct {
 	err    error
 }
 
-func (s stubTorrentsLookup) HashesForSeries(_ context.Context, _ string, _ int) ([]string, error) {
+func (s stubTorrentsLookup) HashesForSeries(_ context.Context, _ domain.InstanceName, _ int) ([]string, error) {
 	return s.hashes, s.err
 }
 
@@ -63,23 +63,23 @@ type stubTorrentsRepo struct {
 	byHash map[string]torrentsync.Entry
 }
 
-func (s stubTorrentsRepo) Upsert(_ context.Context, _ string, _ torrentsync.Entry) error {
+func (s stubTorrentsRepo) Upsert(_ context.Context, _ domain.InstanceName, _ torrentsync.Entry) error {
 	return nil
 }
 
-func (s stubTorrentsRepo) BatchUpsert(_ context.Context, _ string, _ []torrentsync.Entry, _ time.Time) error {
+func (s stubTorrentsRepo) BatchUpsert(_ context.Context, _ domain.InstanceName, _ []torrentsync.Entry, _ time.Time) error {
 	return nil
 }
 
-func (s stubTorrentsRepo) MarkAbsent(_ context.Context, _ string, _ string, _ time.Time) error {
+func (s stubTorrentsRepo) MarkAbsent(_ context.Context, _ domain.InstanceName, _ string, _ time.Time) error {
 	return nil
 }
 
-func (s stubTorrentsRepo) List(_ context.Context, _ string) ([]torrentsync.Entry, error) {
+func (s stubTorrentsRepo) List(_ context.Context, _ domain.InstanceName) ([]torrentsync.Entry, error) {
 	return nil, nil
 }
 
-func (s stubTorrentsRepo) FindByHashes(_ context.Context, _ string, hashes []string) ([]torrentsync.Entry, error) {
+func (s stubTorrentsRepo) FindByHashes(_ context.Context, _ domain.InstanceName, hashes []string) ([]torrentsync.Entry, error) {
 	out := make([]torrentsync.Entry, 0, len(hashes))
 	for _, h := range hashes {
 		if e, ok := s.byHash[h]; ok {

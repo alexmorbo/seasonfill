@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // AuditHandler exposes the four read-only audit endpoints. Constructor
@@ -81,6 +82,18 @@ func stringPtrFromQuery(c *gin.Context, name string) *string {
 		return nil
 	}
 	return &v
+}
+
+// instanceNamePtrFromQuery is the typed counterpart of
+// stringPtrFromQuery for the now-typed Instance filter fields
+// (*domain.InstanceName). Returns nil for empty / absent values.
+func instanceNamePtrFromQuery(c *gin.Context, name string) *domain.InstanceName {
+	v := c.Query(name)
+	if v == "" {
+		return nil
+	}
+	n := domain.InstanceName(v)
+	return &n
 }
 
 // --- DTO mapping helpers (DTOs live in interface/http/dto; domain and
@@ -249,7 +262,7 @@ func (h *AuditHandler) ListScans(c *gin.Context) {
 	filter := ports.ScanFilter{
 		From:     from,
 		To:       to,
-		Instance: stringPtrFromQuery(c, "instance"),
+		Instance: instanceNamePtrFromQuery(c, "instance"),
 		Status:   stringPtrFromQuery(c, "status"),
 	}
 	recs, next, err := h.scans.List(c.Request.Context(), filter, ports.Pagination{Limit: limit, Cursor: cursor})
@@ -387,7 +400,7 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 		To:           to,
 		SeriesID:     seriesID,
 		SeasonNumber: season,
-		Instance:     stringPtrFromQuery(c, "instance"),
+		Instance:     instanceNamePtrFromQuery(c, "instance"),
 		Decision:     stringPtrFromQuery(c, "decision"),
 	}
 	if v := c.Query("scan_run_id"); v != "" {
@@ -458,7 +471,7 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		To:           to,
 		SeriesID:     seriesID,
 		SeasonNumber: season,
-		Instance:     stringPtrFromQuery(c, "instance"),
+		Instance:     instanceNamePtrFromQuery(c, "instance"),
 		Status:       stringPtrFromQuery(c, "status"),
 	}
 	ctx := c.Request.Context()
@@ -601,7 +614,7 @@ func (h *AuditHandler) collectGrabIntents(ctx context.Context, recs []grab.Recor
 // Used by collectGrabCacheFields to deduplicate per-page lookups
 // across multiple grabs of the same series.
 type grabKey struct {
-	instance string
+	instance domain.InstanceName
 	seriesID int
 }
 
@@ -626,7 +639,7 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 		return slugs, hashes
 	}
 	// Distinct instances on this page.
-	instances := make(map[string]struct{}, 1)
+	instances := make(map[domain.InstanceName]struct{}, 1)
 	for _, r := range recs {
 		if r.InstanceName == "" {
 			continue
@@ -643,7 +656,7 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 		if err != nil {
 			h.logger.WarnContext(ctx, "audit_list_grabs_cache_lookup_failed",
 				slog.String("endpoint", "/api/v1/grabs"),
-				slog.String("instance", inst),
+				slog.String("instance", string(inst)),
 				slog.String("error", err.Error()))
 			continue
 		}

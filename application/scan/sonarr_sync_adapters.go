@@ -68,7 +68,7 @@ func (a *networksAdapter) SetForSeries(ctx context.Context, seriesID domain.Seri
 }
 
 // SonarrClientLookup resolves a Sonarr client by instance name.
-type SonarrClientLookup func(instanceName string) (*sonarr.Client, bool)
+type SonarrClientLookup func(instanceName domain.InstanceName) (*sonarr.Client, bool)
 
 // Syncer is the SeriesSyncer implementation for the webhook handler.
 // Owns the Sonarr client lookup + the SyncDeps for the entity-model writes.
@@ -80,7 +80,7 @@ type Syncer struct {
 
 // SyncFromSonarrAPI fetches the three Sonarr payloads (series, episodes,
 // episode files) and calls SyncSeriesFromSonarr.
-func (s *Syncer) SyncFromSonarrAPI(ctx context.Context, instanceName string, sonarrSeriesID int) error {
+func (s *Syncer) SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error {
 	client, ok := s.Lookup(instanceName)
 	if !ok {
 		return fmt.Errorf("sync from sonarr: unknown instance %q", instanceName)

@@ -8,6 +8,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // NewWebhookReconcileLookup adapts handlers.InstanceRegistry (reload-
@@ -41,10 +42,10 @@ func NewWebhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.Ins
 // infrastructure/sonarr).
 type ReconcilerAdapter struct{ Inner *webhookinstall.Reconciler }
 
-func (a ReconcilerAdapter) Reconcile(ctx context.Context, name string) (any, error) {
-	return a.Inner.Reconcile(ctx, name)
+func (a ReconcilerAdapter) Reconcile(ctx context.Context, name domain.InstanceName) (any, error) {
+	return a.Inner.Reconcile(ctx, string(name))
 }
 
-func (a ReconcilerAdapter) HandleInstanceDeleted(ctx context.Context, name string) {
-	a.Inner.HandleInstanceDeleted(ctx, name)
+func (a ReconcilerAdapter) HandleInstanceDeleted(ctx context.Context, name domain.InstanceName) {
+	a.Inner.HandleInstanceDeleted(ctx, string(name))
 }

@@ -26,7 +26,7 @@ import (
 // Detail is the composer's domain object — the handler maps it
 // onto dto.SeriesDetailResponse without further DB queries.
 type Detail struct {
-	Instance       string
+	Instance       domain.InstanceName
 	SonarrSeriesID int
 	SeriesID       domain.SeriesID
 	Lang           string
@@ -108,7 +108,7 @@ type CastDetail struct {
 type RecommendationDetail struct {
 	Series         series.Canon
 	InLibrary      bool
-	InstanceName   string
+	InstanceName   domain.InstanceName
 	SonarrSeriesID int
 }
 
@@ -154,7 +154,7 @@ type Deps struct {
 	ExternalIDs     ExternalIDsPort
 	Recommendations RecommendationsPort
 	SyncLog         SyncLogPort
-	SonarrFor       func(instanceName string) (SonarrQueueLister, bool)
+	SonarrFor       func(instanceName domain.InstanceName) (SonarrQueueLister, bool)
 	Logger          *slog.Logger
 	Now             func() time.Time
 	// MediaResolver translates raw TMDB image paths on canon entities into the
@@ -187,7 +187,7 @@ func NewComposer(d Deps) *Composer {
 
 // Get runs the 9-branch composite read for the series detail page.
 // `lang` defaults to "en-US" when empty.
-func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID int, lang string) (*Detail, error) {
+func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int, lang string) (*Detail, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -289,7 +289,7 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	// Branch h — torrents (placeholder until A-* branch).
 	g.Go(func() error {
 		c.d.Logger.DebugContext(gctx, "torrents_placeholder",
-			slog.String("instance_name", instanceName),
+			slog.String("instance_name", string(instanceName)),
 			slog.Int("sonarr_series_id", sonarrSeriesID),
 			slog.String("note", "qbit-deferred"))
 		// Always succeeds — placeholder doesn't fail the response.
@@ -334,7 +334,7 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	c.resolveAssets(ctx, d)
 
 	c.d.Logger.InfoContext(ctx, "series_detail_composed",
-		slog.String("instance_name", instanceName),
+		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.String("lang", lang),
@@ -348,7 +348,7 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 // SPA's seasons-accordion polling. Internally calls
 // loadSeasonsAndEpisodes filtered to the single season + the
 // canon series for the parent ids.
-func (c *Composer) GetSeason(ctx context.Context, instanceName string, sonarrSeriesID, seasonNumber int, lang string) (*Detail, error) {
+func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID, seasonNumber int, lang string) (*Detail, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -386,7 +386,7 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName string, sonarrSer
 	d.SyncedAt = c.d.Now()
 	c.resolveAssets(ctx, d)
 	c.d.Logger.InfoContext(ctx, "series_season_composed",
-		slog.String("instance_name", instanceName),
+		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("season_number", seasonNumber),
@@ -415,7 +415,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		// per-instance file state — failure surfaces as no-on-disk
 		// rendering, NOT a request failure.
 		c.d.Logger.WarnContext(ctx, "episode_states_failed",
-			slog.String("instance_name", d.Instance),
+			slog.String("instance_name", string(d.Instance)),
 			slog.Int64("series_id", int64(d.SeriesID)),
 			slog.String("error", err.Error()))
 		states = nil
@@ -435,7 +435,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		stats, serr := c.d.SeasonStats.ListBySeries(ctx, d.Instance, d.SonarrSeriesID)
 		if serr != nil {
 			c.d.Logger.WarnContext(ctx, "season_stats_failed",
-				slog.String("instance_name", d.Instance),
+				slog.String("instance_name", string(d.Instance)),
 				slog.Int("sonarr_series_id", d.SonarrSeriesID),
 				slog.String("error", serr.Error()))
 		} else {

@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // CounterBucketDTO — one bucket in a counters response. BucketStart is
 // the UTC start of the bucket (hourly for 24h, daily otherwise). The
@@ -29,11 +33,11 @@ type CounterTotals struct {
 // above/below-average copy. Float emitted at full precision; the SPA
 // formats to 1 decimal place.
 type InstanceCountersDTO struct {
-	InstanceName string             `json:"instance_name" example:"homelab"`
-	Window       string             `json:"window"        example:"24h" enums:"24h,7d,30d"`
-	Totals       CounterTotals      `json:"totals"`
-	Sparkline    []CounterBucketDTO `json:"sparkline"`
-	AvgGrabs7d   float64            `json:"avg_grabs_7d"  example:"9.5"`
+	InstanceName domain.InstanceName `json:"instance_name" example:"homelab"`
+	Window       string              `json:"window"        example:"24h" enums:"24h,7d,30d"`
+	Totals       CounterTotals       `json:"totals"`
+	Sparkline    []CounterBucketDTO  `json:"sparkline"`
+	AvgGrabs7d   float64             `json:"avg_grabs_7d"  example:"9.5"`
 }
 
 // CountersAggregateDTO — body of GET /api/v1/counters?window=...

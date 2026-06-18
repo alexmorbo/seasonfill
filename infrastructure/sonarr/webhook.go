@@ -1,15 +1,19 @@
 package sonarr
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // webhookPayloadDTO mirrors Sonarr v4's WebhookPayload + the union of
 // its specialised sub-payloads (Grab, Import, ManualInteractionRequired).
 // Never imported by domain/ or application/.
 type webhookPayloadDTO struct {
-	EventType      string     `json:"eventType"`
-	InstanceName   string     `json:"instanceName"`
-	ApplicationURL string     `json:"applicationUrl"`
-	EventTimestamp *time.Time `json:"eventTimestamp,omitempty"`
+	EventType      string              `json:"eventType"`
+	InstanceName   domain.InstanceName `json:"instanceName"`
+	ApplicationURL string              `json:"applicationUrl"`
+	EventTimestamp *time.Time          `json:"eventTimestamp,omitempty"`
 
 	DownloadID         string `json:"downloadId,omitempty"`
 	DownloadClient     string `json:"downloadClient,omitempty"`

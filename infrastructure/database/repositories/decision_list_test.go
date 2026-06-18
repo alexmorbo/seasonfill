@@ -13,9 +13,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance string, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
+func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = outcome
@@ -73,7 +74,7 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	seedDecision(t, db, scanRun, "main", 200, 1, decision.OutcomeSkip, base.Add(2*time.Second))
 	seedDecision(t, db, scanRun, "secondary", 100, 1, decision.OutcomeSkip, base.Add(3*time.Second))
 
-	instance := "main"
+	instance := domain.InstanceName("main")
 	seriesID := 100
 	got, _, err := NewDecisionRepository(db).List(context.Background(),
 		ports.DecisionFilter{Instance: &instance, SeriesID: &seriesID},
@@ -81,7 +82,7 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, d := range got {
-		assert.Equal(t, "main", d.InstanceName)
+		assert.Equal(t, domain.InstanceName("main"), d.InstanceName)
 		assert.Equal(t, 100, d.SeriesID)
 	}
 }

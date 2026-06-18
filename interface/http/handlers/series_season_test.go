@@ -67,7 +67,7 @@ func newSeasonComposer() *seriesdetail.Composer {
 		ExternalIDs:       emptyExtIDs{},
 		Recommendations:   emptyRecs{},
 		SyncLog:           emptySyncLog{},
-		SonarrFor: func(_ string) (seriesdetail.SonarrQueueLister, bool) {
+		SonarrFor: func(_ domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			return fakeSonarrQ2{}, true
 		},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),

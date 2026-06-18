@@ -19,9 +19,10 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleEntry(instance string, id int) series.CacheEntry {
+func sampleEntry(instance domain.InstanceName, id int) series.CacheEntry {
 	// Post B-1b cutover: every cache row resolves to a distinct canon
 	// row via natural-key dedup (TMDB > TVDB > IMDB). To preserve
 	// per-(instance, sonarr_id) test isolation we derive unique
@@ -55,7 +56,7 @@ func sampleEntry(instance string, id int) series.CacheEntry {
 // minimal-invasive bridge for tests that previously seeded via
 // CacheEntry.Network. Empty `name` is a no-op (clears nothing — just
 // skips so the row stays without a network join).
-func seedNetworkJoinForCache(t *testing.T, db *gorm.DB, instance string, sonarrID int, name string) {
+func seedNetworkJoinForCache(t *testing.T, db *gorm.DB, instance domain.InstanceName, sonarrID int, name string) {
 	t.Helper()
 	if name == "" {
 		return
@@ -86,7 +87,7 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
 	got, err := repo.Get(ctx, "main", 12)
 	require.NoError(t, err)
-	assert.Equal(t, "main", got.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
 	assert.Equal(t, 12, got.SonarrSeriesID)
 	assert.Equal(t, "Test Series", got.Title)
 	assert.Equal(t, "test-series", got.TitleSlug)
@@ -181,7 +182,7 @@ func TestSeriesCacheRepository_ListActiveByInstance(t *testing.T) {
 	assert.Len(t, active, 2)
 	for _, e := range active {
 		assert.True(t, e.IsActive())
-		assert.Equal(t, "main", e.InstanceName)
+		assert.Equal(t, domain.InstanceName("main"), e.InstanceName)
 		assert.NotEqual(t, 2, e.SonarrSeriesID)
 	}
 
@@ -852,7 +853,7 @@ func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 func seedPosterAssetOnCanon(
 	t *testing.T,
 	db *gorm.DB,
-	instance string,
+	instance domain.InstanceName,
 	sonarrID int,
 	path string,
 ) {

@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -30,13 +31,13 @@ import (
 // write for that instance — used both for explicit opt-out and for
 // graceful degradation when a webhook fires from an instance not in
 // our config.
-type GuidCooldownLookup func(instance string) time.Duration
+type GuidCooldownLookup func(instance domain.InstanceName) time.Duration
 
 // SeriesSyncer is the E-1 (Story 210) hook: when non-nil it overrides
 // the thin CacheEntry path on SeriesAdd with a full Sonarr API sync
 // (PRD §5.5 sonarr_sync worker trigger — new series_cache from webhook).
 type SeriesSyncer interface {
-	SyncFromSonarrAPI(ctx context.Context, instanceName string, sonarrSeriesID int) error
+	SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error
 }
 
 // UseCase processes a Sonarr webhook event end-to-end: it looks up the
@@ -112,7 +113,7 @@ func New(d Deps) *UseCase {
 	}
 	lookup := d.GUIDCooldownLookup
 	if lookup == nil {
-		lookup = func(string) time.Duration { return 0 }
+		lookup = func(domain.InstanceName) time.Duration { return 0 }
 	}
 	clientFor := d.SonarrClientFor
 	if clientFor == nil {
@@ -151,7 +152,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	case webhook.EventTypeUnsupported:
 		u.logger.DebugContext(ctx, "webhook_event_no_op",
 			slog.String("event_type", string(evt.Type)),
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
 		return nil
@@ -166,7 +167,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	default:
 		u.logger.WarnContext(ctx, "webhook_event_unknown_type",
 			slog.String("event_type", string(evt.Type)),
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 		)
 		return nil
 	}
@@ -185,7 +186,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			u.logger.InfoContext(ctx, "webhook_orphan_event",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("event_type", string(evt.Type)),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("release_title", evt.ReleaseTitle),
@@ -204,7 +205,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 
 	if !rec.Status.CanTransitionTo(target) {
 		u.logger.DebugContext(ctx, "webhook_event_idempotent_skip",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("event_type", string(evt.Type)),
 			slog.String("current_status", string(rec.Status)),
 			slog.String("target_status", string(target)),
@@ -216,7 +217,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 
 	if target == grab.StatusImportFailed && u.guidCooldownLookup(evt.InstanceName) == 0 {
 		u.logger.WarnContext(ctx, "webhook_unknown_instance_no_cooldown",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("event_type", string(evt.Type)),
 			slog.String("grab_id", rec.ID.String()),
 			slog.String("reason", "lookup_returned_zero_or_unconfigured"),
@@ -256,7 +257,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	}
 	if txErr != nil {
 		u.logger.ErrorContext(ctx, "webhook_process_failed",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("event_type", string(evt.Type)),
 			slog.String("grab_id", rec.ID.String()),
 			slog.String("error", txErr.Error()),
@@ -273,7 +274,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	}
 
 	u.logger.InfoContext(ctx, "webhook_event_applied",
-		slog.String("instance", evt.InstanceName),
+		slog.String("instance", string(evt.InstanceName)),
 		slog.String("event_type", string(evt.Type)),
 		slog.String("status", string(target)),
 		slog.String("grab_id", rec.ID.String()),
@@ -304,7 +305,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	parsed := grab.ParseTorrentHash(evt.DownloadID)
 	if parsed == nil && evt.ReleaseSize == 0 {
 		u.logger.DebugContext(ctx, "webhook_grab_no_metadata",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("download_id", evt.DownloadID),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
@@ -322,7 +323,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			u.logger.InfoContext(ctx, "webhook_grab_orphan_no_row",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("release_title", evt.ReleaseTitle),
 				slog.Int("series_id", evt.SeriesID),
@@ -336,7 +337,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	if parsed != nil {
 		if rec.TorrentHash != nil {
 			u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()))
 		} else {
 			hash := strings.ToLower(*parsed)
@@ -368,14 +369,14 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 			if txErr != nil {
 				if errors.Is(txErr, ports.ErrNotFound) {
 					u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
-						slog.String("instance", evt.InstanceName),
+						slog.String("instance", string(evt.InstanceName)),
 						slog.String("grab_id", rec.ID.String()))
 					return nil
 				}
 				return fmt.Errorf("webhook grab hash+map: %w: %w", ports.ErrDBUnavailable, txErr)
 			}
 			u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("hash", hash),
@@ -389,20 +390,20 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	if evt.ReleaseSize > 0 {
 		if rec.SizeBytes != nil {
 			u.logger.DebugContext(ctx, "webhook_grab_size_already_set",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()),
 				slog.Int64("existing_size", *rec.SizeBytes))
 		} else if err := u.grabs.UpdateSizeBytes(ctx, rec.ID, evt.ReleaseSize); err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
 				u.logger.InfoContext(ctx, "webhook_grab_size_row_vanished",
-					slog.String("instance", evt.InstanceName),
+					slog.String("instance", string(evt.InstanceName)),
 					slog.String("grab_id", rec.ID.String()))
 				return nil
 			}
 			return fmt.Errorf("update size_bytes: %w: %w", ports.ErrDBUnavailable, err)
 		} else {
 			u.logger.InfoContext(ctx, "webhook_grab_size_captured",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()),
 				slog.Int64("size_bytes", evt.ReleaseSize))
 		}
@@ -419,7 +420,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error {
 	if evt.SeriesID == 0 {
 		u.logger.DebugContext(ctx, "webhook_series_add_missing_id",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
 		return nil
@@ -428,14 +429,14 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 	if u.seriesSyncer != nil {
 		if err := u.seriesSyncer.SyncFromSonarrAPI(ctx, evt.InstanceName, evt.SeriesID); err != nil {
 			u.logger.WarnContext(ctx, "webhook_series_add_full_sync_failed",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.Int("series_id", evt.SeriesID),
 				slog.String("error", err.Error()),
 			)
 			// Fall through to the thin path as a safety net.
 		} else {
 			u.logger.InfoContext(ctx, "webhook_series_add_synced",
-				slog.String("instance", evt.InstanceName),
+				slog.String("instance", string(evt.InstanceName)),
 				slog.Int("series_id", evt.SeriesID),
 			)
 			return nil
@@ -447,14 +448,14 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 	entry := webhookSeriesToCacheEntry(evt)
 	if err := u.seriesCache.Upsert(ctx, entry); err != nil {
 		u.logger.WarnContext(ctx, "webhook_series_add_upsert_failed",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.Int("series_id", evt.SeriesID),
 			slog.String("error", err.Error()),
 		)
 		return nil
 	}
 	u.logger.InfoContext(ctx, "webhook_series_add_cached",
-		slog.String("instance", evt.InstanceName),
+		slog.String("instance", string(evt.InstanceName)),
 		slog.Int("series_id", evt.SeriesID),
 		slog.String("title", evt.SeriesTitle),
 	)
@@ -472,7 +473,7 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 	}
 	if evt.SeriesID == 0 {
 		u.logger.DebugContext(ctx, "webhook_series_delete_missing_id",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("raw_event_type", evt.RawEventType),
 		)
 		return nil
@@ -490,14 +491,14 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 	)
 	if err != nil {
 		u.logger.WarnContext(ctx, "webhook_series_delete_cascade_failed",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.Int("series_id", evt.SeriesID),
 			slog.String("error", err.Error()),
 		)
 		return nil
 	}
 	u.logger.InfoContext(ctx, "webhook_series_deleted_cascade_ok",
-		slog.String("instance", evt.InstanceName),
+		slog.String("instance", string(evt.InstanceName)),
 		slog.Int("series_id", evt.SeriesID),
 		slog.Bool("cache_deleted", cacheDeleted),
 		slog.Int("episode_states_deleted", episodeRows),
@@ -538,7 +539,7 @@ func webhookSeriesToCacheEntry(evt webhook.Event) series.CacheEntry {
 // result=disabled. Idempotent: a row whose Parsed is already populated
 // (re-delivery) is skipped silently.
 func (u *UseCase) runParseOnGrab(ctx context.Context, id uuid.UUID, evt webhook.Event) {
-	snap, ok := u.instanceFor(evt.InstanceName)
+	snap, ok := u.instanceFor(string(evt.InstanceName))
 	if !ok {
 		observability.IncParseRelease(evt.InstanceName, "skipped")
 		return
@@ -546,10 +547,10 @@ func (u *UseCase) runParseOnGrab(ctx context.Context, id uuid.UUID, evt webhook.
 	if !snap.ParseOnGrabEnabled {
 		observability.IncParseRelease(evt.InstanceName, "disabled")
 		u.logger.DebugContext(ctx, "webhook_parse_disabled",
-			slog.String("instance", evt.InstanceName))
+			slog.String("instance", string(evt.InstanceName)))
 		return
 	}
-	client, ok := u.sonarrClientFor(evt.InstanceName)
+	client, ok := u.sonarrClientFor(string(evt.InstanceName))
 	if !ok || client == nil {
 		observability.IncParseRelease(evt.InstanceName, "skipped")
 		return
@@ -567,7 +568,7 @@ func (u *UseCase) runParseOnGrab(ctx context.Context, id uuid.UUID, evt webhook.
 	if err != nil {
 		observability.IncParseRelease(evt.InstanceName, "error")
 		u.logger.WarnContext(ctx, "webhook_parse_failed",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("grab_id", id.String()),
 			slog.String("error", err.Error()))
 		return
@@ -590,14 +591,14 @@ func (u *UseCase) runParseOnGrab(ctx context.Context, id uuid.UUID, evt webhook.
 	if err := u.grabs.UpdateParsed(ctx, id, payload, parsedAt); err != nil {
 		observability.IncParseRelease(evt.InstanceName, "error")
 		u.logger.WarnContext(ctx, "webhook_parse_persist_failed",
-			slog.String("instance", evt.InstanceName),
+			slog.String("instance", string(evt.InstanceName)),
 			slog.String("grab_id", id.String()),
 			slog.String("error", err.Error()))
 		return
 	}
 	observability.IncParseRelease(evt.InstanceName, "ok")
 	u.logger.InfoContext(ctx, "webhook_parse_applied",
-		slog.String("instance", evt.InstanceName),
+		slog.String("instance", string(evt.InstanceName)),
 		slog.String("grab_id", id.String()),
 		slog.Bool("merged_is_zero", merged.IsZero()))
 }

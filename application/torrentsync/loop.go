@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -28,7 +29,7 @@ const MaxFailures = 3
 // after authentication drops without the loop needing to model
 // the session lifecycle.
 type Loop struct {
-	instance string
+	instance domain.InstanceName
 	uc       *UseCase
 	logger   *slog.Logger
 	now      func() time.Time
@@ -42,7 +43,7 @@ type Loop struct {
 
 // NewLoop wires the loop value. Callers fill `cancel` themselves
 // (cmd/server/torrentsync_loop.go owns the ctx tree).
-func NewLoop(instance string, uc *UseCase, configured time.Duration, logger *slog.Logger) *Loop {
+func NewLoop(instance domain.InstanceName, uc *UseCase, configured time.Duration, logger *slog.Logger) *Loop {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
@@ -150,7 +151,7 @@ func (l *Loop) iterate(ctx context.Context) {
 	if err != nil {
 		streak := l.failures.Add(1)
 		l.logger.WarnContext(ctx, "torrentsync_iteration_failed",
-			slog.String("instance_name", l.instance),
+			slog.String("instance_name", string(l.instance)),
 			slog.Int("streak", int(streak)),
 			slog.String("outcome", "error"),
 			slog.String("error", err.Error()))
@@ -158,7 +159,7 @@ func (l *Loop) iterate(ctx context.Context) {
 			l.degraded.Store(true)
 			l.intervalNS.Store(int64(DegradedInterval))
 			l.logger.WarnContext(ctx, "torrentsync_degraded",
-				slog.String("instance_name", l.instance),
+				slog.String("instance_name", string(l.instance)),
 				slog.Duration("interval", DegradedInterval),
 				slog.String("outcome", "degraded"))
 			select {
@@ -176,7 +177,7 @@ func (l *Loop) iterate(ctx context.Context) {
 		configured := time.Duration(l.configNS.Load())
 		l.intervalNS.Store(int64(configured))
 		l.logger.InfoContext(ctx, "torrentsync_recovered",
-			slog.String("instance_name", l.instance),
+			slog.String("instance_name", string(l.instance)),
 			slog.Duration("interval", configured),
 			slog.String("outcome", "recovered"))
 		select {

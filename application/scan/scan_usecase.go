@@ -24,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 var (
@@ -48,9 +49,9 @@ const (
 // background WaitGroup. *UseCase satisfies this — see the compile-time
 // assertion below.
 type InflightController interface {
-	AcquireInstance(name string, scanID uuid.UUID) error
-	ReleaseInstance(name string)
-	SetInflightCancel(name string, cancel context.CancelFunc)
+	AcquireInstance(name shareddomain.InstanceName, scanID uuid.UUID) error
+	ReleaseInstance(name shareddomain.InstanceName)
+	SetInflightCancel(name shareddomain.InstanceName, cancel context.CancelFunc)
 	BackgroundWG() *sync.WaitGroup
 }
 
@@ -58,18 +59,18 @@ var _ InflightController = (*UseCase)(nil)
 
 // AcquireInstance reserves the per-instance scan slot for scanID.
 // Returns ErrScanAlreadyRunning if the instance is busy.
-func (u *UseCase) AcquireInstance(name string, scanID uuid.UUID) error {
+func (u *UseCase) AcquireInstance(name shareddomain.InstanceName, scanID uuid.UUID) error {
 	return u.acquire(name, scanID)
 }
 
 // ReleaseInstance frees the per-instance scan slot. Safe to call when
 // no slot is held (no-op).
-func (u *UseCase) ReleaseInstance(name string) { u.release(name) }
+func (u *UseCase) ReleaseInstance(name shareddomain.InstanceName) { u.release(name) }
 
 // SetInflightCancel swaps the no-op CancelFunc seeded by AcquireInstance
 // for the real one held by the goroutine, so /scans/:id/cancel can
 // signal an in-flight rescan goroutine the same way it signals a scan.
-func (u *UseCase) SetInflightCancel(name string, cancel context.CancelFunc) {
+func (u *UseCase) SetInflightCancel(name shareddomain.InstanceName, cancel context.CancelFunc) {
 	u.setInflightCancel(name, cancel)
 }
 
@@ -81,7 +82,7 @@ func (u *UseCase) BackgroundWG() *sync.WaitGroup { return u.bgWG }
 // Barrier is an optional synchronization hook used by tests to make
 // runOne deterministically overlap two goroutines. nil in production.
 type Barrier interface {
-	Reached(instance string)
+	Reached(instance shareddomain.InstanceName)
 }
 
 type Instance struct {
@@ -119,7 +120,7 @@ type UseCase struct {
 	dryRun      atomic.Bool
 
 	mu       sync.Mutex
-	inflight map[string]inflightEntry
+	inflight map[shareddomain.InstanceName]inflightEntry
 
 	barrier Barrier
 
@@ -141,7 +142,7 @@ func NewUseCase(
 		evaluator: evaluator,
 		scans:     scans,
 		logger:    logger,
-		inflight:  make(map[string]inflightEntry),
+		inflight:  make(map[shareddomain.InstanceName]inflightEntry),
 	}
 	uc.dryRun.Store(dryRun)
 	cp := append([]Instance(nil), instances...)
@@ -199,7 +200,7 @@ func (u *UseCase) WithWaitGroup(wg *sync.WaitGroup) *UseCase { u.bgWG = wg; retu
 
 type RunResult struct {
 	ScanRunID    uuid.UUID
-	InstanceName string
+	InstanceName shareddomain.InstanceName
 	Status       string
 	Started      time.Time
 	Finished     time.Time
@@ -221,7 +222,7 @@ func (u *UseCase) InflightScans() map[string]uuid.UUID {
 	defer u.mu.Unlock()
 	out := make(map[string]uuid.UUID, len(u.inflight))
 	for k, v := range u.inflight {
-		out[k] = v.ID
+		out[string(k)] = v.ID
 	}
 	return out
 }
@@ -341,6 +342,7 @@ func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, e
 // overrides both the per-instance DryRun and the global default.
 func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int, dryRunOverride *bool) (RunResult, error) {
 	scanID := uuid.New()
+	instName := shareddomain.InstanceName(inst.Config.Name)
 
 	if u.health != nil {
 		if snap, ok := u.health.Get(inst.Config.Name); ok && !snap.Health.IsAvailable() {
@@ -348,21 +350,21 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 				slog.String("instance", inst.Config.Name),
 				slog.String("state", string(snap.Health)),
 			)
-			return RunResult{InstanceName: inst.Config.Name, Status: "skipped"},
+			return RunResult{InstanceName: instName, Status: "skipped"},
 				fmt.Errorf("%w: %s state=%s",
 					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
 		}
 	}
 
-	if err := u.acquire(inst.Config.Name, scanID); err != nil {
-		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
+	if err := u.acquire(instName, scanID); err != nil {
+		return RunResult{InstanceName: instName, Status: "conflict"}, err
 	}
 
 	dryRun := u.instanceDryRun(inst, dryRunOverride)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
 		ID:           scanID,
-		InstanceName: inst.Config.Name,
+		InstanceName: instName,
 		Trigger:      string(trigger),
 		StartedAt:    started,
 		Status:       "running",
@@ -370,11 +372,11 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 	}
 	createCtx := logger.WithTraceID(context.Background(), scanID.String())
 	if err := u.scans.Create(createCtx, rec); err != nil {
-		u.release(inst.Config.Name)
+		u.release(instName)
 		u.logger.ErrorContext(parent, "create scan record failed",
 			slog.String("instance", inst.Config.Name),
 			slog.String("error", err.Error()))
-		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, err
+		return RunResult{ScanRunID: scanID, InstanceName: instName, Status: "failed"}, err
 	}
 
 	u.logger.InfoContext(createCtx, "scan_started",
@@ -386,7 +388,7 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 	)
 
 	ctx, cancel := context.WithCancel(logger.WithTraceID(context.Background(), scanID.String()))
-	u.setInflightCancel(inst.Config.Name, cancel)
+	u.setInflightCancel(instName, cancel)
 	if u.bgWG != nil {
 		u.bgWG.Add(1)
 	}
@@ -395,13 +397,13 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 			defer u.bgWG.Done()
 		}
 		defer cancel()
-		defer u.release(inst.Config.Name)
+		defer u.release(shareddomain.InstanceName(inst.Config.Name))
 		u.runDetached(ctx, inst, rec, trigger, seriesIDs, started, dryRun)
 	}(inst, rec, seriesIDs, started)
 
 	return RunResult{
 		ScanRunID:    scanID,
-		InstanceName: inst.Config.Name,
+		InstanceName: instName,
 		Status:       "running",
 		Started:      started,
 	}, nil
@@ -425,6 +427,7 @@ func (u *UseCase) instanceDryRun(inst Instance, override *bool) bool {
 func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {
 	scanID := uuid.New()
 	ctx := logger.WithTraceID(parent, scanID.String())
+	instName := shareddomain.InstanceName(inst.Config.Name)
 
 	// Pre-scan health gate (D-2.3). Skip when the registry says Unavailable*.
 	if u.health != nil {
@@ -433,30 +436,30 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 				slog.String("instance", inst.Config.Name),
 				slog.String("state", string(snap.Health)),
 			)
-			return RunResult{InstanceName: inst.Config.Name, Status: "skipped"},
+			return RunResult{InstanceName: instName, Status: "skipped"},
 				fmt.Errorf("%w: %s state=%s",
 					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
 		}
 	}
-	if err := u.acquire(inst.Config.Name, scanID); err != nil {
-		return RunResult{InstanceName: inst.Config.Name, Status: "conflict"}, err
+	if err := u.acquire(instName, scanID); err != nil {
+		return RunResult{InstanceName: instName, Status: "conflict"}, err
 	}
-	defer u.release(inst.Config.Name)
+	defer u.release(instName)
 
 	if u.barrier != nil {
-		u.barrier.Reached(inst.Config.Name)
+		u.barrier.Reached(instName)
 	}
 
 	dryRun := u.instanceDryRun(inst, nil)
 	started := time.Now().UTC()
 	rec := ports.ScanRecord{
-		ID: scanID, InstanceName: inst.Config.Name,
+		ID: scanID, InstanceName: instName,
 		Trigger: string(trigger), StartedAt: started,
 		Status: "running", DryRun: dryRun,
 	}
 	if err := u.scans.Create(ctx, rec); err != nil {
 		u.logger.ErrorContext(ctx, "create scan record failed", slog.String("error", err.Error()))
-		return RunResult{ScanRunID: scanID, InstanceName: inst.Config.Name, Status: "failed"}, err
+		return RunResult{ScanRunID: scanID, InstanceName: instName, Status: "failed"}, err
 	}
 	u.logger.InfoContext(ctx, "scan_started",
 		slog.String("instance", inst.Config.Name),
@@ -473,7 +476,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 // existing concurrency tests can still observe entry from an async path.
 func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) {
 	if u.barrier != nil {
-		u.barrier.Reached(inst.Config.Name)
+		u.barrier.Reached(shareddomain.InstanceName(inst.Config.Name))
 	}
 	if _, err := u.processScan(ctx, inst, rec, trigger, seriesIDs, started, dryRun); err != nil {
 		// Terminal state is already persisted by finalize*; logging here is
@@ -486,8 +489,9 @@ func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.Scan
 }
 
 func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) (RunResult, error) {
-	observability.IncActiveScans(inst.Config.Name)
-	defer observability.DecActiveScans(inst.Config.Name)
+	instName := shareddomain.InstanceName(inst.Config.Name)
+	observability.IncActiveScans(instName)
+	defer observability.DecActiveScans(instName)
 	scanID := rec.ID // 011c: was `scanID := uuid.New()` in old runOne — now reuse rec.ID
 
 	seriesList, err := inst.Client.ListSeries(ctx)
@@ -616,7 +620,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				stats := series.SeasonStatsFromStatistics(season.Statistics)
 				if _, err := u.evaluator.RecordSkip(ctx, evaluate.Input{
 					ScanRunID: scanID,
-					Instance:  inst.Config.Name,
+					Instance:  instName,
 					Series:    s,
 					Season:    season,
 					DryRun:    dryRun,
@@ -629,8 +633,8 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 						slog.String("reason", string(decision.ReasonAllComplete)),
 						slog.String("error", err.Error()))
 				}
-				observability.IncScanSkipped(inst.Config.Name, prefilterReasonLabel(decision.ReasonAllComplete))
-				observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+				observability.IncScanSkipped(instName, prefilterReasonLabel(decision.ReasonAllComplete))
+				observability.SeriesEvaluated(instName, string(decision.OutcomeSkip))
 			}
 			continue
 		}
@@ -678,7 +682,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		if u.cooldowns != nil {
 			keys := make([]string, 0, len(seasons))
 			for _, season := range seasons {
-				keys = append(keys, cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number))
+				keys = append(keys, cooldown.SeriesKey(instName, s.ID, season.Number))
 			}
 			active, cdErr := u.cooldowns.FilterActive(ctx, cooldown.ScopeSeries, keys, time.Now().UTC())
 			if cdErr != nil {
@@ -709,7 +713,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 			if reason, skip := u.decidePrefilter(prefilterStats, inst); skip {
 				if _, err := u.evaluator.RecordSkip(ctx, evaluate.Input{
 					ScanRunID: scanID,
-					Instance:  inst.Config.Name,
+					Instance:  instName,
 					Series:    s,
 					Season:    season,
 					DryRun:    dryRun,
@@ -722,13 +726,13 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 						slog.String("reason", string(reason)),
 						slog.String("error", err.Error()))
 				}
-				observability.IncScanSkipped(inst.Config.Name, prefilterReasonLabel(reason))
-				observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+				observability.IncScanSkipped(instName, prefilterReasonLabel(reason))
+				observability.SeriesEvaluated(instName, string(decision.OutcomeSkip))
 				continue
 			}
 
 			if u.cooldowns != nil {
-				skey := cooldown.SeriesKey(inst.Config.Name, s.ID, season.Number)
+				skey := cooldown.SeriesKey(instName, s.ID, season.Number)
 				if seriesCooldownActive[skey] {
 					u.logger.InfoContext(ctx, "season_evaluated",
 						slog.String("instance", inst.Config.Name),
@@ -738,7 +742,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 						slog.String("decision", string(decision.OutcomeSkip)),
 						slog.String("reason", string(decision.ReasonSkipSeriesCooldown)),
 					)
-					observability.SeriesEvaluated(inst.Config.Name, string(decision.OutcomeSkip))
+					observability.SeriesEvaluated(instName, string(decision.OutcomeSkip))
 					continue
 				}
 			}
@@ -766,7 +770,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 			originGUID := ""
 			originIndexer := ""
 			if u.origins != nil {
-				if origin, found, oerr := u.origins.Get(ctx, inst.Config.Name, s.ID, season.Number); oerr == nil && found {
+				if origin, found, oerr := u.origins.Get(ctx, instName, s.ID, season.Number); oerr == nil && found {
 					originGUID = origin.GUID
 					originIndexer = origin.IndexerName
 				}
@@ -791,7 +795,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 			d, evErr := u.evaluator.Execute(ctx, evaluate.Input{
 				ScanRunID:            scanID,
-				Instance:             inst.Config.Name,
+				Instance:             instName,
 				Sonarr:               inst.Client,
 				Series:               s,
 				Season:               season,
@@ -828,7 +832,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				}
 				out := u.grabUC.Execute(ctx, grab.Input{
 					ScanRunID:    scanID,
-					InstanceName: inst.Config.Name,
+					InstanceName: instName,
 					SeriesID:     s.ID,
 					SeriesTitle:  s.Title,
 					SeasonNumber: season.Number,
@@ -912,8 +916,8 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 	if err := u.scans.Update(writeCtx, rec); err != nil {
 		u.logger.ErrorContext(ctx, "update scan record failed", slog.String("error", err.Error()))
 	}
-	observability.ObserveScanDuration(inst.Config.Name, finished.Sub(started).Seconds())
-	observability.ScanCompleted(inst.Config.Name, "completed")
+	observability.ObserveScanDuration(shareddomain.InstanceName(inst.Config.Name), finished.Sub(started).Seconds())
+	observability.ScanCompleted(shareddomain.InstanceName(inst.Config.Name), "completed")
 
 	u.logger.InfoContext(ctx, "scan_completed",
 		slog.String("instance", inst.Config.Name),
@@ -927,7 +931,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 	return RunResult{
 		ScanRunID:    scanID,
-		InstanceName: inst.Config.Name,
+		InstanceName: instName,
 		Status:       "completed",
 		Started:      started,
 		Finished:     finished,
@@ -942,6 +946,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 // finalizeScanAborted marks the scan as `aborted` (mid-scan auth abort per
 // D-2.3) and transitions the instance to UnavailableAuth.
 func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
+	instName := shareddomain.InstanceName(inst.Config.Name)
 	rec.Status = "aborted"
 	if cause != nil {
 		// F-P2-4: cap at 4 KiB (errtext.MaxBytes). cause is typically a
@@ -958,8 +963,8 @@ func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord,
 			slog.String("status", rec.Status),
 			slog.String("error", err.Error()))
 	}
-	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
-	observability.ScanCompleted(inst.Config.Name, "aborted")
+	observability.ObserveScanDuration(shareddomain.InstanceName(inst.Config.Name), finish.Sub(started).Seconds())
+	observability.ScanCompleted(shareddomain.InstanceName(inst.Config.Name), "aborted")
 	if u.health != nil {
 		u.health.MarkUnavailable(inst.Config.Name, instance.HealthUnavailableAuth, cause.Error(), finish)
 	}
@@ -970,7 +975,7 @@ func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord,
 	)
 	return RunResult{
 		ScanRunID:    rec.ID,
-		InstanceName: inst.Config.Name,
+		InstanceName: instName,
 		Status:       "aborted",
 		Started:      started,
 		Finished:     finish,
@@ -983,6 +988,7 @@ func (u *UseCase) finalizeScanAborted(ctx context.Context, rec ports.ScanRecord,
 }
 
 func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time, cause error) (RunResult, error) {
+	instName := shareddomain.InstanceName(inst.Config.Name)
 	rec.Status = "failed"
 	if cause != nil {
 		// F-P2-4: cap at 4 KiB (errtext.MaxBytes). Matches finalizeScanAborted.
@@ -998,11 +1004,11 @@ func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, 
 			slog.String("status", rec.Status),
 			slog.String("error", err.Error()))
 	}
-	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
-	observability.ScanCompleted(inst.Config.Name, "failed")
+	observability.ObserveScanDuration(shareddomain.InstanceName(inst.Config.Name), finish.Sub(started).Seconds())
+	observability.ScanCompleted(shareddomain.InstanceName(inst.Config.Name), "failed")
 	return RunResult{
 		ScanRunID:    rec.ID,
-		InstanceName: inst.Config.Name,
+		InstanceName: instName,
 		Status:       "failed",
 		Started:      started,
 		Finished:     finish,
@@ -1015,6 +1021,7 @@ func (u *UseCase) finalizeScanFailed(ctx context.Context, rec ports.ScanRecord, 
 }
 
 func (u *UseCase) finalizeScanCancelled(ctx context.Context, rec ports.ScanRecord, inst Instance, started time.Time) (RunResult, error) {
+	instName := shareddomain.InstanceName(inst.Config.Name)
 	rec.Status = "cancelled"
 	rec.ErrorMessage = "user requested cancellation"
 	finish := time.Now().UTC()
@@ -1024,14 +1031,14 @@ func (u *UseCase) finalizeScanCancelled(ctx context.Context, rec ports.ScanRecor
 		u.logger.ErrorContext(ctx, "update scan record failed (cancelled)",
 			slog.String("error", err.Error()))
 		return RunResult{
-			ScanRunID: rec.ID, InstanceName: inst.Config.Name, Status: "cancelled",
+			ScanRunID: rec.ID, InstanceName: instName, Status: "cancelled",
 			Started: started, Finished: finish, Series: rec.SeriesScanned,
 			Candidates: rec.CandidatesFound, Grabs: rec.GrabsPerformed,
 			GrabsFailed: rec.GrabsFailed, Errors: rec.ErrorsCount,
 		}, err
 	}
-	observability.ObserveScanDuration(inst.Config.Name, finish.Sub(started).Seconds())
-	observability.ScanCompleted(inst.Config.Name, "cancelled")
+	observability.ObserveScanDuration(shareddomain.InstanceName(inst.Config.Name), finish.Sub(started).Seconds())
+	observability.ScanCompleted(shareddomain.InstanceName(inst.Config.Name), "cancelled")
 	u.logger.InfoContext(ctx, "scan_cancelled",
 		slog.String("instance", inst.Config.Name),
 		slog.Int("series_scanned", rec.SeriesScanned),
@@ -1039,7 +1046,7 @@ func (u *UseCase) finalizeScanCancelled(ctx context.Context, rec ports.ScanRecor
 		slog.Float64("duration_seconds", finish.Sub(started).Seconds()),
 	)
 	return RunResult{
-		ScanRunID: rec.ID, InstanceName: inst.Config.Name, Status: "cancelled",
+		ScanRunID: rec.ID, InstanceName: instName, Status: "cancelled",
 		Started: started, Finished: finish, Series: rec.SeriesScanned,
 		Candidates: rec.CandidatesFound, Grabs: rec.GrabsPerformed,
 		GrabsFailed: rec.GrabsFailed, Errors: rec.ErrorsCount,
@@ -1049,7 +1056,7 @@ func (u *UseCase) finalizeScanCancelled(ctx context.Context, rec ports.ScanRecor
 // acquire grabs the per-instance inflight slot with a no-op CancelFunc.
 // Sync path (runOne) leaves it. Async path swaps in the real
 // CancelFunc via setInflightCancel right after acquire succeeds.
-func (u *UseCase) acquire(instance string, scanID uuid.UUID) error {
+func (u *UseCase) acquire(instance shareddomain.InstanceName, scanID uuid.UUID) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if _, ok := u.inflight[instance]; ok {
@@ -1059,7 +1066,7 @@ func (u *UseCase) acquire(instance string, scanID uuid.UUID) error {
 	return nil
 }
 
-func (u *UseCase) setInflightCancel(instance string, cancel context.CancelFunc) {
+func (u *UseCase) setInflightCancel(instance shareddomain.InstanceName, cancel context.CancelFunc) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if e, ok := u.inflight[instance]; ok {
@@ -1068,7 +1075,7 @@ func (u *UseCase) setInflightCancel(instance string, cancel context.CancelFunc) 
 	}
 }
 
-func (u *UseCase) release(instance string) {
+func (u *UseCase) release(instance shareddomain.InstanceName) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	delete(u.inflight, instance)
@@ -1254,8 +1261,9 @@ func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pen
 // which made SeriesSeasonsAccordion render 0/N for every season the
 // scan_skip_handled_seasons fast-path covered.
 func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList []series.Series) {
+	instName := shareddomain.InstanceName(inst.Config.Name)
 	if u.seriesCache != nil {
-		entries, err := inst.Client.ListSeriesCache(ctx, inst.Config.Name)
+		entries, err := inst.Client.ListSeriesCache(ctx, instName)
 		if err != nil {
 			u.logger.WarnContext(ctx, "series_cache_list_failed",
 				slog.String("instance", inst.Config.Name),
@@ -1288,7 +1296,7 @@ func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList
 				aired = season.Statistics.EpisodeCount
 			}
 			stat := series.SeasonStat{
-				InstanceName:      inst.Config.Name,
+				InstanceName:      instName,
 				SonarrSeriesID:    s.ID,
 				SeasonNumber:      season.Number,
 				Monitored:         season.Monitored,

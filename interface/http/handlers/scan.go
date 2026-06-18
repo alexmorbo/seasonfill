@@ -62,7 +62,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 	}
 
 	if req.Instance != "" {
-		res, err := h.useCase.StartInstanceWithDryRun(c.Request.Context(), req.Instance, scan.TriggerManual, req.DryRun, req.SeriesIDs...)
+		res, err := h.useCase.StartInstanceWithDryRun(c.Request.Context(), string(req.Instance), scan.TriggerManual, req.DryRun, req.SeriesIDs...)
 		if errors.Is(err, scan.ErrScanAlreadyRunning) {
 			c.JSON(http.StatusConflict, dto.ScanConflictResponse{
 				Error:    "scan already running",
@@ -81,7 +81,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 		if err != nil {
 			writeInternalError(c, h.logger, "scan_trigger_instance_failed", err,
 				slog.String("endpoint", "/api/v1/scan"),
-				slog.String("instance", req.Instance),
+				slog.String("instance", string(req.Instance)),
 			)
 			return
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeSession is a deterministic SyncSession that returns the
@@ -48,7 +49,7 @@ func (s *fakeSession) Rid() int64 { return s.rid }
 
 type fakeFactory struct{ sess *fakeSession }
 
-func (f fakeFactory) NewSyncSession(_ context.Context, _ string) (qbit.SyncSession, error) {
+func (f fakeFactory) NewSyncSession(_ context.Context, _ domain.InstanceName) (qbit.SyncSession, error) {
 	return f.sess, nil
 }
 

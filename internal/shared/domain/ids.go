@@ -12,12 +12,31 @@ import (
 
 // Internal IDs — primary keys in our own database.
 type (
-	SeriesID   int64
-	UserID     int64
-	InstanceID int64
-	GrabID     int64
-	EpisodeID  int64
+	SeriesID  int64
+	UserID    int64
+	GrabID    int64
+	EpisodeID int64
 )
+
+// InstanceName is the config slug ("main", "anime", "kids") of a
+// Sonarr/Radarr instance. Today this is the only identifier used in
+// code — instances live in env-var/HCL config, not in the DB — so
+// every "which instance?" parameter or field carries InstanceName,
+// not InstanceID.
+//
+// Underlying kind is string; GORM persists it to instance_name
+// VARCHAR/TEXT columns transparently. JSON marshals as a plain string.
+type InstanceName string
+
+// InstanceID is the internal BIGINT primary key reserved for a future
+// runtime-config refactor where instances become first-class DB-backed
+// objects (similar to how SeriesID/SonarrSeriesID split internal vs
+// external series identification). NOT currently consumed by any
+// callsite — see decisions/d622-instance-name-typing.md for the option-B
+// design call. If/when instances become DB rows, InstanceName remains
+// the user-facing slug (FK column) and InstanceID becomes the surrogate
+// PK.
+type InstanceID int64
 
 // Sonarr external IDs — Sonarr's own integer IDs, NOT our internal ones.
 type (

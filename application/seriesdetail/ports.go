@@ -23,7 +23,7 @@ import (
 // series_id. The composer's first call — failure here is the 404
 // path (no errgroup, no degraded).
 type SeriesCachePort interface {
-	Get(ctx context.Context, instanceName string, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
 }
 
 // SeriesPort fetches the canonical series row by series.id. The
@@ -84,7 +84,7 @@ type EpisodesPort interface {
 // EpisodeStatesPort lists per-instance file states for every episode
 // in a series.
 type EpisodeStatesPort interface {
-	ListBySeries(ctx context.Context, instanceName string, seriesID domain.SeriesID) ([]series.EpisodeState, error)
+	ListBySeries(ctx context.Context, instanceName domain.InstanceName, seriesID domain.SeriesID) ([]series.EpisodeState, error)
 }
 
 // SeasonStatsPort lists the per-(instance, series, season) Sonarr
@@ -92,7 +92,7 @@ type EpisodeStatesPort interface {
 // Empty result OR an error both degrade silently — mapSeasons falls
 // back to walking d.Seasons[].Episodes[].State.HasFile.
 type SeasonStatsPort interface {
-	ListBySeries(ctx context.Context, instanceName string, sonarrSeriesID int) ([]series.SeasonStat, error)
+	ListBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) ([]series.SeasonStat, error)
 }
 
 // EpisodeTextsPort fetches localised episode text by composite PK.

@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestInstancesHandler_List_AfterPreflight(t *testing.T) {
@@ -917,25 +918,27 @@ type stubSeriesCache struct {
 	listCall int
 }
 
-func (s *stubSeriesCache) Get(_ context.Context, _ string, _ int) (series.CacheEntry, error) {
+func (s *stubSeriesCache) Get(_ context.Context, _ shareddomain.InstanceName, _ int) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (s *stubSeriesCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
-func (s *stubSeriesCache) SoftDelete(_ context.Context, _ string, _ int) error { return nil }
-func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (s *stubSeriesCache) SoftDelete(_ context.Context, _ shareddomain.InstanceName, _ int) error {
+	return nil
+}
+func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	s.listCall++
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
 	return s.entries, nil
 }
-func (s *stubSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+func (s *stubSeriesCache) ListByFilter(_ context.Context, _ shareddomain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ shareddomain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
-func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ shareddomain.InstanceName) ([]string, error) {
 	return nil, nil
 }
 

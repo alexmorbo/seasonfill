@@ -3,6 +3,8 @@ package regrab
 import (
 	"sync"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PollResult is the canonical string set used as LastPollResult.
@@ -29,15 +31,15 @@ type RuntimeState struct {
 // RuntimeStateStore is a goroutine-safe per-instance bookkeeping map.
 type RuntimeStateStore struct {
 	mu    sync.RWMutex
-	byKey map[string]RuntimeState
+	byKey map[domain.InstanceName]RuntimeState
 }
 
 func NewRuntimeStateStore() *RuntimeStateStore {
-	return &RuntimeStateStore{byKey: make(map[string]RuntimeState)}
+	return &RuntimeStateStore{byKey: make(map[domain.InstanceName]RuntimeState)}
 }
 
 // Stamp overwrites the row for instance.
-func (s *RuntimeStateStore) Stamp(instance string, st RuntimeState) {
+func (s *RuntimeStateStore) Stamp(instance domain.InstanceName, st RuntimeState) {
 	if instance == "" {
 		return
 	}
@@ -49,7 +51,7 @@ func (s *RuntimeStateStore) Stamp(instance string, st RuntimeState) {
 // StampPartial overwrites LastPollAt/LastPollResult/QbitReachable and
 // updates Watched only when result == PollResultOK AND watched >= 0.
 // Negative watched + non-OK result preserves the prior value.
-func (s *RuntimeStateStore) StampPartial(instance string, at time.Time, result string, reachable bool, watched int) {
+func (s *RuntimeStateStore) StampPartial(instance domain.InstanceName, at time.Time, result string, reachable bool, watched int) {
 	if instance == "" {
 		return
 	}
@@ -69,7 +71,7 @@ func (s *RuntimeStateStore) StampPartial(instance string, at time.Time, result s
 }
 
 // Snapshot returns (state, true) when stamped at least once.
-func (s *RuntimeStateStore) Snapshot(instance string) (RuntimeState, bool) {
+func (s *RuntimeStateStore) Snapshot(instance domain.InstanceName) (RuntimeState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	st, ok := s.byKey[instance]
@@ -77,10 +79,10 @@ func (s *RuntimeStateStore) Snapshot(instance string) (RuntimeState, bool) {
 }
 
 // SnapshotAll returns a shallow clone of the map.
-func (s *RuntimeStateStore) SnapshotAll() map[string]RuntimeState {
+func (s *RuntimeStateStore) SnapshotAll() map[domain.InstanceName]RuntimeState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make(map[string]RuntimeState, len(s.byKey))
+	out := make(map[domain.InstanceName]RuntimeState, len(s.byKey))
 	for k, v := range s.byKey {
 		out[k] = v
 	}
@@ -88,7 +90,7 @@ func (s *RuntimeStateStore) SnapshotAll() map[string]RuntimeState {
 }
 
 // Forget drops an instance — called by the instance CRUD delete path.
-func (s *RuntimeStateStore) Forget(instance string) {
+func (s *RuntimeStateStore) Forget(instance domain.InstanceName) {
 	if instance == "" {
 		return
 	}

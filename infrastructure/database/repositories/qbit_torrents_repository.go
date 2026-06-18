@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // QbitTorrentsRepository persists the qbit_torrents table
@@ -37,7 +38,7 @@ func NewQbitTorrentsRepository(db *gorm.DB) *QbitTorrentsRepository {
 // every non-PK column except `first_seen_at` (sticky to the
 // first insert) and `present` (reset to true so an upsert
 // re-incarnates a previously-deleted hash — cross-seed scenario).
-func (r *QbitTorrentsRepository) Upsert(ctx context.Context, instance string, e torrentsync.Entry) error {
+func (r *QbitTorrentsRepository) Upsert(ctx context.Context, instance domain.InstanceName, e torrentsync.Entry) error {
 	model := modelFromEntry(instance, e, r.clock())
 	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instance_name"}, {Name: "hash"}},
@@ -60,7 +61,7 @@ func (r *QbitTorrentsRepository) Upsert(ctx context.Context, instance string, e 
 // BatchUpsert writes the supplied entries inside one transaction.
 // On any per-row error the tx rolls back — callers re-queue the
 // pending set for retry on the next flush window.
-func (r *QbitTorrentsRepository) BatchUpsert(ctx context.Context, instance string, entries []torrentsync.Entry, updatedAt time.Time) error {
+func (r *QbitTorrentsRepository) BatchUpsert(ctx context.Context, instance domain.InstanceName, entries []torrentsync.Entry, updatedAt time.Time) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -94,7 +95,7 @@ func (r *QbitTorrentsRepository) BatchUpsert(ctx context.Context, instance strin
 // MarkAbsent flips present=false + deleted_at=when. Returns nil
 // when the row does not exist — removal of a hash we never
 // persisted is a no-op.
-func (r *QbitTorrentsRepository) MarkAbsent(ctx context.Context, instance, hash string, when time.Time) error {
+func (r *QbitTorrentsRepository) MarkAbsent(ctx context.Context, instance domain.InstanceName, hash string, when time.Time) error {
 	if when.IsZero() {
 		when = r.clock()
 	}
@@ -116,7 +117,7 @@ func (r *QbitTorrentsRepository) MarkAbsent(ctx context.Context, instance, hash 
 // loop's restart recovery uses this to repopulate the memory
 // store; absent rows are excluded because the read endpoint never
 // surfaces them.
-func (r *QbitTorrentsRepository) List(ctx context.Context, instance string) ([]torrentsync.Entry, error) {
+func (r *QbitTorrentsRepository) List(ctx context.Context, instance domain.InstanceName) ([]torrentsync.Entry, error) {
 	var models []database.QbitTorrentModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND present = ?", instance, true).
@@ -143,7 +144,7 @@ func (r *QbitTorrentsRepository) List(ctx context.Context, instance string) ([]t
 // Empty input returns nil, nil (no round-trip). The returned
 // Entry's live fields are zero by construction — the schema
 // does not persist them.
-func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance string, hashes []string) ([]torrentsync.Entry, error) {
+func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance domain.InstanceName, hashes []string) ([]torrentsync.Entry, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}
@@ -166,7 +167,7 @@ func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance stri
 
 // modelFromEntry projects a torrentsync.Entry into the GORM
 // model. Live fields are NOT carried over — they have no column.
-func modelFromEntry(instance string, e torrentsync.Entry, updatedAt time.Time) database.QbitTorrentModel {
+func modelFromEntry(instance domain.InstanceName, e torrentsync.Entry, updatedAt time.Time) database.QbitTorrentModel {
 	info := e.Info
 	m := database.QbitTorrentModel{
 		InstanceName: instance,

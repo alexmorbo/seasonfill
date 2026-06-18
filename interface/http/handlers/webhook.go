@@ -14,6 +14,7 @@ import (
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type WebhookProcessor interface {
@@ -64,7 +65,7 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "cannot read body")
 		return
 	}
-	evt, err := sonarr.MapWebhookEvent(body, name)
+	evt, err := sonarr.MapWebhookEvent(body, domain.InstanceName(name))
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "malformed payload")
 		return
@@ -75,7 +76,7 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 			return
 		}
 		kind := webhook.ErrorKind(err)
-		observability.IncWebhookProcessingFailures(name, kind)
+		observability.IncWebhookProcessingFailures(domain.InstanceName(name), kind)
 		h.logger.ErrorContext(c.Request.Context(), "webhook_logic_failure",
 			slog.String("instance", name),
 			slog.String("event_type", string(evt.Type)),

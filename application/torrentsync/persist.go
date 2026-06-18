@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -85,7 +86,7 @@ func (p *PersistPolicy) FlushInterval() time.Duration { return p.flushFreq }
 // caller knows it can refresh `LastFlushedCounters` on the Entry).
 // State-change writes also persist the latest counter values
 // transactionally so a separate flush is not needed for them.
-func (p *PersistPolicy) HandleTransition(ctx context.Context, instance string, prev *Entry, next Entry) (bool, error) {
+func (p *PersistPolicy) HandleTransition(ctx context.Context, instance domain.InstanceName, prev *Entry, next Entry) (bool, error) {
 	from := qbit.StateGroup("")
 	if prev != nil {
 		from = prev.StateGroup
@@ -109,7 +110,7 @@ func (p *PersistPolicy) HandleTransition(ctx context.Context, instance string, p
 			return false, fmt.Errorf("insert added event: %w", err)
 		}
 		p.logger.InfoContext(ctx, "torrentsync_added",
-			slog.String("instance_name", instance),
+			slog.String("instance_name", string(instance)),
 			slog.String("hash", next.Info.Hash),
 			slog.String("state_to", string(to)),
 			slog.String("outcome", "added"))
@@ -142,7 +143,7 @@ func (p *PersistPolicy) HandleTransition(ctx context.Context, instance string, p
 		}
 	}
 	p.logger.InfoContext(ctx, "torrentsync_state_change",
-		slog.String("instance_name", instance),
+		slog.String("instance_name", string(instance)),
 		slog.String("hash", next.Info.Hash),
 		slog.String("state_from", string(from)),
 		slog.String("state_to", string(to)),
@@ -154,7 +155,7 @@ func (p *PersistPolicy) HandleTransition(ctx context.Context, instance string, p
 // stamps `present=false, deleted_at=now` and emits a `deleted`
 // event. A later sync without the hash is a no-op (MarkAbsent
 // detects the existing absent row).
-func (p *PersistPolicy) HandleRemoval(ctx context.Context, instance, hash string) error {
+func (p *PersistPolicy) HandleRemoval(ctx context.Context, instance domain.InstanceName, hash string) error {
 	now := p.now()
 	if err := p.repo.MarkAbsent(ctx, instance, hash, now); err != nil {
 		return fmt.Errorf("mark torrent absent: %w", err)
@@ -166,7 +167,7 @@ func (p *PersistPolicy) HandleRemoval(ctx context.Context, instance, hash string
 		return fmt.Errorf("insert deleted event: %w", err)
 	}
 	p.logger.InfoContext(ctx, "torrentsync_deleted",
-		slog.String("instance_name", instance),
+		slog.String("instance_name", string(instance)),
 		slog.String("hash", hash),
 		slog.String("outcome", "deleted"))
 	return nil
@@ -181,7 +182,7 @@ func (p *PersistPolicy) HandleRemoval(ctx context.Context, instance, hash string
 // `now` is captured once per flush so every row in the batch
 // carries the same `updated_at` — easier to reason about in a
 // trace.
-func (p *PersistPolicy) FlushCounters(ctx context.Context, instance string, pending []Entry) error {
+func (p *PersistPolicy) FlushCounters(ctx context.Context, instance domain.InstanceName, pending []Entry) error {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -190,7 +191,7 @@ func (p *PersistPolicy) FlushCounters(ctx context.Context, instance string, pend
 		return fmt.Errorf("flush counters batch: %w", err)
 	}
 	p.logger.DebugContext(ctx, "torrentsync_counters_flushed",
-		slog.String("instance_name", instance),
+		slog.String("instance_name", string(instance)),
 		slog.Int("rows", len(pending)),
 		slog.String("outcome", "counters_flushed"))
 	return nil

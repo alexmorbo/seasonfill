@@ -20,6 +20,7 @@ import (
 	domenrich "github.com/alexmorbo/seasonfill/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SortKey controls library_credits[] ordering. recent (default) =
@@ -68,7 +69,7 @@ type LibraryCredit struct {
 // `/api/v1/instances/:name/series/:sonarrId` which keys on the
 // per-instance integer, not the canon row id).
 type LibraryInstance struct {
-	InstanceName   string
+	InstanceName   domain.InstanceName
 	SonarrSeriesID int
 }
 
@@ -268,7 +269,7 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 		return false, series.Canon{}, nil
 	}
 	instances := make([]LibraryInstance, 0, len(caches))
-	seen := map[string]bool{}
+	seen := map[domain.InstanceName]bool{}
 	for _, ce := range caches {
 		if seen[ce.InstanceName] {
 			// First cache row per instance wins. Duplicate rows

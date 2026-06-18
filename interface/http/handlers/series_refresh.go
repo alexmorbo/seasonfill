@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesRefreshHandler powers POST /api/v1/instances/:name/series/:id/refresh.
@@ -65,7 +66,7 @@ func (h *SeriesRefreshHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	res, err := h.uc.Refresh(c.Request.Context(), name, sonarrID)
+	res, err := h.uc.Refresh(c.Request.Context(), domain.InstanceName(name), sonarrID)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})

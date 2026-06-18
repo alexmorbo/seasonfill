@@ -118,10 +118,10 @@ func reparseInternal(
 	}
 	ok, errCount := 0, 0
 	for _, rec := range recs {
-		client, present := clientFor(rec.InstanceName)
+		client, present := clientFor(string(rec.InstanceName))
 		if !present || client == nil {
 			logger.WarnContext(ctx, "reparse_skip_no_client",
-				slog.String("instance", rec.InstanceName), slog.String("grab_id", rec.ID.String()))
+				slog.String("instance", string(rec.InstanceName)), slog.String("grab_id", rec.ID.String()))
 			continue
 		}
 		pr, perr := client.ParseRelease(ctx, rec.ReleaseTitle)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestNewSettingsFromRecord_AnonAuth(t *testing.T) {
@@ -30,7 +31,7 @@ func TestNewSettingsFromRecord_AnonAuth(t *testing.T) {
 	}
 	got, err := NewSettingsFromRecord(rec, "alpha", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "alpha", got.InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), got.InstanceName)
 	assert.Equal(t, "", got.Username)
 	assert.Equal(t, "", got.PasswordPlaintext)
 	assert.Equal(t, 30*time.Minute, got.PollInterval)

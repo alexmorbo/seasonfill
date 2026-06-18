@@ -8,6 +8,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Default tuning for the in-process episodes cache. Episodes are
@@ -163,6 +164,6 @@ func episodesEntrySize(key string, e EpisodesCacheEntry) int64 {
 
 // EpisodesCacheKey builds the cache key from instance + seriesID.
 // Stable shape so test fixtures + handler share one canonical form.
-func EpisodesCacheKey(instance string, seriesID int) string {
-	return instance + ":" + strconv.Itoa(seriesID)
+func EpisodesCacheKey(instance domain.InstanceName, seriesID int) string {
+	return string(instance) + ":" + strconv.Itoa(seriesID)
 }

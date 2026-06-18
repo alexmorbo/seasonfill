@@ -100,7 +100,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	// invariant as 215 / 216: unknown (instance, sonarrID) →
 	// 404; cache row without canon series_id (broken legacy
 	// row) also → 404.
-	cache, err := h.cache.Get(ctx, name, sonarrID)
+	cache, err := h.cache.Get(ctx, domain.InstanceName(name), sonarrID)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})
@@ -132,7 +132,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	}
 
 	// Step 3 — merge live store + DB fallback for this series.
-	result, err := h.query.BySeriesID(ctx, name, sonarrID)
+	result, err := h.query.BySeriesID(ctx, domain.InstanceName(name), sonarrID)
 	if err != nil {
 		writeInternalError(c, h.logger, "series_torrents_query_failed", err,
 			slog.String("instance_name", name),
@@ -153,7 +153,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 		return
 	}
 
-	resp := toSeriesTorrentsResponse(name, sonarrID, seriesID, result)
+	resp := toSeriesTorrentsResponse(domain.InstanceName(name), sonarrID, seriesID, result)
 	c.Header("ETag", etag)
 	c.Header("Cache-Control", "no-cache")
 	h.logger.DebugContext(ctx, "series_torrents_served",
@@ -176,7 +176,7 @@ func computeTorrentsETag(syncedAtUnix int64, count int) string {
 // toSeriesTorrentsResponse projects the merged query result onto
 // the DTO. No DB / network calls here — pure mapping.
 func toSeriesTorrentsResponse(
-	instance string,
+	instance domain.InstanceName,
 	sonarrID int,
 	seriesID domain.SeriesID,
 	result torrentsync.QueryResult,

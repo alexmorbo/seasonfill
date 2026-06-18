@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -53,7 +54,7 @@ func newValidationErr(field, code, msg string) *ValidationError {
 type QbitSettingsView struct {
 	ID                     uint
 	InstanceID             uint
-	InstanceName           string
+	InstanceName           domain.InstanceName
 	Enabled                bool
 	URL                    string
 	Username               string
@@ -218,7 +219,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 	if in.Enabled {
 		needsGate := !hasExisting || !existing.Enabled
 		if needsGate {
-			installed, werr := u.webhooks.IsInstalled(ctx, name)
+			installed, werr := u.webhooks.IsInstalled(ctx, domain.InstanceName(name))
 			if werr != nil {
 				return QbitSettingsView{}, fmt.Errorf("%w: %w", ErrWebhookCheckFailed, werr)
 			}
@@ -339,7 +340,7 @@ func recordToView(rec ports.QbitSettingsRecord, name string) QbitSettingsView {
 	return QbitSettingsView{
 		ID:                     rec.ID,
 		InstanceID:             rec.InstanceID,
-		InstanceName:           name,
+		InstanceName:           domain.InstanceName(name),
 		Enabled:                rec.Enabled,
 		URL:                    rec.URL,
 		Username:               username,
@@ -531,8 +532,8 @@ func boundInt(field, code string, v, min, max int) error {
 // Lookup implements the SettingsLookup interface for the regrab
 // use case. Reads the row, decrypts the password, and returns a
 // fully-resolved Settings projection.
-func (u *SettingsUseCase) Lookup(ctx context.Context, name string) (Settings, error) {
-	inst, err := u.instances.GetByName(ctx, name, u.cipher)
+func (u *SettingsUseCase) Lookup(ctx context.Context, name domain.InstanceName) (Settings, error) {
+	inst, err := u.instances.GetByName(ctx, string(name), u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			return Settings{}, fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)

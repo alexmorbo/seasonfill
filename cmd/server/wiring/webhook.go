@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -180,12 +181,12 @@ func BuildWebhook(
 			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),
 			Logger:        webhookLog,
 		},
-		Lookup: func(name string) (*sonarr.Client, bool) {
+		Lookup: func(name domain.InstanceName) (*sonarr.Client, bool) {
 			h := holder.Load()
 			if h == nil {
 				return nil, false
 			}
-			inst, ok := h[name]
+			inst, ok := h[string(name)]
 			if !ok || inst.Client == nil {
 				return nil, false
 			}
@@ -210,8 +211,8 @@ func BuildWebhook(
 		SeasonStats:      webhookSeasonStatsRepo,
 		TorrentSeriesMap: torrentSeriesMapRepo,
 		SeriesSyncer:     webhookSeriesSyncer,
-		GUIDCooldownLookup: func(name string) time.Duration {
-			inst, ok := holder.Load()[name]
+		GUIDCooldownLookup: func(name domain.InstanceName) time.Duration {
+			inst, ok := holder.Load()[string(name)]
 			if !ok {
 				return 0
 			}

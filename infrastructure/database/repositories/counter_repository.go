@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // CounterRepository aggregates grab_records into time buckets.
@@ -32,7 +33,7 @@ type bucketRow struct {
 // ascending time order. One SQL round-trip; rows folded into a
 // fixed-size slice keyed by bucket position.
 func (r *CounterRepository) BucketCounters(
-	ctx context.Context, instance string, window ports.CounterWindow, now time.Time,
+	ctx context.Context, instance domain.InstanceName, window ports.CounterWindow, now time.Time,
 ) ([]ports.CounterBucket, error) {
 	plan, err := planForWindow(window, now)
 	if err != nil {
@@ -79,7 +80,7 @@ func (r *CounterRepository) BucketCounters(
 // divides by 7. Excludes today so the Dashboard compares today's
 // running total to a stable historical baseline.
 func (r *CounterRepository) AvgGrabsLast7Days(
-	ctx context.Context, instance string, now time.Time,
+	ctx context.Context, instance domain.InstanceName, now time.Time,
 ) (float64, error) {
 	end := startOfUTCDay(now)
 	start := end.Add(-7 * 24 * time.Hour)

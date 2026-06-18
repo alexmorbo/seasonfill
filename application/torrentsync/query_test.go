@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeLookup is the test stub for LookupRepo.
@@ -21,7 +22,7 @@ type fakeLookup struct {
 	err  error
 }
 
-func (f *fakeLookup) HashesForSeries(_ context.Context, instance string, seriesID int) ([]string, error) {
+func (f *fakeLookup) HashesForSeries(_ context.Context, instance domain.InstanceName, seriesID int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -30,8 +31,8 @@ func (f *fakeLookup) HashesForSeries(_ context.Context, instance string, seriesI
 	return f.rows[lookupKey(instance, seriesID)], nil
 }
 
-func lookupKey(instance string, seriesID int) string {
-	return instance + "|" + strconv.Itoa(seriesID)
+func lookupKey(instance domain.InstanceName, seriesID int) string {
+	return string(instance) + "|" + strconv.Itoa(seriesID)
 }
 
 // fakeTorrentsRepoWithFind extends fakeTorrentsRepo (from
@@ -42,7 +43,7 @@ type fakeTorrentsRepoWithFind struct {
 	byHash map[string]Entry
 }
 
-func (f *fakeTorrentsRepoWithFind) FindByHashes(_ context.Context, _ string, hashes []string) ([]Entry, error) {
+func (f *fakeTorrentsRepoWithFind) FindByHashes(_ context.Context, _ domain.InstanceName, hashes []string) ([]Entry, error) {
 	out := make([]Entry, 0, len(hashes))
 	for _, h := range hashes {
 		if e, ok := f.byHash[h]; ok {

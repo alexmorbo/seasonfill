@@ -1,6 +1,10 @@
 package webhook
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // EventType is the domain classification of a Sonarr webhook event after
 // the infrastructure DTO has been parsed. Phase 4 consumes three event
@@ -70,7 +74,7 @@ type Event struct {
 	// InstanceName — seasonfill-known Sonarr that emitted this. Sourced
 	// from the URL :instance_name path param (Q-8), NOT the payload's
 	// instanceName field (operator-set in Sonarr UI, untrustworthy).
-	InstanceName string
+	InstanceName domain.InstanceName
 
 	// DownloadID — Sonarr's download-client hash. Primary match key
 	// (R-3); stable across Grab/Download/ManualInteraction lifecycle.

@@ -13,9 +13,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func seedGrab(t *testing.T, db *gorm.DB, instance string, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
+func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:           uuid.New(),
@@ -83,14 +84,14 @@ func TestGrabRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	seedGrab(t, db, "main", 200, 1, grab.StatusGrabbed, base.Add(2*time.Second))
 	seedGrab(t, db, "secondary", 100, 1, grab.StatusGrabbed, base.Add(3*time.Second))
 
-	inst := "main"
+	inst := domain.InstanceName("main")
 	sid := 100
 	got, _, err := NewGrabRepository(db).List(context.Background(),
 		ports.GrabFilter{Instance: &inst, SeriesID: &sid}, ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, r := range got {
-		assert.Equal(t, "main", r.InstanceName)
+		assert.Equal(t, domain.InstanceName("main"), r.InstanceName)
 		assert.Equal(t, 100, r.SeriesID)
 	}
 }

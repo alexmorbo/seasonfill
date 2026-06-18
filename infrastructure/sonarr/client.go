@@ -22,10 +22,11 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type Client struct {
-	name    string
+	name    shareddomain.InstanceName
 	baseURL string
 	apiKey  string
 	// http is the default client (used by every endpoint EXCEPT
@@ -91,11 +92,11 @@ func WithSearchTimeout(d time.Duration) Option {
 	}
 }
 
-func New(name, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
+func New(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
 	return NewWithOptions(name, baseURL, apiKey, timeout, nil, logger)
 }
 
-func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger) *Client {
+func NewWithLimiter(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger) *Client {
 	return NewWithOptions(name, baseURL, apiKey, timeout, limiter, logger)
 }
 
@@ -103,7 +104,7 @@ func NewWithLimiter(name, baseURL, apiKey string, timeout time.Duration, limiter
 // Default httpSearch aliases http (= same timeout as every other
 // endpoint). WithSearchTimeout, if applied, overrides httpSearch
 // with a longer-timeout client for SearchReleases only.
-func NewWithOptions(name, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger, opts ...Option) *Client {
+func NewWithOptions(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger, opts ...Option) *Client {
 	base := &http.Client{Timeout: timeout}
 	c := &Client{
 		name:       name,
@@ -120,7 +121,7 @@ func NewWithOptions(name, baseURL, apiKey string, timeout time.Duration, limiter
 	return c
 }
 
-func (c *Client) Name() string { return c.name }
+func (c *Client) Name() string { return string(c.name) }
 
 func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out any) error {
 	return c.doWithClient(ctx, c.http, req, endpoint, out)
@@ -282,7 +283,7 @@ func (c *Client) GetSeries(ctx context.Context, id int) (series.Series, error) {
 	return toSeries(dto), nil
 }
 
-func (c *Client) ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+func (c *Client) ListSeriesCache(ctx context.Context, instanceName shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	var dtos []seriesDTO
 	if err := c.get(ctx, "/api/v3/series", nil, &dtos); err != nil {
 		return nil, err
@@ -294,7 +295,7 @@ func (c *Client) ListSeriesCache(ctx context.Context, instanceName string) ([]se
 	return out, nil
 }
 
-func seriesDTOToCacheEntry(d seriesDTO, instanceName string) series.CacheEntry {
+func seriesDTOToCacheEntry(d seriesDTO, instanceName shareddomain.InstanceName) series.CacheEntry {
 	entry := series.CacheEntry{
 		InstanceName:   instanceName,
 		SonarrSeriesID: d.ID,
@@ -670,7 +671,7 @@ func (c *Client) ForceGrab(ctx context.Context, guid string, indexerID int) (str
 		// the classifier already understands; bubble those up verbatim.
 		if isDecodeOnlyError(err) {
 			c.logger.DebugContext(ctx, "force_grab_response_decode_skipped",
-				slog.String("instance", c.name),
+				slog.String("instance", string(c.name)),
 				slog.String("error", err.Error()),
 			)
 			return "", nil

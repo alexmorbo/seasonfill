@@ -1,6 +1,10 @@
 package series
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SeasonStat is the per-(instance, series, season) projection of Sonarr's
 // season.statistics block, persisted in the season_stats table. Distinct
@@ -18,7 +22,7 @@ import "time"
 // by SyncSeriesFromSonarr alongside series_cache and is read by the
 // seriesdetail composer.
 type SeasonStat struct {
-	InstanceName      string
+	InstanceName      domain.InstanceName
 	SonarrSeriesID    int
 	SeasonNumber      int
 	EpisodeCount      int

@@ -25,7 +25,7 @@ import (
 // the handler maps it onto dto.SeriesCastResponse without further
 // DB queries.
 type CastPage struct {
-	Instance          string
+	Instance          domain.InstanceName
 	SonarrSeriesID    int
 	SeriesID          domain.SeriesID
 	Lang              string
@@ -110,7 +110,7 @@ func NewCastComposer(d CastDeps) *CastComposer {
 // (instance, sonarr_series_id) pair. `lang` defaults to "en-US"
 // when empty — currently only echoed on the response (cast list
 // has no per-language fields in v1); reserved for H-2 parity.
-func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSeriesID int, lang string) (*CastPage, error) {
+func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int, lang string) (*CastPage, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -155,7 +155,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 	total, cerr := c.d.EpisodesCount.CountBySeries(ctx, seriesID)
 	if cerr != nil {
 		c.d.Logger.WarnContext(ctx, "cast_total_episode_count_failed",
-			slog.String("instance_name", instanceName),
+			slog.String("instance_name", string(instanceName)),
 			slog.Int64("series_id", int64(seriesID)),
 			slog.String("error", cerr.Error()))
 		total = 0
@@ -283,7 +283,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 	out.SyncedAt = c.d.Now()
 
 	c.d.Logger.InfoContext(ctx, "series_cast_composed",
-		slog.String("instance_name", instanceName),
+		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("cast_count", len(out.Cast)),

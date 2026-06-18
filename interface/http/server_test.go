@@ -32,6 +32,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type noopSonarr struct{ name string }
@@ -40,7 +41,7 @@ func (n *noopSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (n *noopSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (n *noopSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (n *noopSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (n *noopSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
@@ -156,15 +157,15 @@ func (noopGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error)
 	panic("fake GetByID unexpectedly called - this stub is not configured")
 }
 
-func (noopGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (noopGrabRepo) CountReplaysSince(_ context.Context, _ domain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (noopGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (noopGrabRepo) CountReplaysAll(_ context.Context, _ domain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (noopGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeasonStatsRepository persists the per-(instance, sonarr_series_id,
@@ -71,7 +72,7 @@ func (r *SeasonStatsRepository) Upsert(ctx context.Context, s series.SeasonStat)
 // (instance, sonarr_series_id), ordered by season_number ASC. Soft-
 // deleted rows excluded.
 func (r *SeasonStatsRepository) ListBySeries(
-	ctx context.Context, instanceName string, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
 ) ([]series.SeasonStat, error) {
 	if instanceName == "" {
 		return nil, fmt.Errorf("list season_stats: instance_name must be non-empty")
@@ -97,7 +98,7 @@ func (r *SeasonStatsRepository) ListBySeries(
 // 377 cascade — invoked by scan.CascadeSeriesDelete alongside the
 // series_cache + episode_states stamps.
 func (r *SeasonStatsRepository) SoftDeleteBySeries(
-	ctx context.Context, instanceName string, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
 ) (int, error) {
 	if instanceName == "" {
 		return 0, fmt.Errorf("soft delete season_stats: instance_name must be non-empty")

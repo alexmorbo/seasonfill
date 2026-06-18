@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handler) *WebhookChecker {
@@ -22,7 +23,7 @@ func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handle
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
-	client := sonarr.NewWithOptions(instanceName, srv.URL, "test-key", 5*time.Second, nil, nil)
+	client := sonarr.NewWithOptions(domain.InstanceName(instanceName), srv.URL, "test-key", 5*time.Second, nil, nil)
 
 	reg := handlers.InstanceRegistry{
 		Load: func() map[string]scan.Instance {

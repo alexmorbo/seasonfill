@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type syncFixture struct {
@@ -105,7 +106,7 @@ func TestSyncSeriesFromSonarr_TwoInstances_DedupCanon(t *testing.T) {
 			f := newSyncFixture(t)
 			ctx := context.Background()
 			for inst, p := range tc.payloads {
-				_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, inst, scan.SonarrPayloadBundle{Series: p})
+				_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, domain.InstanceName(inst), scan.SonarrPayloadBundle{Series: p})
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tc.canonRows, f.countTable(t, "series"), "series rows")

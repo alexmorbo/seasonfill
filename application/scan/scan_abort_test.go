@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // abortFakeSonarr returns enough monitored series + monitored seasons to
@@ -91,7 +92,7 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 	return out, nil
 }
 
-func (f *abortFakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *abortFakeSonarr) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	atomic.AddInt64(&f.listSeriesCacheCalls, 1)
 	return nil, nil
 }
@@ -285,15 +286,15 @@ func (abortFakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (domaingrab.Rec
 	return domaingrab.Record{}, ports.ErrNotFound
 }
 
-func (abortFakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (abortFakeGrabRepo) CountReplaysSince(_ context.Context, _ shareddomain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (abortFakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
@@ -319,7 +320,7 @@ func (abortFakeCooldownRepo) Sweep(_ context.Context, _ time.Time) (int64, error
 type abortFakeOriginRepo struct{}
 
 func (abortFakeOriginRepo) Upsert(_ context.Context, _ ports.OriginRelease) error { return nil }
-func (abortFakeOriginRepo) Get(_ context.Context, _ string, _, _ int) (ports.OriginRelease, bool, error) {
+func (abortFakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 
@@ -484,7 +485,7 @@ func (f *authFailFakeSonarrWrapped) SystemStatus(_ context.Context) (ports.Syste
 func (f *authFailFakeSonarrWrapped) ListSeries(_ context.Context) ([]series.Series, error) {
 	return nil, errors.Join(errors.New("401 from sonarr"), domain.ErrInstanceUnauthorized)
 }
-func (f *authFailFakeSonarrWrapped) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *authFailFakeSonarrWrapped) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) GetSeries(_ context.Context, _ int) (series.Series, error) {

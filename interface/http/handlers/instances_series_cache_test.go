@@ -31,6 +31,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type seriesCacheFixture struct {
@@ -117,7 +118,7 @@ func (f *seriesCacheFixture) withMediaPending(t *testing.T) *repositories.MediaA
 // additional fields (Monitored, Network) before Upsert.
 func (f *seriesCacheFixture) seedWith(
 	t *testing.T,
-	instance string,
+	instance shareddomain.InstanceName,
 	id int,
 	title string,
 	missing int,
@@ -145,7 +146,7 @@ func (f *seriesCacheFixture) seedWith(
 		Update("updated_at", ts).Error)
 }
 
-func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title string, missing int, updatedAt time.Time) {
+func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceName, id int, title string, missing int, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
 	entry := series.CacheEntry{
@@ -161,7 +162,7 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance string, id int, title s
 		Update("updated_at", updatedAt).Error)
 }
 
-func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, title string, lastAired *time.Time, updatedAt time.Time) {
+func (f *seriesCacheFixture) seedAired(t *testing.T, instance shareddomain.InstanceName, id int, title string, lastAired *time.Time, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
 	entry := series.CacheEntry{
@@ -181,7 +182,7 @@ func (f *seriesCacheFixture) seedAired(t *testing.T, instance string, id int, ti
 // given series_cache (instance, sonarr_id). E-1: post-cutover the
 // network filter reads from the series_networks join; tests must seed
 // the join directly because CacheEntry no longer carries Network.
-func (f *seriesCacheFixture) seedNetworkForSeries(t *testing.T, instance string, sonarrID int, name string) {
+func (f *seriesCacheFixture) seedNetworkForSeries(t *testing.T, instance shareddomain.InstanceName, sonarrID int, name string) {
 	t.Helper()
 	if name == "" {
 		return
@@ -207,7 +208,7 @@ func clauseOnConflictDoNothing() clause.OnConflict {
 	return clause.OnConflict{DoNothing: true}
 }
 
-func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance string, seriesID, season int, createdAt time.Time) {
+func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance shareddomain.InstanceName, seriesID, season int, createdAt time.Time) {
 	t.Helper()
 	require.NoError(t, f.grabs.Create(context.Background(), grab.Record{
 		ID: uuid.New(), InstanceName: instance, SeriesID: seriesID,

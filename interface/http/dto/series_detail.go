@@ -21,7 +21,7 @@ type SeriesDetailResponse struct {
 	// Instance is the Sonarr instance the request hit.
 	// Echoed for clients that need to disambiguate cross-instance
 	// state (a series can exist on multiple instances).
-	Instance string `json:"instance" example:"alpha"`
+	Instance domain.InstanceName `json:"instance" example:"alpha"`
 	// SonarrSeriesID is the Sonarr-side id from the URL.
 	SonarrSeriesID int `json:"sonarr_series_id" example:"123"`
 	// SeriesID is the resolved canonical series.id. Useful to
@@ -347,8 +347,8 @@ type Recommendation struct {
 	// InstanceName + SonarrSeriesID identify which instance the
 	// recommendation lives on (when InLibrary=true). Empty
 	// otherwise. Used for the in-library click-through link.
-	InstanceName   string `json:"instance_name,omitempty"`
-	SonarrSeriesID int    `json:"sonarr_series_id,omitempty"`
+	InstanceName   domain.InstanceName `json:"instance_name,omitempty"`
+	SonarrSeriesID int                 `json:"sonarr_series_id,omitempty"`
 }
 
 // ExternalLinks — IMDb / TMDB / TVDB / homepage footer row
@@ -364,11 +364,11 @@ type ExternalLinks struct {
 // GET /api/v1/instances/:name/series/:id/season/:n. Reuses Season
 // + adds the parent series id for the SPA's polling code path.
 type SeasonDetailResponse struct {
-	Instance       string          `json:"instance"`
-	SonarrSeriesID int             `json:"sonarr_series_id"`
-	SeriesID       domain.SeriesID `json:"series_id"`
-	Lang           string          `json:"lang"`
-	Season         Season          `json:"season"`
-	Degraded       []string        `json:"degraded"`
-	SyncedAt       time.Time       `json:"synced_at"`
+	Instance       domain.InstanceName `json:"instance"`
+	SonarrSeriesID int                 `json:"sonarr_series_id"`
+	SeriesID       domain.SeriesID     `json:"series_id"`
+	Lang           string              `json:"lang"`
+	Season         Season              `json:"season"`
+	Degraded       []string            `json:"degraded"`
+	SyncedAt       time.Time           `json:"synced_at"`
 }

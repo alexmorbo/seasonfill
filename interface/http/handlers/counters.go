@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // CountersHandler serves the B6 aggregation endpoints.
@@ -133,17 +134,18 @@ func (h *CountersHandler) buildInstanceCounters(
 	c *gin.Context, name string, window ports.CounterWindow, now time.Time,
 ) (dto.InstanceCountersDTO, error) {
 	ctx := c.Request.Context()
-	buckets, err := h.repo.BucketCounters(ctx, name, window, now)
+	instName := domain.InstanceName(name)
+	buckets, err := h.repo.BucketCounters(ctx, instName, window, now)
 	if err != nil {
 		return dto.InstanceCountersDTO{}, err
 	}
-	avg, err := h.repo.AvgGrabsLast7Days(ctx, name, now)
+	avg, err := h.repo.AvgGrabsLast7Days(ctx, instName, now)
 	if err != nil {
 		return dto.InstanceCountersDTO{}, err
 	}
 
 	out := dto.InstanceCountersDTO{
-		InstanceName: name,
+		InstanceName: instName,
 		Window:       string(window),
 		Sparkline:    make([]dto.CounterBucketDTO, 0, len(buckets)),
 		AvgGrabs7d:   avg,

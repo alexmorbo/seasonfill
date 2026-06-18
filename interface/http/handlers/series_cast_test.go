@@ -158,7 +158,7 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 
 	var body dto.SeriesCastResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "alpha", body.Instance)
+	require.Equal(t, domain.InstanceName("alpha"), body.Instance)
 	require.Equal(t, 1, body.SonarrSeriesID)
 	require.Equal(t, domain.SeriesID(42), body.SeriesID)
 	require.Equal(t, "en-US", body.Lang)

@@ -3,6 +3,8 @@ package cooldown
 import (
 	"fmt"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type Scope string
@@ -39,7 +41,7 @@ type Cooldown struct {
 }
 
 // SeriesKey encodes the (instance, series, season) tuple as the cooldown key.
-func SeriesKey(instance string, seriesID, season int) string {
+func SeriesKey(instance domain.InstanceName, seriesID, season int) string {
 	return fmt.Sprintf("%s:%d:%d", instance, seriesID, season)
 }
 

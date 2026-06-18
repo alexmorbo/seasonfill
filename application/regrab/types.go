@@ -5,6 +5,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Settings is the use-case-friendly projection of ports.QbitSettingsRecord
@@ -18,7 +19,7 @@ import (
 // successful Cipher.Open; the settings repository never sees plaintext.
 type Settings struct {
 	InstanceID             uint
-	InstanceName           string
+	InstanceName           domain.InstanceName
 	Enabled                bool
 	URL                    string
 	Username               string
@@ -47,7 +48,7 @@ type Settings struct {
 // in hand (it cycled instances by name in step 1 of RunInstance) and
 // the projection's downstream consumers (slog, metrics labels) need
 // the human-readable name.
-func NewSettingsFromRecord(rec ports.QbitSettingsRecord, instanceName string, cipher *crypto.Cipher) (Settings, error) {
+func NewSettingsFromRecord(rec ports.QbitSettingsRecord, instanceName domain.InstanceName, cipher *crypto.Cipher) (Settings, error) {
 	out := Settings{
 		InstanceID:             rec.InstanceID,
 		InstanceName:           instanceName,
@@ -122,7 +123,7 @@ func (o OutcomeReason) IsTerminal() bool {
 // from RunInstance. The reload-bus subscriber (039g) aggregates these
 // across iterations to feed metrics + slog.
 type RunResult struct {
-	InstanceName         string
+	InstanceName         domain.InstanceName
 	TorrentsSeen         int
 	UnregisteredCount    int
 	TrackerDownCount     int

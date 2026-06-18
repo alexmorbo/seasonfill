@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- minimal fakes -------------------------------------------------------
@@ -34,7 +35,7 @@ func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{}, nil
 }
 func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
-func (f *fakeSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (f *fakeSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
@@ -104,16 +105,16 @@ func (f *fakeGrabs) UpdateParsed(_ context.Context, _ uuid.UUID, p *grab.Parsed,
 	return f.updateErr
 }
 func (f *fakeGrabs) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error { return nil }
-func (f *fakeGrabs) CountImportedEpisodes(_ context.Context, _ string, _ int, _ int) (int, error) {
+func (f *fakeGrabs) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ int, _ int) (int, error) {
 	return 0, nil
 }
 func (f *fakeGrabs) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {
 	return grab.Record{}, ports.ErrNotFound
 }
-func (f *fakeGrabs) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (f *fakeGrabs) CountReplaysSince(_ context.Context, _ domain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
-func (f *fakeGrabs) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (f *fakeGrabs) CountReplaysAll(_ context.Context, _ domain.InstanceName) (int, error) {
 	return 0, nil
 }
 func (f *fakeGrabs) ListReplaysOf(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {

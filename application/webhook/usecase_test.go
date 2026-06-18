@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeGrabRepo struct {
@@ -105,15 +106,15 @@ func (r *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, err
 	return grab.Record{}, ports.ErrNotFound
 }
 
-func (r *fakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (r *fakeGrabRepo) CountReplaysSince(_ context.Context, _ domain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ domain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 
@@ -189,7 +190,7 @@ func sampleRecord() grab.Record {
 
 // fixedLookup maps "main" → 48h, other names → 0.
 func fixedLookup() GuidCooldownLookup {
-	return func(instance string) time.Duration {
+	return func(instance domain.InstanceName) time.Duration {
 		if instance == "main" {
 			return 48 * time.Hour
 		}
@@ -215,11 +216,11 @@ type fakeSeriesCache struct {
 	upsertErr     error
 	deleteCalls   int
 	deletedID     int
-	deletedInst   string
+	deletedInst   domain.InstanceName
 	deleteErr     error
 }
 
-func (f *fakeSeriesCache) Get(context.Context, string, int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(context.Context, domain.InstanceName, int) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
@@ -232,7 +233,7 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upsertedEntry = e
 	return nil
 }
-func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance string, id int) error {
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance domain.InstanceName, id int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteCalls++
@@ -243,16 +244,16 @@ func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance string, id int)
 	f.deletedID = id
 	return nil
 }
-func (f *fakeSeriesCache) ListActiveByInstance(context.Context, string) ([]series.CacheEntry, error) {
+func (f *fakeSeriesCache) ListActiveByInstance(context.Context, domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ string, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
+func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ string, _ []int) (map[int]ports.LastGrabInfo, error) {
+func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
 	return make(map[int]ports.LastGrabInfo), nil
 }
-func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ string) ([]string, error) {
+func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
 
@@ -466,7 +467,7 @@ func TestProcess_ImportFailed_ZeroCooldown_NoCooldownAdded(t *testing.T) {
 	tx := &fakeTransactor{}
 	uc := New(Deps{
 		Grabs: g, Cooldowns: c, Tx: tx,
-		GUIDCooldownLookup: func(string) time.Duration { return 0 },
+		GUIDCooldownLookup: func(domain.InstanceName) time.Duration { return 0 },
 		Logger:             quietLogger(),
 	})
 
@@ -511,7 +512,7 @@ func TestProcess_ImportFailed_UnknownInstance_NoCooldownButTransitionApplies(t *
 // correct per-instance ExpiresAt.
 func TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure(t *testing.T) {
 	t.Parallel()
-	lookup := func(name string) time.Duration {
+	lookup := func(name domain.InstanceName) time.Duration {
 		switch name {
 		case "a":
 			return 24 * time.Hour
@@ -524,14 +525,14 @@ func TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure(t *testing.T
 	occurred := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
 
 	for _, tc := range []struct {
-		instance string
+		instance domain.InstanceName
 		wantDur  time.Duration
 	}{
 		{"a", 24 * time.Hour},
 		{"b", 72 * time.Hour},
 	} {
 		tc := tc
-		t.Run(tc.instance, func(t *testing.T) {
+		t.Run(string(tc.instance), func(t *testing.T) {
 			t.Parallel()
 			rec := sampleRecord()
 			rec.InstanceName = tc.instance
@@ -568,7 +569,7 @@ func TestProcess_ImportFailed_LookupReadsLiveAfterPointerSwap(t *testing.T) {
 	first := 24 * time.Hour
 	ptr.Store(&first)
 
-	lookup := func(name string) time.Duration {
+	lookup := func(name domain.InstanceName) time.Duration {
 		if name != "main" {
 			return 0
 		}
@@ -756,7 +757,7 @@ func TestProcess_SeriesAdd_UpsertsCache(t *testing.T) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	require.Equal(t, 1, cache.upsertCalls)
-	assert.Equal(t, "main", cache.upsertedEntry.InstanceName)
+	assert.Equal(t, domain.InstanceName("main"), cache.upsertedEntry.InstanceName)
 	assert.Equal(t, 42, cache.upsertedEntry.SonarrSeriesID)
 	assert.Equal(t, "Black-ish", cache.upsertedEntry.Title)
 	assert.Equal(t, "black-ish", cache.upsertedEntry.TitleSlug)
@@ -814,7 +815,7 @@ func TestProcess_SeriesDelete_SoftDeletesCache(t *testing.T) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	require.Equal(t, 1, cache.deleteCalls)
-	assert.Equal(t, "main", cache.deletedInst)
+	assert.Equal(t, domain.InstanceName("main"), cache.deletedInst)
 	assert.Equal(t, 42, cache.deletedID)
 }
 
@@ -953,7 +954,7 @@ func TestProcess_Grabbed_WritesTorrentSeriesMapInSameTx(t *testing.T) {
 	assert.True(t, tx.committed)
 	require.Len(t, tsm.rows, 1)
 	got := tsm.rows[0]
-	assert.Equal(t, "main", got.Instance)
+	assert.Equal(t, domain.InstanceName("main"), got.Instance)
 	assert.Equal(t, hash, got.Hash)
 	assert.Equal(t, 122, got.SeriesID)
 	assert.Equal(t, 2, got.SeasonNumber)

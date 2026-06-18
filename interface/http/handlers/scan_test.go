@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type stubSonarr struct {
@@ -33,7 +34,7 @@ func (s *stubSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (s *stubSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return s.ser, nil }
-func (s *stubSonarr) ListSeriesCache(_ context.Context, _ string) ([]series.CacheEntry, error) {
+func (s *stubSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
 func (s *stubSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {

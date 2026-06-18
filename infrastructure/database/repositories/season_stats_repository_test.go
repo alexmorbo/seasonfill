@@ -9,9 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleSeasonStat(instance string, sonarrID, seasonNumber int) series.SeasonStat {
+func sampleSeasonStat(instance domain.InstanceName, sonarrID, seasonNumber int) series.SeasonStat {
 	return series.SeasonStat{
 		InstanceName:      instance,
 		SonarrSeriesID:    sonarrID,
@@ -118,12 +119,12 @@ func TestSeasonStatsRepository_ListBySeries_FiltersByInstance(t *testing.T) {
 	homelab, err := repo.ListBySeries(ctx, "homelab", 140)
 	require.NoError(t, err)
 	require.Len(t, homelab, 1)
-	assert.Equal(t, "homelab", homelab[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("homelab"), homelab[0].InstanceName)
 
 	other, err := repo.ListBySeries(ctx, "other", 140)
 	require.NoError(t, err)
 	require.Len(t, other, 1)
-	assert.Equal(t, "other", other[0].InstanceName)
+	assert.Equal(t, domain.InstanceName("other"), other[0].InstanceName)
 }
 
 func TestSeasonStatsRepository_Upsert_StampsUpdatedAt(t *testing.T) {

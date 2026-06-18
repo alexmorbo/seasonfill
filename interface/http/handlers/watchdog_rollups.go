@@ -17,13 +17,14 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // RollupSnapshotProvider is the read-only slice of *regrab.UseCase the
 // rollup handler uses.
 type RollupSnapshotProvider interface {
-	Snapshot(instance string) (regrab.RuntimeState, bool)
-	SnapshotAll() map[string]regrab.RuntimeState
+	Snapshot(instance domain.InstanceName) (regrab.RuntimeState, bool)
+	SnapshotAll() map[domain.InstanceName]regrab.RuntimeState
 }
 
 // InstanceLister returns every configured Sonarr instance name.
@@ -40,8 +41,8 @@ type InstanceIDLookup interface {
 // needs. *repositories.GrabRepository satisfies it via the methods added
 // in this story.
 type rollupGrabCounter interface {
-	CountReplaysSince(ctx context.Context, instance string, since time.Time) (int, error)
-	CountReplaysAll(ctx context.Context, instance string) (int, error)
+	CountReplaysSince(ctx context.Context, instance domain.InstanceName, since time.Time) (int, error)
+	CountReplaysAll(ctx context.Context, instance domain.InstanceName) (int, error)
 }
 
 // rollupBlacklistCounter is the narrowed slice of
@@ -250,7 +251,7 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 			}
 			if !ok {
 				mu.Lock()
-				rows[i] = dto.WatchdogRollup{InstanceName: name}
+				rows[i] = dto.WatchdogRollup{InstanceName: domain.InstanceName(name)}
 				mu.Unlock()
 				return nil
 			}
@@ -273,8 +274,9 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 }
 
 func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, instanceID uint) (dto.WatchdogRollup, error) {
-	row := dto.WatchdogRollup{InstanceName: name}
-	sett, err := h.settings.Lookup(ctx, name)
+	instName := domain.InstanceName(name)
+	row := dto.WatchdogRollup{InstanceName: instName}
+	sett, err := h.settings.Lookup(ctx, instName)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return row, err
 	}
@@ -290,14 +292,14 @@ func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, insta
 	cg, cctx := errgroup.WithContext(ctx)
 	var r24, r7, blist int
 	cg.Go(func() error {
-		v, e := h.grabs.CountReplaysSince(cctx, name, now.Add(-24*time.Hour))
+		v, e := h.grabs.CountReplaysSince(cctx, instName, now.Add(-24*time.Hour))
 		if e == nil {
 			r24 = v
 		}
 		return e
 	})
 	cg.Go(func() error {
-		v, e := h.grabs.CountReplaysSince(cctx, name, now.Add(-7*24*time.Hour))
+		v, e := h.grabs.CountReplaysSince(cctx, instName, now.Add(-7*24*time.Hour))
 		if e == nil {
 			r7 = v
 		}
@@ -317,7 +319,7 @@ func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, insta
 	row.Regrabs7d = r7
 	row.BlacklistSize = blist
 
-	st, snapOK := h.snapshots.Snapshot(name)
+	st, snapOK := h.snapshots.Snapshot(instName)
 	if snapOK {
 		t := st.LastPollAt
 		row.LastPollAt = &t

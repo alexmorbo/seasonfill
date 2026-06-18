@@ -30,15 +30,15 @@ type fakeSeriesCache struct {
 	listErr error
 }
 
-func cacheKey(instance string, sonarrID int) string {
-	return instance + "|" + intToStr(sonarrID)
+func cacheKey(instance domain.InstanceName, sonarrID int) string {
+	return string(instance) + "|" + intToStr(sonarrID)
 }
 
 func intToStr(i int) string {
 	return string(rune('0' + i)) // tiny — tests only use small ids
 }
 
-func (f *fakeSeriesCache) Get(_ context.Context, instance string, sonarrID int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(_ context.Context, instance domain.InstanceName, sonarrID int) (series.CacheEntry, error) {
 	if f.getErr != nil {
 		return series.CacheEntry{}, f.getErr
 	}
@@ -129,7 +129,7 @@ type fakeEpisodeStates struct {
 	err  error
 }
 
-func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ string, _ domain.SeriesID) ([]series.EpisodeState, error) {
+func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ domain.InstanceName, _ domain.SeriesID) ([]series.EpisodeState, error) {
 	return f.rows, f.err
 }
 
@@ -145,7 +145,7 @@ type fakeSeasonStatsPort struct {
 }
 
 func (f *fakeSeasonStatsPort) ListBySeries(
-	_ context.Context, _ string, _ int,
+	_ context.Context, _ domain.InstanceName, _ int,
 ) ([]series.SeasonStat, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -326,7 +326,7 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 		ExternalIDs:       &fakeExternalIDs{},
 		Recommendations:   &fakeRecommendations{},
 		SyncLog:           &fakeSyncLog{rows: map[string]enrichment.SyncLog{}},
-		SonarrFor: func(_ string) (SonarrQueueLister, bool) {
+		SonarrFor: func(_ domain.InstanceName) (SonarrQueueLister, bool) {
 			return fakeSonarrQueueLister{payload: sonarr.QueuePayload{}}, true
 		},
 		Logger: newSilentLogger(),
@@ -388,7 +388,7 @@ func TestComposer_Get_404_NilSeriesIDInCache(t *testing.T) {
 
 func TestComposer_Get_SonarrUnreachable_DownloadNil_DegradedSonarr(t *testing.T) {
 	deps, _, _ := baseDeps(t)
-	deps.SonarrFor = func(_ string) (SonarrQueueLister, bool) { return nil, false }
+	deps.SonarrFor = func(_ domain.InstanceName) (SonarrQueueLister, bool) { return nil, false }
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -431,7 +431,7 @@ func TestComposer_Get_RecommendationsInLibrary(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, d.Recommendations, 1)
 	require.True(t, d.Recommendations[0].InLibrary)
-	require.Equal(t, "alpha", d.Recommendations[0].InstanceName)
+	require.Equal(t, domain.InstanceName("alpha"), d.Recommendations[0].InstanceName)
 	require.Equal(t, 5, d.Recommendations[0].SonarrSeriesID)
 }
 

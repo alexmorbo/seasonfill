@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -153,13 +154,14 @@ func (l *WebhookReconcileLoop) iterate(ctx context.Context) {
 		}
 
 		snap := inst.Config
+		instName := domain.InstanceName(name)
 		if !snap.WebhookInstallEnabled {
-			observability.IncWebhookReconcileResult(name, observability.WebhookReconcileResultSkipped)
+			observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
 			continue
 		}
 
 		if l.skipByCache(name, now, tick) {
-			observability.IncWebhookReconcileResult(name, observability.WebhookReconcileResultSkipped)
+			observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
 			continue
 		}
 
@@ -194,18 +196,19 @@ func (l *WebhookReconcileLoop) reconcileOne(ctx context.Context, name string, st
 	rctx, cancel := context.WithTimeout(ctx, webhookReconcilePerInstanceTimeout)
 	defer cancel()
 
+	instName := domain.InstanceName(name)
 	_, err := l.reconciler.Reconcile(rctx, name)
 	dur := l.now().Sub(start)
-	observability.ObserveWebhookReconcileDuration(name, dur.Seconds())
+	observability.ObserveWebhookReconcileDuration(instName, dur.Seconds())
 
 	switch {
 	case err == nil:
-		observability.IncWebhookReconcileResult(name, observability.WebhookReconcileResultOK)
+		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultOK)
 	case errors.Is(err, webhookinstall.ErrUnknownInstance):
 		// Deletion race between l.instances() and Reconcile.
-		observability.IncWebhookReconcileResult(name, observability.WebhookReconcileResultSkipped)
+		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
 	default:
-		observability.IncWebhookReconcileResult(name, observability.WebhookReconcileResultError)
+		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultError)
 		l.log.WarnContext(ctx, "webhook_reconcile_loop_iteration_failed",
 			slog.String("component", webhookReconcileLogComponent),
 			slog.String("instance", name),

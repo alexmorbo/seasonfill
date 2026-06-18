@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -49,7 +50,7 @@ type MapRepo interface {
 
 // MapRow is the row payload for MapRepo.Upsert.
 type MapRow struct {
-	Instance     string
+	Instance     domain.InstanceName
 	Hash         string
 	SeriesID     int
 	SeasonNumber int // 0 = unknown (column is nullable)
@@ -72,7 +73,7 @@ const (
 // `grab_records.torrent_hash -> (sonarr_series_id, season_number)`.
 // Implemented by GrabRepository.FindSeriesByTorrentHashes.
 type GrabHashLookup interface {
-	FindSeriesByTorrentHashes(ctx context.Context, instance string, hashes []string) ([]GrabHashRow, error)
+	FindSeriesByTorrentHashes(ctx context.Context, instance domain.InstanceName, hashes []string) ([]GrabHashRow, error)
 }
 
 // GrabHashRow is one batch-lookup result row.
@@ -93,7 +94,7 @@ type SonarrReconciler interface {
 // UnmappedGauge is the narrow metric surface the reconciler emits
 // to. Implemented in production by observability.SetTorrentsyncUnmapped.
 type UnmappedGauge interface {
-	SetTorrentsyncUnmapped(instance string, count int)
+	SetTorrentsyncUnmapped(instance domain.InstanceName, count int)
 }
 
 // Reconciler runs the 4-source torrent->series mapping pass for one
@@ -113,15 +114,15 @@ type Reconciler struct {
 	store         *Store
 	maps          MapRepo
 	grabs         GrabHashLookup
-	sonarrFor     func(instance string) (SonarrReconciler, bool)
+	sonarrFor     func(instance domain.InstanceName) (SonarrReconciler, bool)
 	gauge         UnmappedGauge
 	logger        *slog.Logger
 	now           func() time.Time
 	historyEveryN int
 
 	mu      sync.Mutex
-	cursor  map[string]int // instance -> next history page to fetch
-	tickIdx map[string]int // instance -> counter of torrentsync ticks observed
+	cursor  map[domain.InstanceName]int // instance -> next history page to fetch
+	tickIdx map[domain.InstanceName]int // instance -> counter of torrentsync ticks observed
 }
 
 // NewReconciler wires the 4-source dispatcher. Nil dependencies
@@ -133,7 +134,7 @@ func NewReconciler(
 	store *Store,
 	maps MapRepo,
 	grabs GrabHashLookup,
-	sonarrFor func(instance string) (SonarrReconciler, bool),
+	sonarrFor func(instance domain.InstanceName) (SonarrReconciler, bool),
 	gauge UnmappedGauge,
 	logger *slog.Logger,
 ) *Reconciler {
@@ -144,7 +145,7 @@ func NewReconciler(
 		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	if sonarrFor == nil {
-		sonarrFor = func(string) (SonarrReconciler, bool) { return nil, false }
+		sonarrFor = func(domain.InstanceName) (SonarrReconciler, bool) { return nil, false }
 	}
 	return &Reconciler{
 		store:         store,
@@ -155,8 +156,8 @@ func NewReconciler(
 		logger:        logger,
 		now:           func() time.Time { return time.Now().UTC() },
 		historyEveryN: ReconcilerEveryNthTick,
-		cursor:        make(map[string]int),
-		tickIdx:       make(map[string]int),
+		cursor:        make(map[domain.InstanceName]int),
+		tickIdx:       make(map[domain.InstanceName]int),
 	}
 }
 
@@ -183,7 +184,7 @@ func (r *Reconciler) WithClock(f func() time.Time) *Reconciler {
 // The error returned summarises the worst per-source outcome —
 // the loop logs it WARN but never lets it propagate (one bad
 // reconciler tick must not stall the qBit refresh path).
-func (r *Reconciler) MaybeRun(ctx context.Context, instance string) error {
+func (r *Reconciler) MaybeRun(ctx context.Context, instance domain.InstanceName) error {
 	r.mu.Lock()
 	r.tickIdx[instance]++
 	due := r.tickIdx[instance]%r.historyEveryN == 0
@@ -196,11 +197,11 @@ func (r *Reconciler) MaybeRun(ctx context.Context, instance string) error {
 
 // run is the unconditional reconciler pass — exposed for tests
 // that want to drive it without dialling the tick counter.
-func (r *Reconciler) run(ctx context.Context, instance string) error {
+func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) error {
 	unmapped := r.unmappedHashes(instance)
 	startedAt := r.now()
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_start",
-		slog.String("instance", instance),
+		slog.String("instance", string(instance)),
 		slog.Int("unmapped_count", len(unmapped)),
 	)
 
@@ -214,7 +215,7 @@ func (r *Reconciler) run(ctx context.Context, instance string) error {
 		remaining, err := r.applyGrabRecords(ctx, instance, unmapped)
 		if err != nil {
 			r.logger.WarnContext(ctx, "torrentsync_reconciler_grab_record_failed",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("error", err.Error()),
 			)
 		} else {
@@ -227,7 +228,7 @@ func (r *Reconciler) run(ctx context.Context, instance string) error {
 		remaining, err := r.applyQueue(ctx, instance, client, unmapped)
 		if err != nil {
 			r.logger.WarnContext(ctx, "torrentsync_reconciler_queue_failed",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("error", err.Error()),
 			)
 		} else {
@@ -239,7 +240,7 @@ func (r *Reconciler) run(ctx context.Context, instance string) error {
 			remaining, err = r.applyHistory(ctx, instance, client, unmapped)
 			if err != nil {
 				r.logger.WarnContext(ctx, "torrentsync_reconciler_history_failed",
-					slog.String("instance", instance),
+					slog.String("instance", string(instance)),
 					slog.String("error", err.Error()),
 				)
 			} else {
@@ -250,7 +251,7 @@ func (r *Reconciler) run(ctx context.Context, instance string) error {
 
 	r.emitGauge(instance, len(unmapped))
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_done",
-		slog.String("instance", instance),
+		slog.String("instance", string(instance)),
 		slog.Int("unmapped_count", len(unmapped)),
 		slog.Duration("elapsed", r.now().Sub(startedAt)),
 	)
@@ -261,7 +262,7 @@ func (r *Reconciler) run(ctx context.Context, instance string) error {
 // don't yet have a bySeries entry. The store is the source of
 // truth for "currently in qBit"; the map row presence is the
 // source of truth for "already bridged".
-func (r *Reconciler) unmappedHashes(instance string) []string {
+func (r *Reconciler) unmappedHashes(instance domain.InstanceName) []string {
 	rows := r.store.All(instance)
 	if len(rows) == 0 {
 		return nil
@@ -278,7 +279,7 @@ func (r *Reconciler) unmappedHashes(instance string) []string {
 
 // applyGrabRecords runs source 2 (PRD §4.5). Returns the unmapped
 // slice with mapped hashes removed.
-func (r *Reconciler) applyGrabRecords(ctx context.Context, instance string, hashes []string) ([]string, error) {
+func (r *Reconciler) applyGrabRecords(ctx context.Context, instance domain.InstanceName, hashes []string) ([]string, error) {
 	rows, err := r.grabs.FindSeriesByTorrentHashes(ctx, instance, hashes)
 	if err != nil {
 		return hashes, fmt.Errorf("grab_records lookup: %w", err)
@@ -295,7 +296,7 @@ func (r *Reconciler) applyGrabRecords(ctx context.Context, instance string, hash
 			CreatedAt:    r.now(),
 		}); err != nil {
 			r.logger.WarnContext(ctx, "torrentsync_reconciler_map_write_failed",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("hash", hash),
 				slog.String("source", string(MapSourceGrabRecord)),
 				slog.String("error", err.Error()),
@@ -304,7 +305,7 @@ func (r *Reconciler) applyGrabRecords(ctx context.Context, instance string, hash
 		}
 		mapped[hash] = struct{}{}
 		r.logger.InfoContext(ctx, "torrentsync_reconciler_mapped",
-			slog.String("instance", instance),
+			slog.String("instance", string(instance)),
 			slog.String("hash", hash),
 			slog.String("source", string(MapSourceGrabRecord)),
 			slog.Int("series_id", row.SeriesID),
@@ -317,7 +318,7 @@ func (r *Reconciler) applyGrabRecords(ctx context.Context, instance string, hash
 // applyQueue runs source 3. Sonarr /queue with includeSeries=false
 // returns one record per active download; downloadId is the
 // lowercase hash for torrent grabs.
-func (r *Reconciler) applyQueue(ctx context.Context, instance string, client SonarrReconciler, hashes []string) ([]string, error) {
+func (r *Reconciler) applyQueue(ctx context.Context, instance domain.InstanceName, client SonarrReconciler, hashes []string) ([]string, error) {
 	payload, err := client.QueueAll(ctx)
 	if err != nil {
 		return hashes, fmt.Errorf("sonarr queue: %w", err)
@@ -344,7 +345,7 @@ func (r *Reconciler) applyQueue(ctx context.Context, instance string, client Son
 			CreatedAt:    r.now(),
 		}); err != nil {
 			r.logger.WarnContext(ctx, "torrentsync_reconciler_map_write_failed",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("hash", hash),
 				slog.String("source", string(MapSourceQueue)),
 				slog.String("error", err.Error()),
@@ -353,7 +354,7 @@ func (r *Reconciler) applyQueue(ctx context.Context, instance string, client Son
 		}
 		mapped[hash] = struct{}{}
 		r.logger.InfoContext(ctx, "torrentsync_reconciler_mapped",
-			slog.String("instance", instance),
+			slog.String("instance", string(instance)),
 			slog.String("hash", hash),
 			slog.String("source", string(MapSourceQueue)),
 			slog.Int("series_id", rec.SeriesID),
@@ -368,7 +369,7 @@ func (r *Reconciler) applyQueue(ctx context.Context, instance string, client Son
 // back short (len(records) < HistoryPageSize) the cursor resets
 // to page 1: end-of-data, the next tick re-scans the freshest
 // grabs.
-func (r *Reconciler) applyHistory(ctx context.Context, instance string, client SonarrReconciler, hashes []string) ([]string, error) {
+func (r *Reconciler) applyHistory(ctx context.Context, instance domain.InstanceName, client SonarrReconciler, hashes []string) ([]string, error) {
 	wanted := setOf(hashes)
 	mapped := make(map[string]struct{})
 
@@ -412,7 +413,7 @@ func (r *Reconciler) applyHistory(ctx context.Context, instance string, client S
 				CreatedAt:    r.now(),
 			}); err != nil {
 				r.logger.WarnContext(ctx, "torrentsync_reconciler_map_write_failed",
-					slog.String("instance", instance),
+					slog.String("instance", string(instance)),
 					slog.String("hash", hash),
 					slog.String("source", string(MapSourceHistory)),
 					slog.String("error", err.Error()),
@@ -421,7 +422,7 @@ func (r *Reconciler) applyHistory(ctx context.Context, instance string, client S
 			}
 			mapped[hash] = struct{}{}
 			r.logger.InfoContext(ctx, "torrentsync_reconciler_mapped",
-				slog.String("instance", instance),
+				slog.String("instance", string(instance)),
 				slog.String("hash", hash),
 				slog.String("source", string(MapSourceHistory)),
 				slog.Int("series_id", rec.SeriesID),
@@ -440,7 +441,7 @@ func (r *Reconciler) applyHistory(ctx context.Context, instance string, client S
 	}
 	r.advanceCursor(instance, page, endOfData)
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_history_page_walk",
-		slog.String("instance", instance),
+		slog.String("instance", string(instance)),
 		slog.Int("pages_walked", pagesWalked),
 		slog.Int("next_page", page),
 		slog.Bool("end_of_data", endOfData),
@@ -452,7 +453,7 @@ func (r *Reconciler) applyHistory(ctx context.Context, instance string, client S
 // advanceCursor persists the next history page to read. When
 // endOfData is true the cursor resets to 1 so the next reconciler
 // tick walks from the freshest grabs again.
-func (r *Reconciler) advanceCursor(instance string, nextPage int, endOfData bool) {
+func (r *Reconciler) advanceCursor(instance domain.InstanceName, nextPage int, endOfData bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if endOfData {
@@ -476,7 +477,7 @@ func (r *Reconciler) writeMap(ctx context.Context, row MapRow) error {
 	return nil
 }
 
-func (r *Reconciler) emitGauge(instance string, n int) {
+func (r *Reconciler) emitGauge(instance domain.InstanceName, n int) {
 	if r.gauge == nil {
 		return
 	}
@@ -485,7 +486,7 @@ func (r *Reconciler) emitGauge(instance string, n int) {
 
 // CursorPageFor exposes the next history page the reconciler will
 // fetch for the named instance. Test-only diagnostic.
-func (r *Reconciler) CursorPageFor(instance string) int {
+func (r *Reconciler) CursorPageFor(instance domain.InstanceName) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	p := r.cursor[instance]
@@ -497,7 +498,7 @@ func (r *Reconciler) CursorPageFor(instance string) int {
 
 // TickIndexFor exposes the per-instance torrentsync tick counter.
 // Test-only diagnostic.
-func (r *Reconciler) TickIndexFor(instance string) int {
+func (r *Reconciler) TickIndexFor(instance domain.InstanceName) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.tickIdx[instance]

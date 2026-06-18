@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- fakes ----------------------------------------------------------------
@@ -118,15 +119,15 @@ func (f *fakeGrabRepo) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, err
 	return grab.Record{}, ports.ErrNotFound
 }
 
-func (f *fakeGrabRepo) CountReplaysSince(_ context.Context, _ string, _ time.Time) (int, error) {
+func (f *fakeGrabRepo) CountReplaysSince(_ context.Context, _ shareddomain.InstanceName, _ time.Time) (int, error) {
 	return 0, nil
 }
 
-func (f *fakeGrabRepo) CountReplaysAll(_ context.Context, _ string) (int, error) {
+func (f *fakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.InstanceName) (int, error) {
 	return 0, nil
 }
 
-func (f *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ string, _, _ int) (int, error) {
+func (f *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
 	return 0, nil
 }
 func (f *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
@@ -157,7 +158,7 @@ func (f *fakeCooldowns) Sweep(_ context.Context, _ time.Time) (int64, error) { r
 
 type fakeOrigins struct{}
 
-func (fakeOrigins) Get(_ context.Context, _ string, _, _ int) (ports.OriginRelease, bool, error) {
+func (fakeOrigins) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 func (fakeOrigins) Upsert(_ context.Context, _ ports.OriginRelease) error { return nil }

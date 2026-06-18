@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // preflightConcurrency bounds the number of in-flight checkOne probes
@@ -97,7 +98,7 @@ func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
 	now := time.Now().UTC()
 	if err == nil {
 		c.registry.MarkAvailable(name, now)
-		observability.SetInstanceAvailable(name, true)
+		observability.SetInstanceAvailable(shareddomain.InstanceName(name), true)
 		return
 	}
 	state := instance.HealthUnavailableUnknown
@@ -113,7 +114,7 @@ func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
 	// SelfThrottled is still "we couldn't reach Sonarr this round" from
 	// the gauge perspective but the typed health code (see healthCode)
 	// gives dashboards the nuance.
-	observability.SetInstanceAvailable(name, false)
+	observability.SetInstanceAvailable(shareddomain.InstanceName(name), false)
 }
 
 // RecheckByName runs preflight against a single instance — used by the
@@ -166,13 +167,14 @@ func (c *Checker) Snapshot() []instance.Snapshot { return c.registry.Snapshot() 
 type metricsListener struct{}
 
 func (metricsListener) OnCheck(name string, h instance.Health, at time.Time) {
-	observability.SetInstanceAvailable(name, h == instance.HealthAvailable)
-	observability.SetInstanceHealth(name, healthCode(h))
-	observability.SetInstanceLastCheck(name, at.Unix())
+	inst := shareddomain.InstanceName(name)
+	observability.SetInstanceAvailable(inst, h == instance.HealthAvailable)
+	observability.SetInstanceHealth(inst, healthCode(h))
+	observability.SetInstanceLastCheck(inst, at.Unix())
 }
 
 func (metricsListener) OnTransition(name string, from, to instance.Health, _ time.Time, _ string) {
-	observability.IncInstanceHealthTransition(name, string(from), string(to))
+	observability.IncInstanceHealthTransition(shareddomain.InstanceName(name), string(from), string(to))
 }
 
 func healthCode(h instance.Health) int {

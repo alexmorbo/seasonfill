@@ -16,6 +16,7 @@ import (
 	evaluate "github.com/alexmorbo/seasonfill/application/evaluate"
 	grab "github.com/alexmorbo/seasonfill/application/grab"
 	decision "github.com/alexmorbo/seasonfill/domain/decision"
+	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,7 +45,7 @@ func (m *MockWebhookChecker) EXPECT() *MockWebhookCheckerMockRecorder {
 }
 
 // IsInstalled mocks base method.
-func (m *MockWebhookChecker) IsInstalled(ctx context.Context, instanceName string) (bool, error) {
+func (m *MockWebhookChecker) IsInstalled(ctx context.Context, instanceName domain.InstanceName) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsInstalled", ctx, instanceName)
 	ret0, _ := ret[0].(bool)
@@ -160,7 +161,7 @@ func (m *MockMetrics) EXPECT() *MockMetricsMockRecorder {
 }
 
 // IncPollResult mocks base method.
-func (m *MockMetrics) IncPollResult(instance, result string) {
+func (m *MockMetrics) IncPollResult(instance domain.InstanceName, result string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "IncPollResult", instance, result)
 }
@@ -172,7 +173,7 @@ func (mr *MockMetricsMockRecorder) IncPollResult(instance, result any) *gomock.C
 }
 
 // IncRegrabResult mocks base method.
-func (m *MockMetrics) IncRegrabResult(instance, result string) {
+func (m *MockMetrics) IncRegrabResult(instance domain.InstanceName, result string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "IncRegrabResult", instance, result)
 }
@@ -184,7 +185,7 @@ func (mr *MockMetricsMockRecorder) IncRegrabResult(instance, result any) *gomock
 }
 
 // IncUnregistered mocks base method.
-func (m *MockMetrics) IncUnregistered(instance, tracker string) {
+func (m *MockMetrics) IncUnregistered(instance domain.InstanceName, tracker string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "IncUnregistered", instance, tracker)
 }
@@ -196,7 +197,7 @@ func (mr *MockMetricsMockRecorder) IncUnregistered(instance, tracker any) *gomoc
 }
 
 // SetBlacklistSize mocks base method.
-func (m *MockMetrics) SetBlacklistSize(instance string, size int) {
+func (m *MockMetrics) SetBlacklistSize(instance domain.InstanceName, size int) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetBlacklistSize", instance, size)
 }
@@ -208,7 +209,7 @@ func (mr *MockMetricsMockRecorder) SetBlacklistSize(instance, size any) *gomock.
 }
 
 // SetQbitUnreachableStreak mocks base method.
-func (m *MockMetrics) SetQbitUnreachableStreak(instance string, streak int) {
+func (m *MockMetrics) SetQbitUnreachableStreak(instance domain.InstanceName, streak int) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetQbitUnreachableStreak", instance, streak)
 }

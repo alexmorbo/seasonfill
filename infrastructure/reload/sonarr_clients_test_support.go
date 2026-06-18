@@ -8,21 +8,25 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // FakeSonarrClient is an exported stub of ports.SonarrClient for
 // cross-package use in 027d-3's E2E tests. Every method returns the
 // zero value of its declared return type + nil error.
 type FakeSonarrClient struct {
-	InstanceName string
+	InstanceName domain.InstanceName
 }
 
-func (f *FakeSonarrClient) Name() string { return f.InstanceName }
+func (f *FakeSonarrClient) Name() string { return string(f.InstanceName) }
 
 func (f *FakeSonarrClient) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
 	return ports.SystemStatus{}, nil
 }
 func (f *FakeSonarrClient) ListSeries(_ context.Context) ([]series.Series, error) { return nil, nil }
+func (f *FakeSonarrClient) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 func (f *FakeSonarrClient) GetSeries(_ context.Context, _ int) (series.Series, error) {
 	return series.Series{}, nil
 }

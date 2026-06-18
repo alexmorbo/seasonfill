@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // CounterBucket is one bucket row. BucketStart is UTC; granularity is
@@ -31,9 +33,9 @@ type CounterRepository interface {
 	// BucketCounters returns the per-bucket roll-up for one instance.
 	// `now` is the exclusive upper bound. The slice has exactly N
 	// entries (24 / 7 / 30) — empty buckets are zero-filled.
-	BucketCounters(ctx context.Context, instance string, window CounterWindow, now time.Time) ([]CounterBucket, error)
+	BucketCounters(ctx context.Context, instance domain.InstanceName, window CounterWindow, now time.Time) ([]CounterBucket, error)
 
 	// AvgGrabsLast7Days returns SUM/7 over the 7 days BEFORE `now`'s
 	// UTC day. Empty days count as zero; divisor is always 7.
-	AvgGrabsLast7Days(ctx context.Context, instance string, now time.Time) (float64, error)
+	AvgGrabsLast7Days(ctx context.Context, instance domain.InstanceName, now time.Time) (float64, error)
 }

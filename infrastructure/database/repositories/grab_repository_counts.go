@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // CountReplaysSince — instance + window filter.
-func (r *GrabRepository) CountReplaysSince(ctx context.Context, instanceName string, since time.Time) (int, error) {
+func (r *GrabRepository) CountReplaysSince(ctx context.Context, instanceName domain.InstanceName, since time.Time) (int, error) {
 	var count int64
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.GrabRecordModel{}).
@@ -22,7 +23,7 @@ func (r *GrabRepository) CountReplaysSince(ctx context.Context, instanceName str
 }
 
 // CountReplaysAll — lifetime count for instance.
-func (r *GrabRepository) CountReplaysAll(ctx context.Context, instanceName string) (int, error) {
+func (r *GrabRepository) CountReplaysAll(ctx context.Context, instanceName domain.InstanceName) (int, error) {
 	var count int64
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.GrabRecordModel{}).

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeRunner records every RunInstance call and lets tests stub the
@@ -30,14 +31,14 @@ func newFakeRunner() *fakeRunner {
 	}
 }
 
-func (f *fakeRunner) RunInstance(_ context.Context, name string) (regrab.RunResult, error) {
+func (f *fakeRunner) RunInstance(_ context.Context, name domain.InstanceName) (regrab.RunResult, error) {
 	if f.hold != nil {
 		<-f.hold
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls[name]++
-	return regrab.RunResult{InstanceName: name, QbitError: f.qbitErr[name]}, nil
+	f.calls[string(name)]++
+	return regrab.RunResult{InstanceName: name, QbitError: f.qbitErr[string(name)]}, nil
 }
 
 func (f *fakeRunner) count(name string) int {
@@ -57,10 +58,10 @@ func newFakeMetrics() *fakeMetrics {
 	return &fakeMetrics{streaks: make(map[string]int)}
 }
 
-func (m *fakeMetrics) SetQbitUnreachableStreak(name string, n int) {
+func (m *fakeMetrics) SetQbitUnreachableStreak(name domain.InstanceName, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.streaks[name] = n
+	m.streaks[string(name)] = n
 }
 
 func (m *fakeMetrics) streak(name string) int {

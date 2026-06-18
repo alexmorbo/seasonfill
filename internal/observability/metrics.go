@@ -4,6 +4,8 @@ import (
 	"io"
 
 	"github.com/VictoriaMetrics/metrics"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 const (
@@ -125,48 +127,48 @@ const (
 	WebhookReconcileResultSkipped = "skipped"
 )
 
-func ScanCompleted(instance, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_scans_total{instance="` + instance + `",status="` + status + `"}`).Inc()
+func ScanCompleted(instance domain.InstanceName, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_scans_total{instance="` + string(instance) + `",status="` + status + `"}`).Inc()
 }
 
-func SeriesEvaluated(instance, decision string) {
-	metrics.GetOrCreateCounter(`seasonfill_series_evaluated_total{instance="` + instance + `",decision="` + decision + `"}`).Inc()
+func SeriesEvaluated(instance domain.InstanceName, decision string) {
+	metrics.GetOrCreateCounter(`seasonfill_series_evaluated_total{instance="` + string(instance) + `",decision="` + decision + `"}`).Inc()
 }
 
-func GrabRecorded(instance, indexer, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_grabs_total{instance="` + instance + `",indexer="` + indexer + `",result="` + status + `"}`).Inc()
+func GrabRecorded(instance domain.InstanceName, indexer, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_grabs_total{instance="` + string(instance) + `",indexer="` + indexer + `",result="` + status + `"}`).Inc()
 }
 
 // GrabAttempt counts individual force-grab attempts with their classification:
 // "grabbed", "retried", or "failed".
-func GrabAttempt(instance, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_grab_attempts_total{instance="` + instance + `",status="` + status + `"}`).Inc()
+func GrabAttempt(instance domain.InstanceName, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_grab_attempts_total{instance="` + string(instance) + `",status="` + status + `"}`).Inc()
 }
 
-func SonarrAPIRequest(instance, endpoint, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_sonarr_api_requests_total{instance="` + instance + `",endpoint="` + endpoint + `",status="` + status + `"}`).Inc()
+func SonarrAPIRequest(instance domain.InstanceName, endpoint, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_sonarr_api_requests_total{instance="` + string(instance) + `",endpoint="` + endpoint + `",status="` + status + `"}`).Inc()
 }
 
-func ObserveSonarrAPIDuration(instance, endpoint string, seconds float64) {
-	metrics.GetOrCreateHistogram(`seasonfill_sonarr_api_duration_seconds{instance="` + instance + `",endpoint="` + endpoint + `"}`).Update(seconds)
+func ObserveSonarrAPIDuration(instance domain.InstanceName, endpoint string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_sonarr_api_duration_seconds{instance="` + string(instance) + `",endpoint="` + endpoint + `"}`).Update(seconds)
 }
 
-func ObserveScanDuration(instance string, seconds float64) {
-	metrics.GetOrCreateHistogram(`seasonfill_scan_duration_seconds{instance="` + instance + `"}`).Update(seconds)
+func ObserveScanDuration(instance domain.InstanceName, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_scan_duration_seconds{instance="` + string(instance) + `"}`).Update(seconds)
 }
 
-func ObserveCandidatesFound(instance string, count int) {
-	metrics.GetOrCreateHistogram(`seasonfill_candidates_found{instance="` + instance + `"}`).Update(float64(count))
+func ObserveCandidatesFound(instance domain.InstanceName, count int) {
+	metrics.GetOrCreateHistogram(`seasonfill_candidates_found{instance="` + string(instance) + `"}`).Update(float64(count))
 }
 
-func ObserveCoverageCount(instance string, count int) {
-	metrics.GetOrCreateHistogram(`seasonfill_coverage_count{instance="` + instance + `"}`).Update(float64(count))
+func ObserveCoverageCount(instance domain.InstanceName, count int) {
+	metrics.GetOrCreateHistogram(`seasonfill_coverage_count{instance="` + string(instance) + `"}`).Update(float64(count))
 }
 
 // SetInstanceAvailable is retained for back-compat with the legacy dashboard.
 // New code should prefer SetInstanceHealth which carries the typed state.
-func SetInstanceAvailable(instance string, available bool) {
-	g := metrics.GetOrCreateGauge(`seasonfill_instances_available{instance="`+instance+`"}`, nil)
+func SetInstanceAvailable(instance domain.InstanceName, available bool) {
+	g := metrics.GetOrCreateGauge(`seasonfill_instances_available{instance="`+string(instance)+`"}`, nil)
 	if available {
 		g.Set(1)
 	} else {
@@ -174,41 +176,41 @@ func SetInstanceAvailable(instance string, available bool) {
 	}
 }
 
-func IncActiveScans(instance string) {
-	metrics.GetOrCreateGauge(`seasonfill_active_scans{instance="`+instance+`"}`, nil).Inc()
+func IncActiveScans(instance domain.InstanceName) {
+	metrics.GetOrCreateGauge(`seasonfill_active_scans{instance="`+string(instance)+`"}`, nil).Inc()
 }
 
-func DecActiveScans(instance string) {
-	metrics.GetOrCreateGauge(`seasonfill_active_scans{instance="`+instance+`"}`, nil).Dec()
+func DecActiveScans(instance domain.InstanceName) {
+	metrics.GetOrCreateGauge(`seasonfill_active_scans{instance="`+string(instance)+`"}`, nil).Dec()
 }
 
 // SetCooldownActive records the current count of active cooldowns per scope.
-func SetCooldownActive(instance, scope string, count int) {
-	metrics.GetOrCreateGauge(`seasonfill_cooldown_active{instance="`+instance+`",scope="`+scope+`"}`, nil).Set(float64(count))
+func SetCooldownActive(instance domain.InstanceName, scope string, count int) {
+	metrics.GetOrCreateGauge(`seasonfill_cooldown_active{instance="`+string(instance)+`",scope="`+scope+`"}`, nil).Set(float64(count))
 }
 
 // SetInstanceHealth records the numeric health code (0=Available, 1=Auth,
 // 2=Network, 3=Unknown).
-func SetInstanceHealth(instance string, code int) {
-	metrics.GetOrCreateGauge(`seasonfill_instance_health{instance="`+instance+`"}`, nil).Set(float64(code))
+func SetInstanceHealth(instance domain.InstanceName, code int) {
+	metrics.GetOrCreateGauge(`seasonfill_instance_health{instance="`+string(instance)+`"}`, nil).Set(float64(code))
 }
 
 // IncInstanceHealthTransition increments the per-transition counter.
-func IncInstanceHealthTransition(instance, from, to string) {
-	metrics.GetOrCreateCounter(`seasonfill_instance_health_transitions_total{instance="` + instance + `",from="` + from + `",to="` + to + `"}`).Inc()
+func IncInstanceHealthTransition(instance domain.InstanceName, from, to string) {
+	metrics.GetOrCreateCounter(`seasonfill_instance_health_transitions_total{instance="` + string(instance) + `",from="` + from + `",to="` + to + `"}`).Inc()
 }
 
 // SetInstanceLastCheck records the Unix-second timestamp of the most recent
 // check.
-func SetInstanceLastCheck(instance string, unixSec int64) {
-	metrics.GetOrCreateGauge(`seasonfill_instance_last_check_timestamp{instance="`+instance+`"}`, nil).Set(float64(unixSec))
+func SetInstanceLastCheck(instance domain.InstanceName, unixSec int64) {
+	metrics.GetOrCreateGauge(`seasonfill_instance_last_check_timestamp{instance="`+string(instance)+`"}`, nil).Set(float64(unixSec))
 }
 
 // IncRateLimitThrottled records that a rate-limited call would have blocked.
 // scope is "per_instance" or "global"; instance is the Sonarr instance name
 // for the per-instance limiter, or "" for the shared global limiter.
-func IncRateLimitThrottled(instance, scope string) {
-	metrics.GetOrCreateCounter(`seasonfill_rate_limit_throttled_total{instance="` + instance + `",scope="` + scope + `"}`).Inc()
+func IncRateLimitThrottled(instance domain.InstanceName, scope string) {
+	metrics.GetOrCreateCounter(`seasonfill_rate_limit_throttled_total{instance="` + string(instance) + `",scope="` + scope + `"}`).Inc()
 }
 
 // IncWebhookProcessingFailures records a non-transient failure from
@@ -216,42 +218,42 @@ func IncRateLimitThrottled(instance, scope string) {
 // and are NOT counted — Sonarr retries and a successful retry should
 // not pollute the failure rate. `errorKind` is produced by
 // `application/webhook.ErrorKind` (low-cardinality).
-func IncWebhookProcessingFailures(instance, errorKind string) {
-	metrics.GetOrCreateCounter(`seasonfill_webhook_processing_failures_total{instance="` + instance + `",error_kind="` + errorKind + `"}`).Inc()
+func IncWebhookProcessingFailures(instance domain.InstanceName, errorKind string) {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_processing_failures_total{instance="` + string(instance) + `",error_kind="` + errorKind + `"}`).Inc()
 }
 
 // IncWebhookReconcileResult bumps the per-instance reconcile counter.
 // result must be one of the WebhookReconcileResult* constants above.
-func IncWebhookReconcileResult(instance, result string) {
-	metrics.GetOrCreateCounter(`seasonfill_webhook_reconcile_total{instance="` + instance + `",result="` + result + `"}`).Inc()
+func IncWebhookReconcileResult(instance domain.InstanceName, result string) {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_reconcile_total{instance="` + string(instance) + `",result="` + result + `"}`).Inc()
 }
 
 // ObserveWebhookReconcileDuration records the wall-clock duration of a
 // single Reconcile attempt (including the 3 s per-instance timeout
 // cap). Skips do NOT call this — only attempts that actually called
 // Reconcile.
-func ObserveWebhookReconcileDuration(instance string, seconds float64) {
-	metrics.GetOrCreateHistogram(`seasonfill_webhook_reconcile_duration_seconds{instance="` + instance + `"}`).Update(seconds)
+func ObserveWebhookReconcileDuration(instance domain.InstanceName, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_webhook_reconcile_duration_seconds{instance="` + string(instance) + `"}`).Update(seconds)
 }
 
 // IncParseRelease bumps the per-instance, per-result parse counter.
 // result ∈ {"ok","error","skipped","disabled"}.
-func IncParseRelease(instance, result string) {
-	metrics.GetOrCreateCounter(`seasonfill_parse_release_total{instance="` + instance + `",result="` + result + `"}`).Inc()
+func IncParseRelease(instance domain.InstanceName, result string) {
+	metrics.GetOrCreateCounter(`seasonfill_parse_release_total{instance="` + string(instance) + `",result="` + result + `"}`).Inc()
 }
 
 // ObserveParseReleaseDuration records the wall-clock seconds spent in
 // one parse pass (Sonarr round-trip + ExtractExtras).
-func ObserveParseReleaseDuration(instance string, seconds float64) {
-	metrics.GetOrCreateHistogram(`seasonfill_parse_release_duration_seconds{instance="` + instance + `"}`).Update(seconds)
+func ObserveParseReleaseDuration(instance domain.InstanceName, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_parse_release_duration_seconds{instance="` + string(instance) + `"}`).Update(seconds)
 }
 
 // IncScanSkipped bumps the 046b pre-filter counter. `reason` must be
 // one of {"all_complete", "sonarr_handles"} — the call site (scan_usecase)
 // is the only producer and uses the same string literals to populate
 // the synthetic Decision row's category.
-func IncScanSkipped(instance, reason string) {
-	metrics.GetOrCreateCounter(`seasonfill_scan_skipped_seasons_total{instance="` + instance + `",reason="` + reason + `"}`).Inc()
+func IncScanSkipped(instance domain.InstanceName, reason string) {
+	metrics.GetOrCreateCounter(`seasonfill_scan_skipped_seasons_total{instance="` + string(instance) + `",reason="` + reason + `"}`).Inc()
 }
 
 func WritePrometheus(w io.Writer) {

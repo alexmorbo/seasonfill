@@ -5,6 +5,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ParseResult is the application-layer projection of the Sonarr
@@ -80,7 +81,7 @@ type SonarrClient interface {
 	// ListSeries but maps to the richer series.CacheEntry shape used by
 	// the series_cache repository (041e). instanceName is stamped onto
 	// every returned entry — Sonarr does not echo it.
-	ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
+	ListSeriesCache(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error)
 	GetSeries(ctx context.Context, id int) (series.Series, error)
 	ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error)
 	// ListEpisodesBySeries returns every episode for a series in a

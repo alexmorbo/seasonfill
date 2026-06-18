@@ -135,7 +135,7 @@ func mkCanon(id domain.SeriesID, tmdbID int, title string, year int, lastAir tim
 	}
 }
 
-func mkCacheRow(instanceName string, seriesID domain.SeriesID) series.CacheEntry {
+func mkCacheRow(instanceName domain.InstanceName, seriesID domain.SeriesID) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &seriesID,
@@ -146,7 +146,7 @@ func mkCacheRow(instanceName string, seriesID domain.SeriesID) series.CacheEntry
 // mkCacheRowFull builds a CacheEntry with explicit canon series id
 // and explicit Sonarr series id. Used by the dedup + sonarr id tests
 // that need the two to differ.
-func mkCacheRowFull(instanceName string, canonID domain.SeriesID, sonarrID int) series.CacheEntry {
+func mkCacheRowFull(instanceName domain.InstanceName, canonID domain.SeriesID, sonarrID int) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &canonID,
@@ -488,9 +488,9 @@ func TestUseCase_InstanceDedup(t *testing.T) {
 	}
 	require.NotNil(t, louEntry)
 	require.Len(t, louEntry.Instances, 2, "deduped to one row per instance name")
-	assert.Equal(t, "4k", louEntry.Instances[0].InstanceName, "sorted alphabetically")
+	assert.Equal(t, domain.InstanceName("4k"), louEntry.Instances[0].InstanceName, "sorted alphabetically")
 	assert.Equal(t, 9001, louEntry.Instances[0].SonarrSeriesID)
-	assert.Equal(t, "alpha", louEntry.Instances[1].InstanceName)
+	assert.Equal(t, domain.InstanceName("alpha"), louEntry.Instances[1].InstanceName)
 	assert.Equal(t, 7001, louEntry.Instances[1].SonarrSeriesID, "first row per instance wins")
 	// Verify the sort invariant: instances must be sorted by name.
 	require.True(t, sort.SliceIsSorted(louEntry.Instances, func(i, j int) bool {
@@ -525,7 +525,7 @@ func TestUseCase_InstanceCarriesSonarrSeriesID(t *testing.T) {
 	for _, lc := range out.LibraryCredits {
 		m := map[string]int{}
 		for _, inst := range lc.Instances {
-			m[inst.InstanceName] = inst.SonarrSeriesID
+			m[string(inst.InstanceName)] = inst.SonarrSeriesID
 		}
 		got[lc.Canon.Title] = m
 	}

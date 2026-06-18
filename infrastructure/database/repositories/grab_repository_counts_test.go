@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestGrabRepository_CountReplays(t *testing.T) {
@@ -35,7 +36,7 @@ func TestGrabRepository_CountReplays(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		instance string
+		instance domain.InstanceName
 		hoursAgo int
 	}{
 		{"r_1h_alpha", "alpha", 1},

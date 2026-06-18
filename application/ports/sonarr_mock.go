@@ -7,6 +7,7 @@ import (
 	"context"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"sync"
 )
 
@@ -50,7 +51,7 @@ var _ SonarrClient = &SonarrClientMock{}
 //			ListSeriesFunc: func(ctx context.Context) ([]series.Series, error) {
 //				panic("mock out the ListSeries method")
 //			},
-//			ListSeriesCacheFunc: func(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+//			ListSeriesCacheFunc: func(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 //				panic("mock out the ListSeriesCache method")
 //			},
 //			ListTagsFunc: func(ctx context.Context) ([]Tag, error) {
@@ -106,7 +107,7 @@ type SonarrClientMock struct {
 	ListSeriesFunc func(ctx context.Context) ([]series.Series, error)
 
 	// ListSeriesCacheFunc mocks the ListSeriesCache method.
-	ListSeriesCacheFunc func(ctx context.Context, instanceName string) ([]series.CacheEntry, error)
+	ListSeriesCacheFunc func(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error)
 
 	// ListTagsFunc mocks the ListTags method.
 	ListTagsFunc func(ctx context.Context) ([]Tag, error)
@@ -202,7 +203,7 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// InstanceName is the instanceName argument value.
-			InstanceName string
+			InstanceName domain.InstanceName
 		}
 		// ListTags holds details about calls to the ListTags method.
 		ListTags []struct {
@@ -617,13 +618,13 @@ func (mock *SonarrClientMock) ListSeriesCalls() []struct {
 }
 
 // ListSeriesCache calls ListSeriesCacheFunc.
-func (mock *SonarrClientMock) ListSeriesCache(ctx context.Context, instanceName string) ([]series.CacheEntry, error) {
+func (mock *SonarrClientMock) ListSeriesCache(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	if mock.ListSeriesCacheFunc == nil {
 		panic("SonarrClientMock.ListSeriesCacheFunc: method is nil but SonarrClient.ListSeriesCache was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
-		InstanceName string
+		InstanceName domain.InstanceName
 	}{
 		Ctx:          ctx,
 		InstanceName: instanceName,
@@ -640,11 +641,11 @@ func (mock *SonarrClientMock) ListSeriesCache(ctx context.Context, instanceName 
 //	len(mockedSonarrClient.ListSeriesCacheCalls())
 func (mock *SonarrClientMock) ListSeriesCacheCalls() []struct {
 	Ctx          context.Context
-	InstanceName string
+	InstanceName domain.InstanceName
 } {
 	var calls []struct {
 		Ctx          context.Context
-		InstanceName string
+		InstanceName domain.InstanceName
 	}
 	mock.lockListSeriesCache.RLock()
 	calls = mock.calls.ListSeriesCache

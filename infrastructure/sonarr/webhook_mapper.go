@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/domain/webhook"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ErrMalformedPayload — JSON body unparseable or missing eventType.
@@ -44,7 +45,7 @@ var webhookEventAlias = map[string]webhook.EventType{
 // Returns ErrMalformedPayload (wrapped) on JSON parse failure or
 // missing eventType. Unknown event types are NOT errors — they return
 // (Event{Type: EventTypeUnsupported, ...}, nil).
-func MapWebhookEvent(payload []byte, instanceName string) (webhook.Event, error) {
+func MapWebhookEvent(payload []byte, instanceName domain.InstanceName) (webhook.Event, error) {
 	if len(payload) == 0 {
 		return webhook.Event{}, fmt.Errorf("%w: empty body", ErrMalformedPayload)
 	}

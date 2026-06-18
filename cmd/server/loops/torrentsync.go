@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -34,8 +35,8 @@ const DefaultTorrentsyncCadence = 30 * time.Second
 // per-instance launcher needs. Production: torrentsync.NewLoop +
 // torrentsync.UseCase.Hydrate + Loop.Run. Tests stub it.
 type TorrentsyncRunner interface {
-	Hydrate(ctx context.Context, instance string) error
-	NewLoop(instance string, configured time.Duration) TorrentsyncRunningLoop
+	Hydrate(ctx context.Context, instance domain.InstanceName) error
+	NewLoop(instance domain.InstanceName, configured time.Duration) TorrentsyncRunningLoop
 }
 
 // TorrentsyncRunningLoop is the trimmed Loop surface — only the
@@ -129,7 +130,7 @@ func (l *TorrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
 			}
 			continue
 		}
-		il := l.runner.NewLoop(name, cadence)
+		il := l.runner.NewLoop(domain.InstanceName(name), cadence)
 		ctx, cancel := context.WithCancel(l.parent)
 		l.loops[name] = &torrentsyncInstance{
 			name: name, loop: il, cancel: cancel, cadence: cadence,
@@ -143,7 +144,7 @@ func (l *TorrentsyncLoop) SwapSettings(settings map[string]regrab.Settings) {
 					l.bgWG.Done()
 				}
 			}()
-			if err := l.runner.Hydrate(runCtx, name); err != nil {
+			if err := l.runner.Hydrate(runCtx, domain.InstanceName(name)); err != nil {
 				l.logger.WarnContext(runCtx, "torrentsync_hydrate_failed",
 					slog.String("instance_name", name),
 					slog.String("error", err.Error()))
@@ -203,11 +204,11 @@ func NewProductionTorrentsyncRunner(uc *torrentsync.UseCase, log *slog.Logger) T
 	return productionTorrentsyncRunner{uc: uc, logger: log}
 }
 
-func (r productionTorrentsyncRunner) Hydrate(ctx context.Context, instance string) error {
+func (r productionTorrentsyncRunner) Hydrate(ctx context.Context, instance domain.InstanceName) error {
 	return r.uc.Hydrate(ctx, instance)
 }
 
-func (r productionTorrentsyncRunner) NewLoop(instance string, configured time.Duration) TorrentsyncRunningLoop {
+func (r productionTorrentsyncRunner) NewLoop(instance domain.InstanceName, configured time.Duration) TorrentsyncRunningLoop {
 	return torrentsync.NewLoop(instance, r.uc, configured, r.logger)
 }
 
@@ -216,7 +217,7 @@ func (r productionTorrentsyncRunner) NewLoop(instance string, configured time.Du
 // *regrab.SettingsUseCase (Lookup decrypts the password and
 // returns the resolved Settings).
 type TorrentsyncSettingsLookup interface {
-	Lookup(ctx context.Context, instanceName string) (regrab.Settings, error)
+	Lookup(ctx context.Context, instanceName domain.InstanceName) (regrab.Settings, error)
 }
 
 // TorrentsyncQbitClientFactory is the narrow client constructor
@@ -246,7 +247,7 @@ func NewTorrentsyncSessionFactoryAdapter(factory TorrentsyncQbitClientFactory, l
 }
 
 // NewSyncSession implements torrentsync.SyncSessionFactory.
-func (a torrentsyncSessionFactoryAdapter) NewSyncSession(ctx context.Context, instance string) (qbit.SyncSession, error) {
+func (a torrentsyncSessionFactoryAdapter) NewSyncSession(ctx context.Context, instance domain.InstanceName) (qbit.SyncSession, error) {
 	sett, err := a.lookup.Lookup(ctx, instance)
 	if err != nil {
 		return nil, fmt.Errorf("torrentsync session lookup %s: %w", instance, err)

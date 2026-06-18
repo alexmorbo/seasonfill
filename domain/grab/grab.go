@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ErrInvalidStatusTransition signals a forbidden grab_records status move.
@@ -53,7 +55,7 @@ func (s Status) CanTransitionTo(next Status) bool {
 // Record is the persisted shape of one force-grab attempt.
 type Record struct {
 	ID                uuid.UUID
-	InstanceName      string
+	InstanceName      domain.InstanceName
 	SeriesID          int
 	SeriesTitle       string
 	SeasonNumber      int

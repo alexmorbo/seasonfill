@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -134,9 +135,9 @@ func BuildTorrentsync(
 	// wiring reuses the instance holder; the concrete *sonarr.Client
 	// satisfies torrentsync.SonarrReconciler (its QueueAll +
 	// GrabHistoryPaged are exactly the two methods in the port).
-	sonarrFor := func(instance string) (torrentsync.SonarrReconciler, bool) {
+	sonarrFor := func(instance domain.InstanceName) (torrentsync.SonarrReconciler, bool) {
 		h := holder.Load()
-		inst, ok := h[instance]
+		inst, ok := h[string(instance)]
 		if !ok || inst.Client == nil {
 			return nil, false
 		}

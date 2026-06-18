@@ -27,7 +27,7 @@ import (
 // math.
 type SeriesTorrentsResponse struct {
 	// Instance is the Sonarr instance the request hit.
-	Instance string `json:"instance" example:"alpha"`
+	Instance domain.InstanceName `json:"instance" example:"alpha"`
 	// SonarrSeriesID echoes the URL parameter for clients that
 	// disambiguate cross-instance state.
 	SonarrSeriesID int `json:"sonarr_series_id" example:"123"`

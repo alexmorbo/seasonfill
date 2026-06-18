@@ -1,6 +1,10 @@
 package observability
 
-import "github.com/VictoriaMetrics/metrics"
+import (
+	"github.com/VictoriaMetrics/metrics"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // MetricTorrentsyncUnmapped is the per-instance unmapped-torrents
 // gauge emitted by the reconciler after every pass. PRD §4.5 +
@@ -9,8 +13,8 @@ const MetricTorrentsyncUnmapped = `seasonfill_torrentsync_unmapped`
 
 // SetTorrentsyncUnmapped replaces the gauge value for the named
 // instance. Called from application/torrentsync.Reconciler.run.
-func SetTorrentsyncUnmapped(instance string, count int) {
-	metrics.GetOrCreateGauge(`seasonfill_torrentsync_unmapped{instance="`+instance+`"}`, nil).Set(float64(count))
+func SetTorrentsyncUnmapped(instance domain.InstanceName, count int) {
+	metrics.GetOrCreateGauge(`seasonfill_torrentsync_unmapped{instance="`+string(instance)+`"}`, nil).Set(float64(count))
 }
 
 // TorrentsyncMetricsAdapter satisfies
@@ -19,6 +23,6 @@ func SetTorrentsyncUnmapped(instance string, count int) {
 type TorrentsyncMetricsAdapter struct{}
 
 // SetTorrentsyncUnmapped implements torrentsync.UnmappedGauge.
-func (TorrentsyncMetricsAdapter) SetTorrentsyncUnmapped(instance string, count int) {
+func (TorrentsyncMetricsAdapter) SetTorrentsyncUnmapped(instance domain.InstanceName, count int) {
 	SetTorrentsyncUnmapped(instance, count)
 }

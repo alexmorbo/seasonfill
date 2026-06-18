@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 const qbitHandlerTestMasterKey = "handler-master-key-32-bytes-aes-gcm"
@@ -101,7 +102,7 @@ type webhookStub struct {
 	installed atomic.Bool
 }
 
-func (s *webhookStub) IsInstalled(_ context.Context, _ string) (bool, error) {
+func (s *webhookStub) IsInstalled(_ context.Context, _ domain.InstanceName) (bool, error) {
 	return s.installed.Load(), nil
 }
 
