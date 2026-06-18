@@ -184,3 +184,87 @@ func TestValidate_Singleton_TwoCallsShareInstance(t *testing.T) {
 	assert.NoError(t, ports.Validate(in))
 	assert.NoError(t, ports.Validate(in))
 }
+
+type sampleBCP47 struct {
+	Lang string `json:"lang" validate:"omitempty,bcp47_language_tag"`
+}
+
+type sampleAlphanumDash struct {
+	Instance string `json:"instance" validate:"omitempty,alphanum_dash"`
+}
+
+func TestValidate_BCP47LanguageTag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		lang    string
+		wantErr bool
+	}{
+		{name: "empty_omitempty_ok", lang: ""},
+		{name: "lower_two_letter", lang: "en"},
+		{name: "lower_three_letter", lang: "eng"},
+		{name: "upper_two_letter", lang: "EN"},
+		{name: "language_region", lang: "pt-BR"},
+		{name: "language_script", lang: "zh-Hans"},
+		{name: "language_three_region", lang: "eng-US"},
+		{name: "invalid_one_letter", lang: "e", wantErr: true},
+		{name: "invalid_digits", lang: "12", wantErr: true},
+		{name: "invalid_too_long", lang: "english", wantErr: true},
+		{name: "invalid_trailing_dash", lang: "en-", wantErr: true},
+		{name: "invalid_double_dash", lang: "en--US", wantErr: true},
+		{name: "invalid_special_char", lang: "en_US", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ports.Validate(sampleBCP47{Lang: tt.lang})
+			if tt.wantErr {
+				require.Error(t, err)
+				var verrs validator.ValidationErrors
+				require.True(t, errors.As(err, &verrs))
+				assert.Equal(t, "bcp47_language_tag", verrs[0].Tag())
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestValidate_AlphanumDash(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		instance string
+		wantErr  bool
+	}{
+		{name: "empty_omitempty_ok", instance: ""},
+		{name: "letters", instance: "sonarr"},
+		{name: "letters_with_dash", instance: "sonarr-1"},
+		{name: "letters_with_underscore", instance: "radarr_main"},
+		{name: "digits_only", instance: "12345"},
+		{name: "mixed", instance: "Sonarr_4K-Anime-2"},
+		{name: "invalid_space", instance: "sonarr 1", wantErr: true},
+		{name: "invalid_slash", instance: "sonarr/1", wantErr: true},
+		{name: "invalid_dot", instance: "sonarr.1", wantErr: true},
+		{name: "invalid_colon", instance: "sonarr:1", wantErr: true},
+		{name: "invalid_unicode", instance: "sonarrß1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ports.Validate(sampleAlphanumDash{Instance: tt.instance})
+			if tt.wantErr {
+				require.Error(t, err)
+				var verrs validator.ValidationErrors
+				require.True(t, errors.As(err, &verrs))
+				assert.Equal(t, "alphanum_dash", verrs[0].Tag())
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
