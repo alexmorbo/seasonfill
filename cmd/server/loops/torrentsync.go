@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // DefaultTorrentsyncCadence is the wall-clock fallback when the
@@ -71,7 +72,7 @@ type torrentsyncInstance struct {
 // NewRegrabLoop intentionally.
 func NewTorrentsyncLoop(runner TorrentsyncRunner, bgWG *sync.WaitGroup, log *slog.Logger) *TorrentsyncLoop {
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	return &TorrentsyncLoop{
 		runner: runner,

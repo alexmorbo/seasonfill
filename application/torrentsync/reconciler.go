@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // HistoryPageCap is the strict upper bound on /history pages walked
@@ -140,7 +141,7 @@ func NewReconciler(
 		panic("torrentsync.NewReconciler: maps must not be nil")
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	if sonarrFor == nil {
 		sonarrFor = func(string) (SonarrReconciler, bool) { return nil, false }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // PersistPolicy implements the three-grain write rule from PRD
@@ -36,7 +37,7 @@ const DefaultFlushInterval = 5 * time.Minute
 // `time.Now().UTC` so tests can inject a deterministic clock.
 func NewPersistPolicy(repo TorrentsRepo, events EventsRepo, logger *slog.Logger) *PersistPolicy {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	return &PersistPolicy{
 		repo:      repo,

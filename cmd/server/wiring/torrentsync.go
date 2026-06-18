@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // TorrentsyncBundle groups the qBit torrent-sync components constructed at
@@ -102,13 +103,22 @@ func BuildTorrentsync(
 	db := persistence.DB
 	holder := sonarrBundle.Holder
 
+	// F-4b-2: qbitLog carries domain="qbit" per §6.5. Applied at the wirer
+	// once and passed to every component the torrentsync context owns
+	// (PersistPolicy, Reconciler, UseCase, ProductionTorrentsyncRunner,
+	// TorrentsyncLoop). The SeriesTorrentsHandler stays on bare `log`
+	// because HTTP handlers belong to the future F-4b-N handlers slice
+	// and will use LoggerFromContext(ctx) (request scope already carries
+	// domain="http"), not DomainLogger.
+	qbitLog := ports.DomainLogger(log, "qbit")
+
 	// 220 (A-2) — qbit_torrents + qbit_torrent_events repos.
 	qbitTorrentsRepo := repositories.NewQbitTorrentsRepository(db)
 	qbitTorrentEventsRepo := repositories.NewQbitTorrentEventsRepository(db)
 
 	// Store + PersistPolicy.
 	store := torrentsync.NewStore()
-	policy := torrentsync.NewPersistPolicy(qbitTorrentsRepo, qbitTorrentEventsRepo, log)
+	policy := torrentsync.NewPersistPolicy(qbitTorrentsRepo, qbitTorrentEventsRepo, qbitLog)
 
 	// Session factory adapter — closes over regrabBundle.QbitSettingsUC
 	// for password-decrypting Lookup. Returned as the
@@ -142,12 +152,12 @@ func BuildTorrentsync(
 		scanBundle.GrabRepo,
 		sonarrFor,
 		observability.TorrentsyncMetricsAdapter{},
-		log,
+		qbitLog,
 	)
 
 	useCase := torrentsync.NewUseCase(
 		store, policy,
-		factory, qbitTorrentsRepo, log,
+		factory, qbitTorrentsRepo, qbitLog,
 	).WithReconciler(reconciler)
 
 	// Loop owns per-instance polling goroutines; SwapSettings is
@@ -155,8 +165,8 @@ func BuildTorrentsync(
 	// owns rootCtx and calls .Start(rootCtx) inline after
 	// BuildTorrentsync returns.
 	loop := loops.NewTorrentsyncLoop(
-		loops.NewProductionTorrentsyncRunner(useCase, log),
-		bgWG, log,
+		loops.NewProductionTorrentsyncRunner(useCase, qbitLog),
+		bgWG, qbitLog,
 	)
 
 	// 222 (A-4) — per-series torrents endpoint. Reuses the store +
@@ -170,6 +180,7 @@ func BuildTorrentsync(
 	// the seriesdetail-block instances).
 	seriesRepo := repositories.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	// HTTP handler stays on bare `log` — see qbitLog godoc above.
 	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(
 		query, seriesCacheRepo, seriesRepo, log,
 	)

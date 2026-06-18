@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"time"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // DegradedInterval is the cadence the loop falls back to after
@@ -42,7 +44,7 @@ type Loop struct {
 // (cmd/server/torrentsync_loop.go owns the ctx tree).
 func NewLoop(instance string, uc *UseCase, configured time.Duration, logger *slog.Logger) *Loop {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	if configured <= 0 {
 		configured = 30 * time.Second

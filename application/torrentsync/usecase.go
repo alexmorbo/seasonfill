@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // UseCase wires the in-memory Store, the PersistPolicy, and the
@@ -48,7 +49,7 @@ type UseCase struct {
 // the network; sessions are built lazily inside RunInstance.
 func NewUseCase(store *Store, policy *PersistPolicy, sessions SyncSessionFactory, repo TorrentsRepo, logger *slog.Logger) *UseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	return &UseCase{
 		store:             store,
