@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/regrab"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // RegrabRunner is the narrow surface RegrabLoop calls on each tick. The
@@ -76,7 +77,7 @@ type instanceLoop struct {
 // on in-flight RunInstance calls.
 func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.WaitGroup, log *slog.Logger) *RegrabLoop {
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "watchdog")
 	}
 	if metrics == nil {
 		metrics = nullStreakMetrics{}

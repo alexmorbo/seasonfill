@@ -27,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // QbitClientFactory builds a qbit.Client from a fully-resolved Settings
@@ -126,7 +127,7 @@ type UseCase struct {
 	releaseAlreadyAddedClassifier func(error) bool
 }
 
-// NewUseCase wires the regrab orchestrator. logger=nil → slog.Default().
+// NewUseCase wires the regrab orchestrator. logger=nil → sharedports.DomainLogger(slog.Default(), "watchdog") per F-4b-3.
 // metrics=nil → nullMetrics. The instances/qbitFac/detectorFac trio MUST
 // be supplied — there are no sensible defaults for those (Sonarr
 // registry + qBit factory live in cmd/server).
@@ -144,7 +145,7 @@ func NewUseCase(
 	logger *slog.Logger,
 ) *UseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "watchdog")
 	}
 	return &UseCase{
 		settings:                      settings,

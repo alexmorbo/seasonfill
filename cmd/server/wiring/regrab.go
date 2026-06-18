@@ -12,6 +12,7 @@ import (
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // RegrabBundle groups the Phase 10 Watchdog components constructed at
@@ -112,10 +113,23 @@ func BuildRegrab(
 	cipher := persistence.Cipher
 	instanceRepo := persistence.InstanceRepo
 
+	// F-4b-3: watchdogLog carries domain="watchdog" per §6.5 (Phase 10
+	// Watchdog re-uses the existing "watchdog" closed-list value — see
+	// PRD §6.5 sub-context re-use paragraph). Applied at the wirer once
+	// and passed to every component the regrab/watchdog context owns:
+	// SettingsUseCase, regrab.UseCase, RegrabLoop, and the qbitLoader
+	// closure's WarnContext sites. The five HTTP handlers (QbitSettings,
+	// WatchdogRollup, WatchdogBlacklist, WatchdogSeasons,
+	// WebhooksAggregate) stay on bare `log` because handlers belong to
+	// the future F-4b-N handlers slice and will use LoggerFromContext(ctx)
+	// (request scope already carries domain="http"), not DomainLogger.
+	watchdogLog := ports.DomainLogger(log, "watchdog")
+
 	// Phase 10 Watchdog — settings CRUD.
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
-	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, log).
+	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, watchdogLog).
 		WithWebhookChecker(adapters.NewWebhookChecker(sonarrBundle.InstanceReg))
+	// HTTP handler stays on bare `log` — see watchdogLog godoc above.
 	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
 
 	// regrab orchestrator — Phase 10 core. Depends on the settings use
@@ -130,7 +144,7 @@ func BuildRegrab(
 		infraregrab.DetectorFactoryFunc{},
 		scanBundle.GrabRepo, scanBundle.CooldownRepo, blacklistRepo, noBetterCounterRepo,
 		scanBundle.Evaluator, scanBundle.GrabUC,
-		log,
+		watchdogLog,
 	).WithMetrics(observability.WatchdogMetricsAdapter{}).
 		WithDecisions(scanBundle.DecisionRepo)
 
@@ -138,7 +152,7 @@ func BuildRegrab(
 	// called from the OnApplied fanout. NOT started here — server.go
 	// owns rootCtx and calls .Start(rootCtx) inline after BuildRegrab
 	// returns.
-	regrabLoop := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, bgWG, log)
+	regrabLoop := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, bgWG, watchdogLog)
 
 	// 047a — watchdog rollup handler.
 	watchdogInstanceAdapter := adapters.NewWatchdogInstanceLister(instanceRepo, cipher)
@@ -187,14 +201,14 @@ func BuildRegrab(
 	qbitLoader := adapters.QbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
 		recs, err := qbitSettingsRepo.List(ctx)
 		if err != nil {
-			log.WarnContext(ctx, "qbit_settings_list_failed",
+			watchdogLog.WarnContext(ctx, "qbit_settings_list_failed",
 				slog.String("error", err.Error()))
 			return map[string]regrab.Settings{}
 		}
 		out := make(map[string]regrab.Settings, len(recs))
 		instances, err := instanceRepo.List(ctx, cipher)
 		if err != nil {
-			log.WarnContext(ctx, "qbit_settings_list_instances_failed",
+			watchdogLog.WarnContext(ctx, "qbit_settings_list_instances_failed",
 				slog.String("error", err.Error()))
 			return map[string]regrab.Settings{}
 		}
@@ -209,7 +223,7 @@ func BuildRegrab(
 			}
 			s, err := regrab.NewSettingsFromRecord(rec, name, cipher)
 			if err != nil {
-				log.WarnContext(ctx, "qbit_settings_decrypt_failed",
+				watchdogLog.WarnContext(ctx, "qbit_settings_decrypt_failed",
 					slog.String("instance", name),
 					slog.String("error", err.Error()))
 				continue

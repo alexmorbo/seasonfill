@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 var (
@@ -39,7 +40,7 @@ func NewUseCase(decisions ports.DecisionRepository, grabs ports.GrabRepository,
 	evaluator *evaluate.UseCase, instancesByName func() map[string]scan.Instance,
 	logger *slog.Logger) *UseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "scan")
 	}
 	if instancesByName == nil {
 		instancesByName = func() map[string]scan.Instance { return nil }

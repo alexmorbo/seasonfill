@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Sentinels — the HTTP handler maps these to wire codes via
@@ -135,7 +136,7 @@ func NewSettingsUseCase(
 	logger *slog.Logger,
 ) *SettingsUseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "watchdog")
 	}
 	return &SettingsUseCase{
 		settings:  settings,
