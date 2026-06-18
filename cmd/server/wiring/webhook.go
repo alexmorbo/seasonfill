@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // WebhookBundle groups the webhook-domain components constructed at boot.
@@ -124,6 +125,18 @@ func BuildWebhook(
 	db := persistence.DB
 	holder := sonarrBundle.Holder
 
+	// F-4b-4: webhookLog carries domain="webhook" per §6.5. Applied at
+	// the wirer once and passed to every component the webhook context
+	// owns: the webhook-scoped scan.Syncer instance (Deps.Logger +
+	// Syncer.Logger fields), the webhook.UseCase, and the
+	// webhookinstall.Reconciler. The WebhookReconcileLoop is wired in
+	// server.go (NOT here) — see story 395 Q7. The Syncer instance
+	// constructed here is webhook-scoped (its Lookup closure resolves
+	// Sonarr clients only on behalf of webhook SeriesAdd events;
+	// production scan-side wiring does not construct a Syncer at all),
+	// so "webhook" is the correct domain for its records.
+	webhookLog := sharedports.DomainLogger(log, "webhook")
+
 	// Story 218 (E-2) — webhook SeriesDelete cascade soft-deletes
 	// episode_states under the deleted series. Repo is constructed
 	// here so the cascade port is wired at boot.
@@ -165,7 +178,7 @@ func BuildWebhook(
 			SeasonStats:   webhookSeasonStatsRepo,
 			Genres:        scan.NewGenresAdapter(webhookGenresRepo, webhookGenresI18nRepo),
 			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),
-			Logger:        log,
+			Logger:        webhookLog,
 		},
 		Lookup: func(name string) (*sonarr.Client, bool) {
 			h := holder.Load()
@@ -182,7 +195,7 @@ func BuildWebhook(
 			}
 			return concrete, true
 		},
-		Logger: log,
+		Logger: webhookLog,
 	}
 
 	// scan stack repos come from scanBundle (GrabRepo, CooldownRepo);
@@ -204,7 +217,7 @@ func BuildWebhook(
 			}
 			return inst.Config.Cooldown.GUIDAfterFailedImport
 		},
-		Logger: log,
+		Logger: webhookLog,
 		SonarrClientFor: func(name string) (ports.SonarrClient, bool) {
 			if h := holder.Load(); h != nil {
 				if inst, ok := h[name]; ok && inst.Client != nil {
@@ -229,7 +242,7 @@ func BuildWebhook(
 		PublicURL: webhookinstall.PublicURLFromContext,
 		Cache:     webhookStatusCache,
 		APIKey:    cfg.HTTP.Auth.APIKey,
-		Logger:    log,
+		Logger:    webhookLog,
 	})
 
 	return &WebhookBundle{

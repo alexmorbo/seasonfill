@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // GuidCooldownLookup returns the per-instance guid-after-failed-import
@@ -107,7 +108,7 @@ type Deps struct {
 func New(d Deps) *UseCase {
 	lg := d.Logger
 	if lg == nil {
-		lg = slog.Default()
+		lg = sharedports.DomainLogger(slog.Default(), "webhook")
 	}
 	lookup := d.GUIDCooldownLookup
 	if lookup == nil {

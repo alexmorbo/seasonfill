@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 const (
@@ -55,7 +56,7 @@ func NewWebhookReconcileLoop(
 	log *slog.Logger,
 ) *WebhookReconcileLoop {
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "webhook")
 	}
 	l := &WebhookReconcileLoop{
 		reconciler: reconciler,

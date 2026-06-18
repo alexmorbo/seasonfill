@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // ErrUnknownInstance is returned when InstanceLookup has no entry for
@@ -60,7 +61,7 @@ func New(d Deps) *Reconciler {
 	}
 	lg := d.Logger
 	if lg == nil {
-		lg = slog.Default()
+		lg = sharedports.DomainLogger(slog.Default(), "webhook")
 	}
 	pf := d.PublicURL
 	if pf == nil {
