@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SyncDeps is the dependency set for SyncSeriesFromSonarr. All ports
@@ -70,7 +71,7 @@ func SyncSeriesFromSonarr(
 	}
 	logger := deps.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "scan")
 	}
 	log := logger.With(
 		slog.String("instance_name", instanceName),

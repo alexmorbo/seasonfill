@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // ScanBundle groups every component of the scan/grab/rescan stack
@@ -105,6 +106,13 @@ func BuildScan(
 ) (*ScanBundle, error) {
 	db := persistence.DB
 
+	// F-4b-1: scanLog carries domain="scan" per §6.5. Applied at the wirer
+	// once and passed to every component the scan context owns (ScanUC,
+	// RescanUC, Sweeper). Evaluator + GrabUC stay on the bare `log` because
+	// they are ALSO consumed by the regrab use case (wired elsewhere);
+	// tagging them "scan" here would mistag regrab decisions.
+	scanLog := ports.DomainLogger(log, "scan")
+
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := repositories.NewDecisionRepository(db)
 	grabRepo := repositories.NewGrabRepository(db)
@@ -125,7 +133,7 @@ func BuildScan(
 	// webhook never fired. Mirrors the BuildWebhook pattern.
 	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 
-	scanUC := scan.NewUseCase(sonarrBundle.ScanInstances, evaluator, scanRepo, log, cfg.DryRun).
+	scanUC := scan.NewUseCase(sonarrBundle.ScanInstances, evaluator, scanRepo, scanLog, cfg.DryRun).
 		WithGrabUseCase(grabUC).
 		WithCooldowns(cooldownRepo).
 		WithOrigins(originRepo).
@@ -134,13 +142,13 @@ func BuildScan(
 		WithHealthRegistry(watchdogBundle.Checker.Registry()).
 		WithWaitGroup(bgWG)
 
-	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, sonarrBundle.Holder.Load, log)
+	rescanUC := rescan.NewUseCase(decisionRepo, grabRepo, scanRepo, scanUC, evaluator, sonarrBundle.Holder.Load, scanLog)
 
 	sweepInterval := cfg.Scan.CooldownSweep
 	if sweepInterval <= 0 {
 		sweepInterval = 15 * time.Minute
 	}
-	sweeper := loops.NewSweepLoop(cooldownRepo, sweepInterval, log)
+	sweeper := loops.NewSweepLoop(cooldownRepo, sweepInterval, scanLog)
 
 	return &ScanBundle{
 		Evaluator:    evaluator,

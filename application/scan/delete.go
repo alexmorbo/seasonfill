@@ -23,6 +23,7 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // CascadeDeleteDeps is the narrow port surface. Tx is required when
@@ -74,7 +75,7 @@ func CascadeSeriesDelete(
 	}
 	log := deps.Logger
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "scan")
 	}
 
 	work := func(txCtx context.Context) error {
