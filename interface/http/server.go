@@ -77,6 +77,7 @@ func NewServer(
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLogging(logger))
+	r.Use(middleware.ErrorResponseMiddleware(logger))
 
 	// HIGH-S2: bound which proxies' X-Forwarded-For we honor. Default
 	// (set by config.Defaults) is ["127.0.0.1", "::1"] — only localhost
