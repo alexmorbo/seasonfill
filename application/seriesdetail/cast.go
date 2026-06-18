@@ -26,7 +26,7 @@ import (
 // DB queries.
 type CastPage struct {
 	Instance          domain.InstanceName
-	SonarrSeriesID    int
+	SonarrSeriesID    domain.SonarrSeriesID
 	SeriesID          domain.SeriesID
 	Lang              string
 	Summary           SeriesSummary
@@ -110,7 +110,7 @@ func NewCastComposer(d CastDeps) *CastComposer {
 // (instance, sonarr_series_id) pair. `lang` defaults to "en-US"
 // when empty — currently only echoed on the response (cast list
 // has no per-language fields in v1); reserved for H-2 parity.
-func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int, lang string) (*CastPage, error) {
+func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID, lang string) (*CastPage, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -284,7 +284,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 
 	c.d.Logger.InfoContext(ctx, "series_cast_composed",
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("cast_count", len(out.Cast)),
 		slog.Int("crew_count", len(out.Crew)),

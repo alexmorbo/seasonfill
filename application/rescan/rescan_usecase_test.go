@@ -140,7 +140,7 @@ func (f *rescanFakeGrab) CountReplaysAll(_ context.Context, _ domain.InstanceNam
 	return 0, nil
 }
 
-func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
+func (f *rescanFakeGrab) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (f *rescanFakeGrab) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
@@ -204,29 +204,29 @@ type rescanFakeSonarr struct {
 
 var errSonarrSearch = errors.New("sonarr search exploded")
 
-func (f *rescanFakeSonarr) GetSeries(_ context.Context, id int) (series.Series, error) {
+func (f *rescanFakeSonarr) GetSeries(_ context.Context, id domain.SonarrSeriesID) (series.Series, error) {
 	if f.block != nil {
 		<-f.block
 	}
 	return series.Series{ID: id, Title: "Severance", Monitored: true, QualityProfile: 7}, nil
 }
-func (f *rescanFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (f *rescanFakeSonarr) ListEpisodes(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return []series.Episode{
 		{Number: 1, Monitored: true, HasFile: true, QualityID: 19},
 		{Number: 2, Monitored: true, HasFile: false},
 	}, nil
 }
 
-func (f *rescanFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *rescanFakeSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *rescanFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *rescanFakeSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	return map[int]int{}, nil
 }
-func (f *rescanFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *rescanFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (f *rescanFakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (f *rescanFakeSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	if f.failOn == "search" {
 		return nil, errSonarrSearch
 	}
@@ -247,7 +247,7 @@ func (f *rescanFakeSonarr) ListSeriesCache(context.Context, domain.InstanceName)
 }
 func (f *rescanFakeSonarr) ListIndexers(context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *rescanFakeSonarr) ListTags(context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (f *rescanFakeSonarr) GrabHistory(context.Context, int) ([]ports.HistoryEvent, error) {
+func (f *rescanFakeSonarr) GrabHistory(context.Context, domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *rescanFakeSonarr) ParseRelease(context.Context, string) (ports.ParseResult, error) {

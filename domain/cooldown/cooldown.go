@@ -41,7 +41,7 @@ type Cooldown struct {
 }
 
 // SeriesKey encodes the (instance, series, season) tuple as the cooldown key.
-func SeriesKey(instance domain.InstanceName, seriesID, season int) string {
+func SeriesKey(instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) string {
 	return fmt.Sprintf("%s:%d:%d", instance, seriesID, season)
 }
 

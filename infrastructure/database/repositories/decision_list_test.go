@@ -16,7 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
+func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = outcome
@@ -41,7 +41,7 @@ func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
 	scanRun := uuid.New()
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		seedDecision(t, db, scanRun, "main", 100+i, 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
+		seedDecision(t, db, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 
 	repo := NewDecisionRepository(db)
@@ -75,7 +75,7 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	seedDecision(t, db, scanRun, "secondary", 100, 1, decision.OutcomeSkip, base.Add(3*time.Second))
 
 	instance := domain.InstanceName("main")
-	seriesID := 100
+	seriesID := domain.SonarrSeriesID(100)
 	got, _, err := NewDecisionRepository(db).List(context.Background(),
 		ports.DecisionFilter{Instance: &instance, SeriesID: &seriesID},
 		ports.Pagination{Limit: 10})
@@ -83,7 +83,7 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	require.Len(t, got, 2)
 	for _, d := range got {
 		assert.Equal(t, domain.InstanceName("main"), d.InstanceName)
-		assert.Equal(t, 100, d.SeriesID)
+		assert.Equal(t, domain.SonarrSeriesID(100), d.SeriesID)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestDecisionRepository_List_TimeRange(t *testing.T) {
 	scanRun := uuid.New()
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 6; i++ {
-		seedDecision(t, db, scanRun, "main", 100+i, 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
+		seedDecision(t, db, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 
 	from := base.Add(2 * time.Second)

@@ -167,7 +167,7 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 	// per series; the per-season slice happens in pass 2 once we have
 	// the upstream episode list.
 	items := make([]dto.MissingSeries, 0, len(allSeries))
-	embedSeasonsByID := make(map[int]map[int]int, len(allSeries))
+	embedSeasonsByID := make(map[shareddomain.SonarrSeriesID]map[int]int, len(allSeries))
 	for _, s := range allSeries {
 		if !s.Monitored {
 			continue
@@ -234,7 +234,7 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 	client ports.SonarrClient,
 	name string,
 	items []dto.MissingSeries,
-	embedSeasonsByID map[int]map[int]int,
+	embedSeasonsByID map[shareddomain.SonarrSeriesID]map[int]int,
 ) {
 	if len(embedSeasonsByID) == 0 {
 		return
@@ -242,12 +242,12 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 	// Build seriesID → row-index map so worker goroutines can write
 	// back into items without scanning. items is sorted by SeriesID
 	// at this point (caller invariant).
-	rowIdx := make(map[int]int, len(items))
+	rowIdx := make(map[shareddomain.SonarrSeriesID]int, len(items))
 	for i, it := range items {
 		rowIdx[it.SeriesID] = i
 	}
 	type fetchResult struct {
-		seriesID int
+		seriesID shareddomain.SonarrSeriesID
 		episodes []series.Episode
 		cacheHit bool
 		err      error
@@ -315,18 +315,18 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 		if res.err != nil {
 			h.logger.WarnContext(ctx, "missing_episodes_fetch_failed",
 				slog.String("instance", name),
-				slog.Int("series_id", res.seriesID),
+				slog.Int("series_id", int(res.seriesID)),
 				slog.String("error", res.err.Error()))
 			continue
 		}
 		if res.cacheHit {
 			h.logger.DebugContext(ctx, "missing_episodes_cache_hit",
 				slog.String("instance", name),
-				slog.Int("series_id", res.seriesID))
+				slog.Int("series_id", int(res.seriesID)))
 		} else {
 			h.logger.DebugContext(ctx, "missing_episodes_cache_miss",
 				slog.String("instance", name),
-				slog.Int("series_id", res.seriesID))
+				slog.Int("series_id", int(res.seriesID)))
 		}
 		// Per-season slice + present-flag projection. Future-dated
 		// episodes are filtered server-side so the binary present/miss
@@ -375,7 +375,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 			slog.String("instance", name), slog.String("error", err.Error()))
 		return
 	}
-	byID := make(map[int]series.CacheEntry, len(entries))
+	byID := make(map[shareddomain.SonarrSeriesID]series.CacheEntry, len(entries))
 	for _, e := range entries {
 		byID[e.SonarrSeriesID] = e
 	}
@@ -541,11 +541,12 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return
 	}
-	seriesID, err := strconv.Atoi(c.Param("id"))
-	if err != nil || seriesID <= 0 {
+	parsedID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || parsedID <= 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "id must be a positive integer"})
 		return
 	}
+	seriesID := shareddomain.SonarrSeriesID(parsedID)
 	seasonNumber, err := strconv.Atoi(c.Param("season"))
 	if err != nil || seasonNumber < 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "season must be a non-negative integer"})
@@ -557,7 +558,7 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 		if errors.Is(err, domain.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "season_episodes_upstream_unauthorized",
 				slog.String("instance", name),
-				slog.Int("series_id", seriesID),
+				slog.Int("series_id", int(seriesID)),
 				slog.Int("season", seasonNumber),
 				slog.String("error", err.Error()))
 			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
@@ -565,7 +566,7 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 		}
 		h.logger.ErrorContext(ctx, "season_episodes_list_failed",
 			slog.String("instance", name),
-			slog.Int("series_id", seriesID),
+			slog.Int("series_id", int(seriesID)),
 			slog.Int("season", seasonNumber),
 			slog.String("error", err.Error()))
 		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unavailable"})
@@ -781,11 +782,11 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 		return
 	}
 
-	ids := make([]int, 0, len(entries))
+	ids := make([]shareddomain.SonarrSeriesID, 0, len(entries))
 	for _, e := range entries {
 		ids = append(ids, e.SonarrSeriesID)
 	}
-	lastGrabs := map[int]ports.LastGrabInfo{}
+	lastGrabs := map[shareddomain.SonarrSeriesID]ports.LastGrabInfo{}
 	if grabFetcher, ok := h.seriesCache.(seriesCacheLastGrabFetcher); ok && len(ids) > 0 {
 		lg, gErr := grabFetcher.FetchLastGrabInfo(ctx, shareddomain.InstanceName(name), ids)
 		if gErr != nil {
@@ -832,7 +833,7 @@ type seriesCacheLister interface {
 // seriesCacheLastGrabFetcher is a capability check — handler degrades
 // gracefully if the backing repo doesn't satisfy it.
 type seriesCacheLastGrabFetcher interface {
-	FetchLastGrabInfo(ctx context.Context, instanceName shareddomain.InstanceName, seriesIDs []int) (map[int]ports.LastGrabInfo, error)
+	FetchLastGrabInfo(ctx context.Context, instanceName shareddomain.InstanceName, seriesIDs []shareddomain.SonarrSeriesID) (map[shareddomain.SonarrSeriesID]ports.LastGrabInfo, error)
 }
 
 // kickPendingForSeriesCacheEntries is the shared kick: lifts

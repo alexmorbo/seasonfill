@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type WatchdogBlacklistRepository struct {
@@ -24,7 +25,7 @@ func NewWatchdogBlacklistRepository(db *gorm.DB) *WatchdogBlacklistRepository {
 
 // Find returns the blacklist row matching (instance, series, season)
 // exactly. ports.ErrNotFound on miss.
-func (r *WatchdogBlacklistRepository) Find(ctx context.Context, instanceID uint, seriesID, season int) (regrab.BlacklistEntry, error) {
+func (r *WatchdogBlacklistRepository) Find(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.BlacklistEntry, error) {
 	var m database.WatchdogBlacklistModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
@@ -70,7 +71,7 @@ func (r *WatchdogBlacklistRepository) Upsert(ctx context.Context, entry regrab.B
 }
 
 // DeleteByTriple removes the parked row. ports.ErrNotFound on miss.
-func (r *WatchdogBlacklistRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error {
+func (r *WatchdogBlacklistRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error {
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
 		Delete(&database.WatchdogBlacklistModel{})

@@ -44,23 +44,23 @@ func (n *noopSonarr) ListSeries(_ context.Context) ([]series.Series, error) { re
 func (n *noopSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (n *noopSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (n *noopSonarr) GetSeries(_ context.Context, _ domain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (n *noopSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (n *noopSonarr) ListEpisodes(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (n *noopSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (n *noopSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (n *noopSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (n *noopSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	return nil, nil
 }
-func (n *noopSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (n *noopSonarr) ListEpisodeFilesBySeason(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (n *noopSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (n *noopSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, nil
 }
 func (n *noopSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -68,7 +68,7 @@ func (n *noopSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (n *noopSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (n *noopSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (n *noopSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (n *noopSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (n *noopSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
@@ -165,7 +165,7 @@ func (noopGrabRepo) CountReplaysAll(_ context.Context, _ domain.InstanceName) (i
 	return 0, nil
 }
 
-func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
+func (noopGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (noopGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {

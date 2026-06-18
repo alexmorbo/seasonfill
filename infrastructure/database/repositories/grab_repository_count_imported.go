@@ -19,7 +19,7 @@ import (
 // Zero-rows returns 0 with nil err — the calling evaluator treats that
 // as "this triple has never been imported by us" which is a valid
 // steady state, not an error. Real DB failures wrap with %w.
-func (r *GrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID, seasonNumber int) (int, error) {
+func (r *GrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, seasonNumber int) (int, error) {
 	var count int64
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.GrabRecordModel{}).

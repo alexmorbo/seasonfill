@@ -82,8 +82,8 @@ type SonarrClient interface {
 	// the series_cache repository (041e). instanceName is stamped onto
 	// every returned entry — Sonarr does not echo it.
 	ListSeriesCache(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error)
-	GetSeries(ctx context.Context, id int) (series.Series, error)
-	ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error)
+	GetSeries(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error)
+	ListEpisodes(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error)
 	// ListEpisodesBySeries returns every episode for a series in a
 	// single Sonarr round-trip (GET /api/v3/episode?seriesId=). Used by
 	// the queue Missing handler to embed per-episode presence inline
@@ -91,19 +91,19 @@ type SonarrClient interface {
 	// to the seasons it wants in-memory. Episodes are returned in
 	// Sonarr's natural order; callers that need a specific ordering
 	// must sort.
-	ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error)
-	ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error)
+	ListEpisodesBySeries(ctx context.Context, seriesID domain.SonarrSeriesID) ([]series.Episode, error)
+	ListEpisodeFiles(ctx context.Context, seriesID domain.SonarrSeriesID) (map[int]int, error)
 	// ListEpisodeFilesBySeason returns the rich per-file metadata from
 	// /api/v3/episodeFile?seriesId=&seasonNumber=, filtered to the
 	// requested season. Used by the 043c grab episode-files endpoint
 	// (drawer "Импортированные файлы"). Capped at 200 entries
 	// server-side; Sonarr's natural response is ≤ 1000 per season.
-	ListEpisodeFilesBySeason(ctx context.Context, seriesID, seasonNumber int) ([]EpisodeFileDetail, error)
-	SearchReleases(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error)
+	ListEpisodeFilesBySeason(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]EpisodeFileDetail, error)
+	SearchReleases(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error)
 	GetQualityProfile(ctx context.Context, id int) (QualityProfile, error)
 	ListIndexers(ctx context.Context) ([]Indexer, error)
 	ListTags(ctx context.Context) ([]Tag, error)
-	GrabHistory(ctx context.Context, seriesID int) ([]HistoryEvent, error)
+	GrabHistory(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error)
 	ForceGrab(ctx context.Context, guid string, indexerID int) (string, error)
 	// ParseRelease calls Sonarr /api/v3/parse for the given release
 	// title. Tolerant of un-recognised titles — returns a zero-value

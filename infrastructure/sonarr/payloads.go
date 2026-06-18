@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesPayload is the rich Sonarr series shape consumed by E-1's
 // SyncSeriesFromSonarr.
 type SeriesPayload struct {
-	ID             int
+	ID             shareddomain.SonarrSeriesID
 	Title          string
 	SortTitle      string
 	TitleSlug      string
@@ -94,20 +95,20 @@ type queueDTO struct {
 }
 
 type queueRecordDTO struct {
-	ID                    int         `json:"id"`
-	SeriesID              int         `json:"seriesId,omitempty"`
-	EpisodeID             int         `json:"episodeId,omitempty"`
-	SeasonNumber          int         `json:"seasonNumber,omitempty"`
-	Title                 string      `json:"title"`
-	Status                string      `json:"status,omitempty"`
-	TrackedDownloadStatus string      `json:"trackedDownloadStatus,omitempty"`
-	TrackedDownloadState  string      `json:"trackedDownloadState,omitempty"`
-	DownloadID            string      `json:"downloadId,omitempty"`
-	Protocol              string      `json:"protocol,omitempty"`
-	Size                  int64       `json:"size,omitempty"`
-	SizeLeft              int64       `json:"sizeleft,omitempty"`
-	Series                *seriesDTO  `json:"series,omitempty"`
-	Episode               *episodeDTO `json:"episode,omitempty"`
+	ID                    int                         `json:"id"`
+	SeriesID              shareddomain.SonarrSeriesID `json:"seriesId,omitempty"`
+	EpisodeID             int                         `json:"episodeId,omitempty"`
+	SeasonNumber          int                         `json:"seasonNumber,omitempty"`
+	Title                 string                      `json:"title"`
+	Status                string                      `json:"status,omitempty"`
+	TrackedDownloadStatus string                      `json:"trackedDownloadStatus,omitempty"`
+	TrackedDownloadState  string                      `json:"trackedDownloadState,omitempty"`
+	DownloadID            string                      `json:"downloadId,omitempty"`
+	Protocol              string                      `json:"protocol,omitempty"`
+	Size                  int64                       `json:"size,omitempty"`
+	SizeLeft              int64                       `json:"sizeleft,omitempty"`
+	Series                *seriesDTO                  `json:"series,omitempty"`
+	Episode               *episodeDTO                 `json:"episode,omitempty"`
 }
 
 // QueuePayload is the typed queue response.
@@ -119,7 +120,7 @@ type QueuePayload struct {
 // QueueRecord is one queue entry (PRD §4.5 torrent→series bridge).
 type QueueRecord struct {
 	ID            int
-	SeriesID      int
+	SeriesID      shareddomain.SonarrSeriesID
 	EpisodeID     int
 	SeasonNumber  int
 	Title         string
@@ -133,7 +134,7 @@ type QueueRecord struct {
 
 func seriesPayloadFromDTO(d seriesDTO) SeriesPayload {
 	p := SeriesPayload{
-		ID:             d.ID,
+		ID:             shareddomain.SonarrSeriesID(d.ID),
 		Title:          d.Title,
 		SortTitle:      d.SortTitle,
 		TitleSlug:      d.TitleSlug,
@@ -209,9 +210,9 @@ func episodeFilePayloadFromDTO(d episodeFileDTO) EpisodeFilePayload {
 // SyncSeriesFromSonarr. Distinct from GetSeries (lean domain
 // projection) so the sync writer has access to network/genres/
 // runtime/ratings/previousAiring/nextAiring/firstAired/lastAired.
-func (c *Client) GetSeriesPayload(ctx context.Context, id int) (SeriesPayload, error) {
+func (c *Client) GetSeriesPayload(ctx context.Context, id shareddomain.SonarrSeriesID) (SeriesPayload, error) {
 	var dto seriesDTO
-	if err := c.get(ctx, "/api/v3/series/"+strconv.Itoa(id), nil, &dto); err != nil {
+	if err := c.get(ctx, "/api/v3/series/"+strconv.Itoa(int(id)), nil, &dto); err != nil {
 		return SeriesPayload{}, err
 	}
 	return seriesPayloadFromDTO(dto), nil
@@ -220,9 +221,9 @@ func (c *Client) GetSeriesPayload(ctx context.Context, id int) (SeriesPayload, e
 // ListEpisodesForSync returns the full episode payload for a series
 // (overview, runtime, finaleType, absoluteEpisodeNumber — fields the
 // existing ListEpisodes intentionally omits).
-func (c *Client) ListEpisodesForSync(ctx context.Context, seriesID int) ([]EpisodePayload, error) {
+func (c *Client) ListEpisodesForSync(ctx context.Context, seriesID shareddomain.SonarrSeriesID) ([]EpisodePayload, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	var dtos []episodeDTO
 	if err := c.get(ctx, "/api/v3/episode", q, &dtos); err != nil {
 		return nil, err
@@ -237,9 +238,9 @@ func (c *Client) ListEpisodesForSync(ctx context.Context, seriesID int) ([]Episo
 // ListEpisodeFilesForSync returns the full episode-file payload (path,
 // releaseGroup, episodeIds, quality) for the series — E-1 walks
 // every file for the per-instance episode_states upsert.
-func (c *Client) ListEpisodeFilesForSync(ctx context.Context, seriesID int) ([]EpisodeFilePayload, error) {
+func (c *Client) ListEpisodeFilesForSync(ctx context.Context, seriesID shareddomain.SonarrSeriesID) ([]EpisodeFilePayload, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	var dtos []episodeFileDTO
 	if err := c.get(ctx, "/api/v3/episodeFile", q, &dtos); err != nil {
 		return nil, err
@@ -317,7 +318,7 @@ type HistoryPage struct {
 // to grow a hash field it does not need.
 type HistoryGrab struct {
 	DownloadID   string
-	SeriesID     int
+	SeriesID     shareddomain.SonarrSeriesID
 	SeasonNumber int
 }
 
@@ -357,7 +358,7 @@ func (c *Client) GrabHistoryPaged(ctx context.Context, page, pageSize int) (Hist
 			// only maps torrents. Skip silently.
 			continue
 		}
-		series := 0
+		series := shareddomain.SonarrSeriesID(0)
 		if r.SeriesID != 0 {
 			series = r.SeriesID
 		}
@@ -378,9 +379,9 @@ func (c *Client) GrabHistoryPaged(ctx context.Context, page, pageSize int) (Hist
 // includeEpisode=true. Used by the torrentsync reconciler (PRD §4.5)
 // to bridge active downloads → series; E-1 lands the client method
 // so the reconciler story can pick it up.
-func (c *Client) Queue(ctx context.Context, seriesID int) (QueuePayload, error) {
+func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID) (QueuePayload, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	q.Set("includeSeries", "true")
 	q.Set("includeEpisode", "true")
 	q.Set("pageSize", "1000")

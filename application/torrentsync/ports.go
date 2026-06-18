@@ -66,7 +66,7 @@ type TorrentsRepo interface {
 // Implemented in production by
 // repositories.TorrentSeriesMapRepository.HashesForSeries.
 type LookupRepo interface {
-	HashesForSeries(ctx context.Context, instance domain.InstanceName, sonarrSeriesID int) ([]string, error)
+	HashesForSeries(ctx context.Context, instance domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) ([]string, error)
 }
 
 // EventsRepo is the append-only surface for state-transition and

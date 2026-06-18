@@ -363,7 +363,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
 			slog.String("grab_id", origGrab.ID.String()),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.String("status", string(origGrab.Status)))
 
@@ -412,7 +412,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 			u.logger.DebugContext(ctx, "regrab_cooldown_skipped",
 				slog.String("instance", string(instanceName)),
 				slog.String("key", cdKey),
-				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("series_id", int(origGrab.SeriesID)),
 				slog.Int("season", origGrab.SeasonNumber))
 			res.SkippedCooldown++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeSkipCooldown))
@@ -421,14 +421,14 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 		u.logger.DebugContext(ctx, "regrab_cooldown_passed",
 			slog.String("instance", string(instanceName)),
 			slog.String("key", cdKey),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber))
 
 		// Step 7 — blacklist gate.
 		if _, err := u.blacklist.Find(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber); err == nil {
 			u.logger.DebugContext(ctx, "regrab_blacklist_skipped",
 				slog.String("instance", string(instanceName)),
-				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("series_id", int(origGrab.SeriesID)),
 				slog.Int("season", origGrab.SeasonNumber))
 			res.SkippedBlacklist++
 			u.metrics.IncRegrabResult(instanceName, string(OutcomeSkipBlacklist))
@@ -436,13 +436,13 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 		} else if !errors.Is(err, ports.ErrNotFound) {
 			u.logger.WarnContext(ctx, "regrab_blacklist_lookup_failed",
 				slog.String("instance", string(instanceName)),
-				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("series_id", int(origGrab.SeriesID)),
 				slog.String("error", err.Error()))
 			continue
 		}
 		u.logger.DebugContext(ctx, "regrab_blacklist_passed",
 			slog.String("instance", string(instanceName)),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber))
 
 		// Step 8 — evaluate. Pass the qBit verdict in so the
@@ -458,7 +458,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 				// written, so the slog WARN IS the audit trail.
 				u.logger.WarnContext(ctx, "regrab_evaluate_failed",
 					slog.String("instance", string(instanceName)),
-					slog.Int("series_id", origGrab.SeriesID),
+					slog.Int("series_id", int(origGrab.SeriesID)),
 					slog.Int("season", origGrab.SeasonNumber),
 					slog.String("error", evalErr.Error()))
 			} else {
@@ -467,7 +467,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 				// so operators can correlate logs ↔ Activity Feed.
 				u.logger.InfoContext(ctx, "regrab_replay_error_persisted",
 					slog.String("instance", string(instanceName)),
-					slog.Int("series_id", origGrab.SeriesID),
+					slog.Int("series_id", int(origGrab.SeriesID)),
 					slog.Int("season", origGrab.SeasonNumber),
 					slog.String("decision_id", decisionRow.ID.String()),
 					slog.String("error", evalErr.Error()))
@@ -477,7 +477,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 		u.logger.DebugContext(ctx, "regrab_evaluated",
 			slog.String("instance", string(instanceName)),
 			slog.String("hash", t.Hash),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.String("outcome", string(outcome)),
 			slog.String("decision_id", decisionRow.ID.String()))
@@ -527,7 +527,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 					_ = u.counter.Reset(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
 					u.logger.InfoContext(ctx, "regrab_blacklisted",
 						slog.String("instance", string(instanceName)),
-						slog.Int("series_id", origGrab.SeriesID),
+						slog.Int("series_id", int(origGrab.SeriesID)),
 						slog.Int("season", origGrab.SeasonNumber),
 						slog.Int("consecutive", counter.Consecutive))
 				}
@@ -594,7 +594,7 @@ func (u *UseCase) runEvaluator(
 				slog.String("instance", string(origGrab.InstanceName)),
 				slog.String("guid", origGrab.ReleaseGUID),
 				slog.Int("indexer_id", origGrab.IndexerID),
-				slog.Int("series_id", origGrab.SeriesID),
+				slog.Int("series_id", int(origGrab.SeriesID)),
 				slog.Int("season", origGrab.SeasonNumber),
 				slog.String("reason", "release_gone_on_indexer"))
 		default:
@@ -708,7 +708,7 @@ func (u *UseCase) tryReplayByGUID(
 		slog.String("instance", string(origGrab.InstanceName)),
 		slog.String("guid", origGrab.ReleaseGUID),
 		slog.Int("indexer_id", origGrab.IndexerID),
-		slog.Int("series_id", origGrab.SeriesID),
+		slog.Int("series_id", int(origGrab.SeriesID)),
 		slog.Int("season", origGrab.SeasonNumber),
 		slog.String("original_grab_id", origGrab.ID.String()))
 
@@ -730,13 +730,13 @@ func (u *UseCase) tryReplayByGUID(
 		u.logger.WarnContext(ctx, "regrab_replay_warm_failed",
 			slog.String("instance", string(origGrab.InstanceName)),
 			slog.String("guid", origGrab.ReleaseGUID),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.String("error", warmErr.Error()))
 	} else {
 		u.logger.DebugContext(ctx, "regrab_replay_warmed",
 			slog.String("instance", string(origGrab.InstanceName)),
-			slog.Int("series_id", origGrab.SeriesID),
+			slog.Int("series_id", int(origGrab.SeriesID)),
 			slog.Int("season", origGrab.SeasonNumber),
 			slog.Int("releases", len(warmed)))
 	}
@@ -1016,7 +1016,7 @@ func (u *UseCase) runGrab(ctx context.Context, inst scan.Instance, sett Settings
 	}
 	u.logger.InfoContext(runCtx, "regrab_grabbed",
 		slog.String("instance", string(origGrab.InstanceName)),
-		slog.Int("series_id", origGrab.SeriesID),
+		slog.Int("series_id", int(origGrab.SeriesID)),
 		slog.Int("season", origGrab.SeasonNumber),
 		slog.String("original_grab_id", origGrab.ID.String()),
 		slog.String("new_grab_id", out.Record.ID.String()),
@@ -1052,7 +1052,7 @@ func (u *UseCase) activateCooldown(ctx context.Context, key string, ttl time.Dur
 }
 
 type tripleKey struct {
-	seriesID int
+	seriesID domain.SonarrSeriesID
 	season   int
 }
 

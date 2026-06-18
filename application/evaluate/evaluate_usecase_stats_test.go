@@ -47,10 +47,10 @@ func (r *recordingDecisionRepo) UpdateIntent(context.Context, uuid.UUID, *decisi
 type stubGrabRepo struct {
 	count    int
 	err      error
-	calledFn func(domain.InstanceName, int, int)
+	calledFn func(domain.InstanceName, domain.SonarrSeriesID, int)
 }
 
-func (s *stubGrabRepo) CountImportedEpisodes(_ context.Context, inst domain.InstanceName, sid, sn int) (int, error) {
+func (s *stubGrabRepo) CountImportedEpisodes(_ context.Context, inst domain.InstanceName, sid domain.SonarrSeriesID, sn int) (int, error) {
 	if s.calledFn != nil {
 		s.calledFn(inst, sid, sn)
 	}

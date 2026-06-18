@@ -36,7 +36,7 @@ const (
 
 const (
 	testHash   = "abcdef0123456789abcdef0123456789abcdef01"
-	testSeries = 122
+	testSeries = domain.SonarrSeriesID(122)
 	testSeason = 2
 )
 
@@ -129,28 +129,28 @@ func (fakeSonarr) ListSeries(ctx context.Context) ([]series.Series, error) {
 func (fakeSonarr) ListSeriesCache(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (fakeSonarr) GetSeries(ctx context.Context, id int) (series.Series, error) {
+func (fakeSonarr) GetSeries(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{ID: id, Title: "Test Series", QualityProfile: 1}, nil
 }
 func (fakeSonarr) Name() string {
 	return "fake"
 }
-func (fakeSonarr) ListEpisodes(ctx context.Context, id, season int) ([]series.Episode, error) {
+func (fakeSonarr) ListEpisodes(ctx context.Context, id domain.SonarrSeriesID, season int) ([]series.Episode, error) {
 	return []series.Episode{{Number: 1, AirDateUTC: time.Now().Add(-time.Hour)}}, nil
 }
-func (fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (fakeSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (fakeSonarr) ListEpisodeFiles(ctx context.Context, id int) (map[int]int, error) {
+func (fakeSonarr) ListEpisodeFiles(ctx context.Context, id domain.SonarrSeriesID) (map[int]int, error) {
 	return map[int]int{}, nil
 }
-func (fakeSonarr) ListEpisodeFilesBySeason(ctx context.Context, id, season int) ([]ports.EpisodeFileDetail, error) {
+func (fakeSonarr) ListEpisodeFilesBySeason(ctx context.Context, id domain.SonarrSeriesID, season int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
 func (fakeSonarr) GetQualityProfile(ctx context.Context, id int) (ports.QualityProfile, error) {
 	return ports.QualityProfile{ID: id}, nil
 }
-func (fakeSonarr) SearchReleases(ctx context.Context, id, s int) ([]release.Release, error) {
+func (fakeSonarr) SearchReleases(ctx context.Context, id domain.SonarrSeriesID, s int) ([]release.Release, error) {
 	return nil, nil
 }
 func (fakeSonarr) ForceGrab(ctx context.Context, guid string, indexerID int) (string, error) {
@@ -162,7 +162,7 @@ func (fakeSonarr) ListIndexers(ctx context.Context) ([]ports.Indexer, error) {
 func (fakeSonarr) ListTags(ctx context.Context) ([]ports.Tag, error) {
 	return nil, nil
 }
-func (fakeSonarr) GrabHistory(ctx context.Context, id int) ([]ports.HistoryEvent, error) {
+func (fakeSonarr) GrabHistory(ctx context.Context, id domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (fakeSonarr) ParseRelease(ctx context.Context, title string) (ports.ParseResult, error) {
@@ -972,9 +972,10 @@ func TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab(t *testing.T) {
 
 	// Record the call ORDER — warm MUST happen before ForceGrab.
 	var calls []string
-	var warmSeries, warmSeason int
+	var warmSeries domain.SonarrSeriesID
+	var warmSeason int
 	sonarrStub := replayingSonarr{
-		searchReleases: func(_ context.Context, seriesID, seasonNumber int) ([]release.Release, error) {
+		searchReleases: func(_ context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 			calls = append(calls, "search")
 			warmSeries = seriesID
 			warmSeason = seasonNumber
@@ -1039,7 +1040,7 @@ func TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab(t *testing.T) {
 
 	forceGrabCalls := 0
 	sonarrStub := replayingSonarr{
-		searchReleases: func(_ context.Context, _, _ int) ([]release.Release, error) {
+		searchReleases: func(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 			return nil, errors.New("dial sonarr: connection refused")
 		},
 		forceGrab: func(_ context.Context, _ string, _ int) (string, error) {
@@ -1094,7 +1095,7 @@ func TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone(t *testing.T) {
 
 	warmCalls, forceGrabCalls := 0, 0
 	sonarrStub := replayingSonarr{
-		searchReleases: func(_ context.Context, _, _ int) ([]release.Release, error) {
+		searchReleases: func(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 			warmCalls++
 			return nil, nil
 		},
@@ -1386,11 +1387,11 @@ func (sonarrStatusError409) Error() string { return "stub: 500 [409:Conflict] qB
 // answer — empty slice / nil error / nil grab id.
 type replayingSonarr struct {
 	fakeSonarr
-	searchReleases func(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error)
+	searchReleases func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error)
 	forceGrab      func(ctx context.Context, guid string, indexerID int) (string, error)
 }
 
-func (r replayingSonarr) SearchReleases(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error) {
+func (r replayingSonarr) SearchReleases(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 	if r.searchReleases == nil {
 		return r.fakeSonarr.SearchReleases(ctx, seriesID, seasonNumber)
 	}

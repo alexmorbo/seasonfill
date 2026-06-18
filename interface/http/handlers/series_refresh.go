@@ -60,11 +60,12 @@ func NewSeriesRefreshHandler(uc *seriesrefresh.UseCase, logger *slog.Logger) *Se
 func (h *SeriesRefreshHandler) Refresh(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")
-	sonarrID, err := strconv.Atoi(idStr)
-	if err != nil || sonarrID <= 0 {
+	parsedID, err := strconv.Atoi(idStr)
+	if err != nil || parsedID <= 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
 		return
 	}
+	sonarrID := domain.SonarrSeriesID(parsedID)
 
 	res, err := h.uc.Refresh(c.Request.Context(), domain.InstanceName(name), sonarrID)
 	if err != nil {
@@ -74,7 +75,7 @@ func (h *SeriesRefreshHandler) Refresh(c *gin.Context) {
 		}
 		writeInternalError(c, h.logger, "series_refresh_failed", err,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID))
+			slog.Int("sonarr_series_id", int(sonarrID)))
 		return
 	}
 

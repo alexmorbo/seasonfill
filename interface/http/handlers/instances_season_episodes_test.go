@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type episodesFakeSonarr struct {
@@ -26,18 +27,18 @@ type episodesFakeSonarr struct {
 	err error
 }
 
-func (e *episodesFakeSonarr) ListEpisodes(_ context.Context, seriesID, seasonNumber int) ([]series.Episode, error) {
+func (e *episodesFakeSonarr) ListEpisodes(_ context.Context, seriesID shareddomain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
-	bySeason, ok := e.eps[seriesID]
+	bySeason, ok := e.eps[int(seriesID)]
 	if !ok {
 		return nil, nil
 	}
 	return bySeason[seasonNumber], nil
 }
 
-func (e *episodesFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (e *episodesFakeSonarr) ListEpisodesBySeries(_ context.Context, _ shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
 

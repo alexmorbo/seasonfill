@@ -19,11 +19,11 @@ type refreshFakeCache struct {
 	err   error
 }
 
-func (f *refreshFakeCache) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
+func (f *refreshFakeCache) Get(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return f.entry, f.err
 }
 func (f *refreshFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
-func (f *refreshFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ int) error {
+func (f *refreshFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
 	return nil
 }
 func (f *refreshFakeCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
@@ -32,8 +32,8 @@ func (f *refreshFakeCache) ListActiveByInstance(_ context.Context, _ domain.Inst
 func (f *refreshFakeCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *refreshFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
-	return make(map[int]ports.LastGrabInfo), nil
+func (f *refreshFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []domain.SonarrSeriesID) (map[domain.SonarrSeriesID]ports.LastGrabInfo, error) {
+	return make(map[domain.SonarrSeriesID]ports.LastGrabInfo), nil
 }
 func (f *refreshFakeCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil

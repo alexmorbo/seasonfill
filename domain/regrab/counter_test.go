@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestNewNoBetterCounter_OK(t *testing.T) {
@@ -15,7 +17,7 @@ func TestNewNoBetterCounter_OK(t *testing.T) {
 	got, err := NewNoBetterCounter(7, 122, 2, now)
 	require.NoError(t, err)
 	assert.Equal(t, uint(7), got.InstanceID)
-	assert.Equal(t, 122, got.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(122), got.SeriesID)
 	assert.Equal(t, 2, got.SeasonNumber)
 	assert.Equal(t, 0, got.Consecutive)
 	assert.Equal(t, now, got.CreatedAt)
@@ -41,7 +43,7 @@ func TestNewNoBetterCounter_Validation(t *testing.T) {
 	cases := []struct {
 		name     string
 		instance uint
-		series   int
+		series   domain.SonarrSeriesID
 		season   int
 		errIs    error
 	}{

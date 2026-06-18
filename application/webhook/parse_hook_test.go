@@ -38,23 +38,23 @@ func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { re
 func (f *fakeSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (f *fakeSonarr) GetSeries(_ context.Context, _ domain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *fakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (f *fakeSonarr) ListEpisodes(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (f *fakeSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, nil
 }
 func (f *fakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -62,7 +62,7 @@ func (f *fakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (f *fakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (f *fakeSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *fakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
@@ -105,7 +105,7 @@ func (f *fakeGrabs) UpdateParsed(_ context.Context, _ uuid.UUID, p *grab.Parsed,
 	return f.updateErr
 }
 func (f *fakeGrabs) UpdateSizeBytes(_ context.Context, _ uuid.UUID, _ int64) error { return nil }
-func (f *fakeGrabs) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ int, _ int) (int, error) {
+func (f *fakeGrabs) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (f *fakeGrabs) GetByID(_ context.Context, _ uuid.UUID) (grab.Record, error) {

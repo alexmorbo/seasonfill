@@ -275,9 +275,9 @@ func (c *Client) ListSeries(ctx context.Context) ([]series.Series, error) {
 	return out, nil
 }
 
-func (c *Client) GetSeries(ctx context.Context, id int) (series.Series, error) {
+func (c *Client) GetSeries(ctx context.Context, id shareddomain.SonarrSeriesID) (series.Series, error) {
 	var dto seriesDTO
-	if err := c.get(ctx, "/api/v3/series/"+strconv.Itoa(id), nil, &dto); err != nil {
+	if err := c.get(ctx, "/api/v3/series/"+strconv.Itoa(int(id)), nil, &dto); err != nil {
 		return series.Series{}, err
 	}
 	return toSeries(dto), nil
@@ -298,7 +298,7 @@ func (c *Client) ListSeriesCache(ctx context.Context, instanceName shareddomain.
 func seriesDTOToCacheEntry(d seriesDTO, instanceName shareddomain.InstanceName) series.CacheEntry {
 	entry := series.CacheEntry{
 		InstanceName:   instanceName,
-		SonarrSeriesID: d.ID,
+		SonarrSeriesID: shareddomain.SonarrSeriesID(d.ID),
 		Title:          d.Title,
 		TitleSlug:      d.TitleSlug,
 		Monitored:      d.Monitored,
@@ -386,9 +386,9 @@ func seriesDTOToCacheEntry(d seriesDTO, instanceName shareddomain.InstanceName) 
 	return entry
 }
 
-func (c *Client) ListEpisodes(ctx context.Context, seriesID, seasonNumber int) ([]series.Episode, error) {
+func (c *Client) ListEpisodes(ctx context.Context, seriesID shareddomain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	q.Set("seasonNumber", strconv.Itoa(seasonNumber))
 	var dtos []episodeDTO
 	if err := c.get(ctx, "/api/v3/episode", q, &dtos); err != nil {
@@ -416,9 +416,9 @@ func (c *Client) ListEpisodes(ctx context.Context, seriesID, seasonNumber int) (
 // presence inline (one upstream call per series instead of one per
 // season) so a backlog with N missing seasons stays at O(series),
 // not O(seasons). Episodes are returned in Sonarr's natural order.
-func (c *Client) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+func (c *Client) ListEpisodesBySeries(ctx context.Context, seriesID shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	var dtos []episodeDTO
 	if err := c.get(ctx, "/api/v3/episode", q, &dtos); err != nil {
 		return nil, err
@@ -439,9 +439,9 @@ func (c *Client) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]seri
 	return out, nil
 }
 
-func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error) {
+func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID shareddomain.SonarrSeriesID) (map[int]int, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	var dtos []episodeFileDTO
 	if err := c.get(ctx, "/api/v3/episodeFile", q, &dtos); err != nil {
 		return nil, err
@@ -469,10 +469,10 @@ func (c *Client) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]in
 // versions. Capped at 200 entries; Sonarr's natural response is
 // ≤ 1000 per season. 043c.
 func (c *Client) ListEpisodeFilesBySeason(
-	ctx context.Context, seriesID, seasonNumber int,
+	ctx context.Context, seriesID shareddomain.SonarrSeriesID, seasonNumber int,
 ) ([]ports.EpisodeFileDetail, error) {
 	fq := url.Values{}
-	fq.Set("seriesId", strconv.Itoa(seriesID))
+	fq.Set("seriesId", strconv.Itoa(int(seriesID)))
 	var fileDTOs []episodeFileDTO
 	if err := c.get(ctx, "/api/v3/episodeFile", fq, &fileDTOs); err != nil {
 		return nil, fmt.Errorf("sonarr episodeFile: %w", err)
@@ -487,7 +487,7 @@ func (c *Client) ListEpisodeFilesBySeason(
 	fileDTOs = filtered
 
 	eq := url.Values{}
-	eq.Set("seriesId", strconv.Itoa(seriesID))
+	eq.Set("seriesId", strconv.Itoa(int(seriesID)))
 	eq.Set("seasonNumber", strconv.Itoa(seasonNumber))
 	var epDTOs []episodeDTO
 	if err := c.get(ctx, "/api/v3/episode", eq, &epDTOs); err != nil {
@@ -528,9 +528,9 @@ func (c *Client) ListEpisodeFilesBySeason(
 	return out, nil
 }
 
-func (c *Client) SearchReleases(ctx context.Context, seriesID, seasonNumber int) ([]release.Release, error) {
+func (c *Client) SearchReleases(ctx context.Context, seriesID shareddomain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	q.Set("seasonNumber", strconv.Itoa(seasonNumber))
 	var dtos []releaseDTO
 	// searchGet (vs get) routes through c.httpSearch — the
@@ -621,9 +621,9 @@ func (c *Client) ListTags(ctx context.Context) ([]ports.Tag, error) {
 	return out, nil
 }
 
-func (c *Client) GrabHistory(ctx context.Context, seriesID int) ([]ports.HistoryEvent, error) {
+func (c *Client) GrabHistory(ctx context.Context, seriesID shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(seriesID))
+	q.Set("seriesId", strconv.Itoa(int(seriesID)))
 	q.Set("eventType", "1")
 	q.Set("pageSize", "50")
 	var resp historyResponse
@@ -761,7 +761,7 @@ func toSeries(d seriesDTO) series.Series {
 		})
 	}
 	return series.Series{
-		ID: d.ID, Title: d.Title, Type: st,
+		ID: shareddomain.SonarrSeriesID(d.ID), Title: d.Title, Type: st,
 		Monitored: d.Monitored, TagIDs: d.Tags,
 		QualityProfile: d.QualityProfile, Seasons: seasons,
 		Statistics: toStatistics(d.Statistics),

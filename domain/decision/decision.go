@@ -48,7 +48,7 @@ type Decision struct {
 	ID              uuid.UUID
 	ScanRunID       uuid.UUID
 	InstanceName    domain.InstanceName
-	SeriesID        int
+	SeriesID        domain.SonarrSeriesID
 	SeriesTitle     string
 	SeasonNumber    int
 	Outcome         Outcome
@@ -86,7 +86,7 @@ type Decision struct {
 	CreatedAt time.Time
 }
 
-func New(scanRunID uuid.UUID, instance domain.InstanceName, seriesTitle string, seriesID, season int) Decision {
+func New(scanRunID uuid.UUID, instance domain.InstanceName, seriesTitle string, seriesID domain.SonarrSeriesID, season int) Decision {
 	return Decision{
 		ID:           uuid.New(),
 		ScanRunID:    scanRunID,

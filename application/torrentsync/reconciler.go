@@ -52,7 +52,7 @@ type MapRepo interface {
 type MapRow struct {
 	Instance     domain.InstanceName
 	Hash         string
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int // 0 = unknown (column is nullable)
 	Source       MapSource
 	CreatedAt    time.Time
@@ -79,7 +79,7 @@ type GrabHashLookup interface {
 // GrabHashRow is one batch-lookup result row.
 type GrabHashRow struct {
 	Hash         string
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 }
 
@@ -308,7 +308,7 @@ func (r *Reconciler) applyGrabRecords(ctx context.Context, instance domain.Insta
 			slog.String("instance", string(instance)),
 			slog.String("hash", hash),
 			slog.String("source", string(MapSourceGrabRecord)),
-			slog.Int("series_id", row.SeriesID),
+			slog.Int("series_id", int(row.SeriesID)),
 			slog.Int("season_number", row.SeasonNumber),
 		)
 	}
@@ -357,7 +357,7 @@ func (r *Reconciler) applyQueue(ctx context.Context, instance domain.InstanceNam
 			slog.String("instance", string(instance)),
 			slog.String("hash", hash),
 			slog.String("source", string(MapSourceQueue)),
-			slog.Int("series_id", rec.SeriesID),
+			slog.Int("series_id", int(rec.SeriesID)),
 			slog.Int("season_number", rec.SeasonNumber),
 		)
 	}
@@ -425,7 +425,7 @@ func (r *Reconciler) applyHistory(ctx context.Context, instance domain.InstanceN
 				slog.String("instance", string(instance)),
 				slog.String("hash", hash),
 				slog.String("source", string(MapSourceHistory)),
-				slog.Int("series_id", rec.SeriesID),
+				slog.Int("series_id", int(rec.SeriesID)),
 				slog.Int("season_number", rec.SeasonNumber),
 			)
 		}

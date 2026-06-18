@@ -139,14 +139,14 @@ func mkCacheRow(instanceName domain.InstanceName, seriesID domain.SeriesID) seri
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &seriesID,
-		SonarrSeriesID: int(seriesID),
+		SonarrSeriesID: domain.SonarrSeriesID(seriesID),
 	}
 }
 
 // mkCacheRowFull builds a CacheEntry with explicit canon series id
 // and explicit Sonarr series id. Used by the dedup + sonarr id tests
 // that need the two to differ.
-func mkCacheRowFull(instanceName domain.InstanceName, canonID domain.SeriesID, sonarrID int) series.CacheEntry {
+func mkCacheRowFull(instanceName domain.InstanceName, canonID domain.SeriesID, sonarrID domain.SonarrSeriesID) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &canonID,
@@ -489,9 +489,9 @@ func TestUseCase_InstanceDedup(t *testing.T) {
 	require.NotNil(t, louEntry)
 	require.Len(t, louEntry.Instances, 2, "deduped to one row per instance name")
 	assert.Equal(t, domain.InstanceName("4k"), louEntry.Instances[0].InstanceName, "sorted alphabetically")
-	assert.Equal(t, 9001, louEntry.Instances[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(9001), louEntry.Instances[0].SonarrSeriesID)
 	assert.Equal(t, domain.InstanceName("alpha"), louEntry.Instances[1].InstanceName)
-	assert.Equal(t, 7001, louEntry.Instances[1].SonarrSeriesID, "first row per instance wins")
+	assert.Equal(t, domain.SonarrSeriesID(7001), louEntry.Instances[1].SonarrSeriesID, "first row per instance wins")
 	// Verify the sort invariant: instances must be sorted by name.
 	require.True(t, sort.SliceIsSorted(louEntry.Instances, func(i, j int) bool {
 		return louEntry.Instances[i].InstanceName < louEntry.Instances[j].InstanceName
@@ -521,17 +521,17 @@ func TestUseCase_InstanceCarriesSonarrSeriesID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.LibraryCredits, 2)
 
-	got := map[string]map[string]int{} // title → instance → sonarr id
+	got := map[string]map[string]domain.SonarrSeriesID{} // title → instance → sonarr id
 	for _, lc := range out.LibraryCredits {
-		m := map[string]int{}
+		m := map[string]domain.SonarrSeriesID{}
 		for _, inst := range lc.Instances {
 			m[string(inst.InstanceName)] = inst.SonarrSeriesID
 		}
 		got[lc.Canon.Title] = m
 	}
-	assert.Equal(t, 1234, got["The Last of Us"]["alpha"])
-	assert.Equal(t, 9876, got["The Last of Us"]["4k"])
-	assert.Equal(t, 5678, got["Game of Thrones"]["alpha"])
+	assert.Equal(t, domain.SonarrSeriesID(1234), got["The Last of Us"]["alpha"])
+	assert.Equal(t, domain.SonarrSeriesID(9876), got["The Last of Us"]["4k"])
+	assert.Equal(t, domain.SonarrSeriesID(5678), got["Game of Thrones"]["alpha"])
 }
 
 func TestUseCase_SortRecent_NilsLast(t *testing.T) {

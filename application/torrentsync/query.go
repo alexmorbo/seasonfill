@@ -76,7 +76,7 @@ func (q *Query) WithClock(now func() time.Time) *Query {
 // "unknown series" from "no torrents" is the handler's job
 // (404 vs 200 + empty), not the query's. The error return
 // surfaces only infrastructure failures.
-func (q *Query) BySeriesID(ctx context.Context, instance domain.InstanceName, sonarrSeriesID int) (QueryResult, error) {
+func (q *Query) BySeriesID(ctx context.Context, instance domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (QueryResult, error) {
 	syncedAt := q.now()
 
 	// Step 1 — pull the live hashes from the store. The

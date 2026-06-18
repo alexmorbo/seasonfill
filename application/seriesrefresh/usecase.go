@@ -89,7 +89,7 @@ func New(d Deps) (*UseCase, error) {
 // Refresh resolves the cache row, enqueues series + (optional) cast
 // + (optional) OMDb, returns the per-section counts. ports.ErrNotFound
 // if the cache row is missing or has no canon series_id.
-func (u *UseCase) Refresh(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (Result, error) {
+func (u *UseCase) Refresh(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (Result, error) {
 	cache, err := u.deps.SeriesCache.Get(ctx, instanceName, sonarrSeriesID)
 	if err != nil {
 		return Result{}, fmt.Errorf("seriesrefresh: resolve cache: %w", err)
@@ -130,7 +130,7 @@ func (u *UseCase) Refresh(ctx context.Context, instanceName domain.InstanceName,
 
 	u.log.InfoContext(ctx, "seriesrefresh.enqueued",
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("persons", res.Persons),
 		slog.Bool("omdb", res.OMDbQueued),

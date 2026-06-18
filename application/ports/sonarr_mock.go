@@ -27,22 +27,22 @@ var _ SonarrClient = &SonarrClientMock{}
 //			GetQualityProfileFunc: func(ctx context.Context, id int) (QualityProfile, error) {
 //				panic("mock out the GetQualityProfile method")
 //			},
-//			GetSeriesFunc: func(ctx context.Context, id int) (series.Series, error) {
+//			GetSeriesFunc: func(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error) {
 //				panic("mock out the GetSeries method")
 //			},
-//			GrabHistoryFunc: func(ctx context.Context, seriesID int) ([]HistoryEvent, error) {
+//			GrabHistoryFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error) {
 //				panic("mock out the GrabHistory method")
 //			},
-//			ListEpisodeFilesFunc: func(ctx context.Context, seriesID int) (map[int]int, error) {
+//			ListEpisodeFilesFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID) (map[int]int, error) {
 //				panic("mock out the ListEpisodeFiles method")
 //			},
-//			ListEpisodeFilesBySeasonFunc: func(ctx context.Context, seriesID int, seasonNumber int) ([]EpisodeFileDetail, error) {
+//			ListEpisodeFilesBySeasonFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]EpisodeFileDetail, error) {
 //				panic("mock out the ListEpisodeFilesBySeason method")
 //			},
-//			ListEpisodesFunc: func(ctx context.Context, seriesID int, seasonNumber int) ([]series.Episode, error) {
+//			ListEpisodesFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error) {
 //				panic("mock out the ListEpisodes method")
 //			},
-//			ListEpisodesBySeriesFunc: func(ctx context.Context, seriesID int) ([]series.Episode, error) {
+//			ListEpisodesBySeriesFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID) ([]series.Episode, error) {
 //				panic("mock out the ListEpisodesBySeries method")
 //			},
 //			ListIndexersFunc: func(ctx context.Context) ([]Indexer, error) {
@@ -63,7 +63,7 @@ var _ SonarrClient = &SonarrClientMock{}
 //			ParseReleaseFunc: func(ctx context.Context, title string) (ParseResult, error) {
 //				panic("mock out the ParseRelease method")
 //			},
-//			SearchReleasesFunc: func(ctx context.Context, seriesID int, seasonNumber int) ([]release.Release, error) {
+//			SearchReleasesFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 //				panic("mock out the SearchReleases method")
 //			},
 //			SystemStatusFunc: func(ctx context.Context) (SystemStatus, error) {
@@ -83,22 +83,22 @@ type SonarrClientMock struct {
 	GetQualityProfileFunc func(ctx context.Context, id int) (QualityProfile, error)
 
 	// GetSeriesFunc mocks the GetSeries method.
-	GetSeriesFunc func(ctx context.Context, id int) (series.Series, error)
+	GetSeriesFunc func(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error)
 
 	// GrabHistoryFunc mocks the GrabHistory method.
-	GrabHistoryFunc func(ctx context.Context, seriesID int) ([]HistoryEvent, error)
+	GrabHistoryFunc func(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error)
 
 	// ListEpisodeFilesFunc mocks the ListEpisodeFiles method.
-	ListEpisodeFilesFunc func(ctx context.Context, seriesID int) (map[int]int, error)
+	ListEpisodeFilesFunc func(ctx context.Context, seriesID domain.SonarrSeriesID) (map[int]int, error)
 
 	// ListEpisodeFilesBySeasonFunc mocks the ListEpisodeFilesBySeason method.
-	ListEpisodeFilesBySeasonFunc func(ctx context.Context, seriesID int, seasonNumber int) ([]EpisodeFileDetail, error)
+	ListEpisodeFilesBySeasonFunc func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]EpisodeFileDetail, error)
 
 	// ListEpisodesFunc mocks the ListEpisodes method.
-	ListEpisodesFunc func(ctx context.Context, seriesID int, seasonNumber int) ([]series.Episode, error)
+	ListEpisodesFunc func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error)
 
 	// ListEpisodesBySeriesFunc mocks the ListEpisodesBySeries method.
-	ListEpisodesBySeriesFunc func(ctx context.Context, seriesID int) ([]series.Episode, error)
+	ListEpisodesBySeriesFunc func(ctx context.Context, seriesID domain.SonarrSeriesID) ([]series.Episode, error)
 
 	// ListIndexersFunc mocks the ListIndexers method.
 	ListIndexersFunc func(ctx context.Context) ([]Indexer, error)
@@ -119,7 +119,7 @@ type SonarrClientMock struct {
 	ParseReleaseFunc func(ctx context.Context, title string) (ParseResult, error)
 
 	// SearchReleasesFunc mocks the SearchReleases method.
-	SearchReleasesFunc func(ctx context.Context, seriesID int, seasonNumber int) ([]release.Release, error)
+	SearchReleasesFunc func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error)
 
 	// SystemStatusFunc mocks the SystemStatus method.
 	SystemStatusFunc func(ctx context.Context) (SystemStatus, error)
@@ -147,28 +147,28 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// ID is the id argument value.
-			ID int
+			ID domain.SonarrSeriesID
 		}
 		// GrabHistory holds details about calls to the GrabHistory method.
 		GrabHistory []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 		}
 		// ListEpisodeFiles holds details about calls to the ListEpisodeFiles method.
 		ListEpisodeFiles []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 		}
 		// ListEpisodeFilesBySeason holds details about calls to the ListEpisodeFilesBySeason method.
 		ListEpisodeFilesBySeason []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 			// SeasonNumber is the seasonNumber argument value.
 			SeasonNumber int
 		}
@@ -177,7 +177,7 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 			// SeasonNumber is the seasonNumber argument value.
 			SeasonNumber int
 		}
@@ -186,7 +186,7 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 		}
 		// ListIndexers holds details about calls to the ListIndexers method.
 		ListIndexers []struct {
@@ -225,7 +225,7 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// SeriesID is the seriesID argument value.
-			SeriesID int
+			SeriesID domain.SonarrSeriesID
 			// SeasonNumber is the seasonNumber argument value.
 			SeasonNumber int
 		}
@@ -330,13 +330,13 @@ func (mock *SonarrClientMock) GetQualityProfileCalls() []struct {
 }
 
 // GetSeries calls GetSeriesFunc.
-func (mock *SonarrClientMock) GetSeries(ctx context.Context, id int) (series.Series, error) {
+func (mock *SonarrClientMock) GetSeries(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error) {
 	if mock.GetSeriesFunc == nil {
 		panic("SonarrClientMock.GetSeriesFunc: method is nil but SonarrClient.GetSeries was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		ID  int
+		ID  domain.SonarrSeriesID
 	}{
 		Ctx: ctx,
 		ID:  id,
@@ -353,11 +353,11 @@ func (mock *SonarrClientMock) GetSeries(ctx context.Context, id int) (series.Ser
 //	len(mockedSonarrClient.GetSeriesCalls())
 func (mock *SonarrClientMock) GetSeriesCalls() []struct {
 	Ctx context.Context
-	ID  int
+	ID  domain.SonarrSeriesID
 } {
 	var calls []struct {
 		Ctx context.Context
-		ID  int
+		ID  domain.SonarrSeriesID
 	}
 	mock.lockGetSeries.RLock()
 	calls = mock.calls.GetSeries
@@ -366,13 +366,13 @@ func (mock *SonarrClientMock) GetSeriesCalls() []struct {
 }
 
 // GrabHistory calls GrabHistoryFunc.
-func (mock *SonarrClientMock) GrabHistory(ctx context.Context, seriesID int) ([]HistoryEvent, error) {
+func (mock *SonarrClientMock) GrabHistory(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error) {
 	if mock.GrabHistoryFunc == nil {
 		panic("SonarrClientMock.GrabHistoryFunc: method is nil but SonarrClient.GrabHistory was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}{
 		Ctx:      ctx,
 		SeriesID: seriesID,
@@ -389,11 +389,11 @@ func (mock *SonarrClientMock) GrabHistory(ctx context.Context, seriesID int) ([]
 //	len(mockedSonarrClient.GrabHistoryCalls())
 func (mock *SonarrClientMock) GrabHistoryCalls() []struct {
 	Ctx      context.Context
-	SeriesID int
+	SeriesID domain.SonarrSeriesID
 } {
 	var calls []struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}
 	mock.lockGrabHistory.RLock()
 	calls = mock.calls.GrabHistory
@@ -402,13 +402,13 @@ func (mock *SonarrClientMock) GrabHistoryCalls() []struct {
 }
 
 // ListEpisodeFiles calls ListEpisodeFilesFunc.
-func (mock *SonarrClientMock) ListEpisodeFiles(ctx context.Context, seriesID int) (map[int]int, error) {
+func (mock *SonarrClientMock) ListEpisodeFiles(ctx context.Context, seriesID domain.SonarrSeriesID) (map[int]int, error) {
 	if mock.ListEpisodeFilesFunc == nil {
 		panic("SonarrClientMock.ListEpisodeFilesFunc: method is nil but SonarrClient.ListEpisodeFiles was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}{
 		Ctx:      ctx,
 		SeriesID: seriesID,
@@ -425,11 +425,11 @@ func (mock *SonarrClientMock) ListEpisodeFiles(ctx context.Context, seriesID int
 //	len(mockedSonarrClient.ListEpisodeFilesCalls())
 func (mock *SonarrClientMock) ListEpisodeFilesCalls() []struct {
 	Ctx      context.Context
-	SeriesID int
+	SeriesID domain.SonarrSeriesID
 } {
 	var calls []struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}
 	mock.lockListEpisodeFiles.RLock()
 	calls = mock.calls.ListEpisodeFiles
@@ -438,13 +438,13 @@ func (mock *SonarrClientMock) ListEpisodeFilesCalls() []struct {
 }
 
 // ListEpisodeFilesBySeason calls ListEpisodeFilesBySeasonFunc.
-func (mock *SonarrClientMock) ListEpisodeFilesBySeason(ctx context.Context, seriesID int, seasonNumber int) ([]EpisodeFileDetail, error) {
+func (mock *SonarrClientMock) ListEpisodeFilesBySeason(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]EpisodeFileDetail, error) {
 	if mock.ListEpisodeFilesBySeasonFunc == nil {
 		panic("SonarrClientMock.ListEpisodeFilesBySeasonFunc: method is nil but SonarrClient.ListEpisodeFilesBySeason was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}{
 		Ctx:          ctx,
@@ -463,12 +463,12 @@ func (mock *SonarrClientMock) ListEpisodeFilesBySeason(ctx context.Context, seri
 //	len(mockedSonarrClient.ListEpisodeFilesBySeasonCalls())
 func (mock *SonarrClientMock) ListEpisodeFilesBySeasonCalls() []struct {
 	Ctx          context.Context
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 } {
 	var calls []struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}
 	mock.lockListEpisodeFilesBySeason.RLock()
@@ -478,13 +478,13 @@ func (mock *SonarrClientMock) ListEpisodeFilesBySeasonCalls() []struct {
 }
 
 // ListEpisodes calls ListEpisodesFunc.
-func (mock *SonarrClientMock) ListEpisodes(ctx context.Context, seriesID int, seasonNumber int) ([]series.Episode, error) {
+func (mock *SonarrClientMock) ListEpisodes(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]series.Episode, error) {
 	if mock.ListEpisodesFunc == nil {
 		panic("SonarrClientMock.ListEpisodesFunc: method is nil but SonarrClient.ListEpisodes was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}{
 		Ctx:          ctx,
@@ -503,12 +503,12 @@ func (mock *SonarrClientMock) ListEpisodes(ctx context.Context, seriesID int, se
 //	len(mockedSonarrClient.ListEpisodesCalls())
 func (mock *SonarrClientMock) ListEpisodesCalls() []struct {
 	Ctx          context.Context
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 } {
 	var calls []struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}
 	mock.lockListEpisodes.RLock()
@@ -518,13 +518,13 @@ func (mock *SonarrClientMock) ListEpisodesCalls() []struct {
 }
 
 // ListEpisodesBySeries calls ListEpisodesBySeriesFunc.
-func (mock *SonarrClientMock) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+func (mock *SonarrClientMock) ListEpisodesBySeries(ctx context.Context, seriesID domain.SonarrSeriesID) ([]series.Episode, error) {
 	if mock.ListEpisodesBySeriesFunc == nil {
 		panic("SonarrClientMock.ListEpisodesBySeriesFunc: method is nil but SonarrClient.ListEpisodesBySeries was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}{
 		Ctx:      ctx,
 		SeriesID: seriesID,
@@ -541,11 +541,11 @@ func (mock *SonarrClientMock) ListEpisodesBySeries(ctx context.Context, seriesID
 //	len(mockedSonarrClient.ListEpisodesBySeriesCalls())
 func (mock *SonarrClientMock) ListEpisodesBySeriesCalls() []struct {
 	Ctx      context.Context
-	SeriesID int
+	SeriesID domain.SonarrSeriesID
 } {
 	var calls []struct {
 		Ctx      context.Context
-		SeriesID int
+		SeriesID domain.SonarrSeriesID
 	}
 	mock.lockListEpisodesBySeries.RLock()
 	calls = mock.calls.ListEpisodesBySeries
@@ -749,13 +749,13 @@ func (mock *SonarrClientMock) ParseReleaseCalls() []struct {
 }
 
 // SearchReleases calls SearchReleasesFunc.
-func (mock *SonarrClientMock) SearchReleases(ctx context.Context, seriesID int, seasonNumber int) ([]release.Release, error) {
+func (mock *SonarrClientMock) SearchReleases(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 	if mock.SearchReleasesFunc == nil {
 		panic("SonarrClientMock.SearchReleasesFunc: method is nil but SonarrClient.SearchReleases was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}{
 		Ctx:          ctx,
@@ -774,12 +774,12 @@ func (mock *SonarrClientMock) SearchReleases(ctx context.Context, seriesID int, 
 //	len(mockedSonarrClient.SearchReleasesCalls())
 func (mock *SonarrClientMock) SearchReleasesCalls() []struct {
 	Ctx          context.Context
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 } {
 	var calls []struct {
 		Ctx          context.Context
-		SeriesID     int
+		SeriesID     domain.SonarrSeriesID
 		SeasonNumber int
 	}
 	mock.lockSearchReleases.RLock()

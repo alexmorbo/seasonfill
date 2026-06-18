@@ -33,7 +33,7 @@ func boolPtr(b bool) *bool { return &b }
 type fakeSonarr struct {
 	name           string
 	series         []series.Series
-	episodes       func(seriesID, season int) []series.Episode
+	episodes       func(seriesID domain.SonarrSeriesID, season int) []series.Episode
 	releases       []release.Release
 	tags           []ports.Tag
 	tagsErr        error
@@ -47,10 +47,10 @@ func (f *fakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 func (f *fakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) { return f.series, nil }
-func (f *fakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (f *fakeSonarr) GetSeries(_ context.Context, _ domain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *fakeSonarr) ListEpisodes(_ context.Context, sID, sn int) ([]series.Episode, error) {
+func (f *fakeSonarr) ListEpisodes(_ context.Context, sID domain.SonarrSeriesID, sn int) ([]series.Episode, error) {
 	if f.episodes != nil {
 		return f.episodes(sID, sn), nil
 	}
@@ -61,16 +61,16 @@ func (f *fakeSonarr) ListEpisodes(_ context.Context, sID, sn int) ([]series.Epis
 	}, nil
 }
 
-func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *fakeSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *fakeSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	return map[int]int{}, nil
 }
-func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *fakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (f *fakeSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (f *fakeSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	if len(f.releases) > 0 {
 		return f.releases, nil
 	}
@@ -101,7 +101,7 @@ func (f *fakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { 
 func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
 	return f.tags, f.tagsErr
 }
-func (f *fakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (f *fakeSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *fakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
@@ -430,7 +430,7 @@ func (l *listSeriesCounter) ListSeries(ctx context.Context) ([]series.Series, er
 	return l.fakeSonarr.ListSeries(ctx)
 }
 
-func monSeries(id int, title string) series.Series {
+func monSeries(id domain.SonarrSeriesID, title string) series.Series {
 	// Partial-pack stats (Aired=10 > Existing=3) keep the series out of
 	// the all-complete fast-path so the rest of the scan pipeline runs.
 	return series.Series{ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
@@ -1000,7 +1000,7 @@ func TestStart_AllInstancesParallel(t *testing.T) {
 			Config: instCfg(fmt.Sprintf("inst%d", i), "auto"),
 			Client: &slowSonarr{
 				fakeSonarr: &fakeSonarr{name: fmt.Sprintf("inst%d", i),
-					series: []series.Series{monSeries(1+i, "X")}},
+					series: []series.Series{monSeries(domain.SonarrSeriesID(1+i), "X")}},
 				release: rels[i],
 			},
 		}
@@ -1033,7 +1033,7 @@ func TestIncrementSeriesScanned_BatchedWrites(t *testing.T) {
 	// 12 series → expected flushes at 5 and 10; residue (2) lands via final Update.
 	sers := make([]series.Series, 0, 12)
 	for i := 1; i <= 12; i++ {
-		sers = append(sers, monSeries(i, fmt.Sprintf("S%d", i)))
+		sers = append(sers, monSeries(domain.SonarrSeriesID(i), fmt.Sprintf("S%d", i)))
 	}
 	sn := &fakeSonarr{name: "main", series: sers}
 
@@ -1446,7 +1446,7 @@ type fakeSeriesCache struct {
 	upsertErr error
 }
 
-func (f *fakeSeriesCache) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
@@ -1458,7 +1458,7 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upserted = append(f.upserted, e)
 	return nil
 }
-func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ int) error {
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
 	return nil
 }
 func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
@@ -1467,8 +1467,8 @@ func (f *fakeSeriesCache) ListActiveByInstance(_ context.Context, _ domain.Insta
 func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
-	return make(map[int]ports.LastGrabInfo), nil
+func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []domain.SonarrSeriesID) (map[domain.SonarrSeriesID]ports.LastGrabInfo, error) {
+	return make(map[domain.SonarrSeriesID]ports.LastGrabInfo), nil
 }
 func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
@@ -1545,7 +1545,7 @@ func (f *fakeSeasonStats) Upsert(_ context.Context, s series.SeasonStat) error {
 	return nil
 }
 
-func (f *fakeSeasonStats) SoftDeleteBySeries(_ context.Context, _ domain.InstanceName, _ int) (int, error) {
+func (f *fakeSeasonStats) SoftDeleteBySeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (int, error) {
 	return 0, nil
 }
 
@@ -1553,7 +1553,7 @@ var _ SeasonStatsRepository = (*fakeSeasonStats)(nil)
 
 // multiSeasonSeries returns a single series with two seasons whose
 // statistics differ so the fanout assertion can distinguish them.
-func multiSeasonSeries(id int, title string) series.Series {
+func multiSeasonSeries(id domain.SonarrSeriesID, title string) series.Series {
 	return series.Series{
 		ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
 		QualityProfile: 14,
@@ -1710,7 +1710,7 @@ func TestScanUseCase_SeasonStats_RegressionStory380Wiring(t *testing.T) {
 
 	got := stats.upserted[0]
 	assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
-	assert.Equal(t, 140, got.SonarrSeriesID,
+	assert.Equal(t, domain.SonarrSeriesID(140), got.SonarrSeriesID,
 		"REGRESSION: SonarrSeriesID must be projected from payload")
 	assert.Equal(t, 2, got.SeasonNumber,
 		"REGRESSION: SeasonNumber must be projected from payload")

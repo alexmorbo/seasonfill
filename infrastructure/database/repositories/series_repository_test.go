@@ -236,7 +236,7 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 // seedSeriesCacheRow inserts a series_cache row pointing at seriesID.
 // Used by the OMDb library-filter tests to mark a series as "in the
 // library" (vs. a stub recommendation row).
-func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, instance domain.InstanceName, sonarrID int, deleted bool) {
+func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, instance domain.InstanceName, sonarrID domain.SonarrSeriesID, deleted bool) {
 	t.Helper()
 	row := database.SeriesCacheModel{
 		InstanceName:   instance,

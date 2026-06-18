@@ -349,7 +349,7 @@ func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
 	// comes back unmarshalled.
 	rows, _, err := repo.List(ctx, ports.GrabFilter{
 		Instance:     ptrInstanceName("alpha"),
-		SeriesID:     ptrInt(122),
+		SeriesID:     ptrSonarrSeriesID(122),
 		SeasonNumber: ptrInt(2),
 	}, ports.Pagination{Limit: 10})
 	require.NoError(t, err)
@@ -374,7 +374,7 @@ func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
 // with a fresh uuid + status=grabbed + the supplied (instance, series,
 // season, guid, hash). All other fields are populated with sensible
 // defaults the DB INSERT accepts.
-func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID, season int, guid, hash string) grab.Record {
+func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, guid, hash string) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:                uuid.New(),
@@ -404,6 +404,9 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID, seaso
 
 func ptrString(s string) *string { return &s }
 func ptrInt(i int) *int          { return &i }
+func ptrSonarrSeriesID(i domain.SonarrSeriesID) *domain.SonarrSeriesID {
+	return &i
+}
 func ptrInstanceName(s string) *domain.InstanceName {
 	n := domain.InstanceName(s)
 	return &n

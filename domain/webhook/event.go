@@ -95,7 +95,7 @@ type Event struct {
 
 	// SeriesID + SeasonNumber — secondary match key. SeasonNumber is
 	// Episodes[0].SeasonNumber; cross-season packs handled in 007b.
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 
 	// Series metadata — populated by the mapper when dto.Series is

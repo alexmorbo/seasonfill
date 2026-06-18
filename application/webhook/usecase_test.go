@@ -114,7 +114,7 @@ func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ domain.InstanceName)
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _, _ int) (int, error) {
+func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 
@@ -215,12 +215,12 @@ type fakeSeriesCache struct {
 	upsertedEntry series.CacheEntry
 	upsertErr     error
 	deleteCalls   int
-	deletedID     int
+	deletedID     domain.SonarrSeriesID
 	deletedInst   domain.InstanceName
 	deleteErr     error
 }
 
-func (f *fakeSeriesCache) Get(context.Context, domain.InstanceName, int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(context.Context, domain.InstanceName, domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
@@ -233,7 +233,7 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upsertedEntry = e
 	return nil
 }
-func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance domain.InstanceName, id int) error {
+func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance domain.InstanceName, id domain.SonarrSeriesID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteCalls++
@@ -250,8 +250,8 @@ func (f *fakeSeriesCache) ListActiveByInstance(context.Context, domain.InstanceN
 func (f *fakeSeriesCache) ListByFilter(_ context.Context, _ domain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
-	return make(map[int]ports.LastGrabInfo), nil
+func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.InstanceName, _ []domain.SonarrSeriesID) (map[domain.SonarrSeriesID]ports.LastGrabInfo, error) {
+	return make(map[domain.SonarrSeriesID]ports.LastGrabInfo), nil
 }
 func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
@@ -758,7 +758,7 @@ func TestProcess_SeriesAdd_UpsertsCache(t *testing.T) {
 	defer cache.mu.Unlock()
 	require.Equal(t, 1, cache.upsertCalls)
 	assert.Equal(t, domain.InstanceName("main"), cache.upsertedEntry.InstanceName)
-	assert.Equal(t, 42, cache.upsertedEntry.SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(42), cache.upsertedEntry.SonarrSeriesID)
 	assert.Equal(t, "Black-ish", cache.upsertedEntry.Title)
 	assert.Equal(t, "black-ish", cache.upsertedEntry.TitleSlug)
 	require.NotNil(t, cache.upsertedEntry.TVDBID)
@@ -816,7 +816,7 @@ func TestProcess_SeriesDelete_SoftDeletesCache(t *testing.T) {
 	defer cache.mu.Unlock()
 	require.Equal(t, 1, cache.deleteCalls)
 	assert.Equal(t, domain.InstanceName("main"), cache.deletedInst)
-	assert.Equal(t, 42, cache.deletedID)
+	assert.Equal(t, domain.SonarrSeriesID(42), cache.deletedID)
 }
 
 func TestProcess_SeriesDelete_ErrorIsSwallowed(t *testing.T) {
@@ -956,7 +956,7 @@ func TestProcess_Grabbed_WritesTorrentSeriesMapInSameTx(t *testing.T) {
 	got := tsm.rows[0]
 	assert.Equal(t, domain.InstanceName("main"), got.Instance)
 	assert.Equal(t, hash, got.Hash)
-	assert.Equal(t, 122, got.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(122), got.SeriesID)
 	assert.Equal(t, 2, got.SeasonNumber)
 	assert.Equal(t, torrentsync.MapSourceWebhook, got.Source)
 }

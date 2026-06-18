@@ -33,7 +33,7 @@ func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
 	return m.ID
 }
 
-func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instance domain.InstanceName, seriesID, season int, indexer string, now time.Time) {
+func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, indexer string, now time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), ports.OriginRelease{
 		InstanceName: instance,
@@ -48,7 +48,7 @@ func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instan
 	}))
 }
 
-func seedSeriesCache(t *testing.T, db *gorm.DB, repo *SeriesCacheRepository, instance domain.InstanceName, seriesID int, title string, monitored bool, missing int, lastAired time.Time) {
+func seedSeriesCache(t *testing.T, db *gorm.DB, repo *SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   instance,
@@ -91,7 +91,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 
 	row := rows[0]
 	assert.Equal(t, domain.InstanceName("homelab"), row.InstanceName)
-	assert.Equal(t, 169, row.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(169), row.SeriesID)
 	assert.Equal(t, 2, row.SeasonNumber)
 	assert.Equal(t, "Prowlarr", row.OriginIndexerName)
 	assert.Equal(t, "Friends", row.SeriesTitle)
@@ -152,7 +152,7 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 10, nil, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, 100, rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(100), rows[0].SeriesID)
 }
 
 func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
@@ -229,7 +229,7 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 	rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{CooldownOnly: true}, 10, nil, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, 200, rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(200), rows[0].SeriesID)
 }
 
 func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
@@ -273,13 +273,13 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	require.NotNil(t, next)
-	assert.Equal(t, 200, next.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(200), next.SeriesID)
 
 	rows2, next2, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 2, next, now)
 	require.NoError(t, err)
 	require.Len(t, rows2, 1)
 	assert.Nil(t, next2)
-	assert.Equal(t, 300, rows2[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(300), rows2[0].SeriesID)
 }
 
 func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {

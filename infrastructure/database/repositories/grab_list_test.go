@@ -16,7 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
+func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:           uuid.New(),
@@ -52,7 +52,7 @@ func TestGrabRepository_List_FirstAndSecondPage(t *testing.T) {
 	db := setupTestDB(t)
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		seedGrab(t, db, "main", 100+i, 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
+		seedGrab(t, db, "main", domain.SonarrSeriesID(100+i), 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
 	}
 
 	repo := NewGrabRepository(db)
@@ -85,14 +85,14 @@ func TestGrabRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	seedGrab(t, db, "secondary", 100, 1, grab.StatusGrabbed, base.Add(3*time.Second))
 
 	inst := domain.InstanceName("main")
-	sid := 100
+	sid := domain.SonarrSeriesID(100)
 	got, _, err := NewGrabRepository(db).List(context.Background(),
 		ports.GrabFilter{Instance: &inst, SeriesID: &sid}, ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	for _, r := range got {
 		assert.Equal(t, domain.InstanceName("main"), r.InstanceName)
-		assert.Equal(t, 100, r.SeriesID)
+		assert.Equal(t, domain.SonarrSeriesID(100), r.SeriesID)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestGrabRepository_List_TimeRange(t *testing.T) {
 	db := setupTestDB(t)
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 6; i++ {
-		seedGrab(t, db, "main", 100+i, 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
+		seedGrab(t, db, "main", domain.SonarrSeriesID(100+i), 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
 	}
 
 	from := base.Add(2 * time.Second)

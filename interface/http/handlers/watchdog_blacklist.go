@@ -21,7 +21,7 @@ import (
 // (instance, series_id) pair. ports.SeriesCacheRepository.Get satisfies
 // it directly; tests stub it.
 type SeriesTitleResolver interface {
-	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error)
 }
 
 // BlacklistPager is the narrowed slice of WatchdogBlacklistRepository

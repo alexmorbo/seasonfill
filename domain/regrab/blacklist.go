@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Reason identifies why a (instance, series, season) triple landed on
@@ -50,7 +52,7 @@ var (
 type BlacklistEntry struct {
 	ID           uint
 	InstanceID   uint
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 	Reason       Reason
 	Consecutive  int
@@ -62,7 +64,7 @@ type BlacklistEntry struct {
 // and ExpiresAt = nil (manual unblock per v1). Returns a typed
 // validation error on any invalid input — the caller wraps with %w
 // when surfacing in a higher layer.
-func NewBlacklistEntry(instanceID uint, seriesID, season, consecutive int, reason Reason, now time.Time) (BlacklistEntry, error) {
+func NewBlacklistEntry(instanceID uint, seriesID domain.SonarrSeriesID, season, consecutive int, reason Reason, now time.Time) (BlacklistEntry, error) {
 	if instanceID == 0 {
 		return BlacklistEntry{}, fmt.Errorf("%w: got %d", ErrInvalidInstance, instanceID)
 	}

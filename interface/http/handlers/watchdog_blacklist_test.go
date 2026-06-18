@@ -37,9 +37,9 @@ func (s *stubPager) DeleteByID(_ context.Context, instanceID, id uint) error {
 	return nil
 }
 
-type stubTitles map[int]string
+type stubTitles map[domain.SonarrSeriesID]string
 
-func (s stubTitles) Get(_ context.Context, _ domain.InstanceName, seriesID int) (series.CacheEntry, error) {
+func (s stubTitles) Get(_ context.Context, _ domain.InstanceName, seriesID domain.SonarrSeriesID) (series.CacheEntry, error) {
 	if t, ok := s[seriesID]; ok {
 		return series.CacheEntry{Title: t}, nil
 	}
@@ -152,7 +152,7 @@ func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
 	pager := &stubPager{}
 	for i := 0; i < 2; i++ {
 		pager.rows = append(pager.rows, regrab.BlacklistEntry{
-			ID: uint(i + 1), InstanceID: 1, SeriesID: 100 + i, SeasonNumber: 1,
+			ID: uint(i + 1), InstanceID: 1, SeriesID: domain.SonarrSeriesID(100 + i), SeasonNumber: 1,
 			Reason: regrab.ReasonConsecutiveNoBetter, Consecutive: 3,
 			CreatedAt: now.Add(-time.Duration(i) * time.Hour),
 		})

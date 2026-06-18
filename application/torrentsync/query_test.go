@@ -22,7 +22,7 @@ type fakeLookup struct {
 	err  error
 }
 
-func (f *fakeLookup) HashesForSeries(_ context.Context, instance domain.InstanceName, seriesID int) ([]string, error) {
+func (f *fakeLookup) HashesForSeries(_ context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -31,8 +31,8 @@ func (f *fakeLookup) HashesForSeries(_ context.Context, instance domain.Instance
 	return f.rows[lookupKey(instance, seriesID)], nil
 }
 
-func lookupKey(instance domain.InstanceName, seriesID int) string {
-	return string(instance) + "|" + strconv.Itoa(seriesID)
+func lookupKey(instance domain.InstanceName, seriesID domain.SonarrSeriesID) string {
+	return string(instance) + "|" + strconv.Itoa(int(seriesID))
 }
 
 // fakeTorrentsRepoWithFind extends fakeTorrentsRepo (from

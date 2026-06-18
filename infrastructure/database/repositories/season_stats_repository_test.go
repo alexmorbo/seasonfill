@@ -12,7 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleSeasonStat(instance domain.InstanceName, sonarrID, seasonNumber int) series.SeasonStat {
+func sampleSeasonStat(instance domain.InstanceName, sonarrID domain.SonarrSeriesID, seasonNumber int) series.SeasonStat {
 	return series.SeasonStat{
 		InstanceName:      instance,
 		SonarrSeriesID:    sonarrID,

@@ -30,7 +30,7 @@ type SeriesTorrentsResponse struct {
 	Instance domain.InstanceName `json:"instance" example:"alpha"`
 	// SonarrSeriesID echoes the URL parameter for clients that
 	// disambiguate cross-instance state.
-	SonarrSeriesID int `json:"sonarr_series_id" example:"123"`
+	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id" example:"123"`
 	// SeriesID is the resolved canonical series.id, echoed for
 	// parity with the composite series-detail document.
 	SeriesID domain.SeriesID `json:"series_id" example:"42"`

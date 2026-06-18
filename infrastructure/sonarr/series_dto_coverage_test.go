@@ -43,7 +43,7 @@ func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
 	}
 	e := seriesDTOToCacheEntry(d, "alpha")
 	assert.Equal(t, domain.InstanceName("alpha"), e.InstanceName)
-	assert.Equal(t, 7, e.SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(7), e.SonarrSeriesID)
 	assert.Equal(t, "Breaking Bad", e.Title)
 	assert.Equal(t, "breaking-bad", e.TitleSlug)
 	assert.True(t, e.Monitored)
@@ -83,7 +83,7 @@ func TestSeriesDTOToCacheEntry_EmptyOptionalFieldsRemainNil(t *testing.T) {
 	}
 	e := seriesDTOToCacheEntry(d, "beta")
 	assert.Equal(t, domain.InstanceName("beta"), e.InstanceName)
-	assert.Equal(t, 3, e.SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(3), e.SonarrSeriesID)
 	assert.Nil(t, e.Year)
 	assert.Nil(t, e.TVDBID)
 	assert.Nil(t, e.IMDBID)

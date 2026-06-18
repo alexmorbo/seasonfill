@@ -61,11 +61,12 @@ func NewSeriesDetailHandler(composer *seriesdetail.Composer, logger *slog.Logger
 func (h *SeriesDetailHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")
-	sonarrID, err := strconv.Atoi(idStr)
-	if err != nil || sonarrID <= 0 {
+	parsedID, err := strconv.Atoi(idStr)
+	if err != nil || parsedID <= 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
 		return
 	}
+	sonarrID := domain.SonarrSeriesID(parsedID)
 	lang := strings.TrimSpace(c.Query("lang"))
 
 	ctx := c.Request.Context()
@@ -77,7 +78,7 @@ func (h *SeriesDetailHandler) Get(c *gin.Context) {
 		}
 		writeInternalError(c, h.logger, "series_detail_compose_failed", err,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID))
+			slog.Int("sonarr_series_id", int(sonarrID)))
 		return
 	}
 	c.JSON(http.StatusOK, toSeriesDetailResponse(detail))

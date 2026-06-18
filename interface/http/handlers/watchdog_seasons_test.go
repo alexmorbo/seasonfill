@@ -50,16 +50,16 @@ type stubSeriesLister struct {
 	grabs     map[int][]repositories.RecentGrabRow
 }
 
-func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ domain.InstanceName, _ int, _ time.Time) ([]repositories.WatchdogSeasonRow, error) {
+func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ time.Time) ([]repositories.WatchdogSeasonRow, error) {
 	return s.rows, nil
 }
-func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ domain.InstanceName, _ int) (map[int]repositories.WatchdogSeasonStats, error) {
+func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (map[int]repositories.WatchdogSeasonStats, error) {
 	return s.stats, nil
 }
-func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ domain.InstanceName, _ int, _ int) (map[int][]repositories.RecentDecisionRow, error) {
+func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]repositories.RecentDecisionRow, error) {
 	return s.decisions, nil
 }
-func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ domain.InstanceName, _ int, _ int) (map[int][]repositories.RecentGrabRow, error) {
+func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]repositories.RecentGrabRow, error) {
 	return s.grabs, nil
 }
 
@@ -151,7 +151,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 
 	item := got.Items[0]
 	assert.Equal(t, domain.InstanceName("homelab"), item.Instance)
-	assert.Equal(t, 169, item.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(169), item.SeriesID)
 	assert.Equal(t, "Friends", item.SeriesTitle)
 	require.NotNil(t, item.Origin)
 	assert.Equal(t, "Prowlarr", item.Origin.Indexer)
@@ -191,7 +191,7 @@ func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 	cur, err := decodeSeasonsCursor(got.NextCursor)
 	require.NoError(t, err)
 	assert.Equal(t, domain.InstanceName("homelab"), cur.InstanceName)
-	assert.Equal(t, 200, cur.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(200), cur.SeriesID)
 	assert.Equal(t, 1, cur.SeasonNumber)
 
 	// Drive the next page with that cursor.
@@ -201,7 +201,7 @@ func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 	r.ServeHTTP(w2, req2)
 	require.Equal(t, http.StatusOK, w2.Code)
 	require.NotNil(t, lister.gotCursor)
-	assert.Equal(t, 200, lister.gotCursor.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(200), lister.gotCursor.SeriesID)
 }
 
 func TestWatchdogSeasons_List_RejectsInvalidLimit(t *testing.T) {
@@ -267,7 +267,7 @@ func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 	var got dto.WatchdogSeriesDetail
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, domain.InstanceName("homelab"), got.Instance)
-	assert.Equal(t, 169, got.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(169), got.SeriesID)
 	assert.Equal(t, "Friends", got.SeriesTitle)
 	require.Len(t, got.Seasons, 1)
 	s := got.Seasons[0]

@@ -394,11 +394,16 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 	if handleQueryErr(c, err) {
 		return
 	}
+	var sonarrSeriesID *domain.SonarrSeriesID
+	if seriesID != nil {
+		v := domain.SonarrSeriesID(*seriesID)
+		sonarrSeriesID = &v
+	}
 
 	filter := ports.DecisionFilter{
 		From:         from,
 		To:           to,
-		SeriesID:     seriesID,
+		SeriesID:     sonarrSeriesID,
 		SeasonNumber: season,
 		Instance:     instanceNamePtrFromQuery(c, "instance"),
 		Decision:     stringPtrFromQuery(c, "decision"),
@@ -465,11 +470,16 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 	if handleQueryErr(c, err) {
 		return
 	}
+	var sonarrSeriesID *domain.SonarrSeriesID
+	if seriesID != nil {
+		v := domain.SonarrSeriesID(*seriesID)
+		sonarrSeriesID = &v
+	}
 
 	filter := ports.GrabFilter{
 		From:         from,
 		To:           to,
-		SeriesID:     seriesID,
+		SeriesID:     sonarrSeriesID,
 		SeasonNumber: season,
 		Instance:     instanceNamePtrFromQuery(c, "instance"),
 		Status:       stringPtrFromQuery(c, "status"),
@@ -615,7 +625,7 @@ func (h *AuditHandler) collectGrabIntents(ctx context.Context, recs []grab.Recor
 // across multiple grabs of the same series.
 type grabKey struct {
 	instance domain.InstanceName
-	seriesID int
+	seriesID domain.SonarrSeriesID
 }
 
 // collectGrabCacheFields builds two (instance, series_id) → value

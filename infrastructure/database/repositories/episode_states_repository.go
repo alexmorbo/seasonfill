@@ -97,7 +97,7 @@ func (r *EpisodeStatesRepository) Upsert(ctx context.Context, s series.EpisodeSt
 // Story 218 (E-2). episode_states.deleted_at is added by migration
 // 000034 (paired with this story).
 func (r *EpisodeStatesRepository) SoftDeleteBySeries(
-	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID,
 ) (int, error) {
 	if instanceName == "" {
 		return 0, fmt.Errorf("soft delete episode_states by series: instance_name must be non-empty")

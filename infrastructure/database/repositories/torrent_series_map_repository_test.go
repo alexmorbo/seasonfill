@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestTorrentSeriesMapRepository_UpsertNew(t *testing.T) {
@@ -31,7 +32,7 @@ func TestTorrentSeriesMapRepository_UpsertNew(t *testing.T) {
 
 	var m database.TorrentSeriesMapModel
 	require.NoError(t, db.First(&m, "instance_name = ? AND torrent_hash = ?", "alpha", "aaaa").Error)
-	assert.Equal(t, 42, m.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(42), m.SeriesID)
 	require.NotNil(t, m.SeasonNumber)
 	assert.Equal(t, 3, *m.SeasonNumber)
 	assert.Equal(t, string(torrentsync.MapSourceWebhook), m.Source)
@@ -69,7 +70,7 @@ func TestTorrentSeriesMapRepository_UpsertExisting_FirstSourceWins(t *testing.T)
 
 	var m database.TorrentSeriesMapModel
 	require.NoError(t, db.First(&m, "instance_name = ? AND torrent_hash = ?", "alpha", "bbbb").Error)
-	assert.Equal(t, 7, m.SeriesID, "series_id must not change")
+	assert.Equal(t, domain.SonarrSeriesID(7), m.SeriesID, "series_id must not change")
 	require.NotNil(t, m.SeasonNumber)
 	assert.Equal(t, 1, *m.SeasonNumber, "season_number must not change")
 	assert.Equal(t, string(torrentsync.MapSourceWebhook), m.Source, "source must not change")

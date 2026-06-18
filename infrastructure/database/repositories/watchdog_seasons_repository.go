@@ -25,7 +25,7 @@ import (
 type WatchdogSeasonRow struct {
 	InstanceID        uint
 	InstanceName      domain.InstanceName
-	SeriesID          int
+	SeriesID          domain.SonarrSeriesID
 	SeasonNumber      int
 	SeriesTitle       string
 	Monitored         bool
@@ -58,7 +58,7 @@ type WatchdogSeasonsFilter struct {
 // share series ids (which they routinely do).
 type WatchdogSeasonsCursor struct {
 	InstanceName domain.InstanceName
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 }
 
@@ -92,19 +92,19 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 	}
 
 	type joined struct {
-		InstanceName domain.InstanceName `gorm:"column:instance_name"`
-		SeriesID     int                 `gorm:"column:series_id"`
-		SeasonNumber int                 `gorm:"column:season_number"`
-		GUID         string              `gorm:"column:guid"`
-		IndexerName  string              `gorm:"column:indexer_name"`
-		FirstSeenAt  time.Time           `gorm:"column:first_seen_at"`
-		LastSeenAt   time.Time           `gorm:"column:last_seen_at"`
-		LastUsedAt   *time.Time          `gorm:"column:last_used_at"`
-		Title        *string             `gorm:"column:title"`
-		Monitored    *bool               `gorm:"column:monitored"`
-		MissingCount *int                `gorm:"column:missing_count"`
-		LastAiredAt  *time.Time          `gorm:"column:last_aired_at"`
-		InstanceDBID *uint               `gorm:"column:instance_id"`
+		InstanceName domain.InstanceName   `gorm:"column:instance_name"`
+		SeriesID     domain.SonarrSeriesID `gorm:"column:series_id"`
+		SeasonNumber int                   `gorm:"column:season_number"`
+		GUID         string                `gorm:"column:guid"`
+		IndexerName  string                `gorm:"column:indexer_name"`
+		FirstSeenAt  time.Time             `gorm:"column:first_seen_at"`
+		LastSeenAt   time.Time             `gorm:"column:last_seen_at"`
+		LastUsedAt   *time.Time            `gorm:"column:last_used_at"`
+		Title        *string               `gorm:"column:title"`
+		Monitored    *bool                 `gorm:"column:monitored"`
+		MissingCount *int                  `gorm:"column:missing_count"`
+		LastAiredAt  *time.Time            `gorm:"column:last_aired_at"`
+		InstanceDBID *uint                 `gorm:"column:instance_id"`
 	}
 
 	// origin_releases is append-only and is never cleaned up when an
@@ -276,7 +276,7 @@ func (r *WatchdogSeasonsRepository) enrichSiblings(ctx context.Context, rows []W
 	// sibling tables can't carry data for them.
 	type triple struct {
 		instanceID uint
-		seriesID   int
+		seriesID   domain.SonarrSeriesID
 		season     int
 	}
 	tripleIdx := make(map[triple]int, len(rows))
@@ -354,7 +354,7 @@ func (r *WatchdogSeasonsRepository) enrichSiblings(ctx context.Context, rows []W
 // also fold in seasons we have decision rows for, so a season that
 // the watchdog skipped (no grab → no origin row) still surfaces.
 func (r *WatchdogSeasonsRepository) SeasonsForSeries(
-	ctx context.Context, instance domain.InstanceName, seriesID int, now time.Time,
+	ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, now time.Time,
 ) ([]WatchdogSeasonRow, error) {
 	if instance == "" || seriesID <= 0 {
 		return nil, errors.New("watchdog_seasons: instance and series_id required")
@@ -483,7 +483,7 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 // zero. The handler maps the result into
 // dto.WatchdogSeriesSeasonStats per season.
 func (r *WatchdogSeasonsRepository) SeasonStatsFromDecisions(
-	ctx context.Context, instance domain.InstanceName, seriesID int,
+	ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID,
 ) (map[int]WatchdogSeasonStats, error) {
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
@@ -556,7 +556,7 @@ type RecentGrabRow struct {
 // capped at perSeason most-recent per season. Empty seasons return an
 // empty (non-nil) slice in the map.
 func (r *WatchdogSeasonsRepository) RecentDecisionsBySeason(
-	ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int,
+	ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int,
 ) (map[int][]RecentDecisionRow, error) {
 	if perSeason <= 0 {
 		return map[int][]RecentDecisionRow{}, nil
@@ -598,7 +598,7 @@ func (r *WatchdogSeasonsRepository) RecentDecisionsBySeason(
 // RecentGrabsBySeason returns the per-season grabs slice, capped at
 // perSeason most-recent per season.
 func (r *WatchdogSeasonsRepository) RecentGrabsBySeason(
-	ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int,
+	ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int,
 ) (map[int][]RecentGrabRow, error) {
 	if perSeason <= 0 {
 		return map[int][]RecentGrabRow{}, nil

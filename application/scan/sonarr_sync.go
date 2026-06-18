@@ -76,7 +76,7 @@ func SyncSeriesFromSonarr(
 	}
 	log := logger.With(
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", p.ID),
+		slog.Int("sonarr_series_id", int(p.ID)),
 		slog.Int("tmdb_id", p.TMDBID),
 		slog.Int("tvdb_id", p.TVDBID),
 	)

@@ -263,7 +263,7 @@ func (u *UseCase) Run(parent context.Context, trigger Trigger) ([]RunResult, err
 // (manual instances are reachable here on purpose — UI/API path).
 // `seriesIDs` narrows ListSeries before evaluate; nil/empty = scan
 // every series. Unknown IDs are dropped with a WARN (Q-010-3).
-func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...shareddomain.SonarrSeriesID) (RunResult, error) {
 	for _, inst := range u.loadInstances() {
 		if inst.Config.Name == name {
 			return u.runOne(parent, inst, trigger, seriesIDs)
@@ -276,7 +276,7 @@ func (u *UseCase) RunInstance(parent context.Context, name string, trigger Trigg
 // immediately with status="running". See StartInstanceWithDryRun for
 // the full contract; this wrapper preserves the original signature so
 // existing test call sites stay unchanged.
-func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...int) (RunResult, error) {
+func (u *UseCase) StartInstance(parent context.Context, name string, trigger Trigger, seriesIDs ...shareddomain.SonarrSeriesID) (RunResult, error) {
 	return u.StartInstanceWithDryRun(parent, name, trigger, nil, seriesIDs...)
 }
 
@@ -290,7 +290,7 @@ func (u *UseCase) StartInstance(parent context.Context, name string, trigger Tri
 // Errors are synchronous-only (validation + lock + Create); once those
 // pass, the returned RunResult carries Status="running" and the
 // goroutine reports terminal status through ScanRecord updates only.
-func (u *UseCase) StartInstanceWithDryRun(parent context.Context, name string, trigger Trigger, dryRunOverride *bool, seriesIDs ...int) (RunResult, error) {
+func (u *UseCase) StartInstanceWithDryRun(parent context.Context, name string, trigger Trigger, dryRunOverride *bool, seriesIDs ...shareddomain.SonarrSeriesID) (RunResult, error) {
 	instances := u.loadInstances()
 	var found *Instance
 	for i := range instances {
@@ -340,7 +340,7 @@ func (u *UseCase) Start(parent context.Context, trigger Trigger) ([]RunResult, e
 // launched. The goroutine itself calls runDetached and updates
 // ScanRecord on completion. `dryRunOverride` — when non-nil —
 // overrides both the per-instance DryRun and the global default.
-func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int, dryRunOverride *bool) (RunResult, error) {
+func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []shareddomain.SonarrSeriesID, dryRunOverride *bool) (RunResult, error) {
 	scanID := uuid.New()
 	instName := shareddomain.InstanceName(inst.Config.Name)
 
@@ -392,7 +392,7 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 	if u.bgWG != nil {
 		u.bgWG.Add(1)
 	}
-	go func(inst Instance, rec ports.ScanRecord, seriesIDs []int, started time.Time) {
+	go func(inst Instance, rec ports.ScanRecord, seriesIDs []shareddomain.SonarrSeriesID, started time.Time) {
 		if u.bgWG != nil {
 			defer u.bgWG.Done()
 		}
@@ -424,7 +424,7 @@ func (u *UseCase) instanceDryRun(inst Instance, override *bool) bool {
 	return u.dryRun.Load()
 }
 
-func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []int) (RunResult, error) {
+func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger, seriesIDs []shareddomain.SonarrSeriesID) (RunResult, error) {
 	scanID := uuid.New()
 	ctx := logger.WithTraceID(parent, scanID.String())
 	instName := shareddomain.InstanceName(inst.Config.Name)
@@ -474,7 +474,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 // Create) ran in startOne; this function trusts the lock + record already
 // exist and dives straight into processScan. The barrier hook runs here so
 // existing concurrency tests can still observe entry from an async path.
-func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) {
+func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []shareddomain.SonarrSeriesID, started time.Time, dryRun bool) {
 	if u.barrier != nil {
 		u.barrier.Reached(shareddomain.InstanceName(inst.Config.Name))
 	}
@@ -488,7 +488,7 @@ func (u *UseCase) runDetached(ctx context.Context, inst Instance, rec ports.Scan
 	}
 }
 
-func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []int, started time.Time, dryRun bool) (RunResult, error) {
+func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.ScanRecord, trigger Trigger, seriesIDs []shareddomain.SonarrSeriesID, started time.Time, dryRun bool) (RunResult, error) {
 	instName := shareddomain.InstanceName(inst.Config.Name)
 	observability.IncActiveScans(instName)
 	defer observability.DecActiveScans(instName)
@@ -507,12 +507,12 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 	if len(seriesIDs) > 0 {
 		// Q-010-3: stale UI cache may reference IDs not in this
 		// instance. Skip-with-warn so partial scans still happen.
-		want := make(map[int]struct{}, len(seriesIDs))
+		want := make(map[shareddomain.SonarrSeriesID]struct{}, len(seriesIDs))
 		for _, id := range seriesIDs {
 			want[id] = struct{}{}
 		}
 		filtered := make([]series.Series, 0, len(want))
-		matched := make(map[int]struct{}, len(want))
+		matched := make(map[shareddomain.SonarrSeriesID]struct{}, len(want))
 		for _, s := range seriesList {
 			if _, ok := want[s.ID]; ok {
 				filtered = append(filtered, s)
@@ -523,7 +523,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 			skipped := make([]int, 0, len(want)-len(matched))
 			for id := range want {
 				if _, ok := matched[id]; !ok {
-					skipped = append(skipped, id)
+					skipped = append(skipped, int(id))
 				}
 			}
 			sort.Ints(skipped)
@@ -587,7 +587,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 		if reason, ok := tagFilter.skip(s.TagIDs); ok {
 			u.logger.DebugContext(ctx, "series skipped by tag filter",
-				slog.Int("series_id", s.ID),
+				slog.Int("series_id", int(s.ID)),
 				slog.String("title", s.Title),
 				slog.String("reason", reason),
 			)
@@ -612,7 +612,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		if seriesAllSeasonsComplete(s) {
 			u.logger.DebugContext(ctx, "series_skipped_all_seasons_complete",
 				slog.String("instance", inst.Config.Name),
-				slog.Int("series_id", s.ID),
+				slog.Int("series_id", int(s.ID)),
 				slog.String("series_title", s.Title),
 				slog.Int("monitored_seasons", len(seasons)),
 			)
@@ -628,7 +628,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				}, decision.ReasonAllComplete, stats); err != nil {
 					u.logger.WarnContext(ctx, "prefilter_record_skip_failed",
 						slog.String("instance", inst.Config.Name),
-						slog.Int("series_id", s.ID),
+						slog.Int("series_id", int(s.ID)),
 						slog.Int("season_number", season.Number),
 						slog.String("reason", string(decision.ReasonAllComplete)),
 						slog.String("error", err.Error()))
@@ -649,7 +649,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 					return u.finalizeScanAborted(ctx, rec, inst, started, perr)
 				}
 				u.logger.WarnContext(ctx, "fetch quality profile failed",
-					slog.Int("series_id", s.ID),
+					slog.Int("series_id", int(s.ID)),
 					slog.Int("profile_id", s.QualityProfile),
 					slog.String("error", perr.Error()),
 				)
@@ -667,7 +667,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				return u.finalizeScanAborted(ctx, rec, inst, started, ferr)
 			}
 			u.logger.WarnContext(ctx, "list episode files failed",
-				slog.Int("series_id", s.ID),
+				slog.Int("series_id", int(s.ID)),
 				slog.String("error", ferr.Error()),
 			)
 			errorsCount++
@@ -688,7 +688,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 			if cdErr != nil {
 				u.logger.WarnContext(ctx, "cooldown lookup failed",
 					slog.String("instance", inst.Config.Name),
-					slog.Int("series_id", s.ID),
+					slog.Int("series_id", int(s.ID)),
 					slog.Int("season_count", len(seasons)),
 					slog.String("error", cdErr.Error()),
 				)
@@ -721,7 +721,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				}, reason, prefilterStats); err != nil {
 					u.logger.WarnContext(ctx, "prefilter_record_skip_failed",
 						slog.String("instance", inst.Config.Name),
-						slog.Int("series_id", s.ID),
+						slog.Int("series_id", int(s.ID)),
 						slog.Int("season_number", season.Number),
 						slog.String("reason", string(reason)),
 						slog.String("error", err.Error()))
@@ -736,7 +736,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				if seriesCooldownActive[skey] {
 					u.logger.InfoContext(ctx, "season_evaluated",
 						slog.String("instance", inst.Config.Name),
-						slog.Int("series_id", s.ID),
+						slog.Int("series_id", int(s.ID)),
 						slog.String("series_title", s.Title),
 						slog.Int("season_number", season.Number),
 						slog.String("decision", string(decision.OutcomeSkip)),
@@ -753,7 +753,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 					return u.finalizeScanAborted(ctx, rec, inst, started, eerr)
 				}
 				u.logger.WarnContext(ctx, "list episodes failed",
-					slog.Int("series_id", s.ID),
+					slog.Int("series_id", int(s.ID)),
 					slog.Int("season", season.Number),
 					slog.String("error", eerr.Error()),
 				)
@@ -784,7 +784,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 							return u.finalizeScanAborted(ctx, rec, inst, started, herr)
 						}
 						u.logger.WarnContext(ctx, "fetch grab history failed",
-							slog.Int("series_id", s.ID),
+							slog.Int("series_id", int(s.ID)),
 							slog.String("error", herr.Error()),
 						)
 					}
@@ -868,7 +868,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 						if u.health != nil {
 							u.logger.WarnContext(ctx, "instance_marked_unavailable",
 								slog.String("instance", inst.Config.Name),
-								slog.Int("series_id", s.ID),
+								slog.Int("series_id", int(s.ID)),
 								slog.Int("consecutive_fails", consecutiveGrabFails),
 								slog.String("transition_to", string(instance.HealthUnavailableUnknown)),
 								slog.String("reason", "3 consecutive grab_failed"),
@@ -1274,7 +1274,7 @@ func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList
 				if uerr := u.seriesCache.Upsert(ctx, e); uerr != nil {
 					u.logger.WarnContext(ctx, "series_cache_upsert_failed",
 						slog.String("instance", inst.Config.Name),
-						slog.Int("series_id", e.SonarrSeriesID),
+						slog.Int("series_id", int(e.SonarrSeriesID)),
 						slog.String("error", uerr.Error()),
 					)
 				}
@@ -1309,7 +1309,7 @@ func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList
 			if uerr := u.seasonStats.Upsert(ctx, stat); uerr != nil {
 				u.logger.WarnContext(ctx, "season_stats_upsert_failed",
 					slog.String("instance", inst.Config.Name),
-					slog.Int("series_id", s.ID),
+					slog.Int("series_id", int(s.ID)),
 					slog.Int("season_number", season.Number),
 					slog.String("error", uerr.Error()),
 				)

@@ -77,7 +77,7 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 	out := make([]series.Series, 0, 5)
 	for i := 1; i <= 5; i++ {
 		out = append(out, series.Series{
-			ID:             i,
+			ID:             shareddomain.SonarrSeriesID(i),
 			Title:          "S",
 			Monitored:      true,
 			QualityProfile: 14,
@@ -97,12 +97,12 @@ func (f *abortFakeSonarr) ListSeriesCache(_ context.Context, _ shareddomain.Inst
 	return nil, nil
 }
 
-func (f *abortFakeSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (f *abortFakeSonarr) GetSeries(_ context.Context, _ shareddomain.SonarrSeriesID) (series.Series, error) {
 	atomic.AddInt64(&f.getSeriesCalls, 1)
 	return series.Series{}, nil
 }
 
-func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.Episode, error) {
+func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, sn int) ([]series.Episode, error) {
 	atomic.AddInt64(&f.listEpisodesCalls, 1)
 	return []series.Episode{
 		{ID: 1, Number: 1, SeasonNumber: sn, Title: "e1", Monitored: true, HasFile: true, QualityID: 5, QualityName: "WEB-1080p",
@@ -114,20 +114,20 @@ func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _, sn int) ([]series.E
 	}, nil
 }
 
-func (f *abortFakeSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *abortFakeSonarr) ListEpisodesBySeries(_ context.Context, _ shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ shareddomain.SonarrSeriesID) (map[int]int, error) {
 	atomic.AddInt64(&f.listFilesCalls, 1)
 	return map[int]int{}, nil
 }
 
-func (f *abortFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *abortFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
 
-func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID, sn int) ([]release.Release, error) {
+func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID shareddomain.SonarrSeriesID, sn int) ([]release.Release, error) {
 	atomic.AddInt64(&f.searchCalls, 1)
 	return []release.Release{{
 		GUID:                 "g",
@@ -161,7 +161,7 @@ func (f *abortFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
 	atomic.AddInt64(&f.listTagsCalls, 1)
 	return nil, nil
 }
-func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	atomic.AddInt64(&f.grabHistoryCalls, 1)
 	return nil, nil
 }
@@ -294,7 +294,7 @@ func (abortFakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.Insta
 	return 0, nil
 }
 
-func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
+func (abortFakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (abortFakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
@@ -320,7 +320,7 @@ func (abortFakeCooldownRepo) Sweep(_ context.Context, _ time.Time) (int64, error
 type abortFakeOriginRepo struct{}
 
 func (abortFakeOriginRepo) Upsert(_ context.Context, _ ports.OriginRelease) error { return nil }
-func (abortFakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
+func (abortFakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 
@@ -488,23 +488,23 @@ func (f *authFailFakeSonarrWrapped) ListSeries(_ context.Context) ([]series.Seri
 func (f *authFailFakeSonarrWrapped) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *authFailFakeSonarrWrapped) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (f *authFailFakeSonarrWrapped) GetSeries(_ context.Context, _ shareddomain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *authFailFakeSonarrWrapped) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (f *authFailFakeSonarrWrapped) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (f *authFailFakeSonarrWrapped) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *authFailFakeSonarrWrapped) ListEpisodesBySeries(_ context.Context, _ shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *authFailFakeSonarrWrapped) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *authFailFakeSonarrWrapped) ListEpisodeFiles(_ context.Context, _ shareddomain.SonarrSeriesID) (map[int]int, error) {
 	return nil, nil
 }
-func (f *authFailFakeSonarrWrapped) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *authFailFakeSonarrWrapped) ListEpisodeFilesBySeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (f *authFailFakeSonarrWrapped) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (f *authFailFakeSonarrWrapped) SearchReleases(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -514,7 +514,7 @@ func (f *authFailFakeSonarrWrapped) ListIndexers(_ context.Context) ([]ports.Ind
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
-func (f *authFailFakeSonarrWrapped) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (f *authFailFakeSonarrWrapped) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {

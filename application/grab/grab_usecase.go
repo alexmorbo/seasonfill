@@ -93,7 +93,7 @@ func (u *UseCase) WithSleeper(s Sleeper) *UseCase { u.sleep = s; return u }
 type Input struct {
 	ScanRunID    uuid.UUID
 	InstanceName shareddomain.InstanceName
-	SeriesID     int
+	SeriesID     shareddomain.SonarrSeriesID
 	SeriesTitle  string
 	SeasonNumber int
 	Selected     release.Scored
@@ -171,7 +171,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 			observability.GrabAttempt(in.InstanceName, "grabbed")
 			u.logger.InfoContext(ctx, "grab_succeeded",
 				slog.String("instance", string(in.InstanceName)),
-				slog.Int("series_id", in.SeriesID),
+				slog.Int("series_id", int(in.SeriesID)),
 				slog.Int("season", in.SeasonNumber),
 				slog.String("guid", in.Selected.Release.GUID),
 				slog.String("indexer", in.Selected.Release.IndexerName),

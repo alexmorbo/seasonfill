@@ -119,7 +119,7 @@ func (f *seriesCacheFixture) withMediaPending(t *testing.T) *repositories.MediaA
 func (f *seriesCacheFixture) seedWith(
 	t *testing.T,
 	instance shareddomain.InstanceName,
-	id int,
+	id shareddomain.SonarrSeriesID,
 	title string,
 	missing int,
 	ts time.Time,
@@ -146,7 +146,7 @@ func (f *seriesCacheFixture) seedWith(
 		Update("updated_at", ts).Error)
 }
 
-func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceName, id int, title string, missing int, updatedAt time.Time) {
+func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceName, id shareddomain.SonarrSeriesID, title string, missing int, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
 	entry := series.CacheEntry{
@@ -162,7 +162,7 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceNa
 		Update("updated_at", updatedAt).Error)
 }
 
-func (f *seriesCacheFixture) seedAired(t *testing.T, instance shareddomain.InstanceName, id int, title string, lastAired *time.Time, updatedAt time.Time) {
+func (f *seriesCacheFixture) seedAired(t *testing.T, instance shareddomain.InstanceName, id shareddomain.SonarrSeriesID, title string, lastAired *time.Time, updatedAt time.Time) {
 	t.Helper()
 	year := 2024
 	entry := series.CacheEntry{
@@ -208,7 +208,7 @@ func clauseOnConflictDoNothing() clause.OnConflict {
 	return clause.OnConflict{DoNothing: true}
 }
 
-func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance shareddomain.InstanceName, seriesID, season int, createdAt time.Time) {
+func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance shareddomain.InstanceName, seriesID shareddomain.SonarrSeriesID, season int, createdAt time.Time) {
 	t.Helper()
 	require.NoError(t, f.grabs.Create(context.Background(), grab.Record{
 		ID: uuid.New(), InstanceName: instance, SeriesID: seriesID,
@@ -234,7 +234,7 @@ func TestInstancesHandler_ListSeriesCache_StateAll_HappyPath(t *testing.T) {
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
 	for i := 1; i <= 3; i++ {
-		f.seed(t, "homelab", i, "Series"+string(rune('0'+i)), 0, now.Add(time.Duration(i)*time.Minute))
+		f.seed(t, "homelab", shareddomain.SonarrSeriesID(i), "Series"+string(rune('0'+i)), 0, now.Add(time.Duration(i)*time.Minute))
 	}
 
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache")
@@ -242,7 +242,7 @@ func TestInstancesHandler_ListSeriesCache_StateAll_HappyPath(t *testing.T) {
 	assert.Equal(t, 3, body.Total)
 	assert.False(t, body.HasMore)
 	require.Len(t, body.Items, 3)
-	assert.Equal(t, 3, body.Items[0].SonarrSeriesID, "updated_desc default — newest first")
+	assert.Equal(t, shareddomain.SonarrSeriesID(3), body.Items[0].SonarrSeriesID, "updated_desc default — newest first")
 }
 
 // The /series-cache list serializes `poster_hash` for every row whose
@@ -279,7 +279,7 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, body.Items, 2)
 
-	byID := map[int]dto.SeriesCacheItem{}
+	byID := map[shareddomain.SonarrSeriesID]dto.SeriesCacheItem{}
 	for _, it := range body.Items {
 		byID[it.SonarrSeriesID] = it
 	}
@@ -306,7 +306,7 @@ func TestInstancesHandler_ListSeriesCache_StateImported(t *testing.T) {
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?state=imported")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, body.Items, 1)
-	assert.Equal(t, 1, body.Items[0].SonarrSeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(1), body.Items[0].SonarrSeriesID)
 	assert.Equal(t, "S05", body.Items[0].LastImportedEpisode)
 	require.NotNil(t, body.Items[0].LastGrabAt)
 }
@@ -321,7 +321,7 @@ func TestInstancesHandler_ListSeriesCache_StateMissing(t *testing.T) {
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?state=missing")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, body.Items, 1)
-	assert.Equal(t, 2, body.Items[0].SonarrSeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(2), body.Items[0].SonarrSeriesID)
 	assert.Equal(t, 7, body.Items[0].MissingCount)
 }
 
@@ -353,7 +353,7 @@ func TestInstancesHandler_ListSeriesCache_KeysetPaginates(t *testing.T) {
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
 	for i := 1; i <= 30; i++ {
-		f.seed(t, "homelab", i, "S", 0, now.Add(time.Duration(i)*time.Minute))
+		f.seed(t, "homelab", shareddomain.SonarrSeriesID(i), "S", 0, now.Add(time.Duration(i)*time.Minute))
 	}
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?limit=12")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -373,7 +373,7 @@ func TestInstancesHandler_ListSeriesCache_KeysetPaginates(t *testing.T) {
 	assert.False(t, body3.HasMore)
 	assert.Empty(t, body3.NextCursor)
 
-	seen := map[int]bool{}
+	seen := map[shareddomain.SonarrSeriesID]bool{}
 	for _, p := range [][]dto.SeriesCacheItem{body.Items, body2.Items, body3.Items} {
 		for _, it := range p {
 			assert.False(t, seen[it.SonarrSeriesID], "no duplicates across pages")
@@ -432,11 +432,11 @@ func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
 	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?sort=air_date_desc")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, body.Items, 3)
-	assert.Equal(t, 2, body.Items[0].SonarrSeriesID, "newest aired first")
+	assert.Equal(t, shareddomain.SonarrSeriesID(2), body.Items[0].SonarrSeriesID, "newest aired first")
 	require.NotNil(t, body.Items[0].LastAiredAt)
 	assert.True(t, body.Items[0].LastAiredAt.Equal(t2))
-	assert.Equal(t, 1, body.Items[1].SonarrSeriesID, "older aired second")
-	assert.Equal(t, 3, body.Items[2].SonarrSeriesID, "nil aired last")
+	assert.Equal(t, shareddomain.SonarrSeriesID(1), body.Items[1].SonarrSeriesID, "older aired second")
+	assert.Equal(t, shareddomain.SonarrSeriesID(3), body.Items[2].SonarrSeriesID, "nil aired last")
 	assert.Nil(t, body.Items[2].LastAiredAt)
 }
 
@@ -452,7 +452,7 @@ func TestInstancesHandler_ListSeriesCache_QFiltersByTitle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, 1, body.Total, "total reflects post-q count, not the pre-filter set")
 	require.Len(t, body.Items, 1)
-	assert.Equal(t, 1, body.Items[0].SonarrSeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(1), body.Items[0].SonarrSeriesID)
 }
 
 func TestInstancesHandler_ListSeriesCache_QCombinedWithState(t *testing.T) {
@@ -468,7 +468,7 @@ func TestInstancesHandler_ListSeriesCache_QCombinedWithState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, 1, body.Total)
 	require.Len(t, body.Items, 1)
-	assert.Equal(t, 2, body.Items[0].SonarrSeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(2), body.Items[0].SonarrSeriesID)
 }
 
 func TestInstancesHandler_ListSeriesCache_QEmptyMeansNoFilter(t *testing.T) {
@@ -520,7 +520,7 @@ func TestInstancesHandler_ListSeriesCache_MonitoredFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 			gotIDs := make([]int, 0, len(body.Items))
 			for _, it := range body.Items {
-				gotIDs = append(gotIDs, it.SonarrSeriesID)
+				gotIDs = append(gotIDs, int(it.SonarrSeriesID))
 			}
 			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
 		})
@@ -552,7 +552,7 @@ func TestInstancesHandler_ListSeriesCache_NetworksFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	gotIDs := make([]int, 0, len(body.Items))
 	for _, it := range body.Items {
-		gotIDs = append(gotIDs, it.SonarrSeriesID)
+		gotIDs = append(gotIDs, int(it.SonarrSeriesID))
 	}
 	assert.ElementsMatch(t, []int{1, 3}, gotIDs)
 }

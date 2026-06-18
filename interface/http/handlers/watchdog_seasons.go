@@ -32,10 +32,10 @@ type WatchdogSeasonsLister interface {
 // WatchdogSeasonsSeriesLister is the narrow slice for the per-series
 // drill endpoint. Production: *repositories.WatchdogSeasonsRepository.
 type WatchdogSeasonsSeriesLister interface {
-	SeasonsForSeries(ctx context.Context, instance domain.InstanceName, seriesID int, now time.Time) ([]repositories.WatchdogSeasonRow, error)
-	SeasonStatsFromDecisions(ctx context.Context, instance domain.InstanceName, seriesID int) (map[int]repositories.WatchdogSeasonStats, error)
-	RecentDecisionsBySeason(ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int) (map[int][]repositories.RecentDecisionRow, error)
-	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID int, perSeason int) (map[int][]repositories.RecentGrabRow, error)
+	SeasonsForSeries(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, now time.Time) ([]repositories.WatchdogSeasonRow, error)
+	SeasonStatsFromDecisions(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID) (map[int]repositories.WatchdogSeasonStats, error)
+	RecentDecisionsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]repositories.RecentDecisionRow, error)
+	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]repositories.RecentGrabRow, error)
 }
 
 // Limits for the `/watchdog/seasons` page. The defaults match the
@@ -176,38 +176,39 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 		return
 	}
 	instance := domain.InstanceName(instanceRaw)
-	seriesID, err := strconv.Atoi(rawID)
-	if err != nil || seriesID <= 0 {
+	parsedID, err := strconv.Atoi(rawID)
+	if err != nil || parsedID <= 0 {
 		writeError(c, http.StatusBadRequest, "invalid series id")
 		return
 	}
+	seriesID := domain.SonarrSeriesID(parsedID)
 
 	rows, err := h.series.SeasonsForSeries(ctx, instance, seriesID, h.now())
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_load_failed", err,
 			slog.String("instance", instanceRaw),
-			slog.Int("series_id", seriesID))
+			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	stats, err := h.series.SeasonStatsFromDecisions(ctx, instance, seriesID)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_stats_failed", err,
 			slog.String("instance", instanceRaw),
-			slog.Int("series_id", seriesID))
+			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	decisionsBySeason, err := h.series.RecentDecisionsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_decisions_failed", err,
 			slog.String("instance", instanceRaw),
-			slog.Int("series_id", seriesID))
+			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	grabsBySeason, err := h.series.RecentGrabsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
 		writeInternalError(c, h.logger, "watchdog_series_grabs_failed", err,
 			slog.String("instance", instanceRaw),
-			slog.Int("series_id", seriesID))
+			slog.Int("series_id", int(seriesID)))
 		return
 	}
 
@@ -409,7 +410,7 @@ func boolQuery(c *gin.Context, name string) bool {
 // string. The decoder rejects any payload with a different number of
 // segments so a hand-crafted cursor can't trip the keyset predicate.
 func encodeSeasonsCursor(c repositories.WatchdogSeasonsCursor) string {
-	raw := string(c.InstanceName) + "\x00" + strconv.Itoa(c.SeriesID) + "\x00" + strconv.Itoa(c.SeasonNumber)
+	raw := string(c.InstanceName) + "\x00" + strconv.Itoa(int(c.SeriesID)) + "\x00" + strconv.Itoa(c.SeasonNumber)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -432,7 +433,7 @@ func decodeSeasonsCursor(s string) (*repositories.WatchdogSeasonsCursor, error) 
 	}
 	return &repositories.WatchdogSeasonsCursor{
 		InstanceName: domain.InstanceName(parts[0]),
-		SeriesID:     seriesID,
+		SeriesID:     domain.SonarrSeriesID(seriesID),
 		SeasonNumber: season,
 	}, nil
 }

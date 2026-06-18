@@ -120,7 +120,7 @@ type missingFakeSonarr struct {
 	// epsBySeries: seriesID → ALL episodes (every season). The Missing
 	// handler now calls ListEpisodesBySeries once per series and
 	// filters by season in Go.
-	epsBySeries map[int][]series.Episode
+	epsBySeries map[shareddomain.SonarrSeriesID][]series.Episode
 	// upstreamDelay simulates per-call Sonarr latency so concurrency
 	// tests can assert wall-clock budget (sequential vs. parallel).
 	upstreamDelay time.Duration
@@ -128,10 +128,10 @@ type missingFakeSonarr struct {
 	// tests can assert per-request fan-out is bounded by series count
 	// (NOT season count) — the perf invariant for the embed path.
 	mu                      sync.Mutex
-	listEpisodesBySeriesIDs []int
+	listEpisodesBySeriesIDs []shareddomain.SonarrSeriesID
 	// errBySeries lets tests inject per-series failures so the partial-
 	// failure path (one series fails, others succeed) is testable.
-	errBySeries map[int]error
+	errBySeries map[shareddomain.SonarrSeriesID]error
 }
 
 func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) {
@@ -144,11 +144,11 @@ func (m *missingFakeSonarr) ListSeries(_ context.Context) ([]series.Series, erro
 // ListEpisodes — drill-endpoint path only; the Missing list handler
 // no longer calls it (replaced by ListEpisodesBySeries with in-Go
 // season filtering).
-func (m *missingFakeSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (m *missingFakeSonarr) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (m *missingFakeSonarr) ListEpisodesBySeries(ctx context.Context, seriesID int) ([]series.Episode, error) {
+func (m *missingFakeSonarr) ListEpisodesBySeries(ctx context.Context, seriesID shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	if m.upstreamDelay > 0 {
 		select {
 		case <-ctx.Done():
@@ -168,10 +168,10 @@ func (m *missingFakeSonarr) ListEpisodesBySeries(ctx context.Context, seriesID i
 	return m.epsBySeries[seriesID], nil
 }
 
-func (m *missingFakeSonarr) listEpisodesBySeriesCalls() []int {
+func (m *missingFakeSonarr) listEpisodesBySeriesCalls() []shareddomain.SonarrSeriesID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]int, len(m.listEpisodesBySeriesIDs))
+	out := make([]shareddomain.SonarrSeriesID, len(m.listEpisodesBySeriesIDs))
 	copy(out, m.listEpisodesBySeriesIDs)
 	return out
 }
@@ -336,7 +336,7 @@ func TestInstancesHandler_Missing_EmbedsEpisodesPerSeries(t *testing.T) {
 					{Number: 1, Monitored: true, Statistics: legacy},
 				}},
 		},
-		epsBySeries: map[int][]series.Episode{
+		epsBySeries: map[shareddomain.SonarrSeriesID][]series.Episode{
 			1: {
 				{Number: 1, SeasonNumber: 1, Title: "Pilot", Monitored: true, HasFile: true, AirDateUTC: past},
 				{Number: 2, SeasonNumber: 1, Title: "The Reveal", Monitored: true, HasFile: false, AirDateUTC: past},
@@ -358,7 +358,7 @@ func TestInstancesHandler_Missing_EmbedsEpisodesPerSeries(t *testing.T) {
 	// eligible season. Series 2 (Long Anime, aired=500) is over the
 	// cap → skipped. Series 1 + 9 = 2 calls total, NOT 3.
 	assert.Len(t, calls, 2, "exactly one fetch per embed-eligible series")
-	gotIDs := map[int]bool{}
+	gotIDs := map[shareddomain.SonarrSeriesID]bool{}
 	for _, id := range calls {
 		gotIDs[id] = true
 	}
@@ -425,10 +425,10 @@ func TestInstancesHandler_Missing_PartialFailureKeepsRequest200(t *testing.T) {
 			{ID: 2, Title: "Boom", Monitored: true, Statistics: stat,
 				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
 		},
-		epsBySeries: map[int][]series.Episode{
+		epsBySeries: map[shareddomain.SonarrSeriesID][]series.Episode{
 			1: {{Number: 1, SeasonNumber: 1, Title: "Pilot", HasFile: true, AirDateUTC: past}},
 		},
-		errBySeries: map[int]error{
+		errBySeries: map[shareddomain.SonarrSeriesID]error{
 			2: errors.New("sonarr 503"),
 		},
 	}
@@ -473,7 +473,7 @@ func TestInstancesHandler_Missing_CacheHitsSkipUpstream(t *testing.T) {
 			{ID: 2, Title: "Cold", Monitored: true, Statistics: stat,
 				Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}}},
 		},
-		epsBySeries: map[int][]series.Episode{
+		epsBySeries: map[shareddomain.SonarrSeriesID][]series.Episode{
 			1: {{Number: 1, SeasonNumber: 1, Title: "Live", HasFile: true, AirDateUTC: past}},
 			2: {{Number: 1, SeasonNumber: 1, Title: "Live", HasFile: false, AirDateUTC: past}},
 		},
@@ -490,7 +490,7 @@ func TestInstancesHandler_Missing_CacheHitsSkipUpstream(t *testing.T) {
 
 	calls := mf.listEpisodesBySeriesCalls()
 	assert.Len(t, calls, 1, "only series 2 (cold) should hit upstream")
-	assert.Equal(t, 2, calls[0], "the one upstream call must be for series 2")
+	assert.Equal(t, shareddomain.SonarrSeriesID(2), calls[0], "the one upstream call must be for series 2")
 
 	var body struct {
 		Items []struct {
@@ -521,9 +521,9 @@ func TestInstancesHandler_Missing_ConcurrentFetchBudget(t *testing.T) {
 	past := time.Now().Add(-7 * 24 * time.Hour)
 	stat := series.Statistics{EpisodeCount: 5, EpisodeFileCount: 2, Aired: 5}
 	all := make([]series.Series, 9)
-	epsBySeries := map[int][]series.Episode{}
+	epsBySeries := map[shareddomain.SonarrSeriesID][]series.Episode{}
 	for i := range 9 {
-		id := i + 1
+		id := shareddomain.SonarrSeriesID(i + 1)
 		all[i] = series.Series{
 			ID: id, Title: "S", Monitored: true, Statistics: stat,
 			Seasons: []series.Season{{Number: 1, Monitored: true, Statistics: stat}},
@@ -918,11 +918,11 @@ type stubSeriesCache struct {
 	listCall int
 }
 
-func (s *stubSeriesCache) Get(_ context.Context, _ shareddomain.InstanceName, _ int) (series.CacheEntry, error) {
+func (s *stubSeriesCache) Get(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
 func (s *stubSeriesCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
-func (s *stubSeriesCache) SoftDelete(_ context.Context, _ shareddomain.InstanceName, _ int) error {
+func (s *stubSeriesCache) SoftDelete(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID) error {
 	return nil
 }
 func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
@@ -935,8 +935,8 @@ func (s *stubSeriesCache) ListActiveByInstance(_ context.Context, _ shareddomain
 func (s *stubSeriesCache) ListByFilter(_ context.Context, _ shareddomain.InstanceName, _ ports.SeriesCacheFilter, _ ports.SeriesCacheSort, _ ports.Pagination) ([]series.CacheEntry, int, bool, *ports.Cursor, error) {
 	return nil, 0, false, nil, nil
 }
-func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ shareddomain.InstanceName, _ []int) (map[int]ports.LastGrabInfo, error) {
-	return make(map[int]ports.LastGrabInfo), nil
+func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ shareddomain.InstanceName, _ []shareddomain.SonarrSeriesID) (map[shareddomain.SonarrSeriesID]ports.LastGrabInfo, error) {
+	return make(map[shareddomain.SonarrSeriesID]ports.LastGrabInfo), nil
 }
 func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ shareddomain.InstanceName) ([]string, error) {
 	return nil, nil

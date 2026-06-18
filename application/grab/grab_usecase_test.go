@@ -58,23 +58,23 @@ func (f *fakeSonarrGrab) ListSeries(_ context.Context) ([]series.Series, error) 
 func (f *fakeSonarrGrab) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (f *fakeSonarrGrab) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (f *fakeSonarrGrab) GetSeries(_ context.Context, _ shareddomain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (f *fakeSonarrGrab) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (f *fakeSonarrGrab) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (f *fakeSonarrGrab) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (f *fakeSonarrGrab) ListEpisodesBySeries(_ context.Context, _ shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (f *fakeSonarrGrab) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (f *fakeSonarrGrab) ListEpisodeFiles(_ context.Context, _ shareddomain.SonarrSeriesID) (map[int]int, error) {
 	return nil, nil
 }
-func (f *fakeSonarrGrab) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (f *fakeSonarrGrab) ListEpisodeFilesBySeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (f *fakeSonarrGrab) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (f *fakeSonarrGrab) SearchReleases(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, nil
 }
 func (f *fakeSonarrGrab) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -82,7 +82,7 @@ func (f *fakeSonarrGrab) GetQualityProfile(_ context.Context, _ int) (ports.Qual
 }
 func (f *fakeSonarrGrab) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *fakeSonarrGrab) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (f *fakeSonarrGrab) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (f *fakeSonarrGrab) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *fakeSonarrGrab) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
@@ -176,7 +176,7 @@ func (r *fakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.Instanc
 	return 0, nil
 }
 
-func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
+func (r *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (r *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]domaingrab.Record, error) {
@@ -210,7 +210,7 @@ type fakeOriginRepo struct {
 	ups []ports.OriginRelease
 }
 
-func (r *fakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
+func (r *fakeOriginRepo) Get(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 func (r *fakeOriginRepo) Upsert(_ context.Context, rec ports.OriginRelease) error {

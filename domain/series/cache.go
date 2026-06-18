@@ -20,7 +20,7 @@ import (
 // the list endpoint's state=missing filter treats 0 as "not missing".
 type CacheEntry struct {
 	InstanceName   domain.InstanceName
-	SonarrSeriesID int
+	SonarrSeriesID domain.SonarrSeriesID
 	// SeriesID is the resolved canon series.id (set post-cutover
 	// when the cache row's INNER JOIN to `series` succeeds). nil
 	// only on a broken row (pre-cutover legacy data); the

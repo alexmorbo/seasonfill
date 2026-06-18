@@ -31,23 +31,23 @@ func (s *stubSonarr) ListSeries(_ context.Context) ([]series.Series, error) { re
 func (s *stubSonarr) ListSeriesCache(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (s *stubSonarr) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (s *stubSonarr) GetSeries(_ context.Context, _ domain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (s *stubSonarr) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (s *stubSonarr) ListEpisodes(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (s *stubSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (s *stubSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (s *stubSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (s *stubSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	return nil, nil
 }
-func (s *stubSonarr) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (s *stubSonarr) ListEpisodeFilesBySeason(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return nil, nil
 }
-func (s *stubSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (s *stubSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return s.releases, nil
 }
 func (s *stubSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -55,7 +55,7 @@ func (s *stubSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (s *stubSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (s *stubSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (s *stubSonarr) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (s *stubSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (f *stubSonarr) ParseRelease(ctx context.Context, title string) (ports.ParseResult, error) {
@@ -255,7 +255,7 @@ type errSonarr struct {
 	err error
 }
 
-func (e *errSonarr) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (e *errSonarr) SearchReleases(_ context.Context, _ domain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, e.err
 }
 

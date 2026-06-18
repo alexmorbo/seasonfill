@@ -20,6 +20,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *Client) {
@@ -691,8 +692,8 @@ func TestClient_QueueAll(t *testing.T) {
 	assert.Contains(t, gotQuery, "includeSeries=false")
 	assert.Contains(t, gotQuery, "includeEpisode=false")
 	assert.Equal(t, "ABCDEF", payload.Records[0].DownloadID, "queue returns downloadId verbatim")
-	assert.Equal(t, 11, payload.Records[0].SeriesID)
-	assert.Equal(t, 22, payload.Records[1].SeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(11), payload.Records[0].SeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(22), payload.Records[1].SeriesID)
 	assert.Equal(t, 2, payload.TotalRecords)
 }
 
@@ -721,7 +722,7 @@ func TestClient_GrabHistoryPaged_PageNumbersAndCap(t *testing.T) {
 	assert.Contains(t, gotQuery, "sortDirection=descending")
 	require.Len(t, hp.Records, 1)
 	assert.Equal(t, "deadbeef", hp.Records[0].DownloadID, "downloadId stays lowercase")
-	assert.Equal(t, 12, hp.Records[0].SeriesID)
+	assert.Equal(t, shareddomain.SonarrSeriesID(12), hp.Records[0].SeriesID)
 	assert.Equal(t, 5, hp.Records[0].SeasonNumber)
 	assert.Equal(t, 7, hp.Page)
 	assert.Equal(t, 50, hp.PageSize)

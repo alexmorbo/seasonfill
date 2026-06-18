@@ -30,15 +30,15 @@ type fakeSeriesCache struct {
 	listErr error
 }
 
-func cacheKey(instance domain.InstanceName, sonarrID int) string {
-	return string(instance) + "|" + intToStr(sonarrID)
+func cacheKey(instance domain.InstanceName, sonarrID domain.SonarrSeriesID) string {
+	return string(instance) + "|" + intToStr(int(sonarrID))
 }
 
 func intToStr(i int) string {
 	return string(rune('0' + i)) // tiny — tests only use small ids
 }
 
-func (f *fakeSeriesCache) Get(_ context.Context, instance domain.InstanceName, sonarrID int) (series.CacheEntry, error) {
+func (f *fakeSeriesCache) Get(_ context.Context, instance domain.InstanceName, sonarrID domain.SonarrSeriesID) (series.CacheEntry, error) {
 	if f.getErr != nil {
 		return series.CacheEntry{}, f.getErr
 	}
@@ -145,7 +145,7 @@ type fakeSeasonStatsPort struct {
 }
 
 func (f *fakeSeasonStatsPort) ListBySeries(
-	_ context.Context, _ domain.InstanceName, _ int,
+	_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID,
 ) ([]series.SeasonStat, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -260,7 +260,7 @@ type fakeSonarrQueueLister struct {
 	err     error
 }
 
-func (f fakeSonarrQueueLister) Queue(_ context.Context, _ int) (sonarr.QueuePayload, error) {
+func (f fakeSonarrQueueLister) Queue(_ context.Context, _ domain.SonarrSeriesID) (sonarr.QueuePayload, error) {
 	if f.err != nil {
 		return sonarr.QueuePayload{}, f.err
 	}
@@ -432,7 +432,7 @@ func TestComposer_Get_RecommendationsInLibrary(t *testing.T) {
 	require.Len(t, d.Recommendations, 1)
 	require.True(t, d.Recommendations[0].InLibrary)
 	require.Equal(t, domain.InstanceName("alpha"), d.Recommendations[0].InstanceName)
-	require.Equal(t, 5, d.Recommendations[0].SonarrSeriesID)
+	require.Equal(t, domain.SonarrSeriesID(5), d.Recommendations[0].SonarrSeriesID)
 }
 
 func TestComposer_GetSeason_FiltersToSeason(t *testing.T) {

@@ -29,7 +29,7 @@ type stubTorrentsCachePort struct {
 	err   error
 }
 
-func (s stubTorrentsCachePort) Get(_ context.Context, _ domain.InstanceName, _ int) (series.CacheEntry, error) {
+func (s stubTorrentsCachePort) Get(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return s.entry, s.err
 }
 
@@ -53,7 +53,7 @@ type stubTorrentsLookup struct {
 	err    error
 }
 
-func (s stubTorrentsLookup) HashesForSeries(_ context.Context, _ domain.InstanceName, _ int) ([]string, error) {
+func (s stubTorrentsLookup) HashesForSeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) ([]string, error) {
 	return s.hashes, s.err
 }
 

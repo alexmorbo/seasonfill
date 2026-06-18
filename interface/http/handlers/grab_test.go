@@ -127,7 +127,7 @@ func (f *fakeGrabRepo) CountReplaysAll(_ context.Context, _ shareddomain.Instanc
 	return 0, nil
 }
 
-func (f *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _, _ int) (int, error) {
+func (f *fakeGrabRepo) CountImportedEpisodes(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (int, error) {
 	return 0, nil
 }
 func (f *fakeGrabRepo) ListUnparsedSince(_ context.Context, _ time.Time, _ int) ([]grab.Record, error) {
@@ -158,7 +158,7 @@ func (f *fakeCooldowns) Sweep(_ context.Context, _ time.Time) (int64, error) { r
 
 type fakeOrigins struct{}
 
-func (fakeOrigins) Get(_ context.Context, _ shareddomain.InstanceName, _, _ int) (ports.OriginRelease, bool, error) {
+func (fakeOrigins) Get(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID, _ int) (ports.OriginRelease, bool, error) {
 	return ports.OriginRelease{}, false, nil
 }
 func (fakeOrigins) Upsert(_ context.Context, _ ports.OriginRelease) error { return nil }

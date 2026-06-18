@@ -56,7 +56,7 @@ type ScanRepository interface {
 type DecisionFilter struct {
 	ScanRunID    *uuid.UUID
 	Instance     *domain.InstanceName
-	SeriesID     *int
+	SeriesID     *domain.SonarrSeriesID
 	SeasonNumber *int
 	Decision     *string
 	From         *time.Time
@@ -85,7 +85,7 @@ type DecisionRepository interface {
 
 type GrabFilter struct {
 	Instance     *domain.InstanceName
-	SeriesID     *int
+	SeriesID     *domain.SonarrSeriesID
 	SeasonNumber *int
 	Status       *string
 	From         *time.Time
@@ -103,7 +103,7 @@ type GrabFilter struct {
 type MatchKey struct {
 	DownloadID   string
 	ReleaseTitle string
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 	InstanceName domain.InstanceName
 }
@@ -195,7 +195,7 @@ type GrabRepository interface {
 	// the decision was made). A zero return on a missing-triple query
 	// is NOT an error — it is the normal "this scan has never grabbed
 	// here" case. Errors should surface only on real DB failures.
-	CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID, seasonNumber int) (int, error)
+	CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, seasonNumber int) (int, error)
 
 	// GetByID returns the grab_records row matching the supplied uuid.
 	// Returns ErrNotFound on miss. 043c: powers the episode-files
@@ -220,7 +220,7 @@ type CooldownRepository interface {
 
 type OriginRelease struct {
 	InstanceName domain.InstanceName
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 	GUID         string
 	IndexerID    int
@@ -244,7 +244,7 @@ type Transactor interface {
 }
 
 type OriginReleaseRepository interface {
-	Get(ctx context.Context, instance domain.InstanceName, seriesID, season int) (OriginRelease, bool, error)
+	Get(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) (OriginRelease, bool, error)
 	Upsert(ctx context.Context, rec OriginRelease) error
 }
 
@@ -298,7 +298,7 @@ type WatchdogBlacklistFilter struct {
 type WatchdogBlacklistRepository interface {
 	// Find returns the row matching (instance, series, season) exactly.
 	// ports.ErrNotFound on miss.
-	Find(ctx context.Context, instanceID uint, seriesID, season int) (regrab.BlacklistEntry, error)
+	Find(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.BlacklistEntry, error)
 
 	// Upsert writes the row keyed on (instance, series, season). On
 	// conflict, Consecutive / Reason / CreatedAt / ExpiresAt are
@@ -306,7 +306,7 @@ type WatchdogBlacklistRepository interface {
 	Upsert(ctx context.Context, entry regrab.BlacklistEntry) error
 
 	// DeleteByTriple removes the parked row. ports.ErrNotFound on miss.
-	DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error
+	DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error
 
 	// ListByInstance returns every parked row for the instance. Used by
 	// the metrics gauge `seasonfill_watchdog_blacklist_size{instance}`.
@@ -344,21 +344,21 @@ type NoBetterCounterRepository interface {
 	// Get returns the counter for the triple. ports.ErrNotFound on miss
 	// — the use case treats that as "fresh triple, insert" via
 	// Increment(now=current).
-	Get(ctx context.Context, instanceID uint, seriesID, season int) (regrab.NoBetterCounter, error)
+	Get(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.NoBetterCounter, error)
 
 	// Increment atomically bumps consecutive by 1 (or inserts a row
 	// with consecutive=1 on first contact). Returns the post-increment
 	// counter so the use case can decide whether to escalate.
-	Increment(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) (regrab.NoBetterCounter, error)
+	Increment(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) (regrab.NoBetterCounter, error)
 
 	// Reset zeros consecutive on the row. ports.ErrNotFound when no
 	// row exists — the use case treats that as a non-error path
 	// because "nothing to reset" is fine after a fresh insert.
-	Reset(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) error
+	Reset(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) error
 
 	// DeleteByTriple removes the row entirely (used when an instance's
 	// settings are deleted via 039d Delete). ports.ErrNotFound on miss.
-	DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error
+	DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error
 }
 
 // SeriesCacheRepository persists the per-instance Sonarr series cache
@@ -375,7 +375,7 @@ type NoBetterCounterRepository interface {
 type SeriesCacheRepository interface {
 	// Get returns the cache row matching (instance_name, sonarr_series_id)
 	// regardless of soft-delete state. ports.ErrNotFound on miss.
-	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error)
 
 	// Upsert writes or replaces the row keyed on the composite PK. If
 	// the entry's DeletedAt is non-nil the row is stored as soft-deleted;
@@ -385,7 +385,7 @@ type SeriesCacheRepository interface {
 
 	// SoftDelete sets deleted_at to now on the matching row.
 	// ports.ErrNotFound on miss.
-	SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error
+	SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error
 
 	// ListActiveByInstance returns every non-soft-deleted row for the
 	// instance. Used by the queue handler (041g) to join cache metadata
@@ -411,8 +411,8 @@ type SeriesCacheRepository interface {
 	// series id; missing ids map to zero-value LastGrabInfo (empty time +
 	// empty string).
 	FetchLastGrabInfo(
-		ctx context.Context, instanceName domain.InstanceName, seriesIDs []int,
-	) (map[int]LastGrabInfo, error)
+		ctx context.Context, instanceName domain.InstanceName, seriesIDs []domain.SonarrSeriesID,
+	) (map[domain.SonarrSeriesID]LastGrabInfo, error)
 
 	// ListDistinctNetworks returns the sorted, distinct, non-empty
 	// network strings present in the instance's active (non-soft-deleted)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestWatchdogBlacklistRepository_DeleteByID_ScopedToInstance(t *testing.T) {
@@ -62,7 +63,7 @@ func TestWatchdogBlacklistRepository_ListByInstanceWithLimit_Paginates(t *testin
 
 	for i := 0; i < 5; i++ {
 		if err := repo.Upsert(ctx, regrab.BlacklistEntry{
-			InstanceID: 1, SeriesID: 100 + i, SeasonNumber: 1,
+			InstanceID: 1, SeriesID: domain.SonarrSeriesID(100 + i), SeasonNumber: 1,
 			Reason: regrab.ReasonConsecutiveNoBetter, Consecutive: 3,
 			CreatedAt: base.Add(time.Duration(i) * time.Hour),
 		}); err != nil {

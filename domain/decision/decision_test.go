@@ -22,7 +22,7 @@ func TestNew(t *testing.T) {
 	assert.NotEqual(t, scanID, d.ID, "decision ID must be a fresh UUID, not the scan ID")
 	assert.Equal(t, scanID, d.ScanRunID)
 	assert.Equal(t, domain.InstanceName("main"), d.InstanceName)
-	assert.Equal(t, 122, d.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(122), d.SeriesID)
 	assert.Equal(t, "Hijack", d.SeriesTitle)
 	assert.Equal(t, 2, d.SeasonNumber)
 	assert.False(t, d.CreatedAt.Before(before))

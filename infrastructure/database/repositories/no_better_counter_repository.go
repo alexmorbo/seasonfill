@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // noBetterCounterModel mirrors regrab_no_better_counter row-for-row.
@@ -19,11 +20,11 @@ import (
 // type and the repo together reduces blast radius if the schema
 // changes.
 type noBetterCounterModel struct {
-	ID           uint `gorm:"primaryKey"`
-	InstanceID   uint `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:1;index:idx_regrab_no_better_counter_instance_id"`
-	SeriesID     int  `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:2"`
-	SeasonNumber int  `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:3"`
-	Consecutive  int  `gorm:"not null;default:0"`
+	ID           uint                  `gorm:"primaryKey"`
+	InstanceID   uint                  `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:1;index:idx_regrab_no_better_counter_instance_id"`
+	SeriesID     domain.SonarrSeriesID `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:2"`
+	SeasonNumber int                   `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:3"`
+	Consecutive  int                   `gorm:"not null;default:0"`
 	LastSeenAt   time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -41,7 +42,7 @@ func NewNoBetterCounterRepository(db *gorm.DB) *NoBetterCounterRepository {
 
 // Get returns the counter row for the triple. ports.ErrNotFound on
 // miss — the use case treats that as "fresh triple, call Increment".
-func (r *NoBetterCounterRepository) Get(ctx context.Context, instanceID uint, seriesID, season int) (regrab.NoBetterCounter, error) {
+func (r *NoBetterCounterRepository) Get(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.NoBetterCounter, error) {
 	var m noBetterCounterModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
@@ -60,7 +61,7 @@ func (r *NoBetterCounterRepository) Get(ctx context.Context, instanceID uint, se
 // concurrent regrab polls on the same triple cannot collide on a
 // SELECT-then-UPDATE race. Returns the post-update counter so callers
 // can decide whether to escalate.
-func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) (regrab.NoBetterCounter, error) {
+func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) (regrab.NoBetterCounter, error) {
 	if instanceID == 0 || seriesID <= 0 || season < 0 {
 		return regrab.NoBetterCounter{}, fmt.Errorf("invalid triple: instance=%d series=%d season=%d", instanceID, seriesID, season)
 	}
@@ -108,7 +109,7 @@ func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID ui
 }
 
 // Reset zeros the row's consecutive counter. ports.ErrNotFound on miss.
-func (r *NoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) error {
+func (r *NoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) error {
 	utc := now.UTC()
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&noBetterCounterModel{}).
@@ -127,7 +128,7 @@ func (r *NoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, 
 }
 
 // DeleteByTriple removes the row entirely.
-func (r *NoBetterCounterRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error {
+func (r *NoBetterCounterRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error {
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
 		Delete(&noBetterCounterModel{})

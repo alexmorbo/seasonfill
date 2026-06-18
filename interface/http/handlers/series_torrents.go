@@ -88,11 +88,12 @@ func NewSeriesTorrentsHandler(
 func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")
-	sonarrID, err := strconv.Atoi(idStr)
-	if err != nil || sonarrID <= 0 {
+	parsedID, err := strconv.Atoi(idStr)
+	if err != nil || parsedID <= 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
 		return
 	}
+	sonarrID := domain.SonarrSeriesID(parsedID)
 
 	ctx := c.Request.Context()
 
@@ -108,7 +109,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 		}
 		writeInternalError(c, h.logger, "series_torrents_cache_lookup_failed", err,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID))
+			slog.Int("sonarr_series_id", int(sonarrID)))
 		return
 	}
 	if cache.SeriesID == nil || *cache.SeriesID == 0 {
@@ -126,7 +127,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 		}
 		writeInternalError(c, h.logger, "series_torrents_canon_lookup_failed", gerr,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID),
+			slog.Int("sonarr_series_id", int(sonarrID)),
 			slog.Int64("series_id", int64(seriesID)))
 		return
 	}
@@ -136,7 +137,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	if err != nil {
 		writeInternalError(c, h.logger, "series_torrents_query_failed", err,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID),
+			slog.Int("sonarr_series_id", int(sonarrID)),
 			slog.Int64("series_id", int64(seriesID)))
 		return
 	}
@@ -158,7 +159,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	h.logger.DebugContext(ctx, "series_torrents_served",
 		slog.String("instance_name", name),
-		slog.Int("sonarr_series_id", sonarrID),
+		slog.Int("sonarr_series_id", int(sonarrID)),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("torrent_count", resp.TotalCount),
 		slog.Int("live_count", resp.LiveCount))
@@ -177,7 +178,7 @@ func computeTorrentsETag(syncedAtUnix int64, count int) string {
 // the DTO. No DB / network calls here — pure mapping.
 func toSeriesTorrentsResponse(
 	instance domain.InstanceName,
-	sonarrID int,
+	sonarrID domain.SonarrSeriesID,
 	seriesID domain.SeriesID,
 	result torrentsync.QueryResult,
 ) dto.SeriesTorrentsResponse {

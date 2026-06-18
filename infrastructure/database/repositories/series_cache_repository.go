@@ -39,17 +39,17 @@ func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCach
 // shape so callers see no change.
 type cacheRow struct {
 	// series_cache columns
-	InstanceName      domain.InstanceName `gorm:"column:instance_name"`
-	SonarrSeriesID    int                 `gorm:"column:sonarr_series_id"`
-	SeriesID          *domain.SeriesID    `gorm:"column:series_id"`
-	TitleSlug         string              `gorm:"column:title_slug"`
-	Monitored         bool                `gorm:"column:monitored"`
-	MissingCount      int                 `gorm:"column:missing_count"`
-	EpisodeFileCount  int                 `gorm:"column:episode_file_count"`
-	SizeOnDiskBytes   int64               `gorm:"column:size_on_disk_bytes"`
-	AiredEpisodeCount int                 `gorm:"column:aired_episode_count"`
-	UpdatedAt         time.Time           `gorm:"column:updated_at"`
-	DeletedAt         *time.Time          `gorm:"column:deleted_at"`
+	InstanceName      domain.InstanceName   `gorm:"column:instance_name"`
+	SonarrSeriesID    domain.SonarrSeriesID `gorm:"column:sonarr_series_id"`
+	SeriesID          *domain.SeriesID      `gorm:"column:series_id"`
+	TitleSlug         string                `gorm:"column:title_slug"`
+	Monitored         bool                  `gorm:"column:monitored"`
+	MissingCount      int                   `gorm:"column:missing_count"`
+	EpisodeFileCount  int                   `gorm:"column:episode_file_count"`
+	SizeOnDiskBytes   int64                 `gorm:"column:size_on_disk_bytes"`
+	AiredEpisodeCount int                   `gorm:"column:aired_episode_count"`
+	UpdatedAt         time.Time             `gorm:"column:updated_at"`
+	DeletedAt         *time.Time            `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
 	Title  string  `gorm:"column:s_title"`
 	Year   *int    `gorm:"column:s_year"`
@@ -118,7 +118,7 @@ const seriesCacheSelect = `
 // in the handler layer.
 const seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
 
-func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error) {
+func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error) {
 	var row cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
@@ -238,7 +238,7 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 // already-deleted row both return nil. The 041f webhook fires
 // SeriesDelete for IDs that may never have been cached; surfacing
 // ErrNotFound would just spam logs without driving any action.
-func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error {
+func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error {
 	now := time.Now().UTC()
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.SeriesCacheModel{}).
@@ -518,7 +518,7 @@ func cursorFromRow(row cacheRow, sort ports.SeriesCacheSort) *ports.Cursor {
 	case ports.SeriesCacheSortTitleAsc:
 		return &ports.Cursor{
 			Timestamp: time.Time{},
-			ID:        strings.ToLower(row.Title) + "|" + strconv.Itoa(row.SonarrSeriesID),
+			ID:        strings.ToLower(row.Title) + "|" + strconv.Itoa(int(row.SonarrSeriesID)),
 		}
 	case ports.SeriesCacheSortAirDateDesc:
 		var ts time.Time
@@ -527,12 +527,12 @@ func cursorFromRow(row cacheRow, sort ports.SeriesCacheSort) *ports.Cursor {
 		}
 		return &ports.Cursor{
 			Timestamp: ts,
-			ID:        strconv.Itoa(row.SonarrSeriesID),
+			ID:        strconv.Itoa(int(row.SonarrSeriesID)),
 		}
 	default:
 		return &ports.Cursor{
 			Timestamp: row.UpdatedAt.UTC(),
-			ID:        strconv.Itoa(row.SonarrSeriesID),
+			ID:        strconv.Itoa(int(row.SonarrSeriesID)),
 		}
 	}
 }
@@ -554,16 +554,16 @@ func splitTitleCursorID(raw string) (string, int) {
 // grab_records does not store the episode list. F11 can later upgrade
 // this by joining a future episodes table.
 func (r *SeriesCacheRepository) FetchLastGrabInfo(
-	ctx context.Context, instanceName domain.InstanceName, seriesIDs []int,
-) (map[int]ports.LastGrabInfo, error) {
-	out := make(map[int]ports.LastGrabInfo, len(seriesIDs))
+	ctx context.Context, instanceName domain.InstanceName, seriesIDs []domain.SonarrSeriesID,
+) (map[domain.SonarrSeriesID]ports.LastGrabInfo, error) {
+	out := make(map[domain.SonarrSeriesID]ports.LastGrabInfo, len(seriesIDs))
 	if len(seriesIDs) == 0 {
 		return out, nil
 	}
 	type row struct {
-		SeriesID     int       `gorm:"column:series_id"`
-		MaxCreatedAt time.Time `gorm:"column:max_created_at"`
-		SeasonNumber int       `gorm:"column:season_number"`
+		SeriesID     domain.SonarrSeriesID `gorm:"column:series_id"`
+		MaxCreatedAt time.Time             `gorm:"column:max_created_at"`
+		SeasonNumber int                   `gorm:"column:season_number"`
 	}
 	var rows []row
 	sub := dbFromContext(ctx, r.db).WithContext(ctx).

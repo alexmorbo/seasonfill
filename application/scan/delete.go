@@ -41,13 +41,13 @@ type CascadeDeleteDeps struct {
 // EpisodeStatesSoftDeleter is the new narrow port the cascade adds.
 // Implemented by EpisodeStatesRepository in 218.
 type EpisodeStatesSoftDeleter interface {
-	SoftDeleteBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (int, error)
+	SoftDeleteBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (int, error)
 }
 
 // SeasonStatsSoftDeleter — story 377 cascade port. Implemented by
 // SeasonStatsRepository.
 type SeasonStatsSoftDeleter interface {
-	SoftDeleteBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (int, error)
+	SoftDeleteBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (int, error)
 }
 
 // CascadeSeriesDelete soft-deletes the cache row + every episode_state
@@ -63,7 +63,7 @@ func CascadeSeriesDelete(
 	ctx context.Context,
 	deps CascadeDeleteDeps,
 	instanceName domain.InstanceName,
-	sonarrSeriesID int,
+	sonarrSeriesID domain.SonarrSeriesID,
 ) (cacheDeleted bool, episodeRows int, seasonRows int, err error) {
 	if instanceName == "" {
 		return false, 0, 0, errors.New("cascade series delete: instance_name must be non-empty")
@@ -113,7 +113,7 @@ func CascadeSeriesDelete(
 
 	log.InfoContext(ctx, "scan.cascade_series_delete.ok",
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Bool("cache_deleted", cacheDeleted),
 		slog.Int("episode_states_deleted", episodeRows),
 		slog.Int("season_stats_deleted", seasonRows),

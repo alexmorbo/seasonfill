@@ -79,7 +79,7 @@ type Store struct {
 	// the read endpoint (story 222). Empty in 220 — the index
 	// exists so 221 can wire writes without retro-fitting
 	// the store shape.
-	bySeries map[domain.InstanceName]map[int]map[string]struct{}
+	bySeries map[domain.InstanceName]map[domain.SonarrSeriesID]map[string]struct{}
 }
 
 // NewStore constructs an empty Store ready to receive an
@@ -87,7 +87,7 @@ type Store struct {
 func NewStore() *Store {
 	return &Store{
 		rows:     make(map[domain.InstanceName]map[string]Entry),
-		bySeries: make(map[domain.InstanceName]map[int]map[string]struct{}),
+		bySeries: make(map[domain.InstanceName]map[domain.SonarrSeriesID]map[string]struct{}),
 	}
 }
 
@@ -101,7 +101,7 @@ func (s *Store) EnsureInstance(instance domain.InstanceName) {
 		s.rows[instance] = make(map[string]Entry)
 	}
 	if _, ok := s.bySeries[instance]; !ok {
-		s.bySeries[instance] = make(map[int]map[string]struct{})
+		s.bySeries[instance] = make(map[domain.SonarrSeriesID]map[string]struct{})
 	}
 }
 
@@ -174,7 +174,7 @@ func (s *Store) Delete(instance domain.InstanceName, hash string) {
 // Story 220 returns nothing here (the bySeries index is empty
 // until 221 calls SetSeriesMapping). The accessor exists so 222's
 // endpoint can read the store through one stable surface.
-func (s *Store) HashesFor(instance domain.InstanceName, seriesID int) []string {
+func (s *Store) HashesFor(instance domain.InstanceName, seriesID domain.SonarrSeriesID) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.bySeries[instance]
@@ -197,7 +197,7 @@ func (s *Store) HashesFor(instance domain.InstanceName, seriesID int) []string {
 // decide whether a given hash is still "unmapped". Reverse-index
 // over bySeries — O(seriesCount) per lookup, acceptable at <= 500
 // series per instance.
-func (s *Store) SeriesForHash(instance domain.InstanceName, hash string) int {
+func (s *Store) SeriesForHash(instance domain.InstanceName, hash string) domain.SonarrSeriesID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.bySeries[instance]
@@ -217,12 +217,12 @@ func (s *Store) SeriesForHash(instance domain.InstanceName, hash string) int {
 // not called from any production path; the unit test in
 // store_test.go exercises it to assert the secondary index
 // behaves correctly.
-func (s *Store) SetSeriesMapping(instance domain.InstanceName, hash string, seriesID int) {
+func (s *Store) SetSeriesMapping(instance domain.InstanceName, hash string, seriesID domain.SonarrSeriesID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx, ok := s.bySeries[instance]
 	if !ok {
-		idx = make(map[int]map[string]struct{})
+		idx = make(map[domain.SonarrSeriesID]map[string]struct{})
 		s.bySeries[instance] = idx
 	}
 	set, ok := idx[seriesID]

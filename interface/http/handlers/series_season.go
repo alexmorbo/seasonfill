@@ -57,11 +57,12 @@ func (h *SeriesSeasonHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")
 	nStr := c.Param("n")
-	sonarrID, err := strconv.Atoi(idStr)
-	if err != nil || sonarrID <= 0 {
+	parsedID, err := strconv.Atoi(idStr)
+	if err != nil || parsedID <= 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
 		return
 	}
+	sonarrID := domain.SonarrSeriesID(parsedID)
 	seasonNumber, err := strconv.Atoi(nStr)
 	if err != nil || seasonNumber < 0 {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid season number"})
@@ -78,7 +79,7 @@ func (h *SeriesSeasonHandler) Get(c *gin.Context) {
 		}
 		writeInternalError(c, h.logger, "series_season_compose_failed", err,
 			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", sonarrID),
+			slog.Int("sonarr_series_id", int(sonarrID)),
 			slog.Int("season_number", seasonNumber))
 		return
 	}

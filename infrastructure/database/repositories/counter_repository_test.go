@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/grab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // frozenNow — anchor for counter tests; deep inside a UTC hour so
@@ -125,7 +126,7 @@ func TestCounterRepository_AvgGrabsLast7Days(t *testing.T) {
 	// i=8..14 fall outside the window and must be excluded.
 	for i := 1; i <= 14; i++ {
 		when := today.Add(-time.Duration(i)*24*time.Hour + 6*time.Hour)
-		seedGrab(t, db, "alpha", i, 1, grab.StatusGrabbed, when)
+		seedGrab(t, db, "alpha", domain.SonarrSeriesID(i), 1, grab.StatusGrabbed, when)
 	}
 	// Today's grab MUST be excluded — window is [today-7, today).
 	seedGrab(t, db, "alpha", 99, 1, grab.StatusGrabbed, today.Add(2*time.Hour))

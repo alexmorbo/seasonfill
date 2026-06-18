@@ -80,7 +80,7 @@ type Syncer struct {
 
 // SyncFromSonarrAPI fetches the three Sonarr payloads (series, episodes,
 // episode files) and calls SyncSeriesFromSonarr.
-func (s *Syncer) SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error {
+func (s *Syncer) SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error {
 	client, ok := s.Lookup(instanceName)
 	if !ok {
 		return fmt.Errorf("sync from sonarr: unknown instance %q", instanceName)

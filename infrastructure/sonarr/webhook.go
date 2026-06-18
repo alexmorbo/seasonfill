@@ -51,23 +51,23 @@ type webhookReleaseDTO struct {
 // tvdbId, imdbId are populated on SeriesAdd payloads; other event types
 // omit them but the zero-value decode is harmless.
 type webhookSeriesDTO struct {
-	ID        int    `json:"id"`
-	Title     string `json:"title,omitempty"`
-	TitleSlug string `json:"titleSlug,omitempty"`
-	TvdbID    int    `json:"tvdbId,omitempty"`
-	TvMazeID  int    `json:"tvMazeId,omitempty"`
-	ImdbID    string `json:"imdbId,omitempty"`
-	Type      string `json:"type,omitempty"`
+	ID        domain.SonarrSeriesID `json:"id"`
+	Title     string                `json:"title,omitempty"`
+	TitleSlug string                `json:"titleSlug,omitempty"`
+	TvdbID    int                   `json:"tvdbId,omitempty"`
+	TvMazeID  int                   `json:"tvMazeId,omitempty"`
+	ImdbID    string                `json:"imdbId,omitempty"`
+	Type      string                `json:"type,omitempty"`
 }
 
 // webhookEpisodeDTO mirrors Sonarr's WebhookEpisode (subset).
 type webhookEpisodeDTO struct {
-	ID            int    `json:"id"`
-	EpisodeNumber int    `json:"episodeNumber"`
-	SeasonNumber  int    `json:"seasonNumber"`
-	Title         string `json:"title,omitempty"`
-	SeriesID      int    `json:"seriesId,omitempty"`
-	TvdbID        int    `json:"tvdbId,omitempty"`
+	ID            int                   `json:"id"`
+	EpisodeNumber int                   `json:"episodeNumber"`
+	SeasonNumber  int                   `json:"seasonNumber"`
+	Title         string                `json:"title,omitempty"`
+	SeriesID      domain.SonarrSeriesID `json:"seriesId,omitempty"`
+	TvdbID        int                   `json:"tvdbId,omitempty"`
 }
 
 // webhookEpisodeFileDTO mirrors Sonarr's WebhookEpisodeFile (subset).

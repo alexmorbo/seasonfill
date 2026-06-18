@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // TestDecidePrefilter is the pure routing-table unit. Asserts every
@@ -74,15 +75,15 @@ type prefilterSonarr struct {
 	searchReleasesCalls atomic.Int32
 }
 
-func (p *prefilterSonarr) ListEpisodes(ctx context.Context, sID, sn int) ([]series.Episode, error) {
+func (p *prefilterSonarr) ListEpisodes(ctx context.Context, sID domain.SonarrSeriesID, sn int) ([]series.Episode, error) {
 	p.listEpisodesCalls.Add(1)
 	return p.fakeSonarr.ListEpisodes(ctx, sID, sn)
 }
 
-func (p *prefilterSonarr) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (p *prefilterSonarr) ListEpisodesBySeries(_ context.Context, _ domain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (p *prefilterSonarr) SearchReleases(ctx context.Context, sID, sn int) ([]release.Release, error) {
+func (p *prefilterSonarr) SearchReleases(ctx context.Context, sID domain.SonarrSeriesID, sn int) ([]release.Release, error) {
 	p.searchReleasesCalls.Add(1)
 	return p.fakeSonarr.SearchReleases(ctx, sID, sn)
 }
@@ -263,7 +264,7 @@ type panicSonarr struct {
 func (p *panicSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
 	panic("GetQualityProfile must not be called when every monitored season is complete")
 }
-func (p *panicSonarr) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (p *panicSonarr) ListEpisodeFiles(_ context.Context, _ domain.SonarrSeriesID) (map[int]int, error) {
 	panic("ListEpisodeFiles must not be called when every monitored season is complete")
 }
 

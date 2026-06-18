@@ -70,7 +70,7 @@ type LibraryCredit struct {
 // per-instance integer, not the canon row id).
 type LibraryInstance struct {
 	InstanceName   domain.InstanceName
-	SonarrSeriesID int
+	SonarrSeriesID domain.SonarrSeriesID
 }
 
 // OtherCredit is one TMDB-only credit — either the canon series

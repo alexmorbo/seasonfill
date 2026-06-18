@@ -171,9 +171,9 @@ func TestReconciler_FourSources_GrabRecord(t *testing.T) {
 	rows := maps.snapshot()
 	require.Len(t, rows, 1)
 	assert.Equal(t, MapSourceGrabRecord, rows[0].Source)
-	assert.Equal(t, 42, rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(42), rows[0].SeriesID)
 	assert.Equal(t, 3, rows[0].SeasonNumber)
-	assert.Equal(t, 42, store.SeriesForHash("alpha", "aaaa"))
+	assert.Equal(t, domain.SonarrSeriesID(42), store.SeriesForHash("alpha", "aaaa"))
 }
 
 func TestReconciler_FourSources_SonarrQueue(t *testing.T) {
@@ -194,9 +194,9 @@ func TestReconciler_FourSources_SonarrQueue(t *testing.T) {
 	rows := maps.snapshot()
 	require.Len(t, rows, 1)
 	assert.Equal(t, MapSourceQueue, rows[0].Source)
-	assert.Equal(t, 77, rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(77), rows[0].SeriesID)
 	assert.Equal(t, "bbbb", rows[0].Hash)
-	assert.Equal(t, 77, store.SeriesForHash("alpha", "bbbb"))
+	assert.Equal(t, domain.SonarrSeriesID(77), store.SeriesForHash("alpha", "bbbb"))
 	assert.Equal(t, 1, sn.queueCalls)
 }
 
@@ -224,8 +224,8 @@ func TestReconciler_FourSources_SonarrHistory(t *testing.T) {
 	rows := maps.snapshot()
 	require.Len(t, rows, 1)
 	assert.Equal(t, MapSourceHistory, rows[0].Source)
-	assert.Equal(t, 99, rows[0].SeriesID)
-	assert.Equal(t, 99, store.SeriesForHash("alpha", "cccc"))
+	assert.Equal(t, domain.SonarrSeriesID(99), rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(99), store.SeriesForHash("alpha", "cccc"))
 	assert.Equal(t, 1, sn.historyCalls)
 }
 
@@ -253,7 +253,7 @@ func TestReconciler_HistoryPriorityIsLast(t *testing.T) {
 	rows := maps.snapshot()
 	require.Len(t, rows, 1, "first-source-wins")
 	assert.Equal(t, MapSourceGrabRecord, rows[0].Source)
-	assert.Equal(t, 50, rows[0].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(50), rows[0].SeriesID)
 	// Sonarr is hit (queue+history) because the closure runs unconditionally
 	// after grabs. The point is the second/third-source rows are NOT written.
 	// In our current impl applyQueue only writes rows for `wanted` hashes;

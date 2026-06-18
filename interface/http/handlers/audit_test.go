@@ -123,7 +123,7 @@ func (f *auditFixture) seedScan(t *testing.T, instance domain.InstanceName, stat
 	return rec
 }
 
-func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
+func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = outcome
@@ -136,7 +136,7 @@ func (f *auditFixture) seedDecision(t *testing.T, scanRunID uuid.UUID, instance 
 // seedDecisionWithError seeds an error-outcome decision. Distinct
 // helper (vs new param on seedDecision) keeps existing call sites
 // untouched.
-func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID, season int, errDetail string, createdAt time.Time) decision.Decision {
+func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, errDetail string, createdAt time.Time) decision.Decision {
 	t.Helper()
 	d := decision.New(scanRunID, instance, "Hijack", seriesID, season)
 	d.Outcome = decision.OutcomeError
@@ -147,7 +147,7 @@ func (f *auditFixture) seedDecisionWithError(t *testing.T, scanRunID uuid.UUID, 
 	return d
 }
 
-func (f *auditFixture) seedGrab(t *testing.T, instance domain.InstanceName, seriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
+func (f *auditFixture) seedGrab(t *testing.T, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
 	rec := grab.Record{
 		ID:           uuid.New(),
@@ -401,7 +401,7 @@ func TestAuditHandler_ListDecisions_CursorWalk(t *testing.T) {
 	scanRun := uuid.New()
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		f.seedDecision(t, scanRun, "main", 100+i, 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
+		f.seedDecision(t, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 
 	w := f.do(t, http.MethodGet, "/api/v1/decisions?limit=3")
@@ -495,7 +495,7 @@ func TestAuditHandler_ListGrabs_CursorWalk(t *testing.T) {
 	f := newAuditFixture(t, false)
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		f.seedGrab(t, "main", 100+i, 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
+		f.seedGrab(t, "main", domain.SonarrSeriesID(100+i), 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
 	}
 
 	w := f.do(t, http.MethodGet, "/api/v1/grabs?limit=3")

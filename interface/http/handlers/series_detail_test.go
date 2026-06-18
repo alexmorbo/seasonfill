@@ -32,8 +32,8 @@ type fakeCachePort struct {
 	byCanon map[domain.SeriesID][]series.CacheEntry
 }
 
-func (f *fakeCachePort) Get(_ context.Context, instance domain.InstanceName, sonarrID int) (series.CacheEntry, error) {
-	k := string(instance) + "|" + itoa(sonarrID)
+func (f *fakeCachePort) Get(_ context.Context, instance domain.InstanceName, sonarrID domain.SonarrSeriesID) (series.CacheEntry, error) {
+	k := string(instance) + "|" + itoa(int(sonarrID))
 	e, ok := f.entries[k]
 	if !ok {
 		return series.CacheEntry{}, ports.ErrNotFound
@@ -223,7 +223,7 @@ func newComposerForHandlerTest(canon series.Canon, cacheEntries map[string]serie
 
 type fakeSonarrQ struct{}
 
-func (fakeSonarrQ) Queue(_ context.Context, _ int) (sonarr.QueuePayload, error) {
+func (fakeSonarrQ) Queue(_ context.Context, _ domain.SonarrSeriesID) (sonarr.QueuePayload, error) {
 	return sonarr.QueuePayload{}, nil
 }
 
@@ -249,7 +249,7 @@ func TestSeriesDetailHandler_Get_200(t *testing.T) {
 	var body dto.SeriesDetailResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, domain.InstanceName("alpha"), body.Instance)
-	require.Equal(t, 1, body.SonarrSeriesID)
+	require.Equal(t, domain.SonarrSeriesID(1), body.SonarrSeriesID)
 	require.Equal(t, domain.SeriesID(42), body.SeriesID)
 	require.Equal(t, "en-US", body.Lang)
 	require.Equal(t, "Breaking Bad", body.Hero.Title)

@@ -56,7 +56,7 @@ func (s Status) CanTransitionTo(next Status) bool {
 type Record struct {
 	ID                uuid.UUID
 	InstanceName      domain.InstanceName
-	SeriesID          int
+	SeriesID          domain.SonarrSeriesID
 	SeriesTitle       string
 	SeasonNumber      int
 	ReleaseGUID       string

@@ -77,7 +77,7 @@ func newSeasonComposer() *seriesdetail.Composer {
 
 type fakeSonarrQ2 struct{}
 
-func (fakeSonarrQ2) Queue(_ context.Context, _ int) (sonarr.QueuePayload, error) {
+func (fakeSonarrQ2) Queue(_ context.Context, _ domain.SonarrSeriesID) (sonarr.QueuePayload, error) {
 	return sonarr.QueuePayload{}, nil
 }
 

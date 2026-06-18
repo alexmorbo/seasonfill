@@ -11,9 +11,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleBlacklistEntry(t *testing.T, instanceID uint, seriesID, season int) regrab.BlacklistEntry {
+func sampleBlacklistEntry(t *testing.T, instanceID uint, seriesID domain.SonarrSeriesID, season int) regrab.BlacklistEntry {
 	t.Helper()
 	e, err := regrab.NewBlacklistEntry(
 		instanceID, seriesID, season, 3,
@@ -118,8 +119,8 @@ func TestWatchdogBlacklistRepository_ListByInstance(t *testing.T) {
 	rows, err := repo.ListByInstance(ctx, 7)
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "must include only instance 7 rows")
-	assert.Equal(t, 200, rows[0].SeriesID, "newest first")
-	assert.Equal(t, 100, rows[1].SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(200), rows[0].SeriesID, "newest first")
+	assert.Equal(t, domain.SonarrSeriesID(100), rows[1].SeriesID)
 }
 
 func TestWatchdogBlacklistRepository_ListByInstance_Empty(t *testing.T) {

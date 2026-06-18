@@ -22,15 +22,15 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleEntry(instance domain.InstanceName, id int) series.CacheEntry {
+func sampleEntry(instance domain.InstanceName, id domain.SonarrSeriesID) series.CacheEntry {
 	// Post B-1b cutover: every cache row resolves to a distinct canon
 	// row via natural-key dedup (TMDB > TVDB > IMDB). To preserve
 	// per-(instance, sonarr_id) test isolation we derive unique
 	// external ids from the sonarr id so two test rows never collapse
 	// into one canon row by accident. Tests that need shared canon
 	// (cutover dedup scenarios) override TMDBID/TVDBID explicitly.
-	tvdb := 12345 + id
-	tmdb := 54321 + id
+	tvdb := 12345 + int(id)
+	tmdb := 54321 + int(id)
 	return series.CacheEntry{
 		InstanceName:   instance,
 		SonarrSeriesID: id,
@@ -38,7 +38,7 @@ func sampleEntry(instance domain.InstanceName, id int) series.CacheEntry {
 		TitleSlug:      "test-series",
 		Year:           ptrInt(2024),
 		TVDBID:         &tvdb,
-		IMDBID:         ptrString(fmt.Sprintf("tt%07d", 9000000+id)),
+		IMDBID:         ptrString(fmt.Sprintf("tt%07d", 9000000+int(id))),
 		TMDBID:         &tmdb,
 		Status:         ptrString("continuing"),
 		Genres:         []string{"Drama", "Comedy"},
@@ -88,7 +88,7 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	got, err := repo.Get(ctx, "main", 12)
 	require.NoError(t, err)
 	assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
-	assert.Equal(t, 12, got.SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(12), got.SonarrSeriesID)
 	assert.Equal(t, "Test Series", got.Title)
 	assert.Equal(t, "test-series", got.TitleSlug)
 	require.NotNil(t, got.Year)
@@ -265,7 +265,7 @@ func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
 
 	now := time.Now().UTC()
 	for i := 1; i <= 5; i++ {
-		entry := sampleEntry("main", i)
+		entry := sampleEntry("main", domain.SonarrSeriesID(i))
 		entry.Title = fmt.Sprintf("Series %d", i)
 		require.NoError(t, repo.Upsert(ctx, entry))
 		require.NoError(t, db.Model(&database.SeriesCacheModel{}).
@@ -282,8 +282,8 @@ func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
 	assert.False(t, hasMore)
 	assert.Nil(t, next)
 	require.Len(t, items, 5)
-	assert.Equal(t, 5, items[0].SonarrSeriesID)
-	assert.Equal(t, 1, items[4].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(5), items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[4].SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
@@ -293,7 +293,7 @@ func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
-		entry := sampleEntry("main", i)
+		entry := sampleEntry("main", domain.SonarrSeriesID(i))
 		if i%2 == 0 {
 			entry.MissingCount = i
 		}
@@ -320,7 +320,7 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 	ctx := context.Background()
 
 	for i := 1; i <= 3; i++ {
-		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", i)))
+		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", domain.SonarrSeriesID(i))))
 	}
 
 	now := time.Now().UTC()
@@ -347,7 +347,7 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, items, 1)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
@@ -358,7 +358,7 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 
 	now := time.Now().UTC()
 	for i := 1; i <= 30; i++ {
-		entry := sampleEntry("main", i)
+		entry := sampleEntry("main", domain.SonarrSeriesID(i))
 		entry.Title = fmt.Sprintf("Series %02d", i)
 		require.NoError(t, repo.Upsert(ctx, entry))
 		require.NoError(t, db.Model(&database.SeriesCacheModel{}).
@@ -366,7 +366,7 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 			Update("updated_at", now.Add(time.Duration(i)*time.Minute)).Error)
 	}
 
-	seen := map[int]bool{}
+	seen := map[domain.SonarrSeriesID]bool{}
 	page := ports.Pagination{Limit: 12}
 	for iter := 0; iter < 4; iter++ {
 		items, total, hasMore, next, err := repo.ListByFilter(ctx, "main",
@@ -394,7 +394,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 	ctx := context.Background()
 
 	cases := []struct {
-		id    int
+		id    domain.SonarrSeriesID
 		title string
 		slug  string
 	}{
@@ -437,7 +437,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 			assert.Equal(t, len(tc.wantIDs), total, "total reflects post-q count")
 			gotIDs := make([]int, 0, len(items))
 			for _, it := range items {
-				gotIDs = append(gotIDs, it.SonarrSeriesID)
+				gotIDs = append(gotIDs, int(it.SonarrSeriesID))
 			}
 			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
 		})
@@ -466,7 +466,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, items, 1)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T) {
@@ -498,7 +498,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, 1, total, "%% must be escaped — only the literal-%% row matches")
 	require.Len(t, items, 1)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 
 	// `_` in user input — same story; LIKE-meaningful underscore must NOT
 	// match every single-char row. Re-use the `100%_Wolf` row by searching
@@ -512,7 +512,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T
 		ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
@@ -523,7 +523,7 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 
 	titles := []string{"Zulu", "Alpha", "Mike", "bravo", "charlie"}
 	for i, title := range titles {
-		entry := sampleEntry("main", i+1)
+		entry := sampleEntry("main", domain.SonarrSeriesID(i+1))
 		entry.Title = title
 		require.NoError(t, repo.Upsert(ctx, entry))
 	}
@@ -569,7 +569,7 @@ func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, items, 1)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
@@ -591,12 +591,12 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 		CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour),
 	}))
 
-	out, err := repo.FetchLastGrabInfo(ctx, "main", []int{1, 2})
+	out, err := repo.FetchLastGrabInfo(ctx, "main", []domain.SonarrSeriesID{1, 2})
 	require.NoError(t, err)
-	require.Contains(t, out, 1)
+	require.Contains(t, out, domain.SonarrSeriesID(1))
 	assert.Equal(t, "S05", out[1].LastImportedEpisode)
 	assert.WithinDuration(t, now.Add(-1*time.Hour), out[1].LastGrabAt, time.Second)
-	assert.NotContains(t, out, 2)
+	assert.NotContains(t, out, domain.SonarrSeriesID(2))
 	_ = errors.New // keep errors import used in existing file
 }
 
@@ -656,7 +656,7 @@ func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 			assert.Equal(t, len(tc.wantIDs), total)
 			gotIDs := make([]int, 0, len(items))
 			for _, it := range items {
-				gotIDs = append(gotIDs, it.SonarrSeriesID)
+				gotIDs = append(gotIDs, int(it.SonarrSeriesID))
 			}
 			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
 		})
@@ -673,7 +673,7 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 	ctx := context.Background()
 
 	seed := []struct {
-		id      int
+		id      domain.SonarrSeriesID
 		title   string
 		network string
 	}{
@@ -687,7 +687,7 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 		e := sampleEntry("main", s.id)
 		e.Title = s.title
 		require.NoError(t, repo.Upsert(ctx, e))
-		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
+		seedNetworkJoinForCache(t, db, "main", int(s.id), s.network)
 	}
 
 	cases := []struct {
@@ -711,7 +711,7 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 			assert.Equal(t, len(tc.wantIDs), total)
 			gotIDs := make([]int, 0, len(items))
 			for _, it := range items {
-				gotIDs = append(gotIDs, it.SonarrSeriesID)
+				gotIDs = append(gotIDs, int(it.SonarrSeriesID))
 			}
 			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
 		})
@@ -727,7 +727,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 	ctx := context.Background()
 
 	seed := []struct {
-		id        int
+		id        domain.SonarrSeriesID
 		title     string
 		network   string
 		monitored bool
@@ -750,7 +750,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 		e.Monitored = s.monitored
 		e.MissingCount = s.missing
 		require.NoError(t, repo.Upsert(ctx, e))
-		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
+		seedNetworkJoinForCache(t, db, "main", int(s.id), s.network)
 	}
 
 	tru := true
@@ -766,7 +766,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, items, 1)
-	assert.Equal(t, 1, items[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
 }
 
 // TestSeriesCacheRepository_ListDistinctNetworks — Story 121a §A
@@ -777,7 +777,7 @@ func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 	ctx := context.Background()
 
 	seed := []struct {
-		id      int
+		id      domain.SonarrSeriesID
 		network string
 	}{
 		{1, "HBO"},
@@ -789,7 +789,7 @@ func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 	for _, s := range seed {
 		e := sampleEntry("main", s.id)
 		require.NoError(t, repo.Upsert(ctx, e))
-		seedNetworkJoinForCache(t, db, "main", s.id, s.network)
+		seedNetworkJoinForCache(t, db, "main", int(s.id), s.network)
 	}
 
 	got, err := repo.ListDistinctNetworks(ctx, "main")
@@ -833,9 +833,9 @@ func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 		ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, items, 3)
-	assert.Equal(t, 2, items[0].SonarrSeriesID, "newest aired first")
-	assert.Equal(t, 1, items[1].SonarrSeriesID, "older aired second")
-	assert.Equal(t, 3, items[2].SonarrSeriesID, "nil aired last (NULLS LAST)")
+	assert.Equal(t, domain.SonarrSeriesID(2), items[0].SonarrSeriesID, "newest aired first")
+	assert.Equal(t, domain.SonarrSeriesID(1), items[1].SonarrSeriesID, "older aired second")
+	assert.Equal(t, domain.SonarrSeriesID(3), items[2].SonarrSeriesID, "nil aired last (NULLS LAST)")
 }
 
 // The repository projects the raw canon poster path (s.poster_asset)
@@ -979,7 +979,7 @@ func TestSeriesCacheRepository_CardinalityPreservedWithoutMediaJoin(t *testing.T
 	active, err := repo.ListActiveByInstance(ctx, "main")
 	require.NoError(t, err)
 	assert.Len(t, active, 3, "exactly 3 cache rows → exactly 3 result rows")
-	byID := make(map[int]series.CacheEntry, len(active))
+	byID := make(map[domain.SonarrSeriesID]series.CacheEntry, len(active))
 	for _, e := range active {
 		byID[e.SonarrSeriesID] = e
 	}
@@ -1000,7 +1000,7 @@ func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 1; i <= 4; i++ {
-		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", i)))
+		require.NoError(t, repo.Upsert(ctx, sampleEntry("main", domain.SonarrSeriesID(i))))
 	}
 	seedPosterAssetOnCanon(t, db, "main", 1, "/a.jpg")
 	seedPosterAssetOnCanon(t, db, "main", 2, "/b.jpg")

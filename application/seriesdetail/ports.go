@@ -23,7 +23,7 @@ import (
 // series_id. The composer's first call — failure here is the 404
 // path (no errgroup, no degraded).
 type SeriesCachePort interface {
-	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) (series.CacheEntry, error)
+	Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error)
 }
 
 // SeriesPort fetches the canonical series row by series.id. The
@@ -92,7 +92,7 @@ type EpisodeStatesPort interface {
 // Empty result OR an error both degrade silently — mapSeasons falls
 // back to walking d.Seasons[].Episodes[].State.HasFile.
 type SeasonStatsPort interface {
-	ListBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) ([]series.SeasonStat, error)
+	ListBySeries(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) ([]series.SeasonStat, error)
 }
 
 // EpisodeTextsPort fetches localised episode text by composite PK.
@@ -197,7 +197,7 @@ type SeriesCacheLookupPort interface {
 // payloads or errors; the unreachable case surfaces as a
 // degraded[] entry, NOT a 5xx.
 type SonarrQueueLister interface {
-	Queue(ctx context.Context, seriesID int) (sonarr.QueuePayload, error)
+	Queue(ctx context.Context, seriesID domain.SonarrSeriesID) (sonarr.QueuePayload, error)
 }
 
 // MediaHashLookupPort resolves (raw TMDB path + size) → sha256 hash of the

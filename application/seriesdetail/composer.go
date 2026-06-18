@@ -27,7 +27,7 @@ import (
 // onto dto.SeriesDetailResponse without further DB queries.
 type Detail struct {
 	Instance       domain.InstanceName
-	SonarrSeriesID int
+	SonarrSeriesID domain.SonarrSeriesID
 	SeriesID       domain.SeriesID
 	Lang           string
 
@@ -109,7 +109,7 @@ type RecommendationDetail struct {
 	Series         series.Canon
 	InLibrary      bool
 	InstanceName   domain.InstanceName
-	SonarrSeriesID int
+	SonarrSeriesID domain.SonarrSeriesID
 }
 
 // TorrentsPlaceholder — A-* branch placeholder.
@@ -187,7 +187,7 @@ func NewComposer(d Deps) *Composer {
 
 // Get runs the 9-branch composite read for the series detail page.
 // `lang` defaults to "en-US" when empty.
-func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int, lang string) (*Detail, error) {
+func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID, lang string) (*Detail, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -290,7 +290,7 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	g.Go(func() error {
 		c.d.Logger.DebugContext(gctx, "torrents_placeholder",
 			slog.String("instance_name", string(instanceName)),
-			slog.Int("sonarr_series_id", sonarrSeriesID),
+			slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 			slog.String("note", "qbit-deferred"))
 		// Always succeeds — placeholder doesn't fail the response.
 		return nil
@@ -335,7 +335,7 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 
 	c.d.Logger.InfoContext(ctx, "series_detail_composed",
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.String("lang", lang),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
@@ -348,7 +348,7 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 // SPA's seasons-accordion polling. Internally calls
 // loadSeasonsAndEpisodes filtered to the single season + the
 // canon series for the parent ids.
-func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID, seasonNumber int, lang string) (*Detail, error) {
+func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, lang string) (*Detail, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -387,7 +387,7 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 	c.resolveAssets(ctx, d)
 	c.d.Logger.InfoContext(ctx, "series_season_composed",
 		slog.String("instance_name", string(instanceName)),
-		slog.Int("sonarr_series_id", sonarrSeriesID),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("season_number", seasonNumber),
 		slog.String("lang", lang),
@@ -436,7 +436,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		if serr != nil {
 			c.d.Logger.WarnContext(ctx, "season_stats_failed",
 				slog.String("instance_name", string(d.Instance)),
-				slog.Int("sonarr_series_id", d.SonarrSeriesID),
+				slog.Int("sonarr_series_id", int(d.SonarrSeriesID)),
 				slog.String("error", serr.Error()))
 		} else {
 			for _, st := range stats {

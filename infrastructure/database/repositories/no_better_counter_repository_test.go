@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestNoBetterCounterRepository_Increment_FreshTriple(t *testing.T) {
@@ -23,7 +24,7 @@ func TestNoBetterCounterRepository_Increment_FreshTriple(t *testing.T) {
 	got, err := repo.Increment(ctx, 7, 122, 2, now)
 	require.NoError(t, err)
 	assert.Equal(t, uint(7), got.InstanceID)
-	assert.Equal(t, 122, got.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(122), got.SeriesID)
 	assert.Equal(t, 2, got.SeasonNumber)
 	assert.Equal(t, 1, got.Consecutive)
 	assert.True(t, got.CreatedAt.Equal(now))
@@ -60,7 +61,7 @@ func TestNoBetterCounterRepository_Increment_RejectsInvalidTriple(t *testing.T) 
 	cases := []struct {
 		name     string
 		instance uint
-		series   int
+		series   domain.SonarrSeriesID
 		season   int
 	}{
 		{"zero instance", 0, 1, 0},

@@ -19,7 +19,7 @@ type SeriesCastResponse struct {
 	// instances.
 	Instance domain.InstanceName `json:"instance" example:"alpha"`
 	// SonarrSeriesID is the Sonarr-side id from the URL.
-	SonarrSeriesID int `json:"sonarr_series_id" example:"1"`
+	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id" example:"1"`
 	// SeriesID is the resolved canonical series.id.
 	SeriesID domain.SeriesID `json:"series_id" example:"42"`
 	// Lang is the BCP-47 language code requested. Accepted for

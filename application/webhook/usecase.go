@@ -37,7 +37,7 @@ type GuidCooldownLookup func(instance domain.InstanceName) time.Duration
 // the thin CacheEntry path on SeriesAdd with a full Sonarr API sync
 // (PRD §5.5 sonarr_sync worker trigger — new series_cache from webhook).
 type SeriesSyncer interface {
-	SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int) error
+	SyncFromSonarrAPI(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error
 }
 
 // UseCase processes a Sonarr webhook event end-to-end: it looks up the
@@ -190,7 +190,7 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 				slog.String("event_type", string(evt.Type)),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("release_title", evt.ReleaseTitle),
-				slog.Int("series_id", evt.SeriesID),
+				slog.Int("series_id", int(evt.SeriesID)),
 				slog.Int("season", evt.SeasonNumber),
 				slog.String("raw_event_type", evt.RawEventType),
 			)
@@ -326,7 +326,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("release_title", evt.ReleaseTitle),
-				slog.Int("series_id", evt.SeriesID),
+				slog.Int("series_id", int(evt.SeriesID)),
 				slog.Int("season", evt.SeasonNumber),
 			)
 			return nil
@@ -380,7 +380,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 				slog.String("grab_id", rec.ID.String()),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("hash", hash),
-				slog.Int("series_id", rec.SeriesID),
+				slog.Int("series_id", int(rec.SeriesID)),
 				slog.Int("season_number", rec.SeasonNumber),
 				slog.String("source", string(torrentsync.MapSourceWebhook)),
 			)
@@ -430,14 +430,14 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 		if err := u.seriesSyncer.SyncFromSonarrAPI(ctx, evt.InstanceName, evt.SeriesID); err != nil {
 			u.logger.WarnContext(ctx, "webhook_series_add_full_sync_failed",
 				slog.String("instance", string(evt.InstanceName)),
-				slog.Int("series_id", evt.SeriesID),
+				slog.Int("series_id", int(evt.SeriesID)),
 				slog.String("error", err.Error()),
 			)
 			// Fall through to the thin path as a safety net.
 		} else {
 			u.logger.InfoContext(ctx, "webhook_series_add_synced",
 				slog.String("instance", string(evt.InstanceName)),
-				slog.Int("series_id", evt.SeriesID),
+				slog.Int("series_id", int(evt.SeriesID)),
 			)
 			return nil
 		}
@@ -449,14 +449,14 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 	if err := u.seriesCache.Upsert(ctx, entry); err != nil {
 		u.logger.WarnContext(ctx, "webhook_series_add_upsert_failed",
 			slog.String("instance", string(evt.InstanceName)),
-			slog.Int("series_id", evt.SeriesID),
+			slog.Int("series_id", int(evt.SeriesID)),
 			slog.String("error", err.Error()),
 		)
 		return nil
 	}
 	u.logger.InfoContext(ctx, "webhook_series_add_cached",
 		slog.String("instance", string(evt.InstanceName)),
-		slog.Int("series_id", evt.SeriesID),
+		slog.Int("series_id", int(evt.SeriesID)),
 		slog.String("title", evt.SeriesTitle),
 	)
 	return nil
@@ -492,14 +492,14 @@ func (u *UseCase) handleSeriesDelete(ctx context.Context, evt webhook.Event) err
 	if err != nil {
 		u.logger.WarnContext(ctx, "webhook_series_delete_cascade_failed",
 			slog.String("instance", string(evt.InstanceName)),
-			slog.Int("series_id", evt.SeriesID),
+			slog.Int("series_id", int(evt.SeriesID)),
 			slog.String("error", err.Error()),
 		)
 		return nil
 	}
 	u.logger.InfoContext(ctx, "webhook_series_deleted_cascade_ok",
 		slog.String("instance", string(evt.InstanceName)),
-		slog.Int("series_id", evt.SeriesID),
+		slog.Int("series_id", int(evt.SeriesID)),
 		slog.Bool("cache_deleted", cacheDeleted),
 		slog.Int("episode_states_deleted", episodeRows),
 		slog.Int("season_stats_deleted", seasonRows),

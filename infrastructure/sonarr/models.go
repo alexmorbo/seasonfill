@@ -3,6 +3,8 @@ package sonarr
 import (
 	"encoding/json"
 	"time"
+
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type systemStatusDTO struct {
@@ -96,16 +98,16 @@ type episodeDTO struct {
 }
 
 type episodeFileDTO struct {
-	ID           int           `json:"id"`
-	SeriesID     int           `json:"seriesId"`
-	SeasonNumber int           `json:"seasonNumber"`
-	EpisodeIDs   []int         `json:"episodeIds,omitempty"`
-	Path         string        `json:"path,omitempty"`
-	RelativePath string        `json:"relativePath"`
-	Size         int64         `json:"size"`
-	ReleaseGroup string        `json:"releaseGroup,omitempty"`
-	Quality      qualityRef    `json:"quality"`
-	MediaInfo    *mediaInfoDTO `json:"mediaInfo,omitempty"`
+	ID           int                         `json:"id"`
+	SeriesID     shareddomain.SonarrSeriesID `json:"seriesId"`
+	SeasonNumber int                         `json:"seasonNumber"`
+	EpisodeIDs   []int                       `json:"episodeIds,omitempty"`
+	Path         string                      `json:"path,omitempty"`
+	RelativePath string                      `json:"relativePath"`
+	Size         int64                       `json:"size"`
+	ReleaseGroup string                      `json:"releaseGroup,omitempty"`
+	Quality      qualityRef                  `json:"quality"`
+	MediaInfo    *mediaInfoDTO               `json:"mediaInfo,omitempty"`
 }
 
 // mediaInfoDTO mirrors Sonarr's episodeFile.mediaInfo subset we read.
@@ -179,12 +181,12 @@ type historyResponse struct {
 }
 
 type historyRecord struct {
-	EventType  string         `json:"eventType"`
-	Indexer    string         `json:"indexer,omitempty"`
-	Episode    *episodeDTO    `json:"episode,omitempty"`
-	Data       map[string]any `json:"data"`
-	SeriesID   int            `json:"seriesId,omitempty"`
-	DownloadID string         `json:"downloadId,omitempty"`
+	EventType  string                      `json:"eventType"`
+	Indexer    string                      `json:"indexer,omitempty"`
+	Episode    *episodeDTO                 `json:"episode,omitempty"`
+	Data       map[string]any              `json:"data"`
+	SeriesID   shareddomain.SonarrSeriesID `json:"seriesId,omitempty"`
+	DownloadID string                      `json:"downloadId,omitempty"`
 }
 
 // historyPagedResponse is the cursor-aware shape consumed by

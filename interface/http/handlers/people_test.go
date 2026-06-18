@@ -171,7 +171,7 @@ func TestPeopleHandler_Get_200(t *testing.T) {
 	require.Len(t, body.LibraryCredits, 1)
 	require.Len(t, body.LibraryCredits[0].Instances, 1)
 	assert.Equal(t, domain.InstanceName("alpha"), body.LibraryCredits[0].Instances[0].Instance)
-	assert.Equal(t, 7777, body.LibraryCredits[0].Instances[0].SonarrSeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(7777), body.LibraryCredits[0].Instances[0].SonarrSeriesID)
 	require.Len(t, body.OtherCredits, 1)
 	assert.Equal(t, "tv", body.OtherCredits[0].MediaType)
 }

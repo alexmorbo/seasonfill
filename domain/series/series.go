@@ -1,5 +1,9 @@
 package series
 
+import (
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
+
 type SeriesType string
 
 const (
@@ -9,7 +13,7 @@ const (
 )
 
 type Series struct {
-	ID             int
+	ID             domain.SonarrSeriesID
 	Title          string
 	Type           SeriesType
 	TagIDs         []int

@@ -166,7 +166,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) (decision.Decision, err
 			if cdErr != nil {
 				u.logger.WarnContext(ctx, "guid cooldown lookup failed",
 					slog.String("instance", string(in.Instance)),
-					slog.Int("series_id", in.Series.ID),
+					slog.Int("series_id", int(in.Series.ID)),
 					slog.String("error", cdErr.Error()),
 				)
 			} else if len(active) > 0 {
@@ -290,7 +290,7 @@ func (u *UseCase) finalize(ctx context.Context, d decision.Decision, in Input) (
 		if gerr != nil {
 			u.logger.WarnContext(ctx, "count_imported_episodes_failed",
 				slog.String("instance", string(in.Instance)),
-				slog.Int("series_id", in.Series.ID),
+				slog.Int("series_id", int(in.Series.ID)),
 				slog.Int("season_number", in.Season.Number),
 				slog.String("error", gerr.Error()))
 		} else {
@@ -319,7 +319,7 @@ func (u *UseCase) emitLog(ctx context.Context, d decision.Decision, in Input) {
 	attrs := []any{
 		slog.String("scan_run_id", d.ScanRunID.String()),
 		slog.String("instance", string(d.InstanceName)),
-		slog.Int("series_id", d.SeriesID),
+		slog.Int("series_id", int(d.SeriesID)),
 		slog.String("series_title", d.SeriesTitle),
 		slog.Int("season_number", d.SeasonNumber),
 		slog.Int("missing_count", d.MissingCount),

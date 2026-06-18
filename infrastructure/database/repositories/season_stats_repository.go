@@ -72,7 +72,7 @@ func (r *SeasonStatsRepository) Upsert(ctx context.Context, s series.SeasonStat)
 // (instance, sonarr_series_id), ordered by season_number ASC. Soft-
 // deleted rows excluded.
 func (r *SeasonStatsRepository) ListBySeries(
-	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID,
 ) ([]series.SeasonStat, error) {
 	if instanceName == "" {
 		return nil, fmt.Errorf("list season_stats: instance_name must be non-empty")
@@ -98,7 +98,7 @@ func (r *SeasonStatsRepository) ListBySeries(
 // 377 cascade — invoked by scan.CascadeSeriesDelete alongside the
 // series_cache + episode_states stamps.
 func (r *SeasonStatsRepository) SoftDeleteBySeries(
-	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID int,
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID,
 ) (int, error) {
 	if instanceName == "" {
 		return 0, fmt.Errorf("soft delete season_stats: instance_name must be non-empty")

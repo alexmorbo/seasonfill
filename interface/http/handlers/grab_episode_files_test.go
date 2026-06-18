@@ -42,23 +42,23 @@ func (s stubSonarrEF) ListSeries(_ context.Context) ([]series.Series, error) { r
 func (s stubSonarrEF) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil
 }
-func (s stubSonarrEF) GetSeries(_ context.Context, _ int) (series.Series, error) {
+func (s stubSonarrEF) GetSeries(_ context.Context, _ shareddomain.SonarrSeriesID) (series.Series, error) {
 	return series.Series{}, nil
 }
-func (s stubSonarrEF) ListEpisodes(_ context.Context, _, _ int) ([]series.Episode, error) {
+func (s stubSonarrEF) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]series.Episode, error) {
 	return nil, nil
 }
 
-func (s stubSonarrEF) ListEpisodesBySeries(_ context.Context, _ int) ([]series.Episode, error) {
+func (s stubSonarrEF) ListEpisodesBySeries(_ context.Context, _ shareddomain.SonarrSeriesID) ([]series.Episode, error) {
 	return nil, nil
 }
-func (s stubSonarrEF) ListEpisodeFiles(_ context.Context, _ int) (map[int]int, error) {
+func (s stubSonarrEF) ListEpisodeFiles(_ context.Context, _ shareddomain.SonarrSeriesID) (map[int]int, error) {
 	return map[int]int{}, nil
 }
-func (s stubSonarrEF) ListEpisodeFilesBySeason(_ context.Context, _, _ int) ([]ports.EpisodeFileDetail, error) {
+func (s stubSonarrEF) ListEpisodeFilesBySeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]ports.EpisodeFileDetail, error) {
 	return s.files, s.err
 }
-func (s stubSonarrEF) SearchReleases(_ context.Context, _, _ int) ([]release.Release, error) {
+func (s stubSonarrEF) SearchReleases(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) ([]release.Release, error) {
 	return nil, nil
 }
 func (s stubSonarrEF) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
@@ -66,7 +66,7 @@ func (s stubSonarrEF) GetQualityProfile(_ context.Context, _ int) (ports.Quality
 }
 func (s stubSonarrEF) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (s stubSonarrEF) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
-func (s stubSonarrEF) GrabHistory(_ context.Context, _ int) ([]ports.HistoryEvent, error) {
+func (s stubSonarrEF) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
 func (s stubSonarrEF) ForceGrab(_ context.Context, _ string, _ int) (string, error) {

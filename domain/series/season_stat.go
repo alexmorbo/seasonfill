@@ -23,7 +23,7 @@ import (
 // seriesdetail composer.
 type SeasonStat struct {
 	InstanceName      domain.InstanceName
-	SonarrSeriesID    int
+	SonarrSeriesID    domain.SonarrSeriesID
 	SeasonNumber      int
 	EpisodeCount      int
 	EpisodeFileCount  int

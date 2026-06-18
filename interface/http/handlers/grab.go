@@ -156,7 +156,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	h.logger.InfoContext(ctx, "grab_by_decision_succeeded",
 		slog.String("decision_id", id.String()),
 		slog.String("instance", string(d.InstanceName)),
-		slog.Int("series_id", d.SeriesID),
+		slog.Int("series_id", int(d.SeriesID)),
 		slog.Int("season", d.SeasonNumber),
 		slog.String("guid", d.Selected.Release.GUID),
 		slog.String("grab_id", out.Record.ID.String()))

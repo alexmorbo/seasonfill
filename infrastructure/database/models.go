@@ -35,10 +35,10 @@ type DecisionModel struct {
 	// Story 121b §B: watchdog replay decision rows have no parent
 	// scan_run; persisting the all-zero UUID string as text was making
 	// the UI's `d.scan_run_id && <Link>` guard render dead links.
-	ScanRunID       *string             `gorm:"size:36;index"`
-	InstanceName    domain.InstanceName `gorm:"size:128;index"`
-	SeriesID        int                 `gorm:"index"`
-	SeriesTitle     string              `gorm:"size:512"`
+	ScanRunID       *string               `gorm:"size:36;index"`
+	InstanceName    domain.InstanceName   `gorm:"size:128;index"`
+	SeriesID        domain.SonarrSeriesID `gorm:"index"`
+	SeriesTitle     string                `gorm:"size:512"`
 	SeasonNumber    int
 	Decision        string `gorm:"size:32"`
 	Reason          string `gorm:"size:128"`
@@ -82,14 +82,14 @@ type DecisionModel struct {
 func (DecisionModel) TableName() string { return "decisions" }
 
 type GrabRecordModel struct {
-	ID                string              `gorm:"primaryKey;size:36;index:idx_grab_records_created_at_id,priority:2"`
-	InstanceName      domain.InstanceName `gorm:"size:128;index:idx_grab_inst_series,priority:1;index:idx_grab_dedupe_lookup,priority:1"`
-	SeriesID          int                 `gorm:"index:idx_grab_inst_series,priority:2;index:idx_grab_dedupe_lookup,priority:2"`
-	SeriesTitle       string              `gorm:"size:512"`
-	SeasonNumber      int                 `gorm:"index:idx_grab_inst_series,priority:3;index:idx_grab_dedupe_lookup,priority:3"`
-	ReleaseGUID       string              `gorm:"size:512;index;index:idx_grab_dedupe_lookup,priority:4"`
-	ReleaseTitle      string              `gorm:"size:1024"`
-	DownloadID        string              `gorm:"size:128;index;column:download_id"`
+	ID                string                `gorm:"primaryKey;size:36;index:idx_grab_records_created_at_id,priority:2"`
+	InstanceName      domain.InstanceName   `gorm:"size:128;index:idx_grab_inst_series,priority:1;index:idx_grab_dedupe_lookup,priority:1"`
+	SeriesID          domain.SonarrSeriesID `gorm:"index:idx_grab_inst_series,priority:2;index:idx_grab_dedupe_lookup,priority:2"`
+	SeriesTitle       string                `gorm:"size:512"`
+	SeasonNumber      int                   `gorm:"index:idx_grab_inst_series,priority:3;index:idx_grab_dedupe_lookup,priority:3"`
+	ReleaseGUID       string                `gorm:"size:512;index;index:idx_grab_dedupe_lookup,priority:4"`
+	ReleaseTitle      string                `gorm:"size:1024"`
+	DownloadID        string                `gorm:"size:128;index;column:download_id"`
 	IndexerID         int
 	IndexerName       string `gorm:"size:256"`
 	CustomFormatScore int
@@ -137,10 +137,10 @@ type GrabRecordModel struct {
 func (GrabRecordModel) TableName() string { return "grab_records" }
 
 type OriginReleaseModel struct {
-	InstanceName domain.InstanceName `gorm:"primaryKey;size:128"`
-	SeriesID     int                 `gorm:"primaryKey"`
-	SeasonNumber int                 `gorm:"primaryKey"`
-	GUID         string              `gorm:"size:512"`
+	InstanceName domain.InstanceName   `gorm:"primaryKey;size:128"`
+	SeriesID     domain.SonarrSeriesID `gorm:"primaryKey"`
+	SeasonNumber int                   `gorm:"primaryKey"`
+	GUID         string                `gorm:"size:512"`
 	IndexerID    int
 	IndexerName  string `gorm:"size:256"`
 	Source       string `gorm:"size:32"`
@@ -343,12 +343,12 @@ func (InstanceQbitSettingsModel) TableName() string { return "instance_qbit_sett
 // persistently unreachable. ExpiresAt is *time.Time because v1 always
 // writes NULL (manual unblock only per parent 039 §Out of scope).
 type WatchdogBlacklistModel struct {
-	ID           uint   `gorm:"primaryKey"`
-	InstanceID   uint   `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:1;index:idx_watchdog_blacklist_instance_id"`
-	SeriesID     int    `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:2"`
-	SeasonNumber int    `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:3"`
-	Reason       string `gorm:"type:text;not null"`
-	Consecutive  int    `gorm:"not null"`
+	ID           uint                  `gorm:"primaryKey"`
+	InstanceID   uint                  `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:1;index:idx_watchdog_blacklist_instance_id"`
+	SeriesID     domain.SonarrSeriesID `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:2"`
+	SeasonNumber int                   `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:3"`
+	Reason       string                `gorm:"type:text;not null"`
+	Consecutive  int                   `gorm:"not null"`
 	CreatedAt    time.Time
 	ExpiresAt    *time.Time
 }
@@ -369,17 +369,17 @@ func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }
 // series stay readable. No DB-level FK on instance_name (consistent
 // with the rest of the schema).
 type SeriesCacheModel struct {
-	InstanceName      domain.InstanceName `gorm:"primaryKey;size:128;column:instance_name"`
-	SonarrSeriesID    int                 `gorm:"primaryKey;column:sonarr_series_id"`
-	SeriesID          *domain.SeriesID    `gorm:"column:series_id;index:series_cache_series_id;not null"`
-	TitleSlug         string              `gorm:"type:text;not null;column:title_slug"`
-	Monitored         bool                `gorm:"column:monitored;not null;default:false"`
-	MissingCount      int                 `gorm:"column:missing_count;not null;default:0"`
-	EpisodeFileCount  int                 `gorm:"column:episode_file_count;not null;default:0"`
-	SizeOnDiskBytes   int64               `gorm:"column:size_on_disk_bytes;not null;default:0"`
-	AiredEpisodeCount int                 `gorm:"column:aired_episode_count;not null;default:0"`
-	UpdatedAt         time.Time           `gorm:"column:updated_at;not null"`
-	DeletedAt         *time.Time          `gorm:"column:deleted_at"`
+	InstanceName      domain.InstanceName   `gorm:"primaryKey;size:128;column:instance_name"`
+	SonarrSeriesID    domain.SonarrSeriesID `gorm:"primaryKey;column:sonarr_series_id"`
+	SeriesID          *domain.SeriesID      `gorm:"column:series_id;index:series_cache_series_id;not null"`
+	TitleSlug         string                `gorm:"type:text;not null;column:title_slug"`
+	Monitored         bool                  `gorm:"column:monitored;not null;default:false"`
+	MissingCount      int                   `gorm:"column:missing_count;not null;default:0"`
+	EpisodeFileCount  int                   `gorm:"column:episode_file_count;not null;default:0"`
+	SizeOnDiskBytes   int64                 `gorm:"column:size_on_disk_bytes;not null;default:0"`
+	AiredEpisodeCount int                   `gorm:"column:aired_episode_count;not null;default:0"`
+	UpdatedAt         time.Time             `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time            `gorm:"column:deleted_at"`
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
@@ -547,17 +547,17 @@ func (EpisodeStateModel) TableName() string { return "episode_states" }
 // (scan.CascadeSeriesDelete) stamps it alongside series_cache +
 // episode_states.
 type SeasonStatModel struct {
-	InstanceName      domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text;size:128"`
-	SonarrSeriesID    int                 `gorm:"primaryKey;column:sonarr_series_id"`
-	SeasonNumber      int                 `gorm:"primaryKey;column:season_number"`
-	EpisodeCount      int                 `gorm:"column:episode_count;not null;default:0"`
-	EpisodeFileCount  int                 `gorm:"column:episode_file_count;not null;default:0"`
-	TotalEpisodeCount int                 `gorm:"column:total_episode_count;not null;default:0"`
-	AiredEpisodeCount int                 `gorm:"column:aired_episode_count;not null;default:0"`
-	Monitored         bool                `gorm:"column:monitored;not null;default:false"`
-	SizeOnDiskBytes   int64               `gorm:"column:size_on_disk_bytes;not null;default:0"`
-	UpdatedAt         time.Time           `gorm:"column:updated_at;not null"`
-	DeletedAt         *time.Time          `gorm:"column:deleted_at"`
+	InstanceName      domain.InstanceName   `gorm:"primaryKey;column:instance_name;type:text;size:128"`
+	SonarrSeriesID    domain.SonarrSeriesID `gorm:"primaryKey;column:sonarr_series_id"`
+	SeasonNumber      int                   `gorm:"primaryKey;column:season_number"`
+	EpisodeCount      int                   `gorm:"column:episode_count;not null;default:0"`
+	EpisodeFileCount  int                   `gorm:"column:episode_file_count;not null;default:0"`
+	TotalEpisodeCount int                   `gorm:"column:total_episode_count;not null;default:0"`
+	AiredEpisodeCount int                   `gorm:"column:aired_episode_count;not null;default:0"`
+	Monitored         bool                  `gorm:"column:monitored;not null;default:false"`
+	SizeOnDiskBytes   int64                 `gorm:"column:size_on_disk_bytes;not null;default:0"`
+	UpdatedAt         time.Time             `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time            `gorm:"column:deleted_at"`
 }
 
 func (SeasonStatModel) TableName() string { return "season_stats" }
@@ -977,12 +977,12 @@ func (QbitTorrentModel) TableName() string { return "qbit_torrents" }
 // authoritative season number until reconciliation completes —
 // nullable lets the row land without lying.
 type TorrentSeriesMapModel struct {
-	InstanceName domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
-	TorrentHash  string              `gorm:"primaryKey;column:torrent_hash;type:text"`
-	SeriesID     int                 `gorm:"column:series_id;not null"`
-	SeasonNumber *int                `gorm:"column:season_number"`
-	Source       string              `gorm:"column:source;type:text;not null"`
-	CreatedAt    time.Time           `gorm:"column:created_at;not null"`
+	InstanceName domain.InstanceName   `gorm:"primaryKey;column:instance_name;type:text"`
+	TorrentHash  string                `gorm:"primaryKey;column:torrent_hash;type:text"`
+	SeriesID     domain.SonarrSeriesID `gorm:"column:series_id;not null"`
+	SeasonNumber *int                  `gorm:"column:season_number"`
+	Source       string                `gorm:"column:source;type:text;not null"`
+	CreatedAt    time.Time             `gorm:"column:created_at;not null"`
 }
 
 func (TorrentSeriesMapModel) TableName() string { return "torrent_series_map" }

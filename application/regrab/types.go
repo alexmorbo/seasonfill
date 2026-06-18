@@ -143,6 +143,6 @@ type RunResult struct {
 // uses to report fresh blacklist entries. Instance name is implicit
 // in the parent RunResult.
 type TripleKey struct {
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 }

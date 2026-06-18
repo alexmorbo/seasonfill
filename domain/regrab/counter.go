@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ErrInvalidCount is the sentinel for a non-positive consecutive-count
@@ -22,7 +24,7 @@ var ErrInvalidCount = errors.New("regrab: consecutive count must be non-negative
 type NoBetterCounter struct {
 	ID           uint
 	InstanceID   uint
-	SeriesID     int
+	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
 	Consecutive  int
 	LastSeenAt   time.Time
@@ -34,7 +36,7 @@ type NoBetterCounter struct {
 // UpdatedAt = LastSeenAt = now. The regrab loop calls this on first
 // detection of a "nothing better" outcome for a triple it hasn't seen
 // before; subsequent detections call Increment on the persisted row.
-func NewNoBetterCounter(instanceID uint, seriesID, season int, now time.Time) (NoBetterCounter, error) {
+func NewNoBetterCounter(instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) (NoBetterCounter, error) {
 	if instanceID == 0 {
 		return NoBetterCounter{}, fmt.Errorf("%w: got %d", ErrInvalidInstance, instanceID)
 	}

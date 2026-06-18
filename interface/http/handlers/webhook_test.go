@@ -173,7 +173,7 @@ func TestWebhookHandler_SeriesAdd_ReachesProcessor_200(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, domainwebhook.EventTypeSeriesAdd, f.proc.lastEvt.Type)
-	assert.Equal(t, 42, f.proc.lastEvt.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(42), f.proc.lastEvt.SeriesID)
 	assert.Equal(t, "Black-ish", f.proc.lastEvt.SeriesTitle)
 	assert.Equal(t, "black-ish", f.proc.lastEvt.SeriesTitleSlug)
 	assert.Equal(t, 269578, f.proc.lastEvt.SeriesTVDBID)
@@ -187,7 +187,7 @@ func TestWebhookHandler_SeriesDelete_ReachesProcessor_200(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, 1, f.proc.calls)
 	assert.Equal(t, domainwebhook.EventTypeSeriesDeleted, f.proc.lastEvt.Type)
-	assert.Equal(t, 42, f.proc.lastEvt.SeriesID)
+	assert.Equal(t, domain.SonarrSeriesID(42), f.proc.lastEvt.SeriesID)
 	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
 }
 

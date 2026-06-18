@@ -49,7 +49,7 @@ func (m *MockGrabRepository) EXPECT() *MockGrabRepositoryMockRecorder {
 }
 
 // CountImportedEpisodes mocks base method.
-func (m *MockGrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID, seasonNumber int) (int, error) {
+func (m *MockGrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, seasonNumber int) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountImportedEpisodes", ctx, instance, seriesID, seasonNumber)
 	ret0, _ := ret[0].(int)
@@ -420,7 +420,7 @@ func (mr *MockWatchdogBlacklistRepositoryMockRecorder) DeleteByID(ctx, instanceI
 }
 
 // DeleteByTriple mocks base method.
-func (m *MockWatchdogBlacklistRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error {
+func (m *MockWatchdogBlacklistRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteByTriple", ctx, instanceID, seriesID, season)
 	ret0, _ := ret[0].(error)
@@ -434,7 +434,7 @@ func (mr *MockWatchdogBlacklistRepositoryMockRecorder) DeleteByTriple(ctx, insta
 }
 
 // Find mocks base method.
-func (m *MockWatchdogBlacklistRepository) Find(ctx context.Context, instanceID uint, seriesID, season int) (regrab.BlacklistEntry, error) {
+func (m *MockWatchdogBlacklistRepository) Find(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.BlacklistEntry, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Find", ctx, instanceID, seriesID, season)
 	ret0, _ := ret[0].(regrab.BlacklistEntry)
@@ -517,7 +517,7 @@ func (m *MockNoBetterCounterRepository) EXPECT() *MockNoBetterCounterRepositoryM
 }
 
 // DeleteByTriple mocks base method.
-func (m *MockNoBetterCounterRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID, season int) error {
+func (m *MockNoBetterCounterRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteByTriple", ctx, instanceID, seriesID, season)
 	ret0, _ := ret[0].(error)
@@ -531,7 +531,7 @@ func (mr *MockNoBetterCounterRepositoryMockRecorder) DeleteByTriple(ctx, instanc
 }
 
 // Get mocks base method.
-func (m *MockNoBetterCounterRepository) Get(ctx context.Context, instanceID uint, seriesID, season int) (regrab.NoBetterCounter, error) {
+func (m *MockNoBetterCounterRepository) Get(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.NoBetterCounter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, instanceID, seriesID, season)
 	ret0, _ := ret[0].(regrab.NoBetterCounter)
@@ -546,7 +546,7 @@ func (mr *MockNoBetterCounterRepositoryMockRecorder) Get(ctx, instanceID, series
 }
 
 // Increment mocks base method.
-func (m *MockNoBetterCounterRepository) Increment(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) (regrab.NoBetterCounter, error) {
+func (m *MockNoBetterCounterRepository) Increment(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) (regrab.NoBetterCounter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Increment", ctx, instanceID, seriesID, season, now)
 	ret0, _ := ret[0].(regrab.NoBetterCounter)
@@ -561,7 +561,7 @@ func (mr *MockNoBetterCounterRepositoryMockRecorder) Increment(ctx, instanceID, 
 }
 
 // Reset mocks base method.
-func (m *MockNoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, seriesID, season int, now time.Time) error {
+func (m *MockNoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Reset", ctx, instanceID, seriesID, season, now)
 	ret0, _ := ret[0].(error)
