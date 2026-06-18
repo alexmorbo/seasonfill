@@ -41,7 +41,7 @@ lint:
 # test-lint-rule runs the use-any regression guard. Requires
 # golangci-lint on PATH; opt-in via the `lint` build tag.
 test-lint-rule:
-	go test -tags lint -run TestForbidigoRejectsInterfaceLiteral ./tests/...
+	go test -tags lint -run TestUseAnyRejectsInterfaceLiteral ./tests/...
 
 vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
 

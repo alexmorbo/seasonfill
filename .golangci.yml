@@ -33,19 +33,13 @@ linters:
         # identifiers/calls only).
         - name: use-any
     gocritic:
+      # Only non-default checks are listed; defaults (appendAssign,
+      # argOrder, badCall, badCond, dupArg, dupBranchBody, dupCase,
+      # exitAfterDefer, flagDeref, sloppyLen, ...) are already on and
+      # listing them produces "no need to enable" warnings.
       enabled-checks:
-        - appendAssign
-        - argOrder
-        - badCall
-        - badCond
-        - dupArg
-        - dupBranchBody
-        - dupCase
         - emptyFallthrough
-        - exitAfterDefer
-        - flagDeref
         - nilValReturn
-        - sloppyLen
         - sortSlice
         - unnecessaryDefer
   exclusions:
@@ -77,7 +71,7 @@ linters:
       # the lint rule actually rejects it. The test file itself must
       # not trip the lint run; the assertion runs golangci-lint as a
       # subprocess against a temp fixture file outside the module.
-      - path: 'tests/lint_forbidigo_test\.go$'
+      - path: 'tests/lint_use_any_test\.go$'
         linters:
           - revive
         text: 'use-any'

@@ -10,19 +10,18 @@ import (
 	"testing"
 )
 
-// TestForbidigoRejectsInterfaceLiteral verifies that the `.golangci.yml`
+// TestUseAnyRejectsInterfaceLiteral verifies that the `.golangci.yml`
 // `use-any` rule actually fires on `interface{}`. Without this guard
 // the rule can silently drift (typo in name, accidental removal,
 // linter upgrade changing semantics) and we'd only notice once new
 // `interface{}` had already landed in production code.
 //
-// Implementation note: forbidigo cannot match type literals like
-// `interface{}` (it operates on identifiers / call expressions). We
-// use revive's purpose-built `use-any` rule instead. The test name
-// is kept to reflect the intent (forbid the literal token).
+// Implementation note: the rule is revive's purpose-built `use-any`
+// (forbidigo can't match type literals — it operates on
+// identifiers/call expressions only).
 //
 // Build tag: `lint` — opt-in. CI runs this via `make test-lint-rule`.
-func TestForbidigoRejectsInterfaceLiteral(t *testing.T) {
+func TestUseAnyRejectsInterfaceLiteral(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("golangci-lint"); err != nil {
@@ -39,7 +38,7 @@ func TestForbidigoRejectsInterfaceLiteral(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module forbidigo_check\n\ngo 1.22\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module useany_check\n\ngo 1.22\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 	bad := "package badpkg\n\nvar X interface{}\n"
