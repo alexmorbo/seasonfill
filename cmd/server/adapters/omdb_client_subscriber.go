@@ -7,6 +7,7 @@ import (
 
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // OMDbClientSubscriber rebuilds the live *omdb.Client (held in
@@ -42,7 +43,7 @@ type OMDbClientSubscriber struct {
 // (ServiceOMDB, sub.Apply) at boot.
 func NewOMDbClientSubscriber(holder *OMDbClientHolder, logger *slog.Logger) *OMDbClientSubscriber {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "omdb")
 	}
 	return &OMDbClientSubscriber{
 		holder: holder,

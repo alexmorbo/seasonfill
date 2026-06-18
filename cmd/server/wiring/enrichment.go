@@ -84,18 +84,24 @@ func BuildEnrichment(
 	quotaCounter quota.QuotaCounter,
 	log *slog.Logger,
 ) (*EnrichmentBundle, error) {
-	// F-4b-5: two domain loggers wrapped once each per §6.5. The
-	// enrichment context owns TWO logical buckets that anchor on
+	// F-4b-5 / F-4b-7: three domain loggers wrapped once each per §6.5.
+	// The enrichment context owns THREE logical buckets that anchor on
 	// separate AllowedDomains slots:
 	//   - enrichmentLog (domain="enrichment") — series/person hydration,
 	//     cold-start backfill, dispatcher fan-out, nightly sweep, media
 	//     pre-warm pipeline, wirer-local lifecycle records.
 	//   - omdbLog (domain="omdb") — OMDb daily budget guard, OMDb
 	//     worker, OMDb daily batch + budget reset cron closures.
-	// Both wraps fire BEFORE the disabled early-return below so the
-	// "enrichment.disabled" record also carries domain="enrichment".
+	//   - tmdbLog (domain="tmdb") — F-4b-7 (Story 398). Threaded into
+	//     TMDBClientFactoryConfig.Logger so BOTH the boot-path tmdb.New
+	//     call AND every subsequent BuildTMDBClient rebuild via the
+	//     Story 352 subscriber carry domain="tmdb" on the client's
+	//     rate-limiter pause/resume INFO records.
+	// All three wraps fire BEFORE the disabled early-return below so
+	// the "enrichment.disabled" record also carries domain="enrichment".
 	enrichmentLog := sharedports.DomainLogger(log, "enrichment")
 	omdbLog := sharedports.DomainLogger(log, "omdb")
+	tmdbLog := sharedports.DomainLogger(log, "tmdb")
 
 	settings := extSub.Get(infraextsvc.ServiceTMDB)
 	if !settings.Enabled || settings.APIKey == "" {
@@ -165,7 +171,7 @@ func BuildEnrichment(
 	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
 		Language: tmdb.DefaultLanguage,
 		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:   enrichmentLog,
+		Logger:   tmdbLog,
 	}
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,

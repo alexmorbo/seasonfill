@@ -40,6 +40,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // DefaultBaseURL is TMDB v3 production endpoint. Override only in
@@ -160,7 +161,7 @@ func New(cfg Config) (*Client, error) {
 	}
 	logger := cfg.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "tmdb")
 	}
 	// Story 351 — wrap the injected httpClient with the per-client
 	// metrics transport. We CLONE the *http.Client so the caller's

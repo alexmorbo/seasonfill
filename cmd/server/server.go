@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Options carries optional construction-time hooks. OnReady fires from
@@ -318,7 +319,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// the subscriber would only ever log the "boot_disabled" warn so we
 	// skip registration to keep the log quiet).
 	if enrichBundle != nil && enrichBundle.OMDbHolder != nil {
-		omdbSub := adapters.NewOMDbClientSubscriber(enrichBundle.OMDbHolder, log)
+		omdbSub := adapters.NewOMDbClientSubscriber(enrichBundle.OMDbHolder,
+			sharedports.DomainLogger(log, "omdb"))
 		extSub.RegisterListener(infraextsvc.ServiceOMDB, omdbSub.Apply)
 		// Prime by reading the current cached settings — the listener
 		// fan-out only fires on future apply() calls, but Story 352
@@ -328,7 +330,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB))
 	}
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
-		tmdbSub := adapters.NewTMDBClientSubscriber(enrichBundle.TMDBHolder, enrichBundle.TMDBFactoryCfg, log)
+		tmdbSub := adapters.NewTMDBClientSubscriber(enrichBundle.TMDBHolder, enrichBundle.TMDBFactoryCfg,
+			sharedports.DomainLogger(log, "tmdb"))
 		extSub.RegisterListener(infraextsvc.ServiceTMDB, tmdbSub.Apply)
 		tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB))
 	}

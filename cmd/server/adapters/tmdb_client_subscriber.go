@@ -8,6 +8,7 @@ import (
 
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // TMDBClientSubscriber rebuilds the live *tmdb.Client (held in
@@ -57,7 +58,7 @@ func NewTMDBClientSubscriber(
 	logger *slog.Logger,
 ) *TMDBClientSubscriber {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "tmdb")
 	}
 	return &TMDBClientSubscriber{
 		holder: holder,
