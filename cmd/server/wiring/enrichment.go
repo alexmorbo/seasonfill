@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 )
@@ -83,9 +84,22 @@ func BuildEnrichment(
 	quotaCounter quota.QuotaCounter,
 	log *slog.Logger,
 ) (*EnrichmentBundle, error) {
+	// F-4b-5: two domain loggers wrapped once each per §6.5. The
+	// enrichment context owns TWO logical buckets that anchor on
+	// separate AllowedDomains slots:
+	//   - enrichmentLog (domain="enrichment") — series/person hydration,
+	//     cold-start backfill, dispatcher fan-out, nightly sweep, media
+	//     pre-warm pipeline, wirer-local lifecycle records.
+	//   - omdbLog (domain="omdb") — OMDb daily budget guard, OMDb
+	//     worker, OMDb daily batch + budget reset cron closures.
+	// Both wraps fire BEFORE the disabled early-return below so the
+	// "enrichment.disabled" record also carries domain="enrichment".
+	enrichmentLog := sharedports.DomainLogger(log, "enrichment")
+	omdbLog := sharedports.DomainLogger(log, "omdb")
+
 	settings := extSub.Get(infraextsvc.ServiceTMDB)
 	if !settings.Enabled || settings.APIKey == "" {
-		log.InfoContext(rootCtx, "enrichment.disabled",
+		enrichmentLog.InfoContext(rootCtx, "enrichment.disabled",
 			slog.Bool("enabled", settings.Enabled),
 			slog.Bool("api_key", settings.APIKey != ""))
 		// Story 352 — return an empty bundle with NO holders. A from-
@@ -109,7 +123,7 @@ func BuildEnrichment(
 	if settings.ProxyURL != "" {
 		proxy = settings.ProxyURL
 	}
-	log.InfoContext(rootCtx, "media.http_client.configured",
+	enrichmentLog.InfoContext(rootCtx, "media.http_client.configured",
 		slog.String("proxy", proxy),
 	)
 
@@ -119,7 +133,7 @@ func BuildEnrichment(
 	// lines surface under the enrichment component prefix. 0 from
 	// config means "tmdb package picks its default (50 rps)".
 	if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
-		log.WarnContext(rootCtx, "config.deprecated_env",
+		enrichmentLog.WarnContext(rootCtx, "config.deprecated_env",
 			slog.String("env", "SEASONFILL_TMDB_RPS"),
 			slog.String("replacement", "SEASONFILL_TMDB_API_RPS"),
 			slog.String("removal", "next release"))
@@ -151,7 +165,7 @@ func BuildEnrichment(
 	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
 		Language: tmdb.DefaultLanguage,
 		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:   log,
+		Logger:   enrichmentLog,
 	}
 	tmdbClient, err := tmdb.New(tmdb.Config{
 		Token:      settings.APIKey,
@@ -183,7 +197,7 @@ func BuildEnrichment(
 		mediaPrewarmer  appenrich.MediaPrewarmer // nil OK
 	)
 	if repos.MediaAssets != nil && repos.MediaStore != nil {
-		mediaEnqueuer = appmedia.NewEnqueuer(log)
+		mediaEnqueuer = appmedia.NewEnqueuer(enrichmentLog)
 		// Story 346: split CDN limiter from the TMDB API limiter.
 		// bootstrap.ExternalServices.TMDBCDNRPS=0 → downloader default
 		// (100 rps for image.tmdb.org); override via
@@ -192,7 +206,7 @@ func BuildEnrichment(
 			Store:           repos.MediaStore,
 			Repo:            repos.MediaAssets,
 			HTTPClient:      httpClient,
-			Logger:          log,
+			Logger:          enrichmentLog,
 			CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
 		})
 		if err != nil {
@@ -209,7 +223,7 @@ func BuildEnrichment(
 			Repo:       repos.MediaAssets,
 			HTTPClient: httpClient,
 			Limiter:    mediaDownloader.Limiter(),
-			Logger:     log,
+			Logger:     enrichmentLog,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("media ondemand fetcher: %w", err)
@@ -252,7 +266,7 @@ func BuildEnrichment(
 		SyncLog:         repos.SyncLog,
 		MediaPrewarmer:  mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
 		Dispatcher:      holder,
-		Logger:          log,
+		Logger:          enrichmentLog,
 	})
 	if err != nil {
 		return nil, err
@@ -276,7 +290,7 @@ func BuildEnrichment(
 		PersonCredits:     repos.PersonCredits,
 		ExternalIDs:       repos.ExternalIDs,
 		SyncLog:           repos.SyncLog,
-		Logger:            log,
+		Logger:            enrichmentLog,
 	})
 	if err != nil {
 		return nil, err
@@ -301,7 +315,7 @@ func BuildEnrichment(
 	var omdbBudget *appenrich.OMDbBudgetGuard
 	if quotaCounter != nil {
 		omdbBudget = appenrich.NewOMDbBudgetGuardDB(
-			appenrich.DefaultOMDbBudget, quotaCounter, log, nil)
+			appenrich.DefaultOMDbBudget, quotaCounter, omdbLog, nil)
 	} else {
 		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
 	}
@@ -311,7 +325,7 @@ func BuildEnrichment(
 		Tx:      tx,
 		Series:  repos.Series,
 		SyncLog: repos.SyncLog,
-		Logger:  log,
+		Logger:  omdbLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new omdb worker: %w", err)
@@ -330,7 +344,7 @@ func BuildEnrichment(
 		}
 		omdbHolder.Set(omdbClient)
 	} else {
-		log.InfoContext(rootCtx, "enrichment.omdb.disabled",
+		omdbLog.InfoContext(rootCtx, "enrichment.omdb.disabled",
 			slog.Bool("enabled", omdbSettings.Enabled),
 			slog.Bool("api_key", omdbSettings.APIKey != ""))
 	}
@@ -342,7 +356,7 @@ func BuildEnrichment(
 		// itself short-circuits to "handler_nil" when the holder is
 		// empty (OMDb disabled at boot, awaiting operator enable).
 		OMDbHandler: omdbWorkerHandle,
-	}, log)
+	}, enrichmentLog)
 	holder.set(dispatcher)
 
 	// 213: Daily-batch + budget-reset closures (cron 04:30 / 04:00).
@@ -355,28 +369,28 @@ func BuildEnrichment(
 	if omdbEnabledAtBoot {
 		omdbDailyBatch = func(ctx context.Context) {
 			if repos.LibraryWithIMDB == nil {
-				log.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
+				omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
 				return
 			}
 			const batchLimit = 900
 			ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
 			ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, ttl, batchLimit)
 			if err != nil {
-				log.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
+				omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
 					slog.String("error", err.Error()))
 				return
 			}
 			for _, id := range ids {
 				dispatcher.Enqueue(appenrich.EntityOMDb, id, appenrich.PriorityCold)
 			}
-			log.InfoContext(ctx, "enrichment.omdb.daily_batch.enqueued",
+			omdbLog.InfoContext(ctx, "enrichment.omdb.daily_batch.enqueued",
 				slog.Int("series_count", len(ids)),
 				slog.Int("quota_remaining", omdbBudget.Remaining()))
 		}
 		omdbBudgetReset = func(ctx context.Context) {
 			before := omdbBudget.Remaining()
 			omdbBudget.Reset()
-			log.InfoContext(ctx, "enrichment.omdb.budget.reset",
+			omdbLog.InfoContext(ctx, "enrichment.omdb.budget.reset",
 				slog.Int("before", before),
 				slog.Int("after", omdbBudget.Remaining()))
 		}
@@ -390,13 +404,13 @@ func BuildEnrichment(
 		seriesCutoff := now.Add(-2 * 24 * time.Hour)
 		seriesStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBSeries, seriesCutoff, 100)
 		if err != nil {
-			log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+			enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
 				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
 		}
 		seriesRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBSeries, now, 100)
 		if err != nil {
-			log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
 				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
 		}
@@ -411,13 +425,13 @@ func BuildEnrichment(
 		personCutoff := now.Add(-60 * 24 * time.Hour)
 		personStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBPerson, personCutoff, 200)
 		if err != nil {
-			log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+			enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
 				slog.String("source", string(enrichment.SourceTMDBPerson)),
 				slog.String("error", err.Error()))
 		}
 		personRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBPerson, now, 200)
 		if err != nil {
-			log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
 				slog.String("source", string(enrichment.SourceTMDBPerson)),
 				slog.String("error", err.Error()))
 		}
@@ -428,7 +442,7 @@ func BuildEnrichment(
 			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
 		}
 
-		log.InfoContext(ctx, "enrichment.nightly.swept",
+		enrichmentLog.InfoContext(ctx, "enrichment.nightly.swept",
 			slog.Int("series_stale", len(seriesStale)),
 			slog.Int("series_retries", len(seriesRetries)),
 			slog.Int("person_stale", len(personStale)),
@@ -465,10 +479,10 @@ func BuildEnrichment(
 			// COUNT(*) on hydration='full'); failures non-fatal.
 			posterNull, backdropNull, cntErr := repos.ColdStartScanner.CountCanonImagesBreakdown(ctx)
 			if cntErr != nil {
-				log.WarnContext(ctx, "enrichment.canon_images.recovery.breakdown_failed",
+				enrichmentLog.WarnContext(ctx, "enrichment.canon_images.recovery.breakdown_failed",
 					slog.String("error", cntErr.Error()))
 			} else {
-				log.InfoContext(ctx, "enrichment.canon_images.recovery.breakdown",
+				enrichmentLog.InfoContext(ctx, "enrichment.canon_images.recovery.breakdown",
 					slog.Int("poster_null", posterNull),
 					slog.Int("backdrop_null", backdropNull))
 				observability.AddRecoverySweepEnqueued("poster", posterNull)
@@ -476,18 +490,18 @@ func BuildEnrichment(
 			}
 			ids, err := repos.ColdStartScanner.ListCanonImagesCorrupted(ctx, 5000)
 			if err != nil {
-				log.WarnContext(ctx, "enrichment.canon_images.recovery.failed",
+				enrichmentLog.WarnContext(ctx, "enrichment.canon_images.recovery.failed",
 					slog.String("error", err.Error()))
 			} else if len(ids) > 0 {
 				for _, id := range ids {
 					dispatcher.Enqueue(appenrich.EntitySeries, id, appenrich.PriorityCold)
 				}
-				log.InfoContext(ctx, "enrichment.canon_images.recovery.enqueued",
+				enrichmentLog.InfoContext(ctx, "enrichment.canon_images.recovery.enqueued",
 					slog.Int("series_count", len(ids)),
 					slog.String("priority", "cold"))
 			}
 		}
-		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval, log)
+		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval, enrichmentLog)
 	}
 
 	dispatcher.Start(rootCtx)

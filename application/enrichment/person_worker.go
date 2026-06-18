@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // PersonWorkerDeps mirrors SeriesWorkerDeps verbatim in style — each
@@ -72,7 +73,7 @@ func NewPersonWorker(deps PersonWorkerDeps) (*PersonWorker, error) {
 		deps.Language = "en-US"
 	}
 	if deps.Logger == nil {
-		deps.Logger = slog.Default()
+		deps.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }

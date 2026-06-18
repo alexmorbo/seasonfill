@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // DispatcherImpl is the package-public production dispatcher. Construct
@@ -48,7 +50,7 @@ type Workers struct {
 // it to a context.
 func NewDispatcher(workers Workers, logger *slog.Logger) *DispatcherImpl {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	return &DispatcherImpl{
 		queue:   newPriorityQueue(),

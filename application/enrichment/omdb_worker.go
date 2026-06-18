@@ -29,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/omdb"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // OMDbClient is the substitution seam for tests. Production impl is
@@ -84,7 +85,7 @@ func NewOMDbWorker(deps OMDbWorkerDeps) (*OMDbWorker, error) {
 		return nil, errors.New("enrichment.omdb_worker: every repository port is required")
 	}
 	if deps.Logger == nil {
-		deps.Logger = slog.Default()
+		deps.Logger = sharedports.DomainLogger(slog.Default(), "omdb")
 	}
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }

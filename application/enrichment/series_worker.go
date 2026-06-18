@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SeriesWorkerDeps is the dependency surface — kept verbose
@@ -77,7 +78,7 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 		deps.Language = "en-US"
 	}
 	if deps.Logger == nil {
-		deps.Logger = slog.Default()
+		deps.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }

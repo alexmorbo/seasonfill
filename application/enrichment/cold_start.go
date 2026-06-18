@@ -44,6 +44,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // coldStartGaugeSetter is the test seam for the gauge publisher. The
@@ -90,7 +91,7 @@ type hookableDispatcher interface {
 func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, log *slog.Logger) error {
 	const sweepLimit = 5000
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	observability.IncEnrichmentColdStartResweep()
 	ids, err := scanner.ListMissingSyncLog(ctx, "tmdb_series", sweepLimit)
@@ -161,7 +162,7 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 // bgWG so shutdown waits for the goroutine to exit cleanly.
 func RunBackfillLoop(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, interval time.Duration, log *slog.Logger) {
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if interval <= 0 {
 		interval = 60 * time.Second

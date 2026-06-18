@@ -32,6 +32,7 @@ import (
 	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // DefaultOMDbBudget is the per-day cap PRD §5.5 prescribes. 900 with
@@ -72,7 +73,7 @@ func NewOMDbBudgetGuard(initial int) *OMDbBudgetGuard {
 	g := &OMDbBudgetGuard{
 		initial: int64(initial),
 		clock:   func() time.Time { return time.Now().UTC() },
-		logger:  slog.Default(),
+		logger:  sharedports.DomainLogger(slog.Default(), "omdb"),
 	}
 	g.fallback.Store(int64(initial))
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
@@ -97,7 +98,7 @@ func NewOMDbBudgetGuardDB(initial int, counter quota.QuotaCounter, logger *slog.
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "omdb")
 	}
 	g := &OMDbBudgetGuard{
 		initial: int64(initial),
