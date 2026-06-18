@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Detail is the composer's domain object — the handler maps it
@@ -172,7 +173,7 @@ type Composer struct {
 // Now defaults to time.Now.UTC.
 func NewComposer(d Deps) *Composer {
 	if d.Logger == nil {
-		d.Logger = slog.Default()
+		d.Logger = sharedports.DomainLogger(slog.Default(), "composer")
 	}
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }

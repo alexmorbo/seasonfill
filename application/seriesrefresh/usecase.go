@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Deps groups the consumer-side ports. SeriesPeople is OPTIONAL:
@@ -79,7 +80,7 @@ func New(d Deps) (*UseCase, error) {
 	}
 	lg := d.Logger
 	if lg == nil {
-		lg = slog.Default()
+		lg = sharedports.DomainLogger(slog.Default(), "composer")
 	}
 	return &UseCase{deps: d, log: lg}, nil
 }

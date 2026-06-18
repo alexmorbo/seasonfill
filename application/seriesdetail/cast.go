@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // CastPage is the composer's domain object for the H-1 page —
@@ -93,7 +94,7 @@ type CastComposer struct {
 // slog.Default; Now defaults to time.Now.UTC.
 func NewCastComposer(d CastDeps) *CastComposer {
 	if d.Logger == nil {
-		d.Logger = slog.Default()
+		d.Logger = sharedports.DomainLogger(slog.Default(), "composer")
 	}
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }

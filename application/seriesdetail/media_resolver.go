@@ -31,6 +31,7 @@ import (
 
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // sentinelEmitCounter increments every time Resolve/ResolveSync hands
@@ -102,7 +103,7 @@ type mediaSyncFetcherBox struct{ v MediaSyncFetcher }
 // side effect; ResolveSync falls back to Resolve).
 func NewMediaResolver(lookup MediaHashLookupPort, enqueuer MediaEnqueuer, fetcher MediaSyncFetcher, logger *slog.Logger) *MediaResolver {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "composer")
 	}
 	r := &MediaResolver{lookup: lookup, logger: logger}
 	if enqueuer != nil {

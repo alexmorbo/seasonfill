@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SeriesDetailBundle groups the Story 215 (G-1) / 216 (H-1) / 217 (H-2) /
@@ -106,6 +107,17 @@ func BuildSeriesDetail(
 	db := persistence.DB
 	holder := sonarrBundle.Holder
 
+	// F-4b-6: single domain logger wrapped once per §6.5. The
+	// seriesdetail bounded context anchors on the "composer" slot in
+	// AllowedDomains. seriesrefresh re-uses the same slot per the
+	// Story 397 sub-context bullet — the refresh trigger is the
+	// write-side mirror of the composer (it re-enqueues the same data
+	// sources the composer reads). All four composer-owned components
+	// (MediaResolver, Composer, CastComposer, SeriesRefreshUC) take
+	// composerLog. HTTP handlers + apppeople.UseCase (a SEPARATE
+	// bounded context — H-2 person detail) stay on bare log.
+	composerLog := sharedports.DomainLogger(log, "composer")
+
 	// Story 312 + Story 320: media resolver for the seriesdetail composer.
 	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
 	// NewMediaResolver → every wire field stays nil and the frontend
@@ -119,7 +131,7 @@ func BuildSeriesDetail(
 	// Story 316: enqueuer + fetcher are late-bound via SetSideEffects
 	// after wireEnrichment returns — the media pipeline doesn't exist
 	// yet at this point in boot.
-	mediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, log)
+	mediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, composerLog)
 	// Story 347 — uniform always-emit-hash contract. Default-on; env
 	// kill-switch (SEASONFILL_MEDIA_UNIFIED_RESOLVE=false) flips back
 	// to legacy nil-on-miss without a redeploy.
@@ -185,7 +197,7 @@ func BuildSeriesDetail(
 			}
 			return concrete, true
 		},
-		Logger:        log,
+		Logger:        composerLog,
 		MediaResolver: mediaResolver,
 	})
 	detailHandler := handlers.NewSeriesDetailHandler(composer, log)
@@ -205,7 +217,7 @@ func BuildSeriesDetail(
 		People:            sdPeopleRepo,
 		PersonCredits:     adapters.NewPersonCreditsAdapter(sdPersonCreditsRepo),
 		EpisodesCount:     sdEpisodesRepo,
-		Logger:            log,
+		Logger:            composerLog,
 		MediaResolver:     mediaResolver,
 	})
 	castHandler := handlers.NewSeriesCastHandler(castComposer, log)
@@ -240,7 +252,7 @@ func BuildSeriesDetail(
 		Series:       adapters.NewSeriesRefreshSeriesAdapter(sdSeriesRepo),
 		SeriesPeople: adapters.NewSeriesRefreshCastAdapter(sdSeriesPeopleRepo),
 		Dispatcher:   peopleEnqueuerHolder,
-		Logger:       log,
+		Logger:       composerLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
