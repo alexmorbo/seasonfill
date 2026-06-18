@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ContentRating is the read-shape returned by ContentRatingsRepository.
@@ -31,7 +32,7 @@ func NewContentRatingsRepository(db *gorm.DB) *ContentRatingsRepository {
 
 // Get fetches the row for (series_id, country_code). Returns
 // ports.ErrNotFound on miss.
-func (r *ContentRatingsRepository) Get(ctx context.Context, seriesID int64, countryCode string) (ContentRating, error) {
+func (r *ContentRatingsRepository) Get(ctx context.Context, seriesID domain.SeriesID, countryCode string) (ContentRating, error) {
 	var m database.ContentRatingModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ? AND country_code = ?", seriesID, countryCode).
@@ -47,7 +48,7 @@ func (r *ContentRatingsRepository) Get(ctx context.Context, seriesID int64, coun
 
 // ListBySeries returns every content rating row for seriesID ordered
 // by country_code ASC.
-func (r *ContentRatingsRepository) ListBySeries(ctx context.Context, seriesID int64) ([]ContentRating, error) {
+func (r *ContentRatingsRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]ContentRating, error) {
 	var models []database.ContentRatingModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

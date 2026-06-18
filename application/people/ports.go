@@ -14,6 +14,7 @@ import (
 	domenrich "github.com/alexmorbo/seasonfill/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PeopleReader resolves a canon people row by TMDB id and
@@ -51,7 +52,7 @@ type SeriesByTMDBLookup interface {
 // canon series.id (deleted_at IS NULL). Empty result → the canon
 // row is a stub / recommendation, not a library credit.
 type SeriesCacheLookup interface {
-	ListBySeriesID(ctx context.Context, seriesID int64) ([]series.CacheEntry, error)
+	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
 }
 
 // SyncLogLookup retrieves the latest sync_log row for

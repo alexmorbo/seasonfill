@@ -22,6 +22,7 @@ import (
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- handler-local fakes (minimal — heavy lifting is in usecase_test.go) ---
@@ -66,10 +67,10 @@ func (f peopleHandlerFakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID int
 }
 
 type peopleHandlerFakeSeriesCache struct {
-	rows map[int64][]series.CacheEntry
+	rows map[domain.SeriesID][]series.CacheEntry
 }
 
-func (f peopleHandlerFakeSeriesCache) ListBySeriesID(_ context.Context, seriesID int64) ([]series.CacheEntry, error) {
+func (f peopleHandlerFakeSeriesCache) ListBySeriesID(_ context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error) {
 	return f.rows[seriesID], nil
 }
 
@@ -143,7 +144,7 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 			rows: map[int]series.Canon{100: canon},
 		},
 		SeriesCache: peopleHandlerFakeSeriesCache{
-			rows: map[int64][]series.CacheEntry{
+			rows: map[domain.SeriesID][]series.CacheEntry{
 				42: {{InstanceName: "alpha", SonarrSeriesID: 7777}},
 			},
 		},
@@ -303,7 +304,7 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 			rows: map[int]series.Canon{100: canonA, 200: canonZ},
 		},
 		SeriesCache: peopleHandlerFakeSeriesCache{
-			rows: map[int64][]series.CacheEntry{
+			rows: map[domain.SeriesID][]series.CacheEntry{
 				42: {{InstanceName: "alpha"}},
 				43: {{InstanceName: "alpha"}},
 			},
@@ -437,7 +438,7 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 		PersonCredits: peopleHandlerFakeCredits{rows: credits},
 		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{rows: map[int]series.Canon{300: canon}},
 		SeriesCache: peopleHandlerFakeSeriesCache{
-			rows: map[int64][]series.CacheEntry{42: {{InstanceName: "homelab", SonarrSeriesID: 369}}},
+			rows: map[domain.SeriesID][]series.CacheEntry{42: {{InstanceName: "homelab", SonarrSeriesID: 369}}},
 		},
 		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
 		MediaResolver: resolver,

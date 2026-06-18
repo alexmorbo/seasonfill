@@ -1,6 +1,10 @@
 package people
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SeriesCreditKind is the discriminator on series_people.kind.
 // Cast covers the regular cast roles (character credits), Crew
@@ -45,7 +49,7 @@ func (k EpisodeCreditKind) IsValid() bool {
 // Main / Recurring / Guest derivation (design-handoff Q3).
 type SeriesCredit struct {
 	ID            int64
-	SeriesID      int64
+	SeriesID      domain.SeriesID
 	PersonID      int64
 	Kind          SeriesCreditKind
 	TMDBCreditID  string

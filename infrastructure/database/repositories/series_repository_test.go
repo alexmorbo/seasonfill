@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func sampleCanon(title string) series.Canon {
@@ -202,13 +203,13 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   idA,
+		EntityID:   int64(idA),
 		Source:     enrichment.SourceTMDBSeries,
 		Outcome:    enrichment.OutcomeOK,
 	}))
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   idB,
+		EntityID:   int64(idB),
 		Source:     enrichment.SourceTMDBSeries,
 		Outcome:    enrichment.OutcomeError,
 	}))
@@ -222,7 +223,7 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 	// as journalled for tmdb_series.
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   idC,
+		EntityID:   int64(idC),
 		Source:     enrichment.SourceOMDb,
 		Outcome:    enrichment.OutcomeOK,
 	}))
@@ -235,7 +236,7 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 // seedSeriesCacheRow inserts a series_cache row pointing at seriesID.
 // Used by the OMDb library-filter tests to mark a series as "in the
 // library" (vs. a stub recommendation row).
-func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID int64, instance string, sonarrID int, deleted bool) {
+func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, instance string, sonarrID int, deleted bool) {
 	t.Helper()
 	row := database.SeriesCacheModel{
 		InstanceName:   instance,
@@ -299,14 +300,14 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 	seedSeriesCacheRow(t, db, idD, "main", 5, false)
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   idD,
+		EntityID:   int64(idD),
 		Source:     enrichment.SourceOMDb,
 		Outcome:    enrichment.OutcomeNotFound,
 	}))
 
 	ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 	require.NoError(t, err)
-	got := make(map[int64]bool, len(ids))
+	got := make(map[domain.SeriesID]bool, len(ids))
 	for _, id := range ids {
 		got[id] = true
 	}
@@ -337,7 +338,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 	fresh := now.Add(-30 * time.Minute)
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   id,
+		EntityID:   int64(id),
 		Source:     enrichment.SourceOMDb,
 		Outcome:    enrichment.OutcomeOK,
 		SyncedAt:   &fresh,
@@ -351,7 +352,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 	stale := now.Add(-25 * time.Hour)
 	require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   id,
+		EntityID:   int64(id),
 		Source:     enrichment.SourceOMDb,
 		Outcome:    enrichment.OutcomeOK,
 		SyncedAt:   &stale,
@@ -565,7 +566,7 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 	repo := NewSeriesRepository(db)
 	ctx := context.Background()
 
-	mkFull := func(tmdb int, title, poster, backdrop string) int64 {
+	mkFull := func(tmdb int, title, poster, backdrop string) domain.SeriesID {
 		var pp, bp *string
 		if poster != "" {
 			s := poster

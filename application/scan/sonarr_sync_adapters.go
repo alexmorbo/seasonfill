@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type genresAdapter struct {
@@ -41,7 +42,7 @@ func (a *genresAdapter) UpsertI18n(ctx context.Context, genreID int64, language,
 	})
 }
 
-func (a *genresAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (a *genresAdapter) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	return a.genres.Set(ctx, seriesID, ids)
 }
 
@@ -62,7 +63,7 @@ func (a *networksAdapter) UpsertByName(ctx context.Context, name string) (int64,
 	return a.networks.Upsert(ctx, taxonomy.Network{Name: name})
 }
 
-func (a *networksAdapter) SetForSeries(ctx context.Context, seriesID int64, ids []int64) error {
+func (a *networksAdapter) SetForSeries(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	return a.networks.Set(ctx, seriesID, ids)
 }
 

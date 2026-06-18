@@ -12,26 +12,31 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- richer fakes for loadTopCast / loadTaxonomy / loadBestTrailer ---
 
 type errSeriesPeople struct{ err error }
 
-func (e *errSeriesPeople) ListBySeries(_ context.Context, _ int64, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (e *errSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	return nil, e.err
 }
 
 type errGenres struct{ err error }
 
-func (e *errGenres) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, e.err }
+func (e *errGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, e.err
+}
 func (e *errGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{}, e.err
 }
 
 type errKeywords struct{ err error }
 
-func (e *errKeywords) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, e.err }
+func (e *errKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, e.err
+}
 func (e *errKeywords) Get(_ context.Context, _ int64, _ string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{}, e.err
 }
@@ -42,7 +47,7 @@ type errNetworks struct {
 	ids     []int64
 }
 
-func (e *errNetworks) ListBySeries(_ context.Context, _ int64) ([]int64, error) {
+func (e *errNetworks) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
 	return e.ids, e.listErr
 }
 func (e *errNetworks) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.Network, error) {
@@ -54,7 +59,7 @@ type errVideos struct {
 	err  error
 }
 
-func (e *errVideos) ListBySeriesAndType(_ context.Context, _ int64, _ string) ([]database.VideoModel, error) {
+func (e *errVideos) ListBySeriesAndType(_ context.Context, _ domain.SeriesID, _ string) ([]database.VideoModel, error) {
 	return e.rows, e.err
 }
 

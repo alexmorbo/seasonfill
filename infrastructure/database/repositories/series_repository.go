@@ -15,6 +15,7 @@ import (
 	enrichmentpkg "github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesRepository persists the canonical `series` table (PRD §5).
@@ -32,7 +33,7 @@ func NewSeriesRepository(db *gorm.DB) *SeriesRepository {
 }
 
 // Get fetches by primary key. Returns ports.ErrNotFound on miss.
-func (r *SeriesRepository) Get(ctx context.Context, id int64) (series.Canon, error) {
+func (r *SeriesRepository) Get(ctx context.Context, id domain.SeriesID) (series.Canon, error) {
 	var m database.SeriesModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("id = ?", id).First(&m).Error
@@ -115,7 +116,7 @@ func (r *SeriesRepository) FindByExternalIDs(
 // Idempotency contract: a no-op upsert (same canonical payload) leaves
 // every column byte-equal except updated_at, which bumps to the new
 // `now`.
-func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, error) {
+func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	if c.Title == "" {
 		return 0, fmt.Errorf("upsert series: title must be non-empty")
 	}
@@ -184,7 +185,7 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (int64, e
 // always carry a tmdb_id from the TMDB recommendation summary). An
 // id-known caller should keep using Upsert (it has the authoritative
 // row in hand).
-func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	if c.Title == "" {
 		return 0, fmt.Errorf("upsert stub series: title must be non-empty")
 	}
@@ -262,11 +263,11 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (int6
 // series, ~30 corrupted on a fresh library that's been through one
 // recommendations pass) — the WHERE NULL filter rides the planner's
 // row scan; no index added.
-func (r *SeriesRepository) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error) {
+func (r *SeriesRepository) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
-	var ids []int64
+	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series").
 		Select("id").
@@ -308,11 +309,11 @@ func (r *SeriesRepository) CountCanonImagesBreakdown(ctx context.Context) (int, 
 // caps result-set size; cold-start callers pass 5000.
 //
 // Used by the application-layer cold-start backfill (Story 212).
-func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
+func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
-	var ids []int64
+	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series AS s").
 		Select("s.id").
@@ -349,12 +350,12 @@ func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string
 // instance refs (typical: 1080p + 4K Sonarr). Postgres + sqlite
 // both accept this shape (the SELECT list is a subset of the
 // GROUP BY list — no `ANY_VALUE` needed).
-func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
+func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 900
 	}
 	cutoff := time.Now().UTC().Add(-ttl)
-	var ids []int64
+	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series AS s").
 		Select("s.id").
@@ -381,11 +382,11 @@ func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl tim
 // ListOrphanCandidates returns series.id rows older than cutoff that
 // have no live series_cache reference AND no series_recommendations
 // reference. Story 218 (E-2).
-func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]int64, error) {
+func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
-	var ids []int64
+	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series AS s").
 		Select("s.id").
@@ -410,7 +411,7 @@ func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time
 //
 // The deletion order follows the dependency direction so a re-run
 // after a crash is safe: dependent rows first, then the canon row.
-func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID int64) error {
+func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID domain.SeriesID) error {
 	if seriesID == 0 {
 		return errors.New("drop series cascade: series_id must be non-zero")
 	}

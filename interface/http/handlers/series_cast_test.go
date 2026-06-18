@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- minimal fakes for the cast composer (inline) ---
@@ -41,7 +42,7 @@ type castFakeSeriesPeople struct {
 	crew []people.SeriesCredit
 }
 
-func (f castFakeSeriesPeople) ListBySeries(_ context.Context, _ int64, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f castFakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	if kind == people.SeriesCreditCast {
 		return f.cast, nil
 	}
@@ -60,7 +61,7 @@ type castFakeEpisodesCount struct {
 	count int
 }
 
-func (f castFakeEpisodesCount) CountBySeries(_ context.Context, _ int64) (int, error) {
+func (f castFakeEpisodesCount) CountBySeries(_ context.Context, _ domain.SeriesID) (int, error) {
 	return f.count, nil
 }
 
@@ -102,9 +103,9 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 	cast []people.SeriesCredit, persons map[int64]people.Person, total int,
 ) *seriesdetail.CastComposer {
 	return seriesdetail.NewCastComposer(seriesdetail.CastDeps{
-		SeriesCache:       &fakeCachePort{entries: cacheEntries, byCanon: map[int64][]series.CacheEntry{}},
-		SeriesCacheLookup: &fakeCachePort{entries: cacheEntries, byCanon: map[int64][]series.CacheEntry{}},
-		Series:            &fakeSeriesPort{rows: map[int64]series.Canon{canon.ID: canon}},
+		SeriesCache:       &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
+		SeriesCacheLookup: &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
+		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{canon.ID: canon}},
 		SeriesPeople:      castFakeSeriesPeople{cast: cast},
 		People:            castFakePeoplePort{rows: persons},
 		PersonCredits:     castFakePersonCredits{rows: map[int64][]seriesdetail.PersonCreditRef{}},
@@ -159,7 +160,7 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "alpha", body.Instance)
 	require.Equal(t, 1, body.SonarrSeriesID)
-	require.Equal(t, int64(42), body.SeriesID)
+	require.Equal(t, domain.SeriesID(42), body.SeriesID)
 	require.Equal(t, "en-US", body.Lang)
 	require.Equal(t, 10, body.TotalEpisodeCount)
 	require.Equal(t, 1, len(body.Cast))

@@ -18,13 +18,14 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- fakes ---
 
 type fakeSeriesCache struct {
 	entries map[string]series.CacheEntry // key = "instance|sonarrID"
-	byCanon map[int64][]series.CacheEntry
+	byCanon map[domain.SeriesID][]series.CacheEntry
 	getErr  error
 	listErr error
 }
@@ -48,7 +49,7 @@ func (f *fakeSeriesCache) Get(_ context.Context, instance string, sonarrID int) 
 	return e, nil
 }
 
-func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID int64) ([]series.CacheEntry, error) {
+func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -56,11 +57,11 @@ func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID int64) ([]s
 }
 
 type fakeSeries struct {
-	rows map[int64]series.Canon
+	rows map[domain.SeriesID]series.Canon
 	err  error
 }
 
-func (f *fakeSeries) Get(_ context.Context, id int64) (series.Canon, error) {
+func (f *fakeSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
 	if f.err != nil {
 		return series.Canon{}, f.err
 	}
@@ -88,7 +89,7 @@ type fakeSeriesTexts struct {
 	err  error
 }
 
-func (f *fakeSeriesTexts) GetWithFallback(_ context.Context, sid int64, lang string) (series.SeriesText, error) {
+func (f *fakeSeriesTexts) GetWithFallback(_ context.Context, sid domain.SeriesID, lang string) (series.SeriesText, error) {
 	if f.err != nil {
 		return series.SeriesText{}, f.err
 	}
@@ -101,14 +102,16 @@ func (f *fakeSeriesTexts) GetWithFallback(_ context.Context, sid int64, lang str
 	return series.SeriesText{}, ports.ErrNotFound
 }
 
-func seriesTextKey(id int64, lang string) string { return lang + "|" + intToStr(int(id)) }
+func seriesTextKey(id domain.SeriesID, lang string) string {
+	return lang + "|" + intToStr(int(id))
+}
 
 type fakeSeasons struct {
 	rows []series.CanonSeason
 	err  error
 }
 
-func (f *fakeSeasons) ListBySeries(_ context.Context, _ int64) ([]series.CanonSeason, error) {
+func (f *fakeSeasons) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonSeason, error) {
 	return f.rows, f.err
 }
 
@@ -117,7 +120,7 @@ type fakeEpisodes struct {
 	err  error
 }
 
-func (f *fakeEpisodes) ListBySeries(_ context.Context, _ int64) ([]series.CanonEpisode, error) {
+func (f *fakeEpisodes) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonEpisode, error) {
 	return f.rows, f.err
 }
 
@@ -126,7 +129,7 @@ type fakeEpisodeStates struct {
 	err  error
 }
 
-func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ string, _ int64) ([]series.EpisodeState, error) {
+func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ string, _ domain.SeriesID) ([]series.EpisodeState, error) {
 	return f.rows, f.err
 }
 
@@ -155,7 +158,7 @@ type fakeSeriesPeople struct {
 	err  error
 }
 
-func (f *fakeSeriesPeople) ListBySeries(_ context.Context, _ int64, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f *fakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	return f.rows, f.err
 }
 
@@ -171,21 +174,27 @@ type fakeGenres struct {
 	ids []int64
 }
 
-func (f *fakeGenres) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return f.ids, nil }
+func (f *fakeGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return f.ids, nil
+}
 func (f *fakeGenres) Get(_ context.Context, id int64, lang string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{ID: id, Name: "Drama", Language: lang}, nil
 }
 
 type fakeKeywords struct{ ids []int64 }
 
-func (f *fakeKeywords) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return f.ids, nil }
+func (f *fakeKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return f.ids, nil
+}
 func (f *fakeKeywords) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{ID: id, Name: "kw", Language: lang}, nil
 }
 
 type fakeNetworks struct{ ids []int64 }
 
-func (f *fakeNetworks) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return f.ids, nil }
+func (f *fakeNetworks) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return f.ids, nil
+}
 func (f *fakeNetworks) ListByIDs(_ context.Context, ids []int64) ([]taxonomy.Network, error) {
 	out := make([]taxonomy.Network, 0, len(ids))
 	for _, id := range ids {
@@ -196,7 +205,9 @@ func (f *fakeNetworks) ListByIDs(_ context.Context, ids []int64) ([]taxonomy.Net
 
 type fakeCompanies struct{}
 
-func (fakeCompanies) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (fakeCompanies) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, nil
+}
 func (fakeCompanies) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.ProductionCompany, error) {
 	return nil, nil
 }
@@ -205,7 +216,7 @@ type fakeVideos struct {
 	rows []database.VideoModel
 }
 
-func (f *fakeVideos) ListBySeriesAndType(_ context.Context, _ int64, _ string) ([]database.VideoModel, error) {
+func (f *fakeVideos) ListBySeriesAndType(_ context.Context, _ domain.SeriesID, _ string) ([]database.VideoModel, error) {
 	return f.rows, nil
 }
 
@@ -213,7 +224,7 @@ type fakeContentRatings struct {
 	rows []database.ContentRatingModel
 }
 
-func (f *fakeContentRatings) ListBySeries(_ context.Context, _ int64) ([]database.ContentRatingModel, error) {
+func (f *fakeContentRatings) ListBySeries(_ context.Context, _ domain.SeriesID) ([]database.ContentRatingModel, error) {
 	return f.rows, nil
 }
 
@@ -226,10 +237,10 @@ func (f *fakeExternalIDs) ListByEntity(_ context.Context, _ enrichment.EntityTyp
 }
 
 type fakeRecommendations struct {
-	ids []int64
+	ids []domain.SeriesID
 }
 
-func (f *fakeRecommendations) ListBySeries(_ context.Context, _ int64) ([]int64, error) {
+func (f *fakeRecommendations) ListBySeries(_ context.Context, _ domain.SeriesID) ([]domain.SeriesID, error) {
 	return f.ids, nil
 }
 
@@ -262,10 +273,14 @@ func newSilentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-func i64ptr(v int64) *int64        { return &v }
 func intPtr(v int) *int            { return &v }
 func strPtr(v string) *string      { return &v }
 func tmPtr(v time.Time) *time.Time { return &v }
+
+func seriesIDPtr(v int64) *domain.SeriesID {
+	id := domain.SeriesID(v)
+	return &id
+}
 
 func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 	t.Helper()
@@ -275,18 +290,18 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 			cacheKey("alpha", 1): {
 				InstanceName:   "alpha",
 				SonarrSeriesID: 1,
-				SeriesID:       i64ptr(42),
+				SeriesID:       seriesIDPtr(42),
 				Title:          "Breaking Bad",
 				Monitored:      true,
 				MissingCount:   3,
 			},
 		},
-		byCanon: map[int64][]series.CacheEntry{
-			99: {{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: i64ptr(99)}},
+		byCanon: map[domain.SeriesID][]series.CacheEntry{
+			99: {{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(99)}},
 		},
 	}
 	canon := &fakeSeries{
-		rows: map[int64]series.Canon{
+		rows: map[domain.SeriesID]series.Canon{
 			42: {ID: 42, Title: "Breaking Bad", Year: intPtr(2008), Status: strPtr("Ended")},
 			99: {ID: 99, Title: "Recommended Show"},
 		},
@@ -335,7 +350,7 @@ func TestComposer_Get_HappyPath(t *testing.T) {
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
-	require.Equal(t, int64(42), d.SeriesID)
+	require.Equal(t, domain.SeriesID(42), d.SeriesID)
 	require.Equal(t, "Breaking Bad", d.Canon.Title)
 	require.Empty(t, d.Degraded)
 }
@@ -394,14 +409,14 @@ func TestComposer_Get_BranchFailureNeverBubbles(t *testing.T) {
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
-	require.Equal(t, int64(42), d.SeriesID)
+	require.Equal(t, domain.SeriesID(42), d.SeriesID)
 	// Degraded includes tmdb_series due to the OR-in rule.
 	require.Contains(t, d.Degraded, enrichment.SourceTMDBSeries)
 }
 
 type failingGenres struct{}
 
-func (failingGenres) ListBySeries(_ context.Context, _ int64) ([]int64, error) {
+func (failingGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
 	return nil, errors.New("genres boom")
 }
 func (failingGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, error) {
@@ -410,7 +425,7 @@ func (failingGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, 
 
 func TestComposer_Get_RecommendationsInLibrary(t *testing.T) {
 	deps, _, _ := baseDeps(t)
-	deps.Recommendations = &fakeRecommendations{ids: []int64{99}}
+	deps.Recommendations = &fakeRecommendations{ids: []domain.SeriesID{99}}
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -520,7 +535,7 @@ type networksWithLogo struct {
 	id   int64
 }
 
-func (n networksWithLogo) ListBySeries(_ context.Context, _ int64) ([]int64, error) {
+func (n networksWithLogo) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
 	return []int64{n.id}, nil
 }
 func (n networksWithLogo) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.Network, error) {
@@ -595,7 +610,7 @@ func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
 	deps.People = &fakePeople{rows: []people.Person{
 		{ID: 100, Name: "Bryan Cranston", ProfileAsset: strPtr("/bryan.jpg")},
 	}}
-	deps.Recommendations = &fakeRecommendations{ids: []int64{99}}
+	deps.Recommendations = &fakeRecommendations{ids: []domain.SeriesID{99}}
 	canon.rows[99] = series.Canon{ID: 99, Title: "Recommended Show", PosterAsset: strPtr("/rec.jpg")}
 
 	const hashPoster = "1111111111111111111111111111111111111111111111111111111111111111"

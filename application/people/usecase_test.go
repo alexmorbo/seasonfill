@@ -17,6 +17,7 @@ import (
 	domenrich "github.com/alexmorbo/seasonfill/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- inline fakes ---
@@ -79,11 +80,11 @@ func (f *fakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID int) (series.Ca
 }
 
 type fakeSeriesCache struct {
-	rows map[int64][]series.CacheEntry
+	rows map[domain.SeriesID][]series.CacheEntry
 	err  error
 }
 
-func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID int64) ([]series.CacheEntry, error) {
+func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -124,7 +125,7 @@ func discardLogger() *slog.Logger {
 
 func ptr[T any](v T) *T { return &v }
 
-func mkCanon(id int64, tmdbID int, title string, year int, lastAir time.Time) series.Canon {
+func mkCanon(id domain.SeriesID, tmdbID int, title string, year int, lastAir time.Time) series.Canon {
 	return series.Canon{
 		ID:          id,
 		TMDBID:      ptr(tmdbID),
@@ -134,7 +135,7 @@ func mkCanon(id int64, tmdbID int, title string, year int, lastAir time.Time) se
 	}
 }
 
-func mkCacheRow(instanceName string, seriesID int64) series.CacheEntry {
+func mkCacheRow(instanceName string, seriesID domain.SeriesID) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &seriesID,
@@ -145,7 +146,7 @@ func mkCacheRow(instanceName string, seriesID int64) series.CacheEntry {
 // mkCacheRowFull builds a CacheEntry with explicit canon series id
 // and explicit Sonarr series id. Used by the dedup + sonarr id tests
 // that need the two to differ.
-func mkCacheRowFull(instanceName string, canonID int64, sonarrID int) series.CacheEntry {
+func mkCacheRowFull(instanceName string, canonID domain.SeriesID, sonarrID int) series.CacheEntry {
 	return series.CacheEntry{
 		InstanceName:   instanceName,
 		SeriesID:       &canonID,
@@ -212,7 +213,7 @@ func happyFixture(t *testing.T) Deps {
 			},
 		},
 		SeriesCache: &fakeSeriesCache{
-			rows: map[int64][]series.CacheEntry{
+			rows: map[domain.SeriesID][]series.CacheEntry{
 				42: {mkCacheRow("alpha", 42)},
 				43: {mkCacheRow("alpha", 43), mkCacheRow("4k", 43)},
 			},
@@ -465,7 +466,7 @@ func TestUseCase_InstanceDedup(t *testing.T) {
 	// Duplicate cache rows under same instance — adapter must dedup,
 	// keeping the first SonarrSeriesID seen per instance.
 	deps.SeriesCache = &fakeSeriesCache{
-		rows: map[int64][]series.CacheEntry{
+		rows: map[domain.SeriesID][]series.CacheEntry{
 			42: {
 				mkCacheRowFull("alpha", 42, 7001),
 				mkCacheRowFull("alpha", 42, 7002), // duplicate instance, different sonarr id
@@ -505,7 +506,7 @@ func TestUseCase_InstanceCarriesSonarrSeriesID(t *testing.T) {
 	// onto LibraryCredit.Instances.
 	deps := happyFixture(t)
 	deps.SeriesCache = &fakeSeriesCache{
-		rows: map[int64][]series.CacheEntry{
+		rows: map[domain.SeriesID][]series.CacheEntry{
 			// canon 42 (LoU): two instances, distinct sonarr ids
 			42: {
 				mkCacheRowFull("alpha", 42, 1234),
@@ -586,7 +587,7 @@ func TestUseCase_CanonExistsNoSeriesCache_IsOtherCredit(t *testing.T) {
 	// Canon row exists (stub from recommendation maybe) but no live
 	// series_cache references — must land in other_credits.
 	deps := happyFixture(t)
-	deps.SeriesCache = &fakeSeriesCache{rows: map[int64][]series.CacheEntry{}}
+	deps.SeriesCache = &fakeSeriesCache{rows: map[domain.SeriesID][]series.CacheEntry{}}
 	uc := NewUseCase(deps)
 	out, err := uc.Get(context.Background(), 4495, "", "")
 	require.NoError(t, err)

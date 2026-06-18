@@ -8,6 +8,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // MediaTypeTV and MediaTypeMovie are the media_type discriminator
@@ -328,7 +329,7 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 // rows. seriesID and seasonID are passed in — the mapper does not
 // know them. Only TMDB-owned fields per PRD §5.4 are filled;
 // Sonarr-owned fields (SonarrEpisodeID, AbsoluteNumber) stay nil.
-func MapSeasonToEpisodes(season *SeasonResponse, seriesID int64, seasonID int64) []series.CanonEpisode {
+func MapSeasonToEpisodes(season *SeasonResponse, seriesID domain.SeriesID, seasonID int64) []series.CanonEpisode {
 	if season == nil {
 		return nil
 	}

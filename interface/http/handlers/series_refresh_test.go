@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type refreshHandlerFakeCache struct {
@@ -45,13 +46,13 @@ func (f *refreshHandlerFakeCache) ListDistinctNetworks(_ context.Context, _ stri
 
 type refreshHandlerFakeSeries struct{ canon seriesrefresh.CanonView }
 
-func (f *refreshHandlerFakeSeries) Get(_ context.Context, _ int64) (seriesrefresh.CanonView, error) {
+func (f *refreshHandlerFakeSeries) Get(_ context.Context, _ domain.SeriesID) (seriesrefresh.CanonView, error) {
 	return f.canon, nil
 }
 
 type refreshHandlerFakeCast struct{ ids []int64 }
 
-func (f *refreshHandlerFakeCast) TopCastPersonIDs(_ context.Context, _ int64, _ int) ([]int64, error) {
+func (f *refreshHandlerFakeCast) TopCastPersonIDs(_ context.Context, _ domain.SeriesID, _ int) ([]int64, error) {
 	return f.ids, nil
 }
 
@@ -62,8 +63,8 @@ func (d *refreshHandlerFakeDispatcher) Enqueue(_ enrichment.EntityKind, _ int64,
 }
 func (d *refreshHandlerFakeDispatcher) Close() {}
 
-func ptrInt64(v int64) *int64    { return &v }
-func ptrString(v string) *string { return &v }
+func ptrInt64(v int64) *domain.SeriesID { sid := domain.SeriesID(v); return &sid }
+func ptrString(v string) *string        { return &v }
 
 func mustNewRefreshHandler(t *testing.T, uc *seriesrefresh.UseCase) *SeriesRefreshHandler {
 	t.Helper()
@@ -96,7 +97,7 @@ func TestSeriesRefreshHandler_202_Accepted(t *testing.T) {
 
 	var body dto.SeriesRefreshResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, int64(42), body.SeriesID)
+	assert.Equal(t, domain.SeriesID(42), body.SeriesID)
 	assert.True(t, body.SeriesQueued)
 	assert.Equal(t, 2, body.Persons)
 	assert.True(t, body.OMDbQueued)

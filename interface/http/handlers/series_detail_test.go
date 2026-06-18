@@ -22,13 +22,14 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- minimal port fakes (mirror composer_test.go but inline) ---
 
 type fakeCachePort struct {
 	entries map[string]series.CacheEntry
-	byCanon map[int64][]series.CacheEntry
+	byCanon map[domain.SeriesID][]series.CacheEntry
 }
 
 func (f *fakeCachePort) Get(_ context.Context, instance string, sonarrID int) (series.CacheEntry, error) {
@@ -40,7 +41,7 @@ func (f *fakeCachePort) Get(_ context.Context, instance string, sonarrID int) (s
 	return e, nil
 }
 
-func (f *fakeCachePort) ListBySeriesID(_ context.Context, id int64) ([]series.CacheEntry, error) {
+func (f *fakeCachePort) ListBySeriesID(_ context.Context, id domain.SeriesID) ([]series.CacheEntry, error) {
 	return f.byCanon[id], nil
 }
 
@@ -63,9 +64,11 @@ func itoa(n int) string {
 	return out
 }
 
-type fakeSeriesPort struct{ rows map[int64]series.Canon }
+type fakeSeriesPort struct {
+	rows map[domain.SeriesID]series.Canon
+}
 
-func (f *fakeSeriesPort) Get(_ context.Context, id int64) (series.Canon, error) {
+func (f *fakeSeriesPort) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
 	c, ok := f.rows[id]
 	if !ok {
 		return series.Canon{}, ports.ErrNotFound
@@ -84,7 +87,7 @@ func (f *fakeSeriesPort) GetByTMDBID(_ context.Context, tmdbID int) (series.Cano
 
 type fakeNoTexts struct{}
 
-func (fakeNoTexts) GetWithFallback(_ context.Context, _ int64, _ string) (series.SeriesText, error) {
+func (fakeNoTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesText, error) {
 	return series.SeriesText{}, ports.ErrNotFound
 }
 
@@ -96,25 +99,25 @@ func (fakeNoEpTexts) GetWithFallback(_ context.Context, _ int64, _ string) (seri
 
 type emptyList struct{}
 
-func (emptyList) ListBySeries(_ context.Context, _ int64) ([]series.CanonSeason, error) {
+func (emptyList) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonSeason, error) {
 	return nil, nil
 }
 
 type emptyEpisodes struct{}
 
-func (emptyEpisodes) ListBySeries(_ context.Context, _ int64) ([]series.CanonEpisode, error) {
+func (emptyEpisodes) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonEpisode, error) {
 	return nil, nil
 }
 
 type emptyStates struct{}
 
-func (emptyStates) ListBySeries(_ context.Context, _ string, _ int64) ([]series.EpisodeState, error) {
+func (emptyStates) ListBySeries(_ context.Context, _ string, _ domain.SeriesID) ([]series.EpisodeState, error) {
 	return nil, nil
 }
 
 type emptyPeople struct{}
 
-func (emptyPeople) ListBySeries(_ context.Context, _ int64, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (emptyPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	return nil, nil
 }
 func (emptyPeople) ListByIDs(_ context.Context, _ []int64) ([]people.Person, error) {
@@ -123,41 +126,49 @@ func (emptyPeople) ListByIDs(_ context.Context, _ []int64) ([]people.Person, err
 
 type emptyTaxRefs struct{}
 
-func (emptyTaxRefs) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (emptyTaxRefs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, nil
+}
 func (emptyTaxRefs) Get(_ context.Context, id int64, lang string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{ID: id, Language: lang}, nil
 }
 
 type emptyKwRefs struct{}
 
-func (emptyKwRefs) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (emptyKwRefs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, nil
+}
 func (emptyKwRefs) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{ID: id, Language: lang}, nil
 }
 
 type emptyNetCo struct{}
 
-func (emptyNetCo) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (emptyNetCo) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, nil
+}
 func (emptyNetCo) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.Network, error) {
 	return nil, nil
 }
 
 type emptyCompanies struct{}
 
-func (emptyCompanies) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (emptyCompanies) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return nil, nil
+}
 func (emptyCompanies) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.ProductionCompany, error) {
 	return nil, nil
 }
 
 type emptyVideos struct{}
 
-func (emptyVideos) ListBySeriesAndType(_ context.Context, _ int64, _ string) ([]database.VideoModel, error) {
+func (emptyVideos) ListBySeriesAndType(_ context.Context, _ domain.SeriesID, _ string) ([]database.VideoModel, error) {
 	return nil, nil
 }
 
 type emptyRatings struct{}
 
-func (emptyRatings) ListBySeries(_ context.Context, _ int64) ([]database.ContentRatingModel, error) {
+func (emptyRatings) ListBySeries(_ context.Context, _ domain.SeriesID) ([]database.ContentRatingModel, error) {
 	return nil, nil
 }
 
@@ -169,7 +180,9 @@ func (emptyExtIDs) ListByEntity(_ context.Context, _ enrichment.EntityType, _ in
 
 type emptyRecs struct{}
 
-func (emptyRecs) ListBySeries(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
+func (emptyRecs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]domain.SeriesID, error) {
+	return nil, nil
+}
 
 type emptySyncLog struct{}
 
@@ -177,13 +190,13 @@ func (emptySyncLog) GetLastSync(_ context.Context, _ enrichment.EntityType, _ in
 	return enrichment.SyncLog{}, ports.ErrNotFound
 }
 
-func i64p(v int64) *int64 { return &v }
+func i64p(v int64) *domain.SeriesID { sid := domain.SeriesID(v); return &sid }
 
 func newComposerForHandlerTest(canon series.Canon, cacheEntries map[string]series.CacheEntry) *seriesdetail.Composer {
 	return seriesdetail.NewComposer(seriesdetail.Deps{
-		SeriesCache:       &fakeCachePort{entries: cacheEntries, byCanon: map[int64][]series.CacheEntry{}},
-		SeriesCacheLookup: &fakeCachePort{entries: cacheEntries, byCanon: map[int64][]series.CacheEntry{}},
-		Series:            &fakeSeriesPort{rows: map[int64]series.Canon{canon.ID: canon}},
+		SeriesCache:       &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
+		SeriesCacheLookup: &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
+		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{canon.ID: canon}},
 		SeriesTexts:       fakeNoTexts{},
 		Seasons:           emptyList{},
 		Episodes:          emptyEpisodes{},
@@ -237,7 +250,7 @@ func TestSeriesDetailHandler_Get_200(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "alpha", body.Instance)
 	require.Equal(t, 1, body.SonarrSeriesID)
-	require.Equal(t, int64(42), body.SeriesID)
+	require.Equal(t, domain.SeriesID(42), body.SeriesID)
 	require.Equal(t, "en-US", body.Lang)
 	require.Equal(t, "Breaking Bad", body.Hero.Title)
 	require.True(t, body.Torrents.SyncPending)

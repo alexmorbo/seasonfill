@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // EpisodeStatesRepository persists per-instance file state for
@@ -43,7 +44,7 @@ func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName string, 
 // whose episode belongs to seriesID. JOINs against `episodes` to walk
 // only the series's slice rather than scanning the whole per-instance
 // state table.
-func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName string, seriesID int64) ([]series.EpisodeState, error) {
+func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName string, seriesID domain.SeriesID) ([]series.EpisodeState, error) {
 	var models []database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.EpisodeStateModel{}).

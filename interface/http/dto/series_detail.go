@@ -6,7 +6,11 @@
 // JSON document.
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SeriesDetailResponse — the composite document returned by
 // GET /api/v1/instances/:name/series/:id?lang=. Every nested
@@ -23,7 +27,7 @@ type SeriesDetailResponse struct {
 	// SeriesID is the resolved canonical series.id. Useful to
 	// frontend for sibling endpoints (cast, person) that key on
 	// canonical id rather than Sonarr id.
-	SeriesID int64 `json:"series_id" example:"42"`
+	SeriesID domain.SeriesID `json:"series_id" example:"42"`
 	// Lang is the BCP-47 language code the response was rendered
 	// in. Echoes the request when present; defaults to "en-US"
 	// when the request omitted ?lang= or sent an invalid value.
@@ -333,13 +337,13 @@ type CastMember struct {
 // (design brief §2.9). InLibrary=true → click navigates to that
 // series's detail page; false → "Add to Sonarr" overlay (inert v1).
 type Recommendation struct {
-	SeriesID     int64    `json:"series_id"`
-	TMDBSeriesID *int     `json:"tmdb_series_id,omitempty"`
-	Title        string   `json:"title"`
-	Year         *int     `json:"year,omitempty"`
-	PosterAsset  *string  `json:"poster_asset,omitempty"`
-	TMDBRating   *float64 `json:"tmdb_rating,omitempty"`
-	InLibrary    bool     `json:"in_library"`
+	SeriesID     domain.SeriesID `json:"series_id"`
+	TMDBSeriesID *int            `json:"tmdb_series_id,omitempty"`
+	Title        string          `json:"title"`
+	Year         *int            `json:"year,omitempty"`
+	PosterAsset  *string         `json:"poster_asset,omitempty"`
+	TMDBRating   *float64        `json:"tmdb_rating,omitempty"`
+	InLibrary    bool            `json:"in_library"`
 	// InstanceName + SonarrSeriesID identify which instance the
 	// recommendation lives on (when InLibrary=true). Empty
 	// otherwise. Used for the in-library click-through link.
@@ -360,11 +364,11 @@ type ExternalLinks struct {
 // GET /api/v1/instances/:name/series/:id/season/:n. Reuses Season
 // + adds the parent series id for the SPA's polling code path.
 type SeasonDetailResponse struct {
-	Instance       string    `json:"instance"`
-	SonarrSeriesID int       `json:"sonarr_series_id"`
-	SeriesID       int64     `json:"series_id"`
-	Lang           string    `json:"lang"`
-	Season         Season    `json:"season"`
-	Degraded       []string  `json:"degraded"`
-	SyncedAt       time.Time `json:"synced_at"`
+	Instance       string          `json:"instance"`
+	SonarrSeriesID int             `json:"sonarr_series_id"`
+	SeriesID       domain.SeriesID `json:"series_id"`
+	Lang           string          `json:"lang"`
+	Season         Season          `json:"season"`
+	Degraded       []string        `json:"degraded"`
+	SyncedAt       time.Time       `json:"synced_at"`
 }

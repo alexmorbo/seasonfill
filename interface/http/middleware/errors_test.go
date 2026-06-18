@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -38,7 +39,7 @@ func newRouter(handler gin.HandlerFunc) *gin.Engine {
 func TestErrorResponseMiddleware_TypedNotFound(t *testing.T) {
 	t.Parallel()
 
-	id := int64(99)
+	id := domain.SeriesID(99)
 	r := newRouter(func(c *gin.Context) {
 		_ = c.Error(&sharedErrors.SeriesNotFoundError{ID: id})
 	})

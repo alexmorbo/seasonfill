@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -90,11 +91,11 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 // series.id (NOT series_cache.id). Returns an error only on a
 // terminal failure that should NOT bubble (the worker journals
 // outcome=error / not_found internally before returning).
-func (w *SeriesWorker) Handle(ctx context.Context, seriesID int64) error {
+func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
-		slog.Int64("entity_id", seriesID),
+		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceTMDBSeries)),
 	)
 
@@ -116,7 +117,7 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID int64) error {
 	}
 
 	// 2. Staleness short-circuit: ok + IsStale=false ⇒ skip.
-	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, seriesID, enrichment.SourceTMDBSeries)
+	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		log.WarnContext(ctx, "enrichment.series.handle.sync_log_read_failed",
 			slog.String("error", err.Error()))
@@ -400,7 +401,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	// clobbered. Mirror behavior for poster.
 	if tv != nil && tv.BackdropPath != "" && (canonOut.BackdropAsset == nil || *canonOut.BackdropAsset == "") {
 		log.WarnContext(txCtx, "enrichment.series.canon.backdrop_write_gap",
-			slog.Int64("series_id", canon.ID),
+			slog.Int64("series_id", int64(canon.ID)),
 			slog.Any("tmdb_id", canonOut.TMDBID),
 			slog.String("tmdb_backdrop_path", tv.BackdropPath),
 			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
@@ -410,7 +411,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	}
 	if tv != nil && tv.PosterPath != "" && (canonOut.PosterAsset == nil || *canonOut.PosterAsset == "") {
 		log.WarnContext(txCtx, "enrichment.series.canon.poster_write_gap",
-			slog.Int64("series_id", canon.ID),
+			slog.Int64("series_id", int64(canon.ID)),
 			slog.Any("tmdb_id", canonOut.TMDBID),
 			slog.String("tmdb_poster_path", tv.PosterPath),
 			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
@@ -432,7 +433,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	tvHasPoster := tv != nil && tv.PosterPath != ""
 	tvHasBackdrop := tv != nil && tv.BackdropPath != ""
 	log.InfoContext(txCtx, "enrichment.series.canon.images_persisted",
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.Any("tmdb_id", canonOut.TMDBID),
 		slog.Bool("poster_present", canonOut.PosterAsset != nil && *canonOut.PosterAsset != ""),
 		slog.Bool("backdrop_present", canonOut.BackdropAsset != nil && *canonOut.BackdropAsset != ""),
@@ -565,7 +566,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 
 	// 11. External IDs.
 	for _, e := range m.ExternalIDs {
-		if err := w.deps.ExternalIDs.Upsert(txCtx, enrichment.EntityTypeSeries, seriesID, e.Provider, e.ProviderID); err != nil {
+		if err := w.deps.ExternalIDs.Upsert(txCtx, enrichment.EntityTypeSeries, int64(seriesID), e.Provider, e.ProviderID); err != nil {
 			return nil, fmt.Errorf("upsert external_id: %w", err)
 		}
 	}
@@ -575,7 +576,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	//     through UpsertStub, whose ON CONFLICT preserves existing
 	//     poster_asset / backdrop_asset / hydration='full' so a
 	//     recommendation sweep cannot blank out a real canon row.
-	recIDs := make([]int64, 0, len(m.Recommendations))
+	recIDs := make([]domain.SeriesID, 0, len(m.Recommendations))
 	for _, rec := range m.Recommendations {
 		id, err := w.deps.Series.UpsertStub(txCtx, rec)
 		if err != nil {
@@ -600,7 +601,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 // exactly — cast first (one row per cast member), then crew (one
 // row per job per crew member). Returns the resolved slice + a
 // drop count for any credit we cannot wire.
-func resolveSeriesCreditsWithPersonID(tv *tmdb.TVResponse, seriesID int64, personIDByTMDB map[int]int64) ([]people.SeriesCredit, int) {
+func resolveSeriesCreditsWithPersonID(tv *tmdb.TVResponse, seriesID domain.SeriesID, personIDByTMDB map[int]int64) ([]people.SeriesCredit, int) {
 	if tv == nil || tv.AggregateCredits == nil {
 		return nil, 0
 	}
@@ -681,7 +682,7 @@ func resolveSeriesCreditsWithPersonID(tv *tmdb.TVResponse, seriesID int64, perso
 	return out, dropped
 }
 
-func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID int64, m mappedPayload) error {
+func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.SeriesID, m mappedPayload) error {
 	gIDs := make([]int64, 0, len(m.Genres))
 	for _, g := range m.Genres {
 		id, err := w.deps.Genres.Upsert(txCtx, g)
@@ -748,12 +749,12 @@ func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID int64, m ma
 // failures OR outcome=not_found for TMDB 404. Returns nil — the
 // dispatcher only cares about success/failure for slog; the
 // journalled outcome drives the retry sweep.
-func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID int64, op string, err error, previousAttempts int, start time.Time) error {
+func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.SeriesID, op string, err error, previousAttempts int, start time.Time) error {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
-		slog.Int64("entity_id", seriesID),
+		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceTMDBSeries)),
 		slog.String("op", op),
 	)
@@ -764,7 +765,7 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID int64, op s
 		ed := err.Error()
 		entry := enrichment.SyncLog{
 			EntityType:  enrichment.EntityTypeSeries,
-			EntityID:    seriesID,
+			EntityID:    int64(seriesID),
 			Source:      enrichment.SourceTMDBSeries,
 			SyncedAt:    nil,
 			Outcome:     enrichment.OutcomeNotFound,
@@ -790,7 +791,7 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID int64, op s
 	ed := err.Error()
 	entry := enrichment.SyncLog{
 		EntityType:    enrichment.EntityTypeSeries,
-		EntityID:      seriesID,
+		EntityID:      int64(seriesID),
 		Source:        enrichment.SourceTMDBSeries,
 		SyncedAt:      nil,
 		Outcome:       enrichment.OutcomeError,
@@ -814,10 +815,10 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID int64, op s
 	return nil
 }
 
-func (w *SeriesWorker) journalOK(ctx context.Context, seriesID int64, now time.Time, durMs int) {
+func (w *SeriesWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time, durMs int) {
 	entry := enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   seriesID,
+		EntityID:   int64(seriesID),
 		Source:     enrichment.SourceTMDBSeries,
 		SyncedAt:   &now,
 		Outcome:    enrichment.OutcomeOK,
@@ -826,18 +827,18 @@ func (w *SeriesWorker) journalOK(ctx context.Context, seriesID int64, now time.T
 	}
 	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.journal_ok_failed",
-			slog.Int64("entity_id", seriesID),
+			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 }
 
-func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID int64, msg string, start time.Time) {
+func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.SeriesID, msg string, start time.Time) {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	ed := msg
 	entry := enrichment.SyncLog{
 		EntityType:  enrichment.EntityTypeSeries,
-		EntityID:    seriesID,
+		EntityID:    int64(seriesID),
 		Source:      enrichment.SourceTMDBSeries,
 		Outcome:     enrichment.OutcomeNotFound,
 		ErrorDetail: &ed,
@@ -846,7 +847,7 @@ func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID int64, msg 
 	}
 	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.journal_nf_failed",
-			slog.Int64("entity_id", seriesID),
+			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 }

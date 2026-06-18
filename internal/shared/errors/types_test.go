@@ -9,12 +9,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // newSeriesID returns a non-shared series id for use as a test sentinel.
 // Per D-0 rule, tests must not share fixed ids across cases.
-func newSeriesID() int64 { return rand.Int64N(1_000_000) + 1 }
+func newSeriesID() domain.SeriesID { return domain.SeriesID(rand.Int64N(1_000_000) + 1) }
 
 func newTMDBID() int { return int(rand.Int32N(1_000_000) + 1) }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type refreshFakeCache struct {
@@ -41,7 +42,7 @@ type refreshFakeSeries struct {
 	err   error
 }
 
-func (f *refreshFakeSeries) Get(_ context.Context, _ int64) (CanonView, error) {
+func (f *refreshFakeSeries) Get(_ context.Context, _ domain.SeriesID) (CanonView, error) {
 	return f.canon, f.err
 }
 
@@ -50,7 +51,7 @@ type refreshFakeCast struct {
 	err error
 }
 
-func (f *refreshFakeCast) TopCastPersonIDs(_ context.Context, _ int64, _ int) ([]int64, error) {
+func (f *refreshFakeCast) TopCastPersonIDs(_ context.Context, _ domain.SeriesID, _ int) ([]int64, error) {
 	return f.ids, f.err
 }
 
@@ -69,12 +70,15 @@ func (d *refreshFakeDispatcher) Enqueue(k enrichment.EntityKind, id int64, p enr
 }
 func (d *refreshFakeDispatcher) Close() {}
 
-func ptrInt64(v int64) *int64    { return &v }
 func ptrString(v string) *string { return &v }
+func ptrSeriesID(v int64) *domain.SeriesID {
+	id := domain.SeriesID(v)
+	return &id
+}
 
 func TestRefresh_HappyPath_SeriesPersonsOMDb(t *testing.T) {
 	t.Parallel()
-	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(99)}}
+	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(99)}}
 	canon := &refreshFakeSeries{canon: CanonView{ID: 99, IMDBID: ptrString("tt123")}}
 	cast := &refreshFakeCast{ids: []int64{1, 2, 3}}
 	disp := &refreshFakeDispatcher{}
@@ -84,7 +88,7 @@ func TestRefresh_HappyPath_SeriesPersonsOMDb(t *testing.T) {
 
 	res, err := uc.Refresh(context.Background(), "alpha", 7)
 	require.NoError(t, err)
-	assert.Equal(t, int64(99), res.SeriesID)
+	assert.Equal(t, domain.SeriesID(99), res.SeriesID)
 	assert.True(t, res.SeriesQueued)
 	assert.Equal(t, 3, res.Persons)
 	assert.True(t, res.OMDbQueued)
@@ -95,7 +99,7 @@ func TestRefresh_HappyPath_SeriesPersonsOMDb(t *testing.T) {
 
 func TestRefresh_NoSeriesPeople_SkipsCastBranch(t *testing.T) {
 	t.Parallel()
-	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(50)}}
+	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(50)}}
 	canon := &refreshFakeSeries{canon: CanonView{ID: 50}}
 	disp := &refreshFakeDispatcher{}
 
@@ -110,7 +114,7 @@ func TestRefresh_NoSeriesPeople_SkipsCastBranch(t *testing.T) {
 
 func TestRefresh_NoIMDB_SkipsOMDb(t *testing.T) {
 	t.Parallel()
-	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(50)}}
+	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(50)}}
 	canon := &refreshFakeSeries{canon: CanonView{ID: 50, IMDBID: ptrString("")}}
 	cast := &refreshFakeCast{ids: []int64{1}}
 	disp := &refreshFakeDispatcher{}
@@ -150,7 +154,7 @@ func TestRefresh_CacheNoCanonID_NotFound(t *testing.T) {
 
 func TestRefresh_TopCastFails_LogsAndContinues(t *testing.T) {
 	t.Parallel()
-	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(7)}}
+	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(7)}}
 	canon := &refreshFakeSeries{canon: CanonView{ID: 7}}
 	cast := &refreshFakeCast{err: errors.New("db down")}
 	disp := &refreshFakeDispatcher{}

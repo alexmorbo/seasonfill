@@ -10,15 +10,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeScanner struct {
-	ids  []int64
+	ids  []domain.SeriesID
 	pass int32
 	err  error
 }
 
-func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]int64, error) {
+func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]domain.SeriesID, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -31,7 +33,7 @@ func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]
 // ListCanonImagesCorrupted — Story 319: cold_start_test cases never
 // touch the recovery path (it lives in the enrichment_wiring closure,
 // not in cold_start.go), so the fake returns an empty slice.
-func (f *fakeScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]int64, error) {
+func (f *fakeScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]domain.SeriesID, error) {
 	return nil, nil
 }
 
@@ -60,7 +62,7 @@ func (r *recordingDispatcher) Close() {}
 
 func TestBackfillSeries_IdempotentAfterFirstPass(t *testing.T) {
 	t.Parallel()
-	scanner := &fakeScanner{ids: []int64{10, 20, 30}}
+	scanner := &fakeScanner{ids: []domain.SeriesID{10, 20, 30}}
 	d := &recordingDispatcher{}
 	ctx := context.Background()
 
@@ -69,7 +71,7 @@ func TestBackfillSeries_IdempotentAfterFirstPass(t *testing.T) {
 	for i, c := range d.calls {
 		assert.Equal(t, EntitySeries, c.Kind)
 		assert.Equal(t, PriorityCold, c.Priority)
-		assert.Equal(t, scanner.ids[i], c.ID)
+		assert.Equal(t, int64(scanner.ids[i]), c.ID)
 	}
 
 	// Second pass: scanner returns empty (every row now has a row).
@@ -141,7 +143,7 @@ func TestBackfillSeries_ColdStartGauge_InitAndDecrement(t *testing.T) {
 	})
 	t.Cleanup(func() { SetColdStartGaugeForTest(nil) })
 
-	scanner := &fakeScanner{ids: []int64{10, 20, 30}}
+	scanner := &fakeScanner{ids: []domain.SeriesID{10, 20, 30}}
 	d := &recordingHookableDispatcher{}
 	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
 
@@ -183,7 +185,7 @@ func TestBackfillSeries_ColdStartGauge_UnknownIDFire_NoDecrement(t *testing.T) {
 	SetColdStartGaugeForTest(func(n int) { captured = append(captured, n) })
 	t.Cleanup(func() { SetColdStartGaugeForTest(nil) })
 
-	scanner := &fakeScanner{ids: []int64{1, 2}}
+	scanner := &fakeScanner{ids: []domain.SeriesID{1, 2}}
 	d := &recordingHookableDispatcher{}
 	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
 
@@ -203,7 +205,7 @@ func TestBackfillSeries_LegacyRecordingDispatcher_StillWorks(t *testing.T) {
 	// satisfies the production BackfillSeries call. Hook is skipped
 	// (no SetOnSeriesComplete on this fake) — the function returns
 	// nil and the call list is correct.
-	scanner := &fakeScanner{ids: []int64{1, 2}}
+	scanner := &fakeScanner{ids: []domain.SeriesID{1, 2}}
 	d := &recordingDispatcher{}
 	require.NoError(t, BackfillSeries(context.Background(), scanner, d, quietLogger()))
 	require.Len(t, d.calls, 2)
@@ -215,12 +217,12 @@ func TestBackfillSeries_LegacyRecordingDispatcher_StillWorks(t *testing.T) {
 // records how many times ListMissingSyncLog was called.
 type countingScanner struct {
 	mu     sync.Mutex
-	idsFn  func(pass int) []int64
+	idsFn  func(pass int) []domain.SeriesID
 	passes int
 	err    error
 }
 
-func (c *countingScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]int64, error) {
+func (c *countingScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]domain.SeriesID, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.passes++
@@ -241,7 +243,7 @@ func (c *countingScanner) callCount() int {
 
 // ListCanonImagesCorrupted — Story 319: countingScanner exercises the
 // re-sweep loop, not the recovery path; return empty.
-func (c *countingScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]int64, error) {
+func (c *countingScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]domain.SeriesID, error) {
 	return nil, nil
 }
 
@@ -256,9 +258,9 @@ func TestRunBackfillLoop_RunsImmediatelyThenOnTick(t *testing.T) {
 	// is done). The loop must call the scanner AT LEAST twice within
 	// 300ms when ticker interval is 50ms.
 	scanner := &countingScanner{
-		idsFn: func(pass int) []int64 {
+		idsFn: func(pass int) []domain.SeriesID {
 			if pass == 1 {
-				return []int64{1, 2}
+				return []domain.SeriesID{1, 2}
 			}
 			return nil
 		},
@@ -337,7 +339,7 @@ func TestRunBackfillLoop_ZeroIntervalUsesDefault(t *testing.T) {
 	// synchronous sweep — the goroutine should exit cleanly and the
 	// scanner should have been called exactly once.
 	scanner := &countingScanner{
-		idsFn: func(int) []int64 { return nil },
+		idsFn: func(int) []domain.SeriesID { return nil },
 	}
 	d := &recordingHookableDispatcher{}
 

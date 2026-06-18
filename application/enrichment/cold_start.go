@@ -108,7 +108,7 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 	// completion racing the enqueue loop sees a consistent set.
 	owned := make(map[int64]struct{}, len(ids))
 	for _, id := range ids {
-		owned[id] = struct{}{}
+		owned[int64(id)] = struct{}{}
 	}
 	var (
 		mu        sync.Mutex
@@ -138,7 +138,7 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 	}
 
 	for _, id := range ids {
-		dispatcher.Enqueue(EntitySeries, id, PriorityCold)
+		dispatcher.Enqueue(EntitySeries, int64(id), PriorityCold)
 	}
 	observability.AddEnrichmentColdStartResweepEnqueued(len(ids))
 	log.InfoContext(ctx, "enrichment.cold_start.enqueued",

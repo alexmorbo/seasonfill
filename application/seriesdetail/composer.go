@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -27,7 +28,7 @@ import (
 type Detail struct {
 	Instance       string
 	SonarrSeriesID int
-	SeriesID       int64
+	SeriesID       domain.SeriesID
 	Lang           string
 
 	Canon           series.Canon
@@ -304,7 +305,7 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 
 	// Recent activity — placeholder (§9 note).
 	c.d.Logger.DebugContext(ctx, "recent_activity_deferred",
-		slog.Int64("series_id", seriesID))
+		slog.Int64("series_id", int64(seriesID)))
 	d.Recent = []RecentItem{}
 
 	// errgroup.Wait — branches NEVER return errors (run/runLive
@@ -335,7 +336,7 @@ func (c *Composer) Get(ctx context.Context, instanceName string, sonarrSeriesID 
 	c.d.Logger.InfoContext(ctx, "series_detail_composed",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.String("lang", lang),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 		slog.Any("degraded", sourceStrings(d.Degraded)),
@@ -387,7 +388,7 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName string, sonarrSer
 	c.d.Logger.InfoContext(ctx, "series_season_composed",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("season_number", seasonNumber),
 		slog.String("lang", lang),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
@@ -415,7 +416,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		// rendering, NOT a request failure.
 		c.d.Logger.WarnContext(ctx, "episode_states_failed",
 			slog.String("instance_name", d.Instance),
-			slog.Int64("series_id", d.SeriesID),
+			slog.Int64("series_id", int64(d.SeriesID)),
 			slog.String("error", err.Error()))
 		states = nil
 	}
@@ -592,7 +593,7 @@ func (c *Composer) loadRatingsAndIDs(ctx context.Context, d *Detail, lang string
 		return fmt.Errorf("list content_ratings: %w", err)
 	}
 	d.ContentRating = pickContentRating(ratings, lang)
-	xids, err := c.d.ExternalIDs.ListByEntity(ctx, enrichment.EntityTypeSeries, d.SeriesID)
+	xids, err := c.d.ExternalIDs.ListByEntity(ctx, enrichment.EntityTypeSeries, int64(d.SeriesID))
 	if err != nil {
 		return fmt.Errorf("list external_ids: %w", err)
 	}
@@ -664,7 +665,7 @@ func (c *Composer) loadSonarrQueue(ctx context.Context, d *Detail) error {
 // Reads sync_log for the four canon sources, applies §5.6 rules
 // via enrichment.Degraded, then ORs in the branch-failure flags
 // from the tracker.
-func (c *Composer) computeDegraded(ctx context.Context, seriesID int64, canon series.Canon, br *branchTracker) ([]enrichment.Source, error) {
+func (c *Composer) computeDegraded(ctx context.Context, seriesID domain.SeriesID, canon series.Canon, br *branchTracker) ([]enrichment.Source, error) {
 	in := enrichment.DegradedInput{
 		Logs:            map[enrichment.Source]*enrichment.SyncLog{},
 		TTLs:            map[enrichment.Source]time.Duration{},
@@ -679,7 +680,7 @@ func (c *Composer) computeDegraded(ctx context.Context, seriesID int64, canon se
 	}
 	kind := classifyKind(canon)
 	for _, s := range sources {
-		log, err := c.d.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, seriesID, s)
+		log, err := c.d.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), s)
 		switch {
 		case err == nil:
 			row := log
@@ -689,7 +690,7 @@ func (c *Composer) computeDegraded(ctx context.Context, seriesID int64, canon se
 		default:
 			c.d.Logger.WarnContext(ctx, "sync_log_lookup_failed",
 				slog.String("source", string(s)),
-				slog.Int64("series_id", seriesID),
+				slog.Int64("series_id", int64(seriesID)),
 				slog.String("error", err.Error()))
 			in.Logs[s] = nil
 		}

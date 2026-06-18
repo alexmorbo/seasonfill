@@ -6,6 +6,8 @@
 // projected against the operator's library.
 package dto
 
+import "github.com/alexmorbo/seasonfill/internal/shared/domain"
+
 // PersonDetailResponse is the full person page payload returned
 // by GET /api/v1/people/:tmdbId?lang=&sort=. Sections map onto
 // design brief §4.3 (hero) + §4.4 (bio / library / other credits).
@@ -66,7 +68,7 @@ type SyncInfo struct {
 // person_credits whose tmdb_media_id resolves to a canon `series`
 // row that has at least one live `series_cache` reference.
 type LibraryCreditEntry struct {
-	SeriesID      int64                   `json:"series_id" example:"42"`
+	SeriesID      domain.SeriesID         `json:"series_id" example:"42"`
 	TMDBID        *int                    `json:"tmdb_id,omitempty" example:"100"`
 	Title         string                  `json:"title" example:"The Last of Us"`
 	Year          *int                    `json:"year,omitempty" example:"2023"`

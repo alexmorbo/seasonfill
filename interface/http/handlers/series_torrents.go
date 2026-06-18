@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesTorrentsHandler serves the per-series torrents document
@@ -126,7 +127,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 		writeInternalError(c, h.logger, "series_torrents_canon_lookup_failed", gerr,
 			slog.String("instance_name", name),
 			slog.Int("sonarr_series_id", sonarrID),
-			slog.Int64("series_id", seriesID))
+			slog.Int64("series_id", int64(seriesID)))
 		return
 	}
 
@@ -136,7 +137,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 		writeInternalError(c, h.logger, "series_torrents_query_failed", err,
 			slog.String("instance_name", name),
 			slog.Int("sonarr_series_id", sonarrID),
-			slog.Int64("series_id", seriesID))
+			slog.Int64("series_id", int64(seriesID)))
 		return
 	}
 
@@ -158,7 +159,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	h.logger.DebugContext(ctx, "series_torrents_served",
 		slog.String("instance_name", name),
 		slog.Int("sonarr_series_id", sonarrID),
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("torrent_count", resp.TotalCount),
 		slog.Int("live_count", resp.LiveCount))
 	c.JSON(http.StatusOK, resp)
@@ -177,7 +178,7 @@ func computeTorrentsETag(syncedAtUnix int64, count int) string {
 func toSeriesTorrentsResponse(
 	instance string,
 	sonarrID int,
-	seriesID int64,
+	seriesID domain.SeriesID,
 	result torrentsync.QueryResult,
 ) dto.SeriesTorrentsResponse {
 	resp := dto.SeriesTorrentsResponse{

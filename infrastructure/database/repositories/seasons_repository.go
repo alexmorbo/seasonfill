@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeasonsRepository persists the `seasons` table. Natural key is
@@ -39,7 +40,7 @@ func (r *SeasonsRepository) Get(ctx context.Context, id int64) (series.CanonSeas
 	return toCanonSeason(m), nil
 }
 
-func (r *SeasonsRepository) ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonSeason, error) {
+func (r *SeasonsRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error) {
 	var models []database.SeasonModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

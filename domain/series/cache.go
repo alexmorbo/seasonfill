@@ -1,6 +1,10 @@
 package series
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // CacheEntry is the domain shape of one series_cache row (D66). It is
 // the transport between the SeriesCacheRepository and the application
@@ -23,7 +27,7 @@ type CacheEntry struct {
 	// composer treats nil as the 404 path. Read-only on the
 	// domain shape; writes go through SeriesCacheRepository.Upsert
 	// which resolves-or-creates the canon row.
-	SeriesID  *int64
+	SeriesID  *domain.SeriesID
 	Title     string
 	TitleSlug string
 	Year      *int

@@ -5,6 +5,8 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type ScanRunModel struct {
@@ -367,17 +369,17 @@ func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }
 // series stay readable. No DB-level FK on instance_name (consistent
 // with the rest of the schema).
 type SeriesCacheModel struct {
-	InstanceName      string     `gorm:"primaryKey;size:128;column:instance_name"`
-	SonarrSeriesID    int        `gorm:"primaryKey;column:sonarr_series_id"`
-	SeriesID          *int64     `gorm:"column:series_id;index:series_cache_series_id;not null"`
-	TitleSlug         string     `gorm:"type:text;not null;column:title_slug"`
-	Monitored         bool       `gorm:"column:monitored;not null;default:false"`
-	MissingCount      int        `gorm:"column:missing_count;not null;default:0"`
-	EpisodeFileCount  int        `gorm:"column:episode_file_count;not null;default:0"`
-	SizeOnDiskBytes   int64      `gorm:"column:size_on_disk_bytes;not null;default:0"`
-	AiredEpisodeCount int        `gorm:"column:aired_episode_count;not null;default:0"`
-	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
-	DeletedAt         *time.Time `gorm:"column:deleted_at"`
+	InstanceName      string           `gorm:"primaryKey;size:128;column:instance_name"`
+	SonarrSeriesID    int              `gorm:"primaryKey;column:sonarr_series_id"`
+	SeriesID          *domain.SeriesID `gorm:"column:series_id;index:series_cache_series_id;not null"`
+	TitleSlug         string           `gorm:"type:text;not null;column:title_slug"`
+	Monitored         bool             `gorm:"column:monitored;not null;default:false"`
+	MissingCount      int              `gorm:"column:missing_count;not null;default:0"`
+	EpisodeFileCount  int              `gorm:"column:episode_file_count;not null;default:0"`
+	SizeOnDiskBytes   int64            `gorm:"column:size_on_disk_bytes;not null;default:0"`
+	AiredEpisodeCount int              `gorm:"column:aired_episode_count;not null;default:0"`
+	UpdatedAt         time.Time        `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time       `gorm:"column:deleted_at"`
 }
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
@@ -410,22 +412,22 @@ func (ExternalServiceSettingsModel) TableName() string { return "external_servic
 // not NULL so Sonarr orphans without a TMDB match still fit. Hydration
 // is text(stub|full); defaults to 'stub' on insert.
 type SeriesModel struct {
-	ID               int64      `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID           *int       `gorm:"column:tmdb_id"`
-	TVDBID           *int       `gorm:"column:tvdb_id;index:series_tvdb_id"`
-	IMDBID           *string    `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
-	Hydration        string     `gorm:"column:hydration;type:text;not null;default:'stub'"`
-	Title            string     `gorm:"column:title;type:text;not null"`
-	OriginalTitle    *string    `gorm:"column:original_title;type:text"`
-	Status           *string    `gorm:"column:status;type:text"`
-	FirstAirDate     *time.Time `gorm:"column:first_air_date"`
-	LastAirDate      *time.Time `gorm:"column:last_air_date"`
-	NextAirDate      *time.Time `gorm:"column:next_air_date"`
-	Year             *int       `gorm:"column:year"`
-	RuntimeMinutes   *int       `gorm:"column:runtime_minutes"`
-	Homepage         *string    `gorm:"column:homepage;type:text"`
-	OriginalLanguage *string    `gorm:"column:original_language;type:text"`
-	OriginCountry    *string    `gorm:"column:origin_country;type:text"`
+	ID               domain.SeriesID `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID           *int            `gorm:"column:tmdb_id"`
+	TVDBID           *int            `gorm:"column:tvdb_id;index:series_tvdb_id"`
+	IMDBID           *string         `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
+	Hydration        string          `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	Title            string          `gorm:"column:title;type:text;not null"`
+	OriginalTitle    *string         `gorm:"column:original_title;type:text"`
+	Status           *string         `gorm:"column:status;type:text"`
+	FirstAirDate     *time.Time      `gorm:"column:first_air_date"`
+	LastAirDate      *time.Time      `gorm:"column:last_air_date"`
+	NextAirDate      *time.Time      `gorm:"column:next_air_date"`
+	Year             *int            `gorm:"column:year"`
+	RuntimeMinutes   *int            `gorm:"column:runtime_minutes"`
+	Homepage         *string         `gorm:"column:homepage;type:text"`
+	OriginalLanguage *string         `gorm:"column:original_language;type:text"`
+	OriginCountry    *string         `gorm:"column:origin_country;type:text"`
 	// OriginCountries is a JSON-encoded array of ISO 3166-1 alpha-2 codes
 	// (e.g. `["US","CA"]`). Migration 000041 introduced it; OriginCountry
 	// is kept in sync as the first element for compat. NULL on rows older
@@ -452,29 +454,29 @@ func (SeriesModel) TableName() string { return "series" }
 // SeriesTextModel — one localised text row per (series_id, language).
 // The §5.6 fallback helper reads against this table.
 type SeriesTextModel struct {
-	SeriesID  int64     `gorm:"primaryKey;column:series_id"`
-	Language  string    `gorm:"primaryKey;column:language;type:text"`
-	Title     *string   `gorm:"column:title;type:text"`
-	Overview  *string   `gorm:"column:overview;type:text"`
-	Tagline   *string   `gorm:"column:tagline;type:text"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+	SeriesID  domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	Language  string          `gorm:"primaryKey;column:language;type:text"`
+	Title     *string         `gorm:"column:title;type:text"`
+	Overview  *string         `gorm:"column:overview;type:text"`
+	Tagline   *string         `gorm:"column:tagline;type:text"`
+	UpdatedAt time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesTextModel) TableName() string { return "series_texts" }
 
 // SeasonModel — one row per (series_id, season_number).
 type SeasonModel struct {
-	ID           int64      `gorm:"primaryKey;autoIncrement;column:id"`
-	SeriesID     int64      `gorm:"column:series_id;not null"`
-	SeasonNumber int        `gorm:"column:season_number;not null"`
-	TMDBSeasonID *int       `gorm:"column:tmdb_season_id"`
-	Name         *string    `gorm:"column:name;type:text"`
-	Overview     *string    `gorm:"column:overview;type:text"`
-	AirDate      *time.Time `gorm:"column:air_date"`
-	EpisodeCount *int       `gorm:"column:episode_count"`
-	PosterAsset  *string    `gorm:"column:poster_asset;type:text"`
-	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+	ID           int64           `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID     domain.SeriesID `gorm:"column:series_id;not null"`
+	SeasonNumber int             `gorm:"column:season_number;not null"`
+	TMDBSeasonID *int            `gorm:"column:tmdb_season_id"`
+	Name         *string         `gorm:"column:name;type:text"`
+	Overview     *string         `gorm:"column:overview;type:text"`
+	AirDate      *time.Time      `gorm:"column:air_date"`
+	EpisodeCount *int            `gorm:"column:episode_count"`
+	PosterAsset  *string         `gorm:"column:poster_asset;type:text"`
+	CreatedAt    time.Time       `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (SeasonModel) TableName() string { return "seasons" }
@@ -482,23 +484,23 @@ func (SeasonModel) TableName() string { return "seasons" }
 // EpisodeModel — canonical episode row, unique on
 // (series_id, season_number, episode_number).
 type EpisodeModel struct {
-	ID                int64      `gorm:"primaryKey;autoIncrement;column:id"`
-	SeriesID          int64      `gorm:"column:series_id;not null"`
-	SeasonID          *int64     `gorm:"column:season_id"`
-	SeasonNumber      int        `gorm:"column:season_number;not null"`
-	EpisodeNumber     int        `gorm:"column:episode_number;not null"`
-	TMDBEpisodeNumber *int       `gorm:"column:tmdb_episode_number"`
-	TMDBEpisodeID     *int       `gorm:"column:tmdb_episode_id"`
-	SonarrEpisodeID   *int       `gorm:"column:sonarr_episode_id"`
-	AbsoluteNumber    *int       `gorm:"column:absolute_number"`
-	AirDate           *time.Time `gorm:"column:air_date"`
-	RuntimeMinutes    *int       `gorm:"column:runtime_minutes"`
-	FinaleType        *string    `gorm:"column:finale_type;type:text"`
-	StillAsset        *string    `gorm:"column:still_asset;type:text"`
-	TMDBRating        *float64   `gorm:"column:tmdb_rating"`
-	TMDBVotes         *int       `gorm:"column:tmdb_votes"`
-	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	ID                int64           `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID          domain.SeriesID `gorm:"column:series_id;not null"`
+	SeasonID          *int64          `gorm:"column:season_id"`
+	SeasonNumber      int             `gorm:"column:season_number;not null"`
+	EpisodeNumber     int             `gorm:"column:episode_number;not null"`
+	TMDBEpisodeNumber *int            `gorm:"column:tmdb_episode_number"`
+	TMDBEpisodeID     *int            `gorm:"column:tmdb_episode_id"`
+	SonarrEpisodeID   *int            `gorm:"column:sonarr_episode_id"`
+	AbsoluteNumber    *int            `gorm:"column:absolute_number"`
+	AirDate           *time.Time      `gorm:"column:air_date"`
+	RuntimeMinutes    *int            `gorm:"column:runtime_minutes"`
+	FinaleType        *string         `gorm:"column:finale_type;type:text"`
+	StillAsset        *string         `gorm:"column:still_asset;type:text"`
+	TMDBRating        *float64        `gorm:"column:tmdb_rating"`
+	TMDBVotes         *int            `gorm:"column:tmdb_votes"`
+	CreatedAt         time.Time       `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (EpisodeModel) TableName() string { return "episodes" }
@@ -610,18 +612,18 @@ func (PersonBiographyModel) TableName() string { return "person_biographies" }
 // "series_people"). Natural key (series_id, tmdb_credit_id) makes
 // re-ingest of TMDB aggregate_credits idempotent.
 type SeriesPersonModel struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	SeriesID      int64     `gorm:"column:series_id;not null"`
-	PersonID      int64     `gorm:"column:person_id;not null"`
-	Kind          string    `gorm:"column:kind;type:text;not null"`
-	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
-	CharacterName *string   `gorm:"column:character_name;type:text"`
-	Department    *string   `gorm:"column:department;type:text"`
-	Job           *string   `gorm:"column:job;type:text"`
-	CreditOrder   *int      `gorm:"column:credit_order"`
-	EpisodeCount  *int      `gorm:"column:episode_count"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	ID            int64           `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID      domain.SeriesID `gorm:"column:series_id;not null"`
+	PersonID      int64           `gorm:"column:person_id;not null"`
+	Kind          string          `gorm:"column:kind;type:text;not null"`
+	TMDBCreditID  string          `gorm:"column:tmdb_credit_id;type:text;not null"`
+	CharacterName *string         `gorm:"column:character_name;type:text"`
+	Department    *string         `gorm:"column:department;type:text"`
+	Job           *string         `gorm:"column:job;type:text"`
+	CreditOrder   *int            `gorm:"column:credit_order"`
+	EpisodeCount  *int            `gorm:"column:episode_count"`
+	CreatedAt     time.Time       `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesPersonModel) TableName() string { return "series_people" }
@@ -737,9 +739,9 @@ func (KeywordI18nModel) TableName() string { return "keywords_i18n" }
 // Position is the TMDB ordering on `networks[]`; Set() writes
 // position deterministically by input order (i = position).
 type SeriesNetworkModel struct {
-	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
-	NetworkID int64 `gorm:"primaryKey;column:network_id"`
-	Position  *int  `gorm:"column:position"`
+	SeriesID  domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	NetworkID int64           `gorm:"primaryKey;column:network_id"`
+	Position  *int            `gorm:"column:position"`
 }
 
 func (SeriesNetworkModel) TableName() string { return "series_networks" }
@@ -747,9 +749,9 @@ func (SeriesNetworkModel) TableName() string { return "series_networks" }
 // SeriesCompanyModel — join row (PRD §5.3 row "series_companies").
 // Same shape as SeriesNetworkModel.
 type SeriesCompanyModel struct {
-	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
-	CompanyID int64 `gorm:"primaryKey;column:company_id"`
-	Position  *int  `gorm:"column:position"`
+	SeriesID  domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	CompanyID int64           `gorm:"primaryKey;column:company_id"`
+	Position  *int            `gorm:"column:position"`
 }
 
 func (SeriesCompanyModel) TableName() string { return "series_companies" }
@@ -757,9 +759,9 @@ func (SeriesCompanyModel) TableName() string { return "series_companies" }
 // SeriesGenreModel — join row (PRD §5.3 row "series_genres"). Same
 // shape; position preserves the TMDB-emitted order when present.
 type SeriesGenreModel struct {
-	SeriesID int64 `gorm:"primaryKey;column:series_id"`
-	GenreID  int64 `gorm:"primaryKey;column:genre_id"`
-	Position *int  `gorm:"column:position"`
+	SeriesID domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	GenreID  int64           `gorm:"primaryKey;column:genre_id"`
+	Position *int            `gorm:"column:position"`
 }
 
 func (SeriesGenreModel) TableName() string { return "series_genres" }
@@ -767,8 +769,8 @@ func (SeriesGenreModel) TableName() string { return "series_genres" }
 // SeriesKeywordModel — join row (PRD §5.3 row "series_keywords").
 // Keywords are unordered per PRD; no position column.
 type SeriesKeywordModel struct {
-	SeriesID  int64 `gorm:"primaryKey;column:series_id"`
-	KeywordID int64 `gorm:"primaryKey;column:keyword_id"`
+	SeriesID  domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	KeywordID int64           `gorm:"primaryKey;column:keyword_id"`
 }
 
 func (SeriesKeywordModel) TableName() string { return "series_keywords" }
@@ -779,18 +781,18 @@ func (SeriesKeywordModel) TableName() string { return "series_keywords" }
 // without a TMDB id — mirrors the series/people/taxonomy partial-unique
 // pattern from 203/204/205.
 type VideoModel struct {
-	ID          int64      `gorm:"primaryKey;autoIncrement;column:id"`
-	SeriesID    int64      `gorm:"column:series_id;not null"`
-	TMDBVideoID *string    `gorm:"column:tmdb_video_id;type:text"`
-	Name        string     `gorm:"column:name;type:text;not null"`
-	Site        *string    `gorm:"column:site;type:text"`
-	Key         *string    `gorm:"column:key;type:text"`
-	Type        *string    `gorm:"column:type;type:text"`
-	Official    bool       `gorm:"column:official;not null;default:false"`
-	Language    *string    `gorm:"column:language;type:text"`
-	PublishedAt *time.Time `gorm:"column:published_at"`
-	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt   time.Time  `gorm:"column:updated_at;not null"`
+	ID          int64           `gorm:"primaryKey;autoIncrement;column:id"`
+	SeriesID    domain.SeriesID `gorm:"column:series_id;not null"`
+	TMDBVideoID *string         `gorm:"column:tmdb_video_id;type:text"`
+	Name        string          `gorm:"column:name;type:text;not null"`
+	Site        *string         `gorm:"column:site;type:text"`
+	Key         *string         `gorm:"column:key;type:text"`
+	Type        *string         `gorm:"column:type;type:text"`
+	Official    bool            `gorm:"column:official;not null;default:false"`
+	Language    *string         `gorm:"column:language;type:text"`
+	PublishedAt *time.Time      `gorm:"column:published_at"`
+	CreatedAt   time.Time       `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (VideoModel) TableName() string { return "videos" }
@@ -799,10 +801,10 @@ func (VideoModel) TableName() string { return "videos" }
 // "content_ratings", migration 000029). Composite PK (series_id,
 // country_code).
 type ContentRatingModel struct {
-	SeriesID    int64     `gorm:"primaryKey;column:series_id"`
-	CountryCode string    `gorm:"primaryKey;column:country_code;type:text"`
-	Rating      string    `gorm:"column:rating;type:text;not null"`
-	UpdatedAt   time.Time `gorm:"column:updated_at;not null"`
+	SeriesID    domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	CountryCode string          `gorm:"primaryKey;column:country_code;type:text"`
+	Rating      string          `gorm:"column:rating;type:text;not null"`
+	UpdatedAt   time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (ContentRatingModel) TableName() string { return "content_ratings" }
@@ -829,10 +831,10 @@ func (ExternalIDModel) TableName() string { return "external_ids" }
 // (typically a stub row hydrated by series_enrichment_worker when an
 // unknown title first surfaces).
 type SeriesRecommendationModel struct {
-	SeriesID            int64     `gorm:"primaryKey;column:series_id"`
-	RecommendedSeriesID int64     `gorm:"primaryKey;column:recommended_series_id"`
-	Position            *int      `gorm:"column:position"`
-	UpdatedAt           time.Time `gorm:"column:updated_at;not null"`
+	SeriesID            domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	RecommendedSeriesID domain.SeriesID `gorm:"primaryKey;column:recommended_series_id"`
+	Position            *int            `gorm:"column:position"`
+	UpdatedAt           time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesRecommendationModel) TableName() string { return "series_recommendations" }

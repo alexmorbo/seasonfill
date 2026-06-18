@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // GenresRepository persists the `genres` table + the `series_genres`
@@ -149,7 +150,7 @@ func (r *GenresRepository) Upsert(ctx context.Context, g taxonomy.Genre) (int64,
 
 // Set replaces the full series_genres set for seriesID. Same
 // semantics as NetworksRepository.Set.
-func (r *GenresRepository) Set(ctx context.Context, seriesID int64, genreIDs []int64) error {
+func (r *GenresRepository) Set(ctx context.Context, seriesID domain.SeriesID, genreIDs []int64) error {
 	if seriesID == 0 {
 		return fmt.Errorf("set series_genres: series_id must be non-zero")
 	}
@@ -180,7 +181,7 @@ func (r *GenresRepository) Set(ctx context.Context, seriesID int64, genreIDs []i
 
 // ListBySeries returns the genre ids for the given series in
 // position-ascending order.
-func (r *GenresRepository) ListBySeries(ctx context.Context, seriesID int64) ([]int64, error) {
+func (r *GenresRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesGenreModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

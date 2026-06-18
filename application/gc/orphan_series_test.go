@@ -8,17 +8,19 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type fakeOrphanRepo struct {
-	candidates    []int64
+	candidates    []domain.SeriesID
 	listCutoff    time.Time
 	listErr       error
-	dropFailures  map[int64]bool
+	dropFailures  map[domain.SeriesID]bool
 	dropCallCount int
 }
 
-func (f *fakeOrphanRepo) ListOrphanCandidates(_ context.Context, cutoff time.Time, _ int) ([]int64, error) {
+func (f *fakeOrphanRepo) ListOrphanCandidates(_ context.Context, cutoff time.Time, _ int) ([]domain.SeriesID, error) {
 	f.listCutoff = cutoff
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -26,7 +28,7 @@ func (f *fakeOrphanRepo) ListOrphanCandidates(_ context.Context, cutoff time.Tim
 	return f.candidates, nil
 }
 
-func (f *fakeOrphanRepo) DropSeriesCascade(_ context.Context, id int64) error {
+func (f *fakeOrphanRepo) DropSeriesCascade(_ context.Context, id domain.SeriesID) error {
 	f.dropCallCount++
 	if f.dropFailures != nil && f.dropFailures[id] {
 		return errors.New("drop failed")
@@ -36,7 +38,7 @@ func (f *fakeOrphanRepo) DropSeriesCascade(_ context.Context, id int64) error {
 
 func TestOrphanSeries_HappyPath(t *testing.T) {
 	t.Parallel()
-	repo := &fakeOrphanRepo{candidates: []int64{1, 2, 3}}
+	repo := &fakeOrphanRepo{candidates: []domain.SeriesID{1, 2, 3}}
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	build := OrphanSeriesDeps{
 		Repo:  repo,
@@ -52,7 +54,7 @@ func TestOrphanSeries_HappyPath(t *testing.T) {
 
 func TestOrphanSeries_CustomGrace(t *testing.T) {
 	t.Parallel()
-	repo := &fakeOrphanRepo{candidates: []int64{1}}
+	repo := &fakeOrphanRepo{candidates: []domain.SeriesID{1}}
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	build := OrphanSeriesDeps{
 		Repo:          repo,
@@ -67,8 +69,8 @@ func TestOrphanSeries_CustomGrace(t *testing.T) {
 func TestOrphanSeries_PerRowFailure_Continues(t *testing.T) {
 	t.Parallel()
 	repo := &fakeOrphanRepo{
-		candidates:   []int64{1, 2, 3},
-		dropFailures: map[int64]bool{2: true},
+		candidates:   []domain.SeriesID{1, 2, 3},
+		dropFailures: map[domain.SeriesID]bool{2: true},
 	}
 	build := OrphanSeriesDeps{Repo: repo}.Build()
 	res, err := build(context.Background())

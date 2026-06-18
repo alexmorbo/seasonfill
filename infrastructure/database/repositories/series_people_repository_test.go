@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
@@ -150,7 +151,7 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 	require.NoError(t, err)
 
 	titles := []string{"The Last of Us", "The Mandalorian", "Narcos"}
-	expectedSeriesIDs := make([]int64, 0, len(titles))
+	expectedSeriesIDs := make([]domain.SeriesID, 0, len(titles))
 	for i, title := range titles {
 		c := sampleCanon(title)
 		c.TMDBID = ptrInt(20000 + i)

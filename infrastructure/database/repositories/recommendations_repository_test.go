@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestRecommendationsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
@@ -20,7 +22,7 @@ func TestRecommendationsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Three stub-recommendation series.
-	recIDs := make([]int64, 0, 3)
+	recIDs := make([]domain.SeriesID, 0, 3)
 	for i, title := range []string{"Fallout", "The Walking Dead", "Station Eleven"} {
 		c := sampleCanon(title)
 		c.TMDBID = ptrInt(70000 + i)
@@ -61,7 +63,7 @@ func TestRecommendationsRepository_Set_RejectsSelfReference(t *testing.T) {
 	require.NoError(t, err)
 	repo := NewRecommendationsRepository(db)
 
-	err = repo.Set(ctx, seriesID, []int64{seriesID})
+	err = repo.Set(ctx, seriesID, []domain.SeriesID{seriesID})
 	require.Error(t, err, "Set must reject self-reference")
 }
 
@@ -107,7 +109,7 @@ func TestRecommendationsRepository_Set_RejectsSelfReferenceInBatch(t *testing.T)
 	source, err := seriesRepo.Upsert(ctx, sampleCanon("Source"))
 	require.NoError(t, err)
 
-	otherIDs := make([]int64, 0, 2)
+	otherIDs := make([]domain.SeriesID, 0, 2)
 	for i, title := range []string{"Other A", "Other B"} {
 		c := sampleCanon(title)
 		c.TMDBID = ptrInt(80000 + i)
@@ -117,7 +119,7 @@ func TestRecommendationsRepository_Set_RejectsSelfReferenceInBatch(t *testing.T)
 	}
 
 	// Inject the source id into the batch — must reject.
-	bad := append([]int64{source}, otherIDs...)
+	bad := append([]domain.SeriesID{source}, otherIDs...)
 	require.Error(t, repo.Set(ctx, source, bad),
 		"Set must reject a batch that contains the source id")
 

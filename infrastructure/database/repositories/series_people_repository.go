@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesPeopleRepository persists the `series_people` table.
@@ -49,7 +50,7 @@ func (r *SeriesPeopleRepository) Get(ctx context.Context, id int64) (people.Seri
 // "" to return both cast + crew; pass a SeriesCreditKind value to
 // filter. Order matches the composite index `series_people_top` so
 // the read is an index scan, not a sort.
-func (r *SeriesPeopleRepository) ListBySeries(ctx context.Context, seriesID int64, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (r *SeriesPeopleRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	q := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID)
 	if kind != "" {

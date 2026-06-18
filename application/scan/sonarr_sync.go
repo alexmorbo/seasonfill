@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -42,7 +43,7 @@ type SyncDeps struct {
 	Genres      GenresPort
 	Networks    NetworksPort
 	Logger      *slog.Logger
-	PostSync    func(ctx context.Context, seriesID int64)
+	PostSync    func(ctx context.Context, seriesID domain.SeriesID)
 }
 
 // SonarrPayloadBundle groups the three Sonarr fetches the sync needs.
@@ -61,7 +62,7 @@ func SyncSeriesFromSonarr(
 	deps SyncDeps,
 	instanceName string,
 	bundle SonarrPayloadBundle,
-) (int64, error) {
+) (domain.SeriesID, error) {
 	if instanceName == "" {
 		return 0, fmt.Errorf("sync sonarr series: instance_name must be non-empty")
 	}
@@ -95,7 +96,7 @@ func SyncSeriesFromSonarr(
 	if err != nil {
 		return 0, fmt.Errorf("sync sonarr series: upsert canon: %w", err)
 	}
-	log = log.With(slog.Int64("canon_series_id", canonID))
+	log = log.With(slog.Int64("canon_series_id", int64(canonID)))
 
 	if err := syncGenres(ctx, deps, canonID, p.Genres, log); err != nil {
 		log.WarnContext(ctx, "sync_sonarr_genres_failed", slog.String("error", err.Error()))
@@ -328,7 +329,7 @@ func airedOrEpisodeCount(s series.Statistics) int {
 // syncGenres resolves every Sonarr-supplied genre string to a canon
 // genres.id (creating + i18n on miss), then writes the series_genres
 // join in one Set call. Empty input clears the join.
-func syncGenres(ctx context.Context, deps SyncDeps, canonID int64, genres []string, log *slog.Logger) error {
+func syncGenres(ctx context.Context, deps SyncDeps, canonID domain.SeriesID, genres []string, log *slog.Logger) error {
 	ids := make([]int64, 0, len(genres))
 	for _, name := range genres {
 		if name == "" {
@@ -365,7 +366,7 @@ func syncGenres(ctx context.Context, deps SyncDeps, canonID int64, genres []stri
 // syncNetwork resolves the single Sonarr-supplied network string to
 // a canon networks.id (creating on miss), then writes a one-row
 // series_networks join (position=0). Empty input clears the join.
-func syncNetwork(ctx context.Context, deps SyncDeps, canonID int64, network string, _ *slog.Logger) error {
+func syncNetwork(ctx context.Context, deps SyncDeps, canonID domain.SeriesID, network string, _ *slog.Logger) error {
 	if network == "" {
 		if err := deps.Networks.SetForSeries(ctx, canonID, nil); err != nil {
 			return fmt.Errorf("clear series_networks: %w", err)
@@ -393,7 +394,7 @@ func syncNetwork(ctx context.Context, deps SyncDeps, canonID int64, network stri
 func syncEpisodes(
 	ctx context.Context,
 	deps SyncDeps,
-	canonSeriesID int64,
+	canonSeriesID domain.SeriesID,
 	instanceName string,
 	bundle SonarrPayloadBundle,
 	log *slog.Logger,
@@ -548,7 +549,7 @@ func canonEpisodeToEnrichment(e series.CanonEpisode) enrichment.EpisodeCanon {
 	}
 }
 
-func enrichmentToCanonEpisode(ec enrichment.EpisodeCanon, base series.CanonEpisode, canonSeriesID int64) series.CanonEpisode {
+func enrichmentToCanonEpisode(ec enrichment.EpisodeCanon, base series.CanonEpisode, canonSeriesID domain.SeriesID) series.CanonEpisode {
 	base.SeriesID = canonSeriesID
 	base.SeasonNumber = ec.SeasonNumber
 	base.EpisodeNumber = ec.EpisodeNumber

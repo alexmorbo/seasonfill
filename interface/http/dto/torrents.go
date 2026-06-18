@@ -6,7 +6,11 @@
 // only contract between the two halves of the feature.
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SeriesTorrentsResponse — the document returned by
 // GET /api/v1/instances/:name/series/:id/torrents. The shape
@@ -29,7 +33,7 @@ type SeriesTorrentsResponse struct {
 	SonarrSeriesID int `json:"sonarr_series_id" example:"123"`
 	// SeriesID is the resolved canonical series.id, echoed for
 	// parity with the composite series-detail document.
-	SeriesID int64 `json:"series_id" example:"42"`
+	SeriesID domain.SeriesID `json:"series_id" example:"42"`
 
 	// Torrents is the merged list of live + DB-fallback rows,
 	// sorted by added_on DESC with synced_at DESC as tiebreaker.

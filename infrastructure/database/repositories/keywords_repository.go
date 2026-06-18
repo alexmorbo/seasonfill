@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // KeywordsRepository persists the `keywords` table + the
@@ -131,7 +132,7 @@ func (r *KeywordsRepository) Upsert(ctx context.Context, k taxonomy.Keyword) (in
 
 // Set replaces the full series_keywords set. Keywords have no
 // position column per PRD §5.3 (unordered).
-func (r *KeywordsRepository) Set(ctx context.Context, seriesID int64, keywordIDs []int64) error {
+func (r *KeywordsRepository) Set(ctx context.Context, seriesID domain.SeriesID, keywordIDs []int64) error {
 	if seriesID == 0 {
 		return fmt.Errorf("set series_keywords: series_id must be non-zero")
 	}
@@ -158,7 +159,7 @@ func (r *KeywordsRepository) Set(ctx context.Context, seriesID int64, keywordIDs
 	})
 }
 
-func (r *KeywordsRepository) ListBySeries(ctx context.Context, seriesID int64) ([]int64, error) {
+func (r *KeywordsRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesKeywordModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

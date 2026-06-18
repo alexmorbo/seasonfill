@@ -18,12 +18,13 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // twoSeasons returns a SeasonsPort fake yielding two seasons.
 type twoSeasons struct{}
 
-func (twoSeasons) ListBySeries(_ context.Context, _ int64) ([]series.CanonSeason, error) {
+func (twoSeasons) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonSeason, error) {
 	return []series.CanonSeason{
 		{ID: 1, SeriesID: 42, SeasonNumber: 1},
 		{ID: 2, SeriesID: 42, SeasonNumber: 2},
@@ -32,7 +33,7 @@ func (twoSeasons) ListBySeries(_ context.Context, _ int64) ([]series.CanonSeason
 
 type twoEpisodes struct{}
 
-func (twoEpisodes) ListBySeries(_ context.Context, _ int64) ([]series.CanonEpisode, error) {
+func (twoEpisodes) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonEpisode, error) {
 	return []series.CanonEpisode{
 		{ID: 10, SeriesID: 42, SeasonNumber: 1, EpisodeNumber: 1},
 		{ID: 11, SeriesID: 42, SeasonNumber: 2, EpisodeNumber: 1},
@@ -44,12 +45,12 @@ func newSeasonComposer() *seriesdetail.Composer {
 		entries: map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42), Title: "X"},
 		},
-		byCanon: map[int64][]series.CacheEntry{},
+		byCanon: map[domain.SeriesID][]series.CacheEntry{},
 	}
 	return seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       cache,
 		SeriesCacheLookup: cache,
-		Series:            &fakeSeriesPort{rows: map[int64]series.Canon{42: {ID: 42, Title: "X"}}},
+		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{42: {ID: 42, Title: "X"}}},
 		SeriesTexts:       fakeNoTexts{},
 		Seasons:           twoSeasons{},
 		Episodes:          twoEpisodes{},

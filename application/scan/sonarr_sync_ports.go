@@ -9,12 +9,13 @@ import (
 	"context"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesCanonRepository is the subset of SeriesRepository E-1 needs.
 type SeriesCanonRepository interface {
 	FindByExternalIDs(ctx context.Context, tmdbID *int, tvdbID *int, imdbID *string) (series.Canon, error)
-	Upsert(ctx context.Context, c series.Canon) (int64, error)
+	Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error)
 }
 
 // SyncSeriesCacheRepository is the subset E-1 needs for the thin
@@ -28,7 +29,7 @@ type SyncSeriesCacheRepository interface {
 // INSERT … ON CONFLICT per series instead of per episode.
 type EpisodesRepository interface {
 	BatchUpsert(ctx context.Context, episodes []series.CanonEpisode) ([]int64, error)
-	ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonEpisode, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonEpisode, error)
 }
 
 // EpisodeStatesRepository — per-instance state writer. Idempotent
@@ -58,7 +59,7 @@ type GenresPort interface {
 	ResolveByName(ctx context.Context, language, name string) (int64, error)
 	Upsert(ctx context.Context, g GenreStub) (int64, error)
 	UpsertI18n(ctx context.Context, genreID int64, language, name string) error
-	Set(ctx context.Context, seriesID int64, genreIDs []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, genreIDs []int64) error
 }
 
 // GenreStub is the writable subset for the create-on-miss path.
@@ -73,5 +74,5 @@ type GenreStub struct {
 type NetworksPort interface {
 	ResolveByName(ctx context.Context, name string) (int64, error)
 	UpsertByName(ctx context.Context, name string) (int64, error)
-	SetForSeries(ctx context.Context, seriesID int64, networkIDs []int64) error
+	SetForSeries(ctx context.Context, seriesID domain.SeriesID, networkIDs []int64) error
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // TMDBClient is the substitution seam C-2 / C-3 use under test.
@@ -111,13 +112,13 @@ type Dispatcher interface {
 // worker an id; the worker pulls the current canon to feed
 // MergeSeries).
 type SeriesRepo interface {
-	Get(ctx context.Context, id int64) (series.Canon, error)
-	Upsert(ctx context.Context, c series.Canon) (int64, error)
+	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
+	Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error)
 	// UpsertStub — Story 319: see SeriesRepository.UpsertStub for
 	// semantics. The recommendation loop in series_worker calls this
 	// path so a stub upsert cannot blank a 'full' canon row's
 	// poster_asset / backdrop_asset / hydration.
-	UpsertStub(ctx context.Context, c series.Canon) (int64, error)
+	UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error)
 }
 
 type SeriesTextsRepo interface {
@@ -125,12 +126,12 @@ type SeriesTextsRepo interface {
 }
 
 type SeasonsRepo interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonSeason, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error)
 	Upsert(ctx context.Context, s series.CanonSeason) (int64, error)
 }
 
 type EpisodesRepo interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonEpisode, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonEpisode, error)
 	BatchUpsert(ctx context.Context, eps []series.CanonEpisode) ([]int64, error)
 }
 
@@ -153,23 +154,23 @@ type SeriesPeopleRepo interface {
 type GenresRepo interface {
 	Upsert(ctx context.Context, g taxonomy.Genre) (int64, error)
 	UpsertI18n(ctx context.Context, genreID int64, language, name string) error
-	Set(ctx context.Context, seriesID int64, ids []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error
 }
 
 type KeywordsRepo interface {
 	Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error)
 	UpsertI18n(ctx context.Context, keywordID int64, language, name string) error
-	Set(ctx context.Context, seriesID int64, ids []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error
 }
 
 type NetworksRepo interface {
 	Upsert(ctx context.Context, n taxonomy.Network) (int64, error)
-	Set(ctx context.Context, seriesID int64, ids []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error
 }
 
 type CompaniesRepo interface {
 	Upsert(ctx context.Context, c taxonomy.ProductionCompany) (int64, error)
-	Set(ctx context.Context, seriesID int64, ids []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error
 }
 
 type VideosRepoPort interface {
@@ -179,7 +180,7 @@ type VideosRepoPort interface {
 }
 
 type ContentRatingsRepoPort interface {
-	Upsert(ctx context.Context, seriesID int64, country, rating string) error
+	Upsert(ctx context.Context, seriesID domain.SeriesID, country, rating string) error
 }
 
 type ExternalIDsRepoPort interface {
@@ -189,7 +190,7 @@ type ExternalIDsRepoPort interface {
 type RecommendationsRepoPort interface {
 	// Set replaces the join list. recommendedIDs are CANON series
 	// ids (the worker upserts stubs first, then writes the join).
-	Set(ctx context.Context, seriesID int64, recommendedIDs []int64) error
+	Set(ctx context.Context, seriesID domain.SeriesID, recommendedIDs []domain.SeriesID) error
 }
 
 // SyncLogRepo is the journal write surface — Upsert is single-row;
@@ -235,7 +236,7 @@ type MediaPrewarmRequest struct {
 // repo. The worker translates the tmdb.MappedVideo slice into this
 // shape inside applyTVPayload.
 type VideoRow struct {
-	SeriesID    int64
+	SeriesID    domain.SeriesID
 	TMDBID      string
 	Language    string
 	Country     string
@@ -281,12 +282,12 @@ type PersonCreditsPort interface {
 // given source". Production impl is a method on SeriesRepository
 // (Story 212 §8); tests pass a slice-backed fake.
 type ColdStartScanner interface {
-	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error)
+	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error)
 	// ListCanonImagesCorrupted — Story 319: returns series.id rows
 	// where the canon is past stub phase but poster_asset or
 	// backdrop_asset is NULL, so the boot one-shot recovery sweep can
 	// enqueue them at PriorityCold for the TMDB re-sync to repopulate.
-	ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error)
+	ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error)
 	// CountCanonImagesBreakdown — Story 346: returns
 	// (poster_null_count, backdrop_null_count) over the same
 	// population ListCanonImagesCorrupted draws from. Lets the boot

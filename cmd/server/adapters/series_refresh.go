@@ -6,6 +6,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesRefreshSeriesAdapter projects SeriesRepository.Get onto the
@@ -24,7 +25,7 @@ func NewSeriesRefreshSeriesAdapter(r *repositories.SeriesRepository) SeriesRefre
 var _ seriesrefresh.SeriesByIDReader = SeriesRefreshSeriesAdapter{}
 
 // Get implements seriesrefresh.SeriesByIDReader.
-func (a SeriesRefreshSeriesAdapter) Get(ctx context.Context, id int64) (seriesrefresh.CanonView, error) {
+func (a SeriesRefreshSeriesAdapter) Get(ctx context.Context, id domain.SeriesID) (seriesrefresh.CanonView, error) {
 	c, err := a.R.Get(ctx, id)
 	if err != nil {
 		return seriesrefresh.CanonView{}, err
@@ -48,7 +49,7 @@ func NewSeriesRefreshCastAdapter(r *repositories.SeriesPeopleRepository) SeriesR
 var _ seriesrefresh.TopCastReader = SeriesRefreshCastAdapter{}
 
 // TopCastPersonIDs implements seriesrefresh.TopCastReader.
-func (a SeriesRefreshCastAdapter) TopCastPersonIDs(ctx context.Context, seriesID int64, limit int) ([]int64, error) {
+func (a SeriesRefreshCastAdapter) TopCastPersonIDs(ctx context.Context, seriesID domain.SeriesID, limit int) ([]int64, error) {
 	credits, err := a.R.ListBySeries(ctx, seriesID, dompeople.SeriesCreditCast)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesCacheRepository persists the thin per-instance Sonarr projection
@@ -38,17 +39,17 @@ func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCach
 // shape so callers see no change.
 type cacheRow struct {
 	// series_cache columns
-	InstanceName      string     `gorm:"column:instance_name"`
-	SonarrSeriesID    int        `gorm:"column:sonarr_series_id"`
-	SeriesID          *int64     `gorm:"column:series_id"`
-	TitleSlug         string     `gorm:"column:title_slug"`
-	Monitored         bool       `gorm:"column:monitored"`
-	MissingCount      int        `gorm:"column:missing_count"`
-	EpisodeFileCount  int        `gorm:"column:episode_file_count"`
-	SizeOnDiskBytes   int64      `gorm:"column:size_on_disk_bytes"`
-	AiredEpisodeCount int        `gorm:"column:aired_episode_count"`
-	UpdatedAt         time.Time  `gorm:"column:updated_at"`
-	DeletedAt         *time.Time `gorm:"column:deleted_at"`
+	InstanceName      string           `gorm:"column:instance_name"`
+	SonarrSeriesID    int              `gorm:"column:sonarr_series_id"`
+	SeriesID          *domain.SeriesID `gorm:"column:series_id"`
+	TitleSlug         string           `gorm:"column:title_slug"`
+	Monitored         bool             `gorm:"column:monitored"`
+	MissingCount      int              `gorm:"column:missing_count"`
+	EpisodeFileCount  int              `gorm:"column:episode_file_count"`
+	SizeOnDiskBytes   int64            `gorm:"column:size_on_disk_bytes"`
+	AiredEpisodeCount int              `gorm:"column:aired_episode_count"`
+	UpdatedAt         time.Time        `gorm:"column:updated_at"`
+	DeletedAt         *time.Time       `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
 	Title  string  `gorm:"column:s_title"`
 	Year   *int    `gorm:"column:s_year"`
@@ -201,7 +202,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 // Hydration is always 'stub' here — workers later flip to 'full'.
 // PosterAsset stays nil — Sonarr URLs are not canon-shaped (canon
 // stores hashes from F-1 media-prewarm).
-func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e series.CacheEntry) (int64, error) {
+func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e series.CacheEntry) (domain.SeriesID, error) {
 	canon := series.Canon{
 		TMDBID:         e.TMDBID,
 		TVDBID:         e.TVDBID,
@@ -258,7 +259,7 @@ func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName str
 // in_library flag (PRD §5.6 recommendations bullet). Soft-deleted
 // rows excluded — recommendations refer to current library state
 // only.
-func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID int64) ([]series.CacheEntry, error) {
+func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error) {
 	var rows []cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").

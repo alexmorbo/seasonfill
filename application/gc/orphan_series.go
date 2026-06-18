@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // OrphanSeriesDeps are the ports the sweep needs.
@@ -33,11 +35,11 @@ type OrphanSeriesRepo interface {
 	// ListOrphanCandidates returns series.id rows that have NO live
 	// series_cache reference AND NO series_recommendations reference
 	// AND created_at < cutoff. Sweep callers pass cutoff = now - grace.
-	ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]int64, error)
+	ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]domain.SeriesID, error)
 	// DropSeriesCascade hard-deletes one canon series + every
 	// dependent row across the entity model. Single transaction;
 	// idempotent (DELETE of a non-existent row is a no-op).
-	DropSeriesCascade(ctx context.Context, seriesID int64) error
+	DropSeriesCascade(ctx context.Context, seriesID domain.SeriesID) error
 }
 
 // Build constructs the WeeklyJob.OrphanSeries closure with the deps
@@ -66,7 +68,7 @@ func (d OrphanSeriesDeps) Build() func(ctx context.Context) (OrphanSeriesResult,
 		for _, id := range ids {
 			if derr := d.Repo.DropSeriesCascade(ctx, id); derr != nil {
 				log.WarnContext(ctx, "orphan_series.drop_failed",
-					slog.Int64("series_id", id),
+					slog.Int64("series_id", int64(id)),
 					slog.String("error", derr.Error()))
 				continue
 			}

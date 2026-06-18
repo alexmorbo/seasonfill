@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // CompaniesRepository persists the `production_companies` table +
@@ -110,7 +111,7 @@ func companyUpdateCols() []string {
 
 // Set replaces the full series_companies set for seriesID. Same
 // semantics as NetworksRepository.Set.
-func (r *CompaniesRepository) Set(ctx context.Context, seriesID int64, companyIDs []int64) error {
+func (r *CompaniesRepository) Set(ctx context.Context, seriesID domain.SeriesID, companyIDs []int64) error {
 	if seriesID == 0 {
 		return fmt.Errorf("set series_companies: series_id must be non-zero")
 	}
@@ -139,7 +140,7 @@ func (r *CompaniesRepository) Set(ctx context.Context, seriesID int64, companyID
 	})
 }
 
-func (r *CompaniesRepository) ListBySeries(ctx context.Context, seriesID int64) ([]int64, error) {
+func (r *CompaniesRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesCompanyModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

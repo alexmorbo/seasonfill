@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // EpisodesRepository persists the canonical `episodes` table. Natural
@@ -39,7 +40,7 @@ func (r *EpisodesRepository) Get(ctx context.Context, id int64) (series.CanonEpi
 	return toCanonEpisode(m), nil
 }
 
-func (r *EpisodesRepository) ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonEpisode, error) {
+func (r *EpisodesRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonEpisode, error) {
 	var models []database.EpisodeModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).
@@ -55,7 +56,7 @@ func (r *EpisodesRepository) ListBySeries(ctx context.Context, seriesID int64) (
 	return out, nil
 }
 
-func (r *EpisodesRepository) ListBySeason(ctx context.Context, seriesID int64, seasonNumber int) ([]series.CanonEpisode, error) {
+func (r *EpisodesRepository) ListBySeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int) ([]series.CanonEpisode, error) {
 	var models []database.EpisodeModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).
@@ -78,7 +79,7 @@ func (r *EpisodesRepository) ListBySeason(ctx context.Context, seriesID int64, s
 // key UQ `episodes_natural (series_id, season_number,
 // episode_number)` — Postgres + sqlite both pick the leading
 // column for the count.
-func (r *EpisodesRepository) CountBySeries(ctx context.Context, seriesID int64) (int, error) {
+func (r *EpisodesRepository) CountBySeries(ctx context.Context, seriesID domain.SeriesID) (int, error) {
 	var n int64
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("episodes").

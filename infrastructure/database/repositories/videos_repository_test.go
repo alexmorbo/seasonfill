@@ -11,9 +11,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-func sampleVideo(seriesID int64, name, videoType string, official bool) database.VideoModel {
+func sampleVideo(seriesID domain.SeriesID, name, videoType string, official bool) database.VideoModel {
 	pub := time.Now().UTC().Add(-30 * 24 * time.Hour)
 	return database.VideoModel{
 		SeriesID:    seriesID,

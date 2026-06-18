@@ -20,9 +20,9 @@ func TestExternalIDsRepository_UpsertAndGet(t *testing.T) {
 	require.NoError(t, err)
 	repo := NewExternalIDsRepository(db)
 
-	require.NoError(t, repo.Upsert(ctx, enrichment.EntityTypeSeries, seriesID, "wikidata", "Q108042401"))
+	require.NoError(t, repo.Upsert(ctx, enrichment.EntityTypeSeries, int64(seriesID), "wikidata", "Q108042401"))
 
-	got, err := repo.Get(ctx, enrichment.EntityTypeSeries, seriesID, "wikidata")
+	got, err := repo.Get(ctx, enrichment.EntityTypeSeries, int64(seriesID), "wikidata")
 	require.NoError(t, err)
 	assert.Equal(t, "Q108042401", got.Value)
 }
@@ -88,10 +88,10 @@ func TestExternalIDsRepository_ListByEntity(t *testing.T) {
 
 	providers := []string{"facebook", "instagram", "twitter"}
 	for _, p := range providers {
-		require.NoError(t, repo.Upsert(ctx, enrichment.EntityTypeSeries, seriesID, p, "handle-"+p))
+		require.NoError(t, repo.Upsert(ctx, enrichment.EntityTypeSeries, int64(seriesID), p, "handle-"+p))
 	}
 
-	rows, err := repo.ListByEntity(ctx, enrichment.EntityTypeSeries, seriesID)
+	rows, err := repo.ListByEntity(ctx, enrichment.EntityTypeSeries, int64(seriesID))
 	require.NoError(t, err)
 	require.Len(t, rows, 3)
 	// Ordered by provider ASC.

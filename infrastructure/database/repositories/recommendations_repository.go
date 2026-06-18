@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesRecommendation is the read-shape returned by
@@ -32,7 +33,7 @@ func NewRecommendationsRepository(db *gorm.DB) *RecommendationsRepository {
 // order (NULL positions last). The composer JOINs the returned ids
 // against series + series_cache to compute the per-instance "in
 // library" badge.
-func (r *RecommendationsRepository) ListBySeries(ctx context.Context, seriesID int64) ([]int64, error) {
+func (r *RecommendationsRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]domain.SeriesID, error) {
 	var rows []database.SeriesRecommendationModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).
@@ -41,7 +42,7 @@ func (r *RecommendationsRepository) ListBySeries(ctx context.Context, seriesID i
 	if err != nil {
 		return nil, fmt.Errorf("list series_recommendations: %w", err)
 	}
-	out := make([]int64, 0, len(rows))
+	out := make([]domain.SeriesID, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.RecommendedSeriesID)
 	}
@@ -85,7 +86,7 @@ func (r *RecommendationsRepository) Upsert(ctx context.Context, rec SeriesRecomm
 // Empty ids slice clears the set for seriesID. Caller is responsible
 // for the recommended series rows existing (typically stub rows
 // upserted in the same enrichment batch — FK is application-side).
-func (r *RecommendationsRepository) Set(ctx context.Context, seriesID int64, recommendedIDs []int64) error {
+func (r *RecommendationsRepository) Set(ctx context.Context, seriesID domain.SeriesID, recommendedIDs []domain.SeriesID) error {
 	if seriesID == 0 {
 		return fmt.Errorf("set series_recommendations: series_id must be non-zero")
 	}

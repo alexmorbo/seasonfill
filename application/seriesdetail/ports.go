@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // SeriesCachePort resolves (instance, sonarr_series_id) → canon
@@ -30,7 +31,7 @@ type SeriesCachePort interface {
 // person_credits.tmdb_media_id back to a canon series.id (see
 // cast.go probeInLibrary).
 type SeriesPort interface {
-	Get(ctx context.Context, id int64) (series.Canon, error)
+	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
 	GetByTMDBID(ctx context.Context, tmdbID int) (series.Canon, error)
 }
 
@@ -58,32 +59,32 @@ type PersonCreditRef struct {
 // Implemented by EpisodesRepository.CountBySeries — see
 // infrastructure/database/repositories/episodes_repository.go.
 type EpisodesCountPort interface {
-	CountBySeries(ctx context.Context, seriesID int64) (int, error)
+	CountBySeries(ctx context.Context, seriesID domain.SeriesID) (int, error)
 }
 
 // SeriesTextsPort fetches the localised title/overview/tagline row
 // with the §5.6 language-fallback semantics.
 type SeriesTextsPort interface {
-	GetWithFallback(ctx context.Context, seriesID int64, language string) (series.SeriesText, error)
+	GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesText, error)
 }
 
 // SeasonsPort lists every season row for a series, ordered by
 // season_number ascending.
 type SeasonsPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonSeason, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error)
 }
 
 // EpisodesPort lists every episode row for a series. The composer
 // groups them by season_number client-side rather than running N
 // queries — N+1 hostility.
 type EpisodesPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonEpisode, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonEpisode, error)
 }
 
 // EpisodeStatesPort lists per-instance file states for every episode
 // in a series.
 type EpisodeStatesPort interface {
-	ListBySeries(ctx context.Context, instanceName string, seriesID int64) ([]series.EpisodeState, error)
+	ListBySeries(ctx context.Context, instanceName string, seriesID domain.SeriesID) ([]series.EpisodeState, error)
 }
 
 // SeasonStatsPort lists the per-(instance, series, season) Sonarr
@@ -108,7 +109,7 @@ type EpisodeTextsPort interface {
 // SeriesPeoplePort lists series_people rows. The composer filters
 // to kind=Cast + LIMIT 10 on credit_order, then joins via PeoplePort.
 type SeriesPeoplePort interface {
-	ListBySeries(ctx context.Context, seriesID int64, kind people.SeriesCreditKind) ([]people.SeriesCredit, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error)
 }
 
 // PeoplePort fetches multiple people by id; the composer batches the
@@ -122,20 +123,20 @@ type PeoplePort interface {
 // the id list to issue the i18n fetch, and we don't want a JOIN
 // repo method that locks both interfaces.
 type GenresPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]int64, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	Get(ctx context.Context, id int64, language string) (taxonomy.Genre, error)
 }
 
 // KeywordsPort — same shape as GenresPort for keywords.
 type KeywordsPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]int64, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	Get(ctx context.Context, id int64, language string) (taxonomy.Keyword, error)
 }
 
 // NetworksPort lists network ids for a series + batch-fetches the
 // network rows. Networks have no i18n (brand names).
 type NetworksPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]int64, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	ListByIDs(ctx context.Context, ids []int64) ([]taxonomy.Network, error)
 }
 
@@ -146,20 +147,20 @@ type NetworksPort interface {
 // future Hero details expand. The composer reads them now to keep the
 // branch slot stable.
 type CompaniesPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]int64, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	ListByIDs(ctx context.Context, ids []int64) ([]taxonomy.ProductionCompany, error)
 }
 
 // VideosPort lists trailer-eligible videos for a series. The composer
 // filters for the "best" trailer per PRD §5.6.
 type VideosPort interface {
-	ListBySeriesAndType(ctx context.Context, seriesID int64, videoType string) ([]repositories.Video, error)
+	ListBySeriesAndType(ctx context.Context, seriesID domain.SeriesID, videoType string) ([]repositories.Video, error)
 }
 
 // ContentRatingsPort lists per-country age ratings; composer picks
 // one via locale fallback.
 type ContentRatingsPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]repositories.ContentRating, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]repositories.ContentRating, error)
 }
 
 // ExternalIDsPort lists external provider ids for an entity (here:
@@ -173,7 +174,7 @@ type ExternalIDsPort interface {
 // then batch-fetches the recommended canon rows via SeriesPort.Get
 // AND probes SeriesCacheRepo to compute the in_library flag.
 type RecommendationsPort interface {
-	ListBySeries(ctx context.Context, seriesID int64) ([]int64, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]domain.SeriesID, error)
 }
 
 // SyncLogPort exposes the per-(entity, source) sync_log lookup the
@@ -188,7 +189,7 @@ type SyncLogPort interface {
 // in_library probe. This is the ONE new repository method this
 // story adds (see series_cache_repository.go::ListBySeriesID).
 type SeriesCacheLookupPort interface {
-	ListBySeriesID(ctx context.Context, seriesID int64) ([]series.CacheEntry, error)
+	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
 }
 
 // SonarrQueueLister is the single live port — the local Sonarr

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Video is the read-shape returned by VideosRepository. We carry the
@@ -51,7 +52,7 @@ func (r *VideosRepository) Get(ctx context.Context, id int64) (Video, error) {
 // (type ASC, official DESC, published_at DESC NULLS LAST). The
 // composite index `videos_series_type` supports the (series_id,
 // type, official) prefix.
-func (r *VideosRepository) ListBySeries(ctx context.Context, seriesID int64) ([]Video, error) {
+func (r *VideosRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]Video, error) {
 	var models []database.VideoModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).
@@ -66,7 +67,7 @@ func (r *VideosRepository) ListBySeries(ctx context.Context, seriesID int64) ([]
 // ListBySeriesAndType returns rows filtered by type
 // ("Trailer"/"Teaser"/...). Used by the composer's BestTrailer query
 // (PRD §5.6 read-path step "trailer = repo.BestTrailer(s.ID)").
-func (r *VideosRepository) ListBySeriesAndType(ctx context.Context, seriesID int64, videoType string) ([]Video, error) {
+func (r *VideosRepository) ListBySeriesAndType(ctx context.Context, seriesID domain.SeriesID, videoType string) ([]Video, error) {
 	if videoType == "" {
 		return nil, fmt.Errorf("list videos by type: type must be non-empty")
 	}

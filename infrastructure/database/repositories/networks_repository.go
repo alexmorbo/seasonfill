@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // NetworksRepository persists the `networks` table + the
@@ -152,7 +153,7 @@ func networkUpdateCols() []string {
 //
 // Empty ids slice clears the set for seriesID. Caller is responsible
 // for the network rows existing (FK is application-side).
-func (r *NetworksRepository) Set(ctx context.Context, seriesID int64, networkIDs []int64) error {
+func (r *NetworksRepository) Set(ctx context.Context, seriesID domain.SeriesID, networkIDs []int64) error {
 	if seriesID == 0 {
 		return fmt.Errorf("set series_networks: series_id must be non-zero")
 	}
@@ -183,7 +184,7 @@ func (r *NetworksRepository) Set(ctx context.Context, seriesID int64, networkIDs
 
 // ListBySeries returns the network ids for the given series in
 // position-ascending order (NULL positions last).
-func (r *NetworksRepository) ListBySeries(ctx context.Context, seriesID int64) ([]int64, error) {
+func (r *NetworksRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesNetworkModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ?", seriesID).

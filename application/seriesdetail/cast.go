@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -26,7 +27,7 @@ import (
 type CastPage struct {
 	Instance          string
 	SonarrSeriesID    int
-	SeriesID          int64
+	SeriesID          domain.SeriesID
 	Lang              string
 	Summary           SeriesSummary
 	TotalEpisodeCount int
@@ -155,7 +156,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 	if cerr != nil {
 		c.d.Logger.WarnContext(ctx, "cast_total_episode_count_failed",
 			slog.String("instance_name", instanceName),
-			slog.Int64("series_id", seriesID),
+			slog.Int64("series_id", int64(seriesID)),
 			slog.String("error", cerr.Error()))
 		total = 0
 	}
@@ -284,7 +285,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 	c.d.Logger.InfoContext(ctx, "series_cast_composed",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("cast_count", len(out.Cast)),
 		slog.Int("crew_count", len(out.Crew)),
 		slog.Int("total_episode_count", out.TotalEpisodeCount),
@@ -306,7 +307,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName string, sonarrSerie
 // Errors are non-fatal — surface as "not in library" + warn log.
 // Same posture as the G-1 recommendations branch (best-effort,
 // degraded gracefully).
-func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, currentSeriesID int64) bool {
+func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, currentSeriesID domain.SeriesID) bool {
 	credits, err := c.d.PersonCredits.ListByPerson(ctx, personID)
 	if err != nil {
 		if !errors.Is(err, ports.ErrNotFound) {
@@ -345,7 +346,7 @@ func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, curre
 // members have credits only on series the operator doesn't own.
 // The lookup misses cheaply (one indexed `series_tmdb_id`
 // partial-unique probe) and returns false.
-func (c *CastComposer) resolveSeriesByTMDB(ctx context.Context, tmdbID int) (int64, bool) {
+func (c *CastComposer) resolveSeriesByTMDB(ctx context.Context, tmdbID int) (domain.SeriesID, bool) {
 	if tmdbID == 0 {
 		return 0, false
 	}

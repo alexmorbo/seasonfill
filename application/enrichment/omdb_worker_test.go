@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/omdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- fakes for OMDb worker -----------------------------------------
@@ -24,7 +25,7 @@ type fakeOMDbSeries struct {
 	upserts []series.Canon
 }
 
-func (f *fakeOMDbSeries) Get(_ context.Context, id int64) (series.Canon, error) {
+func (f *fakeOMDbSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
 	if f.getErr != nil {
 		return series.Canon{}, f.getErr
 	}
@@ -33,7 +34,7 @@ func (f *fakeOMDbSeries) Get(_ context.Context, id int64) (series.Canon, error) 
 	return c, nil
 }
 
-func (f *fakeOMDbSeries) Upsert(_ context.Context, c series.Canon) (int64, error) {
+func (f *fakeOMDbSeries) Upsert(_ context.Context, c series.Canon) (domain.SeriesID, error) {
 	f.upserts = append(f.upserts, c)
 	if c.ID == 0 {
 		return 1, nil
@@ -43,7 +44,7 @@ func (f *fakeOMDbSeries) Upsert(_ context.Context, c series.Canon) (int64, error
 
 // UpsertStub — Story 319: OMDb tests never exercise the recommendation
 // stub path; a delegate to Upsert keeps the fake satisfying SeriesRepo.
-func (f *fakeOMDbSeries) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+func (f *fakeOMDbSeries) UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	return f.Upsert(ctx, c)
 }
 

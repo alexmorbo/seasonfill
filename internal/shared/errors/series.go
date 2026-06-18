@@ -1,11 +1,15 @@
 package errors
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // SeriesNotFoundError signals a missing series in the canonical store.
 // Maps to HTTP 404.
 type SeriesNotFoundError struct {
-	ID int64
+	ID domain.SeriesID
 }
 
 func (e *SeriesNotFoundError) Error() string {
@@ -20,7 +24,7 @@ func (e *SeriesNotFoundError) Retriable() bool { return false }
 // series data (DB hiccup, cache miss with backing store error, etc.).
 // Maps to HTTP 500; callers should retry.
 type SeriesCanonicalLoadError struct {
-	ID    int64
+	ID    domain.SeriesID
 	Cause error
 }
 

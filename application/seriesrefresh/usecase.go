@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -31,13 +32,13 @@ type Deps struct {
 // SeriesByIDReader is the minimal series-canon read surface — we need
 // imdb_id to decide whether OMDb is on the menu.
 type SeriesByIDReader interface {
-	Get(ctx context.Context, id int64) (CanonView, error)
+	Get(ctx context.Context, id domain.SeriesID) (CanonView, error)
 }
 
 // CanonView is the trimmed projection — keeps this package free of
 // the domain/series import.
 type CanonView struct {
-	ID     int64
+	ID     domain.SeriesID
 	IMDBID *string
 }
 
@@ -46,12 +47,12 @@ type CanonView struct {
 // SeriesPeopleRepository.ListBySeries — reuse via adapter in
 // cmd/server.
 type TopCastReader interface {
-	TopCastPersonIDs(ctx context.Context, seriesID int64, limit int) ([]int64, error)
+	TopCastPersonIDs(ctx context.Context, seriesID domain.SeriesID, limit int) ([]int64, error)
 }
 
 // Result is the handler-visible outcome.
 type Result struct {
-	SeriesID     int64
+	SeriesID     domain.SeriesID
 	SeriesQueued bool
 	Persons      int
 	OMDbQueued   bool
@@ -100,7 +101,7 @@ func (u *UseCase) Refresh(ctx context.Context, instanceName string, sonarrSeries
 
 	res := Result{SeriesID: seriesID}
 
-	u.deps.Dispatcher.Enqueue(enrichment.EntitySeries, seriesID, enrichment.PriorityHot)
+	u.deps.Dispatcher.Enqueue(enrichment.EntitySeries, int64(seriesID), enrichment.PriorityHot)
 	res.SeriesQueued = true
 
 	if u.deps.SeriesPeople != nil {
@@ -108,7 +109,7 @@ func (u *UseCase) Refresh(ctx context.Context, instanceName string, sonarrSeries
 		ids, perr := u.deps.SeriesPeople.TopCastPersonIDs(ctx, seriesID, topN)
 		if perr != nil {
 			u.log.WarnContext(ctx, "seriesrefresh.top_cast_failed",
-				slog.Int64("series_id", seriesID),
+				slog.Int64("series_id", int64(seriesID)),
 				slog.String("error", perr.Error()))
 		}
 		for _, pid := range ids {
@@ -120,17 +121,17 @@ func (u *UseCase) Refresh(ctx context.Context, instanceName string, sonarrSeries
 	canon, err := u.deps.Series.Get(ctx, seriesID)
 	if err != nil {
 		u.log.WarnContext(ctx, "seriesrefresh.canon_read_failed",
-			slog.Int64("series_id", seriesID),
+			slog.Int64("series_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	} else if canon.IMDBID != nil && *canon.IMDBID != "" {
-		u.deps.Dispatcher.Enqueue(enrichment.EntityOMDb, seriesID, enrichment.PriorityHot)
+		u.deps.Dispatcher.Enqueue(enrichment.EntityOMDb, int64(seriesID), enrichment.PriorityHot)
 		res.OMDbQueued = true
 	}
 
 	u.log.InfoContext(ctx, "seriesrefresh.enqueued",
 		slog.String("instance_name", instanceName),
 		slog.Int("sonarr_series_id", sonarrSeriesID),
-		slog.Int64("series_id", seriesID),
+		slog.Int64("series_id", int64(seriesID)),
 		slog.Int("persons", res.Persons),
 		slog.Bool("omdb", res.OMDbQueued),
 	)

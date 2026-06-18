@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fallbackLanguage is the PRD-mandated default — used both as the
@@ -75,7 +76,7 @@ func NewSeriesTextsRepository(db *gorm.DB) *SeriesTextsRepository {
 
 // Get fetches the row for (series_id, language) exactly. Returns
 // ports.ErrNotFound when no row matches.
-func (r *SeriesTextsRepository) Get(ctx context.Context, seriesID int64, language string) (series.SeriesText, error) {
+func (r *SeriesTextsRepository) Get(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesText, error) {
 	var m database.SeriesTextModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id = ? AND language = ?", seriesID, language).
@@ -92,9 +93,9 @@ func (r *SeriesTextsRepository) Get(ctx context.Context, seriesID int64, languag
 // GetWithFallback returns the row for the requested language, or the
 // en-US fallback, or the first available row by language ascending.
 // ports.ErrNotFound is the only NotFound sentinel.
-func (r *SeriesTextsRepository) GetWithFallback(ctx context.Context, seriesID int64, language string) (series.SeriesText, error) {
+func (r *SeriesTextsRepository) GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesText, error) {
 	var m database.SeriesTextModel
-	if err := pickLanguageFallback(ctx, r.db, "series_texts", "series_id", seriesID, language, &m); err != nil {
+	if err := pickLanguageFallback(ctx, r.db, "series_texts", "series_id", int64(seriesID), language, &m); err != nil {
 		return series.SeriesText{}, err
 	}
 	if m.SeriesID == 0 {

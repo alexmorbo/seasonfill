@@ -7,6 +7,8 @@
 // this person is in" affordance — own file, own types.
 package dto
 
+import "github.com/alexmorbo/seasonfill/internal/shared/domain"
+
 // SeriesCastResponse is the full cast & crew payload returned by
 // GET /api/v1/instances/:name/series/:id/cast?lang=. The shape
 // matches the H-1 design brief sections §3.4 (tabs Cast + Crew)
@@ -19,7 +21,7 @@ type SeriesCastResponse struct {
 	// SonarrSeriesID is the Sonarr-side id from the URL.
 	SonarrSeriesID int `json:"sonarr_series_id" example:"1"`
 	// SeriesID is the resolved canonical series.id.
-	SeriesID int64 `json:"series_id" example:"42"`
+	SeriesID domain.SeriesID `json:"series_id" example:"42"`
 	// Lang is the BCP-47 language code requested. Accepted for
 	// forward compatibility (H-2 person page localises Biography);
 	// the cast list itself has no per-language fields in v1.

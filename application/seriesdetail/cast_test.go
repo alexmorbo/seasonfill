@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- cast-composer-local fakes ---
@@ -24,7 +25,7 @@ type fakeCastSeriesPeople struct {
 	err  error
 }
 
-func (f *fakeCastSeriesPeople) ListBySeries(_ context.Context, _ int64, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f *fakeCastSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -61,11 +62,11 @@ func (f *fakePersonCredits) ListByPerson(_ context.Context, personID int64) ([]P
 }
 
 type fakeEpisodesCount struct {
-	counts map[int64]int
+	counts map[domain.SeriesID]int
 	err    error
 }
 
-func (f *fakeEpisodesCount) CountBySeries(_ context.Context, seriesID int64) (int, error) {
+func (f *fakeEpisodesCount) CountBySeries(_ context.Context, seriesID domain.SeriesID) (int, error) {
 	if f.err != nil {
 		return 0, f.err
 	}
@@ -80,22 +81,22 @@ func castBaseDeps(t *testing.T) (CastDeps, *fakeSeriesCache, *fakeSeries, *fakeC
 			cacheKey("alpha", 1): {
 				InstanceName:   "alpha",
 				SonarrSeriesID: 1,
-				SeriesID:       i64ptr(42),
+				SeriesID:       seriesIDPtr(42),
 				Title:          "The Last of Us",
 				Monitored:      true,
 			},
 		},
-		byCanon: map[int64][]series.CacheEntry{},
+		byCanon: map[domain.SeriesID][]series.CacheEntry{},
 	}
 	canon := &fakeSeries{
-		rows: map[int64]series.Canon{
+		rows: map[domain.SeriesID]series.Canon{
 			42: {ID: 42, Title: "The Last of Us", TMDBID: intPtr(100)},
 		},
 	}
 	sp := &fakeCastSeriesPeople{}
 	persons := &fakeCastPeople{rows: map[int64]people.Person{}}
 	credits := &fakePersonCredits{rows: map[int64][]PersonCreditRef{}}
-	counts := &fakeEpisodesCount{counts: map[int64]int{42: 9}}
+	counts := &fakeEpisodesCount{counts: map[domain.SeriesID]int{42: 9}}
 	deps := CastDeps{
 		SeriesCache:       cache,
 		SeriesCacheLookup: cache,
@@ -169,8 +170,8 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	// Canon: 200 (GoT), 300 (Mindhunter) live in library + map to TMDB.
 	canon.rows[200] = series.Canon{ID: 200, Title: "Game of Thrones", TMDBID: intPtr(200)}
 	canon.rows[300] = series.Canon{ID: 300, Title: "Mindhunter", TMDBID: intPtr(300)}
-	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: i64ptr(200)}}
-	cache.byCanon[300] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 7, SeriesID: i64ptr(300)}}
+	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
+	cache.byCanon[300] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 7, SeriesID: seriesIDPtr(300)}}
 
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -305,7 +306,7 @@ func TestCastComposer_CanonMissingPropagates(t *testing.T) {
 	t.Parallel()
 	deps, cache, _, _, _, _, _ := castBaseDeps(t)
 	cache.entries[cacheKey("alpha", 3)] = series.CacheEntry{
-		InstanceName: "alpha", SonarrSeriesID: 3, SeriesID: i64ptr(999),
+		InstanceName: "alpha", SonarrSeriesID: 3, SeriesID: seriesIDPtr(999),
 	}
 	c := NewCastComposer(deps)
 	_, err := c.Get(context.Background(), "alpha", 3, "en-US")

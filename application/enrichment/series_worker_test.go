@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ---- fakes ---------------------------------------------------------
@@ -96,24 +97,24 @@ func (c *callRecord) list() []string {
 // fakeSeriesRepo + others - minimal in-memory stubs.
 type fakeSeriesRepo struct {
 	rec     *callRecord
-	rows    map[int64]series.Canon
-	byTMDB  map[int]int64 // tmdb_id -> internal id, Story 319
-	nextID  int64
+	rows    map[domain.SeriesID]series.Canon
+	byTMDB  map[int]domain.SeriesID // tmdb_id -> internal id, Story 319
+	nextID  domain.SeriesID
 	upsertN int
 }
 
 func newFakeSeriesRepo(rec *callRecord) *fakeSeriesRepo {
-	return &fakeSeriesRepo{rec: rec, rows: make(map[int64]series.Canon), byTMDB: make(map[int]int64), nextID: 100}
+	return &fakeSeriesRepo{rec: rec, rows: make(map[domain.SeriesID]series.Canon), byTMDB: make(map[int]domain.SeriesID), nextID: 100}
 }
 
-func (f *fakeSeriesRepo) Get(ctx context.Context, id int64) (series.Canon, error) {
+func (f *fakeSeriesRepo) Get(ctx context.Context, id domain.SeriesID) (series.Canon, error) {
 	if c, ok := f.rows[id]; ok {
 		return c, nil
 	}
 	return series.Canon{}, ports.ErrNotFound
 }
 
-func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (int64, error) {
+func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	f.upsertN++
 	f.rec.add("Series.Upsert")
 	if c.ID == 0 {
@@ -130,7 +131,7 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (int64, err
 // UpsertStub mirrors the production COALESCE semantics: existing
 // non-NULL columns win over the stub's value. An existing 'full' row
 // keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.
-func (f *fakeSeriesRepo) UpsertStub(ctx context.Context, c series.Canon) (int64, error) {
+func (f *fakeSeriesRepo) UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	f.rec.add("Series.UpsertStub")
 	if c.TMDBID != nil {
 		if existingID, ok := f.byTMDB[*c.TMDBID]; ok {
@@ -182,7 +183,7 @@ func newFakeSeasonsRepo(rec *callRecord) *fakeSeasonsRepo {
 	return &fakeSeasonsRepo{rec: rec, rows: make(map[int]series.CanonSeason), nextID: 1000}
 }
 
-func (f *fakeSeasonsRepo) ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonSeason, error) {
+func (f *fakeSeasonsRepo) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error) {
 	return nil, nil
 }
 
@@ -204,7 +205,7 @@ func newFakeEpisodesRepo(rec *callRecord) *fakeEpisodesRepo {
 	return &fakeEpisodesRepo{rec: rec, nextID: 5000}
 }
 
-func (f *fakeEpisodesRepo) ListBySeries(ctx context.Context, seriesID int64) ([]series.CanonEpisode, error) {
+func (f *fakeEpisodesRepo) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonEpisode, error) {
 	return nil, nil
 }
 
@@ -310,7 +311,7 @@ func (f *fakeGenresRepo) UpsertI18n(ctx context.Context, genreID int64, language
 	return nil
 }
 
-func (f *fakeGenresRepo) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (f *fakeGenresRepo) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	f.rec.add("Genres.Set")
 	f.setCall = ids
 	return nil
@@ -348,7 +349,7 @@ func (f *fakeKeywordsRepo) UpsertI18n(ctx context.Context, keywordID int64, lang
 	return nil
 }
 
-func (f *fakeKeywordsRepo) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (f *fakeKeywordsRepo) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	f.rec.add("Keywords.Set")
 	f.setCall = ids
 	return nil
@@ -366,7 +367,7 @@ func (f *fakeNetworksRepo) Upsert(ctx context.Context, n taxonomy.Network) (int6
 	return f.nextID, nil
 }
 
-func (f *fakeNetworksRepo) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (f *fakeNetworksRepo) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	f.rec.add("Networks.Set")
 	f.setCall = ids
 	return nil
@@ -384,7 +385,7 @@ func (f *fakeCompaniesRepo) Upsert(ctx context.Context, c taxonomy.ProductionCom
 	return f.nextID, nil
 }
 
-func (f *fakeCompaniesRepo) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (f *fakeCompaniesRepo) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	f.rec.add("Companies.Set")
 	f.setCall = ids
 	return nil
@@ -406,7 +407,7 @@ type fakeContentRatingsRepo struct {
 	rows []string
 }
 
-func (f *fakeContentRatingsRepo) Upsert(ctx context.Context, seriesID int64, country, rating string) error {
+func (f *fakeContentRatingsRepo) Upsert(ctx context.Context, seriesID domain.SeriesID, country, rating string) error {
 	f.rec.add("ContentRatings.Upsert")
 	f.rows = append(f.rows, country+":"+rating)
 	return nil
@@ -425,10 +426,10 @@ func (f *fakeExternalIDsRepo) Upsert(ctx context.Context, entityType enrichment.
 
 type fakeRecommendationsRepo struct {
 	rec  *callRecord
-	last []int64
+	last []domain.SeriesID
 }
 
-func (f *fakeRecommendationsRepo) Set(ctx context.Context, seriesID int64, recommendedIDs []int64) error {
+func (f *fakeRecommendationsRepo) Set(ctx context.Context, seriesID domain.SeriesID, recommendedIDs []domain.SeriesID) error {
 	f.rec.add("Recommendations.Set")
 	f.last = recommendedIDs
 	return nil
@@ -549,7 +550,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 }
 
 // seedCanon installs a canon row at id=1 with tmdbID=42.
-func (f *workerFixture) seedCanon(id int64, tmdbID *int) {
+func (f *workerFixture) seedCanon(id domain.SeriesID, tmdbID *int) {
 	f.series.rows[id] = series.Canon{ID: id, TMDBID: tmdbID, Title: "Existing", InProduction: true}
 }
 

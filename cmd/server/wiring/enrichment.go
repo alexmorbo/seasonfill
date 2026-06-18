@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -336,7 +337,9 @@ func BuildEnrichment(
 	if err != nil {
 		return nil, fmt.Errorf("new omdb worker: %w", err)
 	}
-	omdbWorkerHandle := omdbWorker.Handle
+	omdbWorkerHandle := func(ctx context.Context, id int64) error {
+		return omdbWorker.Handle(ctx, domain.SeriesID(id))
+	}
 	var (
 		omdbDailyBatch  func(context.Context)
 		omdbBudgetReset func(context.Context)
@@ -356,7 +359,9 @@ func BuildEnrichment(
 	}
 
 	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
-		SeriesHandler: worker.Handle,
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			return worker.Handle(ctx, domain.SeriesID(id))
+		},
 		PersonHandler: personWorker.Handle,
 		// Story 352 — omdbWorkerHandle is unconditional; the worker
 		// itself short-circuits to "handler_nil" when the holder is
@@ -500,7 +505,7 @@ func BuildEnrichment(
 					slog.String("error", err.Error()))
 			} else if len(ids) > 0 {
 				for _, id := range ids {
-					dispatcher.Enqueue(appenrich.EntitySeries, id, appenrich.PriorityCold)
+					dispatcher.Enqueue(appenrich.EntitySeries, int64(id), appenrich.PriorityCold)
 				}
 				enrichmentLog.InfoContext(ctx, "enrichment.canon_images.recovery.enqueued",
 					slog.Int("series_count", len(ids)),
@@ -621,7 +626,15 @@ func NewOMDbBatchScannerAdapter(s *repositories.SeriesRepository) OMDbBatchScann
 }
 
 func (a omdbBatchScannerAdapter) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
-	return a.inner.ListLibraryWithIMDBStale(ctx, ttl, limit)
+	ids, err := a.inner.ListLibraryWithIMDBStale(ctx, ttl, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int64, len(ids))
+	for i, id := range ids {
+		out[i] = int64(id)
+	}
+	return out, nil
 }
 
 // peopleRepoCombined is the intersection interface main.go's
@@ -686,7 +699,7 @@ type ContentRatingsRepoAdapter struct {
 	Inner *repositories.ContentRatingsRepository
 }
 
-func (a ContentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID int64, country, rating string) error {
+func (a ContentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID domain.SeriesID, country, rating string) error {
 	if country == "" || rating == "" {
 		return nil
 	}
@@ -716,7 +729,7 @@ func (a GenresRepoAdapter) UpsertI18n(ctx context.Context, genreID int64, langua
 	})
 }
 
-func (a GenresRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (a GenresRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	return a.Main.Set(ctx, seriesID, ids)
 }
 
@@ -738,7 +751,7 @@ func (a KeywordsRepoAdapter) UpsertI18n(ctx context.Context, keywordID int64, la
 	})
 }
 
-func (a KeywordsRepoAdapter) Set(ctx context.Context, seriesID int64, ids []int64) error {
+func (a KeywordsRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	return a.Main.Set(ctx, seriesID, ids)
 }
 
@@ -819,14 +832,14 @@ func NewColdStartScannerAdapter(s *repositories.SeriesRepository) appenrich.Cold
 	return coldStartScannerAdapter{inner: s}
 }
 
-func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]int64, error) {
+func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error) {
 	return a.inner.ListMissingSyncLog(ctx, source, limit)
 }
 
 // ListCanonImagesCorrupted — Story 319: forwards to the underlying
 // repository. The wrapper exists so the application port doesn't
 // import infrastructure/database.
-func (a coldStartScannerAdapter) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]int64, error) {
+func (a coldStartScannerAdapter) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	return a.inner.ListCanonImagesCorrupted(ctx, limit)
 }
 

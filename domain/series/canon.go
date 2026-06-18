@@ -1,6 +1,10 @@
 package series
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // Hydration tracks the gidration depth of a Canon (or future Person)
 // row. `HydrationStub` rows are placeholder shells (title + key ids
@@ -36,7 +40,7 @@ func (h Hydration) IsValid() bool {
 // `Popularity=ptr(0.0)` MUST be distinguishable from a worker that
 // left popularity unset.
 type Canon struct {
-	ID               int64
+	ID               domain.SeriesID
 	TMDBID           *int
 	TVDBID           *int
 	IMDBID           *string
@@ -73,7 +77,7 @@ type Canon struct {
 // to Canon.ID — application-side cascade as elsewhere in the schema.
 type CanonSeason struct {
 	ID           int64
-	SeriesID     int64
+	SeriesID     domain.SeriesID
 	SeasonNumber int
 	TMDBSeasonID *int
 	Name         *string
@@ -93,7 +97,7 @@ type CanonSeason struct {
 // reserved).
 type CanonEpisode struct {
 	ID                int64
-	SeriesID          int64
+	SeriesID          domain.SeriesID
 	SeasonID          *int64
 	SeasonNumber      int
 	EpisodeNumber     int
@@ -134,7 +138,7 @@ type EpisodeState struct {
 // (series_id, language) PK; the §5.6 fallback helper returns the
 // requested language when present, else en-US, else first available.
 type SeriesText struct {
-	SeriesID  int64
+	SeriesID  domain.SeriesID
 	Language  string
 	Title     *string
 	Overview  *string

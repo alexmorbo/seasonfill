@@ -260,7 +260,7 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 	caches, err := uc.d.SeriesCache.ListBySeriesID(ctx, canon.ID)
 	if err != nil {
 		uc.d.Logger.WarnContext(ctx, "person_classify_cache_list_failed",
-			slog.Int64("series_id", canon.ID),
+			slog.Int64("series_id", int64(canon.ID)),
 			slog.String("error", err.Error()))
 		return false, series.Canon{}, nil
 	}

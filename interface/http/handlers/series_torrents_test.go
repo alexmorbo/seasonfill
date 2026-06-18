@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // stubTorrentsCachePort is a minimal SeriesCachePort for the handler.
@@ -38,7 +39,7 @@ type stubTorrentsSeriesPort struct {
 	err   error
 }
 
-func (s stubTorrentsSeriesPort) Get(_ context.Context, _ int64) (series.Canon, error) {
+func (s stubTorrentsSeriesPort) Get(_ context.Context, _ domain.SeriesID) (series.Canon, error) {
 	return s.canon, s.err
 }
 
@@ -88,7 +89,7 @@ func (s stubTorrentsRepo) FindByHashes(_ context.Context, _ string, hashes []str
 	return out, nil
 }
 
-func i64ptrLocal(v int64) *int64 { return &v }
+func i64ptrLocal(v int64) *domain.SeriesID { sid := domain.SeriesID(v); return &sid }
 
 func buildTorrentsHandler(t *testing.T, store *torrentsync.Store, lookup stubTorrentsLookup, repo stubTorrentsRepo) *SeriesTorrentsHandler {
 	t.Helper()
@@ -274,7 +275,7 @@ func TestSeriesTorrents_DefaultSortAddedOnDesc(t *testing.T) {
 // the 500 path through writeInternalError.
 type errSeriesPort struct{}
 
-func (errSeriesPort) Get(_ context.Context, _ int64) (series.Canon, error) {
+func (errSeriesPort) Get(_ context.Context, _ domain.SeriesID) (series.Canon, error) {
 	return series.Canon{}, errors.New("db dead")
 }
 

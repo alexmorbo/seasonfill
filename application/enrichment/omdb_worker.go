@@ -29,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/omdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -96,11 +97,11 @@ func NewOMDbWorker(deps OMDbWorkerDeps) (*OMDbWorker, error) {
 // Handle is the dispatcher-facing entry point. seriesID is a CANON
 // series.id. Returns nil on every terminal outcome (ok / not_found /
 // auth_failed / retryable error journalled / budget exhaustion).
-func (w *OMDbWorker) Handle(ctx context.Context, seriesID int64) error {
+func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
-		slog.Int64("entity_id", seriesID),
+		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),
 	)
 
@@ -121,7 +122,7 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID int64) error {
 	log = log.With(slog.String("imdb_id", imdbID))
 
 	// 2. Staleness short-circuit: outcome=ok + within TTL ⇒ skip.
-	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, seriesID, enrichment.SourceOMDb)
+	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceOMDb)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		log.WarnContext(ctx, "enrichment.omdb.handle.sync_log_read_failed",
 			slog.String("error", err.Error()))
@@ -208,12 +209,12 @@ func applyOMDbToCanon(base series.Canon, m omdb.Enrichment) series.Canon {
 
 // ---- error handling + journal helpers ------------------------------
 
-func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID int64, op string, err error, previousAttempts int, start time.Time) error {
+func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID domain.SeriesID, op string, err error, previousAttempts int, start time.Time) error {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
-		slog.Int64("entity_id", seriesID),
+		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),
 		slog.String("op", op),
 	)
@@ -223,7 +224,7 @@ func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID int64, op s
 		ed := err.Error()
 		entry := enrichment.SyncLog{
 			EntityType:  enrichment.EntityTypeSeries,
-			EntityID:    seriesID,
+			EntityID:    int64(seriesID),
 			Source:      enrichment.SourceOMDb,
 			Outcome:     enrichment.OutcomeNotFound,
 			ErrorDetail: &ed,
@@ -246,7 +247,7 @@ func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID int64, op s
 		ed := err.Error()
 		entry := enrichment.SyncLog{
 			EntityType:  enrichment.EntityTypeSeries,
-			EntityID:    seriesID,
+			EntityID:    int64(seriesID),
 			Source:      enrichment.SourceOMDb,
 			Outcome:     enrichment.OutcomeError, // domain has no auth_failed enum; we mark error + ed
 			ErrorDetail: &ed,
@@ -271,7 +272,7 @@ func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID int64, op s
 	ed := err.Error()
 	entry := enrichment.SyncLog{
 		EntityType:    enrichment.EntityTypeSeries,
-		EntityID:      seriesID,
+		EntityID:      int64(seriesID),
 		Source:        enrichment.SourceOMDb,
 		Outcome:       enrichment.OutcomeError,
 		ErrorDetail:   &ed,
@@ -294,10 +295,10 @@ func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID int64, op s
 	return nil
 }
 
-func (w *OMDbWorker) journalOK(ctx context.Context, seriesID int64, now time.Time, durMs int) {
+func (w *OMDbWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time, durMs int) {
 	entry := enrichment.SyncLog{
 		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   seriesID,
+		EntityID:   int64(seriesID),
 		Source:     enrichment.SourceOMDb,
 		SyncedAt:   &now,
 		Outcome:    enrichment.OutcomeOK,
@@ -306,18 +307,18 @@ func (w *OMDbWorker) journalOK(ctx context.Context, seriesID int64, now time.Tim
 	}
 	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.journal_ok_failed",
-			slog.Int64("entity_id", seriesID),
+			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 }
 
-func (w *OMDbWorker) journalNotFound(ctx context.Context, seriesID int64, msg string, start time.Time) {
+func (w *OMDbWorker) journalNotFound(ctx context.Context, seriesID domain.SeriesID, msg string, start time.Time) {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	ed := msg
 	entry := enrichment.SyncLog{
 		EntityType:  enrichment.EntityTypeSeries,
-		EntityID:    seriesID,
+		EntityID:    int64(seriesID),
 		Source:      enrichment.SourceOMDb,
 		Outcome:     enrichment.OutcomeNotFound,
 		ErrorDetail: &ed,
@@ -326,7 +327,7 @@ func (w *OMDbWorker) journalNotFound(ctx context.Context, seriesID int64, msg st
 	}
 	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.journal_nf_failed",
-			slog.Int64("entity_id", seriesID),
+			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 }
