@@ -21,6 +21,22 @@ func newTMDBID() int { return int(rand.Int32N(1_000_000) + 1) }
 
 func newIMDBID() string { return fmt.Sprintf("tt%07d", rand.Int32N(9_999_999)+1) }
 
+func newSonarrSeriesID() domain.SonarrSeriesID {
+	return domain.SonarrSeriesID(rand.Int32N(1_000_000) + 1)
+}
+
+func newEpisodeID() domain.EpisodeID { return domain.EpisodeID(rand.Int64N(1_000_000) + 1) }
+
+func newScanRunID() int64 { return rand.Int64N(1_000_000) + 1 }
+
+func newWBID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
+
+func newGrabID() string {
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		rand.Uint32(), rand.Uint32N(0xffff), rand.Uint32N(0xffff),
+		rand.Uint32N(0xffff), rand.Uint64N(0xffffffffffff))
+}
+
 func TestIsRetriable_PerType(t *testing.T) {
 	t.Parallel()
 
@@ -41,6 +57,18 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"OMDbAuthError", &sharedErrors.OMDbAuthError{}, false},
 		{"ScanFailedError", &sharedErrors.ScanFailedError{Cause: errors.New("disk full")}, true},
 		{"ScanInProgressError", &sharedErrors.ScanInProgressError{}, false},
+		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, false},
+		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, false},
+		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 3}, false},
+		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, false},
+		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, false},
+		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, false},
+		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, false},
+		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, false},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, false},
+		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, false},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, false},
+		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, false},
 	}
 
 	for _, tc := range tests {
@@ -100,6 +128,18 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"OMDbAuthError", &sharedErrors.OMDbAuthError{}, "omdb_auth"},
 		{"ScanFailedError", &sharedErrors.ScanFailedError{}, "scan_failed"},
 		{"ScanInProgressError", &sharedErrors.ScanInProgressError{}, "scan_in_progress"},
+		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, "series_cache_not_found"},
+		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, "episode_not_found"},
+		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 2}, "season_not_found"},
+		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, "admin_user_not_found"},
+		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, "instance_not_found"},
+		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
+		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, "runtime_config_not_found"},
+		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, "app_settings_not_found"},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, "qbit_settings_not_found"},
+		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, "decision_not_found"},
+		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, "watchdog_blacklist_not_found"},
 	}
 
 	for _, tc := range tests {
@@ -191,6 +231,49 @@ func TestScanFailed_UnwrapPreservesCause(t *testing.T) {
 	e := &sharedErrors.ScanFailedError{Cause: cause}
 
 	assert.ErrorIs(t, e, cause)
+}
+
+func TestIsRetriable_NewTypes_NestedWrap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}},
+		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}},
+		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			wrapped := fmt.Errorf("ctx: %w", tc.err)
+			assert.False(t, sharedErrors.IsRetriable(wrapped))
+		})
+	}
+}
+
+func TestErrorCode_NewTypes_NestedWrap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, "admin_user_not_found"},
+		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
+		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			wrapped := fmt.Errorf("ctx: %w", tc.err)
+			assert.Equal(t, tc.code, sharedErrors.ErrorCode(wrapped))
+		})
+	}
 }
 
 func TestNilCauseDoesNotPanic(t *testing.T) {

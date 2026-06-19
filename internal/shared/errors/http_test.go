@@ -32,6 +32,18 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"OMDbQuotaExhaustedError", &sharedErrors.OMDbQuotaExhaustedError{ResetAt: time.Now().Add(time.Hour)}, http.StatusServiceUnavailable},
 		{"ScanFailedError", &sharedErrors.ScanFailedError{Cause: errors.New("boom")}, http.StatusInternalServerError},
 		{"SeriesCanonicalLoadError", &sharedErrors.SeriesCanonicalLoadError{ID: newSeriesID(), Cause: errors.New("boom")}, http.StatusInternalServerError},
+		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, http.StatusNotFound},
+		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, http.StatusNotFound},
+		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, http.StatusNotFound},
+		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, http.StatusNotFound},
+		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, http.StatusNotFound},
+		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, http.StatusNotFound},
+		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, http.StatusNotFound},
+		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, http.StatusNotFound},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, http.StatusNotFound},
+		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, http.StatusNotFound},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, http.StatusNotFound},
+		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, http.StatusNotFound},
 	}
 
 	for _, tc := range tests {
@@ -68,6 +80,15 @@ func TestStatusCode_Nil(t *testing.T) {
 func TestStatusCode_Untyped(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, http.StatusInternalServerError, sharedErrors.StatusCode(errors.New("boom")))
+}
+
+func TestStatusCode_WatchdogBlacklistNF_NestedWrap(t *testing.T) {
+	t.Parallel()
+
+	inner := &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}
+	wrapped := fmt.Errorf("delete: %w", inner)
+
+	assert.Equal(t, http.StatusNotFound, sharedErrors.StatusCode(wrapped))
 }
 
 func TestStatusCode_TripleNestedRetainsDeepestTypedMatch(t *testing.T) {

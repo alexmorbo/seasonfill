@@ -35,18 +35,30 @@ func IsRetriable(err error) bool {
 		return false
 	}
 	var (
-		seriesNF   *SeriesNotFoundError
-		seriesLoad *SeriesCanonicalLoadError
-		sonarrU    *SonarrUnreachableError
-		sonarrI    *SonarrInstanceInvalidError
-		tmdbRL     *TMDBRateLimitedError
-		tmdbAuth   *TMDBAuthError
-		tmdbNF     *TMDBNotFoundError
-		omdbQ      *OMDbQuotaExhaustedError
-		omdbNF     *OMDbNotFoundError
-		omdbAuth   *OMDbAuthError
-		scanF      *ScanFailedError
-		scanIP     *ScanInProgressError
+		seriesNF      *SeriesNotFoundError
+		seriesLoad    *SeriesCanonicalLoadError
+		sonarrU       *SonarrUnreachableError
+		sonarrI       *SonarrInstanceInvalidError
+		tmdbRL        *TMDBRateLimitedError
+		tmdbAuth      *TMDBAuthError
+		tmdbNF        *TMDBNotFoundError
+		omdbQ         *OMDbQuotaExhaustedError
+		omdbNF        *OMDbNotFoundError
+		omdbAuth      *OMDbAuthError
+		scanF         *ScanFailedError
+		scanIP        *ScanInProgressError
+		seriesCacheNF *SeriesCacheNotFoundError
+		episodeNF     *EpisodeNotFoundError
+		seasonNF      *SeasonNotFoundError
+		adminNF       *AdminUserNotFoundError
+		instanceNF    *InstanceNotFoundError
+		grabNF        *GrabNotFoundError
+		runtimeNF     *RuntimeConfigNotFoundError
+		appSetNF      *AppSettingsNotFoundError
+		qbitSetNF     *QbitSettingsNotFoundError
+		scanRunNF     *ScanRunNotFoundError
+		decisionNF    *DecisionNotFoundError
+		wbNF          *WatchdogBlacklistNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -73,6 +85,30 @@ func IsRetriable(err error) bool {
 		return scanF.Retriable()
 	case errors.As(err, &scanIP):
 		return scanIP.Retriable()
+	case errors.As(err, &seriesCacheNF):
+		return seriesCacheNF.Retriable()
+	case errors.As(err, &episodeNF):
+		return episodeNF.Retriable()
+	case errors.As(err, &seasonNF):
+		return seasonNF.Retriable()
+	case errors.As(err, &adminNF):
+		return adminNF.Retriable()
+	case errors.As(err, &instanceNF):
+		return instanceNF.Retriable()
+	case errors.As(err, &grabNF):
+		return grabNF.Retriable()
+	case errors.As(err, &runtimeNF):
+		return runtimeNF.Retriable()
+	case errors.As(err, &appSetNF):
+		return appSetNF.Retriable()
+	case errors.As(err, &qbitSetNF):
+		return qbitSetNF.Retriable()
+	case errors.As(err, &scanRunNF):
+		return scanRunNF.Retriable()
+	case errors.As(err, &decisionNF):
+		return decisionNF.Retriable()
+	case errors.As(err, &wbNF):
+		return wbNF.Retriable()
 	}
 	return false
 }
@@ -88,18 +124,30 @@ func ErrorCode(err error) string {
 		return ""
 	}
 	var (
-		seriesNF   *SeriesNotFoundError
-		seriesLoad *SeriesCanonicalLoadError
-		sonarrU    *SonarrUnreachableError
-		sonarrI    *SonarrInstanceInvalidError
-		tmdbRL     *TMDBRateLimitedError
-		tmdbAuth   *TMDBAuthError
-		tmdbNF     *TMDBNotFoundError
-		omdbQ      *OMDbQuotaExhaustedError
-		omdbNF     *OMDbNotFoundError
-		omdbAuth   *OMDbAuthError
-		scanF      *ScanFailedError
-		scanIP     *ScanInProgressError
+		seriesNF      *SeriesNotFoundError
+		seriesLoad    *SeriesCanonicalLoadError
+		sonarrU       *SonarrUnreachableError
+		sonarrI       *SonarrInstanceInvalidError
+		tmdbRL        *TMDBRateLimitedError
+		tmdbAuth      *TMDBAuthError
+		tmdbNF        *TMDBNotFoundError
+		omdbQ         *OMDbQuotaExhaustedError
+		omdbNF        *OMDbNotFoundError
+		omdbAuth      *OMDbAuthError
+		scanF         *ScanFailedError
+		scanIP        *ScanInProgressError
+		seriesCacheNF *SeriesCacheNotFoundError
+		episodeNF     *EpisodeNotFoundError
+		seasonNF      *SeasonNotFoundError
+		adminNF       *AdminUserNotFoundError
+		instanceNF    *InstanceNotFoundError
+		grabNF        *GrabNotFoundError
+		runtimeNF     *RuntimeConfigNotFoundError
+		appSetNF      *AppSettingsNotFoundError
+		qbitSetNF     *QbitSettingsNotFoundError
+		scanRunNF     *ScanRunNotFoundError
+		decisionNF    *DecisionNotFoundError
+		wbNF          *WatchdogBlacklistNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -126,6 +174,30 @@ func ErrorCode(err error) string {
 		return scanF.Code()
 	case errors.As(err, &scanIP):
 		return scanIP.Code()
+	case errors.As(err, &seriesCacheNF):
+		return seriesCacheNF.Code()
+	case errors.As(err, &episodeNF):
+		return episodeNF.Code()
+	case errors.As(err, &seasonNF):
+		return seasonNF.Code()
+	case errors.As(err, &adminNF):
+		return adminNF.Code()
+	case errors.As(err, &instanceNF):
+		return instanceNF.Code()
+	case errors.As(err, &grabNF):
+		return grabNF.Code()
+	case errors.As(err, &runtimeNF):
+		return runtimeNF.Code()
+	case errors.As(err, &appSetNF):
+		return appSetNF.Code()
+	case errors.As(err, &qbitSetNF):
+		return qbitSetNF.Code()
+	case errors.As(err, &scanRunNF):
+		return scanRunNF.Code()
+	case errors.As(err, &decisionNF):
+		return decisionNF.Code()
+	case errors.As(err, &wbNF):
+		return wbNF.Code()
 	}
 	return "internal_error"
 }

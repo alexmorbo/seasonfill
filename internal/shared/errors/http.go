@@ -17,18 +17,30 @@ func StatusCode(err error) int {
 		return 0
 	}
 	var (
-		seriesNF   *SeriesNotFoundError
-		seriesLoad *SeriesCanonicalLoadError
-		sonarrU    *SonarrUnreachableError
-		sonarrI    *SonarrInstanceInvalidError
-		tmdbRL     *TMDBRateLimitedError
-		tmdbAuth   *TMDBAuthError
-		tmdbNF     *TMDBNotFoundError
-		omdbQ      *OMDbQuotaExhaustedError
-		omdbNF     *OMDbNotFoundError
-		omdbAuth   *OMDbAuthError
-		scanF      *ScanFailedError
-		scanIP     *ScanInProgressError
+		seriesNF      *SeriesNotFoundError
+		seriesLoad    *SeriesCanonicalLoadError
+		sonarrU       *SonarrUnreachableError
+		sonarrI       *SonarrInstanceInvalidError
+		tmdbRL        *TMDBRateLimitedError
+		tmdbAuth      *TMDBAuthError
+		tmdbNF        *TMDBNotFoundError
+		omdbQ         *OMDbQuotaExhaustedError
+		omdbNF        *OMDbNotFoundError
+		omdbAuth      *OMDbAuthError
+		scanF         *ScanFailedError
+		scanIP        *ScanInProgressError
+		seriesCacheNF *SeriesCacheNotFoundError
+		episodeNF     *EpisodeNotFoundError
+		seasonNF      *SeasonNotFoundError
+		adminNF       *AdminUserNotFoundError
+		instanceNF    *InstanceNotFoundError
+		grabNF        *GrabNotFoundError
+		runtimeNF     *RuntimeConfigNotFoundError
+		appSetNF      *AppSettingsNotFoundError
+		qbitSetNF     *QbitSettingsNotFoundError
+		scanRunNF     *ScanRunNotFoundError
+		decisionNF    *DecisionNotFoundError
+		wbNF          *WatchdogBlacklistNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -36,6 +48,30 @@ func StatusCode(err error) int {
 	case errors.As(err, &tmdbNF):
 		return http.StatusNotFound
 	case errors.As(err, &omdbNF):
+		return http.StatusNotFound
+	case errors.As(err, &seriesCacheNF):
+		return http.StatusNotFound
+	case errors.As(err, &episodeNF):
+		return http.StatusNotFound
+	case errors.As(err, &seasonNF):
+		return http.StatusNotFound
+	case errors.As(err, &adminNF):
+		return http.StatusNotFound
+	case errors.As(err, &instanceNF):
+		return http.StatusNotFound
+	case errors.As(err, &grabNF):
+		return http.StatusNotFound
+	case errors.As(err, &runtimeNF):
+		return http.StatusNotFound
+	case errors.As(err, &appSetNF):
+		return http.StatusNotFound
+	case errors.As(err, &qbitSetNF):
+		return http.StatusNotFound
+	case errors.As(err, &scanRunNF):
+		return http.StatusNotFound
+	case errors.As(err, &decisionNF):
+		return http.StatusNotFound
+	case errors.As(err, &wbNF):
 		return http.StatusNotFound
 	case errors.As(err, &scanIP):
 		return http.StatusConflict
