@@ -72,26 +72,15 @@ linters:
         - sortSlice
         - unnecessaryDefer
     modernize:
-      # F-1 follow-up (story 417): opt into stable modernize analyzers
-      # (Go 1.25+ sugar). Explicit list — new-analyzer arrivals on
-      # golangci-lint upgrade should require deliberate review rather
-      # than landing silently.
-      checks:
-        - atomictypes
-        - forvar
-        - mapsloop
-        - minmax
-        - newexpr
-        - rangeint
-        - stringscut
-        - stringsseq
-        - testingcontext
-        - waitgroupgo
-        # Deliberately omitted (require per-call audit, not in scope
-        # for #593):
-        # - errorsastype  (errors.As → errors.AsType switch)
-        # - slicescontains (touches hot loops; perf review separately)
-        # - omitzero      (struct-tag overhaul)
+      # F-1 follow-up (story 417): modernize is allow-by-default in
+      # golangci-lint v2 — the settings schema only accepts a `disable`
+      # block-list. Disable analyzers that require a codebase-wide
+      # audit before flipping on:
+      #   - slicescontains: touches hot loops (perf review separately)
+      #   - omitzero:       struct-tag overhaul
+      disable:
+        - slicescontains
+        - omitzero
   exclusions:
     paths:
       - web/node_modules
