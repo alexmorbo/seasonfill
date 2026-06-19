@@ -1,19 +1,197 @@
 package wiring
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"time"
 
+	authapp "github.com/alexmorbo/seasonfill/application/auth"
+	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
+
+// AuthBundle holds the auth-domain collaborators wired by BuildAuth.
+// All five handles are passed-through to httpserver.NewServer (AdminRepo,
+// LoginLimiter, WebhookLimiter, OIDCUC) and to the reload OIDC provider
+// subscriber (OIDCCache) constructed in server.go's Run flow.
+//
+// AdminRepo  — admin_users CRUD, also the AdminUserRepository port the
+//
+//	OIDC login use case verifies against on group-ACL match.
+//
+// OIDCCache  — shared provider/discovery cache; the reload subscriber
+//
+//	invalidates it on issuer change.
+//
+// OIDCUC     — Authorization Code + PKCE use case, stateless beyond the
+//
+//	provider cache.
+//
+// LoginLimiter / WebhookLimiter — IP-keyed token bucket limiters with
+//
+//	the standard LoginLimit() / WebhookLimit() rates.
+type AuthBundle struct {
+	AdminRepo      *repositories.AdminUserRepository
+	OIDCCache      *infraoidc.ProviderCache
+	OIDCUC         *authapp.OIDCLoginUseCase
+	LoginLimiter   *authapp.IPLimiter
+	WebhookLimiter *authapp.IPLimiter
+}
+
+// BuildAuth constructs the admin user repo, the OIDC provider cache,
+// the OIDC login use case, the login + webhook IP limiters, and runs
+// the admin password bootstrap (first-run seed; idempotent across
+// restarts).
+//
+// The `bus` parameter is reserved — admin bootstrap does not currently
+// publish runtime events. Keeping it in the signature matches the other
+// wirers (BuildRuntimeConfig) so future auth events have a take-up path.
+//
+// The ctx parameter is reserved for future use. The current body uses a
+// background context for the Bootstrap call to mirror the pre-refactor
+// behaviour in Server.New: the seed must complete even if the parent
+// ctx already carries a deadline applied by an outer test harness.
+// Plumbing the parent ctx here would change the cancel semantics. Same
+// pattern as BuildPersistence / BuildRuntimeConfig.
+func BuildAuth(
+	ctx context.Context,
+	persistence *PersistenceBundle,
+	bootCfg *config.Bootstrap,
+	bus *runtime.Bus,
+	log *slog.Logger,
+) (*AuthBundle, error) {
+	_ = ctx
+	_ = bus
+	bgCtx := context.Background()
+
+	adminRepo := repositories.NewAdminUserRepository(persistence.DB)
+	oidcCache := infraoidc.NewProviderCache()
+	oidcUC := authapp.NewOIDCLoginUseCase(oidcCache, adminRepo)
+
+	// F-4b-8: bootstrap admin seeder emits auth-domain records
+	// (admin-user creation, password-reset bootstrap).
+	authLog := sharedports.DomainLogger(log, "auth")
+	if err := authapp.Bootstrap(bgCtx, adminRepo, authapp.BootstrapConfig{
+		WebUser:         bootCfg.Auth.WebUser,
+		WebPassword:     bootCfg.Auth.WebPassword,
+		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
+	}, authLog); err != nil {
+		return nil, fmt.Errorf("auth bootstrap: %w", err)
+	}
+
+	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)
+	webhookLimiter := authapp.NewIPLimiter(authapp.WebhookLimit(), 60)
+
+	return &AuthBundle{
+		AdminRepo:      adminRepo,
+		OIDCCache:      oidcCache,
+		OIDCUC:         oidcUC,
+		LoginLimiter:   loginLimiter,
+		WebhookLimiter: webhookLimiter,
+	}, nil
+}
+
+// InstanceBundle groups the instance-domain components constructed at boot.
+// Returned by BuildInstance. Threaded into httpserver.NewServer (CRUDHandler,
+// ProbeHandler) — the HTTP wirer remains in server.go for now.
+//
+// Field-level invariants:
+//
+//   - UC owns the WithWebhookReconciler + WithWebhookStatusCache chained
+//     setters from the webhook bundle (story 335). The adapter is the
+//     pre-baked WebhookBundle.ReconcilerAdapter — same pointer identity
+//     as everywhere else.
+//
+//   - CRUDHandler wraps UC for the /api/v1/instances CRUD routes.
+//
+//   - ProbeHandler is the stateless POST /api/v1/instances/test handler;
+//     it holds its own *http.Client (tuned for probe: 5s dial + TLS +
+//     response-header timeouts, 64 KiB response-header cap, redirects
+//     short-circuited with ErrUseLastResponse so probe assertions can
+//     inspect the original status / Location).
+//
+//   - ProbeClient is exposed on the bundle for symmetry / tests; the
+//     handler owns the only production reference.
+type InstanceBundle struct {
+	UC           *instance.UseCase
+	CRUDHandler  *handlers.InstanceCRUDHandler
+	ProbeHandler *handlers.InstanceProbeHandler
+	ProbeClient  *http.Client
+}
+
+// BuildInstance wires the instance.UseCase + CRUD handler + Probe handler
+// + probe HTTP client.
+//
+// Construction order mirrors the pre-336 inline body in server.go verbatim:
+//
+//  1. instance.New(instanceRepo, runtimeRepo, cipher, bus, log) chained
+//     through WithWebhookReconciler(webhook.ReconcilerAdapter) +
+//     WithWebhookStatusCache(webhook.StatusCache).
+//  2. handlers.NewInstanceCRUDHandler(uc, log).
+//  3. *http.Client tuned for probe (5s dial + TLS + response-header
+//     timeouts, 64 KiB response-header cap, short-circuited redirects).
+//  4. handlers.NewInstanceProbeHandler(probeClient, log).
+//
+// No error path — every step is in-memory construction. The signature
+// returns error for symmetry with the other Build* wirers.
+func BuildInstance(
+	persistence *PersistenceBundle,
+	webhook *WebhookBundle,
+	bus *runtime.Bus,
+	log *slog.Logger,
+) (*InstanceBundle, error) {
+	// F-4b-8: instance CRUD UC is the operator-facing admin surface for
+	// Sonarr instance management — operator-driven mutations belong to
+	// the "admin" slot.
+	adminLog := sharedports.DomainLogger(log, "admin")
+	uc := instance.New(
+		persistence.InstanceRepo,
+		persistence.RuntimeRepo,
+		persistence.Cipher,
+		bus,
+		adminLog,
+	).
+		WithWebhookReconciler(webhook.ReconcilerAdapter).
+		WithWebhookStatusCache(webhook.StatusCache)
+
+	crudHandler := handlers.NewInstanceCRUDHandler(uc, log)
+
+	probeClient := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DialContext:            (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+			TLSHandshakeTimeout:    5 * time.Second,
+			ResponseHeaderTimeout:  5 * time.Second,
+			MaxResponseHeaderBytes: 64 << 10,
+		},
+	}
+	probeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
+
+	return &InstanceBundle{
+		UC:           uc,
+		CRUDHandler:  crudHandler,
+		ProbeHandler: probeHandler,
+		ProbeClient:  probeClient,
+	}, nil
+}
 
 // SeriesDetailBundle groups the Story 215 (G-1) / 216 (H-1) / 217 (H-2) /
 // 218 (E-2) series-detail components constructed at boot. Returned by
@@ -275,4 +453,87 @@ func BuildSeriesDetail(
 		RefreshHandler:       seriesRefreshHandler,
 		PersonEnqueuerHolder: peopleEnqueuerHolder,
 	}, nil
+}
+
+// BuildHTTPServer wraps the 37-arg httpserver.NewServer invocation that
+// previously lived inline in cmd/server/server.go (B-11 step 20 / story
+// 342).
+//
+// Positional arg ORDER is the immutable contract here: the underlying
+// httpserver.NewServer signature is the canonical positional list and
+// THIS wrapper does NOT reorder, group, or drop. Every argument is
+// read straight off a bundle (or one of the two named locals) and
+// forwarded in the same slot.
+//
+// seriesCacheRepo + counterRepo come in as explicit parameters because
+// they are not (yet) members of any existing bundle — they are
+// constructed inline in server.go (alongside seriesRepo) and used both
+// by the HTTP server and by the enrichment block below it. Pushing
+// them onto a bundle is out of scope for B-11 step 20.
+//
+// The LATE BIND ZONE in server.go runs AFTER this wirer is called — the
+// handlers passed in are pointer-typed, so mutations applied to
+// mediaBundle.Handler (SetOnDemandFetcher) and
+// seriesDetailBundle.MediaResolver (SetSideEffects) after this
+// constructor returns are visible at request time via gin's per-handler
+// dispatch. The pre-342 layout called httpserver.NewServer at the same
+// position, so this wirer preserves that ordering verbatim.
+func BuildHTTPServer(
+	persistence *PersistenceBundle,
+	runtimecfg *RuntimeConfigBundle,
+	auth *AuthBundle,
+	sonarrBundle *SonarrBundle,
+	watchdogBundle *WatchdogBundle,
+	scanBundle *ScanBundle,
+	webhookBundle *WebhookBundle,
+	instanceBundle *InstanceBundle,
+	regrabBundle *RegrabBundle,
+	torrentsyncBundle *TorrentsyncBundle,
+	extSvcBundle *ExtSvcBundle,
+	mediaBundle *MediaBundle,
+	seriesDetailBundle *SeriesDetailBundle,
+	seriesCacheRepo ports.SeriesCacheRepository,
+	counterRepo ports.CounterRepository,
+	log *slog.Logger,
+) *httpserver.Server {
+	return httpserver.NewServer(
+		runtimecfg.ServeConfig.HTTP,
+		scanBundle.ScanUC,
+		webhookBundle.WebhookUC,
+		watchdogBundle.Checker,
+		scanBundle.ScanRepo,
+		scanBundle.DecisionRepo,
+		scanBundle.GrabRepo,
+		auth.AdminRepo,
+		auth.LoginLimiter,
+		auth.WebhookLimiter,
+		sonarrBundle.InstanceReg,
+		scanBundle.CooldownRepo,
+		scanBundle.GrabUC,
+		scanBundle.RescanUC,
+		instanceBundle.CRUDHandler,
+		instanceBundle.ProbeHandler,
+		runtimecfg.Handler,
+		regrabBundle.QbitSettingsHandler,
+		extSvcBundle.Handler,
+		auth.OIDCUC,
+		webhookBundle.Reconciler,
+		webhookBundle.StatusCache,
+		seriesCacheRepo,
+		counterRepo,
+		regrabBundle.WatchdogRollupHandler,
+		regrabBundle.WatchdogBlacklistHandler,
+		regrabBundle.WatchdogSeasonsHandler,
+		regrabBundle.WebhooksAggregateHandler,
+		mediaBundle.Handler,
+		mediaBundle.AssetsRepo,
+		seriesDetailBundle.DetailHandler,
+		seriesDetailBundle.SeasonHandler,
+		seriesDetailBundle.CastHandler,
+		seriesDetailBundle.PeopleHandler,
+		seriesDetailBundle.RefreshHandler,
+		torrentsyncBundle.SeriesTorrentsHandler,
+		persistence.TimezoneHandler,
+		log,
+	)
 }

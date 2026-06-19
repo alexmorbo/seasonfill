@@ -6,10 +6,15 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
+	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
+	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
@@ -18,15 +23,298 @@ import (
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
-
-	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 )
+
+// SonarrBundle holds the per-instance Sonarr wiring shared between the
+// HTTP layer, the scan / watchdog / regrab use cases, and the reload
+// bus. Constructed once at boot by BuildSonarr; mutated downstream
+// only via the Holder (the reload OnApplied fanout calls Replace).
+//
+// Field-level invariants — see story 332 §Risks for the rationale:
+//
+//   - Holder is a pointer-typed handle. Its identity is preserved
+//     across reload — every reload-aware closure (4 call sites in
+//     scan.Syncer.Lookup, webhook UC GUIDCooldownLookup /
+//     SonarrClientFor / InstanceFor, seriesdetail SonarrFor,
+//     torrentsync sonarrFor) reads through Holder.Load and observes
+//     whichever snapshot the fanout published.
+//
+//   - GlobalLimiterPtr is a pointer to a heap-allocated atomic. The
+//     ClientFactory captures it at construction; the
+//     GlobalRateLimiterSubscriber Stores into it on reload; the
+//     testcontext hook reads from it. Same atomic cell everywhere.
+//
+//   - InstanceRegistry is a value (not pointer) per design doc §3.3.
+//     It is a thin adapter struct that captures InstanceReg and
+//     delegates Get() through InstanceReg.Load().
+type SonarrBundle struct {
+	ClientFactory       reload.SonarrClientFactory
+	ClientsByName       map[string]ports.SonarrClient
+	SonarrClients       []ports.SonarrClient
+	ScanInstances       []scan.Instance
+	ScanInstancesByName map[string]scan.Instance
+	CfgByName           map[string]config.HealthCheckConfig
+	Holder              *adapters.InstanceMapHolder
+	InstanceReg         handlers.InstanceRegistry
+	InstanceRegistry    adapters.RegrabInstanceRegistry
+	GlobalLimiterPtr    *atomic.Pointer[ratelimit.Limiter]
+}
+
+// BuildSonarr seeds the global rate-limiter pointer, builds the
+// production SonarrClientFactory closure, instantiates the boot client
+// set, materialises the scan.Instance views (slice + by-name map +
+// HealthCheck cfg by-name), wraps everything in an InstanceMapHolder
+// for reload-aware lookups, and adapts the holder to the handler-side
+// InstanceRegistry + regrab-side RegrabInstanceRegistry.
+//
+// The returned bundle is the single source of truth for per-instance
+// Sonarr wiring; every downstream consumer (scan UC, watchdog,
+// regrab, webhook UC, healthcheck, seriesdetail composer, torrentsync
+// reconciler, HTTP handlers) reads from the bundle's handles instead
+// of re-deriving them.
+//
+// snap is the runtime configuration snapshot from BuildRuntimeConfig.
+// The bundle reads snap.GlobalRateLimit (to seed the limiter) and
+// snap.Instances (to enumerate per-instance clients).
+//
+// No error path — every step is in-memory construction. The signature
+// returns error to leave room for future seed-or-validate logic
+// without a downstream signature churn.
+func BuildSonarr(snap runtime.Snapshot, log *slog.Logger) (*SonarrBundle, error) {
+	// Single shared global limiter pointer (live-reloaded). Heap-
+	// allocate the atomic so its address is stable across the
+	// function return — the ClientFactory captures &limiterPtr and
+	// the GlobalRateLimiterSubscriber Stores into it on reload.
+	// Seed from the boot snapshot so the first publish's subscriber
+	// diff-skip works.
+	limiterPtr := new(atomic.Pointer[ratelimit.Limiter])
+	limiterPtr.Store(reload.DefaultGlobalLimiterFactory(
+		snap.GlobalRateLimit.RPM, snap.GlobalRateLimit.Burst))
+
+	clientFactory := reload.NewSonarrClientFactory(limiterPtr, log)
+
+	n := len(snap.Instances)
+	clientsByName := make(map[string]ports.SonarrClient, n)
+	for _, sc := range snap.Instances {
+		clientsByName[sc.Name] = clientFactory(sc)
+	}
+
+	sonarrClients := make([]ports.SonarrClient, 0, n)
+	scanInstances := make([]scan.Instance, 0, n)
+	scanInstancesByName := make(map[string]scan.Instance, n)
+	cfgByName := make(map[string]config.HealthCheckConfig, n)
+	for _, sc := range snap.Instances {
+		c := clientsByName[sc.Name]
+		sonarrClients = append(sonarrClients, c)
+		si := scan.Instance{Config: sc, Client: c}
+		scanInstances = append(scanInstances, si)
+		scanInstancesByName[sc.Name] = si
+		cfgByName[sc.Name] = config.NewHealthCheckConfig(sc.HealthCheck)
+	}
+
+	holder := adapters.NewInstanceMapHolder(scanInstancesByName)
+
+	// InstanceReg is a handler-side accessor: its Load closure is
+	// reload-aware via the holder. Build it once here so every
+	// downstream caller (webhookReconciler, qbitSettingsUC,
+	// httpServer.NewServer, regrabUC) reads through the same
+	// value — no per-site reconstruction.
+	instanceReg := handlers.InstanceRegistry{Load: holder.Load}
+
+	return &SonarrBundle{
+		ClientFactory:       clientFactory,
+		ClientsByName:       clientsByName,
+		SonarrClients:       sonarrClients,
+		ScanInstances:       scanInstances,
+		ScanInstancesByName: scanInstancesByName,
+		CfgByName:           cfgByName,
+		Holder:              holder,
+		InstanceReg:         instanceReg,
+		InstanceRegistry:    adapters.NewRegrabInstanceRegistry(instanceReg),
+		GlobalLimiterPtr:    limiterPtr,
+	}, nil
+}
+
+// ExtSvcBundle groups the external-services runtime-config components
+// constructed at boot. Returned by BuildExtSvc. Threaded into:
+//
+//   - httpserver.NewServer (Handler) — the HTTP wirer remains in
+//     server.go for now.
+//   - server.go calls Sub.Start(rootCtx, nil) directly because the
+//     subscriber owner needs the cancellation-bearing rootCtx, which
+//     the wirer does not (and should not) own.
+//
+// Field-level invariants:
+//
+//   - Sub is the runtime-config subscriber. Built FIRST with a nil use
+//     case so it can be injected as the use case's Publisher; the use
+//     case is then constructed and back-wired via Sub.SetUseCase before
+//     callers see the bundle.
+//
+//   - UC owns the masked-DTO contract for the HTTP layer. Plaintext
+//     keys never leave the subscriber/use case pair — the Handler
+//     emits the masked DTO only.
+//
+//   - Handler is the HTTP adapter wrapping UC.
+type ExtSvcBundle struct {
+	Sub     *adapters.ExternalServicesSubscriber
+	UC      *appextsvc.UseCase
+	Handler *handlers.ExternalServicesHandler
+}
+
+// BuildExtSvc wires the Story 202 (S-2) external-services runtime-config
+// stack. Construction order mirrors the pre-339 inline body verbatim:
+//
+//  1. Repository (cipher-wrapped settings repo backed by persistence.DB).
+//  2. Subscriber (built with nil UC).
+//  3. UseCase (subscriber injected as Publisher; bootCfg.ExternalServices
+//     supplies the env lookup; production tester).
+//  4. SetUseCase back-wires the subscriber.
+//  5. Handler wraps the UC.
+//
+// Start(rootCtx, nil) is NOT called here — server.go owns rootCtx and
+// fires the prime after Build returns, matching the original temporal
+// position (before the wireEnrichment block).
+//
+// No error path — every step is in-memory construction. The signature
+// returns error for symmetry with the other Build* wirers.
+func BuildExtSvc(
+	persistence *PersistenceBundle,
+	bootCfg *config.Bootstrap,
+	bus *runtime.Bus,
+	log *slog.Logger,
+) (*ExtSvcBundle, error) {
+	// F-4b-8: subscriber records describe configuration loading at boot
+	// (cache prime + on-operator-change apply); admin tag covers the
+	// operator-facing UC (TMDB/OMDb credential rotation). PRD §6.5.
+	bootLog := sharedports.DomainLogger(log, "boot")
+	adminLog := sharedports.DomainLogger(log, "admin")
+	extRepo := infraextsvc.NewRepository(persistence.DB, persistence.Cipher)
+	sub := adapters.NewExternalServicesSubscriber(bus, bootLog)
+	uc := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
+		appextsvc.NewRealTester(), sub, adminLog)
+	sub.SetUseCase(uc)
+	handler := handlers.NewExternalServicesHandler(uc, log)
+
+	return &ExtSvcBundle{
+		Sub:     sub,
+		UC:      uc,
+		Handler: handler,
+	}, nil
+}
+
+// MediaBundle groups the Story 214 (F-1) media pipeline components
+// constructed at boot. Returned by BuildMedia. Threaded into:
+//
+//   - httpserver.NewServer (Handler) — the HTTP wirer remains in
+//     server.go for now.
+//   - server.go's enrichment-wiring block — Store + AssetsRepo are
+//     forwarded into the enrichmentRepoBundle, and the gc weekly job
+//     captures the same handles.
+//   - server.go's MediaResolver fallback — *MediaAssetsRepository
+//     satisfies seriesdetail.MediaHashLookupPort; the wirer hands the
+//     concrete pointer back so the resolver gets the nil-OK fallback.
+//   - server.go calls Handler.SetOnDemandFetcher(...) AFTER wireEnrichment
+//     returns (story 321 late-bind). The wirer intentionally leaves the
+//     fetcher unset so the pre-339 boot ordering survives: handler exists
+//     for router registration; fetcher plugs in once the media pipeline
+//     is up.
+//
+// Field-level invariants:
+//
+//   - Store is the production mediastore.Store backed by S3/FS/null
+//     depending on bootCfg.MediaStore.Mode. ErrNotSupported in mode=off
+//     is intentional — downloader treats it as soft fail; the Handler
+//     502s on lost-object, which is the correct behaviour for an
+//     unconfigured deploy.
+//
+//   - AssetsRepo is shared between the downloader (via the enrichment
+//     bundle) and the HTTP Handler — one source of truth for the
+//     media_assets rows.
+//
+//   - Handler is constructed WITHOUT the on-demand fetcher. Story 321:
+//     the fetcher is injected via SetOnDemandFetcher after enrichBundle
+//     returns. The PendingResolver IS set here because AssetsRepo
+//     already satisfies the GetSourceURLByHash contract (story 320);
+//     the embedded SVG placeholder remains the boot fallback.
+type MediaBundle struct {
+	Store      mediastore.Store
+	AssetsRepo *repositories.MediaAssetsRepository
+	Handler    *handlers.MediaHandler
+}
+
+// BuildMedia wires the media pipeline (Story 214 F-1 + Story 320 + 321
+// pre-late-bind state). Construction order mirrors the pre-339 inline
+// body verbatim:
+//
+//  1. mediastore.New (mode/S3/FSPath drawn from bootCfg.MediaStore).
+//  2. MediaAssetsRepository over persistence.DB.
+//  3. MediaHandler (without OnDemandFetcher — late-bound in server.go).
+//
+// rootCtx is required because mediastore.New takes a context (S3 client
+// construction may issue early HEADs in some backends). server.go passes
+// its rootCtx in — the same context the rest of the boot ladder uses.
+//
+// mediastore.New is the only fallible step; the error is wrapped with the
+// `mediastore:` prefix to match the pre-339 message verbatim.
+func BuildMedia(
+	rootCtx context.Context,
+	persistence *PersistenceBundle,
+	bootCfg *config.Bootstrap,
+	log *slog.Logger,
+) (*MediaBundle, error) {
+	store, err := mediastore.New(rootCtx, mediastore.Config{
+		Mode: mediastore.Mode(bootCfg.MediaStore.Mode),
+		S3: mediastore.S3Config{
+			Endpoint:  bootCfg.MediaStore.S3.Endpoint,
+			Bucket:    bootCfg.MediaStore.S3.Bucket,
+			AccessKey: bootCfg.MediaStore.S3.AccessKey,
+			SecretKey: bootCfg.MediaStore.S3.SecretKey,
+			Region:    bootCfg.MediaStore.S3.Region,
+			UseSSL:    bootCfg.MediaStore.S3.UseSSL,
+		},
+		FSPath: bootCfg.MediaStore.FSPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mediastore: %w", err)
+	}
+
+	assetsRepo := repositories.NewMediaAssetsRepository(persistence.DB)
+
+	// Story 321: handler constructed WITHOUT on-demand fetcher. server.go
+	// calls SetOnDemandFetcher after wireEnrichment returns. Until then,
+	// pending hashes serve the embedded SVG placeholder — visually stable
+	// while the media pipeline boots.
+	handler := handlers.NewMediaHandler(handlers.MediaHandlerDeps{
+		Store:           store,
+		Repo:            assetsRepo,
+		PendingResolver: assetsRepo, // story 320: satisfies GetSourceURLByHash
+		Logger:          log,
+		// OnDemandFetcher: late-bound in server.go (story 321 wiring).
+	})
+
+	return &MediaBundle{
+		Store:      store,
+		AssetsRepo: assetsRepo,
+		Handler:    handler,
+	}, nil
+}
+
+// Compile-time check: *MediaAssetsRepository satisfies the catalog-side
+// pending writer port consumed by InstancesHandler + AuditHandler
+// (story 352). Catches a future signature drift at build time rather
+// than at runtime.
+var _ handlers.CatalogMediaPendingWriter = (*repositories.MediaAssetsRepository)(nil)
 
 // EnrichmentBundle groups the dispatcher + the nightly job closure
 // so main.go's wiring stays a single call.
