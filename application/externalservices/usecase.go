@@ -213,6 +213,19 @@ func (uc *UseCase) EffectiveSettings(ctx context.Context, svc infra.Service) (in
 	return infra.Merge(svc, db, uc.envLookup), nil
 }
 
+// EffectiveSettingsWithSource mirrors EffectiveSettings but additionally
+// returns the per-field origin map for use by the boot subscriber's
+// extsvc.source log line. Plaintext crosses this boundary; only the
+// reload subscriber consumes it.
+func (uc *UseCase) EffectiveSettingsWithSource(ctx context.Context, svc infra.Service) (infra.Settings, infra.SourceMap, error) {
+	db, err := uc.repo.Get(ctx, svc)
+	if err != nil && !errors.Is(err, apports.ErrNotFound) {
+		return infra.Settings{}, infra.SourceMap{}, err
+	}
+	s, src := infra.MergeWithSource(svc, db, uc.envLookup)
+	return s, src, nil
+}
+
 func mask(s infra.Settings) MaskedView {
 	view := MaskedView{
 		Service:          s.Service,

@@ -105,32 +105,98 @@ func Last4(plaintext string) string {
 // implementation is os.Getenv.
 type EnvLookup func(name string) string
 
-// Merge applies the runtime priority rules from PRD §10.4.4: env > DB
-// per field. Returns the effective Settings the factory should
-// consume. db may be a zero Settings (no row present); env may be nil
-// (test fixture).
-func Merge(svc Service, db Settings, env EnvLookup) Settings {
+// FieldSource records the priority origin of one field resolved by
+// MergeWithSource. The empty value means the field stayed empty.
+type FieldSource string
+
+const (
+	// FieldSourceNone means neither env nor db supplied a value.
+	FieldSourceNone FieldSource = ""
+	// FieldSourceDB means the DB row supplied the final value and no
+	// env override was set.
+	FieldSourceDB FieldSource = "db"
+	// FieldSourceEnv means env supplied the final value (overriding db
+	// when both were non-empty, or providing the only value when db
+	// was empty — the operator-facing log distinguishes the two via
+	// db_was_empty in the future if needed).
+	FieldSourceEnv FieldSource = "env"
+)
+
+// SourceMap is the per-field origin of one merged Settings. Returned
+// alongside Settings by MergeWithSource so the boot subscriber can log
+// the resolved priority without re-running the merge or leaking
+// plaintext into the record. All four fields default to FieldSourceNone.
+type SourceMap struct {
+	APIKey        FieldSource
+	ProxyURL      FieldSource
+	ProxyUsername FieldSource
+	ProxyPassword FieldSource
+}
+
+// MergeWithSource mirrors Merge but additionally returns the resolved
+// priority origin per field. Pure helper — no logging, no plaintext
+// crosses the boundary.
+//
+// Precedence per field (PRD §10.4.4):
+//   - env non-empty               → FieldSourceEnv (covers both override
+//     and fresh-install fallback paths)
+//   - env empty, db non-empty     → FieldSourceDB
+//   - both empty                  → FieldSourceNone
+func MergeWithSource(svc Service, db Settings, env EnvLookup) (Settings, SourceMap) {
 	if env == nil {
 		env = func(string) string { return "" }
 	}
 	out := db
 	out.Service = svc
+	src := SourceMap{}
+
 	prefix := "SEASONFILL_" + strings.ToUpper(string(svc)) + "_"
-	if v := env(prefix + "TOKEN"); v != "" {
-		out.APIKey = v
-		out.APIKeyLast4 = Last4(v)
+
+	switch token := env(prefix + "TOKEN"); {
+	case token != "":
+		out.APIKey = token
+		out.APIKeyLast4 = Last4(token)
 		out.Enabled = true
+		src.APIKey = FieldSourceEnv
+	case db.APIKey != "":
+		src.APIKey = FieldSourceDB
 	}
-	if v := env(prefix + "PROXY_URL"); v != "" {
+
+	switch v := env(prefix + "PROXY_URL"); {
+	case v != "":
 		out.ProxyURL = v
+		src.ProxyURL = FieldSourceEnv
+	case db.ProxyURL != "":
+		src.ProxyURL = FieldSourceDB
 	}
-	if v := env(prefix + "PROXY_USER"); v != "" {
+
+	switch v := env(prefix + "PROXY_USER"); {
+	case v != "":
 		out.ProxyUsername = v
+		src.ProxyUsername = FieldSourceEnv
+	case db.ProxyUsername != "":
+		src.ProxyUsername = FieldSourceDB
 	}
-	if v := env(prefix + "PROXY_PASS"); v != "" {
+
+	switch v := env(prefix + "PROXY_PASS"); {
+	case v != "":
 		out.ProxyPassword = v
+		src.ProxyPassword = FieldSourceEnv
+	case db.ProxyPassword != "":
+		src.ProxyPassword = FieldSourceDB
 	}
-	return out
+
+	return out, src
+}
+
+// Merge applies the runtime priority rules from PRD §10.4.4: env > DB
+// per field. Returns the effective Settings the factory should
+// consume. Discards the source map — see MergeWithSource for the
+// observability-aware variant. db may be a zero Settings (no row
+// present); env may be nil (test fixture).
+func Merge(svc Service, db Settings, env EnvLookup) Settings {
+	s, _ := MergeWithSource(svc, db, env)
+	return s
 }
 
 // String implements fmt.Stringer with a redacted shape so accidental

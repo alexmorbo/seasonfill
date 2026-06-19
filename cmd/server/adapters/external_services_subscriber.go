@@ -139,7 +139,7 @@ func (s *ExternalServicesSubscriber) apply(ctx context.Context) {
 	}
 	next := make(map[infra.Service]infra.Settings, len(infra.AllServices))
 	for _, svc := range infra.AllServices {
-		eff, err := uc.EffectiveSettings(ctx, svc)
+		eff, src, err := uc.EffectiveSettingsWithSource(ctx, svc)
 		if err != nil {
 			s.logger.WarnContext(ctx, "external_services.subscriber.apply_failed",
 				slog.String("service", string(svc)), slog.Any("err", err))
@@ -147,6 +147,19 @@ func (s *ExternalServicesSubscriber) apply(ctx context.Context) {
 			continue
 		}
 		next[svc] = eff
+		// FIX-007: surface the resolved priority so the operator can
+		// confirm a fresh-install env fallback path is active without
+		// greping enrichment.disabled after the fact. NEVER log
+		// plaintext — only the FieldSource enum + the cosmetic last4.
+		s.logger.InfoContext(ctx, "extsvc.source",
+			slog.String("service", string(svc)),
+			slog.Bool("enabled", eff.Enabled),
+			slog.String("api_key", string(src.APIKey)),
+			slog.String("proxy_url", string(src.ProxyURL)),
+			slog.String("proxy_user", string(src.ProxyUsername)),
+			slog.String("proxy_pass", string(src.ProxyPassword)),
+			slog.String("last4", eff.APIKeyLast4),
+		)
 	}
 	s.mu.Lock()
 	s.current = next

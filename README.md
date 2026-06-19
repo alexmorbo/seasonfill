@@ -207,6 +207,42 @@ seasonfill auth-mode --set forms
 from the container shell. This restores forms-auth without clearing the
 OIDC config, so you can fix the issue and switch back.
 
+## External service credentials (TMDB / OMDb / TVDB)
+
+API keys and proxy settings for the three enrichment sources can be set
+via the Settings UI (stored AES-GCM encrypted in
+`external_service_settings`) or via environment variables. Priority is
+**env > DB per field** (PRD §10.4.4) — the env value overrides the UI
+value when both are set, and supplies the only value when the DB row is
+empty (fresh install). Setting only the env vars is sufficient for a
+fresh install to boot with TMDB + OMDb enrichment fully active.
+
+| Variable                       | DB column                  |
+|--------------------------------|----------------------------|
+| `SEASONFILL_TMDB_TOKEN`        | `api_key_enc` (tmdb row)   |
+| `SEASONFILL_TMDB_PROXY_URL`    | `proxy_url_enc` (tmdb row) |
+| `SEASONFILL_TMDB_PROXY_USER`   | `proxy_username_enc`       |
+| `SEASONFILL_TMDB_PROXY_PASS`   | `proxy_password_enc`       |
+| `SEASONFILL_OMDB_TOKEN`        | `api_key_enc` (omdb row)   |
+| `SEASONFILL_OMDB_PROXY_URL`    | `proxy_url_enc` (omdb row) |
+| `SEASONFILL_OMDB_PROXY_USER`   | `proxy_username_enc`       |
+| `SEASONFILL_OMDB_PROXY_PASS`   | `proxy_password_enc`       |
+| `SEASONFILL_TVDB_TOKEN`        | `api_key_enc` (tvdb row)   |
+| `SEASONFILL_TVDB_PROXY_URL`    | `proxy_url_enc` (tvdb row) |
+| `SEASONFILL_TVDB_PROXY_USER`   | `proxy_username_enc`       |
+| `SEASONFILL_TVDB_PROXY_PASS`   | `proxy_password_enc`       |
+
+The resolved source per field appears at boot (and after every UI
+change) as a structured `extsvc.source` INFO record — one record per
+service, no plaintext, only the source label + cosmetic last4:
+
+```
+extsvc.source service=tmdb enabled=true api_key=env proxy_url=db proxy_user=none proxy_pass=none last4=abcd
+```
+
+Operators can grep `kubectl logs ... | grep extsvc.source` to confirm
+the fallback path is active when no UI row is present (`api_key=env`).
+
 ## Watchdog (post-import re-grab automation)
 
 Sonarr's Failed Download Handling closes the case once an episode imports.

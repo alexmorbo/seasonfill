@@ -421,6 +421,63 @@ func TestMaskHelper_WithKey(t *testing.T) {
 	}
 }
 
+func TestEffectiveSettings_FreshInstallEnvFallback(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo() // empty
+	env := func(name string) string {
+		if name == "SEASONFILL_TMDB_TOKEN" {
+			return "env-token"
+		}
+		return ""
+	}
+	uc := NewUseCase(repo, env, &stubTester{}, nil, nil)
+
+	got, err := uc.EffectiveSettings(context.Background(), infra.ServiceTMDB)
+	if err != nil {
+		t.Fatalf("EffectiveSettings: %v", err)
+	}
+	if got.APIKey != "env-token" {
+		t.Fatalf("env fallback failed: APIKey = %q", got.APIKey)
+	}
+	if !got.Enabled {
+		t.Fatalf("env fallback must flip Enabled true")
+	}
+
+	_, src, err := uc.EffectiveSettingsWithSource(context.Background(), infra.ServiceTMDB)
+	if err != nil {
+		t.Fatalf("EffectiveSettingsWithSource: %v", err)
+	}
+	if src.APIKey != infra.FieldSourceEnv {
+		t.Fatalf("Source = %q want env", src.APIKey)
+	}
+}
+
+func TestEffectiveSettings_DBPopulatedEnvOverrides(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceOMDB] = infra.Settings{
+		Service: infra.ServiceOMDB, APIKey: "db-key", APIKeyLast4: "-key", Enabled: true,
+	}
+	env := func(name string) string {
+		if name == "SEASONFILL_OMDB_TOKEN" {
+			return "env-key"
+		}
+		return ""
+	}
+	uc := NewUseCase(repo, env, &stubTester{}, nil, nil)
+
+	got, src, err := uc.EffectiveSettingsWithSource(context.Background(), infra.ServiceOMDB)
+	if err != nil {
+		t.Fatalf("EffectiveSettingsWithSource: %v", err)
+	}
+	if got.APIKey != "env-key" {
+		t.Fatalf("PRD §10.4.4 broken: env must win, got %q", got.APIKey)
+	}
+	if src.APIKey != infra.FieldSourceEnv {
+		t.Fatalf("Source = %q want env", src.APIKey)
+	}
+}
+
 func TestSchemeAndHostOf(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
