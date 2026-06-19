@@ -166,14 +166,12 @@ func (s *TMDBClientSubscriber) scheduleClose(previous *tmdb.Client) {
 	if previous == nil {
 		return
 	}
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		if s.closeDelay > 0 {
 			time.Sleep(s.closeDelay)
 		}
 		s.closeFn(previous)
-	}()
+	})
 }
 
 // Wait blocks until all scheduled Close goroutines have completed.

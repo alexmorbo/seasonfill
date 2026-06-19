@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -69,9 +70,7 @@ func NewSonarrClientsSubscriber(boot map[string]ports.SonarrClient, factory Sona
 		logger = slog.Default()
 	}
 	live := make(map[string]ports.SonarrClient, len(boot))
-	for k, v := range boot {
-		live[k] = v
-	}
+	maps.Copy(live, boot)
 	return &SonarrClientsSubscriber{
 		live:           live,
 		configs:        map[string]runtime.InstanceSnapshot{},
@@ -109,9 +108,7 @@ func (s *SonarrClientsSubscriber) View() *ClientsView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	cp := make(map[string]ports.SonarrClient, len(s.live))
-	for k, v := range s.live {
-		cp[k] = v
-	}
+	maps.Copy(cp, s.live)
 	return &ClientsView{byName: cp}
 }
 
@@ -123,11 +120,9 @@ func (s *SonarrClientsSubscriber) Run(ctx context.Context, bus *runtime.Bus, rea
 	if wg == nil {
 		wg = &sync.WaitGroup{}
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		s.sweepDrains(ctx)
-	}()
+	})
 	runLoop(ctx, bus, "sonarrClients", s.logger, s.apply, ready)
 	if s.bgWG == nil {
 		wg.Wait()
@@ -257,9 +252,7 @@ func (s *SonarrClientsSubscriber) apply(_ context.Context, snap runtime.Snapshot
 		// Allocate a defensive copy so the callee can retain the map
 		// without aliasing into s.live. Cheap: pointer-sized entries.
 		cp := make(map[string]ports.SonarrClient, len(nextLive))
-		for k, v := range nextLive {
-			cp[k] = v
-		}
+		maps.Copy(cp, nextLive)
 		s.onApplied(snap, cp)
 	}
 	return nil

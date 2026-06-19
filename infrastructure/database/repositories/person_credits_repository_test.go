@@ -20,15 +20,15 @@ func samplePersonCredit(personID int64, creditID, title string, tmdbMediaID int)
 		MediaType:     "tv",
 		TMDBMediaID:   tmdbMediaID,
 		Title:         title,
-		OriginalTitle: ptrString("The Last of Us (Original)"),
-		Year:          ptrInt(2024),
-		CharacterName: ptrString("Some Character"),
+		OriginalTitle: new("The Last of Us (Original)"),
+		Year:          new(2024),
+		CharacterName: new("Some Character"),
 		Kind:          "cast",
-		Department:    ptrString("Production"),
-		PosterPath:    ptrString("/poster.jpg"),
-		VoteAverage:   ptrFloat64(7.8),
-		TMDBVotes:     ptrInt(12345),
-		EpisodeCount:  ptrInt(10),
+		Department:    new("Production"),
+		PosterPath:    new("/poster.jpg"),
+		VoteAverage:   new(7.8),
+		TMDBVotes:     new(12345),
+		EpisodeCount:  new(10),
 	}
 }
 
@@ -71,7 +71,7 @@ func TestPersonCreditsRepository_BatchUpsert_Idempotent(t *testing.T) {
 
 	const n = 50
 	credits := make([]database.PersonCreditModel, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		credits[i] = samplePersonCredit(personID, fmt.Sprintf("credit-%03d", i), fmt.Sprintf("Title %03d", i), 100000+i)
 	}
 
@@ -100,12 +100,12 @@ func TestPersonCreditsRepository_ListByPerson(t *testing.T) {
 	repo := NewPersonCreditsRepository(db)
 
 	c2023 := samplePersonCredit(personID, "credit-2023", "The Last of Us", 100088)
-	c2023.Year = ptrInt(2023)
+	c2023.Year = new(2023)
 	c2019 := samplePersonCredit(personID, "credit-2019", "The Mandalorian", 82856)
-	c2019.Year = ptrInt(2019)
+	c2019.Year = new(2019)
 	c2024 := samplePersonCredit(personID, "credit-2024", "Gladiator II", 558449)
 	c2024.MediaType = "movie"
-	c2024.Year = ptrInt(2024)
+	c2024.Year = new(2024)
 
 	_, err = repo.Upsert(ctx, c2019)
 	require.NoError(t, err)
@@ -178,9 +178,9 @@ func TestPersonCreditsRepository_NewFields_RoundTrip(t *testing.T) {
 	repo := NewPersonCreditsRepository(db)
 
 	pc := samplePersonCredit(personID, "credit-001", "The Last of Us", 100088)
-	pc.Department = ptrString("Production")
-	pc.OriginalTitle = ptrString("The Last of Us (Original)")
-	pc.TMDBVotes = ptrInt(12345)
+	pc.Department = new("Production")
+	pc.OriginalTitle = new("The Last of Us (Original)")
+	pc.TMDBVotes = new(12345)
 
 	id, err := repo.Upsert(ctx, pc)
 	require.NoError(t, err)

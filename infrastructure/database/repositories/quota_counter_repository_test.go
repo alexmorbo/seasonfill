@@ -150,15 +150,13 @@ func TestQuotaCounterRepository_Increment_ConcurrentNoLost(t *testing.T) {
 	const goroutines = 8
 	const tries = 25
 	var wg sync.WaitGroup
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < tries; j++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range tries {
 				_, err := repo.Increment(context.Background(), "omdb", w)
 				assert.NoError(t, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	got, _ := repo.Get(context.Background(), "omdb", w)

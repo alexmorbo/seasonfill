@@ -5,7 +5,6 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +34,7 @@ func TestCascadeSeriesDelete_NilLogger_EmitsDomainScan(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, cacheDeleted)
 	assert.Equal(t, 3, rows)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&cache.softDeleteCalls))
+	assert.Equal(t, int32(1), cache.softDeleteCalls.Load())
 
 	out := buf.String()
 	t.Logf("captured slog output (proof artifact): %s", out)

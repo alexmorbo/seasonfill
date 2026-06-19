@@ -19,11 +19,11 @@ func sampleVideo(seriesID domain.SeriesID, name, videoType string, official bool
 	return database.VideoModel{
 		SeriesID:    seriesID,
 		Name:        name,
-		Site:        ptrString("YouTube"),
-		Key:         ptrString("abc123"),
-		Type:        ptrString(videoType),
+		Site:        new("YouTube"),
+		Key:         new("abc123"),
+		Type:        new(videoType),
 		Official:    official,
-		Language:    ptrString("en"),
+		Language:    new("en"),
 		PublishedAt: &pub,
 	}
 }
@@ -37,7 +37,7 @@ func TestVideosRepository_UpsertAndGet(t *testing.T) {
 	repo := NewVideosRepository(db)
 
 	v := sampleVideo(seriesID, "Official Trailer", "Trailer", true)
-	v.TMDBVideoID = ptrString("vid-001")
+	v.TMDBVideoID = new("vid-001")
 	id, err := repo.Upsert(ctx, v)
 	require.NoError(t, err)
 	require.NotZero(t, id)
@@ -65,7 +65,7 @@ func TestVideosRepository_Upsert_Idempotent(t *testing.T) {
 	repo := NewVideosRepository(db)
 
 	v := sampleVideo(seriesID, "Teaser", "Teaser", false)
-	v.TMDBVideoID = ptrString("vid-002")
+	v.TMDBVideoID = new("vid-002")
 
 	id1, err := repo.Upsert(ctx, v)
 	require.NoError(t, err)
@@ -104,12 +104,12 @@ func TestVideosRepository_ListBySeriesAndType(t *testing.T) {
 	repo := NewVideosRepository(db)
 
 	trailer := sampleVideo(seriesID, "Official Trailer", "Trailer", true)
-	trailer.TMDBVideoID = ptrString("vid-t1")
+	trailer.TMDBVideoID = new("vid-t1")
 	_, err = repo.Upsert(ctx, trailer)
 	require.NoError(t, err)
 
 	teaser := sampleVideo(seriesID, "Teaser", "Teaser", true)
-	teaser.TMDBVideoID = ptrString("vid-tz1")
+	teaser.TMDBVideoID = new("vid-tz1")
 	_, err = repo.Upsert(ctx, teaser)
 	require.NoError(t, err)
 

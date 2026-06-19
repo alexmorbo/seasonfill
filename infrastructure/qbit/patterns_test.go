@@ -23,7 +23,6 @@ func TestIsTrackerDown(t *testing.T) {
 		{"unregistered substring not matched", "unregistered", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := IsTrackerDown(tc.msg)
@@ -60,7 +59,6 @@ func TestIsUnregistered(t *testing.T) {
 		{"unknown class neutral", "Tracker returned weird thing", nil, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := IsUnregistered(tc.msg, tc.custom)

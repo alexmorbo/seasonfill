@@ -21,7 +21,6 @@ func TestCanTransition(t *testing.T) {
 		{"empty from defaults to stub", "", HydrationFull, true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, CanTransition(tc.from, tc.to))

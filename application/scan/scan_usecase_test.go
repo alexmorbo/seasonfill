@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,10 +26,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
-
-// boolPtr is a tiny helper to take the address of a literal bool value
-// when populating *bool config fields in tests.
-func boolPtr(b bool) *bool { return &b }
 
 type fakeSonarr struct {
 	name           string
@@ -182,17 +179,17 @@ func (r *fakeScanRepo) IncrementSeriesScanned(_ context.Context, id uuid.UUID, b
 	// Mirror real repo semantics: mutate the most recent matching row in
 	// `updated` (or `created` as a fallback) so test assertions see the
 	// running counter, not just the final Update snapshot.
-	for i := len(r.updated) - 1; i >= 0; i-- {
-		if r.updated[i].ID == id {
-			r.updated[i].SeriesScanned += by
+	for _, v := range slices.Backward(r.updated) {
+		if v.ID == id {
+			v.SeriesScanned += by
 			return nil
 		}
 	}
-	for i := len(r.created) - 1; i >= 0; i-- {
-		if r.created[i].ID == id {
-			r.created[i].SeriesScanned += by
+	for _, v := range slices.Backward(r.created) {
+		if v.ID == id {
+			v.SeriesScanned += by
 			// Promote to updated so subsequent GetByID lookups read the new value.
-			r.updated = append(r.updated, r.created[i])
+			r.updated = append(r.updated, v)
 			return nil
 		}
 	}
@@ -550,7 +547,6 @@ func TestDominantIndexer(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := dominantIndexer(tt.history)
@@ -579,7 +575,6 @@ func TestTagFilter_Skip(t *testing.T) {
 		{name: "exclude beats include", mode: "any", include: []int{1}, exclude: []int{2}, tags: []int{1, 2}, skip: true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			f := tagFilter{mode: tt.mode}
@@ -770,7 +765,7 @@ func TestInstanceDryRun_OverrideWins(t *testing.T) {
 	uc := NewUseCase(nil, nil, &fakeScanRepo{}, lg, true) // global dry-run=true
 
 	// Instance override = false: real grab for this instance only.
-	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(false)}}
+	inst := Instance{Config: config.SonarrInstance{Name: "x", DryRun: new(false)}}
 	assert.False(t, uc.instanceDryRun(inst, nil))
 
 	// No instance override, no request override: inherits global dry-run=true.
@@ -778,18 +773,18 @@ func TestInstanceDryRun_OverrideWins(t *testing.T) {
 	assert.True(t, uc.instanceDryRun(inst2, nil))
 
 	// Explicit instance override = true is also honored.
-	inst3 := Instance{Config: config.SonarrInstance{Name: "x", DryRun: boolPtr(true)}}
+	inst3 := Instance{Config: config.SonarrInstance{Name: "x", DryRun: new(true)}}
 	assert.True(t, uc.instanceDryRun(inst3, nil))
 
 	// Request override = true beats instance=false.
-	assert.True(t, uc.instanceDryRun(inst, boolPtr(true)))
+	assert.True(t, uc.instanceDryRun(inst, new(true)))
 
 	// Request override = false beats instance=true (the "Force real grab"
 	// path from 033c). This is the load-bearing case for the new feature.
-	assert.False(t, uc.instanceDryRun(inst3, boolPtr(false)))
+	assert.False(t, uc.instanceDryRun(inst3, new(false)))
 
 	// Request override = false beats global=true with no instance setting.
-	assert.False(t, uc.instanceDryRun(inst2, boolPtr(false)))
+	assert.False(t, uc.instanceDryRun(inst2, new(false)))
 }
 
 // TestScanUseCase_SwapDryRun_LiveOverride verifies that SwapDryRun
@@ -994,7 +989,7 @@ func TestStart_AllInstancesParallel(t *testing.T) {
 	n := 3
 	rels := make([]chan struct{}, n)
 	insts := make([]Instance, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rels[i] = make(chan struct{})
 		insts[i] = Instance{
 			Config: instCfg(fmt.Sprintf("inst%d", i), "auto"),
@@ -1339,7 +1334,7 @@ func TestStartInstanceWithDryRun_NilUsesInstanceDefault(t *testing.T) {
 	uc := NewUseCase([]Instance{{
 		Config: config.SonarrInstance{
 			Name:   "main",
-			DryRun: boolPtr(true),
+			DryRun: new(true),
 			Limits: config.LimitsConfig{ScanMaxSeries: 10},
 		},
 		Client: sonarr,
@@ -1370,13 +1365,13 @@ func TestStartInstanceWithDryRun_ForceTrue(t *testing.T) {
 	uc := NewUseCase([]Instance{{
 		Config: config.SonarrInstance{
 			Name:   "main",
-			DryRun: boolPtr(false), // instance says real grab
+			DryRun: new(false), // instance says real grab
 			Limits: config.LimitsConfig{ScanMaxSeries: 10},
 		},
 		Client: sonarr,
 	}}, evalUC, repo, lg, false)
 
-	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, boolPtr(true))
+	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, new(true))
 	require.NoError(t, err)
 	require.Equal(t, "running", res.Status)
 	waitForScanRecord(t, repo, res.ScanRunID, "completed")
@@ -1400,13 +1395,13 @@ func TestStartInstanceWithDryRun_ForceFalse(t *testing.T) {
 	uc := NewUseCase([]Instance{{
 		Config: config.SonarrInstance{
 			Name:   "main",
-			DryRun: boolPtr(true), // instance is dry
+			DryRun: new(true), // instance is dry
 			Limits: config.LimitsConfig{ScanMaxSeries: 10},
 		},
 		Client: sonarr,
 	}}, evalUC, repo, lg, true /* global is also dry */)
 
-	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, boolPtr(false))
+	res, err := uc.StartInstanceWithDryRun(context.Background(), "main", TriggerManual, new(false))
 	require.NoError(t, err)
 	require.Equal(t, "running", res.Status)
 	waitForScanRecord(t, repo, res.ScanRunID, "completed")

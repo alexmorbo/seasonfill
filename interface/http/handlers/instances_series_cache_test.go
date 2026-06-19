@@ -514,7 +514,6 @@ func TestInstancesHandler_ListSeriesCache_MonitoredFilter(t *testing.T) {
 		{"/api/v1/instances/homelab/series-cache", []int{1, 2}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.url, func(t *testing.T) {
 			rec, body := f.do(t, tc.url)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -671,13 +670,11 @@ func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) 
 	)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache")
 			require.Equal(t, http.StatusOK, rec.Code)
-		}()
+		})
 	}
 	wg.Wait()
 

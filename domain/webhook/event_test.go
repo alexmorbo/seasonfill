@@ -28,7 +28,6 @@ func TestEventType_IsConsumed(t *testing.T) {
 		EventType("future"):    false,
 	}
 	for et, want := range cases {
-		et, want := et, want
 		t.Run(string(et), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, want, et.IsConsumed())
@@ -47,7 +46,6 @@ func TestEventType_IsTerminal(t *testing.T) {
 		EventTypeUnsupported:   false,
 	}
 	for et, want := range cases {
-		et, want := et, want
 		t.Run(string(et), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, want, et.IsTerminal())

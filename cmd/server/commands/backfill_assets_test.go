@@ -55,9 +55,6 @@ func seedRow(t *testing.T, db *gorm.DB, id int, tmdbID *int, hydration string, p
 	).Error)
 }
 
-func ptrInt(n int) *int          { return &n }
-func ptrString(s string) *string { return &s }
-
 func hydrationOf(t *testing.T, db *gorm.DB, id int) string {
 	t.Helper()
 	var hyd string
@@ -73,14 +70,14 @@ func TestRunBackfillAssets_DemotesBackdropNullRowsOnly(t *testing.T) {
 	t.Parallel()
 	db := newBackfillTestDB(t)
 	// Row 1: full hydration, no backdrop → SHOULD demote.
-	seedRow(t, db, 1, ptrInt(100), "full", ptrString("/p.jpg"), nil)
+	seedRow(t, db, 1, new(100), "full", new("/p.jpg"), nil)
 	// Row 2: full hydration, no backdrop → SHOULD demote.
-	seedRow(t, db, 2, ptrInt(101), "full", ptrString("/p.jpg"), nil)
+	seedRow(t, db, 2, new(101), "full", new("/p.jpg"), nil)
 	// Row 3: full hydration, has backdrop → stays.
-	seedRow(t, db, 3, ptrInt(102), "full", ptrString("/p.jpg"), ptrString("/b.jpg"))
+	seedRow(t, db, 3, new(102), "full", new("/p.jpg"), new("/b.jpg"))
 	// Row 4: partial hydration, no backdrop → stays (not the
 	// recovery sweep's population).
-	seedRow(t, db, 4, ptrInt(103), "partial", nil, nil)
+	seedRow(t, db, 4, new(103), "partial", nil, nil)
 	// Row 5: no tmdb_id (stub) → stays.
 	seedRow(t, db, 5, nil, "full", nil, nil)
 
@@ -100,9 +97,9 @@ func TestRunBackfillAssets_DemotesBackdropNullRowsOnly(t *testing.T) {
 func TestRunBackfillAssets_DryRunNoMutation(t *testing.T) {
 	t.Parallel()
 	db := newBackfillTestDB(t)
-	seedRow(t, db, 1, ptrInt(100), "full", ptrString("/p.jpg"), nil)
-	seedRow(t, db, 2, ptrInt(101), "full", ptrString("/p.jpg"), nil)
-	seedRow(t, db, 3, ptrInt(102), "full", ptrString("/p.jpg"), ptrString("/b.jpg"))
+	seedRow(t, db, 1, new(100), "full", new("/p.jpg"), nil)
+	seedRow(t, db, 2, new(101), "full", new("/p.jpg"), nil)
+	seedRow(t, db, 3, new(102), "full", new("/p.jpg"), new("/b.jpg"))
 
 	n, err := runBackfillAssets(context.Background(), db, AssetKindBackdrop, true, quietLogger())
 	require.NoError(t, err)
@@ -120,8 +117,8 @@ func TestRunBackfillAssets_DryRunNoMutation(t *testing.T) {
 func TestRunBackfillAssets_PosterKind(t *testing.T) {
 	t.Parallel()
 	db := newBackfillTestDB(t)
-	seedRow(t, db, 1, ptrInt(100), "full", nil, ptrString("/b.jpg"))
-	seedRow(t, db, 2, ptrInt(101), "full", ptrString("/p.jpg"), nil)
+	seedRow(t, db, 1, new(100), "full", nil, new("/b.jpg"))
+	seedRow(t, db, 2, new(101), "full", new("/p.jpg"), nil)
 
 	n, err := runBackfillAssets(context.Background(), db, AssetKindPoster, false, quietLogger())
 	require.NoError(t, err)

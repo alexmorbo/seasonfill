@@ -91,7 +91,6 @@ func TestOutcomeReason_IsTerminal(t *testing.T) {
 		{OutcomeSkipUnknown, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(string(tc.o), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, tc.o.IsTerminal())

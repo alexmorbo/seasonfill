@@ -238,10 +238,7 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 			season.Origin.TorrentHash = firstNonEmptyHash(seasonGrabs)
 		}
 		if s, ok := stats[row.SeasonNumber]; ok {
-			missing := s.AiredEpisodes - s.ExistingEpisodes
-			if missing < 0 {
-				missing = 0
-			}
+			missing := max(s.AiredEpisodes-s.ExistingEpisodes, 0)
 			season.Stats = dto.WatchdogSeriesSeasonStats{
 				AiredEpisodeCount: s.AiredEpisodes,
 				EpisodeFileCount:  s.ExistingEpisodes,

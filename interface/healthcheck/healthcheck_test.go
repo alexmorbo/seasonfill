@@ -281,9 +281,7 @@ func TestChecker_ReplaceClients_AtomicSwapWithConcurrentReader(t *testing.T) {
 
 	// Reader goroutine: iterate the (atomic-pointer) client list via
 	// Preflight. Any non-atomic access would trip -race here.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -292,9 +290,9 @@ func TestChecker_ReplaceClients_AtomicSwapWithConcurrentReader(t *testing.T) {
 				c.Preflight(context.Background())
 			}
 		}
-	}()
+	})
 
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		clients := []ports.SonarrClient{
 			&fakeSonarr{name: "alpha"},
 			&fakeSonarr{name: "beta"},
@@ -319,9 +317,7 @@ func TestChecker_ReplaceClients_RaceWithMarkAvailable(t *testing.T) {
 
 	// Goroutine 1: hammer the registry directly (simulates checkOne
 	// firing concurrently with reload).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -330,10 +326,10 @@ func TestChecker_ReplaceClients_RaceWithMarkAvailable(t *testing.T) {
 				c.Registry().MarkAvailable("alpha", time.Now().UTC())
 			}
 		}
-	}()
+	})
 
 	// Goroutine 2: reload at full speed.
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		c.ReplaceClients(
 			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
 			[]string{"alpha", "beta"},
@@ -426,15 +422,13 @@ func TestChecker_Preflight_SingleFlight(t *testing.T) {
 	const callers = 5
 	var wg sync.WaitGroup
 	started := make(chan struct{}, callers)
-	for i := 0; i < callers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range callers {
+		wg.Go(func() {
 			started <- struct{}{}
 			c.Preflight(context.Background())
-		}()
+		})
 	}
-	for i := 0; i < callers; i++ {
+	for range callers {
 		<-started
 	}
 
@@ -533,7 +527,7 @@ func TestChecker_Preflight_BoundedParallel(t *testing.T) {
 	)
 	var inFlight, peak atomic.Int64
 	clients := make([]ports.SonarrClient, 0, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		clients = append(clients, &sleepyFakeSonarr{
 			name:     fmt.Sprintf("inst-%d", i),
 			delay:    delay,

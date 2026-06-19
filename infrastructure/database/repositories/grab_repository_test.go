@@ -388,8 +388,8 @@ func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
 	// comes back unmarshalled.
 	rows, _, err := repo.List(ctx, ports.GrabFilter{
 		Instance:     ptrInstanceName("alpha"),
-		SeriesID:     ptrSonarrSeriesID(122),
-		SeasonNumber: ptrInt(2),
+		SeriesID:     new(domain.SonarrSeriesID(122)),
+		SeasonNumber: new(2),
 	}, ports.Pagination{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
@@ -441,8 +441,6 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain
 	return rec
 }
 
-func ptrString(s string) *string { return &s }
-func ptrInt(i int) *int          { return &i }
 func ptrTMDBID(i int) *domain.TMDBID {
 	v := domain.TMDBID(i)
 	return &v
@@ -455,9 +453,7 @@ func ptrTVDBID(i int) *domain.TVDBID {
 	v := domain.TVDBID(i)
 	return &v
 }
-func ptrSonarrSeriesID(i domain.SonarrSeriesID) *domain.SonarrSeriesID {
-	return &i
-}
+
 func ptrInstanceName(s string) *domain.InstanceName {
 	n := domain.InstanceName(s)
 	return &n
@@ -530,7 +526,7 @@ func TestGrabRepository_ListReplaysOf_RespectsCap(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, parent))
 
 	total := ports.MaxReplaysPerParent + 10
-	for i := 0; i < total; i++ {
+	for i := range total {
 		c := newGrabRecord(t)
 		c.ID = uuid.New()
 		c.ReleaseGUID = "g_" + uuid.New().String()

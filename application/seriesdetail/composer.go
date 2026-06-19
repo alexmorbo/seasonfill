@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -851,12 +852,7 @@ func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 }
 
 func contains(s []enrichment.Source, v enrichment.Source) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, v)
 }
 
 func sourceStrings(s []enrichment.Source) []string {

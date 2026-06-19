@@ -136,7 +136,7 @@ func TestReconciler_MaybeRun_RespectsEveryNthTick(t *testing.T) {
 	grabs := &fakeGrabHashLookup{}
 	r := NewReconciler(store, maps, grabs, nil, nil, newQuietLogger()).WithEveryN(3)
 
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		require.NoError(t, r.MaybeRun(context.Background(), "alpha"))
 	}
 	// Ticks 3 and 6 trigger. Each pass calls the grab lookup once when
@@ -149,7 +149,7 @@ func TestReconciler_MaybeRun_RespectsEveryNthTick(t *testing.T) {
 
 	// Now add a hash and run 3 more ticks (8, 9, 10) — tick 9 fires.
 	putUnmappedHash(t, store, "alpha", "aaaa")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, r.MaybeRun(context.Background(), "alpha"))
 	}
 	// 9 - 6 = 3 more, tick 9 is %3==0, so one more grabs call.

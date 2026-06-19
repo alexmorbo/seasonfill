@@ -37,7 +37,6 @@ func Aggregate(ctx context.Context, r *Reconciler, names []string) ([]AggregateI
 	g.SetLimit(5)
 
 	for i, name := range names {
-		i, name := i, name
 		g.Go(func() error {
 			st, err := r.GetStatus(gctx, name)
 			item := AggregateItem{

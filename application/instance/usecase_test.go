@@ -388,7 +388,6 @@ func TestValidate_RangeBounds_Instance(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _, _ := setup(t)
@@ -556,7 +555,6 @@ func TestValidate_RangeBounds_NewlyBoundedFields(t *testing.T) {
 			"INVALID_INSTANCE_ORIGIN_BONUS_OUT_OF_RANGE", true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _, _ := setup(t)
@@ -591,7 +589,6 @@ func TestValidate_URLScheme(t *testing.T) {
 		{"too_long", long513},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _, _ := setup(t)
@@ -733,7 +730,6 @@ func TestValidate_PhaseElevenURLs_Rejections(t *testing.T) {
 		{"webhook_url_override trailing slash", func(s *runtime.InstanceSnapshot, v string) { s.WebhookURLOverride = &v }, "https://y.example.com/", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE", ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := validBaseSnapshot("x")

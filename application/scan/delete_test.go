@@ -15,7 +15,7 @@ import (
 )
 
 type cascadeFakeCache struct {
-	softDeleteCalls int32
+	softDeleteCalls atomic.Int32
 	softDeleteErr   error
 }
 
@@ -24,7 +24,7 @@ func (f *cascadeFakeCache) Get(_ context.Context, _ domain.InstanceName, _ domai
 }
 func (f *cascadeFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
 func (f *cascadeFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
-	atomic.AddInt32(&f.softDeleteCalls, 1)
+	f.softDeleteCalls.Add(1)
 	return f.softDeleteErr
 }
 func (f *cascadeFakeCache) ListActiveByInstance(_ context.Context, _ domain.InstanceName) ([]series.CacheEntry, error) {
@@ -41,13 +41,13 @@ func (f *cascadeFakeCache) ListDistinctNetworks(_ context.Context, _ domain.Inst
 }
 
 type cascadeFakeEpisodes struct {
-	calls        int32
+	calls        atomic.Int32
 	rowsToReturn int
 	errToReturn  error
 }
 
 func (f *cascadeFakeEpisodes) SoftDeleteBySeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (int, error) {
-	atomic.AddInt32(&f.calls, 1)
+	f.calls.Add(1)
 	if f.errToReturn != nil {
 		return 0, f.errToReturn
 	}
@@ -55,11 +55,11 @@ func (f *cascadeFakeEpisodes) SoftDeleteBySeries(_ context.Context, _ domain.Ins
 }
 
 type cascadeFakeTx struct {
-	calls int32
+	calls atomic.Int32
 }
 
 func (t *cascadeFakeTx) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	atomic.AddInt32(&t.calls, 1)
+	t.calls.Add(1)
 	return fn(ctx)
 }
 
@@ -78,9 +78,9 @@ func TestCascadeSeriesDelete_BothSides_OK(t *testing.T) {
 	assert.True(t, cacheDeleted)
 	assert.Equal(t, 17, rows)
 	assert.Equal(t, 0, seasonRows)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&cache.softDeleteCalls))
-	assert.Equal(t, int32(1), atomic.LoadInt32(&eps.calls))
-	assert.Equal(t, int32(1), atomic.LoadInt32(&tx.calls))
+	assert.Equal(t, int32(1), cache.softDeleteCalls.Load())
+	assert.Equal(t, int32(1), eps.calls.Load())
+	assert.Equal(t, int32(1), tx.calls.Load())
 }
 
 func TestCascadeSeriesDelete_NilEpisodes_CacheOnly(t *testing.T) {
@@ -93,7 +93,7 @@ func TestCascadeSeriesDelete_NilEpisodes_CacheOnly(t *testing.T) {
 	assert.True(t, cacheDeleted)
 	assert.Equal(t, 0, rows)
 	assert.Equal(t, 0, seasonRows)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&cache.softDeleteCalls))
+	assert.Equal(t, int32(1), cache.softDeleteCalls.Load())
 }
 
 func TestCascadeSeriesDelete_CacheError_ShortCircuits(t *testing.T) {
@@ -106,22 +106,22 @@ func TestCascadeSeriesDelete_CacheError_ShortCircuits(t *testing.T) {
 	}, "alpha", 42)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "db down")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&eps.calls), "episode side must NOT run after cache failure")
+	assert.Equal(t, int32(0), eps.calls.Load(), "episode side must NOT run after cache failure")
 }
 
 func TestCascadeSeriesDelete_Idempotent(t *testing.T) {
 	t.Parallel()
 	cache := &cascadeFakeCache{}
 	eps := &cascadeFakeEpisodes{}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, _, _, err := CascadeSeriesDelete(context.Background(), CascadeDeleteDeps{
 			SeriesCache:   cache,
 			EpisodeStates: eps,
 		}, "alpha", 42)
 		require.NoError(t, err)
 	}
-	assert.Equal(t, int32(3), atomic.LoadInt32(&cache.softDeleteCalls))
-	assert.Equal(t, int32(3), atomic.LoadInt32(&eps.calls))
+	assert.Equal(t, int32(3), cache.softDeleteCalls.Load())
+	assert.Equal(t, int32(3), eps.calls.Load())
 }
 
 func TestCascadeSeriesDelete_EmptyInstance_Errors(t *testing.T) {
@@ -167,7 +167,7 @@ func TestCascadeSeriesDelete_SeasonStatsBranch(t *testing.T) {
 	assert.True(t, cacheDeleted)
 	assert.Equal(t, 0, epRows)
 	assert.Equal(t, 5, ssRows)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&ss.calls), "SoftDeleteBySeries must be invoked exactly once")
+	assert.Equal(t, int32(1), ss.calls.Load(), "SoftDeleteBySeries must be invoked exactly once")
 }
 
 // TestCascadeSeriesDelete_NilSeasonStats_StillSoftDeletesCacheAndEpisodes —
@@ -192,13 +192,13 @@ func TestCascadeSeriesDelete_NilSeasonStats_StillSoftDeletesCacheAndEpisodes(t *
 type fakeSeasonStatsSoftDelete struct {
 	n     int
 	err   error
-	calls int32
+	calls atomic.Int32
 }
 
 func (f *fakeSeasonStatsSoftDelete) SoftDeleteBySeries(
 	_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID,
 ) (int, error) {
-	atomic.AddInt32(&f.calls, 1)
+	f.calls.Add(1)
 	if f.err != nil {
 		return 0, f.err
 	}

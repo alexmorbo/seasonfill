@@ -16,7 +16,7 @@ func sampleCompany(name string, tmdbID int) taxonomy.ProductionCompany {
 	return taxonomy.ProductionCompany{
 		Name:          name,
 		TMDBID:        ptrTMDBID(tmdbID),
-		OriginCountry: ptrString("US"),
+		OriginCountry: new("US"),
 	}
 }
 

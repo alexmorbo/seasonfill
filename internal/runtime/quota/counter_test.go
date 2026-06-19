@@ -105,14 +105,12 @@ func TestInMemoryCounter_ConcurrentIncrement_NoLost(t *testing.T) {
 	const goroutines = 16
 	const tries = 50
 	var wg sync.WaitGroup
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < tries; j++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range tries {
 				_, _ = c.Increment(context.Background(), "omdb", w)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	n, _ := c.Get(context.Background(), "omdb", w)

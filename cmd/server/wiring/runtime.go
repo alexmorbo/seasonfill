@@ -583,7 +583,6 @@ func waitAllReady(ready []chan struct{}, timeout time.Duration, names []string, 
 		var wg sync.WaitGroup
 		wg.Add(len(ready))
 		for _, r := range ready {
-			r := r
 			go func() {
 				defer wg.Done()
 				<-r

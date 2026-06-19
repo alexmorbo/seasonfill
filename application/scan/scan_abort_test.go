@@ -34,46 +34,46 @@ import (
 // a public atomic counter so tests can assert "nothing was called".
 type abortFakeSonarr struct {
 	name                 string
-	systemStatusCalls    int64
-	listSeriesCalls      int64
-	listSeriesCacheCalls int64
-	getSeriesCalls       int64
-	listEpisodesCalls    int64
-	listFilesCalls       int64
-	searchCalls          int64
-	qualityProfCalls     int64
-	listIndexersCalls    int64
-	listTagsCalls        int64
-	grabHistoryCalls     int64
-	forceGrabCalls       int64
+	systemStatusCalls    atomic.Int64
+	listSeriesCalls      atomic.Int64
+	listSeriesCacheCalls atomic.Int64
+	getSeriesCalls       atomic.Int64
+	listEpisodesCalls    atomic.Int64
+	listFilesCalls       atomic.Int64
+	searchCalls          atomic.Int64
+	qualityProfCalls     atomic.Int64
+	listIndexersCalls    atomic.Int64
+	listTagsCalls        atomic.Int64
+	grabHistoryCalls     atomic.Int64
+	forceGrabCalls       atomic.Int64
 }
 
 // totalCalls returns the sum of every Sonarr-method invocation counter.
 // Used by gated-scan tests to assert no method was invoked.
 func (f *abortFakeSonarr) totalCalls() int64 {
-	return atomic.LoadInt64(&f.systemStatusCalls) +
-		atomic.LoadInt64(&f.listSeriesCalls) +
-		atomic.LoadInt64(&f.listSeriesCacheCalls) +
-		atomic.LoadInt64(&f.getSeriesCalls) +
-		atomic.LoadInt64(&f.listEpisodesCalls) +
-		atomic.LoadInt64(&f.listFilesCalls) +
-		atomic.LoadInt64(&f.searchCalls) +
-		atomic.LoadInt64(&f.qualityProfCalls) +
-		atomic.LoadInt64(&f.listIndexersCalls) +
-		atomic.LoadInt64(&f.listTagsCalls) +
-		atomic.LoadInt64(&f.grabHistoryCalls) +
-		atomic.LoadInt64(&f.forceGrabCalls)
+	return f.systemStatusCalls.Load() +
+		f.listSeriesCalls.Load() +
+		f.listSeriesCacheCalls.Load() +
+		f.getSeriesCalls.Load() +
+		f.listEpisodesCalls.Load() +
+		f.listFilesCalls.Load() +
+		f.searchCalls.Load() +
+		f.qualityProfCalls.Load() +
+		f.listIndexersCalls.Load() +
+		f.listTagsCalls.Load() +
+		f.grabHistoryCalls.Load() +
+		f.forceGrabCalls.Load()
 }
 
 func (f *abortFakeSonarr) Name() string { return f.name }
 
 func (f *abortFakeSonarr) SystemStatus(_ context.Context) (ports.SystemStatus, error) {
-	atomic.AddInt64(&f.systemStatusCalls, 1)
+	f.systemStatusCalls.Add(1)
 	return ports.SystemStatus{Version: "test"}, nil
 }
 
 func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error) {
-	atomic.AddInt64(&f.listSeriesCalls, 1)
+	f.listSeriesCalls.Add(1)
 	out := make([]series.Series, 0, 5)
 	for i := 1; i <= 5; i++ {
 		out = append(out, series.Series{
@@ -93,17 +93,17 @@ func (f *abortFakeSonarr) ListSeries(_ context.Context) ([]series.Series, error)
 }
 
 func (f *abortFakeSonarr) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
-	atomic.AddInt64(&f.listSeriesCacheCalls, 1)
+	f.listSeriesCacheCalls.Add(1)
 	return nil, nil
 }
 
 func (f *abortFakeSonarr) GetSeries(_ context.Context, _ shareddomain.SonarrSeriesID) (series.Series, error) {
-	atomic.AddInt64(&f.getSeriesCalls, 1)
+	f.getSeriesCalls.Add(1)
 	return series.Series{}, nil
 }
 
 func (f *abortFakeSonarr) ListEpisodes(_ context.Context, _ shareddomain.SonarrSeriesID, sn int) ([]series.Episode, error) {
-	atomic.AddInt64(&f.listEpisodesCalls, 1)
+	f.listEpisodesCalls.Add(1)
 	return []series.Episode{
 		{ID: 1, Number: 1, SeasonNumber: sn, Title: "e1", Monitored: true, HasFile: true, QualityID: 5, QualityName: "WEB-1080p",
 			AirDateUTC: time.Now().UTC().Add(-14 * 24 * time.Hour)},
@@ -119,7 +119,7 @@ func (f *abortFakeSonarr) ListEpisodesBySeries(_ context.Context, _ shareddomain
 }
 
 func (f *abortFakeSonarr) ListEpisodeFiles(_ context.Context, _ shareddomain.SonarrSeriesID) (map[int]int, error) {
-	atomic.AddInt64(&f.listFilesCalls, 1)
+	f.listFilesCalls.Add(1)
 	return map[int]int{}, nil
 }
 
@@ -128,7 +128,7 @@ func (f *abortFakeSonarr) ListEpisodeFilesBySeason(_ context.Context, _ shareddo
 }
 
 func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID shareddomain.SonarrSeriesID, sn int) ([]release.Release, error) {
-	atomic.AddInt64(&f.searchCalls, 1)
+	f.searchCalls.Add(1)
 	return []release.Release{{
 		GUID:                 "g",
 		Title:                "T",
@@ -146,7 +146,7 @@ func (f *abortFakeSonarr) SearchReleases(_ context.Context, sID shareddomain.Son
 }
 
 func (f *abortFakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityProfile, error) {
-	atomic.AddInt64(&f.qualityProfCalls, 1)
+	f.qualityProfCalls.Add(1)
 	return ports.QualityProfile{
 		ID: 14, Name: "WEB-1080p",
 		Items: []ports.QualityItem{{ID: 5, Name: "WEB-1080p", Order: 1}},
@@ -154,15 +154,15 @@ func (f *abortFakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.Qua
 }
 
 func (f *abortFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) {
-	atomic.AddInt64(&f.listIndexersCalls, 1)
+	f.listIndexersCalls.Add(1)
 	return nil, nil
 }
 func (f *abortFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
-	atomic.AddInt64(&f.listTagsCalls, 1)
+	f.listTagsCalls.Add(1)
 	return nil, nil
 }
 func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
-	atomic.AddInt64(&f.grabHistoryCalls, 1)
+	f.grabHistoryCalls.Add(1)
 	return nil, nil
 }
 
@@ -173,7 +173,7 @@ func (f *abortFakeSonarr) ParseRelease(_ context.Context, _ string) (ports.Parse
 // ForceGrab fails on every call so the scan loop accumulates consecutive
 // grab failures and trips the 3-in-a-row threshold.
 func (f *abortFakeSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, error) {
-	atomic.AddInt64(&f.forceGrabCalls, 1)
+	f.forceGrabCalls.Add(1)
 	return "", errors.New("forced failure")
 }
 

@@ -18,11 +18,11 @@ func samplePerson(name string) people.Person {
 		Name:               name,
 		Hydration:          people.HydrationStub,
 		TMDBID:             ptrTMDBID(7001),
-		IMDBID:             ptrString("nm0000001"),
-		OriginalName:       ptrString("orig: " + name),
-		Gender:             ptrInt(2),
-		KnownForDepartment: ptrString("Acting"),
-		Popularity:         ptrFloat64(12.5),
+		IMDBID:             new("nm0000001"),
+		OriginalName:       new("orig: " + name),
+		Gender:             new(2),
+		KnownForDepartment: new("Acting"),
+		Popularity:         new(12.5),
 	}
 }
 
@@ -153,13 +153,13 @@ func TestPeopleRepository_Upsert_PartialUnique(t *testing.T) {
 
 	a := samplePerson("Orphan A")
 	a.TMDBID = nil
-	a.IMDBID = ptrString("nm9000001")
+	a.IMDBID = new("nm9000001")
 	id1, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 
 	b := samplePerson("Orphan B")
 	b.TMDBID = nil
-	b.IMDBID = ptrString("nm9000002")
+	b.IMDBID = new("nm9000002")
 	id2, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 	assert.NotEqual(t, id1, id2,
@@ -180,7 +180,7 @@ func TestPeopleRepository_Get_ResolvesBiographyViaFallback(t *testing.T) {
 	require.NoError(t, bioRepo.Upsert(ctx, people.PersonBiography{
 		PersonID:  id,
 		Language:  "en-US",
-		Biography: ptrString("Chilean-American actor."),
+		Biography: new("Chilean-American actor."),
 	}))
 
 	// Request ru-RU — only en-US row exists, helper returns en-US.
@@ -189,5 +189,3 @@ func TestPeopleRepository_Get_ResolvesBiographyViaFallback(t *testing.T) {
 	assert.Equal(t, "en-US", got.BiographyLanguage)
 	assert.Equal(t, "Chilean-American actor.", got.Biography)
 }
-
-func ptrFloat64(v float64) *float64 { return &v }

@@ -27,8 +27,6 @@ func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *C
 	t.Helper()
 	mux := http.NewServeMux()
 	for path, fixture := range routes {
-		path := path
-		fixture := fixture
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("X-Api-Key") == "" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -286,7 +284,7 @@ func TestClient_NilLimitersAreNoOp(t *testing.T) {
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		WithGlobalLimiter(nil))
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err := c.SystemStatus(context.Background())
 		require.NoError(t, err)
 	}
@@ -314,7 +312,6 @@ func TestClient_ForceGrab_ReturnsEmpty_WhenDownloadClientIDAbsent(t *testing.T) 
 		"non_json_skipped": `not json — decode error is non-fatal`,
 	}
 	for name, body := range cases {
-		body := body
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)

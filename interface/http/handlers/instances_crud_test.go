@@ -647,7 +647,6 @@ func TestCRUD_Create_NewFields_ValidationCases(t *testing.T) {
 		{"webhook_url_override empty string", "webhook_url_override", "", "INVALID_INSTANCE_WEBHOOK_URL_OVERRIDE"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r, _ := setupCRUD(t)

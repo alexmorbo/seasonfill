@@ -27,7 +27,6 @@ func TestNextAttemptAt_Matrix(t *testing.T) {
 		{"attempt 10 -> 24h clamp", 10, 24 * hr},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := NextAttemptAt(tc.attempts, base)
@@ -40,7 +39,7 @@ func TestNextAttemptAt_Monotonic(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	prev := base
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		got := NextAttemptAt(i, base)
 		assert.True(t, !got.Before(prev),
 			"attempts=%d: NextAttemptAt=%s should be >= prev=%s",

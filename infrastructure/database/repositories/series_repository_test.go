@@ -25,9 +25,9 @@ func sampleCanon(title string) series.Canon {
 		TMDBID:        ptrTMDBID(101),
 		TVDBID:        ptrTVDBID(202),
 		IMDBID:        ptrIMDBID("tt0000001"),
-		OriginalTitle: ptrString("orig: " + title),
-		Status:        ptrString("Returning Series"),
-		Year:          ptrInt(2024),
+		OriginalTitle: new("orig: " + title),
+		Status:        new("Returning Series"),
+		Year:          new(2024),
 		InProduction:  true,
 	}
 }
@@ -891,7 +891,7 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 		Status:           &status,
 		FirstAirDate:     &firstAir,
 		LastAirDate:      &lastAir,
-		Year:             ptrInt(2013),
+		Year:             new(2013),
 		RuntimeMinutes:   &runtime,
 		Homepage:         &homepage,
 		OriginalLanguage: &origLang,
@@ -913,7 +913,7 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Rick and Morty",
 		Hydration: series.HydrationStub,
-		Year:      ptrInt(2013),
+		Year:      new(2013),
 	})
 	require.NoError(t, err)
 
@@ -996,7 +996,7 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 		OriginCountries: originCountries,
 		TMDBRating:      &tmdbRating,
 		IMDBRating:      &imdbRating,
-		Year:            ptrInt(2013),
+		Year:            new(2013),
 	})
 	require.NoError(t, err)
 	require.NotZero(t, id)
@@ -1008,7 +1008,7 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Rick and Morty",
 		Hydration: series.HydrationStub,
-		Year:      ptrInt(2013),
+		Year:      new(2013),
 	})
 	require.NoError(t, err)
 
@@ -1052,7 +1052,6 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.column, func(t *testing.T) {
 			t.Parallel()
 			tc.check(t)

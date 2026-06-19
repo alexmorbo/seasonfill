@@ -1,7 +1,6 @@
 package reload
 
 import (
-	"context"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -16,15 +15,14 @@ import (
 func TestGlobalRateLimiter_RebuildsOnChange(t *testing.T) {
 	t.Parallel()
 	var ptr atomic.Pointer[ratelimit.Limiter]
-	var builds int32
+	var builds atomic.Int32
 	factory := GlobalLimiterFactory(func(rpm, burst int) *ratelimit.Limiter {
-		atomic.AddInt32(&builds, 1)
+		builds.Add(1)
 		return ratelimit.NewFromRPM(rpm, burst)
 	})
 	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, runtime.RateLimitSnapshot{}, slog.Default())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})
@@ -37,24 +35,24 @@ func TestGlobalRateLimiter_RebuildsOnChange(t *testing.T) {
 
 	bus.Publish(ctx, runtime.Snapshot{GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 30, Burst: 10}})
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&builds) == 0 {
+	for time.Now().Before(deadline) && builds.Load() == 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
-	assert.Equal(t, int32(1), atomic.LoadInt32(&builds))
+	assert.Equal(t, int32(1), builds.Load())
 	assert.NotNil(t, ptr.Load(), "first publish must populate the atomic")
 
 	// Identical → diff-skip.
 	bus.Publish(ctx, runtime.Snapshot{GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 30, Burst: 10}})
 	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&builds), "diff-skip must NOT rebuild identical limits")
+	assert.Equal(t, int32(1), builds.Load(), "diff-skip must NOT rebuild identical limits")
 
 	// Change → rebuild.
 	bus.Publish(ctx, runtime.Snapshot{GlobalRateLimit: runtime.RateLimitSnapshot{RPM: 60, Burst: 20}})
 	deadline = time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&builds) < 2 {
+	for time.Now().Before(deadline) && builds.Load() < 2 {
 		time.Sleep(5 * time.Millisecond)
 	}
-	assert.Equal(t, int32(2), atomic.LoadInt32(&builds))
+	assert.Equal(t, int32(2), builds.Load())
 }
 
 func TestGlobalRateLimiter_ZeroMeansUnlimited(t *testing.T) {
@@ -62,8 +60,7 @@ func TestGlobalRateLimiter_ZeroMeansUnlimited(t *testing.T) {
 	var ptr atomic.Pointer[ratelimit.Limiter]
 	factory := GlobalLimiterFactory(ratelimit.NewFromRPM)
 	sub := NewGlobalRateLimiterSubscriber(&ptr, factory, runtime.RateLimitSnapshot{}, slog.Default())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})

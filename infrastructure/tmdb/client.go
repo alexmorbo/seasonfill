@@ -213,7 +213,7 @@ func (c *Client) Close() { c.limiter.Close() }
 // OR an *APIError when the upstream surfaced a structured error
 // payload.
 func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		// Story 306 — observe wall-clock limiter wait. Always Update,
 		// even on a pre-filled (zero-wait) token; the histogram's p0
 		// then captures "how often did we breeze through". Story 313:
@@ -422,10 +422,7 @@ func parseRetryAfter(raw string, now time.Time) time.Duration {
 // attempt=0 → 1s, attempt=1 → 2s, attempt=2 → 4s. We never call
 // past attempt=2 because maxAttempts==3.
 func expoBackoff(attempt int) time.Duration {
-	d := time.Second << attempt
-	if d > retryBackoffCap {
-		d = retryBackoffCap
-	}
+	d := min(time.Second<<attempt, retryBackoffCap)
 	return d
 }
 

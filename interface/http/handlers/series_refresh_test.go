@@ -160,7 +160,7 @@ func TestSeriesRefreshHandler_Idempotent_Repeat(t *testing.T) {
 	r := gin.New()
 	r.POST("/api/v1/instances/:name/series/:id/refresh", h.Refresh)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/instances/alpha/series/7/refresh", nil)
 		r.ServeHTTP(rec, req)

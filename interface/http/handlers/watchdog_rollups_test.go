@@ -209,7 +209,7 @@ func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
 	lookup := stubLookup{}
 	settings := stubSettings{}
 	snaps := stubSnapshots{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		name := "inst" + string(rune('a'+i))
 		names[i] = name
 		lookup[name] = uint(i + 1)
@@ -324,7 +324,7 @@ func TestWatchdogRollupHandler_ProbeCached(t *testing.T) {
 	probe := newStubProbe(true, nil)
 	r := setupProbeHandler(t, stubSnapshots{}, settings, probe)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
@@ -482,7 +482,7 @@ func TestWatchdogRollupHandler_ListTorrentsCached(t *testing.T) {
 	lister := newStubLister([]qbit.Torrent{{Hash: "a", Tags: "issue"}}, nil)
 	r := setupListerHandler(t, stubSnapshots{}, settings, probe, lister)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)

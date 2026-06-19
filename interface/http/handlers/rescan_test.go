@@ -256,7 +256,7 @@ type fakeInflight struct {
 	cancels  map[domain.InstanceName]context.CancelFunc
 	wg       sync.WaitGroup
 	preFail  atomic.Bool // when true, AcquireInstance returns ErrScanAlreadyRunning
-	acquired int32
+	acquired atomic.Int32
 }
 
 func (f *fakeInflight) AcquireInstance(name domain.InstanceName, scanID uuid.UUID) error {
@@ -272,7 +272,7 @@ func (f *fakeInflight) AcquireInstance(name domain.InstanceName, scanID uuid.UUI
 		return scan.ErrScanAlreadyRunning
 	}
 	f.busy[name] = scanID
-	atomic.AddInt32(&f.acquired, 1)
+	f.acquired.Add(1)
 	return nil
 }
 func (f *fakeInflight) ReleaseInstance(name domain.InstanceName) {
@@ -465,10 +465,10 @@ func TestRescan_ConcurrentRequests_NoCrash(t *testing.T) {
 	d := f.seed(t, false)
 	var wg sync.WaitGroup
 	results := make([]*httptest.ResponseRecorder, 4)
-	for i := 0; i < 4; i++ {
-		i := i
-		wg.Add(1)
-		go func() { defer wg.Done(); results[i] = f.do(t, d.ID.String()) }()
+	for i := range 4 {
+		wg.Go(func() {
+			results[i] = f.do(t, d.ID.String())
+		})
 	}
 	wg.Wait()
 	accepted := 0

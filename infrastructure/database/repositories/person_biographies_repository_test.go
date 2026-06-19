@@ -28,8 +28,8 @@ func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested language present",
 			seed: []people.PersonBiography{
-				{Language: "ru-RU", Biography: ptrString("Чилийско-американский актёр.")},
-				{Language: "en-US", Biography: ptrString("Chilean-American actor.")},
+				{Language: "ru-RU", Biography: new("Чилийско-американский актёр.")},
+				{Language: "en-US", Biography: new("Chilean-American actor.")},
 			},
 			requested: "ru-RU",
 			wantLang:  "ru-RU",
@@ -38,7 +38,7 @@ func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested missing, en-US fallback",
 			seed: []people.PersonBiography{
-				{Language: "en-US", Biography: ptrString("Chilean-American actor.")},
+				{Language: "en-US", Biography: new("Chilean-American actor.")},
 			},
 			requested: "ru-RU",
 			wantLang:  "en-US",
@@ -47,8 +47,8 @@ func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested and en-US missing, first available wins",
 			seed: []people.PersonBiography{
-				{Language: "fr-FR", Biography: ptrString("Acteur chilo-américain.")},
-				{Language: "de-DE", Biography: ptrString("Chilenisch-amerikanischer Schauspieler.")},
+				{Language: "fr-FR", Biography: new("Acteur chilo-américain.")},
+				{Language: "de-DE", Biography: new("Chilenisch-amerikanischer Schauspieler.")},
 			},
 			requested: "ru-RU",
 			wantLang:  "de-DE",
@@ -97,7 +97,7 @@ func TestPersonBiographiesRepository_Upsert_Idempotent(t *testing.T) {
 	bio := people.PersonBiography{
 		PersonID:  personID,
 		Language:  "en-US",
-		Biography: ptrString("English actress."),
+		Biography: new("English actress."),
 	}
 	require.NoError(t, repo.Upsert(ctx, bio))
 	require.NoError(t, repo.Upsert(ctx, bio))

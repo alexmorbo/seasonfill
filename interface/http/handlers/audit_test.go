@@ -211,7 +211,7 @@ func TestAuditHandler_AllListEndpoints_Empty(t *testing.T) {
 func TestAuditHandler_ListScans_CursorWalk(t *testing.T) {
 	f := newAuditFixture(t, false)
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		f.seedScan(t, "main", "completed", base.Add(time.Duration(i)*time.Second))
 	}
 
@@ -407,7 +407,7 @@ func TestAuditHandler_ListDecisions_CursorWalk(t *testing.T) {
 	f := newAuditFixture(t, false)
 	scanRun := uuid.New()
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		f.seedDecision(t, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 
@@ -501,7 +501,7 @@ func TestAuditHandler_ListDecisions_OmitsEmptyErrorDetail(t *testing.T) {
 func TestAuditHandler_ListGrabs_CursorWalk(t *testing.T) {
 	f := newAuditFixture(t, false)
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		f.seedGrab(t, "main", domain.SonarrSeriesID(100+i), 1, grab.StatusGrabbed, base.Add(time.Duration(i)*time.Second))
 	}
 

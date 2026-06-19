@@ -1,6 +1,9 @@
 package release
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 type Release struct {
 	GUID                 string
@@ -23,12 +26,7 @@ type Release struct {
 }
 
 func (r Release) HasRejection(name string) bool {
-	for _, rej := range r.Rejections {
-		if rej == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.Rejections, name)
 }
 
 func (r Release) Coverage(missing []int) int {

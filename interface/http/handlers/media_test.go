@@ -333,16 +333,14 @@ func TestMedia_SingleflightConcurrentRefetch(t *testing.T) {
 	r := newRouter(h)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			rr := httptest.NewRecorder()
 			r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
 			if rr.Code != 200 {
 				t.Errorf("concurrent: want 200 got %d", rr.Code)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := upstreamCalls.Load(); got > 2 {
@@ -395,7 +393,7 @@ func (s *stubPendingResolver) GetSourceURLByHash(_ context.Context, hash string)
 // handler tests. When hashWin is "" the fetcher always misses.
 type stubOnDemand struct {
 	mu       sync.Mutex
-	calls    int32
+	calls    atomic.Int32
 	hashWin  string
 	bytes    []byte
 	contentT string
@@ -405,7 +403,7 @@ type stubOnDemand struct {
 }
 
 func (f *stubOnDemand) FetchSync(ctx context.Context, sourceURL, kind, ext string) (string, bool) {
-	atomic.AddInt32(&f.calls, 1)
+	f.calls.Add(1)
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
@@ -465,7 +463,7 @@ func TestMediaHandler_OnDemand_PendingHitFillsAndServes(t *testing.T) {
 	if rr.Body.String() != "PNG" {
 		t.Fatalf("want PNG body, got %q", rr.Body.String())
 	}
-	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+	if got := fetcher.calls.Load(); got != 1 {
 		t.Fatalf("want 1 fetcher call, got %d", got)
 	}
 	if rr.Header().Get("X-Media-Placeholder") != "" {
@@ -503,7 +501,7 @@ func TestMediaHandler_OnDemand_PendingMissServesPlaceholderWithoutStampingFailed
 	if !strings.Contains(rr.Body.String(), "<svg") {
 		t.Fatal("body must be SVG")
 	}
-	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+	if got := fetcher.calls.Load(); got != 1 {
 		t.Fatalf("want 1 fetcher call, got %d", got)
 	}
 	// Row left at status=pending — the handler does NOT persist failure.
@@ -546,7 +544,7 @@ func TestMediaHandler_OnDemand_FailedStatusRetriesAndFills(t *testing.T) {
 	if rr.Header().Get("X-Media-Placeholder") != "" {
 		t.Fatal("must NOT serve placeholder once retry succeeds")
 	}
-	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+	if got := fetcher.calls.Load(); got != 1 {
 		t.Fatalf("failed rows must trigger a fresh fetch, got %d calls", got)
 	}
 }
@@ -565,7 +563,7 @@ func TestMediaHandler_OnDemand_FailedRetriesEachRequestWithoutPersistingFailure(
 	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusFailed})
 
 	r := newRouter(h)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		rr := httptest.NewRecorder()
 		r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
 		if rr.Code != http.StatusOK {
@@ -576,7 +574,7 @@ func TestMediaHandler_OnDemand_FailedRetriesEachRequestWithoutPersistingFailure(
 		}
 	}
 	// One fetch per request — no negative cache.
-	if got := atomic.LoadInt32(&fetcher.calls); got != 2 {
+	if got := fetcher.calls.Load(); got != 2 {
 		t.Fatalf("want 2 fetcher calls (one per request), got %d", got)
 	}
 	// Row status untouched — still 'failed', NOT re-stamped by handler.
@@ -607,7 +605,7 @@ func TestMediaHandler_OnDemand_SingleflightDedupes(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			defer wg.Done()
 			rr := httptest.NewRecorder()
@@ -615,7 +613,7 @@ func TestMediaHandler_OnDemand_SingleflightDedupes(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if got := atomic.LoadInt32(&fetcher.calls); got != 1 {
+	if got := fetcher.calls.Load(); got != 1 {
 		t.Fatalf("singleflight must collapse to one TMDB call, got %d", got)
 	}
 }

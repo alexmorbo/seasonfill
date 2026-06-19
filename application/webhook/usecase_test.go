@@ -531,7 +531,6 @@ func TestProcess_ImportFailed_PerInstanceLookup_DurationFromClosure(t *testing.T
 		{"a", 24 * time.Hour},
 		{"b", 72 * time.Hour},
 	} {
-		tc := tc
 		t.Run(string(tc.instance), func(t *testing.T) {
 			t.Parallel()
 			rec := sampleRecord()

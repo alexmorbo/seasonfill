@@ -34,9 +34,6 @@ func NextAttemptAt(attempts int, lastAttempt time.Time) time.Time {
 	if attempts >= 5 {
 		return lastAttempt.Add(backoffMax)
 	}
-	delay := backoffBase << attempts
-	if delay > backoffMax {
-		delay = backoffMax
-	}
+	delay := min(backoffBase<<attempts, backoffMax)
 	return lastAttempt.Add(delay)
 }

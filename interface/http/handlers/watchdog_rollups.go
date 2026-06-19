@@ -243,7 +243,6 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 	g.SetLimit(5)
 
 	for i, name := range names {
-		i, name := i, name
 		g.Go(func() error {
 			id, ok, err := h.instanceLookup.IDByName(gctx, name)
 			if err != nil {

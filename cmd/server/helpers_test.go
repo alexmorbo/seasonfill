@@ -167,11 +167,9 @@ func TestRunCooldownSweep_NoLogWhenZeroRowsRemoved(t *testing.T) {
 func TestDrainBackground_ReturnsWhenWGDoneBeforeTimeout(t *testing.T) {
 	t.Parallel()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(20 * time.Millisecond)
-	}()
+	})
 
 	start := time.Now()
 	drainBackground(&wg, 2*time.Second, nullLogger())

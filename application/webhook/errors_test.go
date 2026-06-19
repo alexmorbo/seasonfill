@@ -30,7 +30,6 @@ func TestIsTransient(t *testing.T) {
 		{"unknown_logic", errors.New("boom"), false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, IsTransient(tc.err))
@@ -54,7 +53,6 @@ func TestErrorKind(t *testing.T) {
 		{"other", errors.New("x"), "other"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, ErrorKind(tc.err))

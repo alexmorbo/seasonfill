@@ -151,7 +151,7 @@ func TestAuthLogin_RateLimit(t *testing.T) {
 	t.Parallel()
 	lim := auth.NewIPLimiter(rate.Every(time.Hour), 2)
 	r, _ := setupAuth(t, seedRepo(t), lim)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		w := postJSON(t, r, "/api/v1/auth/login",
 			map[string]string{"username": "admin", "password": "wrong"}, nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "attempt %d", i+1)
@@ -260,7 +260,7 @@ func TestAuthPasswordChange_RateLimit(t *testing.T) {
 	tok, _ := middleware.SignSession(h.sessionKey, "admin", time.Now().Add(time.Hour), 0)
 	cookie := &http.Cookie{Name: middleware.SessionCookieName, Value: tok}
 	// Two wrong-current attempts consume the burst.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		w := postJSON(t, r, "/api/v1/auth/password",
 			map[string]string{"current": "wrong", "new": "newpassword123"}, cookie)
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "attempt %d", i+1)

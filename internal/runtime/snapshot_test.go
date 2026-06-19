@@ -69,8 +69,6 @@ func TestSortInstances(t *testing.T) {
 	assert.Equal(t, "Zebra", instances[2].Name)
 }
 
-func ptrStr(s string) *string { return &s }
-
 func TestInstanceSnapshot_UIURL_FallbackToURL(t *testing.T) {
 	t.Parallel()
 	s := InstanceSnapshot{URL: "http://sonarr:80"}
@@ -81,7 +79,7 @@ func TestInstanceSnapshot_UIURL_PrefersPublicURL(t *testing.T) {
 	t.Parallel()
 	s := InstanceSnapshot{
 		URL:       "http://sonarr:80",
-		PublicURL: ptrStr("https://s.arr.morbo.dev"),
+		PublicURL: new("https://s.arr.morbo.dev"),
 	}
 	assert.Equal(t, "https://s.arr.morbo.dev", s.UIURL())
 }
@@ -103,7 +101,7 @@ func TestInstanceSnapshot_WebhookBaseURL_FallbackToDerived(t *testing.T) {
 func TestInstanceSnapshot_WebhookBaseURL_PrefersOverride(t *testing.T) {
 	t.Parallel()
 	s := InstanceSnapshot{
-		WebhookURLOverride: ptrStr("http://seasonfill.servarr.svc:8080"),
+		WebhookURLOverride: new("http://seasonfill.servarr.svc:8080"),
 	}
 	assert.Equal(t, "http://seasonfill.servarr.svc:8080", s.WebhookBaseURL("https://app.example.com"))
 }

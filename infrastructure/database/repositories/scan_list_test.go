@@ -25,7 +25,7 @@ func seedScans(t *testing.T, db *gorm.DB, n int, instance domain.InstanceName, s
 	repo := NewScanRepository(db)
 	ctx := context.Background()
 	recs := make([]ports.ScanRecord, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rec := ports.ScanRecord{
 			ID:           uuid.New(),
 			InstanceName: instance,

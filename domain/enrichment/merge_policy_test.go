@@ -7,15 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// strPtr / intPtr / floatPtr / boolPtr / tPtr are local
-// helpers for the test body. The merge body itself uses these
-// pointer-or-nil semantics directly.
-func strPtr(s string) *string     { return &s }
-func intPtr(i int) *int           { return &i }
-func floatPtr(f float64) *float64 { return &f }
-func boolPtr(b bool) *bool        { return &b }
-func tPtr(t time.Time) *time.Time { return &t }
-
 // TestMergeSeries covers every PRD §5.4 series row.
 // One sub-test per row — the table column "rule" documents
 // the priority rule under test.
@@ -36,7 +27,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Title Sonarr overwrites TMDB",
 			rule:   "Title: Sonarr > TMDB",
 			canon:  SeriesCanon{Title: "TMDB Title"},
-			patch:  SeriesPatch{Title: strPtr("Sonarr Title")},
+			patch:  SeriesPatch{Title: new("Sonarr Title")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "Sonarr Title", g.Title)
@@ -46,7 +37,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Title TMDB fills empty canon",
 			rule:   "Title: TMDB fallback",
 			canon:  SeriesCanon{Title: ""},
-			patch:  SeriesPatch{Title: strPtr("TMDB Title")},
+			patch:  SeriesPatch{Title: new("TMDB Title")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "TMDB Title", g.Title)
@@ -56,7 +47,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Title TMDB does NOT overwrite Sonarr canon",
 			rule:   "Title: TMDB lower priority",
 			canon:  SeriesCanon{Title: "Sonarr Existing"},
-			patch:  SeriesPatch{Title: strPtr("TMDB New")},
+			patch:  SeriesPatch{Title: new("TMDB New")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "Sonarr Existing", g.Title)
@@ -67,7 +58,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "OriginalTitle TMDB writes",
 			rule:   "OriginalTitle: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{OriginalTitle: strPtr("オリジナル")},
+			patch:  SeriesPatch{OriginalTitle: new("オリジナル")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "オリジナル", *g.OriginalTitle)
@@ -77,7 +68,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "OriginalTitle Sonarr no-op",
 			rule:   "OriginalTitle: Sonarr no authority",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{OriginalTitle: strPtr("ignored")},
+			patch:  SeriesPatch{OriginalTitle: new("ignored")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Nil(t, g.OriginalTitle)
@@ -87,8 +78,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "Status TMDB overwrites Sonarr",
 			rule:   "Status: TMDB > Sonarr",
-			canon:  SeriesCanon{Status: strPtr("continuing")},
-			patch:  SeriesPatch{Status: strPtr("Returning Series")},
+			canon:  SeriesCanon{Status: new("continuing")},
+			patch:  SeriesPatch{Status: new("Returning Series")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "Returning Series", *g.Status)
@@ -98,7 +89,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Status Sonarr fills empty canon",
 			rule:   "Status: Sonarr fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{Status: strPtr("continuing")},
+			patch:  SeriesPatch{Status: new("continuing")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "continuing", *g.Status)
@@ -107,8 +98,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "Status Sonarr does NOT overwrite TMDB canon",
 			rule:   "Status: Sonarr lower priority",
-			canon:  SeriesCanon{Status: strPtr("Returning Series")},
-			patch:  SeriesPatch{Status: strPtr("continuing")},
+			canon:  SeriesCanon{Status: new("Returning Series")},
+			patch:  SeriesPatch{Status: new("continuing")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "Returning Series", *g.Status)
@@ -118,8 +109,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "FirstAirDate TMDB overwrites",
 			rule:   "FirstAirDate: TMDB > Sonarr",
-			canon:  SeriesCanon{FirstAirDate: tPtr(day1)},
-			patch:  SeriesPatch{FirstAirDate: tPtr(day2)},
+			canon:  SeriesCanon{FirstAirDate: new(day1)},
+			patch:  SeriesPatch{FirstAirDate: new(day2)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day2, *g.FirstAirDate)
@@ -128,8 +119,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "LastAirDate TMDB overwrites",
 			rule:   "LastAirDate: TMDB > Sonarr",
-			canon:  SeriesCanon{LastAirDate: tPtr(day1)},
-			patch:  SeriesPatch{LastAirDate: tPtr(day2)},
+			canon:  SeriesCanon{LastAirDate: new(day1)},
+			patch:  SeriesPatch{LastAirDate: new(day2)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day2, *g.LastAirDate)
@@ -139,7 +130,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "FirstAirDate Sonarr fills empty",
 			rule:   "FirstAirDate: Sonarr fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{FirstAirDate: tPtr(day1)},
+			patch:  SeriesPatch{FirstAirDate: new(day1)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day1, *g.FirstAirDate)
@@ -149,8 +140,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "NextAirDate Sonarr overwrites",
 			rule:   "NextAirDate: Sonarr > TMDB",
-			canon:  SeriesCanon{NextAirDate: tPtr(day1)},
-			patch:  SeriesPatch{NextAirDate: tPtr(day2)},
+			canon:  SeriesCanon{NextAirDate: new(day1)},
+			patch:  SeriesPatch{NextAirDate: new(day2)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day2, *g.NextAirDate)
@@ -160,7 +151,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "NextAirDate TMDB fills empty",
 			rule:   "NextAirDate: TMDB fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{NextAirDate: tPtr(day1)},
+			patch:  SeriesPatch{NextAirDate: new(day1)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day1, *g.NextAirDate)
@@ -170,8 +161,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "Year Sonarr overwrites",
 			rule:   "Year: Sonarr > TMDB",
-			canon:  SeriesCanon{Year: intPtr(2020)},
-			patch:  SeriesPatch{Year: intPtr(2021)},
+			canon:  SeriesCanon{Year: new(2020)},
+			patch:  SeriesPatch{Year: new(2021)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 2021, *g.Year)
@@ -181,7 +172,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Year TMDB fills empty",
 			rule:   "Year: TMDB fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{Year: intPtr(2020)},
+			patch:  SeriesPatch{Year: new(2020)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 2020, *g.Year)
@@ -191,8 +182,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "RuntimeMinutes Sonarr overwrites",
 			rule:   "RuntimeMinutes: Sonarr > TMDB",
-			canon:  SeriesCanon{RuntimeMinutes: intPtr(45)},
-			patch:  SeriesPatch{RuntimeMinutes: intPtr(60)},
+			canon:  SeriesCanon{RuntimeMinutes: new(45)},
+			patch:  SeriesPatch{RuntimeMinutes: new(60)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 60, *g.RuntimeMinutes)
@@ -202,7 +193,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "RuntimeMinutes TMDB fills empty",
 			rule:   "RuntimeMinutes: TMDB fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{RuntimeMinutes: intPtr(60)},
+			patch:  SeriesPatch{RuntimeMinutes: new(60)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 60, *g.RuntimeMinutes)
@@ -213,7 +204,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Homepage TMDB writes",
 			rule:   "Homepage: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{Homepage: strPtr("https://x.com")},
+			patch:  SeriesPatch{Homepage: new("https://x.com")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "https://x.com", *g.Homepage)
@@ -223,7 +214,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Homepage Sonarr no-op",
 			rule:   "Homepage: Sonarr no authority",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{Homepage: strPtr("ignored")},
+			patch:  SeriesPatch{Homepage: new("ignored")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Nil(t, g.Homepage)
@@ -234,7 +225,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Popularity TMDB writes",
 			rule:   "Popularity: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{Popularity: floatPtr(42.5)},
+			patch:  SeriesPatch{Popularity: new(42.5)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 42.5, *g.Popularity)
@@ -244,7 +235,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "InProduction TMDB writes",
 			rule:   "InProduction: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{InProduction: boolPtr(true)},
+			patch:  SeriesPatch{InProduction: new(true)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.True(t, g.InProduction)
@@ -255,7 +246,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "TMDBRating TMDB writes",
 			rule:   "TMDBRating: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{TMDBRating: floatPtr(8.4)},
+			patch:  SeriesPatch{TMDBRating: new(8.4)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 8.4, *g.TMDBRating)
@@ -265,7 +256,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "TMDBVotes TMDB writes",
 			rule:   "TMDBVotes: TMDB only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{TMDBVotes: intPtr(1024)},
+			patch:  SeriesPatch{TMDBVotes: new(1024)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 1024, *g.TMDBVotes)
@@ -276,7 +267,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "IMDBRating OMDb writes",
 			rule:   "IMDBRating: OMDb only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{IMDBRating: floatPtr(7.2)},
+			patch:  SeriesPatch{IMDBRating: new(7.2)},
 			source: SourceOMDb,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 7.2, *g.IMDBRating)
@@ -286,7 +277,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "IMDBVotes OMDb writes",
 			rule:   "IMDBVotes: OMDb only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{IMDBVotes: intPtr(5000)},
+			patch:  SeriesPatch{IMDBVotes: new(5000)},
 			source: SourceOMDb,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 5000, *g.IMDBVotes)
@@ -296,7 +287,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "OMDBRated OMDb writes",
 			rule:   "OMDBRated: OMDb only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{OMDBRated: strPtr("TV-MA")},
+			patch:  SeriesPatch{OMDBRated: new("TV-MA")},
 			source: SourceOMDb,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "TV-MA", *g.OMDBRated)
@@ -306,7 +297,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "OMDBAwards OMDb writes",
 			rule:   "OMDBAwards: OMDb only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{OMDBAwards: strPtr("3 Emmys")},
+			patch:  SeriesPatch{OMDBAwards: new("3 Emmys")},
 			source: SourceOMDb,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "3 Emmys", *g.OMDBAwards)
@@ -316,7 +307,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "IMDBRating TMDB no-op",
 			rule:   "IMDBRating: TMDB no authority",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{IMDBRating: floatPtr(9.9)},
+			patch:  SeriesPatch{IMDBRating: new(9.9)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Nil(t, g.IMDBRating)
@@ -326,8 +317,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "PosterAsset TMDB overwrites",
 			rule:   "PosterAsset: TMDB > Sonarr",
-			canon:  SeriesCanon{PosterAsset: strPtr("sonarr-hash")},
-			patch:  SeriesPatch{PosterAsset: strPtr("tmdb-hash")},
+			canon:  SeriesCanon{PosterAsset: new("sonarr-hash")},
+			patch:  SeriesPatch{PosterAsset: new("tmdb-hash")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "tmdb-hash", *g.PosterAsset)
@@ -336,8 +327,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "BackdropAsset TMDB overwrites",
 			rule:   "BackdropAsset: TMDB > Sonarr",
-			canon:  SeriesCanon{BackdropAsset: strPtr("sonarr-hash")},
-			patch:  SeriesPatch{BackdropAsset: strPtr("tmdb-hash")},
+			canon:  SeriesCanon{BackdropAsset: new("sonarr-hash")},
+			patch:  SeriesPatch{BackdropAsset: new("tmdb-hash")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "tmdb-hash", *g.BackdropAsset)
@@ -347,7 +338,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "PosterAsset Sonarr fills empty",
 			rule:   "PosterAsset: Sonarr fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{PosterAsset: strPtr("sonarr-hash")},
+			patch:  SeriesPatch{PosterAsset: new("sonarr-hash")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "sonarr-hash", *g.PosterAsset)
@@ -357,8 +348,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "TMDBID Sonarr overwrites",
 			rule:   "TMDBID: Sonarr > TMDB (Sonarr already carries tmdbId)",
-			canon:  SeriesCanon{TMDBID: intPtr(111)},
-			patch:  SeriesPatch{TMDBID: intPtr(222)},
+			canon:  SeriesCanon{TMDBID: new(111)},
+			patch:  SeriesPatch{TMDBID: new(222)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 222, *g.TMDBID)
@@ -368,7 +359,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "TMDBID TMDB fills empty",
 			rule:   "TMDBID: TMDB fallback (/find by tvdb)",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{TMDBID: intPtr(333)},
+			patch:  SeriesPatch{TMDBID: new(333)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 333, *g.TMDBID)
@@ -379,7 +370,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "TVDBID Sonarr writes",
 			rule:   "TVDBID: Sonarr only",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{TVDBID: intPtr(99999)},
+			patch:  SeriesPatch{TVDBID: new(99999)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 99999, *g.TVDBID)
@@ -389,8 +380,8 @@ func TestMergeSeries(t *testing.T) {
 		{
 			name:   "IMDBID Sonarr overwrites",
 			rule:   "IMDBID: Sonarr > TMDB",
-			canon:  SeriesCanon{IMDBID: strPtr("tt000")},
-			patch:  SeriesPatch{IMDBID: strPtr("tt111")},
+			canon:  SeriesCanon{IMDBID: new("tt000")},
+			patch:  SeriesPatch{IMDBID: new("tt111")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "tt111", *g.IMDBID)
@@ -400,7 +391,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "IMDBID TMDB fills empty",
 			rule:   "IMDBID: TMDB fallback",
 			canon:  SeriesCanon{},
-			patch:  SeriesPatch{IMDBID: strPtr("tt222")},
+			patch:  SeriesPatch{IMDBID: new("tt222")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, "tt222", *g.IMDBID)
@@ -411,7 +402,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "TMDB write lifts stub -> full",
 			rule:   "Hydration: stub->full on TMDB write",
 			canon:  SeriesCanon{Hydration: LevelStub, Title: "stub"},
-			patch:  SeriesPatch{OriginalTitle: strPtr("orig")},
+			patch:  SeriesPatch{OriginalTitle: new("orig")},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, LevelFull, g.Hydration)
@@ -421,7 +412,7 @@ func TestMergeSeries(t *testing.T) {
 			name:   "Sonarr write does NOT lift hydration",
 			rule:   "Hydration: Sonarr no authority",
 			canon:  SeriesCanon{Hydration: LevelStub},
-			patch:  SeriesPatch{Title: strPtr("stub")},
+			patch:  SeriesPatch{Title: new("stub")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, LevelStub, g.Hydration)
@@ -429,7 +420,6 @@ func TestMergeSeries(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MergeSeries(tc.canon, tc.patch, tc.source)
@@ -451,7 +441,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "Name TMDB writes",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{Name: strPtr("Season 1")},
+			patch:  SeasonPatch{Name: new("Season 1")},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, "Season 1", *g.Name)
@@ -460,7 +450,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "Overview TMDB writes",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{Overview: strPtr("Premier season")},
+			patch:  SeasonPatch{Overview: new("Premier season")},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, "Premier season", *g.Overview)
@@ -469,7 +459,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "AirDate TMDB writes",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{AirDate: tPtr(day)},
+			patch:  SeasonPatch{AirDate: new(day)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, day, *g.AirDate)
@@ -478,7 +468,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "PosterAsset TMDB writes",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{PosterAsset: strPtr("hash")},
+			patch:  SeasonPatch{PosterAsset: new("hash")},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, "hash", *g.PosterAsset)
@@ -486,8 +476,8 @@ func TestMergeSeason(t *testing.T) {
 		},
 		{
 			name:   "EpisodeCount Sonarr overwrites TMDB",
-			canon:  SeasonCanon{EpisodeCount: intPtr(10)},
-			patch:  SeasonPatch{EpisodeCount: intPtr(12)},
+			canon:  SeasonCanon{EpisodeCount: new(10)},
+			patch:  SeasonPatch{EpisodeCount: new(12)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, 12, *g.EpisodeCount)
@@ -496,7 +486,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "EpisodeCount TMDB fills empty",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{EpisodeCount: intPtr(10)},
+			patch:  SeasonPatch{EpisodeCount: new(10)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, 10, *g.EpisodeCount)
@@ -504,8 +494,8 @@ func TestMergeSeason(t *testing.T) {
 		},
 		{
 			name:   "EpisodeCount TMDB does NOT overwrite Sonarr",
-			canon:  SeasonCanon{EpisodeCount: intPtr(12)},
-			patch:  SeasonPatch{EpisodeCount: intPtr(10)},
+			canon:  SeasonCanon{EpisodeCount: new(12)},
+			patch:  SeasonPatch{EpisodeCount: new(10)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Equal(t, 12, *g.EpisodeCount)
@@ -514,7 +504,7 @@ func TestMergeSeason(t *testing.T) {
 		{
 			name:   "Name Sonarr no-op",
 			canon:  SeasonCanon{},
-			patch:  SeasonPatch{Name: strPtr("ignored")},
+			patch:  SeasonPatch{Name: new("ignored")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeasonCanon) {
 				assert.Nil(t, g.Name)
@@ -522,7 +512,6 @@ func TestMergeSeason(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MergeSeason(tc.canon, tc.patch, tc.source)
@@ -544,8 +533,8 @@ func TestMergeEpisode(t *testing.T) {
 	}{
 		{
 			name:   "AirDate Sonarr overwrites TMDB",
-			canon:  EpisodeCanon{AirDate: tPtr(d1)},
-			patch:  EpisodePatch{AirDate: tPtr(d2)},
+			canon:  EpisodeCanon{AirDate: new(d1)},
+			patch:  EpisodePatch{AirDate: new(d2)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, d2, *g.AirDate)
@@ -554,7 +543,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "AirDate TMDB fills empty",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{AirDate: tPtr(d1)},
+			patch:  EpisodePatch{AirDate: new(d1)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, d1, *g.AirDate)
@@ -562,8 +551,8 @@ func TestMergeEpisode(t *testing.T) {
 		},
 		{
 			name:   "RuntimeMinutes Sonarr overwrites",
-			canon:  EpisodeCanon{RuntimeMinutes: intPtr(40)},
-			patch:  EpisodePatch{RuntimeMinutes: intPtr(45)},
+			canon:  EpisodeCanon{RuntimeMinutes: new(40)},
+			patch:  EpisodePatch{RuntimeMinutes: new(45)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, 45, *g.RuntimeMinutes)
@@ -571,8 +560,8 @@ func TestMergeEpisode(t *testing.T) {
 		},
 		{
 			name:   "FinaleType Sonarr overwrites",
-			canon:  EpisodeCanon{FinaleType: strPtr("season")},
-			patch:  EpisodePatch{FinaleType: strPtr("series")},
+			canon:  EpisodeCanon{FinaleType: new("season")},
+			patch:  EpisodePatch{FinaleType: new("series")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, "series", *g.FinaleType)
@@ -581,7 +570,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "StillAsset TMDB writes",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{StillAsset: strPtr("still-hash")},
+			patch:  EpisodePatch{StillAsset: new("still-hash")},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, "still-hash", *g.StillAsset)
@@ -590,7 +579,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "TMDBRating TMDB writes",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{TMDBRating: floatPtr(8.0)},
+			patch:  EpisodePatch{TMDBRating: new(8.0)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, 8.0, *g.TMDBRating)
@@ -599,7 +588,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "TMDBVotes TMDB writes",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{TMDBVotes: intPtr(500)},
+			patch:  EpisodePatch{TMDBVotes: new(500)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, 500, *g.TMDBVotes)
@@ -608,7 +597,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "TMDBEpisodeID TMDB writes",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{TMDBEpisodeID: intPtr(12345)},
+			patch:  EpisodePatch{TMDBEpisodeID: new(12345)},
 			source: SourceTMDBSeason,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, 12345, *g.TMDBEpisodeID)
@@ -617,7 +606,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "SonarrEpisodeID Sonarr writes",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{SonarrEpisodeID: intPtr(67890)},
+			patch:  EpisodePatch{SonarrEpisodeID: new(67890)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Equal(t, 67890, *g.SonarrEpisodeID)
@@ -626,7 +615,7 @@ func TestMergeEpisode(t *testing.T) {
 		{
 			name:   "StillAsset Sonarr no-op",
 			canon:  EpisodeCanon{},
-			patch:  EpisodePatch{StillAsset: strPtr("ignored")},
+			patch:  EpisodePatch{StillAsset: new("ignored")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g EpisodeCanon) {
 				assert.Nil(t, g.StillAsset)
@@ -634,7 +623,6 @@ func TestMergeEpisode(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MergeEpisode(tc.canon, tc.patch, tc.source)
@@ -656,7 +644,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Name TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{Name: strPtr("Jane Doe")},
+			patch:  PersonPatch{Name: new("Jane Doe")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "Jane Doe", g.Name)
@@ -665,7 +653,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "OriginalName TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{OriginalName: strPtr("ジェーン")},
+			patch:  PersonPatch{OriginalName: new("ジェーン")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "ジェーン", *g.OriginalName)
@@ -674,7 +662,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Gender TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{Gender: intPtr(2)},
+			patch:  PersonPatch{Gender: new(2)},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, 2, *g.Gender)
@@ -683,7 +671,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Birthday TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{Birthday: tPtr(d)},
+			patch:  PersonPatch{Birthday: new(d)},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, d, *g.Birthday)
@@ -692,7 +680,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Deathday TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{Deathday: tPtr(d)},
+			patch:  PersonPatch{Deathday: new(d)},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, d, *g.Deathday)
@@ -701,7 +689,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "PlaceOfBirth TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{PlaceOfBirth: strPtr("Tokyo, Japan")},
+			patch:  PersonPatch{PlaceOfBirth: new("Tokyo, Japan")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "Tokyo, Japan", *g.PlaceOfBirth)
@@ -710,7 +698,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "KnownForDepartment TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{KnownForDepartment: strPtr("Acting")},
+			patch:  PersonPatch{KnownForDepartment: new("Acting")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "Acting", *g.KnownForDepartment)
@@ -719,7 +707,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Popularity TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{Popularity: floatPtr(15.5)},
+			patch:  PersonPatch{Popularity: new(15.5)},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, 15.5, *g.Popularity)
@@ -728,7 +716,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "ProfileAsset TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{ProfileAsset: strPtr("profile-hash")},
+			patch:  PersonPatch{ProfileAsset: new("profile-hash")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "profile-hash", *g.ProfileAsset)
@@ -737,7 +725,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "TMDBID TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{TMDBID: intPtr(123)},
+			patch:  PersonPatch{TMDBID: new(123)},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, 123, *g.TMDBID)
@@ -746,7 +734,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "IMDBID TMDB writes",
 			canon:  PersonCanon{},
-			patch:  PersonPatch{IMDBID: strPtr("nm0000123")},
+			patch:  PersonPatch{IMDBID: new("nm0000123")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "nm0000123", *g.IMDBID)
@@ -755,7 +743,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "TMDB write lifts stub -> full",
 			canon:  PersonCanon{Hydration: LevelStub},
-			patch:  PersonPatch{Name: strPtr("Stub Person")},
+			patch:  PersonPatch{Name: new("Stub Person")},
 			source: SourceTMDBPerson,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, LevelFull, g.Hydration)
@@ -764,7 +752,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "Sonarr source no-op",
 			canon:  PersonCanon{Hydration: LevelStub, Name: "Original"},
-			patch:  PersonPatch{Name: strPtr("Rewritten")},
+			patch:  PersonPatch{Name: new("Rewritten")},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "Original", g.Name)
@@ -774,7 +762,7 @@ func TestMergePerson(t *testing.T) {
 		{
 			name:   "OMDb source no-op",
 			canon:  PersonCanon{Name: "Original"},
-			patch:  PersonPatch{Name: strPtr("Rewritten")},
+			patch:  PersonPatch{Name: new("Rewritten")},
 			source: SourceOMDb,
 			assert: func(t *testing.T, g PersonCanon) {
 				assert.Equal(t, "Original", g.Name)
@@ -782,7 +770,6 @@ func TestMergePerson(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MergePerson(tc.canon, tc.patch, tc.source)

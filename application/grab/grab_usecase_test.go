@@ -442,7 +442,6 @@ func TestExecute_Success_TorrentHashNilOnMalformed(t *testing.T) {
 		{"hyphenated guid form", "0123-4567-89ab-cdef-0123-4567-89ab-cdef-01"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, gr, _, _ := newUC(t)

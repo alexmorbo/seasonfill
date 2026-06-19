@@ -288,14 +288,14 @@ type errInfra string
 
 func (e errInfra) Error() string { return string(e) }
 
-type recCooldowns struct{ called int32 }
+type recCooldowns struct{ called atomic.Int32 }
 
 func (r *recCooldowns) Set(context.Context, cooldown.Cooldown) error { return nil }
 func (r *recCooldowns) Get(context.Context, cooldown.Scope, string) (cooldown.Cooldown, bool, error) {
 	return cooldown.Cooldown{}, false, nil
 }
 func (r *recCooldowns) FilterActive(_ context.Context, _ cooldown.Scope, _ []string, _ time.Time) ([]cooldown.Cooldown, error) {
-	atomic.AddInt32(&r.called, 1)
+	r.called.Add(1)
 	return nil, nil
 }
 func (r *recCooldowns) Sweep(context.Context, time.Time) (int64, error) { return 0, nil }
@@ -321,7 +321,7 @@ func TestExecute_IgnoreCooldown_BypassesGUIDCooldownLookup(t *testing.T) {
 	uc := NewUseCase(stub, rec, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := uc.Execute(context.Background(), makeInput(cd, true))
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, atomic.LoadInt32(&cd.called),
+	assert.EqualValues(t, 0, cd.called.Load(),
 		"IgnoreCooldown=true must skip FilterActive entirely")
 }
 
@@ -333,6 +333,6 @@ func TestExecute_IgnoreCooldownFalse_CallsGUIDCooldownLookup(t *testing.T) {
 	uc := NewUseCase(stub, rec, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := uc.Execute(context.Background(), makeInput(cd, false))
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, atomic.LoadInt32(&cd.called),
+	assert.EqualValues(t, 1, cd.called.Load(),
 		"default IgnoreCooldown=false must call FilterActive once")
 }

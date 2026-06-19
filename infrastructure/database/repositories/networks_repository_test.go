@@ -17,7 +17,7 @@ func sampleNetwork(name string, tmdbID int) taxonomy.Network {
 	return taxonomy.Network{
 		Name:          name,
 		TMDBID:        ptrTMDBID(tmdbID),
-		OriginCountry: ptrString("US"),
+		OriginCountry: new("US"),
 	}
 }
 

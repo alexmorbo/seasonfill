@@ -60,7 +60,6 @@ func TestAiredOrEpisodeCount_TableDriven(t *testing.T) {
 		{"both zero -> zero", series.Statistics{}, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, airedOrEpisodeCount(tc.in))

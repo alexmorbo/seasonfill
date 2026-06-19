@@ -93,7 +93,7 @@ func TestLoggerFromContext_ConcurrentContextsDoNotLeak(t *testing.T) {
 	const n = 32
 	loggers := make([]*slog.Logger, n)
 	contexts := make([]context.Context, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		l := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 		loggers[i] = l
 		contexts[i] = ports.WithRequestContext(context.Background(), ports.RequestContext{
@@ -101,7 +101,7 @@ func TestLoggerFromContext_ConcurrentContextsDoNotLeak(t *testing.T) {
 			TraceID: "t",
 		})
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		assert.Same(t, loggers[i], ports.FromContext(contexts[i]).Logger)
 	}
 }

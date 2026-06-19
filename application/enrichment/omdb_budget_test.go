@@ -34,7 +34,7 @@ func TestBudget_ReserveBlocksAtZero(t *testing.T) {
 func TestBudget_ResetRestoresInitial(t *testing.T) {
 	t.Parallel()
 	g := NewOMDbBudgetGuard(5)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		assert.True(t, g.Reserve())
 	}
 	assert.Equal(t, 3, g.Remaining())
@@ -48,21 +48,19 @@ func TestBudget_ConcurrentReserve_AtomicAccounting(t *testing.T) {
 	g := NewOMDbBudgetGuard(initial)
 	const goroutines = 16
 	const tries = 50 // total tries = 800; only first 200 should succeed
-	var successes int64
+	var successes atomic.Int64
 	var wg sync.WaitGroup
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < tries; j++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range tries {
 				if g.Reserve() {
-					atomic.AddInt64(&successes, 1)
+					successes.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
-	assert.Equal(t, int64(initial), atomic.LoadInt64(&successes),
+	assert.Equal(t, int64(initial), successes.Load(),
 		"exactly `initial` Reserve calls must succeed under contention")
 	assert.Equal(t, 0, g.Remaining())
 }
@@ -151,7 +149,7 @@ func TestBudgetDB_Reserve_SurvivesProcessRestart(t *testing.T) {
 
 	// "Process 1" — consume 3 slots.
 	g1 := NewOMDbBudgetGuardDB(5, c, quietLogger(), clock)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		assert.True(t, g1.Reserve())
 	}
 	assert.Equal(t, 2, g1.Remaining())

@@ -34,9 +34,9 @@ func TestClient_BearerAuth(t *testing.T) {
 }
 
 func TestClient_RetryOn5xx(t *testing.T) {
-	var hits int32
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&hits, 1)
+		n := hits.Add(1)
 		if n < 3 {
 			w.WriteHeader(http.StatusBadGateway)
 			return
@@ -52,15 +52,15 @@ func TestClient_RetryOn5xx(t *testing.T) {
 	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
 		t.Fatalf("GetTV: %v", err)
 	}
-	if got := atomic.LoadInt32(&hits); got != 3 {
+	if got := hits.Load(); got != 3 {
 		t.Fatalf("expected 3 hits (1 fail, 1 fail, 1 ok), got %d", got)
 	}
 }
 
 func TestClient_RetryAfterHonoured_Seconds(t *testing.T) {
-	var hits int32
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&hits, 1)
+		n := hits.Add(1)
 		if n == 1 {
 			w.Header().Set("Retry-After", "7")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -160,7 +160,7 @@ func TestClient_RateLimiter_50RPS_Default(t *testing.T) {
 	// CI jitter — assert ">= 400ms" (30-5 == 25 refills × 20ms == 500ms
 	// minimum; 400ms allows 20% slack).
 	start := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		_, err := c.GetTV(context.Background(), int64(i), "")
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
@@ -199,7 +199,7 @@ func TestClient_RateLimiter_EnvOverride(t *testing.T) {
 	defer c.Close()
 
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		_, err := c.GetTV(context.Background(), int64(i), "")
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
@@ -364,9 +364,9 @@ func TestClient_Metrics_RecordsRateLimited(t *testing.T) {
 // never throttles — the only thing that can block the second call
 // is the pause.
 func TestClient_AdaptivePause_BlocksOtherCallsOn429(t *testing.T) {
-	var hits int32
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&hits, 1)
+		n := hits.Add(1)
 		if n == 1 {
 			w.Header().Set("Retry-After", "1") // 1 second pause
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -516,9 +516,9 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 // guarantee the second 429 lands before the pause expires, short
 // enough that the post-pause success retries finish quickly.
 func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
-	var hits int32
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&hits, 1)
+		n := hits.Add(1)
 		// First two responses 429 (one per goroutine's first attempt).
 		// Subsequent responses 200 so the retries succeed and the
 		// goroutines exit cleanly.
@@ -551,7 +551,7 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	// microseconds of each other.
 	start := make(chan struct{})
 	done := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		id := int64(i + 1)
 		go func() {
 			<-start
@@ -563,7 +563,7 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 
 	// Wait for both goroutines to complete. With Retry-After=1s + retry
 	// loop, each goroutine finishes in ~1-2s. Bound the test at 5s.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		select {
 		case err := <-done:
 			if err != nil {
@@ -580,9 +580,9 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	// must be exactly 1 (not 2 — no compounding). hits should be 4: 2
 	// initial 429s + 2 post-pause 200s.
 	if delta := after - before; delta != 1 {
-		t.Fatalf("pauses_total delta = %d; want 1 (no compounding); server saw %d hits", delta, atomic.LoadInt32(&hits))
+		t.Fatalf("pauses_total delta = %d; want 1 (no compounding); server saw %d hits", delta, hits.Load())
 	}
-	if h := atomic.LoadInt32(&hits); h != 4 {
+	if h := hits.Load(); h != 4 {
 		t.Fatalf("server hit count = %d; want 4 (2x 429 + 2x 200)", h)
 	}
 }
@@ -640,7 +640,7 @@ func countersFromMetrics(t *testing.T, name string) int64 {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	observability.WritePrometheus(buf)
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for line := range strings.SplitSeq(buf.String(), "\n") {
 		if strings.HasPrefix(line, name+" ") {
 			parts := strings.Fields(line)
 			if len(parts) != 2 {

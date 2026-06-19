@@ -39,13 +39,15 @@ lint:
 	golangci-lint run ./...
 
 # test-lint-rule runs the typed-rules regression guards: the use-any
-# rule (revive in .golangci.yml) and the bare-id-int rule (AST scan in
-# tests/lint_bare_id_int_test.go). Both are opt-in via the `lint`
-# build tag and run in CI to catch regressions on type-discipline
-# rules that golangci-lint and forbidigo cannot express directly.
-# use-any needs golangci-lint on PATH; bare-id-int is pure stdlib.
+# rule (revive in .golangci.yml), the bare-id-int rule (AST scan in
+# tests/lint_bare_id_int_test.go), and the modernize linter (Go 1.25+
+# sugar, story 417 F-1 follow-up). All three are opt-in via the `lint`
+# build tag and run in CI to catch regressions on type-discipline and
+# code-modernization rules that golangci-lint and forbidigo cannot
+# express in the main config. use-any/modernize need golangci-lint on
+# PATH; bare-id-int is pure stdlib.
 test-lint-rule:
-	go test -tags lint -run 'TestUseAnyRejectsInterfaceLiteral|TestBareIDIntRegression' ./tests/...
+	go test -tags lint -run 'TestUseAnyRejectsInterfaceLiteral|TestBareIDIntRegression|TestModernizeRejectsLegacyPatterns' ./tests/...
 
 vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
 

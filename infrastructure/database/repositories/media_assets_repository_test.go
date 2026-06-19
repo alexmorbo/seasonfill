@@ -126,7 +126,7 @@ func TestMediaAssetsRepository_Upsert_Idempotent(t *testing.T) {
 		Kind: "poster_w342", Status: media.StatusStored,
 		ContentType: "image/jpeg", Size: 100,
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, repo.Upsert(ctx, a))
 	}
 	got, err := repo.Get(ctx, sampleHash)

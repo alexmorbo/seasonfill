@@ -13,14 +13,12 @@ import (
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
-func ptrStr(s string) *string { return &s }
-
 func sampleSettings(instanceID uint) ports.QbitSettingsRecord {
 	return ports.QbitSettingsRecord{
 		InstanceID:             instanceID,
 		Enabled:                true,
 		URL:                    "http://qbit.local:8080",
-		Username:               ptrStr("admin"),
+		Username:               new("admin"),
 		PasswordEncrypted:      []byte{0x01, 0x02, 0x03, 0xff},
 		Category:               "sonarr",
 		PollIntervalMinutes:    30,

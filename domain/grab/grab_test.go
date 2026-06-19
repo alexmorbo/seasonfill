@@ -114,7 +114,6 @@ func TestParseTorrentHash(t *testing.T) {
 		{"valid wrapped in whitespace", "  " + validLower + "  ", &lower},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := ParseTorrentHash(tc.in)

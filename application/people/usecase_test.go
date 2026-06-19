@@ -124,15 +124,13 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func mkCanon(id domain.SeriesID, tmdbID int, title string, year int, lastAir time.Time) series.Canon {
 	return series.Canon{
 		ID:          id,
-		TMDBID:      ptr(domain.TMDBID(tmdbID)),
+		TMDBID:      new(domain.TMDBID(tmdbID)),
 		Title:       title,
-		Year:        ptr(year),
-		LastAirDate: ptr(lastAir),
+		Year:        new(year),
+		LastAirDate: new(lastAir),
 	}
 }
 
@@ -179,7 +177,7 @@ func happyFixture(t *testing.T) Deps {
 	t.Helper()
 	person := dompeople.Person{
 		ID:                1,
-		TMDBID:            ptr(domain.TMDBID(4495)),
+		TMDBID:            new(domain.TMDBID(4495)),
 		Hydration:         dompeople.HydrationFull,
 		Name:              "Pedro Pascal",
 		Biography:         "Chilean-American actor...",
@@ -193,10 +191,10 @@ func happyFixture(t *testing.T) Deps {
 	gotCanon := mkCanon(43, 200, "Game of Thrones", 2011, gotLast)
 
 	credits := []dompeople.PersonCredit{
-		mkCredit(1, 100, "tv", "The Last of Us", dompeople.SeriesCreditCast, ptr("Joel Miller"), ptr(9)),
-		mkCredit(2, 200, "tv", "Game of Thrones", dompeople.SeriesCreditCast, ptr("Oberyn Martell"), ptr(3)),
-		mkCredit(3, 300, "tv", "Narcos", dompeople.SeriesCreditCast, ptr("Javier Peña"), ptr(4)),
-		mkCredit(4, 400, "movie", "Strange Way of Life", dompeople.SeriesCreditCast, ptr("Silva"), nil),
+		mkCredit(1, 100, "tv", "The Last of Us", dompeople.SeriesCreditCast, new("Joel Miller"), new(9)),
+		mkCredit(2, 200, "tv", "Game of Thrones", dompeople.SeriesCreditCast, new("Oberyn Martell"), new(3)),
+		mkCredit(3, 300, "tv", "Narcos", dompeople.SeriesCreditCast, new("Javier Peña"), new(4)),
+		mkCredit(4, 400, "movie", "Strange Way of Life", dompeople.SeriesCreditCast, new("Silva"), nil),
 	}
 
 	syncedAt := time.Date(2026, 6, 10, 3, 14, 0, 0, time.UTC)
@@ -283,7 +281,6 @@ func TestUseCase_SortTitle(t *testing.T) {
 func TestUseCase_SortUnknownDefaultsToRecent(t *testing.T) {
 	t.Parallel()
 	for _, raw := range []string{"", "foo"} {
-		raw := raw
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 			deps := happyFixture(t)

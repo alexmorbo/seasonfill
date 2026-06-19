@@ -362,7 +362,7 @@ func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
 	scanID := uuid.New()
 	base := time.Now().UTC().Truncate(time.Second)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		d := decision.Decision{
 			ID: uuid.New(), ScanRunID: scanID,
 			InstanceName: "homelab", SeriesID: 169, SeasonNumber: 2,
@@ -386,7 +386,7 @@ func TestWatchdogSeasons_RecentGrabs_CappedPerSeason(t *testing.T) {
 	grabRepo := NewGrabRepository(db)
 	base := time.Now().UTC().Truncate(time.Second)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		rec := domaingrab.Record{
 			ID: uuid.New(), ScanRunID: uuid.New(),
 			InstanceName: "homelab", SeriesID: 169, SeasonNumber: 2,

@@ -29,13 +29,13 @@ func (f *fakeReg) Snapshot() []instance.Snapshot {
 }
 
 type fakeChecker struct {
-	calls int64
+	calls atomic.Int64
 	names []string
 	mu    sync.Mutex
 }
 
 func (f *fakeChecker) RecheckByName(_ context.Context, name string) {
-	atomic.AddInt64(&f.calls, 1)
+	f.calls.Add(1)
 	f.mu.Lock()
 	f.names = append(f.names, name)
 	f.mu.Unlock()
@@ -53,7 +53,7 @@ func TestWatchdog_SkipsAvailable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	w.Run(ctx)
-	assert.EqualValues(t, 0, atomic.LoadInt64(&ch.calls))
+	assert.EqualValues(t, 0, ch.calls.Load())
 }
 
 func TestWatchdog_RechecksUnavailable(t *testing.T) {
@@ -68,7 +68,7 @@ func TestWatchdog_RechecksUnavailable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	w.Run(ctx)
-	got := atomic.LoadInt64(&ch.calls)
+	got := ch.calls.Load()
 	assert.GreaterOrEqual(t, got, int64(2))
 }
 
@@ -176,7 +176,7 @@ func TestWatchdog_UnconfiguredInstanceSkipped(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	w.Run(ctx)
-	assert.EqualValues(t, 0, atomic.LoadInt64(&ch.calls))
+	assert.EqualValues(t, 0, ch.calls.Load())
 }
 
 func TestWatchdog_PrunesRemovedInstances(t *testing.T) {
@@ -266,16 +266,16 @@ func TestWatchdog_SwapConfigs_DroppedInstanceStopsRecheck(t *testing.T) {
 	done := make(chan struct{})
 	go func() { w.Run(ctx); close(done) }()
 	// Confirm doomed IS rechecked initially (ticker sampled at 50ms).
-	assert.Eventually(t, func() bool { return atomic.LoadInt64(&ch.calls) > 0 },
+	assert.Eventually(t, func() bool { return ch.calls.Load() > 0 },
 		500*time.Millisecond, 25*time.Millisecond, "doomed must recheck while configured")
 	// Reload drops doomed from both the config map and the registry.
 	w.SwapConfigs(map[string]config.HealthCheckConfig{})
 	reg.mu.Lock()
 	reg.snapshot = nil
 	reg.mu.Unlock()
-	before := atomic.LoadInt64(&ch.calls)
+	before := ch.calls.Load()
 	time.Sleep(200 * time.Millisecond)
-	assert.Equal(t, before, atomic.LoadInt64(&ch.calls),
+	assert.Equal(t, before, ch.calls.Load(),
 		"no further rechecks once doomed leaves the config map and the registry")
 	cancel()
 	<-done

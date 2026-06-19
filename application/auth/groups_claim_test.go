@@ -23,7 +23,6 @@ func TestExtractStringSlice(t *testing.T) {
 		{"empty path", map[string]any{"a": []any{"x"}}, "", nil},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractStringSlice(c.claim, c.path)

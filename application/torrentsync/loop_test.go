@@ -169,7 +169,7 @@ func TestLoop_DegradesAfterThreeFailures(t *testing.T) {
 	uc := NewUseCase(NewStore(), policy, fakeFactory{sess: sess}, repo, slog.Default())
 
 	l := NewLoop("alpha", uc, 30*time.Second, slog.Default())
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.iterate(context.Background())
 	}
 	assert.True(t, l.Degraded())
@@ -188,7 +188,7 @@ func TestLoop_RecoversOnSuccess(t *testing.T) {
 	uc := NewUseCase(NewStore(), policy, fakeFactory{sess: sess}, repo, slog.Default())
 
 	l := NewLoop("alpha", uc, 30*time.Second, slog.Default())
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.iterate(context.Background())
 	}
 	require.True(t, l.Degraded())
@@ -206,7 +206,7 @@ func TestLoop_SetIntervalRespectsDegradedMode(t *testing.T) {
 	uc := NewUseCase(NewStore(), policy, fakeFactory{sess: sess}, repo, slog.Default())
 
 	l := NewLoop("alpha", uc, 30*time.Second, slog.Default())
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.iterate(context.Background())
 	}
 	require.True(t, l.Degraded())

@@ -165,11 +165,9 @@ func captureStdout(t *testing.T) (restore func() string) {
 
 	var buf bytes.Buffer
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = io.Copy(&buf, r)
-	}()
+	})
 
 	return func() string {
 		_ = w.Close()

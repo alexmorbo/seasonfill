@@ -108,8 +108,6 @@ func handlerTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func handlerPtr[T any](v T) *T { return &v }
-
 // buildHandler wires a real apppeople.UseCase with the supplied fakes.
 func buildHandler(uc *apppeople.UseCase) *PeopleHandler {
 	return NewPeopleHandler(uc, handlerTestLogger())
@@ -126,9 +124,9 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 	}
 	canon := series.Canon{
 		ID:     42,
-		TMDBID: handlerPtr(domain.TMDBID(100)),
+		TMDBID: new(domain.TMDBID(100)),
 		Title:  "The Last of Us",
-		Year:   handlerPtr(2023),
+		Year:   new(2023),
 	}
 	credits := []dompeople.PersonCredit{
 		{
@@ -137,7 +135,7 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 			TMDBMediaID:   100,
 			Title:         "The Last of Us",
 			Kind:          dompeople.SeriesCreditCast,
-			CharacterName: handlerPtr("Joel Miller"),
+			CharacterName: new("Joel Miller"),
 		},
 		{
 			ID:          2,
@@ -303,8 +301,8 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tmdbPersonID := domain.TMDBID(4495)
 	person := dompeople.Person{ID: 1, TMDBID: &tmdbPersonID, Hydration: dompeople.HydrationFull, Name: "p"}
-	canonA := series.Canon{ID: 42, Title: "Alpha Show", Year: handlerPtr(2020)}
-	canonZ := series.Canon{ID: 43, Title: "Zulu Show", Year: handlerPtr(2025)}
+	canonA := series.Canon{ID: 42, Title: "Alpha Show", Year: new(2020)}
+	canonZ := series.Canon{ID: 43, Title: "Zulu Show", Year: new(2025)}
 	credits := []dompeople.PersonCredit{
 		{ID: 1, MediaType: "tv", TMDBMediaID: 100, Title: "Alpha Show", Kind: dompeople.SeriesCreditCast},
 		{ID: 2, MediaType: "tv", TMDBMediaID: 200, Title: "Zulu Show", Kind: dompeople.SeriesCreditCast},

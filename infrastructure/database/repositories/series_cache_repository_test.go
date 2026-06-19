@@ -37,17 +37,17 @@ func sampleEntry(instance domain.InstanceName, id domain.SonarrSeriesID) series.
 		SonarrSeriesID: id,
 		Title:          "Test Series",
 		TitleSlug:      "test-series",
-		Year:           ptrInt(2024),
+		Year:           new(2024),
 		TVDBID:         &tvdb,
 		IMDBID:         ptrIMDBID(fmt.Sprintf("tt%07d", 9000000+int(id))),
 		TMDBID:         &tmdb,
-		Status:         ptrString("continuing"),
+		Status:         new("continuing"),
 		Genres:         []string{"Drama", "Comedy"},
-		RuntimeMinutes: ptrInt(60),
+		RuntimeMinutes: new(60),
 		Monitored:      true,
-		Overview:       ptrString("Overview text."),
-		FanartPath:     ptrString("/MediaCover/12/fanart.jpg"),
-		BannerPath:     ptrString("/MediaCover/12/banner.jpg"),
+		Overview:       new("Overview text."),
+		FanartPath:     new("/MediaCover/12/fanart.jpg"),
+		BannerPath:     new("/MediaCover/12/banner.jpg"),
 	}
 }
 
@@ -375,7 +375,7 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 
 	seen := map[domain.SonarrSeriesID]bool{}
 	page := ports.Pagination{Limit: 12}
-	for iter := 0; iter < 4; iter++ {
+	for range 4 {
 		items, total, hasMore, next, err := repo.ListByFilter(ctx, "main",
 			ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
 			ports.SeriesCacheSortUpdatedDesc,
@@ -431,7 +431,6 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 		{"", []int{1, 2, 3, 4}}, // empty ⇒ no filter
 	}
 	for _, tc := range queries {
-		tc := tc
 		t.Run(fmt.Sprintf("q=%q", tc.q), func(t *testing.T) {
 			items, total, _, _, err := repo.ListByFilter(ctx, "main",
 				ports.SeriesCacheFilter{
@@ -653,7 +652,6 @@ func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 		{"false = unmonitored only", &fal, []int{2}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			items, total, _, _, err := repo.ListByFilter(ctx, "main",
 				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, MonitoredOnly: tc.ptr},
@@ -708,7 +706,6 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 		{"unknown = none", []string{"NopeTV"}, nil},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			items, total, _, _, err := repo.ListByFilter(ctx, "main",
 				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Networks: tc.nets},

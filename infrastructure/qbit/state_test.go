@@ -48,7 +48,6 @@ func TestStateGroup_AllRawStates(t *testing.T) {
 		{"futureWeirdState", StateGroupUnknown},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.raw, func(t *testing.T) {
 			t.Parallel()
 			if got := stateGroup(tc.raw); got != tc.want {

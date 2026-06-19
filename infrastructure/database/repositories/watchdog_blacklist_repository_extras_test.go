@@ -75,7 +75,7 @@ func TestWatchdogBlacklistRepository_ListByInstanceWithLimit_Paginates(t *testin
 	ctx := context.Background()
 	base := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := repo.Upsert(ctx, regrab.BlacklistEntry{
 			InstanceID: 1, SeriesID: domain.SonarrSeriesID(100 + i), SeasonNumber: 1,
 			Reason: regrab.ReasonConsecutiveNoBetter, Consecutive: 3,

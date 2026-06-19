@@ -174,7 +174,7 @@ func TestDownloader_RateLimit(t *testing.T) {
 	// requests to fire near-instantaneously; the remaining 7 pace at
 	// 200ms apart minimum).
 	urls := make([]EnqueueRequest, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		urls[i] = EnqueueRequest{UpstreamURL: srv.URL + "/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"}
 	}
 	start := time.Now()

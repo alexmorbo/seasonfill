@@ -136,7 +136,7 @@ func TestLifecycleGroup_TracksPendingNames(t *testing.T) {
 	}
 
 	// Wait until all three goroutines are inside fn.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		select {
 		case <-started:
 		case <-time.After(2 * time.Second):
@@ -189,8 +189,7 @@ func TestLifecycleGroup_ConcurrentGoNoRace(t *testing.T) {
 	const N = 16
 	var spawned sync.WaitGroup
 	spawned.Add(N)
-	for i := 0; i < N; i++ {
-		i := i
+	for i := range N {
 		go func() {
 			defer spawned.Done()
 			name := "worker-" + string(rune('a'+(i%26)))

@@ -114,7 +114,7 @@ func TestRegistry_Concurrency_NoRace(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry([]string{"a"})
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(2)
 		go func() { defer wg.Done(); r.MarkAvailable("a", time.Now().UTC()) }()
 		go func() {
@@ -222,9 +222,7 @@ func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -234,9 +232,9 @@ func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {
 				r.MarkUnavailable("a", HealthUnavailableNetwork, "x", time.Now().UTC())
 			}
 		}
-	}()
+	})
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		r.SetNames([]string{"a", "b"})
 		r.SetNames([]string{"a"})
 	}

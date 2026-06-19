@@ -155,7 +155,6 @@ func TestFromEnv_MediaUnifiedResolve_DefaultsTrue(t *testing.T) {
 
 func TestFromEnv_MediaUnifiedResolve_KillSwitchFalse(t *testing.T) {
 	for _, v := range []string{"false", "0", "no", "off", "FALSE"} {
-		v := v
 		t.Run(v, func(t *testing.T) {
 			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
 			t.Setenv("SEASONFILL_MEDIA_UNIFIED_RESOLVE", v)
@@ -169,7 +168,6 @@ func TestFromEnv_MediaUnifiedResolve_KillSwitchFalse(t *testing.T) {
 
 func TestFromEnv_MediaUnifiedResolve_ExplicitTrue(t *testing.T) {
 	for _, v := range []string{"true", "1", "yes", "on", "TRUE"} {
-		v := v
 		t.Run(v, func(t *testing.T) {
 			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
 			t.Setenv("SEASONFILL_MEDIA_UNIFIED_RESOLVE", v)

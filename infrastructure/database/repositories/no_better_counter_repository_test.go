@@ -69,7 +69,6 @@ func TestNoBetterCounterRepository_Increment_RejectsInvalidTriple(t *testing.T) 
 		{"negative season", 1, 1, -1},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := repo.Increment(context.Background(), tc.instance, tc.series, tc.season, now)
@@ -94,7 +93,7 @@ func TestNoBetterCounterRepository_Reset(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := repo.Increment(ctx, 7, 122, 2, now.Add(time.Duration(i)*time.Minute))
 		require.NoError(t, err)
 	}
@@ -177,7 +176,7 @@ func TestNoBetterCounterRepository_Increment_ConcurrentSameTriple(t *testing.T) 
 	var wg sync.WaitGroup
 	wg.Add(N)
 	errs := make(chan error, N)
-	for i := 0; i < N; i++ {
+	for range N {
 		go func() {
 			defer wg.Done()
 			if _, err := repo.Increment(ctx, 7, 122, 2, now); err != nil {

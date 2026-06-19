@@ -16,7 +16,7 @@ import (
 
 type fakeScanner struct {
 	ids  []domain.SeriesID
-	pass int32
+	pass atomic.Int32
 	err  error
 }
 
@@ -24,7 +24,7 @@ func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]
 	if f.err != nil {
 		return nil, f.err
 	}
-	if atomic.AddInt32(&f.pass, 1) == 1 {
+	if f.pass.Add(1) == 1 {
 		return f.ids, nil
 	}
 	return nil, nil

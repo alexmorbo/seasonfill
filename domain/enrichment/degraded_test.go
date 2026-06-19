@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func tPtrTime(t time.Time) *time.Time { return &t }
-
 func TestIsStale(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
@@ -27,37 +25,36 @@ func TestIsStale(t *testing.T) {
 		},
 		{
 			name:  "fresh sync",
-			entry: SyncLog{SyncedAt: tPtrTime(now.Add(-1 * time.Hour))},
+			entry: SyncLog{SyncedAt: new(now.Add(-1 * time.Hour))},
 			ttl:   day,
 			want:  false,
 		},
 		{
 			name:  "within TTL not stale",
-			entry: SyncLog{SyncedAt: tPtrTime(now.Add(-12 * time.Hour))},
+			entry: SyncLog{SyncedAt: new(now.Add(-12 * time.Hour))},
 			ttl:   day,
 			want:  false,
 		},
 		{
 			name:  "between 1x and 2x TTL not stale",
-			entry: SyncLog{SyncedAt: tPtrTime(now.Add(-36 * time.Hour))},
+			entry: SyncLog{SyncedAt: new(now.Add(-36 * time.Hour))},
 			ttl:   day,
 			want:  false,
 		},
 		{
 			name:  "older than 2x TTL is stale",
-			entry: SyncLog{SyncedAt: tPtrTime(now.Add(-49 * time.Hour))},
+			entry: SyncLog{SyncedAt: new(now.Add(-49 * time.Hour))},
 			ttl:   day,
 			want:  true,
 		},
 		{
 			name:  "ttl=0 disables rule",
-			entry: SyncLog{SyncedAt: tPtrTime(now.Add(-100 * day))},
+			entry: SyncLog{SyncedAt: new(now.Add(-100 * day))},
 			ttl:   0,
 			want:  false,
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := IsStale(tc.entry, tc.ttl, now)
@@ -76,8 +73,8 @@ func TestDegraded(t *testing.T) {
 		SourceTMDBPerson: 30 * day,
 		SourceOMDb:       day,
 	}
-	fresh := tPtrTime(now.Add(-1 * time.Hour))
-	stale := tPtrTime(now.Add(-72 * time.Hour))
+	fresh := new(now.Add(-1 * time.Hour))
+	stale := new(now.Add(-72 * time.Hour))
 
 	cases := []struct {
 		name string
@@ -211,7 +208,6 @@ func TestDegraded(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := Degraded(tc.in, now)

@@ -141,7 +141,7 @@ func TestRequestLoggerMiddleware_LoggerFromContextReturnsDomained(t *testing.T) 
 
 	// Find the handler-msg entry (not the middleware's http_request entry).
 	var handlerEntry map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(buf.String()), "\n") {
 		if line == "" {
 			continue
 		}
@@ -193,7 +193,7 @@ func TestRequestLoggerMiddleware_ConcurrentRequestsHaveDistinctTraceIDs(t *testi
 		wg  sync.WaitGroup
 	)
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()

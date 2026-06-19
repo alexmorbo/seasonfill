@@ -34,8 +34,8 @@ func TestSeriesTextsRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested language present",
 			seed: []series.SeriesText{
-				{SeriesID: seriesID, Language: "ru-RU", Title: ptrString("Фонд")},
-				{SeriesID: seriesID, Language: "en-US", Title: ptrString("Foundation")},
+				{SeriesID: seriesID, Language: "ru-RU", Title: new("Фонд")},
+				{SeriesID: seriesID, Language: "en-US", Title: new("Foundation")},
 			},
 			requested: "ru-RU",
 			wantLang:  "ru-RU",
@@ -44,7 +44,7 @@ func TestSeriesTextsRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested missing, en-US fallback",
 			seed: []series.SeriesText{
-				{SeriesID: seriesID, Language: "en-US", Title: ptrString("Foundation")},
+				{SeriesID: seriesID, Language: "en-US", Title: new("Foundation")},
 			},
 			requested: "ru-RU",
 			wantLang:  "en-US",
@@ -53,8 +53,8 @@ func TestSeriesTextsRepository_FallbackThreeScenarios(t *testing.T) {
 		{
 			name: "requested and en-US missing, first available wins",
 			seed: []series.SeriesText{
-				{SeriesID: seriesID, Language: "fr-FR", Title: ptrString("Fondation")},
-				{SeriesID: seriesID, Language: "de-DE", Title: ptrString("Stiftung")},
+				{SeriesID: seriesID, Language: "fr-FR", Title: new("Fondation")},
+				{SeriesID: seriesID, Language: "de-DE", Title: new("Stiftung")},
 			},
 			requested: "ru-RU",
 			wantLang:  "de-DE", // language ASC tiebreaker — 'd' < 'f'
@@ -112,7 +112,7 @@ func TestEpisodeTextsRepository_FallbackSmoke(t *testing.T) {
 	epID := domain.EpisodeID(epIDRaw)
 	repo := NewEpisodeTextsRepository(db)
 	require.NoError(t, repo.Upsert(ctx, series.EpisodeText{
-		EpisodeID: epID, Language: "en-US", Title: ptrString("Good News About Hell"),
+		EpisodeID: epID, Language: "en-US", Title: new("Good News About Hell"),
 	}))
 	got, err := repo.GetWithFallback(ctx, epID, "ru-RU")
 	require.NoError(t, err)

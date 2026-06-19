@@ -154,16 +154,16 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	seedPerson(persons, 2, "Bella Ramsey", tmdbIDPtr(1002))
 	seedPerson(persons, 3, "Anna Torv", tmdbIDPtr(1003))
 	sp.cast = []people.SeriesCredit{
-		castCredit(1, intPtr(0), "Joel Miller", intPtr(9)),
-		castCredit(2, intPtr(1), "Ellie", intPtr(9)),
-		castCredit(3, intPtr(2), "Tess", intPtr(3)),
+		castCredit(1, new(0), "Joel Miller", new(9)),
+		castCredit(2, new(1), "Ellie", new(9)),
+		castCredit(3, new(2), "Tess", new(3)),
 	}
 	// 2 crew: Craig Mazin (Writing/Writer), Neil Druckmann (Production/EP).
 	seedPerson(persons, 10, "Craig Mazin", tmdbIDPtr(2001))
 	seedPerson(persons, 11, "Neil Druckmann", tmdbIDPtr(2002))
 	sp.crew = []people.SeriesCredit{
-		crewCredit(10, "Writing", "Writer", intPtr(9)),
-		crewCredit(11, "Production", "Executive Producer", intPtr(9)),
+		crewCredit(10, "Writing", "Writer", new(9)),
+		crewCredit(11, "Production", "Executive Producer", new(9)),
 	}
 	// person_credits: Pedro is in TMDB show 200 (Game of Thrones — in library);
 	// Anna is in TMDB show 300 (Mindhunter — in library).
@@ -207,9 +207,9 @@ func TestCastComposer_CastSortedByCreditOrder(t *testing.T) {
 	// simulate that ordering in the fixture (composer just preserves
 	// repository order).
 	sp.cast = []people.SeriesCredit{
-		castCredit(2, intPtr(0), "ch", nil),
-		castCredit(3, intPtr(3), "ch", nil),
-		castCredit(1, intPtr(5), "ch", nil),
+		castCredit(2, new(0), "ch", nil),
+		castCredit(3, new(3), "ch", nil),
+		castCredit(1, new(5), "ch", nil),
 		castCredit(4, nil, "ch", nil),
 	}
 	c := NewCastComposer(deps)
@@ -252,8 +252,8 @@ func TestCastComposer_DuplicateCrewJobsPreserved(t *testing.T) {
 	// the same series.
 	seedPerson(persons, 1, "Vince Gilligan", nil)
 	sp.crew = []people.SeriesCredit{
-		crewCredit(1, "Production", "Executive Producer", intPtr(9)),
-		crewCredit(1, "Directing", "Director", intPtr(2)),
+		crewCredit(1, "Production", "Executive Producer", new(9)),
+		crewCredit(1, "Directing", "Director", new(2)),
 	}
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -326,7 +326,7 @@ func TestCastComposer_SelfLinkSuppression(t *testing.T) {
 	t.Parallel()
 	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
 	seedPerson(persons, 1, "Solo Actor", tmdbIDPtr(5001))
-	sp.cast = []people.SeriesCredit{castCredit(1, intPtr(0), "Hero", intPtr(9))}
+	sp.cast = []people.SeriesCredit{castCredit(1, new(0), "Hero", new(9))}
 	// The only TV credit resolves to the CURRENT series (TMDB 100 → canon 42).
 	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	// Make sure canon resolution for tmdb=100 → current series id 42.
@@ -346,8 +346,8 @@ func TestCastComposer_PersonRowMissing_SkippedGracefully(t *testing.T) {
 	seedPerson(persons, 1, "A", nil)
 	// credit references person_id=9 which has no people row.
 	sp.cast = []people.SeriesCredit{
-		castCredit(1, intPtr(0), "ch", nil),
-		castCredit(9, intPtr(1), "ch", nil),
+		castCredit(1, new(0), "ch", nil),
+		castCredit(9, new(1), "ch", nil),
 	}
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -403,13 +403,13 @@ func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
 		inProduction bool
 		want         string
 	}{
-		{"ended", strPtr("Ended"), false, "ended"},
-		{"canceled", strPtr("Canceled"), false, "canceled"},
-		{"upcoming", strPtr("Upcoming"), false, "upcoming"},
-		{"planned", strPtr("Planned"), false, "upcoming"},
-		{"continuing", strPtr("Continuing"), false, "continuing"},
-		{"in_production", strPtr("In Production"), false, "in_production"},
-		{"post_production_excluded", strPtr("Post Production"), false, "unknown"},
+		{"ended", new("Ended"), false, "ended"},
+		{"canceled", new("Canceled"), false, "canceled"},
+		{"upcoming", new("Upcoming"), false, "upcoming"},
+		{"planned", new("Planned"), false, "upcoming"},
+		{"continuing", new("Continuing"), false, "continuing"},
+		{"in_production", new("In Production"), false, "in_production"},
+		{"post_production_excluded", new("Post Production"), false, "unknown"},
 		{"inProduction_only", nil, true, "in_production"},
 		{"empty", nil, false, "unknown"},
 	}
@@ -470,13 +470,13 @@ func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	deps, _, canon, sp, persons, _, _ := castBaseDeps(t)
 	// Seed canon poster + one cast member with raw profile path.
 	canon.rows[42] = series.Canon{
-		ID: 42, Title: "Breaking Bad", PosterAsset: strPtr("/hero.jpg"),
+		ID: 42, Title: "Breaking Bad", PosterAsset: new("/hero.jpg"),
 	}
 	sp.cast = []people.SeriesCredit{
-		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: intPtr(1)},
+		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: new(1)},
 	}
 	persons.rows[100] = people.Person{
-		ID: 100, Name: "Bryan Cranston", ProfileAsset: strPtr("/bryan.jpg"),
+		ID: 100, Name: "Bryan Cranston", ProfileAsset: new("/bryan.jpg"),
 	}
 
 	const hashPoster = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

@@ -113,8 +113,7 @@ func TestSchedulerSubscriber_FactoryReturnsNil(t *testing.T) {
 		scan.NewUseCase(nil, nil, nil, slog.Default(), true)))
 	t.Cleanup(func() { _ = boot.Stop() })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	t.Cleanup(bus.Close)
 	scanUC := scan.NewUseCase(nil, nil, nil, slog.Default(), true)
@@ -153,17 +152,16 @@ func TestSchedulerSubscriber_StartError_OldKeepsRunning(t *testing.T) {
 		scan.NewUseCase(nil, nil, nil, slog.Default(), true)))
 	t.Cleanup(func() { _ = boot.Stop() })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	t.Cleanup(bus.Close)
 	scanUC := scan.NewUseCase(nil, nil, nil, slog.Default(), true)
 
 	// Factory returns a real Scheduler — but the snapshot we publish
 	// carries an invalid cron expression, so Start will reject it.
-	var factoryCalls int32
+	var factoryCalls atomic.Int32
 	factory := SchedulerFactory(func(schedule string, jitter time.Duration, l *slog.Logger) *scheduler.Scheduler {
-		atomic.AddInt32(&factoryCalls, 1)
+		factoryCalls.Add(1)
 		return scheduler.New(schedule, jitter, l)
 	})
 	sub := NewSchedulerSubscriber(ctx, boot, scanUC, factory, slog.Default())
@@ -179,10 +177,10 @@ func TestSchedulerSubscriber_StartError_OldKeepsRunning(t *testing.T) {
 
 	// Poll up to 1s for the apply attempt + error path.
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&factoryCalls) == 0 {
+	for time.Now().Before(deadline) && factoryCalls.Load() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
-	require.Equal(t, int32(1), atomic.LoadInt32(&factoryCalls),
+	require.Equal(t, int32(1), factoryCalls.Load(),
 		"factory must have been called once")
 	// Give apply a beat to finish the error return + runLoop's metric inc.
 	time.Sleep(100 * time.Millisecond)
@@ -203,8 +201,7 @@ func TestSchedulerSubscriber_Current_NotBlockedDuringGracefulStop(t *testing.T) 
 		scan.NewUseCase(nil, nil, nil, slog.Default(), true)))
 	t.Cleanup(func() { _ = boot.Stop() })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	t.Cleanup(bus.Close)
 	scanUC := scan.NewUseCase(nil, nil, nil, slog.Default(), true)

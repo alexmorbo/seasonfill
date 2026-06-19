@@ -140,7 +140,6 @@ func TestDetector_Detect(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fc := &fakeClient{trackersByHash: map[string][]Tracker{"H": tc.trackers}}
@@ -313,7 +312,6 @@ func TestIsSyntheticTracker(t *testing.T) {
 		{"prefix ** [DHT] **", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.url, func(t *testing.T) {
 			t.Parallel()
 			got := isSyntheticTracker(tc.url)

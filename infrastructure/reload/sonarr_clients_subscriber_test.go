@@ -3,6 +3,7 @@ package reload
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -37,9 +38,7 @@ func startClientsSub(t *testing.T, drain time.Duration, boot map[string]ports.So
 		WithDrainDelay(drain)
 	// Optionally populate initial configs for tests that care about drain-reuse matching
 	if len(bootCfgs) > 0 && bootCfgs[0] != nil {
-		for k, v := range bootCfgs[0] {
-			sub.configs[k] = v
-		}
+		maps.Copy(sub.configs, bootCfgs[0])
 	}
 	ready := make(chan struct{})
 	go sub.Run(ctx, bus, func() { close(ready) })
@@ -76,9 +75,9 @@ func TestSonarrClients_SecretRotation_TriggersRebuild_AndCallback(t *testing.T) 
 	bootClient := newFakeClient("Sonarr")
 	boot := map[string]ports.SonarrClient{"Sonarr": bootClient}
 
-	var builds int32
+	var builds atomic.Int32
 	factory := SonarrClientFactory(func(s runtime.InstanceSnapshot) ports.SonarrClient {
-		atomic.AddInt32(&builds, 1)
+		builds.Add(1)
 		// Capture the api_key the factory received so the test can
 		// assert the snapshot's freshly-rotated value flows through.
 		return &fakeSonarrClient{fakeClient: fakeClient{name: s.Name + ":" + s.APIKey}}
@@ -87,12 +86,12 @@ func TestSonarrClients_SecretRotation_TriggersRebuild_AndCallback(t *testing.T) 
 	var hookMu sync.Mutex
 	var hookSnap runtime.Snapshot
 	var hookClients map[string]ports.SonarrClient
-	var hookCalls int32
+	var hookCalls atomic.Int32
 	onApplied := OnAppliedFunc(func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		hookMu.Lock()
 		hookSnap = snap
 		hookClients = clients
-		atomic.AddInt32(&hookCalls, 1)
+		hookCalls.Add(1)
 		hookMu.Unlock()
 	})
 
@@ -100,8 +99,7 @@ func TestSonarrClients_SecretRotation_TriggersRebuild_AndCallback(t *testing.T) 
 		WithDrainDelay(50 * time.Millisecond).
 		WithOnApplied(onApplied)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	t.Cleanup(bus.Close)
 	ready := make(chan struct{})
@@ -117,13 +115,13 @@ func TestSonarrClients_SecretRotation_TriggersRebuild_AndCallback(t *testing.T) 
 	})
 
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&hookCalls) == 0 {
+	for time.Now().Before(deadline) && hookCalls.Load() == 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	require.Equal(t, int32(1), atomic.LoadInt32(&builds),
+	require.Equal(t, int32(1), builds.Load(),
 		"rotation must invoke the factory exactly once for the rotated instance")
-	require.Equal(t, int32(1), atomic.LoadInt32(&hookCalls),
+	require.Equal(t, int32(1), hookCalls.Load(),
 		"onApplied must fire exactly once for the rotation publish")
 
 	got, ok := sub.View().ByName("Sonarr")
@@ -298,15 +296,11 @@ func TestDrain_ShutdownFlushesPending(t *testing.T) {
 		WithDrainDelay(30 * time.Second).
 		WithWaitGroup(&wg)
 	// Populate initial configs for drain matching
-	for k, v := range cfgs {
-		sub.configs[k] = v
-	}
+	maps.Copy(sub.configs, cfgs)
 	ready := make(chan struct{})
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		sub.Run(ctx, bus, func() { close(ready) })
-	}()
+	})
 	<-ready
 	bus.Publish(context.Background(), runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)

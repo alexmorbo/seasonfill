@@ -50,7 +50,7 @@ func TestWait_RespectsBurst(t *testing.T) {
 	require.NotNil(t, l)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		assert.NoError(t, l.Wait(ctx))
 	}
 }
@@ -131,7 +131,7 @@ func TestObserver_NotCalledOnInstantAcquire(t *testing.T) {
 	require.NotNil(t, l)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.NoError(t, l.Wait(ctx))
 	}
 	assert.Equal(t, 0, calls, "observer must not fire on instant-acquire fast path")

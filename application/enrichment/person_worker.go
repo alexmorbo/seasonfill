@@ -218,10 +218,7 @@ func (w *PersonWorker) batchCredits(txCtx context.Context, credits []people.Pers
 		return nil
 	}
 	for start := 0; start < len(credits); start += personCreditsBatchSize {
-		end := start + personCreditsBatchSize
-		if end > len(credits) {
-			end = len(credits)
-		}
+		end := min(start+personCreditsBatchSize, len(credits))
 		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, credits[start:end]); err != nil {
 			return fmt.Errorf("batch upsert person_credits [%d:%d]: %w", start, end, err)
 		}

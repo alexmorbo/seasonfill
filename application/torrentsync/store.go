@@ -1,6 +1,7 @@
 package torrentsync
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -244,9 +245,7 @@ func (s *Store) All(instance domain.InstanceName) map[string]Entry {
 		return map[string]Entry{}
 	}
 	out := make(map[string]Entry, len(inst))
-	for h, e := range inst {
-		out[h] = e
-	}
+	maps.Copy(out, inst)
 	return out
 }
 

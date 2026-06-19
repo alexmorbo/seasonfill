@@ -196,7 +196,6 @@ func TestValidate_TrustedProxy_TooBroad(t *testing.T) {
 	t.Parallel()
 	cases := []string{"0.0.0.0/0", "::/0", "0.0.0.0", "::"}
 	for _, entry := range cases {
-		entry := entry
 		t.Run(entry, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _ := setup(t)
@@ -351,7 +350,6 @@ func TestValidate_RangeBounds_Runtime(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _ := setup(t)
@@ -909,7 +907,6 @@ func TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK(t *testing.T) {
 		runtime.AuthModeNone,
 	}
 	for _, mode := range cases {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _ := setup(t)
@@ -963,7 +960,6 @@ func TestValidate_OIDC_ParallelMode(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			uc, _, _ := setup(t)

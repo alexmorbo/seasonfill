@@ -414,7 +414,6 @@ func TestValidate_Bounds(t *testing.T) {
 		}, "INVALID_CUSTOM_MSGS"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := validInput()

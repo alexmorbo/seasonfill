@@ -17,13 +17,12 @@ func TestRunLoop_AppliesAndCountsSuccess(t *testing.T) {
 	t.Parallel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var applied int32
+	ctx := t.Context()
+	var applied atomic.Int32
 	ready := make(chan struct{})
 	go runLoop(ctx, bus, "scheduler", slog.Default(),
 		func(_ context.Context, _ runtime.Snapshot) error {
-			atomic.AddInt32(&applied, 1)
+			applied.Add(1)
 			return nil
 		}, func() { close(ready) })
 	select {
@@ -33,23 +32,22 @@ func TestRunLoop_AppliesAndCountsSuccess(t *testing.T) {
 	}
 	bus.Publish(ctx, runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&applied) == 0 {
+	for time.Now().Before(deadline) && applied.Load() == 0 {
 		time.Sleep(2 * time.Millisecond)
 	}
-	require.GreaterOrEqual(t, atomic.LoadInt32(&applied), int32(1))
+	require.GreaterOrEqual(t, applied.Load(), int32(1))
 }
 
 func TestRunLoop_ApplyErrorDoesNotCrash(t *testing.T) {
 	t.Parallel()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var calls int32
+	ctx := t.Context()
+	var calls atomic.Int32
 	ready := make(chan struct{})
 	go runLoop(ctx, bus, "scheduler", slog.Default(),
 		func(_ context.Context, _ runtime.Snapshot) error {
-			atomic.AddInt32(&calls, 1)
+			calls.Add(1)
 			return errors.New("boom")
 		}, func() { close(ready) })
 	select {
@@ -59,8 +57,8 @@ func TestRunLoop_ApplyErrorDoesNotCrash(t *testing.T) {
 	}
 	bus.Publish(ctx, runtime.Snapshot{})
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(&calls) == 0 {
+	for time.Now().Before(deadline) && calls.Load() == 0 {
 		time.Sleep(2 * time.Millisecond)
 	}
-	require.GreaterOrEqual(t, atomic.LoadInt32(&calls), int32(1))
+	require.GreaterOrEqual(t, calls.Load(), int32(1))
 }

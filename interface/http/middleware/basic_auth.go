@@ -51,12 +51,12 @@ func parseBasicHeader(header string) (username, password string, ok bool) {
 	// Username must not contain colon; password may contain anything
 	// after the first colon (so we split on the FIRST colon, not last).
 	decoded := string(raw)
-	idx := strings.IndexByte(decoded, ':')
-	if idx < 0 {
+	before, after, ok := strings.Cut(decoded, ":")
+	if !ok {
 		return "", "", false
 	}
-	user := decoded[:idx]
-	pass := decoded[idx+1:]
+	user := before
+	pass := after
 	if user == "" {
 		return "", "", false
 	}

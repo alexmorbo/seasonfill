@@ -197,10 +197,7 @@ func (g *OMDbBudgetGuard) Remaining() int {
 // CONSUMED, not "remaining headroom".
 func (g *OMDbBudgetGuard) UsedAndCap() (int, int) {
 	if g.counter == nil {
-		used := int(g.initial) - int(g.fallback.Load())
-		if used < 0 {
-			used = 0
-		}
+		used := max(int(g.initial)-int(g.fallback.Load()), 0)
 		return used, int(g.initial)
 	}
 	w := g.currentWindow()

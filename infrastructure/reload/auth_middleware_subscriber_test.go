@@ -1,7 +1,6 @@
 package reload
 
 import (
-	"context"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -24,8 +23,7 @@ func TestAuthMiddleware_SessionTTLUpdated(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})
@@ -60,8 +58,7 @@ func TestAuthMiddleware_TrustedProxiesUpdated(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})
@@ -100,8 +97,7 @@ func TestAuthMiddleware_InvalidProxy_FailOpen(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	var stillAlive int32 = 1
@@ -137,8 +133,7 @@ func TestAuthMiddleware_SecureCookieFlipped(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})
@@ -174,8 +169,7 @@ func TestAuthMiddleware_ModeAndEpochPropagate(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	ready := make(chan struct{})
@@ -214,8 +208,7 @@ func TestAuthMiddleware_LocalNetworks_ParsedSilentlySkipsBad(t *testing.T) {
 	eng := gin.New()
 	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
 	defer bus.Close()
 	var alive int32 = 1

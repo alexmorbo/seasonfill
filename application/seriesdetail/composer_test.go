@@ -273,10 +273,6 @@ func newSilentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-func intPtr(v int) *int            { return &v }
-func strPtr(v string) *string      { return &v }
-func tmPtr(v time.Time) *time.Time { return &v }
-
 func seriesIDPtr(v int64) *domain.SeriesID {
 	id := domain.SeriesID(v)
 	return &id
@@ -302,7 +298,7 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 	}
 	canon := &fakeSeries{
 		rows: map[domain.SeriesID]series.Canon{
-			42: {ID: 42, Title: "Breaking Bad", Year: intPtr(2008), Status: strPtr("Ended")},
+			42: {ID: 42, Title: "Breaking Bad", Year: new(2008), Status: new("Ended")},
 			99: {ID: 99, Title: "Recommended Show"},
 		},
 	}
@@ -499,14 +495,11 @@ func TestPickContentRating_LocalePreference(t *testing.T) {
 }
 
 func TestClassifyKind(t *testing.T) {
-	require.Equal(t, enrichment.KindSeriesEnded, classifyKind(series.Canon{Status: strPtr("Ended")}))
-	require.Equal(t, enrichment.KindSeriesContinuing, classifyKind(series.Canon{Status: strPtr("Continuing")}))
+	require.Equal(t, enrichment.KindSeriesEnded, classifyKind(series.Canon{Status: new("Ended")}))
+	require.Equal(t, enrichment.KindSeriesContinuing, classifyKind(series.Canon{Status: new("Continuing")}))
 	require.Equal(t, enrichment.KindSeriesContinuing, classifyKind(series.Canon{InProduction: true}))
 	require.Equal(t, enrichment.KindSeriesContinuing, classifyKind(series.Canon{}))
 }
-
-// silence unused-helper warning if any
-var _ = tmPtr
 
 // --- story 312: media resolver integration ---
 
@@ -547,7 +540,7 @@ func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
 	deps, _, canon := baseDeps(t)
 	rawPath := "/abc.jpg"
 	canon.rows[42] = series.Canon{
-		ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath),
+		ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath),
 	}
 	const wantHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
@@ -568,7 +561,7 @@ func TestComposer_Get_PosterMissReturnsEagerHash(t *testing.T) {
 	// pre-320 expectation of nil-on-miss for hero.
 	deps, _, canon := baseDeps(t)
 	rawPath := "/abc.jpg"
-	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
+	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath)}
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
 	deps.MediaResolver = NewMediaResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
@@ -584,7 +577,7 @@ func TestComposer_Get_PosterMissReturnsEagerHash(t *testing.T) {
 func TestComposer_Get_NopResolver_KeepsNil(t *testing.T) {
 	deps, _, canon := baseDeps(t)
 	rawPath := "/abc.jpg"
-	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: strPtr(rawPath)}
+	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath)}
 	deps.MediaResolver = nil // → NewComposer fills with nop
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -596,22 +589,22 @@ func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
 	deps, _, canon := baseDeps(t)
 	canon.rows[42] = series.Canon{
 		ID: 42, Title: "Breaking Bad",
-		PosterAsset:   strPtr("/poster.jpg"),
-		BackdropAsset: strPtr("/back.jpg"),
+		PosterAsset:   new("/poster.jpg"),
+		BackdropAsset: new("/back.jpg"),
 	}
 	// Network with a logo.
 	deps.Networks = networksWithLogo{logo: "/logo.png", id: 7}
 	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
-		{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")},
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: new("/s1.jpg")},
 	}}
 	deps.SeriesPeople = &fakeSeriesPeople{rows: []people.SeriesCredit{
-		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: intPtr(1)},
+		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: new(1)},
 	}}
 	deps.People = &fakePeople{rows: []people.Person{
-		{ID: 100, Name: "Bryan Cranston", ProfileAsset: strPtr("/bryan.jpg")},
+		{ID: 100, Name: "Bryan Cranston", ProfileAsset: new("/bryan.jpg")},
 	}}
 	deps.Recommendations = &fakeRecommendations{ids: []domain.SeriesID{99}}
-	canon.rows[99] = series.Canon{ID: 99, Title: "Recommended Show", PosterAsset: strPtr("/rec.jpg")}
+	canon.rows[99] = series.Canon{ID: 99, Title: "Recommended Show", PosterAsset: new("/rec.jpg")}
 
 	const hashPoster = "1111111111111111111111111111111111111111111111111111111111111111"
 	const hashBack = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -660,18 +653,18 @@ func TestComposer_ResolveAssets_HeroEagerHashOnMiss(t *testing.T) {
 		Canon: series.Canon{
 			ID:            42,
 			Title:         "Breaking Bad",
-			PosterAsset:   strPtr("/hero-poster.jpg"),
-			BackdropAsset: strPtr("/hero-backdrop.jpg"),
+			PosterAsset:   new("/hero-poster.jpg"),
+			BackdropAsset: new("/hero-backdrop.jpg"),
 		},
-		Networks: []taxonomy.Network{{ID: 1, Name: "AMC", LogoAsset: strPtr("/net.png")}},
+		Networks: []taxonomy.Network{{ID: 1, Name: "AMC", LogoAsset: new("/net.png")}},
 		Cast: []CastDetail{
-			{Person: people.Person{ID: 1, Name: "Bryan Cranston", ProfileAsset: strPtr("/p1.jpg")}},
+			{Person: people.Person{ID: 1, Name: "Bryan Cranston", ProfileAsset: new("/p1.jpg")}},
 		},
 		Recommendations: []RecommendationDetail{
-			{Series: series.Canon{ID: 99, Title: "Rec", PosterAsset: strPtr("/rec1.jpg")}},
+			{Series: series.Canon{ID: 99, Title: "Rec", PosterAsset: new("/rec1.jpg")}},
 		},
 		Seasons: []SeasonDetail{
-			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")}},
+			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: new("/s1.jpg")}},
 		},
 	}
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
@@ -712,16 +705,16 @@ func TestComposer_ResolveAssets_EpisodeStills(t *testing.T) {
 		Canon: series.Canon{ID: 42, Title: "Breaking Bad"},
 		Seasons: []SeasonDetail{
 			{
-				Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/s1.jpg")},
+				Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: new("/s1.jpg")},
 				Episodes: []EpisodeDetail{
-					{Canon: series.CanonEpisode{ID: 10, SeasonNumber: 1, EpisodeNumber: 1, StillAsset: strPtr("/ep1.jpg")}},
-					{Canon: series.CanonEpisode{ID: 11, SeasonNumber: 1, EpisodeNumber: 2, StillAsset: strPtr("/ep2.jpg")}},
+					{Canon: series.CanonEpisode{ID: 10, SeasonNumber: 1, EpisodeNumber: 1, StillAsset: new("/ep1.jpg")}},
+					{Canon: series.CanonEpisode{ID: 11, SeasonNumber: 1, EpisodeNumber: 2, StillAsset: new("/ep2.jpg")}},
 				},
 			},
 			{
-				Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: strPtr("/s2.jpg")},
+				Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: new("/s2.jpg")},
 				Episodes: []EpisodeDetail{
-					{Canon: series.CanonEpisode{ID: 20, SeasonNumber: 2, EpisodeNumber: 1, StillAsset: strPtr("/ep3.jpg")}},
+					{Canon: series.CanonEpisode{ID: 20, SeasonNumber: 2, EpisodeNumber: 1, StillAsset: new("/ep3.jpg")}},
 				},
 			},
 		},
@@ -757,8 +750,8 @@ func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
 	d := &Detail{
 		Canon: series.Canon{ID: 42, Title: "Breaking Bad"},
 		Seasons: []SeasonDetail{
-			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: strPtr("/seasonA.jpg")}},
-			{Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: strPtr("/seasonB.jpg")}},
+			{Canon: series.CanonSeason{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: new("/seasonA.jpg")}},
+			{Canon: series.CanonSeason{ID: 2, SeriesID: 42, SeasonNumber: 2, PosterAsset: new("/seasonB.jpg")}},
 		},
 	}
 	const hashA = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"

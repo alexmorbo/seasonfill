@@ -31,19 +31,18 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 
 func TestDispatcher_SeriesHandlerCalledForSeriesJob(t *testing.T) {
 	t.Parallel()
-	var seen int64
+	var seen atomic.Int64
 	d := NewDispatcher(Workers{
 		SeriesHandler: func(ctx context.Context, id int64) error {
-			atomic.StoreInt64(&seen, id)
+			seen.Store(id)
 			return nil
 		},
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntitySeries, 42, PriorityHot)
-	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&seen) == 42 })
+	waitFor(t, time.Second, func() bool { return seen.Load() == 42 })
 }
 
 func TestDispatcher_OMDbHandlerCalledForOMDbJob(t *testing.T) {
@@ -63,8 +62,7 @@ func TestDispatcher_OMDbHandlerCalledForOMDbJob(t *testing.T) {
 			return nil
 		},
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntityOMDb, 77, PriorityHot)
@@ -75,32 +73,29 @@ func TestDispatcher_OMDbHandlerCalledForOMDbJob(t *testing.T) {
 
 func TestDispatcher_DedupPreventsSimultaneousCalls(t *testing.T) {
 	t.Parallel()
-	var calls int64
+	var calls atomic.Int64
 	gate := make(chan struct{})
 	d := NewDispatcher(Workers{
 		SeriesHandler: func(ctx context.Context, id int64) error {
-			atomic.AddInt64(&calls, 1)
+			calls.Add(1)
 			<-gate
 			return nil
 		},
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			d.Enqueue(EntitySeries, 7, PriorityHot)
-		}()
+		})
 	}
 	wg.Wait()
 	// Give the handler a chance to start.
 	time.Sleep(50 * time.Millisecond)
-	got := atomic.LoadInt64(&calls)
+	got := calls.Load()
 	close(gate)
 	assert.Equal(t, int64(1), got, "10 concurrent enqueues must invoke handler exactly once")
 }
@@ -111,8 +106,7 @@ func TestDispatcher_PersonHandlerNilLogsAndSkips(t *testing.T) {
 		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
 		PersonHandler: nil,
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntityPerson, 5, PriorityHot)
@@ -142,8 +136,7 @@ func TestDispatcher_HotBeatsColdOnHandler(t *testing.T) {
 			return nil
 		},
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	// Enqueue cold first; pause to ensure both workers are blocked at
@@ -172,8 +165,7 @@ func TestDispatcher_CloseStopsGoroutines(t *testing.T) {
 	d := NewDispatcher(Workers{
 		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -192,8 +184,7 @@ func TestDispatcher_InvalidEnqueueLogged(t *testing.T) {
 	d := NewDispatcher(Workers{
 		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntityKind("garbage"), 1, PriorityHot)
@@ -208,23 +199,22 @@ func TestDispatcher_InvalidEnqueueLogged(t *testing.T) {
 
 func TestDispatcher_HandlerError_DoesNotKillWorker(t *testing.T) {
 	t.Parallel()
-	var calls int64
+	var calls atomic.Int64
 	d := NewDispatcher(Workers{
 		SeriesHandler: func(ctx context.Context, id int64) error {
-			atomic.AddInt64(&calls, 1)
+			calls.Add(1)
 			if id == 1 {
 				return errors.New("boom")
 			}
 			return nil
 		},
 	}, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntitySeries, 1, PriorityHot)
 	d.Enqueue(EntitySeries, 2, PriorityHot)
-	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&calls) >= 2 })
+	waitFor(t, time.Second, func() bool { return calls.Load() >= 2 })
 }
 
 // TestDispatcher_HandlerPanic_ReleasesDedup — Critical Decision #2.

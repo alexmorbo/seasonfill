@@ -191,10 +191,7 @@ func (r *failingReader) Read(p []byte) (int, error) {
 	if r.off >= r.failAfter {
 		return 0, io.ErrUnexpectedEOF
 	}
-	end := r.failAfter
-	if end > len(r.data) {
-		end = len(r.data)
-	}
+	end := min(r.failAfter, len(r.data))
 	n := copy(p, r.data[r.off:end])
 	r.off += n
 	if r.off >= r.failAfter {

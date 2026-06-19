@@ -185,7 +185,6 @@ func TestAuthConfig_NonOIDC_NoLoginURL(t *testing.T) {
 		runtime.AuthModeNone,
 	}
 	for _, mode := range cases {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			r := setupAuthConfig(t, &middleware.AuthRuntime{Mode: mode})

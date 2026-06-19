@@ -26,7 +26,7 @@ func TestSyncLogRepository_UpsertAndGet(t *testing.T) {
 		Source:     enrichment.SourceTMDBSeries,
 		SyncedAt:   &now,
 		Outcome:    enrichment.OutcomeOK,
-		ETag:       ptrString("etag-001"),
+		ETag:       new("etag-001"),
 		Attempts:   1,
 	}
 	require.NoError(t, repo.Upsert(ctx, entry))
@@ -70,7 +70,7 @@ func TestSyncLogRepository_Upsert_Idempotent(t *testing.T) {
 		EntityID:      42,
 		Source:        enrichment.SourceTMDBSeries,
 		Outcome:       enrichment.OutcomeError,
-		ErrorDetail:   ptrString("timeout"),
+		ErrorDetail:   new("timeout"),
 		Attempts:      2,
 		NextAttemptAt: &retry,
 	}

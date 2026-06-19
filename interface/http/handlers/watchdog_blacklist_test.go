@@ -155,7 +155,7 @@ func TestWatchdogBlacklistHandler_ListEmitsCursorWhenFull(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
 	pager := &stubPager{}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		pager.rows = append(pager.rows, regrab.BlacklistEntry{
 			ID: uint(i + 1), InstanceID: 1, SeriesID: domain.SonarrSeriesID(100 + i), SeasonNumber: 1,
 			Reason: regrab.ReasonConsecutiveNoBetter, Consecutive: 3,

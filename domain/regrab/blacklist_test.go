@@ -24,7 +24,6 @@ func TestReason_IsValid(t *testing.T) {
 		{Reason("CONSECUTIVE_NO_BETTER"), false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(string(tc.r), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, tc.r.IsValid())
@@ -79,7 +78,6 @@ func TestNewBlacklistEntry_Validation(t *testing.T) {
 		{"negative consecutive", 1, 1, 0, -1, ReasonConsecutiveNoBetter, ErrInvalidConsecutive},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewBlacklistEntry(tc.instance, tc.series, tc.season, tc.consecutive, tc.reason, now)

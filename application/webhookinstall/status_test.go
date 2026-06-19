@@ -29,7 +29,7 @@ func TestStatusCache_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 	c := NewStatusCache()
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(2)
 		go func(i int) { defer wg.Done(); c.Set("alpha", Status{Installed: i%2 == 0, LastCheckedAt: time.Now()}) }(i)
 		go func() { defer wg.Done(); _, _ = c.Get("alpha") }()

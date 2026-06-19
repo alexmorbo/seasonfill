@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"sync"
 
 	appext "github.com/alexmorbo/seasonfill/application/externalservices"
@@ -185,9 +186,7 @@ func (s *ExternalServicesSubscriber) fanOut(ctx context.Context, next map[infra.
 func (s *ExternalServicesSubscriber) SetCurrentForTest(m map[infra.Service]infra.Settings) {
 	s.mu.Lock()
 	s.current = make(map[infra.Service]infra.Settings, len(m))
-	for k, v := range m {
-		s.current[k] = v
-	}
+	maps.Copy(s.current, m)
 	s.mu.Unlock()
 }
 
@@ -197,9 +196,7 @@ func (s *ExternalServicesSubscriber) SetCurrentForTest(m map[infra.Service]infra
 func (s *ExternalServicesSubscriber) FanOutForTest(ctx context.Context) {
 	s.mu.RLock()
 	next := make(map[infra.Service]infra.Settings, len(s.current))
-	for k, v := range s.current {
-		next[k] = v
-	}
+	maps.Copy(next, s.current)
 	s.mu.RUnlock()
 	s.fanOut(ctx, next)
 }

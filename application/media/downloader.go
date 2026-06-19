@@ -135,7 +135,7 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 // Start spawns the worker goroutines. Idempotent against a re-call
 // (the wg.Add path is guarded by the closed stopCh).
 func (d *Downloader) Start(ctx context.Context) {
-	for i := 0; i < downloaderWorkers; i++ {
+	for i := range downloaderWorkers {
 		d.wg.Add(1)
 		go d.runWorker(ctx, i)
 	}

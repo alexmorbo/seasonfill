@@ -248,12 +248,10 @@ func TestTMDBClientSubscriber_ConcurrentApply(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const N = 8
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range N {
+		wg.Go(func() {
 			sub.Apply(context.Background(), s)
-		}()
+		})
 	}
 	wg.Wait()
 	sub.Wait()

@@ -51,7 +51,6 @@ func TestIsLocalAddress_Matrix(t *testing.T) {
 		{"ipv4-mapped ipv6 public", "::ffff:8.8.8.8", defaults, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ip := net.ParseIP(tc.ip)

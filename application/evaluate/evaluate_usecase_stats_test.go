@@ -114,7 +114,7 @@ func TestExecute_PopulatesSeasonStats_HappyPath(t *testing.T) {
 		Statistics: series.Statistics{Total: 10, Aired: 8, EpisodeFileCount: 10, EpisodeCount: 10},
 		Episodes:   make([]series.Episode, 10),
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		season.Episodes[i] = series.Episode{
 			Number: i + 1, SeasonNumber: 1, Monitored: true, HasFile: true,
 		}

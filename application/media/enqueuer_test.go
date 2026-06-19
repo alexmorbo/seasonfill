@@ -33,7 +33,7 @@ func TestEnqueuer_QueueFull(t *testing.T) {
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	defer eq.Close()
 	// Stuff > channelCap unique URLs without a consumer running.
-	for i := 0; i < channelCap+50; i++ {
+	for i := range channelCap + 50 {
 		eq.Enqueue(context.Background(), []EnqueueRequest{
 			{UpstreamURL: "https://image.tmdb.org/t/p/w342/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"},
 		})

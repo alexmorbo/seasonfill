@@ -319,7 +319,6 @@ func TestHandler_PutValidationErrors_UseCaseCodes(t *testing.T) {
 		{"public_url bad scheme", func(b *dto.QbitSettingsUpsertRequest) { b.QbitPublicURL = "ftp://x" }, "INVALID_QBIT_PUBLIC_URL"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newTestFixture(t)
@@ -351,7 +350,6 @@ func TestHandler_PutValidationErrors_ValidatorTagged(t *testing.T) {
 		{"cooldown above validator cap", func(b *dto.QbitSettingsUpsertRequest) { b.RegrabCooldownHours = 9999 }, "regrab_cooldown_hours", "lte"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newTestFixture(t)

@@ -31,7 +31,7 @@ func TestIPLimiter_EvictionUnderStress(t *testing.T) {
 	lim.SetClock(func() time.Time { return now })
 
 	// Fill to the cap.
-	for i := 0; i < IPLimiterMaxEntries; i++ {
+	for i := range IPLimiterMaxEntries {
 		lim.Allow("k-" + strconv.Itoa(i))
 	}
 	require.Equal(t, IPLimiterMaxEntries, lim.Len())
@@ -49,7 +49,7 @@ func TestIPLimiter_NoEvictionWithinTTL(t *testing.T) {
 	lim := NewIPLimiter(rate.Every(time.Hour), 1)
 	now := time.Now()
 	lim.SetClock(func() time.Time { return now })
-	for i := 0; i < IPLimiterMaxEntries; i++ {
+	for i := range IPLimiterMaxEntries {
 		lim.Allow("k-" + strconv.Itoa(i))
 	}
 	// Within TTL — prune drops nothing. New key still slots in; map
@@ -64,7 +64,7 @@ func TestIPLimiter_ConcurrentAllow(t *testing.T) {
 	t.Parallel()
 	lim := NewIPLimiter(rate.Every(time.Millisecond), 10)
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

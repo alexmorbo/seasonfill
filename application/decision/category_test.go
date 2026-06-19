@@ -15,7 +15,6 @@ import (
 func TestClassify_EveryReason(t *testing.T) {
 	t.Parallel()
 	for reason, want := range reasonCategory {
-		reason, want := reason, want
 		t.Run(string(reason), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, want, Classify(string(reason)))

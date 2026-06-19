@@ -296,7 +296,6 @@ func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {
 		{"already-executed", func(d *decision.Decision) { d.DryRunWouldGrab = false }, http.StatusConflict, "already executed"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newGrabFixture(t, nil)

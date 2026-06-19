@@ -23,7 +23,6 @@ func TestKind_IsValid(t *testing.T) {
 		{"unknown garbage", Kind("xyz"), false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, tc.k.IsValid())

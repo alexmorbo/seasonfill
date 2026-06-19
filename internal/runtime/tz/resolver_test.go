@@ -150,22 +150,18 @@ func TestGet_NeverNil(t *testing.T) {
 	r := New(context.Background(), nil, quietLogger())
 	// Race a bunch of Gets against a Set.
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 50 {
+		wg.Go(func() {
+			for range 100 {
 				assert.NotNil(t, r.Get())
 			}
-		}()
+		})
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			_ = r.Set(context.Background(), "UTC")
 			_ = r.Set(context.Background(), "")
-		}()
+		})
 	}
 	wg.Wait()
 }

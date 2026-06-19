@@ -29,7 +29,6 @@ func TestTruncateErrorDetail(t *testing.T) {
 			"ошибка: сервер недоступен (503)"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, truncateErrorDetail(tc.in))

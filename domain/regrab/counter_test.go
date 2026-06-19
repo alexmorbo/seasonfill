@@ -53,7 +53,6 @@ func TestNewNoBetterCounter_Validation(t *testing.T) {
 		{"negative season", 1, 1, -1, ErrInvalidSeason},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewNoBetterCounter(tc.instance, tc.series, tc.season, now)
@@ -130,7 +129,6 @@ func TestNoBetterCounter_HasReachedThreshold(t *testing.T) {
 		{"negative threshold", 5, -1, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			local := c

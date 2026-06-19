@@ -1,6 +1,7 @@
 package regrab
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -83,9 +84,7 @@ func (s *RuntimeStateStore) SnapshotAll() map[domain.InstanceName]RuntimeState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make(map[domain.InstanceName]RuntimeState, len(s.byKey))
-	for k, v := range s.byKey {
-		out[k] = v
-	}
+	maps.Copy(out, s.byKey)
 	return out
 }
 

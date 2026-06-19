@@ -103,7 +103,6 @@ func TestNewClient_Validation(t *testing.T) {
 		{"parse error", Config{URL: "http://%zzz"}, ErrInvalidConfig},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewClient(tc.cfg)

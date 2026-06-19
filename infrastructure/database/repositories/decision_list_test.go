@@ -40,7 +40,7 @@ func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
 	db := setupTestDB(t)
 	scanRun := uuid.New()
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		seedDecision(t, db, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 
@@ -128,7 +128,7 @@ func TestDecisionRepository_List_TimeRange(t *testing.T) {
 	db := setupTestDB(t)
 	scanRun := uuid.New()
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		seedDecision(t, db, scanRun, "main", domain.SonarrSeriesID(100+i), 1, decision.OutcomeSkip, base.Add(time.Duration(i)*time.Second))
 	}
 

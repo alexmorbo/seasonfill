@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -23,9 +24,7 @@ type InstanceMapHolder struct {
 // subsequent Replace calls.
 func NewInstanceMapHolder(initial map[string]scan.Instance) *InstanceMapHolder {
 	cp := make(map[string]scan.Instance, len(initial))
-	for k, v := range initial {
-		cp[k] = v
-	}
+	maps.Copy(cp, initial)
 	return &InstanceMapHolder{m: cp}
 }
 
@@ -44,8 +43,6 @@ func (h *InstanceMapHolder) Load() map[string]scan.Instance {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	out := make(map[string]scan.Instance, len(h.m))
-	for k, v := range h.m {
-		out[k] = v
-	}
+	maps.Copy(out, h.m)
 	return out
 }

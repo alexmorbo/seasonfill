@@ -33,7 +33,7 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 		return series.Canon{}
 	}
 	c := series.Canon{
-		TMDBID:           ptrTMDBID(domain.TMDBID(tv.ID)),
+		TMDBID:           new(domain.TMDBID(tv.ID)),
 		Hydration:        series.HydrationFull,
 		Title:            tv.Name,
 		OriginalTitle:    nonEmptyPtr(tv.OriginalName),
@@ -50,10 +50,10 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 		TMDBVotes:        nonZeroIntPtr(tv.VoteCount),
 	}
 	if len(tv.EpisodeRunTime) > 0 && tv.EpisodeRunTime[0] > 0 {
-		c.RuntimeMinutes = ptrInt(tv.EpisodeRunTime[0])
+		c.RuntimeMinutes = new(tv.EpisodeRunTime[0])
 	}
 	if len(tv.OriginCountry) > 0 {
-		c.OriginCountry = ptrString(tv.OriginCountry[0])
+		c.OriginCountry = new(tv.OriginCountry[0])
 		// OriginCountries holds the full TMDB array — used by the
 		// right-rail "Страны" row. Singular OriginCountry stays the
 		// first element for compat. Copy defensively to avoid aliasing
@@ -88,7 +88,7 @@ func MapTVToSeasons(tv *TVResponse) []series.CanonSeason {
 	for _, s := range tv.Seasons {
 		out = append(out, series.CanonSeason{
 			SeasonNumber: s.SeasonNumber,
-			TMDBSeasonID: ptrInt(int(s.ID)),
+			TMDBSeasonID: new(int(s.ID)),
 			Name:         nonEmptyPtr(s.Name),
 			Overview:     nonEmptyPtr(s.Overview),
 			AirDate:      parseDate(s.AirDate),
@@ -135,7 +135,7 @@ func MapTVToCredits(tv *TVResponse) ([]people.SeriesCredit, []people.Person) {
 			Kind:          people.SeriesCreditCast,
 			TMDBCreditID:  creditID,
 			CharacterName: nonEmptyPtr(character),
-			CreditOrder:   ptrInt(cast.Order),
+			CreditOrder:   new(cast.Order),
 			EpisodeCount:  nonZeroIntPtr(episodeCount),
 			// SeriesID + PersonID resolved by caller (C-2).
 		})
@@ -163,7 +163,7 @@ func MapTVToCredits(tv *TVResponse) ([]people.SeriesCredit, []people.Person) {
 
 func personStubFromCast(c TVCastMember) people.Person {
 	return people.Person{
-		TMDBID:             ptrTMDBID(domain.TMDBID(c.ID)),
+		TMDBID:             new(domain.TMDBID(c.ID)),
 		Hydration:          people.HydrationStub,
 		Name:               c.Name,
 		OriginalName:       nonEmptyPtr(c.OriginalName),
@@ -176,7 +176,7 @@ func personStubFromCast(c TVCastMember) people.Person {
 
 func personStubFromCrew(c TVCrewMember) people.Person {
 	return people.Person{
-		TMDBID:             ptrTMDBID(domain.TMDBID(c.ID)),
+		TMDBID:             new(domain.TMDBID(c.ID)),
 		Hydration:          people.HydrationStub,
 		Name:               c.Name,
 		OriginalName:       nonEmptyPtr(c.OriginalName),
@@ -198,21 +198,21 @@ func MapTVToTaxonomy(tv *TVResponse) (genres []taxonomy.Genre, keywords []taxono
 	}
 	for _, g := range tv.Genres {
 		genres = append(genres, taxonomy.Genre{
-			TMDBID: ptrTMDBID(domain.TMDBID(g.ID)),
+			TMDBID: new(domain.TMDBID(g.ID)),
 			Name:   g.Name,
 		})
 	}
 	if tv.Keywords != nil {
 		for _, k := range tv.Keywords.Results {
 			keywords = append(keywords, taxonomy.Keyword{
-				TMDBID: ptrTMDBID(domain.TMDBID(k.ID)),
+				TMDBID: new(domain.TMDBID(k.ID)),
 				Name:   k.Name,
 			})
 		}
 	}
 	for _, n := range tv.Networks {
 		networks = append(networks, taxonomy.Network{
-			TMDBID:        ptrTMDBID(domain.TMDBID(n.ID)),
+			TMDBID:        new(domain.TMDBID(n.ID)),
 			Name:          n.Name,
 			LogoAsset:     nonEmptyPtr(n.LogoPath),
 			OriginCountry: nonEmptyPtr(n.OriginCountry),
@@ -220,7 +220,7 @@ func MapTVToTaxonomy(tv *TVResponse) (genres []taxonomy.Genre, keywords []taxono
 	}
 	for _, c := range tv.ProductionCompanies {
 		companies = append(companies, taxonomy.ProductionCompany{
-			TMDBID:        ptrTMDBID(domain.TMDBID(c.ID)),
+			TMDBID:        new(domain.TMDBID(c.ID)),
 			Name:          c.Name,
 			LogoAsset:     nonEmptyPtr(c.LogoPath),
 			OriginCountry: nonEmptyPtr(c.OriginCountry),
@@ -310,7 +310,7 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 	out := make([]series.Canon, 0, len(tv.Recommendations.Results))
 	for _, r := range tv.Recommendations.Results {
 		c := series.Canon{
-			TMDBID:       ptrTMDBID(domain.TMDBID(r.ID)),
+			TMDBID:       new(domain.TMDBID(r.ID)),
 			Hydration:    series.HydrationStub,
 			Title:        r.Name,
 			PosterAsset:  nonEmptyPtr(r.PosterPath),
@@ -339,10 +339,10 @@ func MapSeasonToEpisodes(season *SeasonResponse, seriesID domain.SeriesID, seaso
 	for _, e := range season.Episodes {
 		ep := series.CanonEpisode{
 			SeriesID:      seriesID,
-			SeasonID:      ptrInt64(seasonID),
+			SeasonID:      new(seasonID),
 			SeasonNumber:  e.SeasonNumber,
 			EpisodeNumber: e.EpisodeNumber,
-			TMDBEpisodeID: ptrInt(int(e.ID)),
+			TMDBEpisodeID: new(int(e.ID)),
 			AirDate:       parseDate(e.AirDate),
 			FinaleType:    nonEmptyPtr(e.EpisodeType),
 			TMDBRating:    nonZeroFloatPtr(e.VoteAverage),
@@ -372,7 +372,7 @@ func MapSeasonToCredits(season *SeasonResponse) []people.EpisodeCredit {
 				Kind:          people.EpisodeCreditGuestStar,
 				TMDBCreditID:  g.CreditID,
 				CharacterName: nonEmptyPtr(g.Character),
-				CreditOrder:   ptrInt(g.Order),
+				CreditOrder:   new(g.Order),
 			})
 		}
 		for _, c := range e.Crew {
@@ -403,7 +403,7 @@ func MapPersonToDomain(p *PersonResponse) (people.Person, []people.PersonCredit)
 		return people.Person{}, nil
 	}
 	person := people.Person{
-		TMDBID:             ptrTMDBID(domain.TMDBID(p.ID)),
+		TMDBID:             new(domain.TMDBID(p.ID)),
 		Hydration:          people.HydrationFull,
 		Name:               p.Name,
 		OriginalName:       nonEmptyPtr(p.OriginalName),
@@ -417,11 +417,11 @@ func MapPersonToDomain(p *PersonResponse) (people.Person, []people.PersonCredit)
 		Biography:          p.Biography,
 	}
 	if id := NormaliseIMDBID(p.IMDBID); id != "" {
-		person.IMDBID = ptrString(id)
+		person.IMDBID = new(id)
 	}
 	if p.ExternalIDs != nil {
 		if id := NormaliseIMDBID(p.ExternalIDs.IMDBID); id != "" && person.IMDBID == nil {
-			person.IMDBID = ptrString(id)
+			person.IMDBID = new(id)
 		}
 	}
 
@@ -545,12 +545,6 @@ func parseRFC3339(raw string) *time.Time {
 	return nil
 }
 
-func ptrInt(v int) *int                        { return &v }
-func ptrInt64(v int64) *int64                  { return &v }
-func ptrTMDBID(v domain.TMDBID) *domain.TMDBID { return &v }
-func ptrString(v string) *string {
-	return &v
-}
 func nonEmptyPtr(v string) *string {
 	if v == "" {
 		return nil

@@ -127,7 +127,6 @@ func TestBasicAuth_MalformedHeader_401WithChallenge(t *testing.T) {
 		{"empty_username", "Basic " + base64.StdEncoding.EncodeToString([]byte(":pw"))},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := setupAuthBasic(t, "k", repo, nil, &AuthRuntime{Mode: runtime.AuthModeBasic})
@@ -253,7 +252,7 @@ func TestBasicAuth_LimiterNotConsumedOnAbsentHeader(t *testing.T) {
 	repo := seedBasicRepo(t, "admin", "hunter22")
 	r := setupAuthBasic(t, "k", repo, lim, &AuthRuntime{Mode: runtime.AuthModeBasic})
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)

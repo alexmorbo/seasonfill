@@ -74,32 +74,26 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 	d.mu.Unlock()
 
 	// Two series goroutines.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		idx := i
-		d.wg.Add(1)
-		go func() {
-			defer d.wg.Done()
+		d.wg.Go(func() {
 			d.loop(ctx, EntitySeries, idx, d.workers.SeriesHandler)
-		}()
+		})
 	}
 	// One person goroutine — placeholder until 212 lands the real
 	// handler. PersonHandler nil → loop logs "not implemented"
 	// per-dequeue.
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
+	d.wg.Go(func() {
 		d.loop(ctx, EntityPerson, 0, d.workers.PersonHandler)
-	}()
+	})
 	// 213 (D-1): one OMDb goroutine. The shared queue's cross-kind
 	// drain in loop() guarantees an OMDb goroutine waking on a
 	// series job re-enqueues it. With 2× series + 1× person + 1×
 	// OMDb goroutines and 3 EntityKinds the cross-kind spin remains
 	// the known caveat documented in 211 §10.
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
+	d.wg.Go(func() {
 		d.loop(ctx, EntityOMDb, 0, d.workers.OMDbHandler)
-	}()
+	})
 	d.logger.InfoContext(ctx, "enrichment.dispatcher.started",
 		slog.Int("series_workers", 2),
 		slog.Int("person_workers", 1),

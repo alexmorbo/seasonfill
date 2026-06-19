@@ -41,8 +41,7 @@ func TestScheduler_NewStop(t *testing.T) {
 func TestScheduler_Start_RegistersEntry(t *testing.T) {
 	t.Parallel()
 	s := New("*/5 * * * *", 0, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 	defer drainStop(t, s)
 
@@ -61,8 +60,7 @@ func TestScheduler_Start_InvalidScheduleReturnsError(t *testing.T) {
 func TestScheduler_Stop_AfterStart_GracefullyShutsDown(t *testing.T) {
 	t.Parallel()
 	s := New("@every 100ms", 0, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 
 	// Let one tick pass so Stop has something to drain.
@@ -84,19 +82,18 @@ func TestScheduler_Stop_AfterStart_GracefullyShutsDown(t *testing.T) {
 func TestScheduler_Start_FireOnce_InvokesScanner(t *testing.T) {
 	t.Parallel()
 	s := New("@every 100ms", 0, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 	defer drainStop(t, s)
 
 	entries := s.cron.Entries()
 	require.Len(t, entries, 1)
 
-	var ran int32
+	var ran atomic.Int32
 	done := make(chan struct{})
 	go func() {
 		entries[0].Job.Run()
-		atomic.AddInt32(&ran, 1)
+		ran.Add(1)
 		close(done)
 	}()
 	select {
@@ -104,7 +101,7 @@ func TestScheduler_Start_FireOnce_InvokesScanner(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("direct cron job invocation did not complete within 2s")
 	}
-	assert.Equal(t, int32(1), atomic.LoadInt32(&ran))
+	assert.Equal(t, int32(1), ran.Load())
 }
 
 // TestScheduler_Start_JitterAppliedNonPanic — smoke check the jitter
@@ -112,8 +109,7 @@ func TestScheduler_Start_FireOnce_InvokesScanner(t *testing.T) {
 func TestScheduler_Start_JitterAppliedNonPanic(t *testing.T) {
 	t.Parallel()
 	s := New("@every 100ms", 10*time.Millisecond, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 	defer drainStop(t, s)
 
@@ -147,8 +143,7 @@ func TestScheduler_Register_DuplicateRejected(t *testing.T) {
 func TestScheduler_RegisterAfterStart_Rejected(t *testing.T) {
 	t.Parallel()
 	s := New("@every 1s", 0, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 	defer drainStop(t, s)
 	err := s.Register("late", "@every 1s", func(context.Context) {})
@@ -158,8 +153,7 @@ func TestScheduler_RegisterAfterStart_Rejected(t *testing.T) {
 func TestScheduler_EntryByName_ScanJob(t *testing.T) {
 	t.Parallel()
 	s := New("*/5 * * * *", 0, quietLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.Start(ctx, newNoopScanUC(t)))
 	defer drainStop(t, s)
 	assert.Equal(t, "*/5 * * * *", s.EntryByName(ScanJobName))
@@ -168,19 +162,18 @@ func TestScheduler_EntryByName_ScanJob(t *testing.T) {
 func TestScheduler_RegisterPlusStartRegistered_Runs(t *testing.T) {
 	t.Parallel()
 	s := New("", 0, quietLogger())
-	var ran int32
+	var ran atomic.Int32
 	require.NoError(t, s.Register("oneoff", "@every 50ms", func(context.Context) {
-		atomic.AddInt32(&ran, 1)
+		ran.Add(1)
 	}))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	require.NoError(t, s.StartRegistered(ctx))
 	defer drainStop(t, s)
 	// Drive the cron job synchronously by invoking the entry's Run.
 	entries := s.cron.Entries()
 	require.Len(t, entries, 1)
 	entries[0].Job.Run()
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&ran), int32(1))
+	assert.GreaterOrEqual(t, ran.Load(), int32(1))
 }
 
 // Story 301: NewWithLocation tests.

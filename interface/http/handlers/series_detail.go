@@ -394,10 +394,7 @@ func mapSeasons(d *seriesdetail.Detail) []dto.Season {
 		if s.Stats != nil {
 			ds.Monitored = s.Stats.Monitored
 			ds.OnDiskCount = s.Stats.EpisodeFileCount
-			missing := s.Stats.AiredEpisodeCount - s.Stats.EpisodeFileCount
-			if missing < 0 {
-				missing = 0
-			}
+			missing := max(s.Stats.AiredEpisodeCount-s.Stats.EpisodeFileCount, 0)
 			ds.MissingCount = missing
 			if s.Stats.TotalEpisodeCount > 0 {
 				ds.EpisodeCount = s.Stats.TotalEpisodeCount

@@ -297,7 +297,7 @@ func TestSetTMDBRateLimitInPause_Registers(t *testing.T) {
 // findMetricLine returns the metric line (single line) for a given
 // counter/gauge name, or "" if not present.
 func findMetricLine(body, name string) string {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(line, name+" ") {
 			return line
 		}

@@ -149,7 +149,6 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 		{"oidc+valid_apikey_no_cookie", runtime.AuthModeOIDC, apiKey, "", want{http.StatusOK, "api-key"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{Mode: tc.mode})

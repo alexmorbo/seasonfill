@@ -31,7 +31,6 @@ func TestTTL(t *testing.T) {
 		{"unknown kind", SourceTMDBSeries, KindUnknown, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, TTL(tc.source, tc.kind))

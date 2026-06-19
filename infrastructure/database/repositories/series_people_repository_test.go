@@ -29,9 +29,9 @@ func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
 		PersonID:      personID,
 		Kind:          people.SeriesCreditCast,
 		TMDBCreditID:  "5fbf6d3d1c4b5b00415d3b4f",
-		CharacterName: ptrString("Cassian Andor"),
-		CreditOrder:   ptrInt(0),
-		EpisodeCount:  ptrInt(12),
+		CharacterName: new("Cassian Andor"),
+		CreditOrder:   new(0),
+		EpisodeCount:  new(12),
 	})
 	require.NoError(t, err)
 	require.NotZero(t, id)
@@ -67,7 +67,7 @@ func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 
 	const n = 50
 	credits := make([]people.SeriesCredit, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p := samplePerson(fmt.Sprintf("Cast %02d", i))
 		p.TMDBID = ptrTMDBID(8000 + i)
 		personID, err := peopleRepo.Upsert(ctx, p)
@@ -77,7 +77,7 @@ func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 			PersonID:     personID,
 			Kind:         people.SeriesCreditCast,
 			TMDBCreditID: fmt.Sprintf("credit-%02d", i),
-			CreditOrder:  ptrInt(i),
+			CreditOrder:  new(i),
 		}
 	}
 
@@ -109,7 +109,7 @@ func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
 
 	_, err = repo.Upsert(ctx, people.SeriesCredit{
 		SeriesID: seriesID, PersonID: personID,
-		Kind: people.SeriesCreditCast, TMDBCreditID: "c1", CreditOrder: ptrInt(0),
+		Kind: people.SeriesCreditCast, TMDBCreditID: "c1", CreditOrder: new(0),
 	})
 	require.NoError(t, err)
 	_, err = repo.Upsert(ctx, people.SeriesCredit{
@@ -117,8 +117,8 @@ func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
 		PersonID:     personID,
 		Kind:         people.SeriesCreditCrew,
 		TMDBCreditID: "c2",
-		Department:   ptrString("Production"),
-		Job:          ptrString("Executive Producer"),
+		Department:   new("Production"),
+		Job:          new("Executive Producer"),
 	})
 	require.NoError(t, err)
 
@@ -163,7 +163,7 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 			PersonID:     personID,
 			Kind:         people.SeriesCreditCast,
 			TMDBCreditID: fmt.Sprintf("credit-%d", i),
-			CreditOrder:  ptrInt(0),
+			CreditOrder:  new(0),
 		})
 		require.NoError(t, err)
 	}

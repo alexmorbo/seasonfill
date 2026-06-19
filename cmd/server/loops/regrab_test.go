@@ -75,8 +75,7 @@ func TestRegrabLoop_StartSpawnsNoGoroutines(t *testing.T) {
 	r := newFakeRunner()
 	loop := NewRegrabLoop(r, newFakeMetrics(), nil, slog.Default())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	loop.Start(ctx)
 
 	assert.Equal(t, 0, loop.active())
@@ -127,8 +126,7 @@ func TestRegrabLoop_SwapStopsDisabledInstance(t *testing.T) {
 	var bgWG sync.WaitGroup
 	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	loop.Start(ctx)
 
 	loop.SwapSettings(map[string]regrab.Settings{

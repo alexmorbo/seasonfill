@@ -35,7 +35,7 @@ func TestEpisodePeopleRepository_UpsertAndGet(t *testing.T) {
 		PersonID:      personID,
 		Kind:          people.EpisodeCreditGuestStar,
 		TMDBCreditID:  "ep-credit-1",
-		CharacterName: ptrString("Irving"),
+		CharacterName: new("Irving"),
 	})
 	require.NoError(t, err)
 
@@ -73,7 +73,7 @@ func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 
 	const n = 10
 	credits := make([]people.EpisodeCredit, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p := samplePerson(fmt.Sprintf("Guest %02d", i))
 		p.TMDBID = ptrTMDBID(9000 + i)
 		personID, err := peopleRepo.Upsert(ctx, p)
@@ -83,7 +83,7 @@ func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 			PersonID:     personID,
 			Kind:         people.EpisodeCreditGuestStar,
 			TMDBCreditID: fmt.Sprintf("ep-credit-%02d", i),
-			CreditOrder:  ptrInt(i),
+			CreditOrder:  new(i),
 		}
 	}
 
@@ -125,8 +125,8 @@ func TestEpisodePeopleRepository_ListByEpisode_KindFilter(t *testing.T) {
 		PersonID:     personID,
 		Kind:         people.EpisodeCreditCrew,
 		TMDBCreditID: "c1",
-		Department:   ptrString("Directing"),
-		Job:          ptrString("Director"),
+		Department:   new("Directing"),
+		Job:          new("Director"),
 	})
 	require.NoError(t, err)
 

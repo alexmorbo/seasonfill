@@ -20,6 +20,7 @@ linters:
     - revive
     - gocritic
     - forbidigo
+    - modernize
   settings:
     forbidigo:
       # F-4c: lock in the F-4b-8 DomainLogger migration. Forbids ad-hoc
@@ -70,6 +71,27 @@ linters:
         - nilValReturn
         - sortSlice
         - unnecessaryDefer
+    modernize:
+      # F-1 follow-up (story 417): opt into stable modernize analyzers
+      # (Go 1.25+ sugar). Explicit list — new-analyzer arrivals on
+      # golangci-lint upgrade should require deliberate review rather
+      # than landing silently.
+      checks:
+        - atomictypes
+        - forvar
+        - mapsloop
+        - minmax
+        - newexpr
+        - rangeint
+        - stringscut
+        - stringsseq
+        - testingcontext
+        - waitgroupgo
+        # Deliberately omitted (require per-call audit, not in scope
+        # for #593):
+        # - errorsastype  (errors.As → errors.AsType switch)
+        # - slicescontains (touches hot loops; perf review separately)
+        # - omitzero      (struct-tag overhaul)
   exclusions:
     paths:
       - web/node_modules

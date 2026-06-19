@@ -258,7 +258,6 @@ func (h *InstancesHandler) embedSeasonEpisodes(
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(runtime.MissingPerSeriesEpisodeFetchConcurrency)
 	for seriesID := range embedSeasonsByID {
-		seriesID := seriesID
 		g.Go(func() error {
 			if gctx.Err() != nil {
 				return gctx.Err()

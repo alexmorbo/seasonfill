@@ -8,8 +8,6 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 )
 
-func strPtr(v string) *string { return &v }
-
 // TestComposePrewarmAssets_EpisodeStills locks the story 322 invariant:
 // every non-empty episode StillAsset produces a "still_w300" prewarm
 // request. Misses (nil / empty) are skipped.
@@ -20,9 +18,9 @@ func TestComposePrewarmAssets_EpisodeStills(t *testing.T) {
 	// series_worker.go for the populated field name; adapt if needed).
 	m := mappedPayload{
 		Episodes: []series.CanonEpisode{
-			{ID: 10, SeasonNumber: 1, EpisodeNumber: 1, StillAsset: strPtr("/ep1.jpg")},
+			{ID: 10, SeasonNumber: 1, EpisodeNumber: 1, StillAsset: new("/ep1.jpg")},
 			{ID: 11, SeasonNumber: 1, EpisodeNumber: 2}, // no still — skipped
-			{ID: 20, SeasonNumber: 2, EpisodeNumber: 1, StillAsset: strPtr("/ep3.jpg")},
+			{ID: 20, SeasonNumber: 2, EpisodeNumber: 1, StillAsset: new("/ep3.jpg")},
 		},
 	}
 	reqs := composePrewarmAssets(canon, m, nil)

@@ -20,9 +20,9 @@ func TestSeasonsRepository_UpsertAndList(t *testing.T) {
 	seriesID, err := repoS.Upsert(ctx, sampleCanon("Foundation"))
 	require.NoError(t, err)
 
-	id1, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, Name: ptrString("Season 1")})
+	id1, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, Name: new("Season 1")})
 	require.NoError(t, err)
-	id2, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 2, Name: ptrString("Season 2")})
+	id2, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 2, Name: new("Season 2")})
 	require.NoError(t, err)
 	assert.NotEqual(t, id1, id2)
 
@@ -41,7 +41,7 @@ func TestSeasonsRepository_Upsert_Idempotent(t *testing.T) {
 	repo := NewSeasonsRepository(db)
 	ctx := context.Background()
 
-	s := series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, EpisodeCount: ptrInt(9)}
+	s := series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, EpisodeCount: new(9)}
 	id1, err := repo.Upsert(ctx, s)
 	require.NoError(t, err)
 	id2, err := repo.Upsert(ctx, s)

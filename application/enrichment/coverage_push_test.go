@@ -42,8 +42,7 @@ func TestDispatcher_SetOnSeriesComplete_InvokedAfterSeriesJob(t *testing.T) {
 		SeriesHandler: func(_ context.Context, id int64) error { return nil },
 	}, quietLogger())
 	d.SetOnSeriesComplete(func(id int64) { doneIDs.Store(id, struct{}{}) })
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d.Start(ctx)
 	defer d.Close()
 	d.Enqueue(EntitySeries, 17, PriorityHot)

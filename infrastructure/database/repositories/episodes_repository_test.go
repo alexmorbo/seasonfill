@@ -26,7 +26,7 @@ func TestEpisodesRepository_UpsertAndGet(t *testing.T) {
 		SeriesID:      seriesID,
 		SeasonNumber:  1,
 		EpisodeNumber: 1,
-		AirDate:       ptrTime(time.Date(2022, 9, 21, 0, 0, 0, 0, time.UTC)),
+		AirDate:       new(time.Date(2022, 9, 21, 0, 0, 0, 0, time.UTC)),
 	})
 	require.NoError(t, err)
 	require.NotZero(t, id)
@@ -61,7 +61,7 @@ func TestEpisodesRepository_BatchUpsert_Idempotent(t *testing.T) {
 
 	const n = 500
 	episodes := make([]series.CanonEpisode, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		episodes[i] = series.CanonEpisode{
 			SeriesID:      seriesID,
 			SeasonNumber:  1,
@@ -146,5 +146,3 @@ func TestEpisodesRepository_CountBySeries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, n2)
 }
-
-func ptrTime(t time.Time) *time.Time { return &t }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -713,7 +714,6 @@ func TestSearchSeries_LimitValidation(t *testing.T) {
 		{"non-int", "limit=abc"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			w := doSearch(t, "alpha", tt.query, map[string]ports.SonarrClient{"alpha": mf})
 			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
@@ -903,9 +903,7 @@ func buildRegistry(clients map[string]ports.SonarrClient, modes, urls map[string
 	cp := merged
 	return InstanceRegistry{Load: func() map[string]scan.Instance {
 		out := make(map[string]scan.Instance, len(cp))
-		for k, v := range cp {
-			out[k] = v
-		}
+		maps.Copy(out, cp)
 		return out
 	}}
 }
@@ -943,9 +941,6 @@ func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ shareddomain
 }
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
-
-func intPtr(v int) *int       { return &v }
-func strPtr(v string) *string { return &v }
 
 // missingFixtureTwo returns two monitored series with aired-missing > 0
 // so both flow through the Missing pipeline.
@@ -987,9 +982,9 @@ func decodeEnrichedItems(t *testing.T, raw []byte) []enrichedItem {
 // shape assertions stay uniform.
 func TestInstancesHandler_Missing_CacheJoin(t *testing.T) {
 	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
-		TitleSlug: "severance", Year: intPtr(2022)}
+		TitleSlug: "severance", Year: new(2022)}
 	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
-		TitleSlug: "andor", Year: intPtr(2022)}
+		TitleSlug: "andor", Year: new(2022)}
 
 	tests := []struct {
 		name    string
@@ -1069,11 +1064,11 @@ func TestInstancesHandler_Missing_PosterHashField(t *testing.T) {
 	path := "/poster-test.jpg"
 	expectedHash := appmedia.HashFromURL(appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, path))
 	entryOne := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1,
-		TitleSlug: "severance", Year: intPtr(2022),
-		PosterAsset: strPtr(path)}
+		TitleSlug: "severance", Year: new(2022),
+		PosterAsset: new(path)}
 	// Series 2 has no canon path — proves omitempty + nil propagation.
 	entryTwo := series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2,
-		TitleSlug: "andor", Year: intPtr(2022)}
+		TitleSlug: "andor", Year: new(2022)}
 
 	mf := &missingFakeSonarr{fakeSonarr: &fakeSonarr{name: "alpha"}, all: missingFixtureTwo()}
 	cache := &stubSeriesCache{entries: []series.CacheEntry{entryOne, entryTwo}}

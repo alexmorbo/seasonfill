@@ -286,12 +286,9 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 	res.TorrentsSeen = len(torrents)
 
 	if u.logger.Enabled(ctx, slog.LevelDebug) {
-		sampleN := regrabDebugHashSample
-		if len(torrents) < sampleN {
-			sampleN = len(torrents)
-		}
+		sampleN := min(len(torrents), regrabDebugHashSample)
 		sampleHashes := make([]string, 0, sampleN)
-		for i := 0; i < sampleN; i++ {
+		for i := range sampleN {
 			sampleHashes = append(sampleHashes, torrents[i].Hash)
 		}
 		u.logger.DebugContext(ctx, "regrab_torrents_listed",

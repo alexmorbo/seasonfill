@@ -106,8 +106,7 @@ func TestTorrentsyncLoop_SwapStopsRemoved(t *testing.T) {
 	r := newFakeTorrentsyncRunner()
 	var bgWG sync.WaitGroup
 	loop := NewTorrentsyncLoop(r, &bgWG, slog.Default())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	loop.Start(ctx)
 
 	loop.SwapSettings(map[string]regrab.Settings{

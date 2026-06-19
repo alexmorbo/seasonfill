@@ -120,7 +120,7 @@ func GeneratePassword(n int) (string, error) {
 	}
 	out := make([]byte, n)
 	a := byte(len(passwordAlphabet))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = passwordAlphabet[buf[i]%a]
 	}
 	return string(out), nil

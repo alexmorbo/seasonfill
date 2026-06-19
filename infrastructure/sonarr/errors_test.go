@@ -176,7 +176,6 @@ func TestIsReleaseGone(t *testing.T) {
 		{name: "non-status", err: errors.New("generic"), want: false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, IsReleaseGone(tc.err))
@@ -230,7 +229,6 @@ func TestIsReleaseAlreadyAdded(t *testing.T) {
 		{name: "plain error", err: errors.New("dial sonarr: refused"), want: false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, IsReleaseAlreadyAdded(tc.err))

@@ -44,7 +44,6 @@ func TestParseBasicHeader_Table(t *testing.T) {
 		{"short_header_below_prefix_len", "Bas", "", "", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			user, pass, ok := parseBasicHeader(tc.header)

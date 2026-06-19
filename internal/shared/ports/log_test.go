@@ -71,7 +71,6 @@ func TestDomainLogger_PanicsOnNilBase(t *testing.T) {
 func TestDomainLogger_AllAllowedDomains(t *testing.T) {
 	t.Parallel()
 	for domain := range ports.AllowedDomains {
-		domain := domain
 		t.Run(domain, func(t *testing.T) {
 			t.Parallel()
 			base, buf := newJSONLogger()

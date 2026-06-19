@@ -25,7 +25,6 @@ func TestCanTransition(t *testing.T) {
 		{"unknown to rejected", LevelStub, "weird", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, CanTransition(tc.from, tc.to))

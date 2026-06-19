@@ -454,7 +454,7 @@ func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make([]error, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -507,7 +507,7 @@ func queryCounter(t *testing.T, db *gorm.DB) (*int64, func()) {
 func seedInstances(t *testing.T, repo *SonarrInstanceRepository, c *crypto.Cipher, count int) {
 	t.Helper()
 	ctx := context.Background()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		inst := runtime.InstanceSnapshot{
 			Name:    fmt.Sprintf("inst-%d", i),
 			URL:     "http://sonarr.local",
