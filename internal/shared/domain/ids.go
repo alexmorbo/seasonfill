@@ -11,12 +11,32 @@ import (
 )
 
 // Internal IDs — primary keys in our own database.
+//
+// SeriesID and EpisodeID are actively consumed by repositories and use
+// cases. UserID and GrabID are reserved (see godoc on each below).
 type (
 	SeriesID  int64
-	UserID    int64
-	GrabID    int64
 	EpisodeID int64
 )
+
+// UserID is the internal BIGINT primary key of a user row. As of
+// 2026-06 there are no consumers in the codebase — the user-management
+// iteration (§5.13) is unimplemented. The type is reserved so the
+// future authn refactor can declare it once and every signature
+// changes from int64 to UserID in one well-understood migration.
+type UserID int64
+
+// GrabID is reserved (no consumers — UUID model won; kept for future
+// runtime config refactor). Today every grab record uses
+// uuid.UUID as the PK (see grab.Record.ID and the CreateReplay /
+// SetReplayOfID port signatures, all uuid.UUID). The reservation
+// is kept in this file — same shape as InstanceID below — so a
+// future migration that introduces a BIGINT-PK grab table can adopt
+// the typed alias in one well-understood pass without re-introducing
+// the declaration. Story 405 A-5d-4 kept this declaration via
+// operator override (Option B over the story's recommended
+// Option A retirement). See PRD §6.3.1.
+type GrabID int64
 
 // InstanceName is the config slug ("main", "anime", "kids") of a
 // Sonarr/Radarr instance. Today this is the only identifier used in
@@ -33,9 +53,13 @@ type InstanceName string
 // objects (similar to how SeriesID/SonarrSeriesID split internal vs
 // external series identification). NOT currently consumed by any
 // callsite — see decisions/d622-instance-name-typing.md for the option-B
-// design call. If/when instances become DB rows, InstanceName remains
-// the user-facing slug (FK column) and InstanceID becomes the surrogate
-// PK.
+// design call.
+//
+// The autoincrement primary keys on qbit_settings, regrab_blacklist,
+// etc. are gorm.Model.ID uint — NOT this type. They are per-row
+// surrogate keys, not per-instance identifiers. If/when instances
+// become DB rows, InstanceName remains the user-facing slug (FK
+// column) and InstanceID becomes the surrogate PK.
 type InstanceID int64
 
 // Sonarr external IDs — Sonarr's own integer IDs, NOT our internal ones.

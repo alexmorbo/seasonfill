@@ -120,7 +120,7 @@ type CanonEpisode struct {
 // by the Sonarr sync path only (§5.4).
 type EpisodeState struct {
 	InstanceName  domain.InstanceName
-	EpisodeID     int64
+	EpisodeID     domain.EpisodeID
 	Monitored     bool
 	HasFile       bool
 	EpisodeFileID *int
@@ -150,7 +150,7 @@ type SeriesText struct {
 // (entity_id, language) PK shape as SeriesText; per §5.3 it carries
 // only title + overview — episodes have no tagline.
 type EpisodeText struct {
-	EpisodeID int64
+	EpisodeID domain.EpisodeID
 	Language  string
 	Title     *string
 	Overview  *string

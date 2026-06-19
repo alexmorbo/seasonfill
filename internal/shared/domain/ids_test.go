@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -9,6 +10,38 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+// TestEpisodeID_JSONRoundTrip verifies the typed primitive marshals as
+// a plain JSON number and survives a round-trip without loss. Story 405
+// A-5d-4 — the migration treats episode_id as an int64 with a typed
+// alias, so the wire format must remain unchanged (downstream JSON
+// consumers see the same numeric shape they always have).
+func TestEpisodeID_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		ID domain.EpisodeID `json:"id"`
+	}
+	in := wrap{ID: domain.EpisodeID(9223372036854775807)} // max int64
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":9223372036854775807}`, string(b))
+	var out wrap
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, in.ID, out.ID)
+}
+
+// TestReservedCanonIDs_Compile is a compile-time check that the typed
+// IDs reserved by story 405 A-5d-4 (UserID, InstanceID, GrabID) stay
+// declared in ids.go. The constructor expressions fail to compile if
+// any type is removed — guarding the operator-chosen Option B
+// reservation (kept across all four canon primitives).
+func TestReservedCanonIDs_Compile(t *testing.T) {
+	t.Parallel()
+	_ = domain.UserID(0)
+	_ = domain.InstanceID(0)
+	_ = domain.GrabID(0)
+	_ = domain.EpisodeID(0)
+}
 
 func TestNewIMDBID(t *testing.T) {
 	t.Parallel()

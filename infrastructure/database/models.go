@@ -507,11 +507,11 @@ func (EpisodeModel) TableName() string { return "episodes" }
 
 // EpisodeTextModel — one localised text row per (episode_id, language).
 type EpisodeTextModel struct {
-	EpisodeID int64     `gorm:"primaryKey;column:episode_id"`
-	Language  string    `gorm:"primaryKey;column:language;type:text"`
-	Title     *string   `gorm:"column:title;type:text"`
-	Overview  *string   `gorm:"column:overview;type:text"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+	EpisodeID domain.EpisodeID `gorm:"primaryKey;column:episode_id"`
+	Language  string           `gorm:"primaryKey;column:language;type:text"`
+	Title     *string          `gorm:"column:title;type:text"`
+	Overview  *string          `gorm:"column:overview;type:text"`
+	UpdatedAt time.Time        `gorm:"column:updated_at;not null"`
 }
 
 func (EpisodeTextModel) TableName() string { return "episode_texts" }
@@ -520,7 +520,7 @@ func (EpisodeTextModel) TableName() string { return "episode_texts" }
 // (instance_name, episode_id) — file state is instance-scoped (§5.11).
 type EpisodeStateModel struct {
 	InstanceName  domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
-	EpisodeID     int64               `gorm:"primaryKey;column:episode_id"`
+	EpisodeID     domain.EpisodeID    `gorm:"primaryKey;column:episode_id"`
 	Monitored     bool                `gorm:"column:monitored;not null;default:false"`
 	HasFile       bool                `gorm:"column:has_file;not null;default:false"`
 	EpisodeFileID *int                `gorm:"column:episode_file_id"`
@@ -631,17 +631,17 @@ func (SeriesPersonModel) TableName() string { return "series_people" }
 // EpisodePersonModel — one per-episode credit row (PRD §5.3
 // "episode_people"). Natural key (episode_id, tmdb_credit_id).
 type EpisodePersonModel struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	EpisodeID     int64     `gorm:"column:episode_id;not null"`
-	PersonID      int64     `gorm:"column:person_id;not null"`
-	Kind          string    `gorm:"column:kind;type:text;not null"`
-	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
-	CharacterName *string   `gorm:"column:character_name;type:text"`
-	Department    *string   `gorm:"column:department;type:text"`
-	Job           *string   `gorm:"column:job;type:text"`
-	CreditOrder   *int      `gorm:"column:credit_order"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	ID            int64            `gorm:"primaryKey;autoIncrement;column:id"`
+	EpisodeID     domain.EpisodeID `gorm:"column:episode_id;not null"`
+	PersonID      int64            `gorm:"column:person_id;not null"`
+	Kind          string           `gorm:"column:kind;type:text;not null"`
+	TMDBCreditID  string           `gorm:"column:tmdb_credit_id;type:text;not null"`
+	CharacterName *string          `gorm:"column:character_name;type:text"`
+	Department    *string          `gorm:"column:department;type:text"`
+	Job           *string          `gorm:"column:job;type:text"`
+	CreditOrder   *int             `gorm:"column:credit_order"`
+	CreatedAt     time.Time        `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time        `gorm:"column:updated_at;not null"`
 }
 
 func (EpisodePersonModel) TableName() string { return "episode_people" }

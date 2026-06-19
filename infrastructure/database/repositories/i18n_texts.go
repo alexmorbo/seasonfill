@@ -162,7 +162,7 @@ func NewEpisodeTextsRepository(db *gorm.DB) *EpisodeTextsRepository {
 	return &EpisodeTextsRepository{db: db}
 }
 
-func (r *EpisodeTextsRepository) Get(ctx context.Context, episodeID int64, language string) (series.EpisodeText, error) {
+func (r *EpisodeTextsRepository) Get(ctx context.Context, episodeID domain.EpisodeID, language string) (series.EpisodeText, error) {
 	var m database.EpisodeTextModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("episode_id = ? AND language = ?", episodeID, language).
@@ -176,9 +176,9 @@ func (r *EpisodeTextsRepository) Get(ctx context.Context, episodeID int64, langu
 	return toEpisodeText(m), nil
 }
 
-func (r *EpisodeTextsRepository) GetWithFallback(ctx context.Context, episodeID int64, language string) (series.EpisodeText, error) {
+func (r *EpisodeTextsRepository) GetWithFallback(ctx context.Context, episodeID domain.EpisodeID, language string) (series.EpisodeText, error) {
 	var m database.EpisodeTextModel
-	if err := pickLanguageFallback(ctx, r.db, "episode_texts", "episode_id", episodeID, language, &m); err != nil {
+	if err := pickLanguageFallback(ctx, r.db, "episode_texts", "episode_id", int64(episodeID), language, &m); err != nil {
 		return series.EpisodeText{}, err
 	}
 	if m.EpisodeID == 0 {

@@ -71,7 +71,7 @@ type SeriesCredit struct {
 // come from per-season `GET /tv/{id}/season/{n}` enrichment.
 type EpisodeCredit struct {
 	ID            int64
-	EpisodeID     int64
+	EpisodeID     domain.EpisodeID
 	PersonID      int64
 	Kind          EpisodeCreditKind
 	TMDBCreditID  string

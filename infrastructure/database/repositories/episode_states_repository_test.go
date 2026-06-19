@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
@@ -18,10 +19,11 @@ func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Andor"))
 	require.NoError(t, err)
-	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	epIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	epID := domain.EpisodeID(epIDRaw)
 	repo := NewEpisodeStatesRepository(db)
 
 	q := "WEBDL-1080p"
@@ -58,10 +60,11 @@ func TestEpisodeStatesRepository_Upsert_Idempotent_PerInstance(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Foundation"))
 	require.NoError(t, err)
-	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	epIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	epID := domain.EpisodeID(epIDRaw)
 	repo := NewEpisodeStatesRepository(db)
 
 	st := series.EpisodeState{InstanceName: "main", EpisodeID: epID, Monitored: true}
@@ -90,12 +93,12 @@ func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
 	repoEp := NewEpisodesRepository(db)
 	repoSt := NewEpisodeStatesRepository(db)
 	for i := 1; i <= 3; i++ {
-		epID, err := repoEp.Upsert(ctx, series.CanonEpisode{
+		epIDRaw, err := repoEp.Upsert(ctx, series.CanonEpisode{
 			SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: i,
 		})
 		require.NoError(t, err)
 		require.NoError(t, repoSt.Upsert(ctx, series.EpisodeState{
-			InstanceName: "main", EpisodeID: epID, HasFile: i == 1,
+			InstanceName: "main", EpisodeID: domain.EpisodeID(epIDRaw), HasFile: i == 1,
 		}))
 	}
 	rows, err := repoSt.ListBySeries(ctx, "main", seriesID)
@@ -129,10 +132,11 @@ func TestEpisodeStatesRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cached.SeriesID, "cache row must resolve to a canon series_id")
 
-	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	epIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: *cached.SeriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	epID := domain.EpisodeID(epIDRaw)
 
 	repo := NewEpisodeStatesRepository(db)
 	st := series.EpisodeState{
@@ -164,10 +168,11 @@ func TestEpisodeStatesRepository_MediaMeta_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("MediaMeta"))
 	require.NoError(t, err)
-	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	epIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 5, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	epID := domain.EpisodeID(epIDRaw)
 	repo := NewEpisodeStatesRepository(db)
 
 	vc := "HEVC"

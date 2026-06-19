@@ -103,7 +103,7 @@ type SeasonStatsPort interface {
 // E-1 may collapse this into one batched SQL later; for 215 the
 // per-row call is intentional simplicity.
 type EpisodeTextsPort interface {
-	GetWithFallback(ctx context.Context, episodeID int64, language string) (series.EpisodeText, error)
+	GetWithFallback(ctx context.Context, episodeID domain.EpisodeID, language string) (series.EpisodeText, error)
 }
 
 // SeriesPeoplePort lists series_people rows. The composer filters

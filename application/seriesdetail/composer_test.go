@@ -135,7 +135,7 @@ func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ domain.InstanceNam
 
 type fakeEpisodeTexts struct{}
 
-func (fakeEpisodeTexts) GetWithFallback(_ context.Context, _ int64, _ string) (series.EpisodeText, error) {
+func (fakeEpisodeTexts) GetWithFallback(_ context.Context, _ domain.EpisodeID, _ string) (series.EpisodeText, error) {
 	return series.EpisodeText{}, ports.ErrNotFound
 }
 

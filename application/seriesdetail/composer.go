@@ -420,7 +420,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 			slog.String("error", err.Error()))
 		states = nil
 	}
-	stateByEpID := make(map[int64]series.EpisodeState, len(states))
+	stateByEpID := make(map[domain.EpisodeID]series.EpisodeState, len(states))
 	for _, st := range states {
 		stateByEpID[st.EpisodeID] = st
 	}
@@ -459,14 +459,14 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		epDetails := make([]EpisodeDetail, 0, len(eps))
 		for _, e := range eps {
 			ed := EpisodeDetail{Canon: e}
-			if st, ok := stateByEpID[e.ID]; ok {
+			if st, ok := stateByEpID[domain.EpisodeID(e.ID)]; ok {
 				stCopy := st
 				ed.State = &stCopy
 			}
 			// Per-row i18n fallback. For 215 we do N calls — see
 			// §3 SeasonsPort note (collapse into one batched JOIN
 			// is a follow-up performance story).
-			t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, e.ID, lang)
+			t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, domain.EpisodeID(e.ID), lang)
 			if terr == nil {
 				et := t
 				ed.Text = &et

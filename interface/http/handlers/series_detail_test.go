@@ -93,7 +93,7 @@ func (fakeNoTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ strin
 
 type fakeNoEpTexts struct{}
 
-func (fakeNoEpTexts) GetWithFallback(_ context.Context, _ int64, _ string) (series.EpisodeText, error) {
+func (fakeNoEpTexts) GetWithFallback(_ context.Context, _ domain.EpisodeID, _ string) (series.EpisodeText, error) {
 	return series.EpisodeText{}, ports.ErrNotFound
 }
 

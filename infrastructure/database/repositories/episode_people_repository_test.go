@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestEpisodePeopleRepository_UpsertAndGet(t *testing.T) {
@@ -20,10 +21,11 @@ func TestEpisodePeopleRepository_UpsertAndGet(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Severance"))
 	require.NoError(t, err)
-	episodeID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	episodeIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	episodeID := domain.EpisodeID(episodeIDRaw)
 	personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("John Turturro"))
 	require.NoError(t, err)
 	repo := NewEpisodePeopleRepository(db)
@@ -57,10 +59,11 @@ func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Foundation"))
 	require.NoError(t, err)
-	episodeID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	episodeIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	episodeID := domain.EpisodeID(episodeIDRaw)
 	peopleRepo := NewPeopleRepository(db)
 	repo := NewEpisodePeopleRepository(db)
 
@@ -99,10 +102,11 @@ func TestEpisodePeopleRepository_ListByEpisode_KindFilter(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Andor"))
 	require.NoError(t, err)
-	episodeID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	episodeIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	episodeID := domain.EpisodeID(episodeIDRaw)
 	personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Director X"))
 	require.NoError(t, err)
 	repo := NewEpisodePeopleRepository(db)

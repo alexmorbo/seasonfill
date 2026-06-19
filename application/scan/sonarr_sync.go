@@ -438,7 +438,7 @@ func syncEpisodes(
 		if i >= len(ids) {
 			break
 		}
-		canonEpisodeID := ids[i]
+		canonEpisodeID := domain.EpisodeID(ids[i])
 		if canonEpisodeID == 0 {
 			continue
 		}
@@ -452,7 +452,7 @@ func syncEpisodes(
 		if text.Title != nil || text.Overview != nil {
 			if terr := deps.EpisodeTexts.Upsert(ctx, text); terr != nil {
 				log.WarnContext(ctx, "sync_sonarr_episode_text_failed",
-					slog.Int64("episode_id", canonEpisodeID),
+					slog.Int64("episode_id", int64(canonEpisodeID)),
 					slog.String("error", terr.Error()),
 				)
 			}

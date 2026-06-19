@@ -476,7 +476,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		if i >= len(episodeIDs) {
 			break
 		}
-		txt.EpisodeID = episodeIDs[i]
+		txt.EpisodeID = domain.EpisodeID(episodeIDs[i])
 		if err := w.deps.EpisodeTexts.Upsert(txCtx, txt); err != nil {
 			return nil, fmt.Errorf("upsert episode_texts: %w", err)
 		}

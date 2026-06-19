@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // TestSeriesTextsRepository_FallbackThreeScenarios covers the §5.6
@@ -104,10 +105,11 @@ func TestEpisodeTextsRepository_FallbackSmoke(t *testing.T) {
 	ctx := context.Background()
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Severance"))
 	require.NoError(t, err)
-	epID, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
+	epIDRaw, err := NewEpisodesRepository(db).Upsert(ctx, series.CanonEpisode{
 		SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: 1,
 	})
 	require.NoError(t, err)
+	epID := domain.EpisodeID(epIDRaw)
 	repo := NewEpisodeTextsRepository(db)
 	require.NoError(t, repo.Upsert(ctx, series.EpisodeText{
 		EpisodeID: epID, Language: "en-US", Title: ptrString("Good News About Hell"),

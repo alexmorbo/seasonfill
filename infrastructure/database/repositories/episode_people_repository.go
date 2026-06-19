@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // EpisodePeopleRepository persists the `episode_people` table.
@@ -44,7 +45,7 @@ func (r *EpisodePeopleRepository) Get(ctx context.Context, id int64) (people.Epi
 // ordered by (kind ASC, credit_order ASC NULLS LAST). Pass kind =
 // "" to return both guest_star + crew; pass an EpisodeCreditKind to
 // filter.
-func (r *EpisodePeopleRepository) ListByEpisode(ctx context.Context, episodeID int64, kind people.EpisodeCreditKind) ([]people.EpisodeCredit, error) {
+func (r *EpisodePeopleRepository) ListByEpisode(ctx context.Context, episodeID domain.EpisodeID, kind people.EpisodeCreditKind) ([]people.EpisodeCredit, error) {
 	q := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("episode_id = ?", episodeID)
 	if kind != "" {

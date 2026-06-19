@@ -26,7 +26,7 @@ func NewEpisodeStatesRepository(db *gorm.DB) *EpisodeStatesRepository {
 	return &EpisodeStatesRepository{db: db}
 }
 
-func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.InstanceName, episodeID int64) (series.EpisodeState, error) {
+func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.InstanceName, episodeID domain.EpisodeID) (series.EpisodeState, error) {
 	var m database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND episode_id = ? AND deleted_at IS NULL", instanceName, episodeID).
