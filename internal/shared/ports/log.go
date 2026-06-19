@@ -25,6 +25,7 @@ var AllowedDomains = map[string]struct{}{
 	"auth":       {},
 	"admin":      {},
 	"boot":       {},
+	"gc":         {},
 	"shutdown":   {},
 }
 

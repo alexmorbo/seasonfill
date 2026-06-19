@@ -30,6 +30,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // onDemandTimeout caps a single FetchSync invocation. Callers may pass
@@ -85,7 +86,7 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 		d.HTTPClient = &http.Client{Timeout: onDemandTimeout}
 	}
 	if d.Logger == nil {
-		d.Logger = slog.Default()
+		d.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if d.Clock == nil {
 		d.Clock = func() time.Time { return time.Now().UTC() }

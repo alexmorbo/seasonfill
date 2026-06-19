@@ -10,6 +10,7 @@ import (
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // AuthBundle holds the auth-domain collaborators wired by BuildAuth.
@@ -70,11 +71,14 @@ func BuildAuth(
 	oidcCache := infraoidc.NewProviderCache()
 	oidcUC := authapp.NewOIDCLoginUseCase(oidcCache, adminRepo)
 
+	// F-4b-8: bootstrap admin seeder emits auth-domain records
+	// (admin-user creation, password-reset bootstrap).
+	authLog := sharedports.DomainLogger(log, "auth")
 	if err := authapp.Bootstrap(bgCtx, adminRepo, authapp.BootstrapConfig{
 		WebUser:         bootCfg.Auth.WebUser,
 		WebPassword:     bootCfg.Auth.WebPassword,
 		WebPasswordHash: bootCfg.Auth.WebPasswordHash,
-	}, log); err != nil {
+	}, authLog); err != nil {
 		return nil, fmt.Errorf("auth bootstrap: %w", err)
 	}
 

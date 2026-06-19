@@ -9,6 +9,7 @@ import (
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // ExtSvcBundle groups the external-services runtime-config components
@@ -60,10 +61,15 @@ func BuildExtSvc(
 	bus *runtime.Bus,
 	log *slog.Logger,
 ) (*ExtSvcBundle, error) {
+	// F-4b-8: subscriber records describe configuration loading at boot
+	// (cache prime + on-operator-change apply); admin tag covers the
+	// operator-facing UC (TMDB/OMDb credential rotation). PRD §6.5.
+	bootLog := sharedports.DomainLogger(log, "boot")
+	adminLog := sharedports.DomainLogger(log, "admin")
 	extRepo := infraextsvc.NewRepository(persistence.DB, persistence.Cipher)
-	sub := adapters.NewExternalServicesSubscriber(bus, log)
+	sub := adapters.NewExternalServicesSubscriber(bus, bootLog)
 	uc := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
-		appextsvc.NewRealTester(), sub, log)
+		appextsvc.NewRealTester(), sub, adminLog)
 	sub.SetUseCase(uc)
 	handler := handlers.NewExternalServicesHandler(uc, log)
 

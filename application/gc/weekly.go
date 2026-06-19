@@ -14,6 +14,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // WeeklyJob is the dependency bundle. Every sub-task is OPTIONAL —
@@ -32,7 +34,7 @@ type WeeklyJob struct {
 func (j WeeklyJob) Run(ctx context.Context) {
 	log := j.Logger
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "gc")
 	}
 	clock := j.Clock
 	if clock == nil {

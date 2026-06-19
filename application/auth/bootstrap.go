@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/admin"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 const (
@@ -40,7 +41,7 @@ type BootstrapConfig struct {
 // WebPassword → bcrypt; else → auto-generate + WARN-log plaintext once.
 func Bootstrap(ctx context.Context, repo ports.AdminUserRepository, cfg BootstrapConfig, logger *slog.Logger) error {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "auth")
 	}
 	if cfg.WebUser == "" {
 		cfg.WebUser = "admin"

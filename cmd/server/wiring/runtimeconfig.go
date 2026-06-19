@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // HTTPServeConfig is the on-the-stack config DTO previously inlined as
@@ -112,8 +113,11 @@ func BuildRuntimeConfig(
 		Instances: instances,
 	}
 
+	// F-4b-8: runtime-config UC backs the admin /settings PATCH endpoints
+	// — operator-driven runtime mutations belong to the "admin" slot.
+	adminLog := sharedports.DomainLogger(log, "admin")
 	uc := runtimeconfig.New(persistence.RuntimeRepo, persistence.InstanceRepo,
-		persistence.Cipher, bus, log).
+		persistence.Cipher, bus, adminLog).
 		WithClientSecretEnv(bootCfg.Auth.OIDCClientSecret)
 	handler := handlers.NewRuntimeConfigHandler(uc, log)
 

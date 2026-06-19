@@ -18,6 +18,8 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // tmdbImageBase is the canonical TMDB image CDN host. Story 211's
@@ -87,7 +89,7 @@ type job struct {
 // channel + dedup set via NewDownloader(eq.Channel(), eq.Dedup(), ...).
 func NewEnqueuer(logger *slog.Logger) *Enqueuer {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	return &Enqueuer{
 		jobs:   make(chan job, channelCap),

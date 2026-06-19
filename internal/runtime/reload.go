@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Bus is a single-producer-multi-consumer reload event bus with
@@ -22,7 +24,7 @@ type Bus struct {
 
 func NewBus(logger *slog.Logger) *Bus {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "boot")
 	}
 	return &Bus{subs: make(map[string]chan Snapshot), logger: logger}
 }

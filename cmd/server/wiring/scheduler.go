@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SchedulerEnrichmentJobs is the wiring-package boundary for the four
@@ -181,24 +182,28 @@ func BuildScheduler(
 	// unconditionally — the scheduler decides whether to fire it
 	// based on cfg.Cron.Enabled.
 	if bootScheduler != nil {
+		// F-4b-8: scheduled garbage-collection sweep records — weekly
+		// orchestrator + three sub-tasks all anchor on the new "gc" slot
+		// in AllowedDomains. PRD §6.5.
+		gcLog := sharedports.DomainLogger(log, "gc")
 		seriesRepo := repositories.NewSeriesRepository(db)
 		liveAssetsRepo := repositories.NewLiveAssetsRepository(db)
 		weeklyJob := gc.WeeklyJob{
 			OrphanSeries: gc.OrphanSeriesDeps{
 				Repo:   seriesRepo,
-				Logger: log,
+				Logger: gcLog,
 			}.Build(),
 			MediaSweep: gc.MediaSweepDeps{
 				LiveSet: liveAssetsRepo,
 				Assets:  mediaBundle.AssetsRepo,
 				Store:   mediaBundle.Store,
-				Logger:  log,
+				Logger:  gcLog,
 			}.Build(),
 			EventPrune: gc.EventPruneDeps{
 				DB:     db,
-				Logger: log,
+				Logger: gcLog,
 			}.Build(),
-			Logger: log,
+			Logger: gcLog,
 		}
 		if err := bootScheduler.Register("weekly-gc", "0 5 * * 0", weeklyJob.Run); err != nil {
 			return nil, fmt.Errorf("register weekly-gc: %w", err)

@@ -34,7 +34,8 @@ type Options struct {
 
 // Server is the seasonfill composition root + lifecycle driver.
 type Server struct {
-	log        *slog.Logger
+	log        *slog.Logger // unwrapped root; handed to wirers that DomainLogger internally
+	shutLog    *slog.Logger // pre-domained for shutdown ladder (domain="shutdown")
 	cfg        wiring.HTTPServeConfig
 	bus        *runtime.Bus
 	bgWG       *sync.WaitGroup
@@ -66,7 +67,13 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		Output: os.Stdout,
 	})
 	slog.SetDefault(log)
-	log.Info("starting seasonfill (bootstrap config)",
+	// F-4b-8: derive pre-domained loggers for the composition root's own
+	// boot/shutdown emissions. The unwrapped `log` is still handed to
+	// wirers (BuildPersistence, BuildRuntimeConfig, …) — each of those
+	// applies its own DomainLogger wrap internally per F-4b rule #1.
+	bootLog := sharedports.DomainLogger(log, "boot")
+	shutLog := sharedports.DomainLogger(log, "shutdown")
+	bootLog.Info("starting seasonfill (bootstrap config)",
 		slog.String("driver", bootCfg.Database.Driver))
 
 	persistence, err := wiring.BuildPersistence(ctx, bootCfg, log)
@@ -81,7 +88,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// Bus is constructed BEFORE BuildRuntimeConfig so the wirer can
 	// take *runtime.Bus as input and own the runtime config UC.
-	bus := runtime.NewBus(log)
+	// F-4b-8: bootLog tags Bus reload-publish records with domain="boot".
+	bus := runtime.NewBus(bootLog)
 	armed := true
 	defer func() {
 		if armed {
@@ -419,7 +427,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		if cfg.Cron.OnStart {
 			go func() {
 				if _, err := scanUC.Run(rootCtx, scan.TriggerStartup); err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
-					log.ErrorContext(rootCtx, "startup scan failed", slog.String("error", err.Error()))
+					bootLog.ErrorContext(rootCtx, "startup scan failed", slog.String("error", err.Error()))
 				}
 			}()
 		}
@@ -447,6 +455,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	armed = false
 	return &Server{
 		log:          log,
+		shutLog:      shutLog,
 		cfg:          cfg,
 		bus:          bus,
 		bgWG:         &bgWG,
@@ -474,10 +483,10 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		s.log.Info("shutdown signal received")
+		s.shutLog.Info("shutdown signal received")
 	case err := <-serverErrCh:
 		if err != nil {
-			s.log.Error("http server stopped", slog.String("error", err.Error()))
+			s.shutLog.Error("http server stopped", slog.String("error", err.Error()))
 		}
 	}
 	return s.Shutdown(ctx)
@@ -491,7 +500,7 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-		s.log.Error("http shutdown error", slog.String("error", err.Error()))
+		s.shutLog.Error("http shutdown error", slog.String("error", err.Error()))
 	}
 
 	// Story 211 — stop dispatcher BEFORE scheduler so in-flight series
@@ -526,7 +535,7 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	// spawns; bgWG = cross-package wiring (scan.UseCase, regrabLoop,
 	// torrentsyncLoop, StartSubscribers).
 	if err := s.lifecycle.Drain(10 * time.Second); err != nil {
-		s.log.Warn("lifecycle drain timed out", slog.String("error", err.Error()))
+		s.shutLog.Warn("lifecycle drain timed out", slog.String("error", err.Error()))
 	}
 	drainBackground(s.bgWG, 10*time.Second, s.log)
 
@@ -535,6 +544,6 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	}
 	// Reload bus closes last — matches the original defer ordering.
 	s.bus.Close()
-	s.log.Info("seasonfill stopped cleanly")
+	s.shutLog.Info("seasonfill stopped cleanly")
 	return nil
 }

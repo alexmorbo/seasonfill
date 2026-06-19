@@ -241,7 +241,9 @@ func BuildSeriesDetail(
 		SyncLog:       sdSyncLogRepo,
 		Enqueuer:      peopleEnqueuerHolder,
 		MediaResolver: mediaResolver,
-		Logger:        log,
+		// F-4b-8: people UC composes person-detail responses under the
+		// seriesdetail composer pipe — anchors on the "composer" slot.
+		Logger: composerLog,
 	})
 	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)
 

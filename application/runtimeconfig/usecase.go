@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // ValidationError is returned for any pre-save check failure. Code
@@ -120,7 +121,7 @@ func New(
 	logger *slog.Logger,
 ) *UseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "admin")
 	}
 	return &UseCase{
 		runtimes: runtimes, instances: instances,

@@ -9,6 +9,7 @@ import (
 
 	apports "github.com/alexmorbo/seasonfill/application/ports"
 	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // UseCase orchestrates the four operator-facing flows: List (masked),
@@ -36,7 +37,7 @@ func NewUseCase(repo Repository, env infra.EnvLookup, tester Tester, pub Publish
 		env = func(string) string { return "" }
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "admin")
 	}
 	return &UseCase{
 		repo:      repo,

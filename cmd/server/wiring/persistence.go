@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 
 	"gorm.io/gorm"
 )
@@ -89,7 +90,9 @@ func BuildPersistence(
 	// store is the GORM-backed app_settings repo; the v36 seed
 	// guarantees a singleton row exists.
 	appSettingsRepo := repositories.NewAppSettingsRepository(db)
-	tzResolver := tz.New(bgCtx, appSettingsRepo, log)
+	// F-4b-8: tz resolver loads the operator timezone at boot —
+	// configuration-resolution records belong to the "boot" slot.
+	tzResolver := tz.New(bgCtx, appSettingsRepo, sharedports.DomainLogger(log, "boot"))
 	log.Info("timezone resolver",
 		slog.String("name", tzResolver.Name()),
 		slog.String("source", string(tzResolver.Source())))

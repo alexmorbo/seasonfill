@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 var (
@@ -152,7 +153,7 @@ func New(
 	logger *slog.Logger,
 ) *UseCase {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "admin")
 	}
 	return &UseCase{
 		instances: instances, runtimes: runtimes,

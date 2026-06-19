@@ -21,6 +21,7 @@ import (
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SortKey controls library_credits[] ordering. recent (default) =
@@ -107,7 +108,7 @@ type UseCase struct {
 // slog.Default; Now defaults to time.Now.UTC.
 func NewUseCase(d Deps) *UseCase {
 	if d.Logger == nil {
-		d.Logger = slog.Default()
+		d.Logger = sharedports.DomainLogger(slog.Default(), "composer")
 	}
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }

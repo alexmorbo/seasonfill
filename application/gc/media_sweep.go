@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // MediaSweepDeps groups consumer-side ports.
@@ -64,7 +65,7 @@ func (d MediaSweepDeps) Build() func(ctx context.Context) (MediaSweepResult, err
 	}
 	log := d.Logger
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "gc")
 	}
 	cooldown := d.CooldownAge
 	if cooldown == 0 {

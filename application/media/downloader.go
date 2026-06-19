@@ -14,6 +14,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // downloaderWorkers is the goroutine count drainig the jobs channel —
@@ -109,7 +110,7 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 		deps.HTTPClient = &http.Client{Timeout: downloadTimeout}
 	}
 	if deps.Logger == nil {
-		deps.Logger = slog.Default()
+		deps.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }

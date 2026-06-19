@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Source describes where the currently-loaded location came from.
@@ -61,7 +63,7 @@ type Resolver struct {
 // error — the Resolver always boots with a valid location.
 func New(ctx context.Context, store Store, logger *slog.Logger) *Resolver {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "boot")
 	}
 	r := &Resolver{store: store, logger: logger}
 

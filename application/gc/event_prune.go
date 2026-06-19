@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // EventPruneDeps is the consumer-side bundle. DB is the raw gorm
@@ -36,7 +38,7 @@ func (d EventPruneDeps) Build() func(ctx context.Context) (EventPruneResult, err
 	}
 	log := d.Logger
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "gc")
 	}
 	retention := d.RetentionAge
 	if retention == 0 {

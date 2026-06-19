@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/instance"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // InstanceBundle groups the instance-domain components constructed at boot.
@@ -60,12 +61,16 @@ func BuildInstance(
 	bus *runtime.Bus,
 	log *slog.Logger,
 ) (*InstanceBundle, error) {
+	// F-4b-8: instance CRUD UC is the operator-facing admin surface for
+	// Sonarr instance management — operator-driven mutations belong to
+	// the "admin" slot.
+	adminLog := sharedports.DomainLogger(log, "admin")
 	uc := instance.New(
 		persistence.InstanceRepo,
 		persistence.RuntimeRepo,
 		persistence.Cipher,
 		bus,
-		log,
+		adminLog,
 	).
 		WithWebhookReconciler(webhook.ReconcilerAdapter).
 		WithWebhookStatusCache(webhook.StatusCache)

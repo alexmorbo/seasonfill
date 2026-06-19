@@ -8,6 +8,7 @@ import (
 	appext "github.com/alexmorbo/seasonfill/application/externalservices"
 	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // ExternalServicesSubscriber re-decrypts the three external_service_settings
@@ -56,7 +57,7 @@ type SettingsListener func(ctx context.Context, s infra.Settings)
 
 func NewExternalServicesSubscriber(bus *runtime.Bus, logger *slog.Logger) *ExternalServicesSubscriber {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "boot")
 	}
 	return &ExternalServicesSubscriber{
 		bus:       bus,

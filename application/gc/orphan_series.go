@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // OrphanSeriesDeps are the ports the sweep needs.
@@ -51,7 +52,7 @@ func (d OrphanSeriesDeps) Build() func(ctx context.Context) (OrphanSeriesResult,
 	}
 	log := d.Logger
 	if log == nil {
-		log = slog.Default()
+		log = sharedports.DomainLogger(slog.Default(), "gc")
 	}
 	grace := d.GraceDuration
 	if grace == 0 {
