@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type QbitSettingsRepository struct {
@@ -86,7 +87,10 @@ func (r *QbitSettingsRepository) GetByInstance(ctx context.Context, instanceID u
 		Where("instance_id = ?", instanceID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.QbitSettingsRecord{}, ports.ErrNotFound
+			return ports.QbitSettingsRecord{}, errors.Join(
+				&sharedErrors.QbitSettingsNotFoundError{InstanceID: instanceID},
+				ports.ErrNotFound,
+			)
 		}
 		return ports.QbitSettingsRecord{}, fmt.Errorf("get qbit settings: %w", err)
 	}

@@ -1,10 +1,6 @@
 package errors
 
-import (
-	"fmt"
-
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-)
+import "fmt"
 
 // RuntimeConfigNotFoundError signals the singleton runtime_config row
 // is missing. Triggered on cold-boot or after a deliberate truncate;
@@ -28,13 +24,15 @@ func (e *AppSettingsNotFoundError) Code() string { return "app_settings_not_foun
 func (e *AppSettingsNotFoundError) Retriable() bool { return false }
 
 // QbitSettingsNotFoundError signals a missing qbit_settings row for the
-// given instance. Maps to HTTP 404.
+// given instance. Maps to HTTP 404. The repository looks rows up by
+// numeric InstanceID (foreign key to sonarr_instances.id), not by the
+// human-readable instance name.
 type QbitSettingsNotFoundError struct {
-	InstanceName domain.InstanceName
+	InstanceID uint
 }
 
 func (e *QbitSettingsNotFoundError) Error() string {
-	return fmt.Sprintf("qbit settings for instance %q not found", e.InstanceName)
+	return fmt.Sprintf("qbit settings for instance %d not found", e.InstanceID)
 }
 
 func (e *QbitSettingsNotFoundError) Code() string { return "qbit_settings_not_found" }

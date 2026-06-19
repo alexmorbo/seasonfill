@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type DecisionRepository struct {
@@ -101,7 +102,10 @@ func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decisio
 	var model database.DecisionModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return decision.Decision{}, ports.ErrNotFound
+			return decision.Decision{}, errors.Join(
+				&sharedErrors.DecisionNotFoundError{ID: id},
+				ports.ErrNotFound,
+			)
 		}
 		return decision.Decision{}, fmt.Errorf("get decision: %w", err)
 	}

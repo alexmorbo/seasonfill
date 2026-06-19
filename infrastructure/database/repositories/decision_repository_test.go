@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestDecisionRepository_Save_NoSelected(t *testing.T) {
@@ -167,9 +168,14 @@ func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewDecisionRepository(db)
 
-	_, err := repo.GetByID(context.Background(), uuid.New())
+	missing := uuid.New()
+	_, err := repo.GetByID(context.Background(), missing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.DecisionNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing, typedErr.ID)
 }
 
 func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {

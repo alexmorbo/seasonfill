@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -27,7 +28,11 @@ func newSonarrSeriesID() domain.SonarrSeriesID {
 
 func newEpisodeID() domain.EpisodeID { return domain.EpisodeID(rand.Int64N(1_000_000) + 1) }
 
-func newScanRunID() int64 { return rand.Int64N(1_000_000) + 1 }
+func newScanRunID() uuid.UUID { return uuid.New() }
+
+func newDecisionID() uuid.UUID { return uuid.New() }
+
+func newInstanceID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
 
 func newWBID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
 
@@ -65,9 +70,9 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, false},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, false},
 		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, false},
-		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, false},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, false},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, false},
-		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, false},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, false},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, false},
 	}
 
@@ -136,9 +141,9 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, "runtime_config_not_found"},
 		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, "app_settings_not_found"},
-		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, "qbit_settings_not_found"},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, "qbit_settings_not_found"},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
-		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, "decision_not_found"},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, "decision_not_found"},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, "watchdog_blacklist_not_found"},
 	}
 

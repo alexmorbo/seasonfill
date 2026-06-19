@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func ptrStr(s string) *string { return &s }
@@ -167,9 +168,14 @@ func TestQbitSettingsRepository_GetByInstance_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewQbitSettingsRepository(db)
-	_, err := repo.GetByInstance(context.Background(), 999)
+	const missing uint = 999
+	_, err := repo.GetByInstance(context.Background(), missing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.QbitSettingsNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing, typedErr.InstanceID)
 }
 
 func TestQbitSettingsRepository_DeleteByInstance(t *testing.T) {

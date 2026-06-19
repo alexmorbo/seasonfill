@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type GrabRepository struct {
@@ -213,7 +214,13 @@ func (r *GrabRepository) MatchLatest(ctx context.Context, key ports.MatchKey) (g
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return grab.Record{}, ports.ErrNotFound
+			return grab.Record{}, errors.Join(
+				&sharedErrors.GrabNotFoundError{
+					ID: fmt.Sprintf("tuple:%s/%d/s%02d/%s",
+						key.InstanceName, key.SeriesID, key.SeasonNumber, key.ReleaseTitle),
+				},
+				ports.ErrNotFound,
+			)
 		}
 		return grab.Record{}, fmt.Errorf("match latest by tuple: %w", err)
 	}
@@ -233,7 +240,10 @@ func (r *GrabRepository) UpdateStatus(ctx context.Context, id uuid.UUID, newStat
 	var current database.GrabRecordModel
 	if err := db.Select("id", "status").First(&current, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+			return errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: id.String()},
+				ports.ErrNotFound,
+			)
 		}
 		return fmt.Errorf("read grab status: %w", err)
 	}
@@ -276,7 +286,10 @@ func (r *GrabRepository) UpdateTorrentHash(ctx context.Context, id uuid.UUID, ha
 	var current database.GrabRecordModel
 	if err := db.Select("id", "torrent_hash").First(&current, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+			return errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: id.String()},
+				ports.ErrNotFound,
+			)
 		}
 		return fmt.Errorf("read grab torrent_hash: %w", err)
 	}
@@ -325,7 +338,10 @@ func (r *GrabRepository) FindLatestSuccessByHash(ctx context.Context, hash strin
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return grab.Record{}, ports.ErrNotFound
+			return grab.Record{}, errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: "hash:" + hash},
+				ports.ErrNotFound,
+			)
 		}
 		return grab.Record{}, fmt.Errorf("find grab by torrent_hash: %w", err)
 	}
@@ -368,7 +384,10 @@ func (r *GrabRepository) SetReplayOfID(ctx context.Context, id uuid.UUID, replay
 		var probe database.GrabRecordModel
 		if err := db.Select("id").First(&probe, "id = ?", id.String()).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ports.ErrNotFound
+				return errors.Join(
+					&sharedErrors.GrabNotFoundError{ID: id.String()},
+					ports.ErrNotFound,
+				)
 			}
 			return fmt.Errorf("probe after set replay_of_id: %w", err)
 		}
@@ -454,7 +473,10 @@ func (r *GrabRepository) UpdateSizeBytes(ctx context.Context, id uuid.UUID, size
 	var current database.GrabRecordModel
 	if err := db.Select("id", "size_bytes").First(&current, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+			return errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: id.String()},
+				ports.ErrNotFound,
+			)
 		}
 		return fmt.Errorf("read grab size_bytes: %w", err)
 	}
@@ -480,7 +502,10 @@ func (r *GrabRepository) GetByID(ctx context.Context, id uuid.UUID) (grab.Record
 	var m database.GrabRecordModel
 	if err := db.First(&m, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return grab.Record{}, ports.ErrNotFound
+			return grab.Record{}, errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: id.String()},
+				ports.ErrNotFound,
+			)
 		}
 		return grab.Record{}, fmt.Errorf("get grab by id: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type ScanRepository struct {
@@ -45,7 +46,10 @@ func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanR
 	var model database.ScanRunModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ScanRecord{}, ports.ErrNotFound
+			return ports.ScanRecord{}, errors.Join(
+				&sharedErrors.ScanRunNotFoundError{ID: id},
+				ports.ErrNotFound,
+			)
 		}
 		return ports.ScanRecord{}, fmt.Errorf("get scan: %w", err)
 	}

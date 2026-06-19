@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func newGrabRecord(t *testing.T) grab.Record {
@@ -146,6 +147,25 @@ func TestGrabRepository_MatchLatest_NoMatch_ReturnsErrNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 
+func TestGrabRepository_MatchLatest_TupleMiss_ReturnsTypedErr(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewGrabRepository(db)
+	_, err := repo.MatchLatest(context.Background(), ports.MatchKey{
+		DownloadID:   "",
+		ReleaseTitle: "Ghost.S01.PACK",
+		SeriesID:     999,
+		SeasonNumber: 7,
+		InstanceName: "main",
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, "tuple:main/999/s07/Ghost.S01.PACK", typedErr.ID)
+}
+
 func TestGrabRepository_UpdateStatus_Success_WithMessage(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
@@ -166,8 +186,13 @@ func TestGrabRepository_UpdateStatus_UnknownID_ErrNotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
-	err := repo.UpdateStatus(context.Background(), uuid.New(), grab.StatusImported, "")
+	missing := uuid.New()
+	err := repo.UpdateStatus(context.Background(), missing, grab.StatusImported, "")
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing.String(), typedErr.ID)
 }
 
 func TestGrabRepository_UpdateStatus_TerminalSource_Rejects(t *testing.T) {
@@ -256,10 +281,15 @@ func TestGrabRepository_UpdateTorrentHash_UnknownID_ErrNotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
-	err := repo.UpdateTorrentHash(context.Background(), uuid.New(),
+	missing := uuid.New()
+	err := repo.UpdateTorrentHash(context.Background(), missing,
 		"0123456789abcdef0123456789abcdef01234567")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing.String(), typedErr.ID)
 }
 
 func TestGrabRepository_UpdateTorrentHash_EmptyHash_NoOp(t *testing.T) {
@@ -313,6 +343,10 @@ func TestGrabRepository_FindLatestSuccessByHash_ExcludesGrabFailed(t *testing.T)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound),
 		"grab_failed rows are not matchable — they don't represent an on-disk torrent")
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, "hash:"+hash, typedErr.ID)
 }
 
 func TestGrabRepository_FindLatestSuccessByHash_EmptyHash(t *testing.T) {
@@ -328,10 +362,14 @@ func TestGrabRepository_FindLatestSuccessByHash_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
-	_, err := repo.FindLatestSuccessByHash(context.Background(),
-		"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	const hash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	_, err := repo.FindLatestSuccessByHash(context.Background(), hash)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, "hash:"+hash, typedErr.ID)
 }
 
 func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
@@ -541,9 +579,14 @@ func TestGrabRepository_UpdateSizeBytes_UnknownID_ErrNotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
-	err := repo.UpdateSizeBytes(context.Background(), uuid.New(), 12345)
+	missing := uuid.New()
+	err := repo.UpdateSizeBytes(context.Background(), missing, 12345)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing.String(), typedErr.ID)
 }
 
 func TestGrabRepository_UpdateSizeBytes_ZeroSize_NoOp(t *testing.T) {
@@ -577,7 +620,12 @@ func TestGrabRepository_GetByID_UnknownID_ErrNotFound(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewGrabRepository(db)
-	_, err := repo.GetByID(context.Background(), uuid.New())
+	missing := uuid.New()
+	_, err := repo.GetByID(context.Background(), missing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.GrabNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing.String(), typedErr.ID)
 }

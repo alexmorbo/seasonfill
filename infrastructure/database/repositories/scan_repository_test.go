@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // Story 314 (B-6) — repository test fixture speedup.
@@ -355,9 +356,14 @@ func TestScanRepository_GetByID_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewScanRepository(db)
 
-	_, err := repo.GetByID(context.Background(), uuid.New())
+	missing := uuid.New()
+	_, err := repo.GetByID(context.Background(), missing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.ScanRunNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, missing, typedErr.ID)
 }
 
 func TestScanRepository_Update(t *testing.T) {

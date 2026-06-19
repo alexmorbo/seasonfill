@@ -40,9 +40,9 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, http.StatusNotFound},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, http.StatusNotFound},
 		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, http.StatusNotFound},
-		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: "main"}, http.StatusNotFound},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, http.StatusNotFound},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, http.StatusNotFound},
-		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, http.StatusNotFound},
+		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, http.StatusNotFound},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, http.StatusNotFound},
 	}
 
