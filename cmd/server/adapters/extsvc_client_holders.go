@@ -10,6 +10,7 @@ import (
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // OMDbClientHolder is the late-binding holder satisfying the
@@ -122,7 +123,7 @@ func (h *TMDBClientHolder) GetPerson(ctx context.Context, id int64, language str
 	return c.GetPerson(ctx, id, language)
 }
 
-func (h *TMDBClientHolder) FindByTVDB(ctx context.Context, tvdbID int64) (*tmdb.FindResponse, error) {
+func (h *TMDBClientHolder) FindByTVDB(ctx context.Context, tvdbID domain.TVDBID) (*tmdb.FindResponse, error) {
 	c := h.Load()
 	if c == nil {
 		return nil, ErrTMDBClientNotReady

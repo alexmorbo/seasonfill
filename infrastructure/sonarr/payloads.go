@@ -34,7 +34,7 @@ type SeriesPayload struct {
 	Monitored      bool
 	QualityProfile int
 	Tags           []int
-	TVDBID         int
+	TVDBID         shareddomain.TVDBID
 	IMDBID         string
 	TMDBID         int
 	PreviousAiring *time.Time

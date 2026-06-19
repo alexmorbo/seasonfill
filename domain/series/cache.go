@@ -31,7 +31,7 @@ type CacheEntry struct {
 	Title     string
 	TitleSlug string
 	Year      *int
-	TVDBID    *int
+	TVDBID    *domain.TVDBID
 	IMDBID    *string
 	TMDBID    *int
 	Status    *string

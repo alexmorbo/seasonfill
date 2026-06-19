@@ -14,7 +14,7 @@ import (
 
 // SeriesCanonRepository is the subset of SeriesRepository E-1 needs.
 type SeriesCanonRepository interface {
-	FindByExternalIDs(ctx context.Context, tmdbID *int, tvdbID *int, imdbID *string) (series.Canon, error)
+	FindByExternalIDs(ctx context.Context, tmdbID *int, tvdbID *domain.TVDBID, imdbID *string) (series.Canon, error)
 	Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error)
 }
 

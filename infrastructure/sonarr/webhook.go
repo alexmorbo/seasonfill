@@ -54,7 +54,7 @@ type webhookSeriesDTO struct {
 	ID        domain.SonarrSeriesID `json:"id"`
 	Title     string                `json:"title,omitempty"`
 	TitleSlug string                `json:"titleSlug,omitempty"`
-	TvdbID    int                   `json:"tvdbId,omitempty"`
+	TvdbID    domain.TVDBID         `json:"tvdbId,omitempty"`
 	TvMazeID  int                   `json:"tvMazeId,omitempty"`
 	ImdbID    string                `json:"imdbId,omitempty"`
 	Type      string                `json:"type,omitempty"`
@@ -67,7 +67,7 @@ type webhookEpisodeDTO struct {
 	SeasonNumber  int                   `json:"seasonNumber"`
 	Title         string                `json:"title,omitempty"`
 	SeriesID      domain.SonarrSeriesID `json:"seriesId,omitempty"`
-	TvdbID        int                   `json:"tvdbId,omitempty"`
+	TvdbID        domain.TVDBID         `json:"tvdbId,omitempty"`
 }
 
 // webhookEpisodeFileDTO mirrors Sonarr's WebhookEpisodeFile (subset).

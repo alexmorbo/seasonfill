@@ -500,7 +500,8 @@ func mapExternalLinks(xids map[string]string, canon series.Canon) dto.ExternalLi
 		out.TVDBID = &v
 	} else if v, ok := xids["tvdb"]; ok && v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
-			out.TVDBID = &n
+			tv := domain.TVDBID(n)
+			out.TVDBID = &tv
 		}
 	}
 	return out

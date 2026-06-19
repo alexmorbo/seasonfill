@@ -104,7 +104,7 @@ type Event struct {
 	// only. All optional; zero-value = "Sonarr omitted".
 	SeriesTitle     string
 	SeriesTitleSlug string
-	SeriesTVDBID    int
+	SeriesTVDBID    domain.TVDBID
 	SeriesIMDBID    string
 
 	// Message — failure reason from DownloadStatusMessages

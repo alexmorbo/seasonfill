@@ -43,6 +43,45 @@ func TestReservedCanonIDs_Compile(t *testing.T) {
 	_ = domain.EpisodeID(0)
 }
 
+// TestTVDBID_JSONRoundTrip — story 404 A-5d-3. TVDBID is an int
+// underneath; the JSON wire format must remain a plain number so
+// downstream consumers (Sonarr inbound, TMDB external_ids embed,
+// /api/v1/series/.../detail outbound) see the identical shape they
+// did before the typed migration.
+func TestTVDBID_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		ID domain.TVDBID `json:"id"`
+	}
+	in := wrap{ID: domain.TVDBID(54321)}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":54321}`, string(b))
+	var out wrap
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, in.ID, out.ID)
+}
+
+// TestTVDBID_PointerJSONNull — story 404. The pointer form must
+// honour `omitempty` (nil → field absent) and marshal a non-nil
+// value as a plain number, matching the Canon / CacheEntry /
+// SeriesDetail DTO usage of *domain.TVDBID.
+func TestTVDBID_PointerJSONNull(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		ID *domain.TVDBID `json:"id,omitempty"`
+	}
+	in := wrap{}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(b))
+	id := domain.TVDBID(54321)
+	in.ID = &id
+	b, err = json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":54321}`, string(b))
+}
+
 func TestNewIMDBID(t *testing.T) {
 	t.Parallel()
 

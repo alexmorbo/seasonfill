@@ -78,7 +78,7 @@ func SyncSeriesFromSonarr(
 		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", int(p.ID)),
 		slog.Int("tmdb_id", p.TMDBID),
-		slog.Int("tvdb_id", p.TVDBID),
+		slog.Int("tvdb_id", int(p.TVDBID)),
 	)
 
 	canon, err := ResolveOrCreateSeries(ctx, deps.Series, p)
@@ -187,7 +187,7 @@ func sonarrPatchFromPayload(p sonarr.SeriesPayload) enrichment.SeriesPatch {
 		patch.TMDBID = &v
 	}
 	if p.TVDBID > 0 {
-		v := p.TVDBID
+		v := int(p.TVDBID)
 		patch.TVDBID = &v
 	}
 	if p.IMDBID != "" {
@@ -201,7 +201,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration:        enrichment.HydrationLevel(c.Hydration),
 		TMDBID:           c.TMDBID,
-		TVDBID:           c.TVDBID,
+		TVDBID:           intPtrFromTVDBID(c.TVDBID),
 		IMDBID:           c.IMDBID,
 		Title:            c.Title,
 		OriginalTitle:    c.OriginalTitle,
@@ -231,7 +231,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series.Canon {
 	base.Hydration = series.Hydration(ec.Hydration)
 	base.TMDBID = ec.TMDBID
-	base.TVDBID = ec.TVDBID
+	base.TVDBID = tvdbIDPtrFromInt(ec.TVDBID)
 	base.IMDBID = ec.IMDBID
 	base.Title = ec.Title
 	base.OriginalTitle = ec.OriginalTitle
@@ -570,5 +570,26 @@ func stringPtrIfNotEmpty(v string) *string {
 	if v == "" {
 		return nil
 	}
+	return &v
+}
+
+// intPtrFromTVDBID translates *domain.TVDBID → *int across the
+// domain↔domain/enrichment boundary. domain/enrichment intentionally
+// avoids importing internal/shared/domain (pure-Go contract), so the
+// scan adapter does the cast at the seam.
+func intPtrFromTVDBID(p *domain.TVDBID) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
+// tvdbIDPtrFromInt is the inverse of intPtrFromTVDBID.
+func tvdbIDPtrFromInt(p *int) *domain.TVDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.TVDBID(*p)
 	return &v
 }

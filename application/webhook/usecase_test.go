@@ -762,7 +762,7 @@ func TestProcess_SeriesAdd_UpsertsCache(t *testing.T) {
 	assert.Equal(t, "Black-ish", cache.upsertedEntry.Title)
 	assert.Equal(t, "black-ish", cache.upsertedEntry.TitleSlug)
 	require.NotNil(t, cache.upsertedEntry.TVDBID)
-	assert.Equal(t, 269578, *cache.upsertedEntry.TVDBID)
+	assert.Equal(t, domain.TVDBID(269578), *cache.upsertedEntry.TVDBID)
 	require.NotNil(t, cache.upsertedEntry.IMDBID)
 	assert.Equal(t, "tt3487356", *cache.upsertedEntry.IMDBID)
 	assert.True(t, cache.upsertedEntry.Monitored)

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // FindByTVDB resolves a TVDB id to a TMDB tv id via the
@@ -14,12 +16,12 @@ import (
 // Returns the full FindResponse so the caller can also fish a
 // movie result out of the same payload (not used today; reserved
 // for future).
-func (c *Client) FindByTVDB(ctx context.Context, tvdbID int64) (*FindResponse, error) {
+func (c *Client) FindByTVDB(ctx context.Context, tvdbID domain.TVDBID) (*FindResponse, error) {
 	q := url.Values{}
 	q.Set("external_source", "tvdb_id")
 	q.Set("language", c.lang)
 
-	body, err := c.do(ctx, "/find/"+strconv.FormatInt(tvdbID, 10), q)
+	body, err := c.do(ctx, "/find/"+strconv.Itoa(int(tvdbID)), q)
 	if err != nil {
 		return nil, fmt.Errorf("tmdb: FindByTVDB(%d): %w", tvdbID, err)
 	}

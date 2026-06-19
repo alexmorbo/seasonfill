@@ -22,7 +22,7 @@ func sampleCanon(title string) series.Canon {
 		Title:         title,
 		Hydration:     series.HydrationStub,
 		TMDBID:        ptrInt(101),
-		TVDBID:        ptrInt(202),
+		TVDBID:        ptrTVDBID(202),
 		IMDBID:        ptrString("tt0000001"),
 		OriginalTitle: ptrString("orig: " + title),
 		Status:        ptrString("Returning Series"),
@@ -114,17 +114,17 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// TMDB hit wins.
-	got, err := repo.FindByExternalIDs(ctx, ptrInt(101), ptrInt(0), ptrString(""))
+	got, err := repo.FindByExternalIDs(ctx, ptrInt(101), ptrTVDBID(0), ptrString(""))
 	require.NoError(t, err)
 	assert.Equal(t, "Andor", got.Title)
 
 	// TMDB miss → TVDB fallback.
-	got, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrInt(202), nil)
+	got, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(202), nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Andor", got.Title)
 
 	// All probes miss.
-	_, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrInt(404), ptrString("tt9999999"))
+	_, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(404), ptrString("tt9999999"))
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
 }
 
@@ -140,13 +140,13 @@ func TestSeriesRepository_PartialUnique(t *testing.T) {
 
 	orphanA := sampleCanon("Orphan A")
 	orphanA.TMDBID = nil
-	orphanA.TVDBID = ptrInt(1)
+	orphanA.TVDBID = ptrTVDBID(1)
 	id1, err := repo.Upsert(ctx, orphanA)
 	require.NoError(t, err)
 
 	orphanB := sampleCanon("Orphan B")
 	orphanB.TMDBID = nil
-	orphanB.TVDBID = ptrInt(2)
+	orphanB.TVDBID = ptrTVDBID(2)
 	id2, err := repo.Upsert(ctx, orphanB)
 	require.NoError(t, err)
 	assert.NotEqual(t, id1, id2,
@@ -185,19 +185,19 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 	// third stays unjournalled.
 	a := sampleCanon("A")
 	a.TMDBID = ptrInt(1001)
-	a.TVDBID = ptrInt(2001)
+	a.TVDBID = ptrTVDBID(2001)
 	idA, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 
 	b := sampleCanon("B")
 	b.TMDBID = ptrInt(1002)
-	b.TVDBID = ptrInt(2002)
+	b.TVDBID = ptrTVDBID(2002)
 	idB, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 
 	c := sampleCanon("C")
 	c.TMDBID = ptrInt(1003)
-	c.TVDBID = ptrInt(2003)
+	c.TVDBID = ptrTVDBID(2003)
 	idC, err := repo.Upsert(ctx, c)
 	require.NoError(t, err)
 

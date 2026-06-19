@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestEpisodesRepository_UpsertAndGet(t *testing.T) {
@@ -107,7 +108,7 @@ func TestEpisodesRepository_CountBySeries(t *testing.T) {
 	c2 := sampleCanon("Better Call Saul")
 	otherTMDB := 999
 	c2.TMDBID = &otherTMDB
-	otherTVDB := 888
+	otherTVDB := domain.TVDBID(888)
 	c2.TVDBID = &otherTVDB
 	otherIMDB := "tt0000002"
 	c2.IMDBID = &otherIMDB

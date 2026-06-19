@@ -1,6 +1,10 @@
 package tmdb
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // TVResponse is the raw JSON shape of GET /tv/{id} with
 // append_to_response=aggregate_credits,videos,images,external_ids,content_ratings,keywords,recommendations.
@@ -203,12 +207,12 @@ type TVImage struct {
 // either "tt0944947" or raw-numeric form; the mapper normalises
 // via NormaliseIMDBID (PRD §13 risk 6).
 type TVExternalIDs struct {
-	IMDBID      string `json:"imdb_id"`
-	TVDBID      *int64 `json:"tvdb_id"`
-	FacebookID  string `json:"facebook_id"`
-	InstagramID string `json:"instagram_id"`
-	TwitterID   string `json:"twitter_id"`
-	WikidataID  string `json:"wikidata_id"`
+	IMDBID      string         `json:"imdb_id"`
+	TVDBID      *domain.TVDBID `json:"tvdb_id"`
+	FacebookID  string         `json:"facebook_id"`
+	InstagramID string         `json:"instagram_id"`
+	TwitterID   string         `json:"twitter_id"`
+	WikidataID  string         `json:"wikidata_id"`
 }
 
 // TVContentRatings — content_ratings embed. v1 reads only US +

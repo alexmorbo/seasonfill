@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // ResolveOrCreateSeries returns the canonical series row for the
@@ -34,7 +35,7 @@ func ResolveOrCreateSeries(
 	p sonarr.SeriesPayload,
 ) (series.Canon, error) {
 	tmdbID := nonZeroIntPtr(p.TMDBID)
-	tvdbID := nonZeroIntPtr(p.TVDBID)
+	tvdbID := nonZeroTVDBIDPtr(p.TVDBID)
 	imdbID := nonEmptyStringPtr(p.IMDBID)
 
 	existing, err := repo.FindByExternalIDs(ctx, tmdbID, tvdbID, imdbID)
@@ -62,6 +63,14 @@ func ResolveOrCreateSeries(
 }
 
 func nonZeroIntPtr(v int) *int {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
+// nonZeroTVDBIDPtr is the typed-primitive variant — story 404 A-5d-3.
+func nonZeroTVDBIDPtr(v domain.TVDBID) *domain.TVDBID {
 	if v == 0 {
 		return nil
 	}

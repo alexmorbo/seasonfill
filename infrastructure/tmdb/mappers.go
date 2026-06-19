@@ -68,7 +68,8 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 			c.IMDBID = ptrString(id)
 		}
 		if tv.ExternalIDs.TVDBID != nil {
-			c.TVDBID = ptrInt(int(*tv.ExternalIDs.TVDBID))
+			v := *tv.ExternalIDs.TVDBID
+			c.TVDBID = &v
 		}
 	}
 	return c
@@ -279,7 +280,7 @@ func MapTVToExternalIDs(tv *TVResponse) []MappedExternalID {
 		out = append(out, MappedExternalID{Provider: "imdb", ProviderID: id})
 	}
 	if tv.ExternalIDs.TVDBID != nil {
-		out = append(out, MappedExternalID{Provider: "tvdb", ProviderID: strconv.FormatInt(*tv.ExternalIDs.TVDBID, 10)})
+		out = append(out, MappedExternalID{Provider: "tvdb", ProviderID: strconv.Itoa(int(*tv.ExternalIDs.TVDBID))})
 	}
 	if tv.ExternalIDs.WikidataID != "" {
 		out = append(out, MappedExternalID{Provider: "wikidata", ProviderID: tv.ExternalIDs.WikidataID})

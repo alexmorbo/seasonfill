@@ -136,7 +136,7 @@ func TestSyncSeriesFromSonarr_OrphanCreation(t *testing.T) {
 	require.NoError(t, f.db.Where("id = ?", canonID).First(&row).Error)
 	assert.Nil(t, row.TMDBID, "orphan canon has NULL tmdb_id")
 	require.NotNil(t, row.TVDBID)
-	assert.Equal(t, 12345, *row.TVDBID)
+	assert.Equal(t, domain.TVDBID(12345), *row.TVDBID)
 	assert.Equal(t, "stub", row.Hydration)
 }
 

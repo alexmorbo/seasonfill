@@ -354,10 +354,10 @@ type Recommendation struct {
 // ExternalLinks — IMDb / TMDB / TVDB / homepage footer row
 // (design brief §2.9). Each link rendered only when its id exists.
 type ExternalLinks struct {
-	IMDbID   *string `json:"imdb_id,omitempty" example:"tt0903747"`
-	TMDBID   *int    `json:"tmdb_id,omitempty" example:"1396"`
-	TVDBID   *int    `json:"tvdb_id,omitempty" example:"81189"`
-	Homepage *string `json:"homepage,omitempty"`
+	IMDbID   *string        `json:"imdb_id,omitempty" example:"tt0903747"`
+	TMDBID   *int           `json:"tmdb_id,omitempty" example:"1396"`
+	TVDBID   *domain.TVDBID `json:"tvdb_id,omitempty" example:"81189"`
+	Homepage *string        `json:"homepage,omitempty"`
 }
 
 // SeasonDetailResponse — single-season subset returned by

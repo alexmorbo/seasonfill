@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // --- fakes ----------------------------------------------------------
@@ -124,7 +125,7 @@ func (f *fakeTMDBPerson) GetSeason(context.Context, int64, int, string) (*tmdb.S
 	return nil, nil
 }
 
-func (f *fakeTMDBPerson) FindByTVDB(context.Context, int64) (*tmdb.FindResponse, error) {
+func (f *fakeTMDBPerson) FindByTVDB(context.Context, domain.TVDBID) (*tmdb.FindResponse, error) {
 	return nil, nil
 }
 

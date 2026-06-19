@@ -1,5 +1,7 @@
 package tmdb
 
+import "github.com/alexmorbo/seasonfill/internal/shared/domain"
+
 // PersonResponse mirrors GET /person/{id} with
 // append_to_response=tv_credits,movie_credits,external_ids.
 type PersonResponse struct {
@@ -71,10 +73,10 @@ type PersonMovieCredit struct {
 
 // PersonExternalIDs mirrors external_ids sub-resource.
 type PersonExternalIDs struct {
-	IMDBID      string `json:"imdb_id"`
-	FacebookID  string `json:"facebook_id"`
-	InstagramID string `json:"instagram_id"`
-	TwitterID   string `json:"twitter_id"`
-	WikidataID  string `json:"wikidata_id"`
-	TVDBID      *int64 `json:"tvdb_id"`
+	IMDBID      string         `json:"imdb_id"`
+	FacebookID  string         `json:"facebook_id"`
+	InstagramID string         `json:"instagram_id"`
+	TwitterID   string         `json:"twitter_id"`
+	WikidataID  string         `json:"wikidata_id"`
+	TVDBID      *domain.TVDBID `json:"tvdb_id"`
 }

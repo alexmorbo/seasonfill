@@ -70,7 +70,7 @@ func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID int) (series.
 func (r *SeriesRepository) FindByExternalIDs(
 	ctx context.Context,
 	tmdbID *int,
-	tvdbID *int,
+	tvdbID *domain.TVDBID,
 	imdbID *string,
 ) (series.Canon, error) {
 	db := dbFromContext(ctx, r.db).WithContext(ctx)

@@ -41,7 +41,7 @@ type TMDBClient interface {
 	// FindByTVDB resolves a tvdb_id to a TMDB id via /find. Returns
 	// nil on empty result; the worker treats nil as
 	// sync_log.outcome=not_found.
-	FindByTVDB(ctx context.Context, tvdbID int64) (*tmdb.FindResponse, error)
+	FindByTVDB(ctx context.Context, tvdbID domain.TVDBID) (*tmdb.FindResponse, error)
 }
 
 // ----- new in 211 ----------------------------------------------------

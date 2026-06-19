@@ -51,12 +51,12 @@ type cacheRow struct {
 	UpdatedAt         time.Time             `gorm:"column:updated_at"`
 	DeletedAt         *time.Time            `gorm:"column:deleted_at"`
 	// canon columns — JOINed from series (s.*).
-	Title  string  `gorm:"column:s_title"`
-	Year   *int    `gorm:"column:s_year"`
-	TVDBID *int    `gorm:"column:s_tvdb_id"`
-	IMDBID *string `gorm:"column:s_imdb_id"`
-	TMDBID *int    `gorm:"column:s_tmdb_id"`
-	Status *string `gorm:"column:s_status"`
+	Title  string         `gorm:"column:s_title"`
+	Year   *int           `gorm:"column:s_year"`
+	TVDBID *domain.TVDBID `gorm:"column:s_tvdb_id"`
+	IMDBID *string        `gorm:"column:s_imdb_id"`
+	TMDBID *int           `gorm:"column:s_tmdb_id"`
+	Status *string        `gorm:"column:s_status"`
 	// Network FIELD REMOVED in E-1 — sourced via series_networks
 	// subquery for ListDistinctNetworks; per-row network on detail
 	// card lands in a future story.

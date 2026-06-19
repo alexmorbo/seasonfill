@@ -404,6 +404,10 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain
 
 func ptrString(s string) *string { return &s }
 func ptrInt(i int) *int          { return &i }
+func ptrTVDBID(i int) *domain.TVDBID {
+	v := domain.TVDBID(i)
+	return &v
+}
 func ptrSonarrSeriesID(i domain.SonarrSeriesID) *domain.SonarrSeriesID {
 	return &i
 }

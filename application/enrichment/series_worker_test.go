@@ -61,7 +61,7 @@ func (f *fakeTMDB) GetPerson(ctx context.Context, id int64, language string) (*t
 	return nil, nil
 }
 
-func (f *fakeTMDB) FindByTVDB(ctx context.Context, tvdbID int64) (*tmdb.FindResponse, error) {
+func (f *fakeTMDB) FindByTVDB(ctx context.Context, tvdbID domain.TVDBID) (*tmdb.FindResponse, error) {
 	return nil, nil
 }
 
@@ -559,7 +559,7 @@ func (f *workerFixture) seedCanon(id domain.SeriesID, tmdbID *int) {
 // network, one company, one video, one content_rating, one external
 // id, one recommendation.
 func minimalTV() *tmdb.TVResponse {
-	tvdb := int64(99)
+	tvdb := domain.TVDBID(99)
 	return &tmdb.TVResponse{
 		ID:           42,
 		Name:         "Show",

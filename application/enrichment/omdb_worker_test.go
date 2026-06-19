@@ -322,7 +322,7 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 	t.Parallel()
 	tmdbID := 99
-	tvdbID := 100
+	tvdbID := domain.TVDBID(100)
 	imdb := "tt0903747"
 	origTitle := "BB original"
 	status := "Ended"

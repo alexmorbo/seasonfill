@@ -856,7 +856,7 @@ func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.Seri
 
 func patchFromTMDBCanon(c series.Canon) enrichment.SeriesPatch {
 	return enrichment.SeriesPatch{
-		TMDBID: c.TMDBID, TVDBID: c.TVDBID, IMDBID: c.IMDBID,
+		TMDBID: c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: c.IMDBID,
 		OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate:      c.NextAirDate,
@@ -882,10 +882,31 @@ func nonEmptyStringPtr(s string) *string {
 	return &s
 }
 
+// tvdbIDPtrToInt / intPtrToTVDBID bridge the typed TVDBID seam
+// between series.Canon (*domain.TVDBID) and the domain/enrichment
+// patch + canon shapes (*int). The enrichment package intentionally
+// stays import-free of internal/shared/domain so the application
+// layer does the cast at the merge seam.
+func tvdbIDPtrToInt(p *domain.TVDBID) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
+func intPtrToTVDBID(p *int) *domain.TVDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.TVDBID(*p)
+	return &v
+}
+
 func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration: enrichment.HydrationLevel(c.Hydration),
-		TMDBID:    c.TMDBID, TVDBID: c.TVDBID, IMDBID: c.IMDBID,
+		TMDBID:    c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: c.IMDBID,
 		Title: c.Title, OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate: c.NextAirDate, Year: c.Year,
@@ -902,7 +923,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series.Canon {
 	base.Hydration = series.Hydration(ec.Hydration)
 	base.TMDBID = ec.TMDBID
-	base.TVDBID = ec.TVDBID
+	base.TVDBID = intPtrToTVDBID(ec.TVDBID)
 	base.IMDBID = ec.IMDBID
 	base.Title = ec.Title
 	base.OriginalTitle = ec.OriginalTitle

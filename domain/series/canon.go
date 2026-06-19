@@ -42,7 +42,7 @@ func (h Hydration) IsValid() bool {
 type Canon struct {
 	ID               domain.SeriesID
 	TMDBID           *int
-	TVDBID           *int
+	TVDBID           *domain.TVDBID
 	IMDBID           *string
 	Hydration        Hydration
 	Title            string

@@ -276,7 +276,7 @@ func personExternalIDsFromResponse(p *tmdb.PersonResponse) []externalIDRow {
 			out = append(out, externalIDRow{provider: "twitter", value: x.TwitterID})
 		}
 		if x.TVDBID != nil {
-			out = append(out, externalIDRow{provider: "tvdb", value: itoa(*x.TVDBID)})
+			out = append(out, externalIDRow{provider: "tvdb", value: itoa(int64(*x.TVDBID))})
 		}
 	}
 	return out
