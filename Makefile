@@ -38,10 +38,14 @@ test-all: test-race test-integration test-integration-e2e
 lint:
 	golangci-lint run ./...
 
-# test-lint-rule runs the use-any regression guard. Requires
-# golangci-lint on PATH; opt-in via the `lint` build tag.
+# test-lint-rule runs the typed-rules regression guards: the use-any
+# rule (revive in .golangci.yml) and the bare-id-int rule (AST scan in
+# tests/lint_bare_id_int_test.go). Both are opt-in via the `lint`
+# build tag and run in CI to catch regressions on type-discipline
+# rules that golangci-lint and forbidigo cannot express directly.
+# use-any needs golangci-lint on PATH; bare-id-int is pure stdlib.
 test-lint-rule:
-	go test -tags lint -run TestUseAnyRejectsInterfaceLiteral ./tests/...
+	go test -tags lint -run 'TestUseAnyRejectsInterfaceLiteral|TestBareIDIntRegression' ./tests/...
 
 vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
 

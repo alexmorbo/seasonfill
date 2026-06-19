@@ -32,6 +32,15 @@ linters:
         # rule (forbidigo can't match type literals — it operates on
         # identifiers/calls only).
         - name: use-any
+        # Note: the bare-id-int regression guard (story 407 A-5e) lives
+        # in tests/lint_bare_id_int_test.go behind the `lint` build
+        # tag and runs via `make test-lint-rule`. It cannot live here
+        # for the same reason as use-any above — neither forbidigo
+        # nor revive can match struct-field or function-param type
+        # expressions. The AST scan rejects bare int/int64/string for
+        # fields/params named SeriesID, EpisodeID, SonarrSeriesID,
+        # SonarrEpisodeID, TMDBID, TVDBID, IMDBID, QbitHash and
+        # InstanceName in the domain/ and application/ trees.
     gocritic:
       # Only non-default checks are listed; defaults (appendAssign,
       # argOrder, badCall, badCond, dupArg, dupBranchBody, dupCase,

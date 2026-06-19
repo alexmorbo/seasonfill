@@ -67,17 +67,22 @@ type NextEpisodeDetail struct {
 // QueueRecordDetail mirrors the Sonarr queue fields the DTO needs.
 // Kept local so the domain object stays independent of the live
 // client struct (helps tests).
+//
+// SonarrEpisodeID is typed (story 407 A-5e) — the prior bare int
+// field was the last untyped Sonarr id on the composer path. The
+// wire DTO (DownloadChip.EpisodeID) stays plain int; the handler
+// converts at the boundary.
 type QueueRecordDetail struct {
-	QueueID       int
-	EpisodeID     int
-	SeasonNumber  int
-	Title         string
-	Status        string
-	DownloadID    string
-	Protocol      string
-	EpisodeNumber int   // story 379
-	Size          int64 // story 379
-	SizeLeft      int64 // story 379
+	QueueID         int
+	SonarrEpisodeID domain.SonarrEpisodeID
+	SeasonNumber    int
+	Title           string
+	Status          string
+	DownloadID      string
+	Protocol        string
+	EpisodeNumber   int   // story 379
+	Size            int64 // story 379
+	SizeLeft        int64 // story 379
 }
 
 // SeasonDetail — one season + episodes + per-instance states +
@@ -644,16 +649,16 @@ func (c *Composer) loadSonarrQueue(ctx context.Context, d *Detail) error {
 	d.QueueRecords = make([]QueueRecordDetail, 0, len(q.Records))
 	for _, rec := range q.Records {
 		d.QueueRecords = append(d.QueueRecords, QueueRecordDetail{
-			QueueID:       rec.ID,
-			EpisodeID:     rec.EpisodeID,
-			EpisodeNumber: rec.EpisodeNumber,
-			SeasonNumber:  rec.SeasonNumber,
-			Title:         rec.Title,
-			Status:        rec.Status,
-			DownloadID:    rec.DownloadID,
-			Protocol:      rec.Protocol,
-			Size:          rec.Size,
-			SizeLeft:      rec.SizeLeft,
+			QueueID:         rec.ID,
+			SonarrEpisodeID: domain.SonarrEpisodeID(rec.EpisodeID),
+			EpisodeNumber:   rec.EpisodeNumber,
+			SeasonNumber:    rec.SeasonNumber,
+			Title:           rec.Title,
+			Status:          rec.Status,
+			DownloadID:      rec.DownloadID,
+			Protocol:        rec.Protocol,
+			Size:            rec.Size,
+			SizeLeft:        rec.SizeLeft,
 		})
 	}
 	first := d.QueueRecords[0]

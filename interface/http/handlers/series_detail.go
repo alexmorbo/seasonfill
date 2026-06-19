@@ -296,7 +296,7 @@ func mapDownload(d *seriesdetail.Detail) *dto.DownloadChip {
 	}
 	return &dto.DownloadChip{
 		QueueID:      d.Queue.QueueID,
-		EpisodeID:    d.Queue.EpisodeID,
+		EpisodeID:    int(d.Queue.SonarrEpisodeID),
 		SeasonNumber: d.Queue.SeasonNumber,
 		Title:        d.Queue.Title,
 		Status:       d.Queue.Status,
