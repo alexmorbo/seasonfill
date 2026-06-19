@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -28,16 +27,17 @@ func NewEpisodesRepository(db *gorm.DB) *EpisodesRepository {
 	return &EpisodesRepository{db: db}
 }
 
+// Get returns the canonical episode row by primary key. Missing row
+// → typed EpisodeNotFoundError; F-2c-3 dropped the legacy
+// errors.Join(typed, ports.ErrNotFound) shim. The method has no
+// external callers; tests use errors.As to assert the typed sentinel.
 func (r *EpisodesRepository) Get(ctx context.Context, id int64) (series.CanonEpisode, error) {
 	var m database.EpisodeModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("id = ?", id).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.CanonEpisode{}, errors.Join(
-				&sharedErrors.EpisodeNotFoundError{ID: domain.EpisodeID(id)},
-				ports.ErrNotFound,
-			)
+			return series.CanonEpisode{}, &sharedErrors.EpisodeNotFoundError{ID: domain.EpisodeID(id)}
 		}
 		return series.CanonEpisode{}, fmt.Errorf("get episode: %w", err)
 	}

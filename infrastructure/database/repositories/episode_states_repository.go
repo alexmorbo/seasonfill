@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -27,6 +26,10 @@ func NewEpisodeStatesRepository(db *gorm.DB) *EpisodeStatesRepository {
 	return &EpisodeStatesRepository{db: db}
 }
 
+// Get returns the per-instance state for a canonical episode. Missing
+// row → typed EpisodeNotFoundError; F-2c-3 dropped the legacy
+// errors.Join(typed, ports.ErrNotFound) shim. The method has no
+// external callers; tests use errors.As to assert the typed sentinel.
 func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.InstanceName, episodeID domain.EpisodeID) (series.EpisodeState, error) {
 	var m database.EpisodeStateModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -34,10 +37,7 @@ func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.I
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.EpisodeState{}, errors.Join(
-				&sharedErrors.EpisodeNotFoundError{ID: episodeID},
-				ports.ErrNotFound,
-			)
+			return series.EpisodeState{}, &sharedErrors.EpisodeNotFoundError{ID: episodeID}
 		}
 		return series.EpisodeState{}, fmt.Errorf("get episode_state: %w", err)
 	}

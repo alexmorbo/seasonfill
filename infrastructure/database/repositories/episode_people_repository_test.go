@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -51,10 +50,11 @@ func TestEpisodePeopleRepository_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewEpisodePeopleRepository(db)
 	_, err := repo.Get(context.Background(), 9999)
-	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	require.Error(t, err)
 
 	var typedErr *sharedErrors.EpisodeNotFoundError
-	require.True(t, errors.As(err, &typedErr))
+	require.True(t, errors.As(err, &typedErr),
+		"Get NotFound must expose typed EpisodeNotFoundError via errors.As")
 }
 
 func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {

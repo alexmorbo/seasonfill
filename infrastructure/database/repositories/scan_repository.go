@@ -42,14 +42,17 @@ func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error
 	return nil
 }
 
+// GetByID returns the scan_run row by primary key. Missing row →
+// typed ScanRunNotFoundError; F-2c-3 dropped the legacy
+// errors.Join(typed, ports.ErrNotFound) shim. The sole consumer
+// (interface/http/handlers/audit.go GetScan) pushes the error via
+// c.Error and the error-response middleware dispatches via
+// errors.As → 404 + scan_run_not_found slug.
 func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanRecord, error) {
 	var model database.ScanRunModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ScanRecord{}, errors.Join(
-				&sharedErrors.ScanRunNotFoundError{ID: id},
-				ports.ErrNotFound,
-			)
+			return ports.ScanRecord{}, &sharedErrors.ScanRunNotFoundError{ID: id}
 		}
 		return ports.ScanRecord{}, fmt.Errorf("get scan: %w", err)
 	}

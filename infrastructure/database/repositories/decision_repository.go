@@ -97,15 +97,17 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 	return nil
 }
 
-// GetByID returns the decision row by primary key, or ports.ErrNotFound.
+// GetByID returns the decision row by primary key. Missing row →
+// typed DecisionNotFoundError; F-2c-3 dropped the legacy
+// errors.Join(typed, ports.ErrNotFound) shim. Consumers
+// (audit.GetDecision, grab.Execute, rescan.Start) either dispatch
+// via c.Error (typed → 404) or wrap with %w (errors.As still walks
+// the chain).
 func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error) {
 	var model database.DecisionModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return decision.Decision{}, errors.Join(
-				&sharedErrors.DecisionNotFoundError{ID: id},
-				ports.ErrNotFound,
-			)
+			return decision.Decision{}, &sharedErrors.DecisionNotFoundError{ID: id}
 		}
 		return decision.Decision{}, fmt.Errorf("get decision: %w", err)
 	}

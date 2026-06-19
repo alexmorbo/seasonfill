@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -52,10 +51,11 @@ func TestEpisodeStatesRepository_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewEpisodeStatesRepository(db)
 	_, err := repo.Get(context.Background(), "main", 9999)
-	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	require.Error(t, err)
 
 	var typedErr *sharedErrors.EpisodeNotFoundError
-	require.True(t, errors.As(err, &typedErr))
+	require.True(t, errors.As(err, &typedErr),
+		"Get NotFound must expose typed EpisodeNotFoundError via errors.As")
 	assert.Equal(t, domain.EpisodeID(9999), typedErr.ID)
 }
 
@@ -158,7 +158,10 @@ func TestEpisodeStatesRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	_, err = repo.Get(ctx, "main", epID)
-	require.ErrorIs(t, err, ports.ErrNotFound, "row should be hidden after soft-delete")
+	require.Error(t, err, "row should be hidden after soft-delete")
+	var softNF *sharedErrors.EpisodeNotFoundError
+	require.True(t, errors.As(err, &softNF),
+		"soft-delete must surface typed EpisodeNotFoundError via errors.As")
 
 	// Story 374 fix: re-upserting must clear deleted_at.
 	require.NoError(t, repo.Upsert(ctx, st))

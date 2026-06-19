@@ -8,17 +8,21 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // DeleteByID removes the row by primary key, scoped to instanceID.
-// ports.ErrNotFound when the row does not exist or belongs to another
-// instance. The double-key predicate is a defence-in-depth measure: an
-// authenticated client cannot DELETE blacklist rows that belong to an
-// instance they did not address.
+// Returns typed WatchdogBlacklistNotFoundError when the row does
+// not exist or belongs to another instance. The double-key predicate
+// is a defence-in-depth measure: an authenticated client cannot
+// DELETE blacklist rows that belong to an instance they did not
+// address. F-2c-3 dropped the legacy errors.Join(typed,
+// ports.ErrNotFound) shim; the sole consumer
+// (interface/http/handlers/watchdog_blacklist.go Unpark) dispatches
+// via c.Error so the middleware emits 404 +
+// watchdog_blacklist_not_found through errors.As.
 func (r *WatchdogBlacklistRepository) DeleteByID(ctx context.Context, instanceID, id uint) error {
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND id = ?", instanceID, id).
@@ -27,10 +31,7 @@ func (r *WatchdogBlacklistRepository) DeleteByID(ctx context.Context, instanceID
 		return fmt.Errorf("delete blacklist by id: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return errors.Join(
-			&sharedErrors.WatchdogBlacklistNotFoundError{ID: id},
-			ports.ErrNotFound,
-		)
+		return &sharedErrors.WatchdogBlacklistNotFoundError{ID: id}
 	}
 	return nil
 }

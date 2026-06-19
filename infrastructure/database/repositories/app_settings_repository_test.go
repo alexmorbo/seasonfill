@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -63,7 +62,7 @@ func TestAppSettingsRepository_GetTimezone_NoRow(t *testing.T) {
 		Delete(&database.AppSettingsModel{}).Error)
 
 	_, err := repo.GetTimezone(ctx)
-	require.ErrorIs(t, err, ports.ErrNotFound)
+	require.Error(t, err)
 
 	var typed *sharedErrors.AppSettingsNotFoundError
 	require.True(t, errors.As(err, &typed),

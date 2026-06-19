@@ -109,10 +109,11 @@ func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	_, err := repo.Get(context.Background(), "main", 999)
-	require.True(t, errors.Is(err, ports.ErrNotFound))
+	require.Error(t, err)
 
 	var typedErr *sharedErrors.SeriesCacheNotFoundError
-	require.True(t, errors.As(err, &typedErr))
+	require.True(t, errors.As(err, &typedErr),
+		"Get NotFound must expose typed SeriesCacheNotFoundError via errors.As")
 	assert.Equal(t, domain.InstanceName("main"), typedErr.InstanceName)
 	assert.Equal(t, domain.SonarrSeriesID(999), typedErr.SonarrSeriesID)
 }

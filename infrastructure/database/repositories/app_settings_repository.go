@@ -8,7 +8,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -29,19 +28,20 @@ func NewAppSettingsRepository(db *gorm.DB) *AppSettingsRepository {
 }
 
 // GetTimezone returns the stored IANA timezone name, or "" when the
-// column is NULL (meaning "use env fallback"). Returns ErrNotFound
-// when the singleton row is missing — that only happens if the v36
-// seed INSERT was skipped, which would itself be a migration bug.
+// column is NULL (meaning "use env fallback"). Returns the typed
+// AppSettingsNotFoundError (matchable via errors.As) when the
+// singleton row is missing — that only happens if the v36 seed
+// INSERT was skipped, which would itself be a migration bug. F-2c-3
+// dropped the legacy errors.Join(typed, ports.ErrNotFound) shim;
+// the sole consumer (internal/runtime/tz.Resolver) only logs the
+// warning.
 func (r *AppSettingsRepository) GetTimezone(ctx context.Context) (string, error) {
 	var m database.AppSettingsModel
 	err := r.db.WithContext(ctx).
 		Where("id = ?", appSettingsID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", errors.Join(
-				&sharedErrors.AppSettingsNotFoundError{},
-				ports.ErrNotFound,
-			)
+			return "", &sharedErrors.AppSettingsNotFoundError{}
 		}
 		return "", fmt.Errorf("get app_settings: %w", err)
 	}

@@ -359,10 +359,10 @@ func TestScanRepository_GetByID_NotFound(t *testing.T) {
 	missing := uuid.New()
 	_, err := repo.GetByID(context.Background(), missing)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ports.ErrNotFound))
 
 	var typedErr *sharedErrors.ScanRunNotFoundError
-	require.True(t, errors.As(err, &typedErr))
+	require.True(t, errors.As(err, &typedErr),
+		"GetByID NotFound must expose typed ScanRunNotFoundError via errors.As")
 	assert.Equal(t, missing, typedErr.ID)
 }
 

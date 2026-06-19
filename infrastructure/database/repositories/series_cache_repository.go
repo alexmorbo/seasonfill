@@ -119,6 +119,12 @@ const seriesCacheSelect = `
 // in the handler layer.
 const seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
 
+// Get returns the per-instance cache row joined to its canonical
+// series. Missing row → typed SeriesCacheNotFoundError; F-2c-3
+// dropped the legacy errors.Join(typed, ports.ErrNotFound) shim.
+// Consumers (series-detail composer, cast composer, series-refresh
+// usecase, series-torrents handler) either dispatch via c.Error
+// (typed → 404) or wrap with %w (errors.As still walks the chain).
 func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error) {
 	var row cacheRow
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -130,13 +136,10 @@ func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.Ins
 		First(&row).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.CacheEntry{}, errors.Join(
-				&sharedErrors.SeriesCacheNotFoundError{
-					InstanceName:   instanceName,
-					SonarrSeriesID: sonarrSeriesID,
-				},
-				ports.ErrNotFound,
-			)
+			return series.CacheEntry{}, &sharedErrors.SeriesCacheNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+			}
 		}
 		return series.CacheEntry{}, fmt.Errorf("get series_cache: %w", err)
 	}
