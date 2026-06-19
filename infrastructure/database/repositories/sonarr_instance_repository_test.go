@@ -18,6 +18,8 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestSonarrInstanceRepository_CreateAndGet(t *testing.T) {
@@ -64,6 +66,11 @@ func TestSonarrInstanceRepository_GetNotFound(t *testing.T) {
 
 	_, err = repo.GetByName(ctx, "nonexistent", cipher)
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"GetByName NotFound must expose typed InstanceNotFoundError via errors.As")
+	assert.Equal(t, domain.InstanceName("nonexistent"), typed.Name)
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesAPIKey(t *testing.T) {
@@ -121,6 +128,11 @@ func TestSonarrInstanceRepository_DeleteCascades(t *testing.T) {
 
 	_, err = repo.GetByName(ctx, "todelete", cipher)
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"post-Delete GetByName must expose typed InstanceNotFoundError via errors.As")
+	assert.Equal(t, domain.InstanceName("todelete"), typed.Name)
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
@@ -272,6 +284,11 @@ func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T)
 	}
 	err = repo.UpdateWithOptions(ctx, inst, cipher, false, nil)
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"UpdateWithOptions missing row must expose typed InstanceNotFoundError via errors.As")
+	assert.Equal(t, domain.InstanceName("ghost"), typed.Name)
 }
 
 func TestSonarrInstanceRepository_Update_StaleIUS_Rejects(t *testing.T) {
@@ -385,6 +402,26 @@ func TestSonarrInstanceRepository_Update_NotFound(t *testing.T) {
 	err = repo.UpdateWithOptions(ctx, inst, cipher, true, &now)
 	require.ErrorIs(t, err, ports.ErrNotFound,
 		"missing row must return ErrNotFound, not ErrStaleWrite")
+
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"missing-row Update with IUS must expose typed InstanceNotFoundError via errors.As")
+	assert.Equal(t, domain.InstanceName("ghost"), typed.Name)
+}
+
+func TestSonarrInstanceRepository_GetUpdatedAt_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewSonarrInstanceRepository(db)
+	ctx := context.Background()
+
+	_, err := repo.GetUpdatedAt(ctx, "nonexistent")
+	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"GetUpdatedAt NotFound must expose typed InstanceNotFoundError via errors.As")
+	assert.Equal(t, domain.InstanceName("nonexistent"), typed.Name)
 }
 
 func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {

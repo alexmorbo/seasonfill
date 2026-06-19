@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/admin"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestAdminUserRepo_GetEmpty(t *testing.T) {
@@ -16,6 +17,10 @@ func TestAdminUserRepo_GetEmpty(t *testing.T) {
 	repo := NewAdminUserRepository(setupTestDB(t))
 	_, err := repo.Get(t.Context())
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typed *sharedErrors.AdminUserNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"Get on empty table must expose typed AdminUserNotFoundError via errors.As")
 }
 
 func TestAdminUserRepo_CreateThenGet(t *testing.T) {
@@ -49,6 +54,10 @@ func TestAdminUserRepo_UpdatePassword_NoRow(t *testing.T) {
 	repo := NewAdminUserRepository(setupTestDB(t))
 	err := repo.UpdatePassword(t.Context(), "hash", false)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typed *sharedErrors.AdminUserNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"UpdatePassword on empty table must expose typed AdminUserNotFoundError via errors.As")
 }
 
 // --- OIDC repository tests ---
@@ -73,6 +82,10 @@ func TestAdminUserRepo_GetByOIDCSubject_NotFound(t *testing.T) {
 	repo := NewAdminUserRepository(setupTestDB(t))
 	_, err := repo.GetByOIDCSubject(t.Context(), "nonexistent|subject")
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typed *sharedErrors.AdminUserNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"GetByOIDCSubject NotFound must expose typed AdminUserNotFoundError via errors.As")
 }
 
 func TestAdminUserRepo_CreateFromOIDC_PopulatesSubject(t *testing.T) {

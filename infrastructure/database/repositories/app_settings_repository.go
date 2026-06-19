@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 const appSettingsID = uint(1)
@@ -37,7 +38,10 @@ func (r *AppSettingsRepository) GetTimezone(ctx context.Context) (string, error)
 		Where("id = ?", appSettingsID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", ports.ErrNotFound
+			return "", errors.Join(
+				&sharedErrors.AppSettingsNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return "", fmt.Errorf("get app_settings: %w", err)
 	}

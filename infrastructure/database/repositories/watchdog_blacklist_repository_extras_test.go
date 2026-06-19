@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestWatchdogBlacklistRepository_DeleteByID_ScopedToInstance(t *testing.T) {
@@ -31,8 +32,15 @@ func TestWatchdogBlacklistRepository_DeleteByID_ScopedToInstance(t *testing.T) {
 	rowID := rows[0].ID
 
 	// Wrong instance → ErrNotFound, row preserved.
-	if err := repo.DeleteByID(ctx, 999, rowID); !errors.Is(err, ports.ErrNotFound) {
+	err = repo.DeleteByID(ctx, 999, rowID)
+	if !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("wrong-instance: got %v want ErrNotFound", err)
+	}
+	var typed *sharedErrors.WatchdogBlacklistNotFoundError
+	if !errors.As(err, &typed) {
+		t.Errorf("wrong-instance: expected typed WatchdogBlacklistNotFoundError, got %v", err)
+	} else if typed.ID != rowID {
+		t.Errorf("wrong-instance: typed.ID = %d, want %d", typed.ID, rowID)
 	}
 	rows, _ = repo.ListByInstance(ctx, 1)
 	if len(rows) != 1 {
@@ -49,8 +57,15 @@ func TestWatchdogBlacklistRepository_DeleteByID_ScopedToInstance(t *testing.T) {
 	}
 
 	// Repeat delete → ErrNotFound.
-	if err := repo.DeleteByID(ctx, 1, rowID); !errors.Is(err, ports.ErrNotFound) {
+	err = repo.DeleteByID(ctx, 1, rowID)
+	if !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("repeat: got %v want ErrNotFound", err)
+	}
+	var repeatTyped *sharedErrors.WatchdogBlacklistNotFoundError
+	if !errors.As(err, &repeatTyped) {
+		t.Errorf("repeat: expected typed WatchdogBlacklistNotFoundError, got %v", err)
+	} else if repeatTyped.ID != rowID {
+		t.Errorf("repeat: typed.ID = %d, want %d", repeatTyped.ID, rowID)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/admin"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type AdminUserRepository struct{ db *gorm.DB }
@@ -24,7 +25,10 @@ func (r *AdminUserRepository) Get(ctx context.Context) (admin.AdminUser, error) 
 	err := dbFromContext(ctx, r.db).WithContext(ctx).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return admin.AdminUser{}, ports.ErrNotFound
+			return admin.AdminUser{}, errors.Join(
+				&sharedErrors.AdminUserNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return admin.AdminUser{}, fmt.Errorf("get admin user: %w", err)
 	}
@@ -65,7 +69,10 @@ func (r *AdminUserRepository) UpdatePassword(ctx context.Context, hash string, a
 	var existing database.AdminUserModel
 	if err := db.First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.ErrNotFound
+			return errors.Join(
+				&sharedErrors.AdminUserNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return fmt.Errorf("update admin password: load row: %w", err)
 	}
@@ -80,7 +87,10 @@ func (r *AdminUserRepository) UpdatePassword(ctx context.Context, hash string, a
 		return fmt.Errorf("update admin password: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return ports.ErrNotFound
+		return errors.Join(
+			&sharedErrors.AdminUserNotFoundError{},
+			ports.ErrNotFound,
+		)
 	}
 	return nil
 }
@@ -94,7 +104,10 @@ func (r *AdminUserRepository) GetByOIDCSubject(ctx context.Context, subject stri
 		Where("oidc_subject = ?", subject).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return admin.AdminUser{}, ports.ErrNotFound
+			return admin.AdminUser{}, errors.Join(
+				&sharedErrors.AdminUserNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return admin.AdminUser{}, fmt.Errorf("get admin by oidc subject: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 const runtimeConfigID = uint(1)
@@ -32,7 +33,10 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 		Where("id = ?", runtimeConfigID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.RuntimeConfigRow{}, ports.ErrNotFound
+			return ports.RuntimeConfigRow{}, errors.Join(
+				&sharedErrors.RuntimeConfigNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return ports.RuntimeConfigRow{}, fmt.Errorf("get runtime_config: %w", err)
 	}

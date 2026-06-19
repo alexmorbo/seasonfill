@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // DeleteByID removes the row by primary key, scoped to instanceID.
@@ -26,7 +27,10 @@ func (r *WatchdogBlacklistRepository) DeleteByID(ctx context.Context, instanceID
 		return fmt.Errorf("delete blacklist by id: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return ports.ErrNotFound
+		return errors.Join(
+			&sharedErrors.WatchdogBlacklistNotFoundError{ID: id},
+			ports.ErrNotFound,
+		)
 	}
 	return nil
 }

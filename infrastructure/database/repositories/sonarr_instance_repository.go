@@ -13,6 +13,8 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type SonarrInstanceRepository struct{ db *gorm.DB }
@@ -73,7 +75,10 @@ func (r *SonarrInstanceRepository) GetByName(ctx context.Context, name string, c
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("name = ?", name).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return runtime.InstanceSnapshot{}, ports.ErrNotFound
+			return runtime.InstanceSnapshot{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+				ports.ErrNotFound,
+			)
 		}
 		return runtime.InstanceSnapshot{}, fmt.Errorf("get sonarr instance: %w", err)
 	}
@@ -158,7 +163,10 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(
 		if err := tx.Select("created_at", "updated_at").
 			Where("id = ?", m.ID).First(&existing).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ports.ErrNotFound
+				return errors.Join(
+					&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(inst.Name)},
+					ports.ErrNotFound,
+				)
 			}
 			return fmt.Errorf("load instance for update: %w", err)
 		}
@@ -220,7 +228,10 @@ func (r *SonarrInstanceRepository) Delete(ctx context.Context, name string) erro
 		var m database.SonarrInstanceModel
 		if err := tx.Where("name = ?", name).First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ports.ErrNotFound
+				return errors.Join(
+					&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+					ports.ErrNotFound,
+				)
 			}
 			return fmt.Errorf("find instance: %w", err)
 		}
@@ -265,7 +276,10 @@ func (r *SonarrInstanceRepository) GetUpdatedAt(ctx context.Context, name string
 		Select("updated_at").Where("name = ?", name).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return time.Time{}, ports.ErrNotFound
+			return time.Time{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+				ports.ErrNotFound,
+			)
 		}
 		return time.Time{}, fmt.Errorf("get instance updated_at: %w", err)
 	}

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
@@ -19,6 +21,10 @@ func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
 
 	_, err := repo.Get(context.Background())
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.RuntimeConfigNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"Get on empty table must expose typed RuntimeConfigNotFoundError via errors.As")
 }
 
 func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {

@@ -2,10 +2,15 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestAppSettingsRepository_GetTimezone_SeededNull(t *testing.T) {
@@ -43,6 +48,26 @@ func TestAppSettingsRepository_SetEmpty_ClearsToNull(t *testing.T) {
 	got, err := repo.GetTimezone(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "", got, "empty SetTimezone should clear column to NULL")
+}
+
+func TestAppSettingsRepository_GetTimezone_NoRow(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewAppSettingsRepository(db)
+	ctx := context.Background()
+
+	// The v36 migration seeds id=1 — wipe the singleton row to
+	// exercise the (defensive) ErrNotFound branch.
+	require.NoError(t, db.WithContext(ctx).
+		Where("id = ?", appSettingsID).
+		Delete(&database.AppSettingsModel{}).Error)
+
+	_, err := repo.GetTimezone(ctx)
+	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.AppSettingsNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"GetTimezone NotFound must expose typed AppSettingsNotFoundError via errors.As")
 }
 
 func TestAppSettingsRepository_SetTimezone_Idempotent(t *testing.T) {
