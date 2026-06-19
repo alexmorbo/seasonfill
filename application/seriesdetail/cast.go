@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -120,7 +121,14 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 		return nil, fmt.Errorf("series_cache lookup: %w", err)
 	}
 	if cache.SeriesID == nil || *cache.SeriesID == 0 {
-		return nil, fmt.Errorf("series_cache lookup: %w", ports.ErrNotFound)
+		// Preserve typed chain so middleware dispatches series_cache_not_found.
+		return nil, errors.Join(
+			&sharedErrors.SeriesCacheNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+			},
+			ports.ErrNotFound,
+		)
 	}
 	seriesID := *cache.SeriesID
 
@@ -313,6 +321,8 @@ func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, curre
 		if !errors.Is(err, ports.ErrNotFound) {
 			c.d.Logger.WarnContext(ctx, "cast_in_library_probe_failed",
 				slog.Int64("person_id", personID),
+				slog.Int64("series_id", int64(currentSeriesID)),
+				slog.String("code", sharedErrors.ErrorCode(err)),
 				slog.String("error", err.Error()))
 		}
 		return false

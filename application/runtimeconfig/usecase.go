@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -148,6 +149,16 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 	case err == nil:
 		// happy path
 	case errors.Is(err, ports.ErrNotFound):
+		var runtimeNF *sharedErrors.RuntimeConfigNotFoundError
+		if errors.As(err, &runtimeNF) {
+			u.logger.DebugContext(ctx, "runtimeconfig.get.default_fallback",
+				slog.String("code", runtimeNF.Code()),
+				slog.String("reason", "no row yet, serving defaults"))
+		} else {
+			u.logger.DebugContext(ctx, "runtimeconfig.get.default_fallback",
+				slog.String("code", "not_found"),
+				slog.String("reason", "no row yet, serving defaults"))
+		}
 		def := runtime.Defaults()
 		row = ports.RuntimeConfigRow{
 			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
@@ -240,6 +251,16 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 	case err == nil:
 		// happy path
 	case errors.Is(err, ports.ErrNotFound):
+		var runtimeNF *sharedErrors.RuntimeConfigNotFoundError
+		if errors.As(err, &runtimeNF) {
+			u.logger.DebugContext(ctx, "runtimeconfig.set_auth_mode.default_seed",
+				slog.String("code", runtimeNF.Code()),
+				slog.String("reason", "no row yet, seeding from defaults"))
+		} else {
+			u.logger.DebugContext(ctx, "runtimeconfig.set_auth_mode.default_seed",
+				slog.String("code", "not_found"),
+				slog.String("reason", "no row yet, seeding from defaults"))
+		}
 		def := runtime.Defaults()
 		row = ports.RuntimeConfigRow{
 			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,

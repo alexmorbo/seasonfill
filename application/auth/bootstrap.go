@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/admin"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -55,6 +56,16 @@ func Bootstrap(ctx context.Context, repo ports.AdminUserRepository, cfg Bootstra
 	}
 	if !errors.Is(err, ports.ErrNotFound) {
 		return fmt.Errorf("auth.bootstrap: get admin user: %w", err)
+	}
+	var adminNF *sharedErrors.AdminUserNotFoundError
+	if errors.As(err, &adminNF) {
+		logger.InfoContext(ctx, "auth.bootstrap.first_run",
+			slog.String("code", adminNF.Code()),
+			slog.String("reason", "no admin row yet, seeding first-run password"))
+	} else {
+		logger.InfoContext(ctx, "auth.bootstrap.first_run",
+			slog.String("code", "not_found"),
+			slog.String("reason", "no admin row yet, seeding first-run password"))
 	}
 
 	hash := cfg.WebPasswordHash

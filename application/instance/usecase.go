@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -194,6 +195,15 @@ func (u *UseCase) Create(ctx context.Context, snap runtime.InstanceSnapshot) err
 		return ErrDuplicateName
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return fmt.Errorf("check duplicate name: %w", err)
+	} else {
+		// Missing row is the happy path on Create — log at debug with the
+		// typed identity (if present) so the audit trail is attributable.
+		var instanceNF *sharedErrors.InstanceNotFoundError
+		if errors.As(err, &instanceNF) {
+			u.logger.DebugContext(ctx, "instance.create.name_available",
+				slog.String("instance", string(instanceNF.Name)),
+				slog.String("code", instanceNF.Code()))
+		}
 	}
 	if _, err := u.instances.Create(ctx, snap, u.cipher); err != nil {
 		return fmt.Errorf("create instance: %w", err)

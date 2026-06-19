@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -178,7 +179,14 @@ func (u *SettingsUseCase) GetByInstanceName(ctx context.Context, name string) (Q
 	inst, err := u.instances.GetByName(ctx, name, u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			return QbitSettingsView{}, fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)
+			// Preserve the typed InstanceNotFoundError chain from the
+			// repo so middleware dispatch sees instance_not_found
+			// instead of generic not_found. Joining with ports.ErrNotFound
+			// keeps legacy errors.Is callers green.
+			return QbitSettingsView{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+				ports.ErrNotFound,
+			)
 		}
 		return QbitSettingsView{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}
@@ -202,7 +210,11 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 	inst, err := u.instances.GetByName(ctx, name, u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			return QbitSettingsView{}, fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)
+			// Preserve typed chain — see GetByInstanceName comment.
+			return QbitSettingsView{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+				ports.ErrNotFound,
+			)
 		}
 		return QbitSettingsView{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}
@@ -293,7 +305,11 @@ func (u *SettingsUseCase) Delete(ctx context.Context, name string) error {
 	inst, err := u.instances.GetByName(ctx, name, u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			return fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)
+			// Preserve typed chain — see GetByInstanceName comment.
+			return errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+				ports.ErrNotFound,
+			)
 		}
 		return fmt.Errorf("resolve instance %q: %w", name, err)
 	}
@@ -536,7 +552,11 @@ func (u *SettingsUseCase) Lookup(ctx context.Context, name domain.InstanceName) 
 	inst, err := u.instances.GetByName(ctx, string(name), u.cipher)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			return Settings{}, fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)
+			// Preserve typed chain — see GetByInstanceName comment.
+			return Settings{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: name},
+				ports.ErrNotFound,
+			)
 		}
 		return Settings{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}

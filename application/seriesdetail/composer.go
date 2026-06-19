@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -206,8 +207,16 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	if cache.SeriesID == nil || *cache.SeriesID == 0 {
 		// Series_cache exists but has no series_id pointer — this
 		// would only happen on a broken post-cutover row; treat
-		// like 404 so the handler can map it.
-		return nil, fmt.Errorf("series_cache lookup: %w", ports.ErrNotFound)
+		// like 404 so the handler can map it. Carry the typed err so
+		// middleware dispatches series_cache_not_found instead of the
+		// opaque not_found code.
+		return nil, errors.Join(
+			&sharedErrors.SeriesCacheNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+			},
+			ports.ErrNotFound,
+		)
 	}
 	seriesID := *cache.SeriesID
 
@@ -362,7 +371,14 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		return nil, fmt.Errorf("series_cache lookup: %w", err)
 	}
 	if cache.SeriesID == nil || *cache.SeriesID == 0 {
-		return nil, fmt.Errorf("series_cache lookup: %w", ports.ErrNotFound)
+		// Preserve typed chain — see Get() comment for rationale.
+		return nil, errors.Join(
+			&sharedErrors.SeriesCacheNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+			},
+			ports.ErrNotFound,
+		)
 	}
 	seriesID := *cache.SeriesID
 	canon, err := c.d.Series.Get(ctx, seriesID)
@@ -399,7 +415,15 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 	if len(filtered) == 0 {
-		return d, fmt.Errorf("season %d: %w", seasonNumber, ports.ErrNotFound)
+		// Preserve typed chain so middleware can dispatch season_not_found.
+		return d, errors.Join(
+			&sharedErrors.SeasonNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+				SeasonNumber:   seasonNumber,
+			},
+			ports.ErrNotFound,
+		)
 	}
 	return d, nil
 }

@@ -193,14 +193,11 @@ func TestHandler_GetReturnsNotFoundOnUnknownInstance(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var resp dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	// F-2c-1: the SettingsUseCase wraps GetByName's typed error with
-	// `fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)` which
-	// drops the typed chain — so the middleware falls back to the
-	// generic `not_found` slug. F-2c-2 will preserve the typed chain
-	// at the application layer; F-2c-1 must NOT touch application/**
-	// (per story anti-acceptance), so this assertion documents the
-	// transitional state.
-	assert.Equal(t, "not_found", resp.Error)
+	// F-2c-2: SettingsUseCase now preserves the typed
+	// InstanceNotFoundError chain via errors.Join when the parent
+	// instance lookup misses, so middleware dispatches the specific
+	// instance_not_found slug instead of the generic not_found.
+	assert.Equal(t, "instance_not_found", resp.Error)
 }
 
 func TestHandler_GetReturnsNotFoundWhenSettingsAbsent(t *testing.T) {

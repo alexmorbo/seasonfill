@@ -21,6 +21,7 @@ import (
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -131,7 +132,16 @@ func (nopMediaResolver) ResolveSync(_ context.Context, _ *string, _, _ string) *
 // Get runs the H-2 workflow for (tmdbID, lang, sort).
 func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, sortKey string) (*PersonDetail, error) {
 	if tmdbID <= 0 {
-		return nil, fmt.Errorf("get person: invalid tmdb id: %w", ports.ErrNotFound)
+		uc.d.Logger.WarnContext(ctx, "person_invalid_tmdb_id",
+			slog.Int("tmdb_person_id", int(tmdbID)),
+			slog.String("code", "tmdb_not_found"))
+		// Carry the typed err so middleware can dispatch on
+		// TMDBNotFoundError; join with ports.ErrNotFound so legacy
+		// errors.Is(err, ports.ErrNotFound) callers keep working.
+		return nil, errors.Join(
+			&sharedErrors.TMDBNotFoundError{ID: int(tmdbID)},
+			ports.ErrNotFound,
+		)
 	}
 	lang = normalizeLang(lang)
 	sk := resolveSort(sortKey)
@@ -252,7 +262,8 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 	}
 	canon, err := uc.d.SeriesByTMDB.GetByTMDBID(ctx, domain.TMDBID(pc.TMDBMediaID))
 	if err != nil {
-		if !errors.Is(err, ports.ErrNotFound) {
+		var seriesNF *sharedErrors.SeriesNotFoundError
+		if !errors.As(err, &seriesNF) {
 			uc.d.Logger.WarnContext(ctx, "person_classify_canon_lookup_failed",
 				slog.Int64("tmdb_media_id", pc.TMDBMediaID),
 				slog.String("error", err.Error()))

@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 const testMasterKey = "test-master-key-32-bytes-for-aes-gcm"
@@ -537,4 +538,70 @@ func TestUseCase_WithClock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fixed, view.CreatedAt)
 	assert.Equal(t, fixed, view.UpdatedAt)
+}
+
+// TestUseCase_GetByInstanceName_PreservesTypedInstanceNF asserts F-2c-2's
+// typed-chain preservation contract: when the parent instance lookup
+// misses, the use case returns InstanceNotFoundError joined with
+// ports.ErrNotFound so middleware can dispatch instance_not_found
+// instead of the generic not_found code.
+func TestUseCase_GetByInstanceName_PreservesTypedInstanceNF(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	// Stub returns ports.ErrNotFound joined with the typed sentinel,
+	// matching the production repo's actual return shape.
+	instances.getEr = errors.Join(
+		&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName("nope")},
+		ports.ErrNotFound,
+	)
+	uc := newUC(t, repo, instances)
+
+	_, err := uc.GetByInstanceName(context.Background(), "nope")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound),
+		"errors.Is(ports.ErrNotFound) must keep working through use-case wrap")
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"InstanceNotFoundError chain must survive the use-case wrap (F-2c-2)")
+	assert.Equal(t, domain.InstanceName("nope"), typed.Name)
+}
+
+// TestUseCase_Delete_PreservesTypedInstanceNF — same contract on Delete.
+func TestUseCase_Delete_PreservesTypedInstanceNF(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	instances.getEr = errors.Join(
+		&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName("ghost")},
+		ports.ErrNotFound,
+	)
+	uc := newUC(t, repo, instances)
+
+	err := uc.Delete(context.Background(), "ghost")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed))
+	assert.Equal(t, domain.InstanceName("ghost"), typed.Name)
+}
+
+// TestUseCase_Lookup_PreservesTypedInstanceNF — same contract on Lookup
+// (the regrab loop's read path).
+func TestUseCase_Lookup_PreservesTypedInstanceNF(t *testing.T) {
+	t.Parallel()
+	repo := newFakeSettingsRepo()
+	instances := newFakeInstanceRepo()
+	instances.getEr = errors.Join(
+		&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName("vanished")},
+		ports.ErrNotFound,
+	)
+	uc := newUC(t, repo, instances)
+
+	_, err := uc.Lookup(context.Background(), domain.InstanceName("vanished"))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	var typed *sharedErrors.InstanceNotFoundError
+	require.True(t, errors.As(err, &typed))
+	assert.Equal(t, domain.InstanceName("vanished"), typed.Name)
 }

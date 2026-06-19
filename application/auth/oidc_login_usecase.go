@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/admin"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 var (
@@ -110,10 +113,24 @@ type CallbackResult struct {
 type OIDCLoginUseCase struct {
 	providers *infraoidc.ProviderCache
 	admins    ports.AdminUserRepository
+	logger    *slog.Logger
 }
 
 func NewOIDCLoginUseCase(cache *infraoidc.ProviderCache, admins ports.AdminUserRepository) *OIDCLoginUseCase {
-	return &OIDCLoginUseCase{providers: cache, admins: admins}
+	return &OIDCLoginUseCase{
+		providers: cache,
+		admins:    admins,
+		logger:    sharedports.DomainLogger(slog.Default(), "auth"),
+	}
+}
+
+// WithLogger swaps the audit logger. Returning the use case keeps the
+// cmd/server wiring fluent.
+func (u *OIDCLoginUseCase) WithLogger(l *slog.Logger) *OIDCLoginUseCase {
+	if l != nil {
+		u.logger = l
+	}
+	return u
 }
 
 // Start generates PKCE verifier (RFC 7636 S256), random state, nonce,
@@ -250,16 +267,19 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, info Re
 	}
 
 	row, err := u.admins.GetByOIDCSubject(ctx, idToken.Subject)
-	switch {
-	case err == nil:
-		// hit — reuse
-	case errors.Is(err, ports.ErrNotFound):
+	if err != nil {
+		var adminNF *sharedErrors.AdminUserNotFoundError
+		if !errors.As(err, &adminNF) {
+			return CallbackResult{}, fmt.Errorf("oidc: lookup admin: %w", err)
+		}
+		u.logger.InfoContext(ctx, "oidc.callback.admin_first_seen",
+			slog.String("code", "admin_user_not_found"),
+			slog.String("subject", idToken.Subject),
+			slog.String("username", username))
 		row, err = u.admins.CreateFromOIDC(ctx, idToken.Subject, username)
 		if err != nil {
 			return CallbackResult{}, fmt.Errorf("oidc: create admin row: %w", err)
 		}
-	default:
-		return CallbackResult{}, fmt.Errorf("oidc: lookup admin: %w", err)
 	}
 	_ = admin.AdminUser{} // keep admin import alive in builds that don't read the row further
 

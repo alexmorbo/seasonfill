@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -104,8 +105,11 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 	//    on success.
 	canon, err := w.deps.Series.Get(ctx, seriesID)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			log.WarnContext(ctx, "enrichment.series.handle.series_missing")
+		var seriesNF *sharedErrors.SeriesNotFoundError
+		if errors.As(err, &seriesNF) {
+			log.WarnContext(ctx, "enrichment.series.handle.series_missing",
+				slog.Int64("series_id", int64(seriesNF.ID)),
+				slog.String("code", seriesNF.Code()))
 			return nil
 		}
 		return fmt.Errorf("series worker: load canon: %w", err)

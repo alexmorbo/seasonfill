@@ -18,6 +18,7 @@ import (
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // --- inline fakes ---
@@ -594,4 +595,22 @@ func TestUseCase_CanonExistsNoSeriesCache_IsOtherCredit(t *testing.T) {
 	// All 4 credits land in other_credits.
 	assert.Empty(t, out.LibraryCredits)
 	assert.Len(t, out.OtherCredits, 4)
+}
+
+// TestUseCase_InvalidTMDBID_TypedTMDBNF asserts F-2c-2's typed-chain
+// preservation: when caller hands an invalid TMDB id, the use case now
+// returns TMDBNotFoundError joined with ports.ErrNotFound so middleware
+// dispatches tmdb_not_found instead of generic not_found.
+func TestUseCase_InvalidTMDBID_TypedTMDBNF(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	uc := NewUseCase(deps)
+	_, err := uc.Get(context.Background(), 0, "", "")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound),
+		"legacy errors.Is(ports.ErrNotFound) must keep working")
+	var typed *sharedErrors.TMDBNotFoundError
+	require.True(t, errors.As(err, &typed),
+		"TMDBNotFoundError chain must survive (F-2c-2)")
+	assert.Equal(t, 0, typed.ID)
 }
