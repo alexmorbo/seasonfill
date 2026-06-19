@@ -77,7 +77,7 @@ type fakeOMDbClient struct {
 	calls int
 }
 
-func (f *fakeOMDbClient) GetByIMDB(_ context.Context, _ string) (*omdb.Response, error) {
+func (f *fakeOMDbClient) GetByIMDB(_ context.Context, _ domain.IMDBID) (*omdb.Response, error) {
 	f.calls++
 	return f.resp, f.err
 }
@@ -102,7 +102,7 @@ type omdbWorkerFakes struct {
 	budget  *fakeOMDbBudget
 }
 
-func imdbPtr(s string) *string { return &s }
+func imdbPtr(s string) *domain.IMDBID { v := domain.IMDBID(s); return &v }
 
 func newOMDbWorkerForTest(t *testing.T, mut func(*OMDbWorkerDeps)) (*OMDbWorker, *omdbWorkerFakes) {
 	t.Helper()
@@ -323,7 +323,7 @@ func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 	t.Parallel()
 	tmdbID := 99
 	tvdbID := domain.TVDBID(100)
-	imdb := "tt0903747"
+	imdb := domain.IMDBID("tt0903747")
 	origTitle := "BB original"
 	status := "Ended"
 	year := 2008

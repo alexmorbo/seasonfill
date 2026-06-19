@@ -66,7 +66,7 @@ func (d *refreshHandlerFakeDispatcher) Enqueue(_ enrichment.EntityKind, _ int64,
 func (d *refreshHandlerFakeDispatcher) Close() {}
 
 func ptrInt64(v int64) *domain.SeriesID { sid := domain.SeriesID(v); return &sid }
-func ptrString(v string) *string        { return &v }
+func ptrIMDBID(v string) *domain.IMDBID { id := domain.IMDBID(v); return &id }
 
 func mustNewRefreshHandler(t *testing.T, uc *seriesrefresh.UseCase) *SeriesRefreshHandler {
 	t.Helper()
@@ -77,7 +77,7 @@ func TestSeriesRefreshHandler_202_Accepted(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &refreshHandlerFakeCache{entry: series.CacheEntry{SeriesID: ptrInt64(42)}}
-	canon := &refreshHandlerFakeSeries{canon: seriesrefresh.CanonView{ID: 42, IMDBID: ptrString("tt9")}}
+	canon := &refreshHandlerFakeSeries{canon: seriesrefresh.CanonView{ID: 42, IMDBID: ptrIMDBID("tt9")}}
 	cast := &refreshHandlerFakeCast{ids: []int64{1, 2}}
 	disp := &refreshHandlerFakeDispatcher{}
 	uc, err := seriesrefresh.New(seriesrefresh.Deps{

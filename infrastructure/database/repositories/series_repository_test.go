@@ -23,7 +23,7 @@ func sampleCanon(title string) series.Canon {
 		Hydration:     series.HydrationStub,
 		TMDBID:        ptrInt(101),
 		TVDBID:        ptrTVDBID(202),
-		IMDBID:        ptrString("tt0000001"),
+		IMDBID:        ptrIMDBID("tt0000001"),
 		OriginalTitle: ptrString("orig: " + title),
 		Status:        ptrString("Returning Series"),
 		Year:          ptrInt(2024),
@@ -114,7 +114,7 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// TMDB hit wins.
-	got, err := repo.FindByExternalIDs(ctx, ptrInt(101), ptrTVDBID(0), ptrString(""))
+	got, err := repo.FindByExternalIDs(ctx, ptrInt(101), ptrTVDBID(0), ptrIMDBID(""))
 	require.NoError(t, err)
 	assert.Equal(t, "Andor", got.Title)
 
@@ -124,7 +124,7 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 	assert.Equal(t, "Andor", got.Title)
 
 	// All probes miss.
-	_, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(404), ptrString("tt9999999"))
+	_, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(404), ptrIMDBID("tt9999999"))
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
 }
 
@@ -265,21 +265,21 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 	// 3 library series (each with a series_cache row).
 	a := sampleCanon("A")
 	a.TMDBID = ptrInt(2001)
-	a.IMDBID = ptrString("tt0000001")
+	a.IMDBID = ptrIMDBID("tt0000001")
 	idA, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idA, "main", 1, false)
 
 	b := sampleCanon("B")
 	b.TMDBID = ptrInt(2002)
-	b.IMDBID = ptrString("tt0000002")
+	b.IMDBID = ptrIMDBID("tt0000002")
 	idB, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idB, "main", 2, false)
 
 	c := sampleCanon("C")
 	c.TMDBID = ptrInt(2003)
-	c.IMDBID = ptrString("tt0000003")
+	c.IMDBID = ptrIMDBID("tt0000003")
 	idC, err := repo.Upsert(ctx, c)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idC, "main", 3, false)
@@ -287,14 +287,14 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 	// 1 stub series — has imdb_id but NO series_cache row.
 	stub := sampleCanon("Stub")
 	stub.TMDBID = ptrInt(2004)
-	stub.IMDBID = ptrString("tt0000004")
+	stub.IMDBID = ptrIMDBID("tt0000004")
 	_, err = repo.Upsert(ctx, stub)
 	require.NoError(t, err)
 
 	// 1 series with terminal not_found sync_log.
 	d := sampleCanon("D")
 	d.TMDBID = ptrInt(2005)
-	d.IMDBID = ptrString("tt0000005")
+	d.IMDBID = ptrIMDBID("tt0000005")
 	idD, err := repo.Upsert(ctx, d)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idD, "main", 5, false)
@@ -329,7 +329,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 
 	s := sampleCanon("Fresh")
 	s.TMDBID = ptrInt(3001)
-	s.IMDBID = ptrString("tt0000010")
+	s.IMDBID = ptrIMDBID("tt0000010")
 	id, err := repo.Upsert(ctx, s)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, id, "main", 10, false)
@@ -374,7 +374,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin
 
 	stub := sampleCanon("Stub Only")
 	stub.TMDBID = ptrInt(4001)
-	stub.IMDBID = ptrString("tt0000020")
+	stub.IMDBID = ptrIMDBID("tt0000020")
 	_, err := repo.Upsert(ctx, stub)
 	require.NoError(t, err)
 
@@ -394,7 +394,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExclude
 
 	s := sampleCanon("Deleted")
 	s.TMDBID = ptrInt(5001)
-	s.IMDBID = ptrString("tt0000030")
+	s.IMDBID = ptrIMDBID("tt0000030")
 	id, err := repo.Upsert(ctx, s)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, id, "main", 30, true) // deleted_at set

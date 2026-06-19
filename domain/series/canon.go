@@ -43,7 +43,7 @@ type Canon struct {
 	ID               domain.SeriesID
 	TMDBID           *int
 	TVDBID           *domain.TVDBID
-	IMDBID           *string
+	IMDBID           *domain.IMDBID
 	Hydration        Hydration
 	Title            string
 	OriginalTitle    *string

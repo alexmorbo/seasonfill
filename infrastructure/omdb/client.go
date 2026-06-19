@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // DefaultBaseURL is the production OMDb endpoint. Override only in
@@ -147,13 +148,13 @@ func omdbEndpointFor(*http.Request) string { return "/" }
 // The imdbID is passed verbatim — caller MUST normalise via
 // tmdb.NormaliseIMDBID (or equivalent) before calling. Empty
 // imdbID returns a programmer-error.
-func (c *Client) GetByIMDB(ctx context.Context, imdbID string) (*Response, error) {
+func (c *Client) GetByIMDB(ctx context.Context, imdbID domain.IMDBID) (*Response, error) {
 	if imdbID == "" {
 		return nil, errors.New("omdb: imdb id required")
 	}
 
 	q := url.Values{}
-	q.Set("i", imdbID)
+	q.Set("i", string(imdbID))
 	q.Set("apikey", c.apiKey)
 	q.Set("r", "json")
 	full := c.baseURL + "/?" + q.Encode()

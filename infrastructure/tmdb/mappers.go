@@ -65,7 +65,8 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 	}
 	if tv.ExternalIDs != nil {
 		if id := NormaliseIMDBID(tv.ExternalIDs.IMDBID); id != "" {
-			c.IMDBID = ptrString(id)
+			v := domain.IMDBID(id)
+			c.IMDBID = &v
 		}
 		if tv.ExternalIDs.TVDBID != nil {
 			v := *tv.ExternalIDs.TVDBID

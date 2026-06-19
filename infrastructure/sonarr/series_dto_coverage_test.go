@@ -52,7 +52,7 @@ func TestSeriesDTOToCacheEntry_AllOptionalFieldsPopulated(t *testing.T) {
 	require.NotNil(t, e.TVDBID)
 	assert.Equal(t, domain.TVDBID(81189), *e.TVDBID)
 	require.NotNil(t, e.IMDBID)
-	assert.Equal(t, "tt0903747", *e.IMDBID)
+	assert.Equal(t, domain.IMDBID("tt0903747"), *e.IMDBID)
 	require.NotNil(t, e.TMDBID)
 	assert.Equal(t, 1396, *e.TMDBID)
 	require.NotNil(t, e.Status)

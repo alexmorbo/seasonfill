@@ -110,7 +110,7 @@ func TestEpisodesRepository_CountBySeries(t *testing.T) {
 	c2.TMDBID = &otherTMDB
 	otherTVDB := domain.TVDBID(888)
 	c2.TVDBID = &otherTVDB
-	otherIMDB := "tt0000002"
+	otherIMDB := domain.IMDBID("tt0000002")
 	c2.IMDBID = &otherIMDB
 	seriesID2, err := seriesRepo.Upsert(ctx, c2)
 	require.NoError(t, err)

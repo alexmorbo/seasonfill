@@ -105,7 +105,7 @@ type Event struct {
 	SeriesTitle     string
 	SeriesTitleSlug string
 	SeriesTVDBID    domain.TVDBID
-	SeriesIMDBID    string
+	SeriesIMDBID    domain.IMDBID
 
 	// Message — failure reason from DownloadStatusMessages
 	// (ManualInteractionRequired only). Empty on success.

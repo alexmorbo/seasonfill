@@ -177,7 +177,7 @@ func TestWebhookHandler_SeriesAdd_ReachesProcessor_200(t *testing.T) {
 	assert.Equal(t, "Black-ish", f.proc.lastEvt.SeriesTitle)
 	assert.Equal(t, "black-ish", f.proc.lastEvt.SeriesTitleSlug)
 	assert.Equal(t, domain.TVDBID(269578), f.proc.lastEvt.SeriesTVDBID)
-	assert.Equal(t, "tt3487356", f.proc.lastEvt.SeriesIMDBID)
+	assert.Equal(t, domain.IMDBID("tt3487356"), f.proc.lastEvt.SeriesIMDBID)
 	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
 }
 

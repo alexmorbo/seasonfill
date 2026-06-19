@@ -71,7 +71,7 @@ func (r *SeriesRepository) FindByExternalIDs(
 	ctx context.Context,
 	tmdbID *int,
 	tvdbID *domain.TVDBID,
-	imdbID *string,
+	imdbID *domain.IMDBID,
 ) (series.Canon, error) {
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	probe := func(where string, args ...any) (series.Canon, bool, error) {

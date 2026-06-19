@@ -39,7 +39,7 @@ type SeriesByIDReader interface {
 // the domain/series import.
 type CanonView struct {
 	ID     domain.SeriesID
-	IMDBID *string
+	IMDBID *domain.IMDBID
 }
 
 // TopCastReader returns up to N person canon ids for a series. The

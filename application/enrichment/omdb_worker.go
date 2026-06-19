@@ -38,7 +38,7 @@ import (
 // so the wiring layer can swap the underlying client on S-2 reload
 // without rebuilding the worker.
 type OMDbClient interface {
-	GetByIMDB(ctx context.Context, imdbID string) (*omdb.Response, error)
+	GetByIMDB(ctx context.Context, imdbID domain.IMDBID) (*omdb.Response, error)
 }
 
 // OMDbBudget is the budget-guard surface the worker calls into.
@@ -119,7 +119,7 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 		return nil
 	}
 	imdbID := *canon.IMDBID
-	log = log.With(slog.String("imdb_id", imdbID))
+	log = log.With(slog.String("imdb_id", string(imdbID)))
 
 	// 2. Staleness short-circuit: outcome=ok + within TTL ⇒ skip.
 	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceOMDb)

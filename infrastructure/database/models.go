@@ -415,7 +415,7 @@ type SeriesModel struct {
 	ID               domain.SeriesID `gorm:"primaryKey;autoIncrement;column:id"`
 	TMDBID           *int            `gorm:"column:tmdb_id"`
 	TVDBID           *domain.TVDBID  `gorm:"column:tvdb_id;index:series_tvdb_id"`
-	IMDBID           *string         `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
+	IMDBID           *domain.IMDBID  `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
 	Hydration        string          `gorm:"column:hydration;type:text;not null;default:'stub'"`
 	Title            string          `gorm:"column:title;type:text;not null"`
 	OriginalTitle    *string         `gorm:"column:original_title;type:text"`

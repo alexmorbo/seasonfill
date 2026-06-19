@@ -32,7 +32,7 @@ type CacheEntry struct {
 	TitleSlug string
 	Year      *int
 	TVDBID    *domain.TVDBID
-	IMDBID    *string
+	IMDBID    *domain.IMDBID
 	TMDBID    *int
 	Status    *string
 	// Network REMOVED in E-1 (Story 210). Network membership lives in

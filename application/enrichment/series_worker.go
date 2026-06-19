@@ -856,7 +856,7 @@ func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.Seri
 
 func patchFromTMDBCanon(c series.Canon) enrichment.SeriesPatch {
 	return enrichment.SeriesPatch{
-		TMDBID: c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: c.IMDBID,
+		TMDBID: c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
 		OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate:      c.NextAirDate,
@@ -903,10 +903,32 @@ func intPtrToTVDBID(p *int) *domain.TVDBID {
 	return &v
 }
 
+// imdbIDPtrToString / stringPtrToIMDBID bridge the typed IMDBID seam
+// between series.Canon (*domain.IMDBID) and the domain/enrichment
+// patch + canon shapes (*string). Same rationale as the TVDB bridge:
+// domain/enrichment intentionally stays import-free of
+// internal/shared/domain so the application layer does the cast at
+// the merge seam. Story 402 A-5d-1.
+func imdbIDPtrToString(p *domain.IMDBID) *string {
+	if p == nil {
+		return nil
+	}
+	v := string(*p)
+	return &v
+}
+
+func stringPtrToIMDBID(p *string) *domain.IMDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.IMDBID(*p)
+	return &v
+}
+
 func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration: enrichment.HydrationLevel(c.Hydration),
-		TMDBID:    c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: c.IMDBID,
+		TMDBID:    c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
 		Title: c.Title, OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate: c.NextAirDate, Year: c.Year,
@@ -924,7 +946,7 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.Hydration = series.Hydration(ec.Hydration)
 	base.TMDBID = ec.TMDBID
 	base.TVDBID = intPtrToTVDBID(ec.TVDBID)
-	base.IMDBID = ec.IMDBID
+	base.IMDBID = stringPtrToIMDBID(ec.IMDBID)
 	base.Title = ec.Title
 	base.OriginalTitle = ec.OriginalTitle
 	base.Status = ec.Status

@@ -56,7 +56,7 @@ type webhookSeriesDTO struct {
 	TitleSlug string                `json:"titleSlug,omitempty"`
 	TvdbID    domain.TVDBID         `json:"tvdbId,omitempty"`
 	TvMazeID  int                   `json:"tvMazeId,omitempty"`
-	ImdbID    string                `json:"imdbId,omitempty"`
+	ImdbID    domain.IMDBID         `json:"imdbId,omitempty"`
 	Type      string                `json:"type,omitempty"`
 }
 

@@ -38,7 +38,7 @@ func sampleEntry(instance domain.InstanceName, id domain.SonarrSeriesID) series.
 		TitleSlug:      "test-series",
 		Year:           ptrInt(2024),
 		TVDBID:         &tvdb,
-		IMDBID:         ptrString(fmt.Sprintf("tt%07d", 9000000+int(id))),
+		IMDBID:         ptrIMDBID(fmt.Sprintf("tt%07d", 9000000+int(id))),
 		TMDBID:         &tmdb,
 		Status:         ptrString("continuing"),
 		Genres:         []string{"Drama", "Comedy"},

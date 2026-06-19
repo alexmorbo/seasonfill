@@ -191,7 +191,7 @@ func sonarrPatchFromPayload(p sonarr.SeriesPayload) enrichment.SeriesPatch {
 		patch.TVDBID = &v
 	}
 	if p.IMDBID != "" {
-		v := p.IMDBID
+		v := string(p.IMDBID)
 		patch.IMDBID = &v
 	}
 	return patch
@@ -202,7 +202,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 		Hydration:        enrichment.HydrationLevel(c.Hydration),
 		TMDBID:           c.TMDBID,
 		TVDBID:           intPtrFromTVDBID(c.TVDBID),
-		IMDBID:           c.IMDBID,
+		IMDBID:           stringPtrFromIMDBID(c.IMDBID),
 		Title:            c.Title,
 		OriginalTitle:    c.OriginalTitle,
 		Status:           c.Status,
@@ -232,7 +232,7 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.Hydration = series.Hydration(ec.Hydration)
 	base.TMDBID = ec.TMDBID
 	base.TVDBID = tvdbIDPtrFromInt(ec.TVDBID)
-	base.IMDBID = ec.IMDBID
+	base.IMDBID = imdbIDPtrFromString(ec.IMDBID)
 	base.Title = ec.Title
 	base.OriginalTitle = ec.OriginalTitle
 	base.Status = ec.Status
@@ -591,5 +591,26 @@ func tvdbIDPtrFromInt(p *int) *domain.TVDBID {
 		return nil
 	}
 	v := domain.TVDBID(*p)
+	return &v
+}
+
+// stringPtrFromIMDBID translates *domain.IMDBID → *string across the
+// domain↔domain/enrichment boundary. domain/enrichment intentionally
+// avoids importing internal/shared/domain (pure-Go contract), so the
+// scan adapter does the cast at the seam. Story 402 A-5d-1.
+func stringPtrFromIMDBID(p *domain.IMDBID) *string {
+	if p == nil {
+		return nil
+	}
+	v := string(*p)
+	return &v
+}
+
+// imdbIDPtrFromString is the inverse of stringPtrFromIMDBID.
+func imdbIDPtrFromString(p *string) *domain.IMDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.IMDBID(*p)
 	return &v
 }

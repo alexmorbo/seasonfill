@@ -72,7 +72,7 @@ func (d *refreshFakeDispatcher) Enqueue(k enrichment.EntityKind, id int64, p enr
 }
 func (d *refreshFakeDispatcher) Close() {}
 
-func ptrString(v string) *string { return &v }
+func ptrIMDBID(v string) *domain.IMDBID { id := domain.IMDBID(v); return &id }
 func ptrSeriesID(v int64) *domain.SeriesID {
 	id := domain.SeriesID(v)
 	return &id
@@ -81,7 +81,7 @@ func ptrSeriesID(v int64) *domain.SeriesID {
 func TestRefresh_HappyPath_SeriesPersonsOMDb(t *testing.T) {
 	t.Parallel()
 	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(99)}}
-	canon := &refreshFakeSeries{canon: CanonView{ID: 99, IMDBID: ptrString("tt123")}}
+	canon := &refreshFakeSeries{canon: CanonView{ID: 99, IMDBID: ptrIMDBID("tt123")}}
 	cast := &refreshFakeCast{ids: []int64{1, 2, 3}}
 	disp := &refreshFakeDispatcher{}
 
@@ -117,7 +117,7 @@ func TestRefresh_NoSeriesPeople_SkipsCastBranch(t *testing.T) {
 func TestRefresh_NoIMDB_SkipsOMDb(t *testing.T) {
 	t.Parallel()
 	cache := &refreshFakeCache{entry: series.CacheEntry{SeriesID: ptrSeriesID(50)}}
-	canon := &refreshFakeSeries{canon: CanonView{ID: 50, IMDBID: ptrString("")}}
+	canon := &refreshFakeSeries{canon: CanonView{ID: 50, IMDBID: ptrIMDBID("")}}
 	cast := &refreshFakeCast{ids: []int64{1}}
 	disp := &refreshFakeDispatcher{}
 

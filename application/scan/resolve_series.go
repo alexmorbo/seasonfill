@@ -36,7 +36,7 @@ func ResolveOrCreateSeries(
 ) (series.Canon, error) {
 	tmdbID := nonZeroIntPtr(p.TMDBID)
 	tvdbID := nonZeroTVDBIDPtr(p.TVDBID)
-	imdbID := nonEmptyStringPtr(p.IMDBID)
+	imdbID := nonEmptyIMDBIDPtr(p.IMDBID)
 
 	existing, err := repo.FindByExternalIDs(ctx, tmdbID, tvdbID, imdbID)
 	if err == nil {
@@ -77,7 +77,8 @@ func nonZeroTVDBIDPtr(v domain.TVDBID) *domain.TVDBID {
 	return &v
 }
 
-func nonEmptyStringPtr(v string) *string {
+// nonEmptyIMDBIDPtr is the typed-primitive variant — story 402 A-5d-1.
+func nonEmptyIMDBIDPtr(v domain.IMDBID) *domain.IMDBID {
 	if v == "" {
 		return nil
 	}

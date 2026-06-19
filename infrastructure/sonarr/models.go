@@ -25,7 +25,7 @@ type seriesDTO struct {
 	Seasons        []seasonDTO         `json:"seasons"`
 	Statistics     *statisticsDTO      `json:"statistics,omitempty"`
 	TVDBID         shareddomain.TVDBID `json:"tvdbId,omitempty"`
-	IMDBID         string              `json:"imdbId,omitempty"`
+	IMDBID         shareddomain.IMDBID `json:"imdbId,omitempty"`
 	TMDBID         int                 `json:"tmdbId,omitempty"`
 	Status         string              `json:"status,omitempty"`
 	Network        string              `json:"network,omitempty"`
