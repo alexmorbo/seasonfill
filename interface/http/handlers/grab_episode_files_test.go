@@ -27,8 +27,19 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+// newEFRouter builds a gin engine with the F-2c-1 typed-error middleware
+// so the handler's c.Error(err) dispatch reaches the JSON envelope.
+func newEFRouter(h *handlers.GrabEpisodeFilesHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
+	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
+	return r
+}
 
 type stubSonarrEF struct {
 	files []ports.EpisodeFileDetail
@@ -196,9 +207,10 @@ func TestEpisodeFiles_UnknownID_404(t *testing.T) {
 	})
 	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/instances/:name/grabs/:id/episode-files", h.List)
+	// F-2c-1: this case hits the GrabRepository.GetByID NotFound path
+	// which now dispatches via c.Error → typed-error middleware. The
+	// router must mount the middleware for the 404 status to land.
+	r := newEFRouter(h)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/instances/main/grabs/"+uuid.New().String()+"/episode-files", nil))

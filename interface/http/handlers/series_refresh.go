@@ -1,14 +1,12 @@
 package handlers
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -69,13 +67,7 @@ func (h *SeriesRefreshHandler) Refresh(c *gin.Context) {
 
 	res, err := h.uc.Refresh(c.Request.Context(), domain.InstanceName(name), sonarrID)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "series_refresh_failed", err,
-			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", int(sonarrID)))
+		_ = c.Error(err)
 		return
 	}
 

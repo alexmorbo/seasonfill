@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -280,6 +281,9 @@ func TestSeriesDetailHandler_Get_404_Unknown(t *testing.T) {
 	)
 	h := NewSeriesDetailHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
+	// F-2c-1: typed-error middleware so handler c.Error(err) flows
+	// through to the JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	r.GET("/api/v1/instances/:name/series/:id", h.Get)
 
 	rec := httptest.NewRecorder()

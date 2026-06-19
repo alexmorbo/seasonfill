@@ -11,13 +11,23 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
+
+func mustParseUUID(s string) uuid.UUID {
+	u, err := uuid.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
 
 type errorResponse struct {
 	Error   string `json:"error"`
@@ -162,3 +172,106 @@ func TestErrorResponseMiddleware_UsesLastErrorWhenMultiplePushed(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "scan_in_progress", body.Error)
 }
+
+// TestErrorResponseMiddleware_PortsErrNotFoundFallback documents the
+// F-2c-1 safety net: when a handler dispatches a bare ports.ErrNotFound
+// (e.g. an application-layer use case that has not migrated to typed
+// errors yet) the middleware downgrades to 404 with a generic
+// `not_found` slug rather than the default 500 / `internal_error`.
+// Typed errors always win — verified by the TypedNotFound test above.
+func TestErrorResponseMiddleware_PortsErrNotFoundFallback(t *testing.T) {
+	t.Parallel()
+
+	r := newRouter(func(c *gin.Context) {
+		_ = c.Error(ports.ErrNotFound)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var body errorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "not_found", body.Error)
+	assert.Equal(t, "not found", body.Message)
+}
+
+// TestErrorResponseMiddleware_HandlerDispatchIntegration mirrors the
+// production wire flow: a representative handler returns a typed
+// repository error via c.Error, and the middleware emits the snake_case
+// slug on the `error` key with the typed Error() string on `message`.
+func TestErrorResponseMiddleware_HandlerDispatchIntegration(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantSlug   string
+		wantPrefix string
+	}{
+		{
+			name: "InstanceNotFoundError",
+			err: errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: "alpha"},
+				ports.ErrNotFound,
+			),
+			wantStatus: http.StatusNotFound,
+			wantSlug:   "instance_not_found",
+			wantPrefix: "instance \"alpha\" not found",
+		},
+		{
+			name: "DecisionNotFoundError",
+			err: errors.Join(
+				&sharedErrors.DecisionNotFoundError{ID: testDecisionID},
+				ports.ErrNotFound,
+			),
+			wantStatus: http.StatusNotFound,
+			wantSlug:   "decision_not_found",
+			wantPrefix: "decision",
+		},
+		{
+			name: "GrabNotFoundError",
+			err: errors.Join(
+				&sharedErrors.GrabNotFoundError{ID: "gr-1"},
+				ports.ErrNotFound,
+			),
+			wantStatus: http.StatusNotFound,
+			wantSlug:   "grab_not_found",
+			wantPrefix: "grab",
+		},
+		{
+			name:       "ScanInProgressError",
+			err:        &sharedErrors.ScanInProgressError{},
+			wantStatus: http.StatusConflict,
+			wantSlug:   "scan_in_progress",
+			wantPrefix: "scan already in progress",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRouter(func(c *gin.Context) {
+				_ = c.Error(tc.err)
+			})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+			r.ServeHTTP(w, req)
+
+			require.Equal(t, tc.wantStatus, w.Code, "body=%s", w.Body.String())
+
+			var body errorResponse
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantSlug, body.Error, "slug on `error` key")
+			assert.Contains(t, body.Message, tc.wantPrefix, "message contains typed err text")
+		})
+	}
+}
+
+// testDecisionID is a stable UUID used across the handler dispatch
+// integration cases for predictable Error() text in assertions.
+var testDecisionID = mustParseUUID("11111111-1111-1111-1111-111111111111")

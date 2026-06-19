@@ -68,6 +68,9 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	h := NewAuditHandler(scans, decs, grabs, lg).WithSeriesCache(seriesCache)
 
 	r := gin.New()
+	// F-2c-1: typed-error middleware so handler c.Error(err) reaches
+	// the JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(lg))
 	api := r.Group("/api/v1")
 	if withAuth {
 		sessionKey, skErr := crypto.DeriveSessionHMACKey("test-key")
@@ -98,6 +101,7 @@ func (f *auditFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsR
 		WithSeriesCache(f.seriesCache).
 		WithMediaPending(mediaRepo)
 	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(lg))
 	api := r.Group("/api/v1")
 	api.GET("/scans", h.ListScans)
 	api.GET("/scans/:id", h.GetScan)
@@ -295,7 +299,9 @@ func TestAuditHandler_GetScan_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "scan not found", body["error"])
+	// F-2c-1: typed-error middleware emits the slug on `error` and the
+	// human-readable text on `message`.
+	assert.Equal(t, "scan_run_not_found", body["error"])
 }
 
 func TestAuditHandler_GetScan_BadUUID(t *testing.T) {
@@ -379,7 +385,8 @@ func TestAuditHandler_GetDecision_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "decision not found", body["error"])
+	// F-2c-1: typed-error middleware emits the slug on `error`.
+	assert.Equal(t, "decision_not_found", body["error"])
 }
 
 func TestAuditHandler_GetDecision_BadUUID(t *testing.T) {

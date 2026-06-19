@@ -22,8 +22,18 @@ import (
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+// newPeopleRouter mounts the F-2c-1 typed-error middleware so the
+// handler's c.Error(err) dispatch reaches the JSON envelope.
+func newPeopleRouter(h *PeopleHandler) *gin.Engine {
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(handlerTestLogger()))
+	r.GET("/api/v1/people/:tmdbId", h.Get)
+	return r
+}
 
 // --- handler-local fakes (minimal — heavy lifting is in usecase_test.go) ---
 
@@ -218,8 +228,7 @@ func TestPeopleHandler_Get_404_UnknownPerson(t *testing.T) {
 		Logger:        handlerTestLogger(),
 	})
 	h := buildHandler(uc)
-	r := gin.New()
-	r.GET("/api/v1/people/:tmdbId", h.Get)
+	r := newPeopleRouter(h)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/people/4495", nil)
@@ -227,7 +236,11 @@ func TestPeopleHandler_Get_404_UnknownPerson(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	var body dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, "person not found", body.Error)
+	// F-2c-1: middleware emits the typed slug on `error`. The use case
+	// passes through bare ports.ErrNotFound (no typed wrap yet — that's
+	// F-2c-2's job), so the middleware falls back to the generic
+	// `not_found` slug.
+	assert.Equal(t, "not_found", body.Error)
 }
 
 func TestPeopleHandler_Get_500_OnNonNotFoundError(t *testing.T) {
@@ -241,8 +254,7 @@ func TestPeopleHandler_Get_500_OnNonNotFoundError(t *testing.T) {
 		Logger:        handlerTestLogger(),
 	})
 	h := buildHandler(uc)
-	r := gin.New()
-	r.GET("/api/v1/people/:tmdbId", h.Get)
+	r := newPeopleRouter(h)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/people/4495", nil)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -49,6 +51,9 @@ func (s stubTitles) Get(_ context.Context, _ domain.InstanceName, seriesID domai
 func newBlacklistRouter(h *WatchdogBlacklistHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	// F-2c-1: typed-error middleware so handler c.Error(err) reaches
+	// the JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
 	r.GET("/api/v1/instances/:name/watchdog/blacklist", h.List)
 	r.DELETE("/api/v1/instances/:name/watchdog/blacklist/:id", h.Delete)
 	return r

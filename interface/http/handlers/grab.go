@@ -71,13 +71,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 
 	d, err := h.decisions.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			writeError(c, http.StatusNotFound, "decision not found")
-			return
-		}
-		writeInternalError(c, h.logger, "grab_get_decision_failed", err,
-			slog.String("endpoint", "/api/v1/decisions/:id/grab"),
-			slog.String("decision_id", id.String()))
+		_ = c.Error(err)
 		return
 	}
 

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -73,14 +71,7 @@ func (h *SeriesSeasonHandler) Get(c *gin.Context) {
 	ctx := c.Request.Context()
 	detail, err := h.composer.GetSeason(ctx, domain.InstanceName(name), sonarrID, seasonNumber, lang)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "season not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "series_season_compose_failed", err,
-			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", int(sonarrID)),
-			slog.Int("season_number", seasonNumber))
+		_ = c.Error(err)
 		return
 	}
 	if len(detail.Seasons) == 0 {

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
@@ -175,14 +173,7 @@ func (h *WatchdogBlacklistHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.pager.DeleteByID(ctx, instanceID, uint(id)); err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			writeError(c, http.StatusNotFound, "blacklist row not found")
-			return
-		}
-		writeInternalError(c, h.logger, "watchdog_blacklist_delete_failed", err,
-			slog.String("instance", name),
-			slog.Uint64("id", id),
-		)
+		_ = c.Error(err)
 		return
 	}
 

@@ -26,6 +26,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -311,6 +312,8 @@ func newRescanFixture(t *testing.T, releases []release.Release) *rescanFixture {
 	uc := rescan.NewUseCase(dec, gr, scans, inflight, ev, func() map[string]scan.Instance { return m }, lg)
 	h := NewRescanHandler(uc, lg)
 	r := gin.New()
+	// F-2c-1: middleware so c.Error → JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(lg))
 	r.POST("/api/v1/decisions/:id/rescan", h.ByDecision)
 	return &rescanFixture{dec: dec, gr: gr, scans: scans, inflight: inflight, router: r}
 }

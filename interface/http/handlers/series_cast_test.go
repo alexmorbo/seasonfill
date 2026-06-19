@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -209,6 +210,8 @@ func TestSeriesCastHandler_Get_404_Unknown(t *testing.T) {
 	)
 	h := NewSeriesCastHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
+	// F-2c-1: middleware so c.Error → JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	r.GET("/api/v1/instances/:name/series/:id/cast", h.Get)
 
 	rec := httptest.NewRecorder()

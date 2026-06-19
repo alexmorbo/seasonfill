@@ -20,6 +20,8 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // crudFakeRepo is a minimal in-process implementation of
@@ -49,7 +51,11 @@ func (f *crudFakeRepo) List(_ context.Context, _ *crypto.Cipher) ([]runtime.Inst
 func (f *crudFakeRepo) GetByName(_ context.Context, name string, _ *crypto.Cipher) (runtime.InstanceSnapshot, error) {
 	r, ok := f.rows[name]
 	if !ok {
-		return runtime.InstanceSnapshot{}, ports.ErrNotFound
+		// Mirror the F-2b repo: typed error joined with the sentinel.
+		return runtime.InstanceSnapshot{}, errors.Join(
+			&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+			ports.ErrNotFound,
+		)
 	}
 	return r, nil
 }
@@ -78,7 +84,10 @@ func (f *crudFakeRepo) UpdateWithOptions(_ context.Context, inst runtime.Instanc
 }
 func (f *crudFakeRepo) Delete(_ context.Context, name string) error {
 	if _, ok := f.rows[name]; !ok {
-		return ports.ErrNotFound
+		return errors.Join(
+			&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+			ports.ErrNotFound,
+		)
 	}
 	delete(f.rows, name)
 	delete(f.updated, name)
@@ -89,7 +98,10 @@ func (f *crudFakeRepo) Count(_ context.Context) (int, error) { return f.count, n
 func (f *crudFakeRepo) GetUpdatedAt(_ context.Context, name string) (time.Time, error) {
 	ts, ok := f.updated[name]
 	if !ok {
-		return time.Time{}, ports.ErrNotFound
+		return time.Time{}, errors.Join(
+			&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+			ports.ErrNotFound,
+		)
 	}
 	return ts, nil
 }
@@ -112,6 +124,10 @@ func setupCRUD(t *testing.T) (*gin.Engine, *crudFakeRepo) {
 	uc := instance.New(repo, crudFakeRuntime{}, nil, runtime.NewBus(nil), slog.Default())
 	h := NewInstanceCRUDHandler(uc, slog.Default())
 	r := gin.New()
+	// F-2c-1: mount the typed-error response middleware so handlers
+	// that dispatch via c.Error(err) emit the JSON envelope the
+	// production server emits.
+	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
 	r.GET("/api/v1/instances/:name", h.Get)
 	r.POST("/api/v1/instances", h.Create)
 	r.PUT("/api/v1/instances/:name", h.Update)
@@ -270,13 +286,16 @@ func TestCRUD_MalformedBody_400(t *testing.T) {
 // --- Part 028i: uncovered branches ---
 
 // TestCRUD_Get_NotFound exercises the Get handler's writeError path when
-// the instance does not exist (ErrNotFound → 404).
+// the instance does not exist (typed InstanceNotFoundError → 404).
+// F-2c-1: wire `error` slug is the lowercase typed code
+// `instance_not_found` (was the SCREAMING_CASE Code field
+// `INSTANCE_NOT_FOUND` before the typed-middleware dispatch).
 func TestCRUD_Get_NotFound(t *testing.T) {
 	t.Parallel()
 	r, _ := setupCRUD(t)
 	w := doJSON(t, r, http.MethodGet, "/api/v1/instances/ghost", nil, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "INSTANCE_NOT_FOUND")
+	assert.Contains(t, w.Body.String(), "instance_not_found")
 }
 
 // TestCRUD_WriteError_InternalError confirms that a generic error on Delete

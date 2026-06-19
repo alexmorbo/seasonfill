@@ -3,7 +3,6 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
@@ -103,13 +101,7 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	// row) also → 404.
 	cache, err := h.cache.Get(ctx, domain.InstanceName(name), sonarrID)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "series_torrents_cache_lookup_failed", err,
-			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", int(sonarrID)))
+		_ = c.Error(err)
 		return
 	}
 	if cache.SeriesID == nil || *cache.SeriesID == 0 {
@@ -119,16 +111,9 @@ func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	seriesID := *cache.SeriesID
 
 	// Step 2 — confirm the canon row exists. Empty canon →
-	// 404, matching the cast handler's pattern.
+	// 404 via typed-error dispatch (middleware emits series_not_found).
 	if _, gerr := h.series.Get(ctx, seriesID); gerr != nil {
-		if errors.Is(gerr, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "series_torrents_canon_lookup_failed", gerr,
-			slog.String("instance_name", name),
-			slog.Int("sonarr_series_id", int(sonarrID)),
-			slog.Int64("series_id", int64(seriesID)))
+		_ = c.Error(gerr)
 		return
 	}
 

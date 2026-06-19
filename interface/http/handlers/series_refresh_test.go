@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -136,6 +137,8 @@ func TestSeriesRefreshHandler_404_NotFound(t *testing.T) {
 
 	h := mustNewRefreshHandler(t, uc)
 	r := gin.New()
+	// F-2c-1: middleware so c.Error → JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	r.POST("/api/v1/instances/:name/series/:id/refresh", h.Refresh)
 
 	rec := httptest.NewRecorder()

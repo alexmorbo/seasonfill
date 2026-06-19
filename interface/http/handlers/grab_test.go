@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,8 +25,10 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // --- fakes ----------------------------------------------------------------
@@ -50,7 +53,11 @@ func (f *fakeDecRepo) GetByID(_ context.Context, id uuid.UUID) (decision.Decisio
 	if d, ok := f.store[id]; ok {
 		return d, nil
 	}
-	return decision.Decision{}, ports.ErrNotFound
+	// F-2b shape: typed error joined with the sentinel.
+	return decision.Decision{}, errors.Join(
+		&sharedErrors.DecisionNotFoundError{ID: id},
+		ports.ErrNotFound,
+	)
 }
 func (f *fakeDecRepo) List(_ context.Context, _ ports.DecisionFilter, _ ports.Pagination) ([]decision.Decision, *ports.Cursor, error) {
 	return nil, nil, nil
@@ -207,6 +214,9 @@ func newGrabFixture(t *testing.T, forceErr error) *grabFixture {
 	}}
 	h := NewGrabHandler(dec, gr, cd, grabUC, reg, lg)
 	r := gin.New()
+	// F-2c-1: typed-error middleware so handler c.Error(err) flows to
+	// the response envelope.
+	r.Use(middleware.ErrorResponseMiddleware(lg))
 	r.POST("/api/v1/decisions/:id/grab", h.ByDecision)
 	return &grabFixture{dec: dec, grabRepo: gr, cooldowns: cd, router: r}
 }
@@ -269,7 +279,8 @@ func TestGrabHandler_ByDecision_BadID(t *testing.T) {
 func TestGrabHandler_ByDecision_NotFound(t *testing.T) {
 	t.Parallel()
 	f := newGrabFixture(t, nil)
-	assertErrBody(t, f.do(t, uuid.New().String()), http.StatusNotFound, "decision not found")
+	// F-2c-1: typed-error middleware emits the slug on `error`.
+	assertErrBody(t, f.do(t, uuid.New().String()), http.StatusNotFound, "decision_not_found")
 }
 
 func TestGrabHandler_ByDecision_Ineligible(t *testing.T) {

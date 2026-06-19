@@ -71,13 +71,7 @@ func (h *GrabEpisodeFilesHandler) List(c *gin.Context) {
 
 	rec, err := h.grabs.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "grab not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "grab_episode_files_get_failed", err,
-			slog.String("endpoint", "/api/v1/instances/:name/grabs/:id/episode-files"),
-			slog.String("grab_id", id.String()))
+		_ = c.Error(err)
 		return
 	}
 

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 
@@ -301,14 +300,7 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 	}
 	rec, err := h.scans.GetByID(c.Request.Context(), id)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			writeError(c, http.StatusNotFound, "scan not found")
-			return
-		}
-		writeInternalError(c, h.logger, "audit_get_scan_failed", err,
-			slog.String("endpoint", "/api/v1/scans/:id"),
-			slog.String("scan_id", id.String()),
-		)
+		_ = c.Error(err)
 		return
 	}
 	c.JSON(http.StatusOK, toScanDTO(rec))
@@ -340,14 +332,7 @@ func (h *AuditHandler) GetDecision(c *gin.Context) {
 	}
 	rec, err := h.decisions.GetByID(c.Request.Context(), id)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			writeError(c, http.StatusNotFound, "decision not found")
-			return
-		}
-		writeInternalError(c, h.logger, "audit_get_decision_failed", err,
-			slog.String("endpoint", "/api/v1/decisions/:id"),
-			slog.String("decision_id", id.String()),
-		)
+		_ = c.Error(err)
 		return
 	}
 	c.JSON(http.StatusOK, toDecisionDTO(rec))

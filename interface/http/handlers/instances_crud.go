@@ -205,9 +205,14 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 			Error: err.Error(), Code: "BAD_REQUEST",
 		})
 	case errors.Is(err, ports.ErrNotFound):
-		c.AbortWithStatusJSON(http.StatusNotFound, dto.ErrorResponse{
-			Error: "instance not found", Code: "INSTANCE_NOT_FOUND",
-		})
+		// F-2c-1: route through the typed-error middleware so the wire
+		// code derives from the deepest typed sentinel
+		// (instance_not_found via InstanceNotFoundError). Wire contract
+		// flips from SCREAMING_CASE INSTANCE_NOT_FOUND to snake_case
+		// instance_not_found per the F-2c-1 contract change; FE clients
+		// do not switch on this slug in production.
+		_ = c.Error(err)
+		c.Abort()
 	default:
 		h.logger.ErrorContext(c.Request.Context(), "instance.crud.error",
 			slog.String("error", err.Error()))

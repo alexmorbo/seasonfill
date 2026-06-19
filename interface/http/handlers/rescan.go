@@ -59,7 +59,7 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ports.ErrNotFound):
-			writeError(c, http.StatusNotFound, "decision not found")
+			_ = c.Error(err)
 		case errors.Is(err, rescan.ErrAlreadySuperseded):
 			c.JSON(http.StatusConflict, dto.ErrorResponse{
 				Error: "decision already superseded; rescan the successor instead"})

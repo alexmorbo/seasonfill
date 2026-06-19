@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -21,6 +24,13 @@ import (
 //     {"error": "<slug>", "message": "<err.Error()>"}.
 //   - log the failure: Info for 4xx, Error for 5xx.
 //
+// Sentinel fallback (F-2c-1): when the typed-error catalog does not
+// match but the chain still carries ports.ErrNotFound — e.g. an
+// application-layer use case that has not yet migrated to typed errors,
+// or a test fixture returning the bare sentinel — the middleware
+// downgrades the response to 404 with a generic "not_found" slug.
+// Typed errors always win the dispatch; this is a safety net.
+//
 // The logger is enriched with trace_id automatically because
 // internal/logger.contextHandler reads it off c.Request.Context().
 func ErrorResponseMiddleware(log *slog.Logger) gin.HandlerFunc {
@@ -35,6 +45,12 @@ func ErrorResponseMiddleware(log *slog.Logger) gin.HandlerFunc {
 		err := c.Errors.Last().Err
 		status := sharedErrors.StatusCode(err)
 		code := sharedErrors.ErrorCode(err)
+		if status == http.StatusInternalServerError &&
+			code == "internal_error" &&
+			errors.Is(err, ports.ErrNotFound) {
+			status = http.StatusNotFound
+			code = "not_found"
+		}
 		ctx := c.Request.Context()
 
 		level := slog.LevelInfo

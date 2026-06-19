@@ -151,20 +151,17 @@ func (h *QbitSettingsHandler) writeError(c *gin.Context, err error) {
 			Code:  "WEBHOOK_CHECK_FAILED",
 		})
 	case errors.Is(err, ports.ErrNotFound):
-		// Use case wraps instance lookups as `instance %q: %w` and
-		// settings lookups as bare ports.ErrNotFound. The string
-		// containment check is a deliberate adapter — checking the
-		// wrapped sentinel alone collapses both into one code.
-		msg := err.Error()
-		if len(msg) >= len("instance ") && msg[:len("instance ")] == "instance " {
-			c.AbortWithStatusJSON(http.StatusNotFound, dto.ErrorResponse{
-				Error: "instance not found", Code: "INSTANCE_NOT_FOUND",
-			})
-			return
-		}
-		c.AbortWithStatusJSON(http.StatusNotFound, dto.ErrorResponse{
-			Error: "qbit settings not found", Code: "QBIT_SETTINGS_NOT_FOUND",
-		})
+		// F-2c-1: dispatch through the typed-error middleware so the
+		// wire code derives from the deepest typed sentinel in the
+		// chain (instance_not_found vs qbit_settings_not_found). The
+		// pre-F-2c string-prefix check is gone — F-2b repos join the
+		// typed error with ports.ErrNotFound, the middleware picks the
+		// right slug via errors.As. The body now reads
+		// {"error":"instance_not_found","message":"<typed>"} or
+		// {"error":"qbit_settings_not_found",...} per the F-2c-1
+		// contract change (was SCREAMING_CASE Code field).
+		_ = c.Error(err)
+		c.Abort()
 	default:
 		h.logger.ErrorContext(c.Request.Context(),
 			"qbit_settings.unhandled_error",

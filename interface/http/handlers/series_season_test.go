@@ -18,8 +18,18 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+// newSeasonRouter mounts gin + the F-2c-1 typed-error middleware so the
+// handler's c.Error(err) dispatch reaches the JSON envelope writer.
+func newSeasonRouter(h *SeriesSeasonHandler) *gin.Engine {
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	r.GET("/api/v1/instances/:name/series/:id/season/:n", h.Get)
+	return r
+}
 
 // twoSeasons returns a SeasonsPort fake yielding two seasons.
 type twoSeasons struct{}
@@ -85,8 +95,7 @@ func TestSeriesSeasonHandler_Get_200(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	r := gin.New()
-	r.GET("/api/v1/instances/:name/series/:id/season/:n", h.Get)
+	r := newSeasonRouter(h)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/alpha/series/1/season/2", nil)
@@ -103,21 +112,19 @@ func TestSeriesSeasonHandler_Get_404_UnknownSeason(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	r := gin.New()
-	r.GET("/api/v1/instances/:name/series/:id/season/:n", h.Get)
+	r := newSeasonRouter(h)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/alpha/series/1/season/99", nil)
 	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code, "body=%s", rec.Body.String())
 }
 
 func TestSeriesSeasonHandler_Get_400_BadInputs(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewSeriesSeasonHandler(newSeasonComposer(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	r := gin.New()
-	r.GET("/api/v1/instances/:name/series/:id/season/:n", h.Get)
+	r := newSeasonRouter(h)
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/alpha/series/abc/season/1", nil))

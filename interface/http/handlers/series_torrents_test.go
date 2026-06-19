@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -100,6 +101,16 @@ func buildTorrentsHandler(t *testing.T, store *torrentsync.Store, lookup stubTor
 		stubTorrentsSeriesPort{canon: series.Canon{ID: 42, Title: "Test"}},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
+}
+
+// newSeriesTorrentsRouter wires gin + the F-2c-1 typed-error middleware
+// so handler c.Error(err) calls flow through to the JSON envelope writer.
+// Used by every series_torrents test that exercises an error path.
+func newSeriesTorrentsRouter(h *SeriesTorrentsHandler) *gin.Engine {
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	r.GET("/api/v1/instances/:name/series/:id/torrents", h.Get)
+	return r
 }
 
 func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
@@ -210,8 +221,7 @@ func TestSeriesTorrents_404_UnknownSeries(t *testing.T) {
 		stubTorrentsSeriesPort{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
-	r := gin.New()
-	r.GET("/api/v1/instances/:name/series/:id/torrents", h.Get)
+	r := newSeriesTorrentsRouter(h)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/alpha/series/999/torrents", nil)
 	r.ServeHTTP(rec, req)
@@ -295,8 +305,7 @@ func TestSeriesTorrents_500_OnCanonError(t *testing.T) {
 		errSeriesPort{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
-	r := gin.New()
-	r.GET("/api/v1/instances/:name/series/:id/torrents", h.Get)
+	r := newSeriesTorrentsRouter(h)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/alpha/series/1/torrents", nil)
 	r.ServeHTTP(rec, req)

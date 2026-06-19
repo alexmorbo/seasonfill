@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
-	"github.com/alexmorbo/seasonfill/application/ports"
 	domenrich "github.com/alexmorbo/seasonfill/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
@@ -83,12 +81,7 @@ func (h *PeopleHandler) Get(c *gin.Context) {
 	ctx := c.Request.Context()
 	detail, err := h.uc.Get(ctx, domain.TMDBID(tmdbID), lang, sortKey)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "person not found"})
-			return
-		}
-		writeInternalError(c, h.logger, "person_detail_compose_failed", err,
-			slog.Int("tmdb_person_id", tmdbID))
+		_ = c.Error(err)
 		return
 	}
 	c.JSON(http.StatusOK, toPersonDetailResponse(detail))

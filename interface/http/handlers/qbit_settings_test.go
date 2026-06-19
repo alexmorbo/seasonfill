@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -17,9 +19,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 const qbitHandlerTestMasterKey = "handler-master-key-32-bytes-aes-gcm"
@@ -52,13 +56,20 @@ func (f *qbitFakeSettings) Upsert(_ context.Context, rec ports.QbitSettingsRecor
 func (f *qbitFakeSettings) GetByInstance(_ context.Context, id uint) (ports.QbitSettingsRecord, error) {
 	r, ok := f.rows[id]
 	if !ok {
-		return ports.QbitSettingsRecord{}, ports.ErrNotFound
+		// Mirror the F-2b repo: typed error joined with the sentinel.
+		return ports.QbitSettingsRecord{}, errors.Join(
+			&sharedErrors.QbitSettingsNotFoundError{InstanceID: id},
+			ports.ErrNotFound,
+		)
 	}
 	return r, nil
 }
 func (f *qbitFakeSettings) DeleteByInstance(_ context.Context, id uint) error {
 	if _, ok := f.rows[id]; !ok {
-		return ports.ErrNotFound
+		return errors.Join(
+			&sharedErrors.QbitSettingsNotFoundError{InstanceID: id},
+			ports.ErrNotFound,
+		)
 	}
 	delete(f.rows, id)
 	return nil
@@ -80,7 +91,10 @@ func (f *qbitFakeInstances) Seed(name string, id uint) {
 func (f *qbitFakeInstances) GetByName(_ context.Context, name string, _ *crypto.Cipher) (runtime.InstanceSnapshot, error) {
 	r, ok := f.rows[name]
 	if !ok {
-		return runtime.InstanceSnapshot{}, ports.ErrNotFound
+		return runtime.InstanceSnapshot{}, errors.Join(
+			&sharedErrors.InstanceNotFoundError{Name: domain.InstanceName(name)},
+			ports.ErrNotFound,
+		)
 	}
 	return r, nil
 }
@@ -128,6 +142,9 @@ func newTestFixture(t *testing.T) *testFixture {
 		WithWebhookChecker(checker)
 	h := NewQbitSettingsHandler(uc, nil)
 	r := gin.New()
+	// F-2c-1: mount the typed-error response middleware so the handler's
+	// c.Error(err) dispatch reaches the JSON envelope writer.
+	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
 	r.GET("/api/v1/instances/:name/qbit/settings", h.Get)
 	r.PUT("/api/v1/instances/:name/qbit/settings", h.Upsert)
 	r.DELETE("/api/v1/instances/:name/qbit/settings", h.Delete)
@@ -165,6 +182,10 @@ func validUpsertBody() dto.QbitSettingsUpsertRequest {
 	}
 }
 
+// F-2c-1: the typed-error middleware emits {"error":"<slug>","message":...}
+// where <slug> is the lowercase typed code (was the SCREAMING_CASE `code`
+// field before the migration). Tests assert the slug on the `error` key.
+
 func TestHandler_GetReturnsNotFoundOnUnknownInstance(t *testing.T) {
 	t.Parallel()
 	f := newTestFixture(t)
@@ -172,7 +193,14 @@ func TestHandler_GetReturnsNotFoundOnUnknownInstance(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var resp dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "INSTANCE_NOT_FOUND", resp.Code)
+	// F-2c-1: the SettingsUseCase wraps GetByName's typed error with
+	// `fmt.Errorf("instance %q: %w", name, ports.ErrNotFound)` which
+	// drops the typed chain — so the middleware falls back to the
+	// generic `not_found` slug. F-2c-2 will preserve the typed chain
+	// at the application layer; F-2c-1 must NOT touch application/**
+	// (per story anti-acceptance), so this assertion documents the
+	// transitional state.
+	assert.Equal(t, "not_found", resp.Error)
 }
 
 func TestHandler_GetReturnsNotFoundWhenSettingsAbsent(t *testing.T) {
@@ -182,7 +210,7 @@ func TestHandler_GetReturnsNotFoundWhenSettingsAbsent(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var resp dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "QBIT_SETTINGS_NOT_FOUND", resp.Code)
+	assert.Equal(t, "qbit_settings_not_found", resp.Error)
 }
 
 func TestHandler_PutCreatesAnonRow(t *testing.T) {
@@ -372,7 +400,9 @@ func TestHandler_DeleteNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 	var resp dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "QBIT_SETTINGS_NOT_FOUND", resp.Code)
+	// F-2c-1: typed-error middleware emits the slug on the `error`
+	// key, not the legacy SCREAMING_CASE Code field.
+	assert.Equal(t, "qbit_settings_not_found", resp.Error)
 }
 
 func TestHandler_GetReturnsCreatedRow(t *testing.T) {
