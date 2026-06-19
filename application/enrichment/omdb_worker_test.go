@@ -321,7 +321,7 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 // on the canon row; every other field stays byte-equal.
 func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 	t.Parallel()
-	tmdbID := 99
+	tmdbID := domain.TMDBID(99)
 	tvdbID := domain.TVDBID(100)
 	imdb := domain.IMDBID("tt0903747")
 	origTitle := "BB original"

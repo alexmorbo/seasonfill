@@ -33,7 +33,7 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 		return series.Canon{}
 	}
 	c := series.Canon{
-		TMDBID:           ptrInt(int(tv.ID)),
+		TMDBID:           ptrTMDBID(domain.TMDBID(tv.ID)),
 		Hydration:        series.HydrationFull,
 		Title:            tv.Name,
 		OriginalTitle:    nonEmptyPtr(tv.OriginalName),
@@ -163,7 +163,7 @@ func MapTVToCredits(tv *TVResponse) ([]people.SeriesCredit, []people.Person) {
 
 func personStubFromCast(c TVCastMember) people.Person {
 	return people.Person{
-		TMDBID:             ptrInt(int(c.ID)),
+		TMDBID:             ptrTMDBID(domain.TMDBID(c.ID)),
 		Hydration:          people.HydrationStub,
 		Name:               c.Name,
 		OriginalName:       nonEmptyPtr(c.OriginalName),
@@ -176,7 +176,7 @@ func personStubFromCast(c TVCastMember) people.Person {
 
 func personStubFromCrew(c TVCrewMember) people.Person {
 	return people.Person{
-		TMDBID:             ptrInt(int(c.ID)),
+		TMDBID:             ptrTMDBID(domain.TMDBID(c.ID)),
 		Hydration:          people.HydrationStub,
 		Name:               c.Name,
 		OriginalName:       nonEmptyPtr(c.OriginalName),
@@ -198,21 +198,21 @@ func MapTVToTaxonomy(tv *TVResponse) (genres []taxonomy.Genre, keywords []taxono
 	}
 	for _, g := range tv.Genres {
 		genres = append(genres, taxonomy.Genre{
-			TMDBID: ptrInt(int(g.ID)),
+			TMDBID: ptrTMDBID(domain.TMDBID(g.ID)),
 			Name:   g.Name,
 		})
 	}
 	if tv.Keywords != nil {
 		for _, k := range tv.Keywords.Results {
 			keywords = append(keywords, taxonomy.Keyword{
-				TMDBID: ptrInt(int(k.ID)),
+				TMDBID: ptrTMDBID(domain.TMDBID(k.ID)),
 				Name:   k.Name,
 			})
 		}
 	}
 	for _, n := range tv.Networks {
 		networks = append(networks, taxonomy.Network{
-			TMDBID:        ptrInt(int(n.ID)),
+			TMDBID:        ptrTMDBID(domain.TMDBID(n.ID)),
 			Name:          n.Name,
 			LogoAsset:     nonEmptyPtr(n.LogoPath),
 			OriginCountry: nonEmptyPtr(n.OriginCountry),
@@ -220,7 +220,7 @@ func MapTVToTaxonomy(tv *TVResponse) (genres []taxonomy.Genre, keywords []taxono
 	}
 	for _, c := range tv.ProductionCompanies {
 		companies = append(companies, taxonomy.ProductionCompany{
-			TMDBID:        ptrInt(int(c.ID)),
+			TMDBID:        ptrTMDBID(domain.TMDBID(c.ID)),
 			Name:          c.Name,
 			LogoAsset:     nonEmptyPtr(c.LogoPath),
 			OriginCountry: nonEmptyPtr(c.OriginCountry),
@@ -310,7 +310,7 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 	out := make([]series.Canon, 0, len(tv.Recommendations.Results))
 	for _, r := range tv.Recommendations.Results {
 		c := series.Canon{
-			TMDBID:       ptrInt(int(r.ID)),
+			TMDBID:       ptrTMDBID(domain.TMDBID(r.ID)),
 			Hydration:    series.HydrationStub,
 			Title:        r.Name,
 			PosterAsset:  nonEmptyPtr(r.PosterPath),
@@ -403,7 +403,7 @@ func MapPersonToDomain(p *PersonResponse) (people.Person, []people.PersonCredit)
 		return people.Person{}, nil
 	}
 	person := people.Person{
-		TMDBID:             ptrInt(int(p.ID)),
+		TMDBID:             ptrTMDBID(domain.TMDBID(p.ID)),
 		Hydration:          people.HydrationFull,
 		Name:               p.Name,
 		OriginalName:       nonEmptyPtr(p.OriginalName),
@@ -545,8 +545,9 @@ func parseRFC3339(raw string) *time.Time {
 	return nil
 }
 
-func ptrInt(v int) *int       { return &v }
-func ptrInt64(v int64) *int64 { return &v }
+func ptrInt(v int) *int                        { return &v }
+func ptrInt64(v int64) *int64                  { return &v }
+func ptrTMDBID(v domain.TMDBID) *domain.TMDBID { return &v }
 func ptrString(v string) *string {
 	return &v
 }

@@ -49,7 +49,7 @@ func (r *SeriesRepository) Get(ctx context.Context, id domain.SeriesID) (series.
 // GetByTMDBID looks up the canon row by TMDB id. The partial unique
 // index (`series_tmdb_id WHERE tmdb_id IS NOT NULL`) guarantees at
 // most one row. Returns ports.ErrNotFound on miss.
-func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID int) (series.Canon, error) {
+func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
 	var m database.SeriesModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error
@@ -69,7 +69,7 @@ func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID int) (series.
 // that probe. Returns ports.ErrNotFound when every probe misses.
 func (r *SeriesRepository) FindByExternalIDs(
 	ctx context.Context,
-	tmdbID *int,
+	tmdbID *domain.TMDBID,
 	tvdbID *domain.TVDBID,
 	imdbID *domain.IMDBID,
 ) (series.Canon, error) {

@@ -77,7 +77,7 @@ func SyncSeriesFromSonarr(
 	log := logger.With(
 		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", int(p.ID)),
-		slog.Int("tmdb_id", p.TMDBID),
+		slog.Int("tmdb_id", int(p.TMDBID)),
 		slog.Int("tvdb_id", int(p.TVDBID)),
 	)
 
@@ -183,7 +183,7 @@ func sonarrPatchFromPayload(p sonarr.SeriesPayload) enrichment.SeriesPatch {
 		patch.LastAirDate = &v
 	}
 	if p.TMDBID > 0 {
-		v := p.TMDBID
+		v := int(p.TMDBID)
 		patch.TMDBID = &v
 	}
 	if p.TVDBID > 0 {
@@ -200,7 +200,7 @@ func sonarrPatchFromPayload(p sonarr.SeriesPayload) enrichment.SeriesPatch {
 func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration:        enrichment.HydrationLevel(c.Hydration),
-		TMDBID:           c.TMDBID,
+		TMDBID:           intPtrFromTMDBID(c.TMDBID),
 		TVDBID:           intPtrFromTVDBID(c.TVDBID),
 		IMDBID:           stringPtrFromIMDBID(c.IMDBID),
 		Title:            c.Title,
@@ -230,7 +230,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 
 func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series.Canon {
 	base.Hydration = series.Hydration(ec.Hydration)
-	base.TMDBID = ec.TMDBID
+	base.TMDBID = tmdbIDPtrFromInt(ec.TMDBID)
 	base.TVDBID = tvdbIDPtrFromInt(ec.TVDBID)
 	base.IMDBID = imdbIDPtrFromString(ec.IMDBID)
 	base.Title = ec.Title
@@ -286,6 +286,7 @@ func cacheEntryFromPayload(instanceName domain.InstanceName, p sonarr.SeriesPayl
 		v := p.TMDBID
 		e.TMDBID = &v
 	}
+
 	if p.TVDBID > 0 {
 		v := p.TVDBID
 		e.TVDBID = &v
@@ -591,6 +592,27 @@ func tvdbIDPtrFromInt(p *int) *domain.TVDBID {
 		return nil
 	}
 	v := domain.TVDBID(*p)
+	return &v
+}
+
+// intPtrFromTMDBID translates *domain.TMDBID → *int across the
+// domain↔domain/enrichment boundary. Same rationale as intPtrFromTVDBID:
+// domain/enrichment stays pure-Go (no internal/shared/domain import).
+// Story 403 A-5d-2.
+func intPtrFromTMDBID(p *domain.TMDBID) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
+// tmdbIDPtrFromInt is the inverse of intPtrFromTMDBID.
+func tmdbIDPtrFromInt(p *int) *domain.TMDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.TMDBID(*p)
 	return &v
 }
 

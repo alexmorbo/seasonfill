@@ -123,7 +123,7 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (domain.Ser
 	}
 	f.rows[c.ID] = c
 	if c.TMDBID != nil {
-		f.byTMDB[*c.TMDBID] = c.ID
+		f.byTMDB[int(*c.TMDBID)] = c.ID
 	}
 	return c.ID, nil
 }
@@ -134,7 +134,7 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (domain.Ser
 func (f *fakeSeriesRepo) UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
 	f.rec.add("Series.UpsertStub")
 	if c.TMDBID != nil {
-		if existingID, ok := f.byTMDB[*c.TMDBID]; ok {
+		if existingID, ok := f.byTMDB[int(*c.TMDBID)]; ok {
 			existing := f.rows[existingID]
 			if existing.Hydration == series.HydrationFull {
 				c.Hydration = existing.Hydration
@@ -157,7 +157,7 @@ func (f *fakeSeriesRepo) UpsertStub(ctx context.Context, c series.Canon) (domain
 	}
 	f.rows[c.ID] = c
 	if c.TMDBID != nil {
-		f.byTMDB[*c.TMDBID] = c.ID
+		f.byTMDB[int(*c.TMDBID)] = c.ID
 	}
 	return c.ID, nil
 }
@@ -242,8 +242,8 @@ func newFakePeopleRepo(rec *callRecord) *fakePeopleRepo {
 	return &fakePeopleRepo{rec: rec, rows: make(map[int]people.Person), nextID: 9000}
 }
 
-func (f *fakePeopleRepo) GetByTMDBID(ctx context.Context, tmdbID int) (people.Person, error) {
-	if p, ok := f.rows[tmdbID]; ok {
+func (f *fakePeopleRepo) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error) {
+	if p, ok := f.rows[int(tmdbID)]; ok {
 		return p, nil
 	}
 	return people.Person{}, ports.ErrNotFound
@@ -252,14 +252,14 @@ func (f *fakePeopleRepo) GetByTMDBID(ctx context.Context, tmdbID int) (people.Pe
 func (f *fakePeopleRepo) Upsert(ctx context.Context, p people.Person) (int64, error) {
 	f.rec.add("People.Upsert")
 	if p.TMDBID != nil {
-		if existing, ok := f.rows[*p.TMDBID]; ok {
+		if existing, ok := f.rows[int(*p.TMDBID)]; ok {
 			return existing.ID, nil
 		}
 	}
 	f.nextID++
 	p.ID = f.nextID
 	if p.TMDBID != nil {
-		f.rows[*p.TMDBID] = p
+		f.rows[int(*p.TMDBID)] = p
 	}
 	return p.ID, nil
 }
@@ -294,13 +294,13 @@ func newFakeGenresRepo(rec *callRecord) *fakeGenresRepo {
 func (f *fakeGenresRepo) Upsert(ctx context.Context, g taxonomy.Genre) (int64, error) {
 	f.rec.add("Genres.Upsert")
 	if g.TMDBID != nil {
-		if id, ok := f.rows[*g.TMDBID]; ok {
+		if id, ok := f.rows[int(*g.TMDBID)]; ok {
 			return id, nil
 		}
 	}
 	f.nextID++
 	if g.TMDBID != nil {
-		f.rows[*g.TMDBID] = f.nextID
+		f.rows[int(*g.TMDBID)] = f.nextID
 	}
 	return f.nextID, nil
 }
@@ -332,13 +332,13 @@ func newFakeKeywordsRepo(rec *callRecord) *fakeKeywordsRepo {
 func (f *fakeKeywordsRepo) Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error) {
 	f.rec.add("Keywords.Upsert")
 	if k.TMDBID != nil {
-		if id, ok := f.rows[*k.TMDBID]; ok {
+		if id, ok := f.rows[int(*k.TMDBID)]; ok {
 			return id, nil
 		}
 	}
 	f.nextID++
 	if k.TMDBID != nil {
-		f.rows[*k.TMDBID] = f.nextID
+		f.rows[int(*k.TMDBID)] = f.nextID
 	}
 	return f.nextID, nil
 }
@@ -550,7 +550,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 }
 
 // seedCanon installs a canon row at id=1 with tmdbID=42.
-func (f *workerFixture) seedCanon(id domain.SeriesID, tmdbID *int) {
+func (f *workerFixture) seedCanon(id domain.SeriesID, tmdbID *domain.TMDBID) {
 	f.series.rows[id] = series.Canon{ID: id, TMDBID: tmdbID, Title: "Existing", InProduction: true}
 }
 
@@ -618,7 +618,7 @@ func TestSeriesWorker_HappyPath_AllRepoesWritten(t *testing.T) {
 	tv := minimalTV()
 	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
 	f := newWorkerFixture(t, tv, seasons)
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
@@ -668,7 +668,7 @@ func TestSeriesWorker_TMDB5xxDuringSeasonFetch_NoHalfWrites(t *testing.T) {
 	tv := minimalTV()
 	f := newWorkerFixture(t, tv, nil)
 	f.tmdb.seasErr = map[int]error{1: &tmdb.APIError{Status: 500, Body: "boom"}}
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
@@ -686,7 +686,7 @@ func TestSeriesWorker_TMDB404_TerminalNotFound(t *testing.T) {
 	t.Parallel()
 	f := newWorkerFixture(t, nil, nil)
 	f.tmdb.tvErr = &tmdb.APIError{Status: 404, Body: "not found"}
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
@@ -700,7 +700,7 @@ func TestSeriesWorker_FreshSkip_TTLNotExpired(t *testing.T) {
 	t.Parallel()
 	tv := minimalTV()
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	// Last sync 1h ago — TTL for continuing series is 24h.
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
@@ -730,7 +730,7 @@ func TestSeriesWorker_BackoffIncrements(t *testing.T) {
 	t.Parallel()
 	f := newWorkerFixture(t, nil, nil)
 	f.tmdb.tvErr = errors.New("network kaboom")
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	// First failure.
@@ -752,7 +752,7 @@ func TestSeriesWorker_DeterministicWriteOrder(t *testing.T) {
 	t.Parallel()
 	tv := minimalTV()
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
@@ -795,14 +795,14 @@ func TestSeriesWorker_RecommendationStub_PreservesFullCanonImages(t *testing.T) 
 	t.Parallel()
 	tv := minimalTV()
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	// Seed an EXISTING 'full' canon row for the recommendation's
 	// tmdb_id (minimalTV's recommendation has ID=999). The
 	// recommendation loop will call UpsertStub against this row; the
 	// fake mirrors the COALESCE production semantics.
-	recTMDB := 999
+	recTMDB := domain.TMDBID(999)
 	posterPath := "/seed-poster.jpg"
 	backdropPath := "/seed-backdrop.jpg"
 	f.series.rows[2] = series.Canon{
@@ -813,7 +813,7 @@ func TestSeriesWorker_RecommendationStub_PreservesFullCanonImages(t *testing.T) 
 		PosterAsset:   &posterPath,
 		BackdropAsset: &backdropPath,
 	}
-	f.series.byTMDB[recTMDB] = 2
+	f.series.byTMDB[int(recTMDB)] = 2
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
 
@@ -858,7 +858,7 @@ func TestSeriesWorker_PersonEnqueue_Top10Hot_RestCold(t *testing.T) {
 
 	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
 	f := newWorkerFixture(t, tv, seasons)
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 
 	d := &recordingDispatcher{}
@@ -908,7 +908,7 @@ func TestApplyAll_LogsCanonImagesPersisted_BothPresent(t *testing.T) {
 	tv.PosterPath = "/poster.jpg"
 	tv.BackdropPath = "/backdrop.jpg"
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	buf := installCaptureLogger(t, f)
 
@@ -928,7 +928,7 @@ func TestApplyAll_LogsCanonImagesPersisted_TMDBSentNothing(t *testing.T) {
 	tv.PosterPath = ""
 	tv.BackdropPath = ""
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	buf := installCaptureLogger(t, f)
 
@@ -957,7 +957,7 @@ func TestApplyAll_DefensiveBackdropWriteGuard_RecoversNilPath(t *testing.T) {
 	// patchFromTMDBCanon EXCEPT it nils BackdropAsset — simulating the
 	// merge-policy bug the guard backstops.
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	// Seed the existing canon WITHOUT a backdrop_asset so the merge
 	// can't fall back to a stored value.
@@ -1003,7 +1003,7 @@ func TestApplyAll_GuardSkipsWhenTMDBEmpty(t *testing.T) {
 	tv.BackdropPath = "" // TMDB has nothing
 	tv.PosterPath = ""
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	row := f.series.rows[1]
 	row.BackdropAsset = nil
@@ -1031,7 +1031,7 @@ func TestApplyAll_PreservesExistingBackdrop_TMDBOverwrites(t *testing.T) {
 	tv := minimalTV()
 	tv.BackdropPath = "/new-backdrop.jpg"
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	// Seed an existing canon with a non-nil backdrop.
 	stored := "/stored-backdrop.jpg"
@@ -1060,7 +1060,7 @@ func TestApplyAll_DiagnosticLogReportsResolvedSeriesID(t *testing.T) {
 	tv := minimalTV()
 	tv.BackdropPath = "/x.jpg"
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
-	tmdbID := 42
+	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
 	buf := installCaptureLogger(t, f)
 

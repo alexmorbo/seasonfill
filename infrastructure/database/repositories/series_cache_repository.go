@@ -55,7 +55,7 @@ type cacheRow struct {
 	Year   *int           `gorm:"column:s_year"`
 	TVDBID *domain.TVDBID `gorm:"column:s_tvdb_id"`
 	IMDBID *domain.IMDBID `gorm:"column:s_imdb_id"`
-	TMDBID *int           `gorm:"column:s_tmdb_id"`
+	TMDBID *domain.TMDBID `gorm:"column:s_tmdb_id"`
 	Status *string        `gorm:"column:s_status"`
 	// Network FIELD REMOVED in E-1 — sourced via series_networks
 	// subquery for ListDistinctNetworks; per-row network on detail

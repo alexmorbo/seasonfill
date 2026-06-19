@@ -140,7 +140,7 @@ type EpisodeTextsRepo interface {
 }
 
 type PeopleRepo interface {
-	GetByTMDBID(ctx context.Context, tmdbID int) (people.Person, error)
+	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error)
 	Upsert(ctx context.Context, p people.Person) (int64, error)
 }
 

@@ -65,7 +65,7 @@ func (r *NetworksRepository) ResolveByName(ctx context.Context, name string) (in
 
 // GetByTMDBID looks up the row by TMDB id. The partial unique index
 // guarantees at most one row. Returns ports.ErrNotFound on miss.
-func (r *NetworksRepository) GetByTMDBID(ctx context.Context, tmdbID int) (taxonomy.Network, error) {
+func (r *NetworksRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (taxonomy.Network, error) {
 	var m database.NetworkModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error

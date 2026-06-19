@@ -413,7 +413,7 @@ func (ExternalServiceSettingsModel) TableName() string { return "external_servic
 // is text(stub|full); defaults to 'stub' on insert.
 type SeriesModel struct {
 	ID               domain.SeriesID `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID           *int            `gorm:"column:tmdb_id"`
+	TMDBID           *domain.TMDBID  `gorm:"column:tmdb_id"`
 	TVDBID           *domain.TVDBID  `gorm:"column:tvdb_id;index:series_tvdb_id"`
 	IMDBID           *domain.IMDBID  `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
 	Hydration        string          `gorm:"column:hydration;type:text;not null;default:'stub'"`
@@ -576,21 +576,21 @@ func (SeasonStatModel) TableName() string { return "season_stats" }
 // re-evaluating that decision; the value would be three write paths
 // feeding columns that are 99% identical.
 type PeopleModel struct {
-	ID                 int64      `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID             *int       `gorm:"column:tmdb_id"`
-	IMDBID             *string    `gorm:"column:imdb_id;type:text;index:people_imdb_id"`
-	Hydration          string     `gorm:"column:hydration;type:text;not null;default:'stub'"`
-	Name               string     `gorm:"column:name;type:text;not null"`
-	OriginalName       *string    `gorm:"column:original_name;type:text"`
-	Gender             *int       `gorm:"column:gender"`
-	Birthday           *time.Time `gorm:"column:birthday"`
-	Deathday           *time.Time `gorm:"column:deathday"`
-	PlaceOfBirth       *string    `gorm:"column:place_of_birth;type:text"`
-	KnownForDepartment *string    `gorm:"column:known_for_department;type:text"`
-	Popularity         *float64   `gorm:"column:popularity"`
-	ProfileAsset       *string    `gorm:"column:profile_asset;type:text"`
-	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+	ID                 int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID             *domain.TMDBID `gorm:"column:tmdb_id"`
+	IMDBID             *string        `gorm:"column:imdb_id;type:text;index:people_imdb_id"`
+	Hydration          string         `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	Name               string         `gorm:"column:name;type:text;not null"`
+	OriginalName       *string        `gorm:"column:original_name;type:text"`
+	Gender             *int           `gorm:"column:gender"`
+	Birthday           *time.Time     `gorm:"column:birthday"`
+	Deathday           *time.Time     `gorm:"column:deathday"`
+	PlaceOfBirth       *string        `gorm:"column:place_of_birth;type:text"`
+	KnownForDepartment *string        `gorm:"column:known_for_department;type:text"`
+	Popularity         *float64       `gorm:"column:popularity"`
+	ProfileAsset       *string        `gorm:"column:profile_asset;type:text"`
+	CreatedAt          time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time      `gorm:"column:updated_at;not null"`
 }
 
 func (PeopleModel) TableName() string { return "people" }
@@ -652,13 +652,13 @@ func (EpisodePersonModel) TableName() string { return "episode_people" }
 // not NULL so a Sonarr-string fallback (PRD §5.4 row
 // "series_networks") can create a row without a TMDB id.
 type NetworkModel struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID        *int      `gorm:"column:tmdb_id"`
-	Name          string    `gorm:"column:name;type:text;not null"`
-	LogoAsset     *string   `gorm:"column:logo_asset;type:text"`
-	OriginCountry *string   `gorm:"column:origin_country;type:text"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	ID            int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID        *domain.TMDBID `gorm:"column:tmdb_id"`
+	Name          string         `gorm:"column:name;type:text;not null"`
+	LogoAsset     *string        `gorm:"column:logo_asset;type:text"`
+	OriginCountry *string        `gorm:"column:origin_country;type:text"`
+	CreatedAt     time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time      `gorm:"column:updated_at;not null"`
 }
 
 func (NetworkModel) TableName() string { return "networks" }
@@ -666,13 +666,13 @@ func (NetworkModel) TableName() string { return "networks" }
 // ProductionCompanyModel — canonical production company dictionary
 // row (PRD §5.3, migration 000028). Same shape as NetworkModel.
 type ProductionCompanyModel struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID        *int      `gorm:"column:tmdb_id"`
-	Name          string    `gorm:"column:name;type:text;not null"`
-	LogoAsset     *string   `gorm:"column:logo_asset;type:text"`
-	OriginCountry *string   `gorm:"column:origin_country;type:text"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	ID            int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID        *domain.TMDBID `gorm:"column:tmdb_id"`
+	Name          string         `gorm:"column:name;type:text;not null"`
+	LogoAsset     *string        `gorm:"column:logo_asset;type:text"`
+	OriginCountry *string        `gorm:"column:origin_country;type:text"`
+	CreatedAt     time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time      `gorm:"column:updated_at;not null"`
 }
 
 func (ProductionCompanyModel) TableName() string { return "production_companies" }
@@ -685,10 +685,10 @@ func (ProductionCompanyModel) TableName() string { return "production_companies"
 // rows without a TMDB id (in practice every TMDB TV genre has an id;
 // the partial unique mirrors networks for shape uniformity).
 type GenreModel struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID    *int      `gorm:"column:tmdb_id"`
-	CreatedAt time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+	ID        int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID    *domain.TMDBID `gorm:"column:tmdb_id"`
+	CreatedAt time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;not null"`
 }
 
 func (GenreModel) TableName() string { return "genres" }
@@ -715,10 +715,10 @@ func (GenreI18nModel) TableName() string { return "genres_i18n" }
 // RU / de keyword source adds rows to keywords_i18n with no
 // migration.
 type KeywordModel struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID    *int      `gorm:"column:tmdb_id"`
-	CreatedAt time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+	ID        int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID    *domain.TMDBID `gorm:"column:tmdb_id"`
+	CreatedAt time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;not null"`
 }
 
 func (KeywordModel) TableName() string { return "keywords" }

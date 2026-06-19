@@ -45,16 +45,16 @@ type PersonDetailResponse struct {
 // OriginalName are NOT localised (TMDB doesn't translate names
 // reliably).
 type PersonInfo struct {
-	ID                 int64    `json:"id" example:"7"`
-	TMDBID             *int     `json:"tmdb_id,omitempty" example:"4495"`
-	Name               string   `json:"name" example:"Pedro Pascal"`
-	OriginalName       *string  `json:"original_name,omitempty"`
-	Birthday           *string  `json:"birthday,omitempty" example:"1975-04-02"`
-	Deathday           *string  `json:"deathday,omitempty"`
-	PlaceOfBirth       *string  `json:"place_of_birth,omitempty" example:"Santiago, Chile"`
-	KnownForDepartment *string  `json:"known_for_department,omitempty"`
-	ProfileAsset       *string  `json:"profile_asset,omitempty"`
-	Popularity         *float64 `json:"popularity,omitempty"`
+	ID                 int64          `json:"id" example:"7"`
+	TMDBID             *domain.TMDBID `json:"tmdb_id,omitempty" example:"4495"`
+	Name               string         `json:"name" example:"Pedro Pascal"`
+	OriginalName       *string        `json:"original_name,omitempty"`
+	Birthday           *string        `json:"birthday,omitempty" example:"1975-04-02"`
+	Deathday           *string        `json:"deathday,omitempty"`
+	PlaceOfBirth       *string        `json:"place_of_birth,omitempty" example:"Santiago, Chile"`
+	KnownForDepartment *string        `json:"known_for_department,omitempty"`
+	ProfileAsset       *string        `json:"profile_asset,omitempty"`
+	Popularity         *float64       `json:"popularity,omitempty"`
 }
 
 // SyncInfo is the "Source: TMDB · updated N ago" microcopy line
@@ -69,7 +69,7 @@ type SyncInfo struct {
 // row that has at least one live `series_cache` reference.
 type LibraryCreditEntry struct {
 	SeriesID      domain.SeriesID         `json:"series_id" example:"42"`
-	TMDBID        *int                    `json:"tmdb_id,omitempty" example:"100"`
+	TMDBID        *domain.TMDBID          `json:"tmdb_id,omitempty" example:"100"`
 	Title         string                  `json:"title" example:"The Last of Us"`
 	Year          *int                    `json:"year,omitempty" example:"2023"`
 	CharacterName *string                 `json:"character_name,omitempty"`

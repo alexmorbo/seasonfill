@@ -321,7 +321,7 @@ func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, curre
 		if pc.MediaType != "tv" {
 			continue
 		}
-		seriesID, ok := c.resolveSeriesByTMDB(ctx, pc.TMDBMediaID)
+		seriesID, ok := c.resolveSeriesByTMDB(ctx, domain.TMDBID(pc.TMDBMediaID))
 		if !ok {
 			continue
 		}
@@ -346,7 +346,7 @@ func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, curre
 // members have credits only on series the operator doesn't own.
 // The lookup misses cheaply (one indexed `series_tmdb_id`
 // partial-unique probe) and returns false.
-func (c *CastComposer) resolveSeriesByTMDB(ctx context.Context, tmdbID int) (domain.SeriesID, bool) {
+func (c *CastComposer) resolveSeriesByTMDB(ctx context.Context, tmdbID domain.TMDBID) (domain.SeriesID, bool) {
 	if tmdbID == 0 {
 		return 0, false
 	}

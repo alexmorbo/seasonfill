@@ -136,7 +136,10 @@ func (f *fakeTMDBPerson) GetPerson(_ context.Context, _ int64, _ string) (*tmdb.
 
 // --- helpers --------------------------------------------------------
 
-func tmdbIDPtr(v int) *int { return &v }
+func tmdbIDPtr(v int) *domain.TMDBID {
+	id := domain.TMDBID(v)
+	return &id
+}
 
 type personWorkerFakes struct {
 	people      *fakePeopleWrite

@@ -19,7 +19,7 @@ func TestGenresRepository_UpsertAndGet(t *testing.T) {
 	repo := NewGenresRepository(db)
 	i18n := NewGenresI18nRepository(db)
 
-	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(18)})
+	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(18)})
 	require.NoError(t, err)
 	require.NotZero(t, id)
 
@@ -47,7 +47,7 @@ func TestGenresRepository_Upsert_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	repo := NewGenresRepository(db)
 
-	g := taxonomy.Genre{TMDBID: ptrInt(35)}
+	g := taxonomy.Genre{TMDBID: ptrTMDBID(35)}
 	id1, err := repo.Upsert(ctx, g)
 	require.NoError(t, err)
 	id2, err := repo.Upsert(ctx, g)
@@ -67,7 +67,7 @@ func TestGenresRepository_ResolveByName_PRD54Fallback(t *testing.T) {
 
 	// Simulate the C-2 enrichment path: TMDB upserts genre id=18 with
 	// en-US name "Drama".
-	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(18)})
+	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(18)})
 	require.NoError(t, err)
 	require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
 		GenreID: id, Language: "en-US", Name: "Drama",
@@ -99,7 +99,7 @@ func TestGenresRepository_Get_FallbackToEnUS(t *testing.T) {
 	repo := NewGenresRepository(db)
 	i18n := NewGenresI18nRepository(db)
 
-	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(10765)})
+	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(10765)})
 	require.NoError(t, err)
 	require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
 		GenreID: id, Language: "en-US", Name: "Sci-Fi & Fantasy",
@@ -120,7 +120,7 @@ func TestGenresRepository_Get_NoI18nRows(t *testing.T) {
 
 	// Bare genre stub with no i18n rows — Get returns the row with
 	// empty Name / Language (NOT an error).
-	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(99)})
+	id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(99)})
 	require.NoError(t, err)
 
 	got, err := repo.Get(ctx, id, "en-US")
@@ -137,9 +137,9 @@ func TestGenresRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Foundation"))
 	require.NoError(t, err)
-	gID1, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(18)})
+	gID1, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(18)})
 	require.NoError(t, err)
-	gID2, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrInt(10765)})
+	gID2, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(10765)})
 	require.NoError(t, err)
 
 	require.NoError(t, repo.Set(ctx, seriesID, []int64{gID1, gID2}))

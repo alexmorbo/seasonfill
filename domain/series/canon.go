@@ -41,7 +41,7 @@ func (h Hydration) IsValid() bool {
 // left popularity unset.
 type Canon struct {
 	ID               domain.SeriesID
-	TMDBID           *int
+	TMDBID           *domain.TMDBID
 	TVDBID           *domain.TVDBID
 	IMDBID           *domain.IMDBID
 	Hydration        Hydration

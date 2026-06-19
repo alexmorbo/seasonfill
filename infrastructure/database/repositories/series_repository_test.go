@@ -21,7 +21,7 @@ func sampleCanon(title string) series.Canon {
 	return series.Canon{
 		Title:         title,
 		Hydration:     series.HydrationStub,
-		TMDBID:        ptrInt(101),
+		TMDBID:        ptrTMDBID(101),
 		TVDBID:        ptrTVDBID(202),
 		IMDBID:        ptrIMDBID("tt0000001"),
 		OriginalTitle: ptrString("orig: " + title),
@@ -46,7 +46,7 @@ func TestSeriesRepository_UpsertInsertAndGet(t *testing.T) {
 	assert.Equal(t, "Foundation", got.Title)
 	assert.Equal(t, series.HydrationStub, got.Hydration)
 	require.NotNil(t, got.TMDBID)
-	assert.Equal(t, 101, *got.TMDBID)
+	assert.Equal(t, domain.TMDBID(101), *got.TMDBID)
 	assert.True(t, got.InProduction)
 	assert.False(t, got.CreatedAt.IsZero())
 	assert.False(t, got.UpdatedAt.IsZero())
@@ -114,17 +114,17 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// TMDB hit wins.
-	got, err := repo.FindByExternalIDs(ctx, ptrInt(101), ptrTVDBID(0), ptrIMDBID(""))
+	got, err := repo.FindByExternalIDs(ctx, ptrTMDBID(101), ptrTVDBID(0), ptrIMDBID(""))
 	require.NoError(t, err)
 	assert.Equal(t, "Andor", got.Title)
 
 	// TMDB miss → TVDB fallback.
-	got, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(202), nil)
+	got, err = repo.FindByExternalIDs(ctx, ptrTMDBID(404), ptrTVDBID(202), nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Andor", got.Title)
 
 	// All probes miss.
-	_, err = repo.FindByExternalIDs(ctx, ptrInt(404), ptrTVDBID(404), ptrIMDBID("tt9999999"))
+	_, err = repo.FindByExternalIDs(ctx, ptrTMDBID(404), ptrTVDBID(404), ptrIMDBID("tt9999999"))
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
 }
 
@@ -153,7 +153,7 @@ func TestSeriesRepository_PartialUnique(t *testing.T) {
 		"two NULL-tmdb rows must coexist — partial index excludes them")
 
 	dup := sampleCanon("Duplicate TMDB")
-	dup.TMDBID = ptrInt(101)                        // same as sampleCanon's TMDB id below
+	dup.TMDBID = ptrTMDBID(101)                     // same as sampleCanon's TMDB id below
 	_, err = repo.Upsert(ctx, sampleCanon("First")) // installs tmdb=101
 	require.NoError(t, err)
 
@@ -184,19 +184,19 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 	// 3 series; the first two get a sync_log(tmdb_series) row, the
 	// third stays unjournalled.
 	a := sampleCanon("A")
-	a.TMDBID = ptrInt(1001)
+	a.TMDBID = ptrTMDBID(1001)
 	a.TVDBID = ptrTVDBID(2001)
 	idA, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 
 	b := sampleCanon("B")
-	b.TMDBID = ptrInt(1002)
+	b.TMDBID = ptrTMDBID(1002)
 	b.TVDBID = ptrTVDBID(2002)
 	idB, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 
 	c := sampleCanon("C")
-	c.TMDBID = ptrInt(1003)
+	c.TMDBID = ptrTMDBID(1003)
 	c.TVDBID = ptrTVDBID(2003)
 	idC, err := repo.Upsert(ctx, c)
 	require.NoError(t, err)
@@ -264,21 +264,21 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 
 	// 3 library series (each with a series_cache row).
 	a := sampleCanon("A")
-	a.TMDBID = ptrInt(2001)
+	a.TMDBID = ptrTMDBID(2001)
 	a.IMDBID = ptrIMDBID("tt0000001")
 	idA, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idA, "main", 1, false)
 
 	b := sampleCanon("B")
-	b.TMDBID = ptrInt(2002)
+	b.TMDBID = ptrTMDBID(2002)
 	b.IMDBID = ptrIMDBID("tt0000002")
 	idB, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 	seedSeriesCacheRow(t, db, idB, "main", 2, false)
 
 	c := sampleCanon("C")
-	c.TMDBID = ptrInt(2003)
+	c.TMDBID = ptrTMDBID(2003)
 	c.IMDBID = ptrIMDBID("tt0000003")
 	idC, err := repo.Upsert(ctx, c)
 	require.NoError(t, err)
@@ -286,14 +286,14 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 
 	// 1 stub series — has imdb_id but NO series_cache row.
 	stub := sampleCanon("Stub")
-	stub.TMDBID = ptrInt(2004)
+	stub.TMDBID = ptrTMDBID(2004)
 	stub.IMDBID = ptrIMDBID("tt0000004")
 	_, err = repo.Upsert(ctx, stub)
 	require.NoError(t, err)
 
 	// 1 series with terminal not_found sync_log.
 	d := sampleCanon("D")
-	d.TMDBID = ptrInt(2005)
+	d.TMDBID = ptrTMDBID(2005)
 	d.IMDBID = ptrIMDBID("tt0000005")
 	idD, err := repo.Upsert(ctx, d)
 	require.NoError(t, err)
@@ -328,7 +328,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 	ctx := context.Background()
 
 	s := sampleCanon("Fresh")
-	s.TMDBID = ptrInt(3001)
+	s.TMDBID = ptrTMDBID(3001)
 	s.IMDBID = ptrIMDBID("tt0000010")
 	id, err := repo.Upsert(ctx, s)
 	require.NoError(t, err)
@@ -373,7 +373,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin
 	ctx := context.Background()
 
 	stub := sampleCanon("Stub Only")
-	stub.TMDBID = ptrInt(4001)
+	stub.TMDBID = ptrTMDBID(4001)
 	stub.IMDBID = ptrIMDBID("tt0000020")
 	_, err := repo.Upsert(ctx, stub)
 	require.NoError(t, err)
@@ -393,7 +393,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExclude
 	ctx := context.Background()
 
 	s := sampleCanon("Deleted")
-	s.TMDBID = ptrInt(5001)
+	s.TMDBID = ptrTMDBID(5001)
 	s.IMDBID = ptrIMDBID("tt0000030")
 	id, err := repo.Upsert(ctx, s)
 	require.NoError(t, err)
@@ -421,7 +421,7 @@ func TestSeriesRepository_UpsertStub_PreservesFullRowImages(t *testing.T) {
 	rating := 8.0
 	votes := 2000
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		Title:         "For All Mankind",
 		Hydration:     series.HydrationFull,
 		PosterAsset:   &posterPath,
@@ -441,7 +441,7 @@ func TestSeriesRepository_UpsertStub_PreservesFullRowImages(t *testing.T) {
 	stubYear := 2019
 	stubRating := 8.1
 	gotID, err := repo.UpsertStub(ctx, series.Canon{
-		TMDBID:     ptrInt(tmdbID),
+		TMDBID:     ptrTMDBID(tmdbID),
 		Title:      stubTitle,
 		Hydration:  series.HydrationStub,
 		Year:       &stubYear,
@@ -480,7 +480,7 @@ func TestSeriesRepository_UpsertStub_InsertsWhenAbsent(t *testing.T) {
 	yr := 2026
 	rating := 7.5
 	id, err := repo.UpsertStub(ctx, series.Canon{
-		TMDBID:      ptrInt(tmdbID),
+		TMDBID:      ptrTMDBID(tmdbID),
 		Title:       "New Show",
 		Hydration:   series.HydrationStub,
 		Year:        &yr,
@@ -505,7 +505,7 @@ func TestSeriesRepository_OriginCountriesRoundtrip(t *testing.T) {
 	repo := NewSeriesRepository(db)
 	ctx := context.Background()
 
-	tmdbID := 99999
+	tmdbID := domain.TMDBID(99999)
 	in := series.Canon{
 		TMDBID:          &tmdbID,
 		Hydration:       series.HydrationFull,
@@ -528,7 +528,7 @@ func TestSeriesRepository_OriginCountriesEmptyRoundtrip(t *testing.T) {
 	repo := NewSeriesRepository(db)
 	ctx := context.Background()
 
-	tmdbID := 99998
+	tmdbID := domain.TMDBID(99998)
 	in := series.Canon{
 		TMDBID:          &tmdbID,
 		Hydration:       series.HydrationFull,
@@ -553,7 +553,7 @@ func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {
 	_, err := repo.UpsertStub(ctx, series.Canon{Title: "x", Hydration: series.HydrationStub})
 	require.Error(t, err)
 
-	_, err = repo.UpsertStub(ctx, series.Canon{TMDBID: ptrInt(1), Hydration: series.HydrationStub})
+	_, err = repo.UpsertStub(ctx, series.Canon{TMDBID: ptrTMDBID(1), Hydration: series.HydrationStub})
 	require.Error(t, err)
 }
 
@@ -577,7 +577,7 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 			bp = &s
 		}
 		id, err := repo.Upsert(ctx, series.Canon{
-			TMDBID: ptrInt(tmdb), Title: title, Hydration: series.HydrationFull,
+			TMDBID: ptrTMDBID(tmdb), Title: title, Hydration: series.HydrationFull,
 			PosterAsset: pp, BackdropAsset: bp,
 		})
 		require.NoError(t, err)
@@ -590,7 +590,7 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 	// Stub row — even though it has no backdrop, hydration != 'full'
 	// so it must not appear in the corrupted set.
 	_, err := repo.UpsertStub(ctx, series.Canon{
-		TMDBID:    ptrInt(1004),
+		TMDBID:    ptrTMDBID(1004),
 		Title:     "Stub",
 		Hydration: series.HydrationStub,
 	})
@@ -618,7 +618,7 @@ func TestSeriesRepository_Upsert_PreservesPosterOnStubInput(t *testing.T) {
 	poster := "/canonical-poster.jpg"
 	backdrop := "/canonical-backdrop.jpg"
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		Title:         "Full Row",
 		Hydration:     series.HydrationFull,
 		PosterAsset:   &poster,
@@ -628,7 +628,7 @@ func TestSeriesRepository_Upsert_PreservesPosterOnStubInput(t *testing.T) {
 
 	// Sonarr-shape canonOut: stub hydration, no poster, no backdrop.
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Sonarr Refresh",
 		Hydration: series.HydrationStub,
 	})
@@ -651,7 +651,7 @@ func TestSeriesRepository_Upsert_PreservesBackdropOnStubInput(t *testing.T) {
 	poster := "/canonical-poster.jpg"
 	backdrop := "/canonical-backdrop.jpg"
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		Title:         "Full Row",
 		Hydration:     series.HydrationFull,
 		PosterAsset:   &poster,
@@ -660,7 +660,7 @@ func TestSeriesRepository_Upsert_PreservesBackdropOnStubInput(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Sonarr Refresh",
 		Hydration: series.HydrationStub,
 	})
@@ -683,7 +683,7 @@ func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
 	tmdbID := 70003
 	poster := "/canonical-poster.jpg"
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:      ptrInt(tmdbID),
+		TMDBID:      ptrTMDBID(tmdbID),
 		Title:       "Full Row",
 		Hydration:   series.HydrationFull,
 		PosterAsset: &poster,
@@ -691,7 +691,7 @@ func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Sonarr Refresh",
 		Hydration: series.HydrationStub,
 	})
@@ -714,7 +714,7 @@ func TestSeriesRepository_Upsert_UpdatesPosterFromNullOnTMDBInput(t *testing.T) 
 
 	tmdbID := 70004
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "No Poster Yet",
 		Hydration: series.HydrationStub,
 	})
@@ -726,7 +726,7 @@ func TestSeriesRepository_Upsert_UpdatesPosterFromNullOnTMDBInput(t *testing.T) 
 	newPoster := "/tmdb-poster.jpg"
 	newBackdrop := "/tmdb-backdrop.jpg"
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		Title:         "TMDB Enriched",
 		Hydration:     series.HydrationFull,
 		PosterAsset:   &newPoster,
@@ -751,14 +751,14 @@ func TestSeriesRepository_Upsert_UpgradesHydrationStubToFull(t *testing.T) {
 
 	tmdbID := 70005
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Stub Row",
 		Hydration: series.HydrationStub,
 	})
 	require.NoError(t, err)
 
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Full Now",
 		Hydration: series.HydrationFull,
 	})
@@ -781,7 +781,7 @@ func TestSeriesRepository_Upsert_OverwritesPosterFromValidToValid(t *testing.T) 
 	tmdbID := 70006
 	oldPoster := "/old-poster.jpg"
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:      ptrInt(tmdbID),
+		TMDBID:      ptrTMDBID(tmdbID),
 		Title:       "Initial",
 		Hydration:   series.HydrationFull,
 		PosterAsset: &oldPoster,
@@ -790,7 +790,7 @@ func TestSeriesRepository_Upsert_OverwritesPosterFromValidToValid(t *testing.T) 
 
 	newPoster := "/refreshed-poster.jpg"
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:      ptrInt(tmdbID),
+		TMDBID:      ptrTMDBID(tmdbID),
 		Title:       "Refreshed",
 		Hydration:   series.HydrationFull,
 		PosterAsset: &newPoster,
@@ -824,7 +824,7 @@ func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
 			bp = &s
 		}
 		_, err := repo.Upsert(ctx, series.Canon{
-			TMDBID: ptrInt(tmdb), Title: title, Hydration: series.HydrationFull,
+			TMDBID: ptrTMDBID(tmdb), Title: title, Hydration: series.HydrationFull,
 			PosterAsset: pp, BackdropAsset: bp,
 		})
 		require.NoError(t, err)
@@ -873,7 +873,7 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 	runtime := 22
 
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:           ptrInt(tmdbID),
+		TMDBID:           ptrTMDBID(tmdbID),
 		Title:            "Rick and Morty",
 		Hydration:        series.HydrationFull,
 		OriginalTitle:    &originalTitle,
@@ -899,7 +899,7 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 
 	// Sonarr-shape canonOut: every TMDB/OMDb-only column = nil.
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Rick and Morty",
 		Hydration: series.HydrationStub,
 		Year:      ptrInt(2013),
@@ -978,7 +978,7 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 	originCountries := []string{"US"}
 
 	id, err := repo.Upsert(ctx, series.Canon{
-		TMDBID:          ptrInt(tmdbID),
+		TMDBID:          ptrTMDBID(tmdbID),
 		Title:           "Rick and Morty",
 		Hydration:       series.HydrationFull,
 		FirstAirDate:    &firstAir,
@@ -994,7 +994,7 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 	// TMDB/OMDb-owned column nil — exactly the regression shape that
 	// nuked id=8 R&M and id=96 Star City in production.
 	_, err = repo.Upsert(ctx, series.Canon{
-		TMDBID:    ptrInt(tmdbID),
+		TMDBID:    ptrTMDBID(tmdbID),
 		Title:     "Rick and Morty",
 		Hydration: series.HydrationStub,
 		Year:      ptrInt(2013),

@@ -32,7 +32,7 @@ type SeriesCachePort interface {
 // cast.go probeInLibrary).
 type SeriesPort interface {
 	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
-	GetByTMDBID(ctx context.Context, tmdbID int) (series.Canon, error)
+	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error)
 }
 
 // PersonCreditsPort is the narrow port for the H-1 in_library

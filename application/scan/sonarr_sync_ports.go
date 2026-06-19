@@ -14,7 +14,7 @@ import (
 
 // SeriesCanonRepository is the subset of SeriesRepository E-1 needs.
 type SeriesCanonRepository interface {
-	FindByExternalIDs(ctx context.Context, tmdbID *int, tvdbID *domain.TVDBID, imdbID *domain.IMDBID) (series.Canon, error)
+	FindByExternalIDs(ctx context.Context, tmdbID *domain.TMDBID, tvdbID *domain.TVDBID, imdbID *domain.IMDBID) (series.Canon, error)
 	Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error)
 }
 
@@ -65,7 +65,7 @@ type GenresPort interface {
 // GenreStub is the writable subset for the create-on-miss path.
 // We do not import domain/taxonomy here to keep ports independent.
 type GenreStub struct {
-	TMDBID *int
+	TMDBID *domain.TMDBID
 }
 
 // NetworksPort — name-keyed lookup + create-on-miss + join writer.

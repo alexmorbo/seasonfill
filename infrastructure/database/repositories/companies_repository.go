@@ -39,7 +39,7 @@ func (r *CompaniesRepository) Get(ctx context.Context, id int64) (taxonomy.Produ
 	return toCompany(m), nil
 }
 
-func (r *CompaniesRepository) GetByTMDBID(ctx context.Context, tmdbID int) (taxonomy.ProductionCompany, error) {
+func (r *CompaniesRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (taxonomy.ProductionCompany, error) {
 	var m database.ProductionCompanyModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error

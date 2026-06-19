@@ -25,7 +25,7 @@ func TestRecommendationsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 	recIDs := make([]domain.SeriesID, 0, 3)
 	for i, title := range []string{"Fallout", "The Walking Dead", "Station Eleven"} {
 		c := sampleCanon(title)
-		c.TMDBID = ptrInt(70000 + i)
+		c.TMDBID = ptrTMDBID(70000 + i)
 		rid, err := seriesRepo.Upsert(ctx, c)
 		require.NoError(t, err)
 		recIDs = append(recIDs, rid)
@@ -75,11 +75,11 @@ func TestRecommendationsRepository_Upsert_SingleRow(t *testing.T) {
 	repo := NewRecommendationsRepository(db)
 
 	src := sampleCanon("Foundation")
-	src.TMDBID = ptrInt(90001)
+	src.TMDBID = ptrTMDBID(90001)
 	source, err := seriesRepo.Upsert(ctx, src)
 	require.NoError(t, err)
 	recCanon := sampleCanon("Severance")
-	recCanon.TMDBID = ptrInt(90002)
+	recCanon.TMDBID = ptrTMDBID(90002)
 	rec, err := seriesRepo.Upsert(ctx, recCanon)
 	require.NoError(t, err)
 
@@ -112,7 +112,7 @@ func TestRecommendationsRepository_Set_RejectsSelfReferenceInBatch(t *testing.T)
 	otherIDs := make([]domain.SeriesID, 0, 2)
 	for i, title := range []string{"Other A", "Other B"} {
 		c := sampleCanon(title)
-		c.TMDBID = ptrInt(80000 + i)
+		c.TMDBID = ptrTMDBID(80000 + i)
 		oid, err := seriesRepo.Upsert(ctx, c)
 		require.NoError(t, err)
 		otherIDs = append(otherIDs, oid)

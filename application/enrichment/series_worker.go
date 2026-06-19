@@ -490,7 +490,7 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 			return nil, fmt.Errorf("upsert person stub: %w", err)
 		}
 		if st.TMDBID != nil {
-			personIDByTMDB[*st.TMDBID] = pid
+			personIDByTMDB[int(*st.TMDBID)] = pid
 		}
 	}
 
@@ -856,7 +856,7 @@ func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.Seri
 
 func patchFromTMDBCanon(c series.Canon) enrichment.SeriesPatch {
 	return enrichment.SeriesPatch{
-		TMDBID: c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
+		TMDBID: tmdbIDPtrToInt(c.TMDBID), TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
 		OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate:      c.NextAirDate,
@@ -903,6 +903,27 @@ func intPtrToTVDBID(p *int) *domain.TVDBID {
 	return &v
 }
 
+// tmdbIDPtrToInt / intPtrToTMDBID bridge the typed TMDBID seam between
+// series.Canon (*domain.TMDBID) and the domain/enrichment patch + canon
+// shapes (*int). Same rationale as the TVDB bridge — domain/enrichment
+// intentionally stays import-free of internal/shared/domain. Story 403
+// A-5d-2.
+func tmdbIDPtrToInt(p *domain.TMDBID) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
+func intPtrToTMDBID(p *int) *domain.TMDBID {
+	if p == nil {
+		return nil
+	}
+	v := domain.TMDBID(*p)
+	return &v
+}
+
 // imdbIDPtrToString / stringPtrToIMDBID bridge the typed IMDBID seam
 // between series.Canon (*domain.IMDBID) and the domain/enrichment
 // patch + canon shapes (*string). Same rationale as the TVDB bridge:
@@ -928,7 +949,7 @@ func stringPtrToIMDBID(p *string) *domain.IMDBID {
 func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration: enrichment.HydrationLevel(c.Hydration),
-		TMDBID:    c.TMDBID, TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
+		TMDBID:    tmdbIDPtrToInt(c.TMDBID), TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
 		Title: c.Title, OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate: c.NextAirDate, Year: c.Year,
@@ -944,7 +965,7 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 
 func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series.Canon {
 	base.Hydration = series.Hydration(ec.Hydration)
-	base.TMDBID = ec.TMDBID
+	base.TMDBID = intPtrToTMDBID(ec.TMDBID)
 	base.TVDBID = intPtrToTVDBID(ec.TVDBID)
 	base.IMDBID = stringPtrToIMDBID(ec.IMDBID)
 	base.Title = ec.Title

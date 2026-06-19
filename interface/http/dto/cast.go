@@ -65,7 +65,7 @@ type CastPageMember struct {
 	// TMDBID is the TMDB person id. nil when the person was
 	// onboarded from a non-TMDB source (rare; today every cast
 	// member comes from TMDB aggregate_credits).
-	TMDBID *int `json:"tmdb_id,omitempty"`
+	TMDBID *domain.TMDBID `json:"tmdb_id,omitempty"`
 	// Name is the person's display name (locale-independent —
 	// TMDB doesn't translate names reliably, PRD §5.3 row
 	// "people").
@@ -98,10 +98,10 @@ type CastPageMember struct {
 // CastPageMember but carries department + job instead of
 // character.
 type CrewPageMember struct {
-	PersonID     int64   `json:"person_id"`
-	TMDBID       *int    `json:"tmdb_id,omitempty"`
-	Name         string  `json:"name"`
-	ProfileAsset *string `json:"profile_asset,omitempty"`
+	PersonID     int64          `json:"person_id"`
+	TMDBID       *domain.TMDBID `json:"tmdb_id,omitempty"`
+	Name         string         `json:"name"`
+	ProfileAsset *string        `json:"profile_asset,omitempty"`
 	// Department is the TMDB department classification
 	// ("Production", "Writing", "Directing", "Editorial", ...).
 	// nil when TMDB didn't emit one.

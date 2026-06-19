@@ -28,7 +28,7 @@ import (
 // people.id; the cmd-server adapter performs the two-step
 // (tmdb→id, then id+lang→Person with bio).
 type PeopleReader interface {
-	GetByTMDBID(ctx context.Context, tmdbID int) (dompeople.Person, error)
+	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (dompeople.Person, error)
 	GetWithBio(ctx context.Context, id int64, language string) (dompeople.Person, error)
 }
 
@@ -45,7 +45,7 @@ type PersonCreditsReader interface {
 // tmdb_id IS NOT NULL`). The composer uses this to bridge
 // person_credits → canon series → series_cache.
 type SeriesByTMDBLookup interface {
-	GetByTMDBID(ctx context.Context, tmdbID int) (series.Canon, error)
+	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error)
 }
 
 // SeriesCacheLookup returns the live series_cache rows for a

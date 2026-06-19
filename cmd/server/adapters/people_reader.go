@@ -6,6 +6,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/people"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PeopleReaderAdapter projects PeopleRepository onto the H-2
@@ -26,7 +27,7 @@ func NewPeopleReaderAdapter(r *repositories.PeopleRepository) PeopleReaderAdapte
 var _ people.PeopleReader = PeopleReaderAdapter{}
 
 // GetByTMDBID implements people.PeopleReader.
-func (a PeopleReaderAdapter) GetByTMDBID(ctx context.Context, tmdbID int) (dompeople.Person, error) {
+func (a PeopleReaderAdapter) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (dompeople.Person, error) {
 	return a.R.GetByTMDBID(ctx, tmdbID)
 }
 

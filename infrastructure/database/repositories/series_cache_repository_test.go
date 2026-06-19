@@ -30,7 +30,7 @@ func sampleEntry(instance domain.InstanceName, id domain.SonarrSeriesID) series.
 	// into one canon row by accident. Tests that need shared canon
 	// (cutover dedup scenarios) override TMDBID/TVDBID explicitly.
 	tvdb := domain.TVDBID(12345 + int(id))
-	tmdb := 54321 + int(id)
+	tmdb := domain.TMDBID(54321 + int(id))
 	return series.CacheEntry{
 		InstanceName:   instance,
 		SonarrSeriesID: id,

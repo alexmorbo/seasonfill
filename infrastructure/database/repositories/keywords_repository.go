@@ -58,7 +58,7 @@ func (r *KeywordsRepository) Get(ctx context.Context, id int64, language string)
 	return k, nil
 }
 
-func (r *KeywordsRepository) GetByTMDBID(ctx context.Context, tmdbID int) (taxonomy.Keyword, error) {
+func (r *KeywordsRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (taxonomy.Keyword, error) {
 	var m database.KeywordModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error

@@ -119,7 +119,7 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 func TestSeriesCastHandler_Get_200(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	tmdbID := 1001
+	tmdbID := domain.TMDBID(1001)
 	character := "Joel Miller"
 	order := 0
 	episodes := 9

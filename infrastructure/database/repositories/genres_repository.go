@@ -68,7 +68,7 @@ func (r *GenresRepository) Get(ctx context.Context, id int64, language string) (
 // GetByTMDBID looks up the genre by TMDB id. Name is NOT resolved
 // here — hot-path used by the series enrichment worker to answer "do
 // I already have this genre id?".
-func (r *GenresRepository) GetByTMDBID(ctx context.Context, tmdbID int) (taxonomy.Genre, error) {
+func (r *GenresRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (taxonomy.Genre, error) {
 	var m database.GenreModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error

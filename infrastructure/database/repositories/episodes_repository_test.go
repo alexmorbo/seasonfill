@@ -106,7 +106,7 @@ func TestEpisodesRepository_CountBySeries(t *testing.T) {
 	// Second series with distinct TMDB id so the upsert doesn't
 	// collapse onto seriesID1 via the partial unique key.
 	c2 := sampleCanon("Better Call Saul")
-	otherTMDB := 999
+	otherTMDB := domain.TMDBID(999)
 	c2.TMDBID = &otherTMDB
 	otherTVDB := domain.TVDBID(888)
 	c2.TVDBID = &otherTVDB

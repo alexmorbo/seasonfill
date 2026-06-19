@@ -82,6 +82,45 @@ func TestTVDBID_PointerJSONNull(t *testing.T) {
 	require.Equal(t, `{"id":54321}`, string(b))
 }
 
+// TestTMDBID_JSONRoundTrip — story 403 A-5d-2. TMDBID is an int
+// underneath; the JSON wire format must remain a plain number so
+// downstream consumers (Sonarr inbound, TMDB embeds, SeriesDetail /
+// people DTOs) see the identical numeric shape they did before the
+// typed migration.
+func TestTMDBID_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		ID domain.TMDBID `json:"id"`
+	}
+	in := wrap{ID: domain.TMDBID(12345)}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":12345}`, string(b))
+	var out wrap
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, in.ID, out.ID)
+}
+
+// TestTMDBID_PointerJSONNull — story 403. The pointer form must
+// honour `omitempty` (nil → field absent) and marshal a non-nil
+// value as a plain number, matching the Canon / CacheEntry /
+// SeriesDetail DTO usage of *domain.TMDBID.
+func TestTMDBID_PointerJSONNull(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		ID *domain.TMDBID `json:"id,omitempty"`
+	}
+	in := wrap{}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(b))
+	id := domain.TMDBID(12345)
+	in.ID = &id
+	b, err = json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":12345}`, string(b))
+}
+
 // TestIMDBID_JSONRoundTrip — story 402 A-5d-1. IMDBID is a string
 // underneath; the JSON wire format must remain a plain string so
 // downstream consumers (Sonarr inbound, TMDB external_ids embed,

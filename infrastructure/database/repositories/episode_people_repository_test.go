@@ -71,7 +71,7 @@ func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 	credits := make([]people.EpisodeCredit, n)
 	for i := 0; i < n; i++ {
 		p := samplePerson(fmt.Sprintf("Guest %02d", i))
-		p.TMDBID = ptrInt(9000 + i)
+		p.TMDBID = ptrTMDBID(9000 + i)
 		personID, err := peopleRepo.Upsert(ctx, p)
 		require.NoError(t, err)
 		credits[i] = people.EpisodeCredit{

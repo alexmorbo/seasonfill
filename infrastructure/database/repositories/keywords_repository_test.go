@@ -19,7 +19,7 @@ func TestKeywordsRepository_UpsertAndGet(t *testing.T) {
 	repo := NewKeywordsRepository(db)
 	i18n := NewKeywordsI18nRepository(db)
 
-	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrInt(6075)})
+	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(6075)})
 	require.NoError(t, err)
 	require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
 		KeywordID: id, Language: "en-US", Name: "post-apocalyptic future",
@@ -45,7 +45,7 @@ func TestKeywordsRepository_Upsert_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	repo := NewKeywordsRepository(db)
 
-	k := taxonomy.Keyword{TMDBID: ptrInt(818)}
+	k := taxonomy.Keyword{TMDBID: ptrTMDBID(818)}
 	id1, err := repo.Upsert(ctx, k)
 	require.NoError(t, err)
 	id2, err := repo.Upsert(ctx, k)
@@ -65,7 +65,7 @@ func TestKeywordsRepository_Get_EmptyRURUFallsBackToEnUS(t *testing.T) {
 	repo := NewKeywordsRepository(db)
 	i18n := NewKeywordsI18nRepository(db)
 
-	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrInt(818)})
+	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(818)})
 	require.NoError(t, err)
 	require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
 		KeywordID: id, Language: "en-US", Name: "based on novel",
@@ -88,7 +88,7 @@ func TestKeywordsRepository_ResolveByName(t *testing.T) {
 	repo := NewKeywordsRepository(db)
 	i18n := NewKeywordsI18nRepository(db)
 
-	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrInt(6075)})
+	id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(6075)})
 	require.NoError(t, err)
 	require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
 		KeywordID: id, Language: "en-US", Name: "post-apocalyptic future",
@@ -110,9 +110,9 @@ func TestKeywordsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 
 	seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Severance"))
 	require.NoError(t, err)
-	kID1, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrInt(818)})
+	kID1, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(818)})
 	require.NoError(t, err)
-	kID2, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrInt(6075)})
+	kID2, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(6075)})
 	require.NoError(t, err)
 
 	require.NoError(t, repo.Set(ctx, seriesID, []int64{kID1, kID2}))

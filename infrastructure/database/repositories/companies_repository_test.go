@@ -15,7 +15,7 @@ import (
 func sampleCompany(name string, tmdbID int) taxonomy.ProductionCompany {
 	return taxonomy.ProductionCompany{
 		Name:          name,
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		OriginCountry: ptrString("US"),
 	}
 }

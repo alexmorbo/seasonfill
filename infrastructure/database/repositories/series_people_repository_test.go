@@ -69,7 +69,7 @@ func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 	credits := make([]people.SeriesCredit, n)
 	for i := 0; i < n; i++ {
 		p := samplePerson(fmt.Sprintf("Cast %02d", i))
-		p.TMDBID = ptrInt(8000 + i)
+		p.TMDBID = ptrTMDBID(8000 + i)
 		personID, err := peopleRepo.Upsert(ctx, p)
 		require.NoError(t, err)
 		credits[i] = people.SeriesCredit{
@@ -154,7 +154,7 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 	expectedSeriesIDs := make([]domain.SeriesID, 0, len(titles))
 	for i, title := range titles {
 		c := sampleCanon(title)
-		c.TMDBID = ptrInt(20000 + i)
+		c.TMDBID = ptrTMDBID(20000 + i)
 		sid, err := seriesRepo.Upsert(ctx, c)
 		require.NoError(t, err)
 		expectedSeriesIDs = append(expectedSeriesIDs, sid)
@@ -171,7 +171,7 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 	// An unrelated person on one of the series — must NOT appear in
 	// the reverse lookup.
 	otherPerson := samplePerson("Other")
-	otherPerson.TMDBID = ptrInt(30000)
+	otherPerson.TMDBID = ptrTMDBID(30000)
 	otherID, err := peopleRepo.Upsert(ctx, otherPerson)
 	require.NoError(t, err)
 	_, err = repo.Upsert(ctx, people.SeriesCredit{

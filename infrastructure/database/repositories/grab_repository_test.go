@@ -405,6 +405,10 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain
 
 func ptrString(s string) *string { return &s }
 func ptrInt(i int) *int          { return &i }
+func ptrTMDBID(i int) *domain.TMDBID {
+	v := domain.TMDBID(i)
+	return &v
+}
 func ptrIMDBID(s string) *domain.IMDBID {
 	v := domain.IMDBID(s)
 	return &v

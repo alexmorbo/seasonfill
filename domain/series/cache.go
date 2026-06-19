@@ -33,7 +33,7 @@ type CacheEntry struct {
 	Year      *int
 	TVDBID    *domain.TVDBID
 	IMDBID    *domain.IMDBID
-	TMDBID    *int
+	TMDBID    *domain.TMDBID
 	Status    *string
 	// Network REMOVED in E-1 (Story 210). Network membership lives in
 	// series_networks join, read via SeriesCacheRepository.ListDistinctNetworks

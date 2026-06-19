@@ -29,11 +29,11 @@ type fakePeopleReader struct {
 	errID   error
 }
 
-func (f *fakePeopleReader) GetByTMDBID(_ context.Context, tmdbID int) (dompeople.Person, error) {
+func (f *fakePeopleReader) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (dompeople.Person, error) {
 	if f.errTMDB != nil {
 		return dompeople.Person{}, f.errTMDB
 	}
-	p, ok := f.byTMDB[tmdbID]
+	p, ok := f.byTMDB[int(tmdbID)]
 	if !ok {
 		return dompeople.Person{}, ports.ErrNotFound
 	}
@@ -68,11 +68,11 @@ type fakeSeriesByTMDB struct {
 	errs map[int]error
 }
 
-func (f *fakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
-	if err, ok := f.errs[tmdbID]; ok {
+func (f *fakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
+	if err, ok := f.errs[int(tmdbID)]; ok {
 		return series.Canon{}, err
 	}
-	c, ok := f.rows[tmdbID]
+	c, ok := f.rows[int(tmdbID)]
 	if !ok {
 		return series.Canon{}, ports.ErrNotFound
 	}
@@ -128,7 +128,7 @@ func ptr[T any](v T) *T { return &v }
 func mkCanon(id domain.SeriesID, tmdbID int, title string, year int, lastAir time.Time) series.Canon {
 	return series.Canon{
 		ID:          id,
-		TMDBID:      ptr(tmdbID),
+		TMDBID:      ptr(domain.TMDBID(tmdbID)),
 		Title:       title,
 		Year:        ptr(year),
 		LastAirDate: ptr(lastAir),
@@ -178,7 +178,7 @@ func happyFixture(t *testing.T) Deps {
 	t.Helper()
 	person := dompeople.Person{
 		ID:                1,
-		TMDBID:            ptr(4495),
+		TMDBID:            ptr(domain.TMDBID(4495)),
 		Hydration:         dompeople.HydrationFull,
 		Name:              "Pedro Pascal",
 		Biography:         "Chilean-American actor...",
@@ -433,7 +433,7 @@ func TestUseCase_InvalidTMDBID_NotFound(t *testing.T) {
 	deps := happyFixture(t)
 	uc := NewUseCase(deps)
 	for _, raw := range []int{0, -5} {
-		_, err := uc.Get(context.Background(), raw, "", "")
+		_, err := uc.Get(context.Background(), domain.TMDBID(raw), "", "")
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ports.ErrNotFound))
 	}

@@ -36,7 +36,7 @@ type SeriesPayload struct {
 	Tags           []int
 	TVDBID         shareddomain.TVDBID
 	IMDBID         shareddomain.IMDBID
-	TMDBID         int
+	TMDBID         shareddomain.TMDBID
 	PreviousAiring *time.Time
 	NextAiring     *time.Time
 	FirstAired     *time.Time

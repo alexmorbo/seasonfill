@@ -324,13 +324,13 @@ type Episode struct {
 // CastMember — one row of the cast carousel (design brief §2.6).
 // PersonID + TMDBID enable navigation to the person page.
 type CastMember struct {
-	PersonID      int64   `json:"person_id"`
-	TMDBPersonID  *int    `json:"tmdb_person_id,omitempty"`
-	Name          string  `json:"name"`
-	CharacterName *string `json:"character_name,omitempty"`
-	EpisodeCount  *int    `json:"episode_count,omitempty"`
-	ProfileAsset  *string `json:"profile_asset,omitempty"`
-	CreditOrder   *int    `json:"credit_order,omitempty"`
+	PersonID      int64          `json:"person_id"`
+	TMDBPersonID  *domain.TMDBID `json:"tmdb_person_id,omitempty"`
+	Name          string         `json:"name"`
+	CharacterName *string        `json:"character_name,omitempty"`
+	EpisodeCount  *int           `json:"episode_count,omitempty"`
+	ProfileAsset  *string        `json:"profile_asset,omitempty"`
+	CreditOrder   *int           `json:"credit_order,omitempty"`
 }
 
 // Recommendation — one tile of the "you might also like" carousel
@@ -338,7 +338,7 @@ type CastMember struct {
 // series's detail page; false → "Add to Sonarr" overlay (inert v1).
 type Recommendation struct {
 	SeriesID     domain.SeriesID `json:"series_id"`
-	TMDBSeriesID *int            `json:"tmdb_series_id,omitempty"`
+	TMDBSeriesID *domain.TMDBID  `json:"tmdb_series_id,omitempty"`
 	Title        string          `json:"title"`
 	Year         *int            `json:"year,omitempty"`
 	PosterAsset  *string         `json:"poster_asset,omitempty"`
@@ -355,7 +355,7 @@ type Recommendation struct {
 // (design brief §2.9). Each link rendered only when its id exists.
 type ExternalLinks struct {
 	IMDbID   *domain.IMDBID `json:"imdb_id,omitempty" example:"tt0903747"`
-	TMDBID   *int           `json:"tmdb_id,omitempty" example:"1396"`
+	TMDBID   *domain.TMDBID `json:"tmdb_id,omitempty" example:"1396"`
 	TVDBID   *domain.TVDBID `json:"tvdb_id,omitempty" example:"81189"`
 	Homepage *string        `json:"homepage,omitempty"`
 }

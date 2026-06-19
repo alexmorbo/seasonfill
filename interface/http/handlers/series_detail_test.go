@@ -76,7 +76,7 @@ func (f *fakeSeriesPort) Get(_ context.Context, id domain.SeriesID) (series.Cano
 	return c, nil
 }
 
-func (f *fakeSeriesPort) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
+func (f *fakeSeriesPort) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
 	for _, c := range f.rows {
 		if c.TMDBID != nil && *c.TMDBID == tmdbID {
 			return c, nil

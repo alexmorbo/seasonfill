@@ -72,7 +72,7 @@ func (f *fakeSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon, e
 	return c, nil
 }
 
-func (f *fakeSeries) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
+func (f *fakeSeries) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
 	if f.err != nil {
 		return series.Canon{}, f.err
 	}

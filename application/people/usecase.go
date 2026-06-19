@@ -128,7 +128,7 @@ func (nopMediaResolver) Resolve(_ context.Context, _ *string, _, _ string) *stri
 func (nopMediaResolver) ResolveSync(_ context.Context, _ *string, _, _ string) *string { return nil }
 
 // Get runs the H-2 workflow for (tmdbID, lang, sort).
-func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey string) (*PersonDetail, error) {
+func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, sortKey string) (*PersonDetail, error) {
 	if tmdbID <= 0 {
 		return nil, fmt.Errorf("get person: invalid tmdb id: %w", ports.ErrNotFound)
 	}
@@ -163,7 +163,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 		// fire rule 1 when this surfaces below.
 	default:
 		uc.d.Logger.WarnContext(ctx, "person_sync_log_lookup_failed",
-			slog.Int("tmdb_person_id", tmdbID),
+			slog.Int("tmdb_person_id", int(tmdbID)),
 			slog.Int64("person_id", person.ID),
 			slog.String("error", sErr.Error()))
 	}
@@ -171,7 +171,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 	credits, cErr := uc.d.PersonCredits.ListByPerson(ctx, person.ID)
 	if cErr != nil {
 		uc.d.Logger.WarnContext(ctx, "person_credits_list_failed",
-			slog.Int("tmdb_person_id", tmdbID),
+			slog.Int("tmdb_person_id", int(tmdbID)),
 			slog.Int64("person_id", person.ID),
 			slog.String("error", cErr.Error()))
 		credits = nil
@@ -224,13 +224,13 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID int, lang string, sortKey str
 			uc.d.Enqueuer.Enqueue(appenrich.EntityPerson, person.ID, appenrich.PriorityHot)
 		} else {
 			uc.d.Logger.WarnContext(ctx, "person_stub_enqueue_skipped_nil_enqueuer",
-				slog.Int("tmdb_person_id", tmdbID),
+				slog.Int("tmdb_person_id", int(tmdbID)),
 				slog.Int64("person_id", person.ID))
 		}
 	}
 
 	uc.d.Logger.InfoContext(ctx, "person_detail_composed",
-		slog.Int("tmdb_person_id", tmdbID),
+		slog.Int("tmdb_person_id", int(tmdbID)),
 		slog.Int64("person_id", person.ID),
 		slog.String("lang", lang),
 		slog.String("sort", string(sk)),
@@ -249,7 +249,7 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 	if pc.MediaType != "tv" {
 		return false, series.Canon{}, nil
 	}
-	canon, err := uc.d.SeriesByTMDB.GetByTMDBID(ctx, int(pc.TMDBMediaID))
+	canon, err := uc.d.SeriesByTMDB.GetByTMDBID(ctx, domain.TMDBID(pc.TMDBMediaID))
 	if err != nil {
 		if !errors.Is(err, ports.ErrNotFound) {
 			uc.d.Logger.WarnContext(ctx, "person_classify_canon_lookup_failed",

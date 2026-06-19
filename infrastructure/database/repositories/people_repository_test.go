@@ -10,13 +10,14 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func samplePerson(name string) people.Person {
 	return people.Person{
 		Name:               name,
 		Hydration:          people.HydrationStub,
-		TMDBID:             ptrInt(7001),
+		TMDBID:             ptrTMDBID(7001),
 		IMDBID:             ptrString("nm0000001"),
 		OriginalName:       ptrString("orig: " + name),
 		Gender:             ptrInt(2),
@@ -40,7 +41,7 @@ func TestPeopleRepository_UpsertInsertAndGet(t *testing.T) {
 	assert.Equal(t, "Pedro Pascal", got.Name)
 	assert.Equal(t, people.HydrationStub, got.Hydration)
 	require.NotNil(t, got.TMDBID)
-	assert.Equal(t, 7001, *got.TMDBID)
+	assert.Equal(t, domain.TMDBID(7001), *got.TMDBID)
 	assert.Empty(t, got.Biography)
 	assert.Empty(t, got.BiographyLanguage)
 }
@@ -101,12 +102,12 @@ func TestPeopleRepository_ListByIDs(t *testing.T) {
 	ctx := context.Background()
 
 	a := samplePerson("Actor A")
-	a.TMDBID = ptrInt(1001)
+	a.TMDBID = ptrTMDBID(1001)
 	id1, err := repo.Upsert(ctx, a)
 	require.NoError(t, err)
 
 	b := samplePerson("Actor B")
-	b.TMDBID = ptrInt(1002)
+	b.TMDBID = ptrTMDBID(1002)
 	id2, err := repo.Upsert(ctx, b)
 	require.NoError(t, err)
 

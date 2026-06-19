@@ -15,6 +15,7 @@ import (
 	domenrich "github.com/alexmorbo/seasonfill/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PeopleHandler serves the H-2 person detail payload (Story 217 /
@@ -80,7 +81,7 @@ func (h *PeopleHandler) Get(c *gin.Context) {
 	sortKey := strings.TrimSpace(c.Query("sort"))
 
 	ctx := c.Request.Context()
-	detail, err := h.uc.Get(ctx, tmdbID, lang, sortKey)
+	detail, err := h.uc.Get(ctx, domain.TMDBID(tmdbID), lang, sortKey)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "person not found"})

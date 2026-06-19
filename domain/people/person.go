@@ -12,7 +12,11 @@
 // boundary.
 package people
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // Hydration tracks how deeply a Person row has been enriched. Stub
 // rows enter the schema from series_enrichment_worker (C-2) when an
@@ -56,7 +60,7 @@ func (h Hydration) IsValid() bool {
 // rationale.
 type Person struct {
 	ID                 int64
-	TMDBID             *int
+	TMDBID             *domain.TMDBID
 	IMDBID             *string
 	Hydration          Hydration
 	Name               string

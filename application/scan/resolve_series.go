@@ -34,7 +34,7 @@ func ResolveOrCreateSeries(
 	repo SeriesCanonRepository,
 	p sonarr.SeriesPayload,
 ) (series.Canon, error) {
-	tmdbID := nonZeroIntPtr(p.TMDBID)
+	tmdbID := nonZeroTMDBIDPtr(p.TMDBID)
 	tvdbID := nonZeroTVDBIDPtr(p.TVDBID)
 	imdbID := nonEmptyIMDBIDPtr(p.IMDBID)
 
@@ -62,7 +62,8 @@ func ResolveOrCreateSeries(
 	}, nil
 }
 
-func nonZeroIntPtr(v int) *int {
+// nonZeroTMDBIDPtr is the typed-primitive variant — story 403 A-5d-2.
+func nonZeroTMDBIDPtr(v domain.TMDBID) *domain.TMDBID {
 	if v == 0 {
 		return nil
 	}

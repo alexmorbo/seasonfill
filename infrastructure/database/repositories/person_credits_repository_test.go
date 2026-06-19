@@ -133,17 +133,17 @@ func TestPersonCreditsRepository_ListByMedia(t *testing.T) {
 	repo := NewPersonCreditsRepository(db)
 
 	pedro := samplePerson("Pedro Pascal")
-	pedro.TMDBID = ptrInt(10001)
+	pedro.TMDBID = ptrTMDBID(10001)
 	pedroID, err := peopleRepo.Upsert(ctx, pedro)
 	require.NoError(t, err)
 
 	bella := samplePerson("Bella Ramsey")
-	bella.TMDBID = ptrInt(10002)
+	bella.TMDBID = ptrTMDBID(10002)
 	bellaID, err := peopleRepo.Upsert(ctx, bella)
 	require.NoError(t, err)
 
 	other := samplePerson("Other Person")
-	other.TMDBID = ptrInt(10003)
+	other.TMDBID = ptrTMDBID(10003)
 	otherID, err := peopleRepo.Upsert(ctx, other)
 	require.NoError(t, err)
 

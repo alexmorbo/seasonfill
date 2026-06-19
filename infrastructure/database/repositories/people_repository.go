@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PeopleRepository persists the canonical `people` table (PRD §5.3).
@@ -71,7 +72,7 @@ func (r *PeopleRepository) Get(ctx context.Context, id int64, language string) (
 // (caller passes id to Get for that) — this is the hot path used by
 // series_enrichment_worker to resolve "do I already have this
 // person?" without touching person_biographies.
-func (r *PeopleRepository) GetByTMDBID(ctx context.Context, tmdbID int) (people.Person, error) {
+func (r *PeopleRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error) {
 	var m database.PeopleModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("tmdb_id = ?", tmdbID).First(&m).Error

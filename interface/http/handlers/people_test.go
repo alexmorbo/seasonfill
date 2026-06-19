@@ -33,7 +33,7 @@ type peopleHandlerFakePeople struct {
 	errID   error
 }
 
-func (f peopleHandlerFakePeople) GetByTMDBID(_ context.Context, _ int) (dompeople.Person, error) {
+func (f peopleHandlerFakePeople) GetByTMDBID(_ context.Context, _ domain.TMDBID) (dompeople.Person, error) {
 	if f.errTMDB != nil {
 		return dompeople.Person{}, f.errTMDB
 	}
@@ -59,8 +59,8 @@ type peopleHandlerFakeSeriesByTMDB struct {
 	rows map[int]series.Canon
 }
 
-func (f peopleHandlerFakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID int) (series.Canon, error) {
-	if c, ok := f.rows[tmdbID]; ok {
+func (f peopleHandlerFakeSeriesByTMDB) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
+	if c, ok := f.rows[int(tmdbID)]; ok {
 		return c, nil
 	}
 	return series.Canon{}, ports.ErrNotFound
@@ -107,7 +107,7 @@ func buildHandler(uc *apppeople.UseCase) *PeopleHandler {
 
 func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 	t.Helper()
-	tmdbPersonID := 4495
+	tmdbPersonID := domain.TMDBID(4495)
 	person := dompeople.Person{
 		ID:        1,
 		TMDBID:    &tmdbPersonID,
@@ -116,7 +116,7 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 	}
 	canon := series.Canon{
 		ID:     42,
-		TMDBID: handlerPtr(100),
+		TMDBID: handlerPtr(domain.TMDBID(100)),
 		Title:  "The Last of Us",
 		Year:   handlerPtr(2023),
 	}
@@ -252,7 +252,7 @@ func TestPeopleHandler_Get_500_OnNonNotFoundError(t *testing.T) {
 
 func TestPeopleHandler_Get_StubPersonReturns200WithDegraded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	tmdbPersonID := 4495
+	tmdbPersonID := domain.TMDBID(4495)
 	person := dompeople.Person{
 		ID:        1,
 		TMDBID:    &tmdbPersonID,
@@ -289,7 +289,7 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 	// in-library credits. The handler does not pre-validate sort —
 	// unknown values fall through to the use case's default.
 	gin.SetMode(gin.TestMode)
-	tmdbPersonID := 4495
+	tmdbPersonID := domain.TMDBID(4495)
 	person := dompeople.Person{ID: 1, TMDBID: &tmdbPersonID, Hydration: dompeople.HydrationFull, Name: "p"}
 	canonA := series.Canon{ID: 42, Title: "Alpha Show", Year: handlerPtr(2020)}
 	canonZ := series.Canon{ID: 43, Title: "Zulu Show", Year: handlerPtr(2025)}
@@ -342,7 +342,7 @@ func TestSeriesPersonHandler_OtherCredits_NewFields_Story307(t *testing.T) {
 	votes := 9876
 	rating := 8.5
 	releaseDate := time.Date(2017, 9, 1, 0, 0, 0, 0, time.UTC)
-	tmdbPersonID := 4495
+	tmdbPersonID := domain.TMDBID(4495)
 
 	credits := []dompeople.PersonCredit{
 		{
@@ -412,7 +412,7 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 
 	profilePath := "/abc.jpg"
 	posterPath := "/def.jpg"
-	tmdbPersonID := 5887
+	tmdbPersonID := domain.TMDBID(5887)
 
 	resolver := &recordingResolver{
 		responses: map[string]string{

@@ -11,7 +11,11 @@
 // application layer; the domain types stay value-shaped.
 package taxonomy
 
-import "time"
+import (
+	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+)
 
 // Network is one row of `networks` (PRD §5.3 row "networks"). Name
 // stays on the entity — brand names like "Netflix" / "BBC One" are
@@ -19,7 +23,7 @@ import "time"
 // reference; OriginCountry is an ISO 3166-1 alpha-2 string from TMDB.
 type Network struct {
 	ID            int64
-	TMDBID        *int
+	TMDBID        *domain.TMDBID
 	Name          string
 	LogoAsset     *string
 	OriginCountry *string
@@ -32,7 +36,7 @@ type Network struct {
 // stay on the entity.
 type ProductionCompany struct {
 	ID            int64
-	TMDBID        *int
+	TMDBID        *domain.TMDBID
 	Name          string
 	LogoAsset     *string
 	OriginCountry *string
@@ -49,7 +53,7 @@ type ProductionCompany struct {
 // ready-to-serialise object.
 type Genre struct {
 	ID     int64
-	TMDBID *int
+	TMDBID *domain.TMDBID
 	// Name is the resolved localised name returned by
 	// GenresRepository.Get — read-only on Genre. May be empty if no
 	// row exists in genres_i18n for any language (rare — TMDB always
@@ -71,7 +75,7 @@ type Genre struct {
 // de / fr keyword source lands as new rows, not a migration.
 type Keyword struct {
 	ID        int64
-	TMDBID    *int
+	TMDBID    *domain.TMDBID
 	Name      string
 	Language  string
 	CreatedAt time.Time

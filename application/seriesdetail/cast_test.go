@@ -90,7 +90,7 @@ func castBaseDeps(t *testing.T) (CastDeps, *fakeSeriesCache, *fakeSeries, *fakeC
 	}
 	canon := &fakeSeries{
 		rows: map[domain.SeriesID]series.Canon{
-			42: {ID: 42, Title: "The Last of Us", TMDBID: intPtr(100)},
+			42: {ID: 42, Title: "The Last of Us", TMDBID: tmdbIDPtr(100)},
 		},
 	}
 	sp := &fakeCastSeriesPeople{}
@@ -111,8 +111,14 @@ func castBaseDeps(t *testing.T) (CastDeps, *fakeSeriesCache, *fakeSeries, *fakeC
 	return deps, cache, canon, sp, persons, credits, counts
 }
 
-func seedPerson(persons *fakeCastPeople, id int64, name string, tmdbID *int) {
+func seedPerson(persons *fakeCastPeople, id int64, name string, tmdbID *domain.TMDBID) {
 	persons.rows[id] = people.Person{ID: id, Name: name, TMDBID: tmdbID}
+}
+
+// tmdbIDPtr makes a *domain.TMDBID from an int literal — story 403.
+func tmdbIDPtr(v int) *domain.TMDBID {
+	id := domain.TMDBID(v)
+	return &id
 }
 
 func castCredit(personID int64, order *int, character string, episodes *int) people.SeriesCredit {
@@ -144,17 +150,17 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
 	// 3 cast: Pedro (order=0, in current+other), Bella (order=1, current only),
 	// Anna (order=2, current+Mindhunter).
-	seedPerson(persons, 1, "Pedro Pascal", intPtr(1001))
-	seedPerson(persons, 2, "Bella Ramsey", intPtr(1002))
-	seedPerson(persons, 3, "Anna Torv", intPtr(1003))
+	seedPerson(persons, 1, "Pedro Pascal", tmdbIDPtr(1001))
+	seedPerson(persons, 2, "Bella Ramsey", tmdbIDPtr(1002))
+	seedPerson(persons, 3, "Anna Torv", tmdbIDPtr(1003))
 	sp.cast = []people.SeriesCredit{
 		castCredit(1, intPtr(0), "Joel Miller", intPtr(9)),
 		castCredit(2, intPtr(1), "Ellie", intPtr(9)),
 		castCredit(3, intPtr(2), "Tess", intPtr(3)),
 	}
 	// 2 crew: Craig Mazin (Writing/Writer), Neil Druckmann (Production/EP).
-	seedPerson(persons, 10, "Craig Mazin", intPtr(2001))
-	seedPerson(persons, 11, "Neil Druckmann", intPtr(2002))
+	seedPerson(persons, 10, "Craig Mazin", tmdbIDPtr(2001))
+	seedPerson(persons, 11, "Neil Druckmann", tmdbIDPtr(2002))
 	sp.crew = []people.SeriesCredit{
 		crewCredit(10, "Writing", "Writer", intPtr(9)),
 		crewCredit(11, "Production", "Executive Producer", intPtr(9)),
@@ -168,8 +174,8 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	credits.rows[10] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	credits.rows[11] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	// Canon: 200 (GoT), 300 (Mindhunter) live in library + map to TMDB.
-	canon.rows[200] = series.Canon{ID: 200, Title: "Game of Thrones", TMDBID: intPtr(200)}
-	canon.rows[300] = series.Canon{ID: 300, Title: "Mindhunter", TMDBID: intPtr(300)}
+	canon.rows[200] = series.Canon{ID: 200, Title: "Game of Thrones", TMDBID: tmdbIDPtr(200)}
+	canon.rows[300] = series.Canon{ID: 300, Title: "Mindhunter", TMDBID: tmdbIDPtr(300)}
 	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
 	cache.byCanon[300] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 7, SeriesID: seriesIDPtr(300)}}
 
@@ -319,7 +325,7 @@ func TestCastComposer_CanonMissingPropagates(t *testing.T) {
 func TestCastComposer_SelfLinkSuppression(t *testing.T) {
 	t.Parallel()
 	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
-	seedPerson(persons, 1, "Solo Actor", intPtr(5001))
+	seedPerson(persons, 1, "Solo Actor", tmdbIDPtr(5001))
 	sp.cast = []people.SeriesCredit{castCredit(1, intPtr(0), "Hero", intPtr(9))}
 	// The only TV credit resolves to the CURRENT series (TMDB 100 → canon 42).
 	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
@@ -362,7 +368,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	canon.rows[42] = series.Canon{
 		ID:           42,
 		Title:        "The Last of Us",
-		TMDBID:       intPtr(100),
+		TMDBID:       tmdbIDPtr(100),
 		PosterAsset:  &posterPath,
 		Status:       &status,
 		Year:         &year,

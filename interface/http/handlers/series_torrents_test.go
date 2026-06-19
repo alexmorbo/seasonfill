@@ -43,7 +43,7 @@ func (s stubTorrentsSeriesPort) Get(_ context.Context, _ domain.SeriesID) (serie
 	return s.canon, s.err
 }
 
-func (s stubTorrentsSeriesPort) GetByTMDBID(_ context.Context, _ int) (series.Canon, error) {
+func (s stubTorrentsSeriesPort) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Canon, error) {
 	return s.canon, s.err
 }
 
@@ -279,7 +279,7 @@ func (errSeriesPort) Get(_ context.Context, _ domain.SeriesID) (series.Canon, er
 	return series.Canon{}, errors.New("db dead")
 }
 
-func (errSeriesPort) GetByTMDBID(_ context.Context, _ int) (series.Canon, error) {
+func (errSeriesPort) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Canon, error) {
 	return series.Canon{}, errors.New("db dead")
 }
 

@@ -79,6 +79,11 @@ type (
 
 // External catalog source IDs — canonical source-of-truth from external
 // providers. TMDB/TVDB are integers; IMDB is a "tt"-prefixed string.
+//
+// TMDBID migrated to typed primitive in story 403 (A-5d-2). The zero
+// value (TMDBID(0)) is the sentinel "unknown"; no constructor — any
+// positive int is valid. JSON marshals as a plain number; GORM
+// persists to INTEGER columns transparently.
 type (
 	TMDBID int
 	TVDBID int

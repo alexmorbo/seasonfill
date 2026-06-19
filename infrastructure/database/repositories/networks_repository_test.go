@@ -10,12 +10,13 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func sampleNetwork(name string, tmdbID int) taxonomy.Network {
 	return taxonomy.Network{
 		Name:          name,
-		TMDBID:        ptrInt(tmdbID),
+		TMDBID:        ptrTMDBID(tmdbID),
 		OriginCountry: ptrString("US"),
 	}
 }
@@ -34,7 +35,7 @@ func TestNetworksRepository_UpsertInsertAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Netflix", got.Name)
 	require.NotNil(t, got.TMDBID)
-	assert.Equal(t, 213, *got.TMDBID)
+	assert.Equal(t, domain.TMDBID(213), *got.TMDBID)
 }
 
 func TestNetworksRepository_Get_NotFound(t *testing.T) {
