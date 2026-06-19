@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func sampleEntry(instance domain.InstanceName, id domain.SonarrSeriesID) series.CacheEntry {
@@ -109,6 +110,11 @@ func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
 	repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 	_, err := repo.Get(context.Background(), "main", 999)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.SeriesCacheNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, domain.InstanceName("main"), typedErr.InstanceName)
+	assert.Equal(t, domain.SonarrSeriesID(999), typedErr.SonarrSeriesID)
 }
 
 func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {

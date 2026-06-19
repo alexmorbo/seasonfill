@@ -2,14 +2,17 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestEpisodesRepository_UpsertAndGet(t *testing.T) {
@@ -34,6 +37,18 @@ func TestEpisodesRepository_UpsertAndGet(t *testing.T) {
 	assert.Equal(t, seriesID, got.SeriesID)
 	assert.Equal(t, 1, got.SeasonNumber)
 	assert.Equal(t, 1, got.EpisodeNumber)
+}
+
+func TestEpisodesRepository_Get_NotFound(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	repo := NewEpisodesRepository(db)
+	_, err := repo.Get(context.Background(), 9999)
+	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.EpisodeNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, domain.EpisodeID(9999), typedErr.ID)
 }
 
 func TestEpisodesRepository_BatchUpsert_Idempotent(t *testing.T) {

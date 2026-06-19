@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func sampleCanon(title string) series.Canon {
@@ -58,6 +59,10 @@ func TestSeriesRepository_Get_NotFound(t *testing.T) {
 	repo := NewSeriesRepository(db)
 	_, err := repo.Get(context.Background(), 9999)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.SeriesNotFoundError
+	require.True(t, errors.As(err, &typedErr))
+	assert.Equal(t, domain.SeriesID(9999), typedErr.ID)
 }
 
 func TestSeriesRepository_Upsert_Idempotent(t *testing.T) {
@@ -102,6 +107,9 @@ func TestSeriesRepository_GetByTMDBID(t *testing.T) {
 
 	_, err = repo.GetByTMDBID(ctx, 999)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.SeriesNotFoundError
+	require.True(t, errors.As(err, &typedErr))
 }
 
 func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
@@ -126,6 +134,9 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 	// All probes miss.
 	_, err = repo.FindByExternalIDs(ctx, ptrTMDBID(404), ptrTVDBID(404), ptrIMDBID("tt9999999"))
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.SeriesNotFoundError
+	require.True(t, errors.As(err, &typedErr))
 }
 
 // TestSeriesRepository_PartialUnique covers the acceptance criterion:

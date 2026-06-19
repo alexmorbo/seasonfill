@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // SeriesCacheRepository persists the thin per-instance Sonarr projection
@@ -129,7 +130,13 @@ func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.Ins
 		First(&row).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.CacheEntry{}, ports.ErrNotFound
+			return series.CacheEntry{}, errors.Join(
+				&sharedErrors.SeriesCacheNotFoundError{
+					InstanceName:   instanceName,
+					SonarrSeriesID: sonarrSeriesID,
+				},
+				ports.ErrNotFound,
+			)
 		}
 		return series.CacheEntry{}, fmt.Errorf("get series_cache: %w", err)
 	}

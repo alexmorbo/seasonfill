@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // SeriesRepository persists the canonical `series` table (PRD §5).
@@ -39,7 +40,10 @@ func (r *SeriesRepository) Get(ctx context.Context, id domain.SeriesID) (series.
 		Where("id = ?", id).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.Canon{}, ports.ErrNotFound
+			return series.Canon{}, errors.Join(
+				&sharedErrors.SeriesNotFoundError{ID: id},
+				ports.ErrNotFound,
+			)
 		}
 		return series.Canon{}, fmt.Errorf("get series: %w", err)
 	}
@@ -55,7 +59,10 @@ func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID
 		Where("tmdb_id = ?", tmdbID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.Canon{}, ports.ErrNotFound
+			return series.Canon{}, errors.Join(
+				&sharedErrors.SeriesNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return series.Canon{}, fmt.Errorf("get series by tmdb_id: %w", err)
 	}
@@ -103,7 +110,10 @@ func (r *SeriesRepository) FindByExternalIDs(
 			return c, err
 		}
 	}
-	return series.Canon{}, ports.ErrNotFound
+	return series.Canon{}, errors.Join(
+		&sharedErrors.SeriesNotFoundError{},
+		ports.ErrNotFound,
+	)
 }
 
 // Upsert inserts or updates the canon row. The PK column (id) is

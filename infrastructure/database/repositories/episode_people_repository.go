@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // EpisodePeopleRepository persists the `episode_people` table.
@@ -34,7 +35,10 @@ func (r *EpisodePeopleRepository) Get(ctx context.Context, id int64) (people.Epi
 		Where("id = ?", id).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return people.EpisodeCredit{}, ports.ErrNotFound
+			return people.EpisodeCredit{}, errors.Join(
+				&sharedErrors.EpisodeNotFoundError{},
+				ports.ErrNotFound,
+			)
 		}
 		return people.EpisodeCredit{}, fmt.Errorf("get episode_people: %w", err)
 	}

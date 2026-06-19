@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // EpisodesRepository persists the canonical `episodes` table. Natural
@@ -33,7 +34,10 @@ func (r *EpisodesRepository) Get(ctx context.Context, id int64) (series.CanonEpi
 		Where("id = ?", id).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.CanonEpisode{}, ports.ErrNotFound
+			return series.CanonEpisode{}, errors.Join(
+				&sharedErrors.EpisodeNotFoundError{ID: domain.EpisodeID(id)},
+				ports.ErrNotFound,
+			)
 		}
 		return series.CanonEpisode{}, fmt.Errorf("get episode: %w", err)
 	}

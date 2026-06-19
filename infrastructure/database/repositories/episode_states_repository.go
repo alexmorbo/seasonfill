@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // EpisodeStatesRepository persists per-instance file state for
@@ -33,7 +34,10 @@ func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.I
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return series.EpisodeState{}, ports.ErrNotFound
+			return series.EpisodeState{}, errors.Join(
+				&sharedErrors.EpisodeNotFoundError{ID: episodeID},
+				ports.ErrNotFound,
+			)
 		}
 		return series.EpisodeState{}, fmt.Errorf("get episode_state: %w", err)
 	}

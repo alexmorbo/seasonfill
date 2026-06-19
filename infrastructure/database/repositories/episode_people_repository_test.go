@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func TestEpisodePeopleRepository_UpsertAndGet(t *testing.T) {
@@ -51,6 +52,9 @@ func TestEpisodePeopleRepository_Get_NotFound(t *testing.T) {
 	repo := NewEpisodePeopleRepository(db)
 	_, err := repo.Get(context.Background(), 9999)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typedErr *sharedErrors.EpisodeNotFoundError
+	require.True(t, errors.As(err, &typedErr))
 }
 
 func TestEpisodePeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
