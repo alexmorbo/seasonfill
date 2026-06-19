@@ -74,6 +74,7 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, false},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, false},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, false},
+		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, false},
 	}
 
 	for _, tc := range tests {
@@ -145,6 +146,7 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, "decision_not_found"},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, "watchdog_blacklist_not_found"},
+		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, "media_asset_not_found"},
 	}
 
 	for _, tc := range tests {

@@ -59,6 +59,7 @@ func IsRetriable(err error) bool {
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
 		wbNF          *WatchdogBlacklistNotFoundError
+		mediaNF       *MediaAssetNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -109,6 +110,8 @@ func IsRetriable(err error) bool {
 		return decisionNF.Retriable()
 	case errors.As(err, &wbNF):
 		return wbNF.Retriable()
+	case errors.As(err, &mediaNF):
+		return mediaNF.Retriable()
 	}
 	return false
 }
@@ -148,6 +151,7 @@ func ErrorCode(err error) string {
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
 		wbNF          *WatchdogBlacklistNotFoundError
+		mediaNF       *MediaAssetNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -198,6 +202,8 @@ func ErrorCode(err error) string {
 		return decisionNF.Code()
 	case errors.As(err, &wbNF):
 		return wbNF.Code()
+	case errors.As(err, &mediaNF):
+		return mediaNF.Code()
 	}
 	return "internal_error"
 }

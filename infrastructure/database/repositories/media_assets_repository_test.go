@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/media"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 const sampleHash = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
@@ -62,6 +63,11 @@ func TestMediaAssetsRepository_Get_NotFound(t *testing.T) {
 	repo := NewMediaAssetsRepository(db)
 	_, err := repo.Get(context.Background(), sampleHash)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typed *sharedErrors.MediaAssetNotFoundError
+	require.True(t, errors.As(err, &typed), "Get NotFound must expose typed MediaAssetNotFoundError via errors.As")
+	require.Equal(t, "hash", typed.Kind)
+	require.Equal(t, sampleHash, typed.Key)
 }
 
 func TestMediaAssetsRepository_GetByUpstreamURL(t *testing.T) {
@@ -83,6 +89,11 @@ func TestMediaAssetsRepository_GetByUpstreamURL(t *testing.T) {
 
 	_, err = repo.GetByUpstreamURL(ctx, "https://nope.example/x.jpg")
 	require.True(t, errors.Is(err, ports.ErrNotFound))
+
+	var typed *sharedErrors.MediaAssetNotFoundError
+	require.True(t, errors.As(err, &typed), "GetByUpstreamURL NotFound must expose typed MediaAssetNotFoundError via errors.As")
+	require.Equal(t, "source_url", typed.Kind)
+	require.Equal(t, "https://nope.example/x.jpg", typed.Key)
 }
 
 func TestMediaAssetsRepository_TouchLastAccess(t *testing.T) {
@@ -186,6 +197,11 @@ func TestMediaAssetsRepository_HashForSourceURL_Unknown(t *testing.T) {
 	repo := NewMediaAssetsRepository(db)
 	_, err := repo.HashForSourceURL(context.Background(), "https://nope.example/x.jpg")
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.MediaAssetNotFoundError
+	require.True(t, errors.As(err, &typed), "HashForSourceURL Unknown must expose typed MediaAssetNotFoundError via errors.As")
+	require.Equal(t, "source_url", typed.Kind)
+	require.Equal(t, "https://nope.example/x.jpg", typed.Key)
 }
 
 func TestMediaAssetsRepository_EnsurePending_InsertsNewRow(t *testing.T) {
@@ -269,8 +285,14 @@ func TestMediaAssetsRepository_GetSourceURLByHash(t *testing.T) {
 	assert.Equal(t, "backdrop_w1280", kind)
 	assert.Equal(t, media.StatusPending, status)
 
-	_, _, _, err = repo.GetSourceURLByHash(ctx, strings.Repeat("z", 64))
+	unknownHash := strings.Repeat("z", 64)
+	_, _, _, err = repo.GetSourceURLByHash(ctx, unknownHash)
 	require.ErrorIs(t, err, ports.ErrNotFound)
+
+	var typed *sharedErrors.MediaAssetNotFoundError
+	require.True(t, errors.As(err, &typed), "GetSourceURLByHash NotFound must expose typed MediaAssetNotFoundError via errors.As")
+	require.Equal(t, "hash", typed.Kind)
+	require.Equal(t, unknownHash, typed.Key)
 
 	_, _, _, err = repo.GetSourceURLByHash(ctx, "")
 	require.ErrorIs(t, err, ports.ErrNotFound)

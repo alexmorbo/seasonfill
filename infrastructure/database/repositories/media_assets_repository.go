@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // MediaAssetsRepository persists the media_assets table (migration
@@ -43,7 +44,10 @@ func (r *MediaAssetsRepository) Get(ctx context.Context, hash string) (media.Ass
 		Where("hash = ?", hash).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return media.Asset{}, ports.ErrNotFound
+			return media.Asset{}, errors.Join(
+				&sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: hash},
+				ports.ErrNotFound,
+			)
 		}
 		return media.Asset{}, fmt.Errorf("get media_asset: %w", err)
 	}
@@ -63,7 +67,10 @@ func (r *MediaAssetsRepository) GetByUpstreamURL(ctx context.Context, url string
 		Where("source_url = ?", url).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return media.Asset{}, ports.ErrNotFound
+			return media.Asset{}, errors.Join(
+				&sharedErrors.MediaAssetNotFoundError{Kind: "source_url", Key: url},
+				ports.ErrNotFound,
+			)
 		}
 		return media.Asset{}, fmt.Errorf("get media_asset by url: %w", err)
 	}
@@ -95,7 +102,10 @@ func (r *MediaAssetsRepository) HashForSourceURL(ctx context.Context, sourceURL 
 		Scan(&hash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows) {
-			return "", ports.ErrNotFound
+			return "", errors.Join(
+				&sharedErrors.MediaAssetNotFoundError{Kind: "source_url", Key: sourceURL},
+				ports.ErrNotFound,
+			)
 		}
 		return "", fmt.Errorf("hash for source_url: %w", err)
 	}
@@ -175,7 +185,10 @@ func (r *MediaAssetsRepository) GetSourceURLByHash(ctx context.Context, hash str
 		Scan(&row.SourceURL, &row.Kind, &row.Status)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows) {
-			return "", "", "", ports.ErrNotFound
+			return "", "", "", errors.Join(
+				&sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: hash},
+				ports.ErrNotFound,
+			)
 		}
 		return "", "", "", fmt.Errorf("get source_url by hash: %w", err)
 	}

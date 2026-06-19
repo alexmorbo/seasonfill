@@ -41,6 +41,7 @@ func StatusCode(err error) int {
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
 		wbNF          *WatchdogBlacklistNotFoundError
+		mediaNF       *MediaAssetNotFoundError
 	)
 	switch {
 	case errors.As(err, &seriesNF):
@@ -72,6 +73,8 @@ func StatusCode(err error) int {
 	case errors.As(err, &decisionNF):
 		return http.StatusNotFound
 	case errors.As(err, &wbNF):
+		return http.StatusNotFound
+	case errors.As(err, &mediaNF):
 		return http.StatusNotFound
 	case errors.As(err, &scanIP):
 		return http.StatusConflict

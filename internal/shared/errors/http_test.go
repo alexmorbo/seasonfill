@@ -44,6 +44,7 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, http.StatusNotFound},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, http.StatusNotFound},
 		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, http.StatusNotFound},
+		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, http.StatusNotFound},
 	}
 
 	for _, tc := range tests {
