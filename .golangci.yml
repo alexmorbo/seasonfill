@@ -19,7 +19,26 @@ linters:
     - nilerr
     - revive
     - gocritic
+    - forbidigo
   settings:
+    forbidigo:
+      # F-4c: lock in the F-4b-8 DomainLogger migration. Forbids ad-hoc
+      # print/log paths that bypass the structured logging pipeline.
+      # Path-scoped exclusions below carve out the established CLI
+      # surfaces and the existing nil-logger fallbacks (handler/
+      # subscriber constructors). New files in fresh paths must wire
+      # through sharedports.DomainLogger.
+      forbid:
+        - pattern: '^fmt\.Print(ln|f)?$'
+          msg: 'use sharedports.DomainLogger instead of fmt.Print* — runtime output must flow through structured logging (story F-4c)'
+        - pattern: '^log\.(Print(ln|f)?|Fatal(ln|f)?|Panic(ln|f)?)$'
+          msg: 'use sharedports.DomainLogger instead of standard log package — runtime output must flow through structured logging (story F-4c)'
+        - pattern: '^fmt\.Fprint(ln|f)?$'
+          msg: 'use sharedports.DomainLogger instead of fmt.Fprint* — CLI command paths are whitelisted (story F-4c)'
+        - pattern: '^slog\.Default$'
+          msg: 'wrap with sharedports.DomainLogger(slog.Default(), "domain") — bare slog.Default() loses domain attribution (story F-4c)'
+        - pattern: '^slog\.New$'
+          msg: 'construct logger via internal/logger helpers — bare slog.New bypasses contextHandler wrapping (story F-4c)'
     revive:
       rules:
         - name: exported
@@ -84,6 +103,69 @@ linters:
         linters:
           - revive
         text: 'use-any'
+      # F-4c forbidigo carve-outs. Each block locks in an existing
+      # legitimate use of the otherwise-banned identifier:
+      #   * cmd/server/ + application/bootstrap/ — operator-facing CLI
+      #     stdout/stderr (reset-password, auth-mode, backfill-assets,
+      #     reparse, apikey bootstrap, main usage/fatal).
+      #   * application/evaluate/error_detail.go — fmt.Fprintf into a
+      #     bytes.Buffer for error-detail rendering, not stdout.
+      #   * internal/logger/ — the logger factory itself (slog.New
+      #     contextHandler wrap) and the GORM adapter nil-fallback.
+      #   * internal/shared/ports/context.go — LoggerFromContext nil
+      #     fallback (background scope).
+      #   * interface/http/handlers/, infrastructure/reload/,
+      #     infrastructure/tmdb/, internal/runtime/, application/,
+      #     cmd/server/ — established nil-logger fallback pattern
+      #     (constructor accepts *slog.Logger; nil → slog.Default()).
+      - path: 'cmd/server/'
+        linters:
+          - forbidigo
+        text: 'fmt\.Fprint'
+      - path: 'application/bootstrap/'
+        linters:
+          - forbidigo
+        text: 'fmt\.Fprint'
+      - path: 'application/evaluate/error_detail\.go'
+        linters:
+          - forbidigo
+        text: 'fmt\.Fprint'
+      - path: 'internal/logger/'
+        linters:
+          - forbidigo
+        text: 'slog\.(Default|New)'
+      - path: 'internal/shared/ports/context\.go'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'interface/http/handlers/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'infrastructure/reload/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'infrastructure/tmdb/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'internal/runtime/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'application/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'cmd/server/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      # Tests freely use slog.Default()/New for fixtures.
+      - path: _test\.go
+        linters:
+          - forbidigo
 
 formatters:
   enable:
