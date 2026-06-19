@@ -582,7 +582,7 @@ func TestAuditHandler_ListGrabs_ExposesTorrentHashAndChainPointers(t *testing.T)
 		CreatedAt:    base,
 		UpdatedAt:    base,
 	}
-	hash := "0123456789abcdef0123456789abcdef01234567"
+	hash := domain.QbitHash("0123456789abcdef0123456789abcdef01234567")
 	parent.TorrentHash = &hash
 	require.NoError(t, f.grabs.Create(context.Background(), parent))
 
@@ -619,7 +619,7 @@ func TestAuditHandler_ListGrabs_ExposesTorrentHashAndChainPointers(t *testing.T)
 
 	gotChild, gotParent := resp.Items[0], resp.Items[1] // created_at DESC
 	require.NotNil(t, gotParent.TorrentHash)
-	assert.Equal(t, hash, *gotParent.TorrentHash)
+	assert.Equal(t, string(hash), *gotParent.TorrentHash)
 	require.Len(t, gotParent.ReplayedBy, 1)
 	assert.Equal(t, child.ID.String(), gotParent.ReplayedBy[0])
 	assert.Nil(t, gotParent.ReplayOfID)

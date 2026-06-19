@@ -548,7 +548,7 @@ type RecentGrabRow struct {
 	ReleaseTitle string
 	Status       string
 	ReplayOfID   *string
-	TorrentHash  *string
+	TorrentHash  *domain.QbitHash
 	CreatedAt    time.Time
 }
 
@@ -604,13 +604,13 @@ func (r *WatchdogSeasonsRepository) RecentGrabsBySeason(
 		return map[int][]RecentGrabRow{}, nil
 	}
 	type row struct {
-		ID           string    `gorm:"column:id"`
-		SeasonNumber int       `gorm:"column:season_number"`
-		ReleaseTitle string    `gorm:"column:release_title"`
-		Status       string    `gorm:"column:status"`
-		ReplayOfID   *string   `gorm:"column:replay_of_id"`
-		TorrentHash  *string   `gorm:"column:torrent_hash"`
-		CreatedAt    time.Time `gorm:"column:created_at"`
+		ID           string           `gorm:"column:id"`
+		SeasonNumber int              `gorm:"column:season_number"`
+		ReleaseTitle string           `gorm:"column:release_title"`
+		Status       string           `gorm:"column:status"`
+		ReplayOfID   *string          `gorm:"column:replay_of_id"`
+		TorrentHash  *domain.QbitHash `gorm:"column:torrent_hash"`
+		CreatedAt    time.Time        `gorm:"column:created_at"`
 	}
 	var rows []row
 	db := dbFromContext(ctx, r.db).WithContext(ctx)

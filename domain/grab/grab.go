@@ -2,7 +2,6 @@ package grab
 
 import (
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,7 +78,7 @@ type Record struct {
 	// response when valid. nil = pre-Phase-10 row or malformed hash;
 	// the Phase 10 Watchdog ignores nil-hash rows (D63 hash-required
 	// gate, no backfill).
-	TorrentHash *string
+	TorrentHash *domain.QbitHash
 	// ReplayOfID is the audit pointer set by the Watchdog regrab use
 	// case (039f-2) when a row was written as a re-grab of an earlier
 	// row. nil for ordinary scan / rescan / manual paths. Lets the UI
@@ -109,20 +108,15 @@ type Record struct {
 
 // ParseTorrentHash validates and normalises a candidate qBit info-hash
 // from a Sonarr webhook downloadId or force-grab response. Returns a
-// pointer to the lowercased 40-char hex string on success, or nil on
-// any rejection (empty, wrong length, non-hex). Never returns an error
-// — malformed input is a normal, silent NULL-write.
-func ParseTorrentHash(downloadID string) *string {
-	s := strings.TrimSpace(downloadID)
-	if len(s) != 40 {
+// pointer to the typed QbitHash (lowercased 40-char hex) on success, or
+// nil on any rejection (empty, wrong length, non-hex). Never returns an
+// error — malformed input is a normal, silent NULL-write. Delegates the
+// regex + lowercase normalisation to domain.NewQbitHash so the
+// canonical hash invariant lives in one place (R-5).
+func ParseTorrentHash(downloadID string) *domain.QbitHash {
+	h, err := domain.NewQbitHash(downloadID)
+	if err != nil {
 		return nil
 	}
-	lower := strings.ToLower(s)
-	for i := 0; i < len(lower); i++ {
-		c := lower[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return nil
-		}
-	}
-	return &lower
+	return &h
 }

@@ -370,7 +370,7 @@ func toRecentGrabDTOs(rows []repositories.RecentGrabRow) []dto.WatchdogSeriesRec
 // firstNonEmptyHash returns the torrent_hash of the most recent grab row
 // that has one. Returns "" when no row has a non-nil hash. Rows are
 // already sorted most-recent-first by RecentGrabsBySeason.
-func firstNonEmptyHash(rows []repositories.RecentGrabRow) string {
+func firstNonEmptyHash(rows []repositories.RecentGrabRow) domain.QbitHash {
 	for _, r := range rows {
 		if r.TorrentHash != nil && *r.TorrentHash != "" {
 			return *r.TorrentHash

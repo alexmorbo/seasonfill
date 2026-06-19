@@ -226,7 +226,7 @@ func TestGrabRepository_UpdateTorrentHash_Success_FromNull(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, got.TorrentHash)
-	assert.Equal(t, hash, *got.TorrentHash)
+	assert.Equal(t, hash, string(*got.TorrentHash))
 }
 
 func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing.T) {
@@ -235,7 +235,8 @@ func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing
 	repo := NewGrabRepository(db)
 	rec := newGrabRecord(t)
 	const original = "0123456789abcdef0123456789abcdef01234567"
-	rec.TorrentHash = &([]string{original}[0])
+	originalHash := domain.QbitHash(original)
+	rec.TorrentHash = &originalHash
 	require.NoError(t, repo.Create(context.Background(), rec))
 
 	const newer = "fedcba9876543210fedcba9876543210fedcba98"
@@ -247,7 +248,7 @@ func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing
 	})
 	require.NoError(t, err)
 	require.NotNil(t, got.TorrentHash)
-	assert.Equal(t, original, *got.TorrentHash,
+	assert.Equal(t, original, string(*got.TorrentHash),
 		"UpdateTorrentHash must NOT overwrite an already-set hash (D63 first-seen-wins)")
 }
 
@@ -396,7 +397,7 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain
 		UpdatedAt:         time.Now().UTC(),
 	}
 	if hash != "" {
-		h := hash
+		h := domain.QbitHash(hash)
 		rec.TorrentHash = &h
 	}
 	return rec

@@ -121,6 +121,46 @@ func TestNewIMDBID(t *testing.T) {
 	}
 }
 
+// TestQbitHash_JSONRoundTrip — story 406 A-5d-5. QbitHash is a string
+// underneath; the JSON wire format must remain a plain string so
+// downstream consumers (grab DTO, torrents tab, audit endpoint) see
+// the identical lowercase 40-char hex shape they did before the typed
+// migration.
+func TestQbitHash_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		H domain.QbitHash `json:"h"`
+	}
+	in := wrap{H: domain.QbitHash("0123456789abcdef0123456789abcdef01234567")}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{"h":"0123456789abcdef0123456789abcdef01234567"}`, string(b))
+	var out wrap
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, in.H, out.H)
+}
+
+// TestQbitHash_PointerJSONNull — story 406. The pointer form must
+// honour `omitempty` (nil → field absent) and marshal a non-nil
+// value as a plain string, matching the grab.Record / DTO usage of
+// *domain.QbitHash.
+func TestQbitHash_PointerJSONNull(t *testing.T) {
+	t.Parallel()
+	type wrap struct {
+		H *domain.QbitHash `json:"h,omitempty"`
+	}
+	in := wrap{}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(b))
+	h := domain.QbitHash("aabbccddeeff00112233445566778899aabbccdd")
+	in.H = &h
+	b, err = json.Marshal(in)
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"h":"aabbccddeeff00112233445566778899aabbccdd"}`, string(b))
+}
+
 func TestNewQbitHash(t *testing.T) {
 	t.Parallel()
 

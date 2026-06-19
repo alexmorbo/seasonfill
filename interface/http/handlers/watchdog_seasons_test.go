@@ -296,7 +296,7 @@ func TestWatchdogSeasons_Series_RejectsInvalidID(t *testing.T) {
 func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	hash := "a1b2c3d4e5f60718293a4b5c6d7e8f9001122334"
+	hash := domain.QbitHash("a1b2c3d4e5f60718293a4b5c6d7e8f9001122334")
 	row := repositories.WatchdogSeasonRow{
 		InstanceID:        1,
 		InstanceName:      "homelab",

@@ -128,8 +128,9 @@ type GrabRepository interface {
 	// hash captured by an earlier OnGrab delivery or grab-time
 	// parse). Returns ErrNotFound when the row id is unknown.
 	// hash is expected to already be 40-char lowercase hex (the caller
-	// runs grab.ParseTorrentHash); an empty hash argument is a no-op
-	// success (defensive).
+	// runs grab.ParseTorrentHash, which delegates to
+	// domain.NewQbitHash for the canonical regex + normalisation);
+	// an empty hash argument is a no-op success (defensive).
 	UpdateTorrentHash(ctx context.Context, id uuid.UUID, hash string) error
 
 	// FindLatestSuccessByHash returns the newest grab_records row whose

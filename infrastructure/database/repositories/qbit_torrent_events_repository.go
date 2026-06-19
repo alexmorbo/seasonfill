@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // QbitTorrentEventsRepository persists the qbit_torrent_events
@@ -39,7 +40,7 @@ func (r *QbitTorrentEventsRepository) Insert(ctx context.Context, row torrentsyn
 	}
 	m := database.QbitTorrentEventModel{
 		InstanceName: row.Instance,
-		TorrentHash:  row.Hash,
+		TorrentHash:  domain.QbitHash(row.Hash),
 		Event:        string(row.Event),
 		OccurredAt:   at,
 	}

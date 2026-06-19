@@ -57,7 +57,7 @@ func enabledSettings() regrab.Settings {
 }
 
 func successGrab() domaingrab.Record {
-	h := testHash
+	h := domain.QbitHash(testHash)
 	return domaingrab.Record{
 		ID:           uuid.New(),
 		InstanceName: testInstance,

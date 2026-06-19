@@ -673,7 +673,7 @@ func (r *GrabRepository) FindSeriesByTorrentHashes(ctx context.Context, instance
 			continue
 		}
 		out = append(out, torrentsync.GrabHashRow{
-			Hash:         *m.TorrentHash,
+			Hash:         string(*m.TorrentHash),
 			SeriesID:     m.SeriesID,
 			SeasonNumber: m.SeasonNumber,
 		})

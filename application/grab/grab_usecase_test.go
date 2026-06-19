@@ -405,10 +405,10 @@ func TestExecute_Success_PopulatesTorrentHash_Valid40HexLower(t *testing.T) {
 
 	require.NoError(t, out.Err)
 	require.NotNil(t, out.Record.TorrentHash)
-	assert.Equal(t, hash, *out.Record.TorrentHash)
+	assert.Equal(t, hash, string(*out.Record.TorrentHash))
 	require.Len(t, gr.recs, 1)
 	require.NotNil(t, gr.recs[0].TorrentHash)
-	assert.Equal(t, hash, *gr.recs[0].TorrentHash,
+	assert.Equal(t, hash, string(*gr.recs[0].TorrentHash),
 		"persisted row must carry the parsed lowercase 40-char hex hash")
 }
 
@@ -422,11 +422,11 @@ func TestExecute_Success_TorrentHashNormalisesUpperToLower(t *testing.T) {
 
 	require.NoError(t, out.Err)
 	require.NotNil(t, out.Record.TorrentHash)
-	assert.Equal(t, lower, *out.Record.TorrentHash,
+	assert.Equal(t, lower, string(*out.Record.TorrentHash),
 		"Sonarr-returned hash must be lowercased before persist")
 	require.Len(t, gr.recs, 1)
 	require.NotNil(t, gr.recs[0].TorrentHash)
-	assert.Equal(t, lower, *gr.recs[0].TorrentHash)
+	assert.Equal(t, lower, string(*gr.recs[0].TorrentHash))
 }
 
 func TestExecute_Success_TorrentHashNilOnMalformed(t *testing.T) {

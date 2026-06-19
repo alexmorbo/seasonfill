@@ -103,7 +103,7 @@ type GrabRecordModel struct {
 	// by the OnGrab webhook handler in 039c. Nullable on purpose: rows
 	// created before Phase 10 have no recorded hash and are intentionally
 	// ignored by the Watchdog (D63 hash-required gate, no backfill).
-	TorrentHash *string `gorm:"column:torrent_hash;size:64"`
+	TorrentHash *domain.QbitHash `gorm:"column:torrent_hash;size:64"`
 	// ReplayOfID is the uuid of the original grab_records row this row
 	// re-grabs. Populated by the Phase 10 Watchdog when a re-grab is
 	// triggered (039f-2). nil for scan / rescan / manual paths. Indexed
@@ -978,7 +978,7 @@ func (QbitTorrentModel) TableName() string { return "qbit_torrents" }
 // nullable lets the row land without lying.
 type TorrentSeriesMapModel struct {
 	InstanceName domain.InstanceName   `gorm:"primaryKey;column:instance_name;type:text"`
-	TorrentHash  string                `gorm:"primaryKey;column:torrent_hash;type:text"`
+	TorrentHash  domain.QbitHash       `gorm:"primaryKey;column:torrent_hash;type:text"`
 	SeriesID     domain.SonarrSeriesID `gorm:"column:series_id;not null"`
 	SeasonNumber *int                  `gorm:"column:season_number"`
 	Source       string                `gorm:"column:source;type:text;not null"`
@@ -996,7 +996,7 @@ func (TorrentSeriesMapModel) TableName() string { return "torrent_series_map" }
 type QbitTorrentEventModel struct {
 	ID           int64               `gorm:"primaryKey;autoIncrement;column:id"`
 	InstanceName domain.InstanceName `gorm:"column:instance_name;type:text;not null"`
-	TorrentHash  string              `gorm:"column:torrent_hash;type:text;not null"`
+	TorrentHash  domain.QbitHash     `gorm:"column:torrent_hash;type:text;not null"`
 	Event        string              `gorm:"column:event;type:text;not null"`
 	FromGroup    *string             `gorm:"column:from_group;type:text"`
 	ToGroup      *string             `gorm:"column:to_group;type:text"`

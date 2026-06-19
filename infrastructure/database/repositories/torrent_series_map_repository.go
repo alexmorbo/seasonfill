@@ -63,7 +63,7 @@ func (r *TorrentSeriesMapRepository) upsert(ctx context.Context, row torrentsync
 	}
 	model := database.TorrentSeriesMapModel{
 		InstanceName: row.Instance,
-		TorrentHash:  row.Hash,
+		TorrentHash:  domain.QbitHash(row.Hash),
 		SeriesID:     row.SeriesID,
 		Source:       string(row.Source),
 		CreatedAt:    row.CreatedAt,
@@ -106,7 +106,7 @@ func (r *TorrentSeriesMapRepository) HashesForSeries(ctx context.Context, instan
 	out := make([]string, 0, len(rows))
 	for _, m := range rows {
 		if m.TorrentHash != "" {
-			out = append(out, m.TorrentHash)
+			out = append(out, string(m.TorrentHash))
 		}
 	}
 	return out, nil

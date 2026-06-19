@@ -78,7 +78,7 @@ type SeriesTorrentsResponse struct {
 type TorrentRow struct {
 	// Hash is the normalised v1 infohash (lowercase hex). PK
 	// for the row in the store and in qbit_torrents.
-	Hash string `json:"hash" example:"abcdef1234567890abcdef1234567890abcdef12"`
+	Hash domain.QbitHash `json:"hash" example:"abcdef1234567890abcdef1234567890abcdef12"`
 	// Name is the qBit-reported torrent name (release filename
 	// in most cases).
 	Name string `json:"name"`

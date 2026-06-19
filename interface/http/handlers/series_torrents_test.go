@@ -151,7 +151,7 @@ func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
 	require.Equal(t, 2, body.TotalCount)
 	require.Equal(t, 1, body.LiveCount)
 	// First row — live, newer added_on.
-	assert.Equal(t, "aaaa", body.Torrents[0].Hash)
+	assert.Equal(t, domain.QbitHash("aaaa"), body.Torrents[0].Hash)
 	assert.True(t, body.Torrents[0].Live)
 	assert.EqualValues(t, 1024, body.Torrents[0].DLSpeed)
 	// Story 308: season_number must surface end-to-end through the
@@ -160,7 +160,7 @@ func TestSeriesTorrents_200_LiveAndDeadRendered(t *testing.T) {
 	require.NotNil(t, body.Torrents[0].SeasonNumber, "season_number must propagate from TorrentInfo to wire")
 	assert.Equal(t, 5, *body.Torrents[0].SeasonNumber)
 	// Second row — dead, live cells zeroed.
-	assert.Equal(t, "bbbb", body.Torrents[1].Hash)
+	assert.Equal(t, domain.QbitHash("bbbb"), body.Torrents[1].Hash)
 	assert.False(t, body.Torrents[1].Live)
 	assert.EqualValues(t, 0, body.Torrents[1].DLSpeed)
 	// And the DB-only row whose TorrentInfo has nil SeasonNumber
@@ -266,9 +266,9 @@ func TestSeriesTorrents_DefaultSortAddedOnDesc(t *testing.T) {
 	var body dto.SeriesTorrentsResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Torrents, 3)
-	assert.Equal(t, "new", body.Torrents[0].Hash)
-	assert.Equal(t, "mid", body.Torrents[1].Hash)
-	assert.Equal(t, "old", body.Torrents[2].Hash)
+	assert.Equal(t, domain.QbitHash("new"), body.Torrents[0].Hash)
+	assert.Equal(t, domain.QbitHash("mid"), body.Torrents[1].Hash)
+	assert.Equal(t, domain.QbitHash("old"), body.Torrents[2].Hash)
 }
 
 // errSeriesPort is a SeriesPort that returns an error to assert

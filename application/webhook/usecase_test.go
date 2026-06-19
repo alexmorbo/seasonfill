@@ -667,7 +667,7 @@ func TestProcess_Grabbed_ValidHash_LowercasesUpper(t *testing.T) {
 
 func TestProcess_Grabbed_HashAlreadySet_NoUpdate(t *testing.T) {
 	t.Parallel()
-	existing := "0123456789abcdef0123456789abcdef01234567"
+	existing := domain.QbitHash("0123456789abcdef0123456789abcdef01234567")
 	rec := sampleRecord()
 	rec.TorrentHash = &existing
 	g := &fakeGrabRepo{match: rec}
@@ -1020,7 +1020,7 @@ func TestProcess_Grabbed_NoMapWriteWhenSeriesIDZero(t *testing.T) {
 
 func TestProcess_Grabbed_HashAlreadySet_NoTxNoMapWrite(t *testing.T) {
 	t.Parallel()
-	existing := "0123456789abcdef0123456789abcdef01234567"
+	existing := domain.QbitHash("0123456789abcdef0123456789abcdef01234567")
 	rec := sampleRecord()
 	rec.TorrentHash = &existing
 	rec.SeriesID = 1

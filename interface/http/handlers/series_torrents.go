@@ -204,7 +204,7 @@ func toSeriesTorrentsResponse(
 func mapTorrentRow(r torrentsync.QueryRow) dto.TorrentRow {
 	info := r.Entry.Info
 	row := dto.TorrentRow{
-		Hash:         info.Hash,
+		Hash:         domain.QbitHash(info.Hash),
 		Name:         info.Name,
 		StateRaw:     info.StateRaw,
 		StateGroup:   string(r.Entry.StateGroup),

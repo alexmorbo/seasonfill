@@ -340,7 +340,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()))
 		} else {
-			hash := strings.ToLower(*parsed)
+			hash := strings.ToLower(string(*parsed))
 			work := func(txCtx context.Context) error {
 				if err := u.grabs.UpdateTorrentHash(txCtx, rec.ID, hash); err != nil {
 					return fmt.Errorf("update torrent_hash: %w", err)

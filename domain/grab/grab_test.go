@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func TestStatus_Constants(t *testing.T) {
@@ -21,7 +23,7 @@ func TestStatus_Constants(t *testing.T) {
 func TestRecord_Fields(t *testing.T) {
 	t.Parallel()
 	id := uuid.New()
-	hash := "0123456789abcdef0123456789abcdef01234567"
+	hash := domain.QbitHash("0123456789abcdef0123456789abcdef01234567")
 	r := Record{
 		ID:          id,
 		Status:      StatusGrabbed,
@@ -92,12 +94,12 @@ func TestParseTorrentHash(t *testing.T) {
 	const validLower = "0123456789abcdef0123456789abcdef01234567"
 	const validUpper = "0123456789ABCDEF0123456789ABCDEF01234567"
 	const validMixed = "0123456789AbCdEf0123456789aBcDeF01234567"
-	lower := validLower // Store as variable to take address
+	lower := domain.QbitHash(validLower) // Store as variable to take address
 
 	cases := []struct {
 		name string
 		in   string
-		want *string
+		want *domain.QbitHash
 	}{
 		{"empty string", "", nil},
 		{"only whitespace", "   \t\n", nil},
@@ -122,7 +124,7 @@ func TestParseTorrentHash(t *testing.T) {
 			}
 			require.NotNil(t, got, "expected non-nil for %q", tc.in)
 			assert.Equal(t, *tc.want, *got)
-			assert.Len(t, *got, 40)
+			assert.Len(t, string(*got), 40)
 		})
 	}
 }

@@ -201,7 +201,7 @@ type Grab struct {
 	// TorrentHash — qBit info-hash (40-char lowercase hex) captured
 	// by the OnGrab webhook (Phase 10) or stamped at force-grab time.
 	// Omitted from wire when nil so pre-Phase-10 rows stay clean.
-	TorrentHash *string `json:"torrent_hash,omitempty" example:"0123456789abcdef0123456789abcdef01234567"`
+	TorrentHash *domain.QbitHash `json:"torrent_hash,omitempty" example:"0123456789abcdef0123456789abcdef01234567"`
 	// ReplayOfID — uuid of the original row this row re-grabs.
 	// Populated by the Watchdog regrab path (039f-2); nil for scan /
 	// rescan / manual paths. Omitted when nil.
@@ -804,12 +804,12 @@ type WatchdogBlacklistList struct {
 // (derived from the most recent non-failed grab_records row); empty when
 // no grab has reported a hash yet (pre-Phase-10 rows).
 type WatchdogSeasonOrigin struct {
-	Indexer     string     `json:"indexer"               example:"RuTracker (Prowlarr)"`
-	FirstSeenAt time.Time  `json:"first_seen_at"`
-	LastSeenAt  time.Time  `json:"last_seen_at"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	GUID        string     `json:"guid"                  example:"abc123"`
-	TorrentHash string     `json:"torrent_hash,omitempty" example:"a1b2c3d4e5f60718293a4b5c6d7e8f9001122334"`
+	Indexer     string          `json:"indexer"               example:"RuTracker (Prowlarr)"`
+	FirstSeenAt time.Time       `json:"first_seen_at"`
+	LastSeenAt  time.Time       `json:"last_seen_at"`
+	LastUsedAt  *time.Time      `json:"last_used_at,omitempty"`
+	GUID        string          `json:"guid"                  example:"abc123"`
+	TorrentHash domain.QbitHash `json:"torrent_hash,omitempty" example:"a1b2c3d4e5f60718293a4b5c6d7e8f9001122334"`
 }
 
 // WatchdogSeasonCooldown surfaces an active cooldowns row scoped to one
