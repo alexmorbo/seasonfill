@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 )
 
 type ensurePendingCall struct {

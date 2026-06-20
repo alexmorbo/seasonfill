@@ -11,7 +11,6 @@ import (
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
-	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -27,6 +26,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"

@@ -1,9 +1,9 @@
 package enrichment
 
 import (
-	"github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 )
 
 // composePrewarmAssets builds the pre-warm payload per PRD §6.4.

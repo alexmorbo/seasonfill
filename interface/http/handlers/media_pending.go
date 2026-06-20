@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	appmedia "github.com/alexmorbo/seasonfill/application/media"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 )
 
 // CatalogMediaPendingWriter is the narrow port the catalog handlers

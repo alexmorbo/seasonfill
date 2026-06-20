@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	appmedia "github.com/alexmorbo/seasonfill/application/media"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 )
 
 // mediaHashForPosterAsset derives the content-addressed media hash for

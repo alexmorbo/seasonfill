@@ -173,6 +173,15 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/mediaproxy/ inherits the application/ carve-out — the
+      # downloader / on-demand fetcher constructors accept *slog.Logger
+      # and fall back to slog.Default() wrapped via
+      # sharedports.DomainLogger when nil. Established pattern moved
+      # from application/media in story 427 (A-1-1).
+      - path: 'internal/mediaproxy/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:
