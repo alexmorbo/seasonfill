@@ -35,6 +35,11 @@ import (
 //     later model-split pass relocates them into internal/shared/
 //     domain/; until then the kernel mappers reference them by their
 //     current paths.
+//   - domain/release, domain/webhook — Sonarr client mappers return
+//     canon release / webhook domain value objects (story 439 A-1-13
+//     kernel move). Same horizontal-CA domain shape as the TMDB carve-
+//     outs above; will fold into internal/shared/domain/ in the same
+//     later model-split pass.
 //   - application/ports — externalservices.Settings UseCase satisfies
 //     the catch-all ExternalServicesRepository port surface defined
 //     in application/ports. Will relocate when story 449 splits the
@@ -69,8 +74,10 @@ func TestSharedClientsNoBackwardsImports(t *testing.T) {
 	allowList := []string{
 		modPath + "/application/ports",
 		modPath + "/domain/people",
+		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/domain/taxonomy",
+		modPath + "/domain/webhook",
 		modPath + "/infrastructure/database",
 	}
 

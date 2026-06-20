@@ -43,9 +43,6 @@ import (
 //   - domain/release + domain/series — read-only cross-context
 //     value-object types consumed by the regrab decision pipeline
 //     (release rank, season Series id).
-//   - infrastructure/qbit + infrastructure/sonarr — UseCase + qbit
-//     factory adapter shape; the production wiring stays horizontal
-//     until 434/435 land.
 //   - internal/grab/{app,domain,domain/decision,app/evaluate} — the
 //     watchdog regrab loop hands one Decision off to the grab
 //     UseCase (cross-context contract, kernel-shaped).
@@ -87,8 +84,6 @@ func TestWatchdogNoBackwardsImports(t *testing.T) {
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
-		modPath + "/infrastructure/qbit",
-		modPath + "/infrastructure/sonarr",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
 		modPath + "/interface/http/middleware",
@@ -232,9 +227,10 @@ func TestWatchdogPersistenceNoBackwardsImports(t *testing.T) {
 // move for internal/watchdog/infrastructure/ (folded from
 // infrastructure/watchdog and infrastructure/regrab). The state
 // watchdog reads its per-instance Sonarr config via domain/instance and
-// internal/config; the regrab cmd/server adapter satisfies the
-// app/regrab QbitClientFactory port against infrastructure/qbit. No
-// other horizontal-CA paths are allowed.
+// internal/config; the qBit client lives in the shared kernel at
+// internal/shared/clients/qbit/ since story 439 A-1-13 (no carve-out
+// needed — kernel imports are always allowed). No other horizontal-CA
+// paths are allowed.
 func TestWatchdogInfrastructureNoBackwardsImports(t *testing.T) {
 	t.Parallel()
 
@@ -242,7 +238,6 @@ func TestWatchdogInfrastructureNoBackwardsImports(t *testing.T) {
 	modPath := "github.com/alexmorbo/seasonfill"
 	allowList := []string{
 		modPath + "/domain/instance",
-		modPath + "/infrastructure/qbit",
 	}
 	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/infrastructure", allowList)
 }
@@ -254,8 +249,9 @@ func TestWatchdogInfrastructureNoBackwardsImports(t *testing.T) {
 // helpers and the InstanceLister/InstanceRegistry types; dto/middleware
 // for response shapes and routing wiring; infrastructure/database/
 // repositories for the read-side row types the seasons handler maps;
-// infrastructure/qbit for the on-demand torrents list shape; and
-// application/{ports,rescan,scan} + domain/{release,series} for the
+// the qBit client (on-demand torrents list shape) is satisfied via the
+// shared kernel at internal/shared/clients/qbit/ since story 439 A-1-13;
+// and application/{ports,rescan,scan} + domain/{release,series} for the
 // rescan handler's collaborator surface.
 func TestWatchdogRestNoBackwardsImports(t *testing.T) {
 	t.Parallel()
@@ -269,7 +265,6 @@ func TestWatchdogRestNoBackwardsImports(t *testing.T) {
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
-		modPath + "/infrastructure/qbit",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
 		modPath + "/interface/http/middleware",

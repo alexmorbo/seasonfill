@@ -66,9 +66,6 @@ import (
 //     reads/writes the external_services + quota_state GORM model
 //     types (ExternalServicesModel, QuotaStateModel). Same model-
 //     split deferral as A-1-9.
-//   - infrastructure/sonarr — series_worker pulls Sonarr error
-//     sentinels for the 404-as-degraded mapping. Will relocate when
-//     story 447 extracts the sonarr_sync bounded context.
 //   - interface/http/dto, interface/http/middleware — wire DTO
 //     contract + ErrorResponseMiddleware consumed by every rest
 //     slice (story 438 A-1-12). Same carve-out as the other internal/
@@ -109,7 +106,6 @@ func TestEnrichmentNoBackwardsImports(t *testing.T) {
 		modPath + "/domain/release",
 		modPath + "/domain/webhook",
 		modPath + "/infrastructure/database",
-		modPath + "/infrastructure/sonarr",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/middleware",
 	}
