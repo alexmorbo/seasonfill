@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"errors"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -21,13 +22,13 @@ import (
 // repo is the dialect-aware bucket aggregator. clock returns the
 // current UTC instant; production wires time.Now, tests freeze it.
 type CountersHandler struct {
-	reg    InstanceRegistry
+	reg    handlers.InstanceRegistry
 	repo   ports.CounterRepository
 	clock  func() time.Time
 	logger *slog.Logger
 }
 
-func NewCountersHandler(reg InstanceRegistry, repo ports.CounterRepository, logger *slog.Logger) *CountersHandler {
+func NewCountersHandler(reg handlers.InstanceRegistry, repo ports.CounterRepository, logger *slog.Logger) *CountersHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -65,7 +66,7 @@ func (h *CountersHandler) WithClock(clock func() time.Time) *CountersHandler {
 // @Router      /instances/{name}/counters [get]
 func (h *CountersHandler) ForInstance(c *gin.Context) {
 	name := c.Param("name")
-	if _, ok := h.reg.snapshot()[name]; !ok {
+	if _, ok := h.reg.Snapshot()[name]; !ok {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return
 	}
@@ -109,7 +110,7 @@ func (h *CountersHandler) Aggregate(c *gin.Context) {
 		return
 	}
 
-	instMap := h.reg.snapshot()
+	instMap := h.reg.Snapshot()
 	names := make([]string, 0, len(instMap))
 	for n := range instMap {
 		names = append(names, n)

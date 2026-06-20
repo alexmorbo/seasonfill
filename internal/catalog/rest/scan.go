@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"errors"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 )
 
@@ -20,7 +21,7 @@ type ScanHandler struct {
 
 // NewScanHandler wires the manual-scan trigger endpoint with the
 // scan use case and a logger. A nil logger falls back to
-// slog.Default() (see writeInternalError); production wiring always
+// slog.Default() (see handlers.WriteInternalError); production wiring always
 // passes a real logger.
 func NewScanHandler(uc *scan.UseCase, logger *slog.Logger) *ScanHandler {
 	if logger == nil {
@@ -79,7 +80,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 			return
 		}
 		if err != nil {
-			writeInternalError(c, h.logger, "scan_trigger_instance_failed", err,
+			handlers.WriteInternalError(c, h.logger, "scan_trigger_instance_failed", err,
 				slog.String("endpoint", "/api/v1/scan"),
 				slog.String("instance", string(req.Instance)),
 			)
@@ -91,7 +92,7 @@ func (h *ScanHandler) Trigger(c *gin.Context) {
 
 	results, err := h.useCase.Start(c.Request.Context(), scan.TriggerManual)
 	if err != nil && !errors.Is(err, scan.ErrScanAlreadyRunning) {
-		writeInternalError(c, h.logger, "scan_trigger_all_failed", err,
+		handlers.WriteInternalError(c, h.logger, "scan_trigger_all_failed", err,
 			slog.String("endpoint", "/api/v1/scan"),
 		)
 		return
@@ -136,15 +137,15 @@ func toScanTriggerItem(r scan.RunResult) dto.ScanTriggerItem {
 func (h *ScanHandler) Cancel(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid id")
+		handlers.WriteError(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 	if cerr := h.useCase.Cancel(c.Request.Context(), id); cerr != nil {
 		if errors.Is(cerr, scan.ErrScanNotRunning) {
-			writeError(c, http.StatusNotFound, "scan not running")
+			handlers.WriteError(c, http.StatusNotFound, "scan not running")
 			return
 		}
-		writeInternalError(c, h.logger, "scan_cancel_failed", cerr,
+		handlers.WriteInternalError(c, h.logger, "scan_cancel_failed", cerr,
 			slog.String("scan_id", id.String()))
 		return
 	}

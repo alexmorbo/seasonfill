@@ -19,6 +19,7 @@ import (
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
@@ -96,7 +97,7 @@ func NewServer(
 	}
 
 	healthHandler := adminrest.NewHealthHandler(checker)
-	scanHandler := handlers.NewScanHandler(scanUC, logger)
+	scanHandler := catalogrest.NewScanHandler(scanUC, logger)
 	// Singleton episodes cache shared by the Missing handler. Lives
 	// for the life of the process — like the poster cache, the cap +
 	// TTL are package-level constants (see internal/runtime/snapshot.go).
@@ -165,7 +166,7 @@ func NewServer(
 		guarded.GET("/instances", instancesHandler.List)
 		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
 		guarded.GET("/instances/:name/series/:id/seasons/:season/episodes", instancesHandler.SeasonEpisodes)
-		countersHandler := handlers.NewCountersHandler(instanceReg, counterRepo, logger)
+		countersHandler := catalogrest.NewCountersHandler(instanceReg, counterRepo, logger)
 		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
 		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
 		guarded.GET("/instances/:name/series-cache/networks", instancesHandler.ListSeriesCacheNetworks)

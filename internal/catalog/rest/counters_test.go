@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -39,12 +40,12 @@ func (f *fakeCounterRepo) AvgGrabsLast7Days(_ context.Context, _ domain.Instance
 	return f.avg, nil
 }
 
-func registryWith(names ...string) InstanceRegistry {
+func registryWith(names ...string) handlers.InstanceRegistry {
 	m := map[string]scan.Instance{}
 	for _, n := range names {
 		m[n] = scan.Instance{}
 	}
-	return InstanceRegistry{Load: func() map[string]scan.Instance { return m }}
+	return handlers.InstanceRegistry{Load: func() map[string]scan.Instance { return m }}
 }
 
 func TestCountersHandler_ForInstance_OK(t *testing.T) {

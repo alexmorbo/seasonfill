@@ -27,3 +27,12 @@ func mediaHashForPosterAsset(posterAsset *string) *string {
 	hash := appmedia.HashFromURL(url)
 	return &hash
 }
+
+// MediaHashForPosterAsset is the exported alias of
+// mediaHashForPosterAsset. Story 444 (A-1-18) added it so the new
+// internal/catalog/rest package can compute the same w342 hero hash
+// without forking the helper. The unexported name stays so the
+// remaining catch-all handlers (audit.go) don't churn.
+func MediaHashForPosterAsset(posterAsset *string) *string {
+	return mediaHashForPosterAsset(posterAsset)
+}
