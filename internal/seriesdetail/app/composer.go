@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
@@ -39,7 +38,7 @@ type Detail struct {
 	Text            *series.SeriesText
 	Seasons         []SeasonDetail
 	Cast            []CastDetail
-	Trailer         *repositories.Video
+	Trailer         *enrichpersistence.Video
 	ContentRating   *enrichpersistence.ContentRating
 	ExternalIDs     map[string]string
 	Recommendations []RecommendationDetail
@@ -600,7 +599,7 @@ func (c *Composer) loadBestTrailer(ctx context.Context, d *Detail) error {
 		return fmt.Errorf("list videos: %w", err)
 	}
 	// "Best": site=YouTube, official=true, ORDER BY published_at DESC.
-	var best *repositories.Video
+	var best *enrichpersistence.Video
 	for i := range videos {
 		v := videos[i]
 		if v.Site == nil || !strings.EqualFold(*v.Site, "YouTube") {

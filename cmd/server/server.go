@@ -11,7 +11,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -281,11 +280,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	keywordsI18nRepo := enrichpersistence.NewKeywordsI18nRepository(db)
 	networksRepo := enrichpersistence.NewNetworksRepository(db)
 	companiesRepo := enrichpersistence.NewCompaniesRepository(db)
-	videosRepo := repositories.NewVideosRepository(db)
+	videosRepo := enrichpersistence.NewVideosRepository(db)
 	contentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	externalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	recommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	syncLogRepo := repositories.NewSyncLogRepository(db)
+	syncLogRepo := enrichpersistence.NewSyncLogRepository(db)
 	// Story 212 (C-3) — person enrichment + cold-start backfill.
 	personBiographiesRepo := enrichpersistence.NewPersonBiographiesRepository(db)
 	personCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)

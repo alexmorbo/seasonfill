@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -167,11 +166,11 @@ func BuildSeriesDetail(
 	sdKeywordsRepo := enrichpersistence.NewKeywordsRepository(db)
 	sdNetworksRepo := enrichpersistence.NewNetworksRepository(db)
 	sdCompaniesRepo := enrichpersistence.NewCompaniesRepository(db)
-	sdVideosRepo := repositories.NewVideosRepository(db)
+	sdVideosRepo := enrichpersistence.NewVideosRepository(db)
 	sdContentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	sdExternalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	sdRecommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	sdSyncLogRepo := repositories.NewSyncLogRepository(db)
+	sdSyncLogRepo := enrichpersistence.NewSyncLogRepository(db)
 
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
@@ -218,7 +217,7 @@ func BuildSeriesDetail(
 	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
 	// repos (series_cache + series + series_people + people) plus
 	// the new EpisodesRepository.CountBySeries method and a thin
-	// adapter projecting repositories.PersonCredit → composer-local
+	// adapter projecting enrichpersistence.PersonCredit → composer-local
 	// PersonCreditRef.
 	sdPersonCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
 	castComposer := seriesdetail.NewCastComposer(seriesdetail.CastDeps{

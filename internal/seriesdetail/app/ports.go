@@ -10,7 +10,6 @@ package seriesdetail
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
@@ -155,7 +154,7 @@ type CompaniesPort interface {
 // VideosPort lists trailer-eligible videos for a series. The composer
 // filters for the "best" trailer per PRD §5.6.
 type VideosPort interface {
-	ListBySeriesAndType(ctx context.Context, seriesID domain.SeriesID, videoType string) ([]repositories.Video, error)
+	ListBySeriesAndType(ctx context.Context, seriesID domain.SeriesID, videoType string) ([]enrichpersistence.Video, error)
 }
 
 // ContentRatingsPort lists per-country age ratings; composer picks

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	appextsvc "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
@@ -726,16 +725,16 @@ type peopleRepoCombined interface {
 
 // ---- repo → port adapters ------------------------------------------
 
-// VideosRepoAdapter wraps *repositories.VideosRepository to satisfy
+// VideosRepoAdapter wraps *enrichpersistence.VideosRepository to satisfy
 // VideosRepoPort. The worker's VideoRow uses plain strings; the
 // underlying VideoModel persists optional fields as *string —
 // translate at this boundary.
 type VideosRepoAdapter struct {
-	Inner *repositories.VideosRepository
+	Inner *enrichpersistence.VideosRepository
 }
 
 func (a VideosRepoAdapter) Upsert(ctx context.Context, v appenrich.VideoRow) error {
-	m := repositories.Video{
+	m := enrichpersistence.Video{
 		SeriesID:    v.SeriesID,
 		Name:        v.Name,
 		Official:    v.Official,
