@@ -1,6 +1,6 @@
 package series
 
-import "github.com/alexmorbo/seasonfill/domain/enrichment"
+import "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 
 // CanTransition reports whether moving a Canon's Hydration from
 // `from` to `to` is legal. Thin typed wrapper around

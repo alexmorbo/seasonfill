@@ -3,7 +3,7 @@ package enrichment
 import (
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 )
 
 // NextRetry is the application-layer wrapper around
