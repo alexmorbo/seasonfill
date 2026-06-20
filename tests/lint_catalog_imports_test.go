@@ -11,17 +11,24 @@ import (
 	"testing"
 )
 
-// TestCatalogNoBackwardsImports enforces story 441 A-1-15 §3.3:
-// every package under internal/catalog/ MUST NOT import the legacy
-// horizontal-CA dirs that the bounded context was migrated OUT of.
-// Specifically the five old siblings that hosted catalog code before
-// the vertical-slice extraction:
+// TestCatalogNoBackwardsImports enforces story 441 A-1-15 §3.3 and
+// 442 A-1-16 §3.3: every package under internal/catalog/ MUST NOT
+// import the legacy horizontal-CA dirs that the bounded context was
+// migrated OUT of. Specifically the old siblings that hosted catalog
+// code before the vertical-slice extraction:
 //
-//   - domain/series      (now internal/catalog/domain/series)
-//   - domain/instance    (now internal/catalog/domain/instance)
-//   - domain/webhook     (now internal/catalog/domain/webhook)
-//   - domain/release     (now internal/catalog/domain/release)
-//   - application/instance (now internal/catalog/app/instance)
+//   - domain/series        (now internal/catalog/domain/series)
+//   - domain/instance      (now internal/catalog/domain/instance)
+//   - domain/webhook       (now internal/catalog/domain/webhook)
+//   - domain/release       (now internal/catalog/domain/release)
+//   - application/instance       (now internal/catalog/app/instance)
+//   - application/scan           (now internal/catalog/app/scan)
+//   - application/rescan         (now internal/catalog/app/rescan)
+//   - application/webhook        (now internal/catalog/app/webhook)
+//   - application/webhookinstall (now internal/catalog/app/webhookinstall)
+//   - application/torrentsync    (now internal/catalog/app/torrentsync)
+//   - application/gc             (now internal/catalog/app/gc)
+//   - application/runtimeconfig  (now internal/catalog/app/runtimeconfig)
 //
 // And the general horizontal layers — internal/catalog/ is a leaf
 // context (within the catalog vertical), so it must not reach into
@@ -63,6 +70,13 @@ func TestCatalogNoBackwardsImports(t *testing.T) {
 		modPath + "/domain/webhook",
 		modPath + "/domain/release",
 		modPath + "/application/instance",
+		modPath + "/application/scan",
+		modPath + "/application/rescan",
+		modPath + "/application/webhook",
+		modPath + "/application/webhookinstall",
+		modPath + "/application/torrentsync",
+		modPath + "/application/gc",
+		modPath + "/application/runtimeconfig",
 	}
 	// Banned at the layer level: any path under these roots that
 	// isn't in the carve-out below is a regression.
