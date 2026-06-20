@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,21 +64,24 @@ func TestBareIDIntRegression(t *testing.T) {
 
 	// Directories to scan — domain and application layers only.
 	//
-	// The infrastructure/ and interface/http/dto/ layers legitimately
-	// hold bare primitives at the wire boundary: external JSON
-	// payloads (Sonarr, TMDB, OMDb), HTTP response DTOs, and error
-	// types carry IDs as the over-the-wire primitive. Typed aliases
-	// kick in once the value is mapped INTO the domain or application
-	// layer — and that boundary is exactly what this guard protects.
+	// Story 453 (A-1-27) migrated the legacy horizontal `application/`
+	// and `domain/` directories into per-context vertical slices. The
+	// scan now walks `internal/<context>/app/` and `internal/<context>/
+	// domain/` for every bounded context, catching the same inner-core
+	// regression cases.
 	//
-	// Adding new layers here requires that all wire DTOs in that
-	// layer first migrate to the typed aliases. Until then, scoping
-	// to domain+application catches the regression cases that matter
-	// (the inner-core code paths) without the boundary noise.
-	roots := []string{
-		"application",
-		"domain",
-	}
+	// The persistence/ + rest/ layers (and the shared/clients/* wire
+	// adapters) legitimately hold bare primitives at the wire boundary:
+	// external JSON payloads (Sonarr, TMDB, OMDb), HTTP response DTOs,
+	// and error types carry IDs as the over-the-wire primitive. Typed
+	// aliases kick in once the value is mapped INTO the domain or
+	// application layer — and that boundary is exactly what this guard
+	// protects.
+	//
+	// Adding a new context requires no change here — the loop below
+	// auto-discovers every `internal/*/app/` and `internal/*/domain/`
+	// directory at scan time.
+	roots := []string{}
 
 	type hit struct {
 		path  string
@@ -113,11 +117,29 @@ func TestBareIDIntRegression(t *testing.T) {
 		return false
 	}
 
+	internalAbs := filepath.Join(repoRoot, "internal")
+	contextEntries, err := os.ReadDir(internalAbs)
+	if err != nil {
+		t.Fatalf("read internal/: %v", err)
+	}
+	for _, ent := range contextEntries {
+		if !ent.IsDir() {
+			continue
+		}
+		for _, layer := range []string{"app", "domain"} {
+			candidate := filepath.Join(internalAbs, ent.Name(), layer)
+			if _, statErr := filepath.Glob(candidate); statErr == nil {
+				roots = append(roots, filepath.Join("internal", ent.Name(), layer))
+			}
+		}
+	}
+
 	for _, root := range roots {
 		abs := filepath.Join(repoRoot, root)
 		err := filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return err
+				// Skip nonexistent layer dirs without failing the test.
+				return nil
 			}
 			if d.IsDir() {
 				return nil
