@@ -20,13 +20,13 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab/mocks"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	"github.com/alexmorbo/seasonfill/domain/decision"
 	domainregrab "github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

@@ -3,7 +3,7 @@
 // Category, never raw Reason.
 package decision
 
-import "github.com/alexmorbo/seasonfill/domain/decision"
+import "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 
 type Category string
 

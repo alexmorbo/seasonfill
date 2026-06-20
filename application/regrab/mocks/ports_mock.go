@@ -14,8 +14,8 @@ import (
 	reflect "reflect"
 
 	evaluate "github.com/alexmorbo/seasonfill/application/evaluate"
-	decision "github.com/alexmorbo/seasonfill/domain/decision"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
+	decision "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	gomock "go.uber.org/mock/gomock"
 )
