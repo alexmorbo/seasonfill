@@ -3,9 +3,9 @@ package adapters
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
