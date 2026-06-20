@@ -92,7 +92,7 @@ func NewServer(
 		_ = r.SetTrustedProxies(nil)
 	}
 
-	healthHandler := handlers.NewHealthHandler(checker)
+	healthHandler := adminrest.NewHealthHandler(checker)
 	scanHandler := handlers.NewScanHandler(scanUC, logger)
 	// Singleton episodes cache shared by the Missing handler. Lives
 	// for the life of the process — like the poster cache, the cap +
