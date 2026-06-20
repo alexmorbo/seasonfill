@@ -19,7 +19,6 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
@@ -34,6 +33,7 @@ import (
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

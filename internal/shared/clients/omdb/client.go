@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/httpx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 )
 
 // DefaultBaseURL is the production OMDb endpoint. Override only in
