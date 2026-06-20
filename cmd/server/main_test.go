@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -35,7 +35,7 @@ func TestRun_BootstrapSmoke(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	runtimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
 	row, err := runtimeRepo.Get(context.Background())
 	if err == nil {
 		// Runtime config was seeded — verify defaults.

@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -69,7 +70,7 @@ func AuthMode(args []string) error {
 	// publish is best-effort here (no bus subscribers — the live
 	// server process owns those). Resolve the master key the same
 	// way main does so cipher init succeeds.
-	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
 	masterKey, err := bootstrap.ResolveAPIKey(ctx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
@@ -78,7 +79,7 @@ func AuthMode(args []string) error {
 	if err != nil {
 		return fmt.Errorf("derive cipher: %w", err)
 	}
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
+	runtimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, cipher)
 
 	uc := runtimeconfig.New(runtimeRepo, instanceRepo, cipher, nil, log)
 

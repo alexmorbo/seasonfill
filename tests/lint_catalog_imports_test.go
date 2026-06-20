@@ -11,11 +11,12 @@ import (
 	"testing"
 )
 
-// TestCatalogNoBackwardsImports enforces story 441 A-1-15 §3.3 and
-// 442 A-1-16 §3.3: every package under internal/catalog/ MUST NOT
-// import the legacy horizontal-CA dirs that the bounded context was
-// migrated OUT of. Specifically the old siblings that hosted catalog
-// code before the vertical-slice extraction:
+// TestCatalogNoBackwardsImports enforces story 441 A-1-15 §3.3,
+// 442 A-1-16 §3.3, and 443 A-1-17 §3.3: every package under
+// internal/catalog/ MUST NOT import the legacy horizontal-CA dirs
+// that the bounded context was migrated OUT of. Specifically the
+// old siblings that hosted catalog code before the vertical-slice
+// extraction:
 //
 //   - domain/series        (now internal/catalog/domain/series)
 //   - domain/instance      (now internal/catalog/domain/instance)

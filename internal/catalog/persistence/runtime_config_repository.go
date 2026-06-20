@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -29,7 +30,7 @@ func NewRuntimeConfigRepository(db *gorm.DB, cipher *crypto.Cipher) *RuntimeConf
 
 func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigRow, error) {
 	var m database.RuntimeConfigModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("id = ?", runtimeConfigID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -153,7 +154,7 @@ func (r *RuntimeConfigRepository) Upsert(
 	}
 	rewrites, _ := json.Marshal(rewriteList)
 
-	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
 
 		var existing database.RuntimeConfigModel
@@ -229,7 +230,7 @@ func (r *RuntimeConfigRepository) Upsert(
 
 func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, autoGen bool) error {
 	now := time.Now().UTC()
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	var existing database.RuntimeConfigModel
 	err := db.Where("id = ?", runtimeConfigID).First(&existing).Error
 	switch {
@@ -281,7 +282,7 @@ func (r *RuntimeConfigRepository) SaveAPIKey(ctx context.Context, ct []byte, aut
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
 func (r *RuntimeConfigRepository) UpsertOIDCSecret(ctx context.Context, plaintext string) error {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	now := time.Now().UTC()
 	var ct []byte
 	if plaintext != "" {
@@ -311,7 +312,7 @@ func (r *RuntimeConfigRepository) DecryptOIDCSecret(ctx context.Context) (string
 		return "", nil
 	}
 	var m database.RuntimeConfigModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Select("oidc_client_secret_ciphertext").
 		Where("id = ?", runtimeConfigID).First(&m).Error
 	if err != nil {

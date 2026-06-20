@@ -5,7 +5,8 @@
 // the system reads about "which series we monitor and what we know
 // about them" originates here.
 //
-// Layout (PRD §3.2 vertical slice, established in story 441 A-1-15):
+// Layout (PRD §3.2 vertical slice, established in story 441 A-1-15
+// and extended by 442 A-1-16 + 443 A-1-17):
 //
 //	internal/catalog/
 //	  domain/
@@ -15,7 +16,16 @@
 //	    webhook/   — Sonarr inbound webhook Event vocabulary
 //	    release/   — Indexer release record + ranking value type
 //	  app/
-//	    instance/  — InstanceUseCase (CRUD + Sonarr settings refresh)
+//	    instance/        — InstanceUseCase (CRUD + Sonarr settings refresh)
+//	    scan/ rescan/    — scan + manual rescan UCs
+//	    webhook/ webhookinstall/ — inbound + installer UCs
+//	    torrentsync/ gc/ runtimeconfig/ — supporting UCs
+//	  persistence/
+//	    series_cache, episode_states, season_stats — per-instance
+//	      Sonarr projection + per-season rollups (story 443 A-1-17)
+//	    scan, counter, qbit_{torrents,torrent_events,settings},
+//	      runtime_config — scan audit, indexer aggregation, qBittorrent
+//	      reconciliation, encrypted runtime config persistence
 //
 // Import direction (PRD §3.3 — enforced by the depcheck test):
 //

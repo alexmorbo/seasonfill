@@ -10,6 +10,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
@@ -34,7 +35,7 @@ type PersistenceBundle struct {
 	DB              *gorm.DB
 	Cipher          *crypto.Cipher
 	MasterKey       string
-	RuntimeRepo     *repositories.RuntimeConfigRepository
+	RuntimeRepo     *catalogpersistence.RuntimeConfigRepository
 	InstanceRepo    *repositories.SonarrInstanceRepository
 	AppSettingsRepo *adminpersistence.AppSettingsRepository
 	QuotaCounter    *adminpersistence.QuotaCounterRepository
@@ -74,7 +75,7 @@ func BuildPersistence(
 	// Temporary repo without cipher to resolve the API key first.
 	// Then rebuild the repo with the derived cipher so encrypted
 	// columns (api_key, oidc_client_secret) can be written/read.
-	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
 	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return nil, fmt.Errorf("resolve api key: %w", err)
@@ -83,7 +84,7 @@ func BuildPersistence(
 	if err != nil {
 		return nil, fmt.Errorf("derive cipher: %w", err)
 	}
-	runtimeRepo := repositories.NewRuntimeConfigRepository(db, cipher)
+	runtimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, cipher)
 
 	// Story 301: app-level settings (id=1) — currently only the
 	// operator-selected timezone. Built early so the scheduler

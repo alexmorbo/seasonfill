@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
@@ -52,7 +53,7 @@ func Reparse(ctx context.Context, args []string) error {
 	bgCtx := context.Background()
 
 	// Resolve API key and cipher.
-	tempRuntimeRepo := repositories.NewRuntimeConfigRepository(db, nil)
+	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
 	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
