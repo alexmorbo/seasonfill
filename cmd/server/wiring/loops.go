@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	webhookuc "github.com/alexmorbo/seasonfill/application/webhook"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
@@ -16,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
