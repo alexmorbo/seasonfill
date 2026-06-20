@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
@@ -172,7 +173,7 @@ func BuildSonarr(snap runtime.Snapshot, log *slog.Logger) (*SonarrBundle, error)
 type ExtSvcBundle struct {
 	Sub     *adapters.ExternalServicesSubscriber
 	UC      *appextsvc.UseCase
-	Handler *handlers.ExternalServicesHandler
+	Handler *enrichrest.ExternalServicesHandler
 }
 
 // BuildExtSvc wires the Story 202 (S-2) external-services runtime-config
@@ -207,7 +208,7 @@ func BuildExtSvc(
 	uc := appextsvc.NewUseCase(extRepo, bootCfg.ExternalServices.Lookup(),
 		appextsvc.NewRealTester(), sub, adminLog)
 	sub.SetUseCase(uc)
-	handler := handlers.NewExternalServicesHandler(uc, log)
+	handler := enrichrest.NewExternalServicesHandler(uc, log)
 
 	return &ExtSvcBundle{
 		Sub:     sub,

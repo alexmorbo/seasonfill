@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -244,8 +245,8 @@ type SeriesDetailBundle struct {
 	DetailHandler        *handlers.SeriesDetailHandler
 	SeasonHandler        *handlers.SeriesSeasonHandler
 	CastHandler          *handlers.SeriesCastHandler
-	PeopleHandler        *handlers.PeopleHandler
-	RefreshHandler       *handlers.SeriesRefreshHandler
+	PeopleHandler        *enrichrest.PeopleHandler
+	RefreshHandler       *enrichrest.SeriesRefreshHandler
 	PersonEnqueuerHolder *adapters.PersonEnqueuerHolder
 }
 
@@ -425,7 +426,7 @@ func BuildSeriesDetail(
 		// seriesdetail composer pipe — anchors on the "composer" slot.
 		Logger: composerLog,
 	})
-	peopleHandler := handlers.NewPeopleHandler(peopleUC, log)
+	peopleHandler := enrichrest.NewPeopleHandler(peopleUC, log)
 
 	// Story 218 (E-2) — series refresh trigger. Reuses the
 	// peopleEnqueuerHolder so the same late-binding dispatcher
@@ -440,7 +441,7 @@ func BuildSeriesDetail(
 	if err != nil {
 		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
 	}
-	seriesRefreshHandler := handlers.NewSeriesRefreshHandler(seriesRefreshUC, log)
+	seriesRefreshHandler := enrichrest.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
 	return &SeriesDetailBundle{
 		MediaResolver:        mediaResolver,

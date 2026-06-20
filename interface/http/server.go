@@ -21,6 +21,7 @@ import (
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
@@ -56,7 +57,7 @@ func NewServer(
 	instanceProbe *handlers.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
-	externalServices *handlers.ExternalServicesHandler,
+	externalServices *enrichrest.ExternalServicesHandler,
 	oidcUC *auth.OIDCLoginUseCase,
 	webhookReconciler *webhookinstall.Reconciler,
 	webhookStatusCache *webhookinstall.StatusCache,
@@ -71,8 +72,8 @@ func NewServer(
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	seriesCastHandler *handlers.SeriesCastHandler,
-	peopleHandler *handlers.PeopleHandler,
-	seriesRefreshHandler *handlers.SeriesRefreshHandler,
+	peopleHandler *enrichrest.PeopleHandler,
+	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
 	seriesTorrentsHandler *handlers.SeriesTorrentsHandler,
 	timezoneHandler *adminrest.TimezoneHandler,
 	logger *slog.Logger,
