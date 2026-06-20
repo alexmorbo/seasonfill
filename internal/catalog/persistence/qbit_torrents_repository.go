@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -40,7 +41,7 @@ func NewQbitTorrentsRepository(db *gorm.DB) *QbitTorrentsRepository {
 // re-incarnates a previously-deleted hash — cross-seed scenario).
 func (r *QbitTorrentsRepository) Upsert(ctx context.Context, instance domain.InstanceName, e torrentsync.Entry) error {
 	model := modelFromEntry(instance, e, r.clock())
-	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instance_name"}, {Name: "hash"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"infohash_v2", "name", "category", "tags", "tracker_host",
@@ -72,7 +73,7 @@ func (r *QbitTorrentsRepository) BatchUpsert(ctx context.Context, instance domai
 	for _, e := range entries {
 		models = append(models, modelFromEntry(instance, e, updatedAt))
 	}
-	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "instance_name"}, {Name: "hash"}},
 			DoUpdates: clause.AssignmentColumns([]string{
@@ -99,7 +100,7 @@ func (r *QbitTorrentsRepository) MarkAbsent(ctx context.Context, instance domain
 	if when.IsZero() {
 		when = r.clock()
 	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.QbitTorrentModel{}).
 		Where("instance_name = ? AND hash = ?", instance, hash).
 		Updates(map[string]any{
@@ -119,7 +120,7 @@ func (r *QbitTorrentsRepository) MarkAbsent(ctx context.Context, instance domain
 // surfaces them.
 func (r *QbitTorrentsRepository) List(ctx context.Context, instance domain.InstanceName) ([]torrentsync.Entry, error) {
 	var models []database.QbitTorrentModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND present = ?", instance, true).
 		Find(&models).Error
 	if err != nil {
@@ -149,7 +150,7 @@ func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance doma
 		return nil, nil
 	}
 	var models []database.QbitTorrentModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND hash IN ?", instance, hashes).
 		Find(&models).Error
 	if err != nil {

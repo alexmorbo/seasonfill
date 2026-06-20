@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -63,7 +64,7 @@ func (r *QbitSettingsRepository) Upsert(ctx context.Context, rec ports.QbitSetti
 		UpdatedAt:              rec.UpdatedAt,
 	}
 
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instance_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"enabled", "url", "username", "password_encrypted",
@@ -83,7 +84,7 @@ func (r *QbitSettingsRepository) Upsert(ctx context.Context, rec ports.QbitSetti
 // ports.ErrNotFound on miss.
 func (r *QbitSettingsRepository) GetByInstance(ctx context.Context, instanceID uint) (ports.QbitSettingsRecord, error) {
 	var m database.InstanceQbitSettingsModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ?", instanceID).First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -99,7 +100,7 @@ func (r *QbitSettingsRepository) GetByInstance(ctx context.Context, instanceID u
 
 // DeleteByInstance removes the row. ports.ErrNotFound on miss.
 func (r *QbitSettingsRepository) DeleteByInstance(ctx context.Context, instanceID uint) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ?", instanceID).
 		Delete(&database.InstanceQbitSettingsModel{})
 	if res.Error != nil {
@@ -115,7 +116,7 @@ func (r *QbitSettingsRepository) DeleteByInstance(ctx context.Context, instanceI
 // (039g) to seed its per-instance sub-loops.
 func (r *QbitSettingsRepository) List(ctx context.Context) ([]ports.QbitSettingsRecord, error) {
 	var models []database.InstanceQbitSettingsModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("list qbit settings: %w", err)
 	}

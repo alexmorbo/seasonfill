@@ -571,7 +571,7 @@ func BuildRegrab(
 	watchdogLog := sharedports.DomainLogger(log, "watchdog")
 
 	// Phase 10 Watchdog — settings CRUD.
-	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
+	qbitSettingsRepo := catalogpersistence.NewQbitSettingsRepository(db)
 	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, watchdogLog).
 		WithWebhookChecker(adapters.NewWebhookChecker(sonarrBundle.InstanceReg))
 	// HTTP handler stays on bare `log` — see watchdogLog godoc above.
@@ -792,8 +792,8 @@ func BuildTorrentsync(
 	qbitLog := sharedports.DomainLogger(log, "qbit")
 
 	// 220 (A-2) — qbit_torrents + qbit_torrent_events repos.
-	qbitTorrentsRepo := repositories.NewQbitTorrentsRepository(db)
-	qbitTorrentEventsRepo := repositories.NewQbitTorrentEventsRepository(db)
+	qbitTorrentsRepo := catalogpersistence.NewQbitTorrentsRepository(db)
+	qbitTorrentEventsRepo := catalogpersistence.NewQbitTorrentEventsRepository(db)
 
 	// Store + PersistPolicy.
 	store := torrentsync.NewStore()

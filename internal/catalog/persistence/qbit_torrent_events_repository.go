@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -52,7 +53,7 @@ func (r *QbitTorrentEventsRepository) Insert(ctx context.Context, row torrentsyn
 		v := string(row.To)
 		m.ToGroup = &v
 	}
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&m).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Create(&m).Error; err != nil {
 		return fmt.Errorf("insert qbit_torrent_event: %w", err)
 	}
 	return nil

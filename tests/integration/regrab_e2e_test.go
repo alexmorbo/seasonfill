@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
@@ -201,7 +202,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	require.NoError(t, err)
 
 	instanceRepo := repositories.NewSonarrInstanceRepository(db)
-	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
+	qbitSettingsRepo := catalogpersistence.NewQbitSettingsRepository(db)
 	scanRepo := catalogpersistence.NewScanRepository(db)
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)

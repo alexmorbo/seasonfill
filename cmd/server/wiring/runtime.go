@@ -12,12 +12,12 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gc"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -353,7 +353,7 @@ func BuildScheduler(
 				Logger:  gcLog,
 			}.Build(),
 			EventPrune: gc.EventPruneDeps{
-				Repo:   repositories.NewQbitTorrentEventsRepository(db),
+				Repo:   catalogpersistence.NewQbitTorrentEventsRepository(db),
 				Logger: gcLog,
 			}.Build(),
 			Logger: gcLog,
