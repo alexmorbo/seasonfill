@@ -6,30 +6,39 @@
 // reference to higher layers (cmd/server.server.go, other wiring
 // constructors).
 //
-// File layout (post-A-1 vertical-slice):
+// File layout (post-A-1-26 per-context split, PRD §3.2):
 //
-//   - persistence.go — DB handle + bedrock repositories (admin,
-//     catalog) + crypto + tz resolver. Returned by BuildPersistence.
-//   - integrations.go — outbound clients (Sonarr per-instance, TMDB,
-//     OMDb, mediaproxy store) + their Holder/reload plumbing.
-//   - runtime.go — reload bus, scheduler, runtime config snapshot,
-//     watchdog runtime, GC use case.
-//   - loops.go — long-running background loops (scan, rescan,
-//     torrentsync, webhook, grab, regrab, watchdog, healthcheck).
-//   - httpiface.go — HTTP edge: admin/auth, catalog, enrichment,
-//     mediaproxy, seriesdetail REST routers + middleware wiring.
+//   - bootstrap.go    — PersistenceBundle, RuntimeConfigBundle,
+//     SchedulerBundle, OnApplied fan-out + StartSubscribers,
+//     BuildHTTPServer (root composer). Kernel — imports from every
+//     per-context file.
+//   - catalog.go      — SonarrBundle, ScanBundle, WebhookBundle,
+//     TorrentsyncBundle, InstanceBundle (catalog HTTP handlers).
+//   - enrichment.go   — ExtSvcBundle, EnrichmentBundle + the repo
+//     adapter shims, dispatcher holder, OMDb batch scanner.
+//   - watchdog.go     — WatchdogBundle (healthcheck + watchdog),
+//     RegrabBundle (Phase 10 regrab loop + watchdog HTTP handlers).
+//   - seriesdetail.go — SeriesDetailBundle (composer + cast + people
+//   - refresh handlers).
+//   - admin.go        — AuthBundle (admin users, OIDC, IP limiters).
+//   - mediaproxy.go   — MediaBundle (mediastore + media_assets repo +
+//     MediaHandler).
+//   - grab.go         — placeholder; grab UC currently wired inside
+//     BuildScan (catalog.go).
+//   - discovery.go    — placeholder for future discovery wiring.
 //
-// Import rules (enforced by convention; depguard codifies the
-// shared/http kernel boundary):
+// Import rules (enforced by tests/lint_wiring_imports_test.go):
 //
-//   - wiring/<area>.go imports from per-context internal/<ctx>/
+//   - bootstrap.go is the kernel: imports from every per-context
+//     file are permitted.
+//   - per-context files import from per-context internal/<ctx>/
 //     subtrees (app/, persistence/, rest/, domain/, infrastructure/)
 //     and from internal/shared/ for cross-context primitives
 //     (clients/, db/, domain/, http/, ports/, reload/, scheduler/).
 //   - Legacy top-level application/, infrastructure/, and interface/
 //     paths are still referenced where symbols have not yet been
 //     drained into per-context trees (Phase 2+ work).
-//   - wiring/<area>.go MUST NOT import cmd/server, cmd/server/loops,
-//     or other wiring/<area>.go directly. Cross-area dependencies
-//     flow via Bundle references passed into the constructor.
+//   - per-context wiring files MUST NOT import cmd/server,
+//     cmd/server/loops directly. Cross-area dependencies flow via
+//     Bundle references passed into the constructor.
 package wiring
