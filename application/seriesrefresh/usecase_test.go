@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

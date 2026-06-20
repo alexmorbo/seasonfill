@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -21,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"

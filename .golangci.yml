@@ -220,6 +220,18 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/enrichment/ inherits the application/ carve-out — the
+      # enrichment dispatcher, OMDb budget, OMDb / person / series
+      # workers, cold-start sweeper, and externalservices use-case all
+      # accept *slog.Logger and fall back to sharedports.DomainLogger(
+      # slog.Default(), "enrichment"/"omdb") when nil. Established
+      # pattern moved from application/enrichment +
+      # application/externalservices + application/people in story
+      # 436 (A-1-10).
+      - path: 'internal/enrichment/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

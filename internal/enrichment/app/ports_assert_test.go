@@ -1,7 +1,7 @@
 package enrichment_test
 
 import (
-	"github.com/alexmorbo/seasonfill/application/enrichment"
+	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )
 

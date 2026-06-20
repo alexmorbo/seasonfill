@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
+	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"

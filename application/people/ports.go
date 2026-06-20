@@ -10,8 +10,8 @@ package people
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/application/enrichment"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
