@@ -11,7 +11,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
@@ -28,6 +27,7 @@ import (
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

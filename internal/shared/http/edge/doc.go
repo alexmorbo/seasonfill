@@ -1,4 +1,4 @@
-// Package http hosts the seasonfill REST surface. Annotations on
+// Package edge hosts the seasonfill REST surface. Annotations on
 // this file feed swaggo/swag to emit docs/swagger.yaml — see
 // Makefile `openapi`.
 //
@@ -15,4 +15,4 @@
 // @securityDefinitions.apikey  CookieAuth
 // @in              cookie
 // @name            seasonfill_session
-package http
+package edge
