@@ -116,7 +116,7 @@ linters:
         text: 'use-any'
       # F-4c forbidigo carve-outs. Each block locks in an existing
       # legitimate use of the otherwise-banned identifier:
-      #   * cmd/server/ + application/bootstrap/ — operator-facing CLI
+      #   * cmd/server/ + internal/wiring/apikey.go — operator-facing CLI
       #     stdout/stderr (reset-password, auth-mode, backfill-assets,
       #     reparse, apikey bootstrap, main usage/fatal).
       #   * internal/grab/app/evaluate/error_detail.go — fmt.Fprintf
@@ -134,7 +134,7 @@ linters:
         linters:
           - forbidigo
         text: 'fmt\.Fprint'
-      - path: 'application/bootstrap/'
+      - path: 'internal/wiring/apikey\.go'
         linters:
           - forbidigo
         text: 'fmt\.Fprint'

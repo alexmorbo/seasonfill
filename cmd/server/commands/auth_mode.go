@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -17,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	"github.com/alexmorbo/seasonfill/internal/wiring"
 )
 
 // AuthMode implements `seasonfill auth-mode`. Two modes (mutually
@@ -71,7 +71,7 @@ func AuthMode(args []string) error {
 	// server process owns those). Resolve the master key the same
 	// way main does so cipher init succeeds.
 	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
-	masterKey, err := bootstrap.ResolveAPIKey(ctx, cfg.Auth.APIKey, tempRuntimeRepo, log)
+	masterKey, err := wiring.ResolveAPIKey(ctx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
 	}

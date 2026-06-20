@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
@@ -112,7 +111,7 @@ func BuildPersistence(
 	// Then rebuild the repo with the derived cipher so encrypted
 	// columns (api_key, oidc_client_secret) can be written/read.
 	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
-	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
+	masterKey, err := ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return nil, fmt.Errorf("resolve api key: %w", err)
 	}

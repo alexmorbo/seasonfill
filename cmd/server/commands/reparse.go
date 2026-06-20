@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
@@ -24,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
+	"github.com/alexmorbo/seasonfill/internal/wiring"
 )
 
 // Reparse is the CLI entry point for `seasonfill grabs reparse`.
@@ -54,7 +54,7 @@ func Reparse(ctx context.Context, args []string) error {
 
 	// Resolve API key and cipher.
 	tempRuntimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, nil)
-	masterKey, err := bootstrap.ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
+	masterKey, err := wiring.ResolveAPIKey(bgCtx, cfg.Auth.APIKey, tempRuntimeRepo, log)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
 	}
