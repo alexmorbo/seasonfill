@@ -150,7 +150,7 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
-      - path: 'interface/http/handlers/'
+      - path: 'internal/shared/http/handlers/'
         linters:
           - forbidigo
         text: 'slog\.Default'
