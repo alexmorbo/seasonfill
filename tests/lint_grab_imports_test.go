@@ -327,3 +327,143 @@ func TestGrabRestNoBackwardsImports(t *testing.T) {
 		}
 	}
 }
+
+// checkGrabLeafImports walks ctxRoot (an internal/grab/ sub-tree) and
+// asserts no .go file imports a horizontal-CA path outside the shared
+// grab allowList. Centralized helper used by the per-sub-package
+// guards added in story 432 (A-1-6) when evaluate/decision/domain-
+// decision were folded into the grab vertical slice — keeps the
+// boundary message uniform without duplicating the walk body.
+func checkGrabLeafImports(t *testing.T, ctxRoot, label, storyTag string) {
+	t.Helper()
+
+	modPath := "github.com/alexmorbo/seasonfill"
+	bannedLayerRoots := []string{
+		modPath + "/application/",
+		modPath + "/domain/",
+		modPath + "/infrastructure/",
+		modPath + "/interface/",
+	}
+	allowList := []string{
+		modPath + "/application/errtext",
+		modPath + "/application/ports",
+		modPath + "/application/scan",
+		modPath + "/application/torrentsync",
+		modPath + "/domain",
+		modPath + "/domain/cooldown",
+		modPath + "/domain/release",
+		modPath + "/domain/series",
+		modPath + "/infrastructure/database",
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/handlers",
+		modPath + "/interface/http/middleware",
+		modPath + "/internal/config",
+		modPath + "/internal/observability",
+		modPath + "/internal/runtime/crypto",
+	}
+	isAllowed := func(imp string) bool {
+		for _, a := range allowList {
+			if imp == a || strings.HasPrefix(imp, a+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	var offenders []string
+
+	walkErr := filepath.WalkDir(ctxRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if perr != nil {
+			t.Logf("parse %s: %v", path, perr)
+			return nil
+		}
+		for _, imp := range f.Imports {
+			v := strings.Trim(imp.Path.Value, `"`)
+			for _, lr := range bannedLayerRoots {
+				if strings.HasPrefix(v, lr) && !isAllowed(v) {
+					rel, _ := filepath.Rel(repoRoot, path)
+					offenders = append(offenders, rel+": imports horizontal-CA path "+v+" ("+label+" is a leaf; use internal/shared/ or its own subtree)")
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", ctxRoot, walkErr)
+	}
+
+	if len(offenders) > 0 {
+		t.Errorf("%s has %d backward-import offenders — story %s boundary breached:", label, len(offenders), storyTag)
+		for _, o := range offenders {
+			t.Errorf("  %s", o)
+		}
+	}
+}
+
+// TestGrabAppEvaluateNoBackwardsImports pins the story 432 A-1-6 move:
+// internal/grab/app/evaluate/ (folded from application/evaluate/) is a
+// leaf under the grab vertical slice and MUST NOT reach back into the
+// horizontal-CA tree outside the shared allowList. Mirrors the
+// existing persistence/rest focused guards so future regressions
+// self-document against the right story tag.
+func TestGrabAppEvaluateNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	ctxRoot := filepath.Join(repoRoot, "internal", "grab", "app", "evaluate")
+	checkGrabLeafImports(t, ctxRoot, "grab/app/evaluate", "432 A-1-6")
+}
+
+// TestGrabAppDecisionNoBackwardsImports pins the story 432 A-1-6 move
+// for internal/grab/app/decision/ (folded from application/decision/).
+// The category classifier consumes the domain decision Reason values
+// from internal/grab/domain/decision via the grab subtree (allowed by
+// the leaf-internal carve-out) — any return to application/decision
+// or domain/decision would be a regression.
+func TestGrabAppDecisionNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	ctxRoot := filepath.Join(repoRoot, "internal", "grab", "app", "decision")
+	checkGrabLeafImports(t, ctxRoot, "grab/app/decision", "432 A-1-6")
+}
+
+// TestGrabDomainDecisionNoBackwardsImports pins the story 432 A-1-6
+// move for internal/grab/domain/decision/ (folded from domain/decision/).
+// The decision domain types (Decision, Intent, Reason, Outcome) now
+// live inside the grab vertical slice and MUST NOT import any of the
+// horizontal-CA layers — the domain layer is the cleanest leaf in the
+// grab subtree and should only depend on internal/shared/ at most.
+func TestGrabDomainDecisionNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	ctxRoot := filepath.Join(repoRoot, "internal", "grab", "domain", "decision")
+	checkGrabLeafImports(t, ctxRoot, "grab/domain/decision", "432 A-1-6")
+}

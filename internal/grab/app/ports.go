@@ -38,5 +38,25 @@
 // import these names directly from package grab via the import path
 // `github.com/alexmorbo/seasonfill/internal/grab/app` — the bare
 // package identifier `grab` survived the story 431 move unchanged.
+//
+// Sub-packages (folded into the grab vertical slice by story 432
+// A-1-6 — pre-existing application/evaluate + application/decision
+// homes were grab support code, not horizontal-CA citizens):
+//
+//   - internal/grab/app/evaluate (package `evaluate`) — scan-time
+//     filter+rank pipeline that scores Sonarr releases against a
+//     missing-episode shopping list and emits a single decision per
+//     season. Three consumers — scan, regrab, rescan — drive this
+//     unchanged through the move.
+//   - internal/grab/app/decision (package `decision`, imported with
+//     alias `appdecision` by the audit handler) — UI category
+//     classifier mapping raw Reason values onto the seven
+//     operator-visible Category strings the F7 Decisions UI renders.
+//
+// The companion domain types (Decision, Intent, Reason, Outcome)
+// moved alongside into internal/grab/domain/decision and the
+// supporting GORM repository moved to internal/grab/persistence —
+// see the package godoc at internal/grab/doc.go for the full vertical
+// slice layout.
 
 package grab
