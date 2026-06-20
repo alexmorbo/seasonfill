@@ -160,7 +160,7 @@ jobs:
           SEASONFILL_TEST_POSTGRES_DSN: "postgres://seasonfill:seasonfill@localhost:5432/seasonfill_test?sslmode=disable"
           GOMAXPROCS: "4"
         run: |
-          PKGS=$(go list ./internal/shared/testhelpers ./infrastructure/database/repositories/...)
+          PKGS=$(go list ./internal/shared/testhelpers ./internal/admin/persistence/... ./internal/catalog/persistence/... ./internal/enrichment/persistence/... ./internal/grab/persistence/... ./internal/watchdog/persistence/...)
           go test -tags integration -race -timeout 20m -parallel=4 $PKGS
 
   nightly-deep:
