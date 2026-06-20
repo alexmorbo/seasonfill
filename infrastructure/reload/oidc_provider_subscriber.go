@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
+	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
