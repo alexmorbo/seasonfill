@@ -50,12 +50,12 @@ func NewServer(
 	adminRepo ports.AdminUserRepository,
 	loginLimiter *auth.IPLimiter,
 	webhookLimiter *auth.IPLimiter,
-	instanceReg handlers.InstanceRegistry,
+	instanceReg catalogrest.InstanceRegistry,
 	cooldownRepo ports.CooldownRepository,
 	grabUC *appgrab.UseCase,
 	rescanUC *apprescan.UseCase,
-	instanceCRUD *handlers.InstanceCRUDHandler,
-	instanceProbe *handlers.InstanceProbeHandler,
+	instanceCRUD *catalogrest.InstanceCRUDHandler,
+	instanceProbe *catalogrest.InstanceProbeHandler,
 	runtimeConfigHandler *handlers.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
 	externalServices *enrichrest.ExternalServicesHandler,
@@ -106,7 +106,7 @@ func NewServer(
 	// episodes worth of metadata.
 	episodesCache := sonarr.NewLRUEpisodesCache(
 		runtime.EpisodesCacheMaxBytes, runtime.EpisodesCacheTTL)
-	instancesHandler := handlers.NewInstancesHandler(checker, instanceReg, logger).
+	instancesHandler := catalogrest.NewInstancesHandler(checker, instanceReg, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithEpisodesCache(episodesCache).
 		WithMediaPending(mediaPending)

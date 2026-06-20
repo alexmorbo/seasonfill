@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
@@ -21,11 +22,11 @@ import (
 // settings form. Password is intentionally NOT returned: Sonarr
 // redacts it server-side and we never have access to it.
 type QbitDiscoverHandler struct {
-	reg    InstanceRegistry
+	reg    catalogrest.InstanceRegistry
 	logger *slog.Logger
 }
 
-func NewQbitDiscoverHandler(reg InstanceRegistry, logger *slog.Logger) *QbitDiscoverHandler {
+func NewQbitDiscoverHandler(reg catalogrest.InstanceRegistry, logger *slog.Logger) *QbitDiscoverHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -52,14 +53,14 @@ func NewQbitDiscoverHandler(reg InstanceRegistry, logger *slog.Logger) *QbitDisc
 // @Router      /instances/{name}/discover/qbit [get]
 func (h *QbitDiscoverHandler) Discover(c *gin.Context) {
 	name := c.Param("name")
-	inst, ok := h.reg.snapshot()[name]
+	inst, ok := h.reg.Snapshot()[name]
 	if !ok || inst.Client == nil {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return
 	}
 
 	// Use a type-assertion to reach the concrete *sonarr.Client.
-	// The InstanceRegistry exposes ports.SonarrClient, but the new
+	// The catalogrest.InstanceRegistry exposes ports.SonarrClient, but the new
 	// methods (ListDownloadClients) live on the concrete type — they
 	// are not added to the ports interface because no application
 	// use case needs them (handler-only surface).

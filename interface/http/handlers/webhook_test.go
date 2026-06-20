@@ -22,6 +22,7 @@ import (
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -55,7 +56,7 @@ func newWebhookFixture(t *testing.T, known map[string]struct{}) *webhookFixture 
 	proc := &fakeProcessor{}
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	reg := InstanceRegistry{}
+	reg := catalogrest.InstanceRegistry{}
 	if known != nil {
 		state := map[string]scan.Instance{}
 		for n := range known {
@@ -236,7 +237,7 @@ func TestWebhookHandler_OversizeBody_400(t *testing.T) {
 func TestWebhook_UnknownInstance_404(t *testing.T) {
 	t.Parallel()
 	r := gin.New()
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+	reg := catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
 		return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 	}}
 	h := NewWebhookHandler(&okWebhookUC{}, reg, slog.Default())

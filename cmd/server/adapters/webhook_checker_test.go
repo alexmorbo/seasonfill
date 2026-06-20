@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -25,7 +25,7 @@ func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handle
 
 	client := sonarr.NewWithOptions(domain.InstanceName(instanceName), srv.URL, "test-key", 5*time.Second, nil, nil)
 
-	reg := handlers.InstanceRegistry{
+	reg := catalogrest.InstanceRegistry{
 		Load: func() map[string]scan.Instance {
 			return map[string]scan.Instance{
 				instanceName: {
@@ -40,7 +40,7 @@ func newCheckerWithSonarr(t *testing.T, instanceName string, handler http.Handle
 
 func TestWebhookChecker_UnknownInstance(t *testing.T) {
 	t.Parallel()
-	reg := handlers.InstanceRegistry{
+	reg := catalogrest.InstanceRegistry{
 		Load: func() map[string]scan.Instance {
 			return map[string]scan.Instance{}
 		},
@@ -55,7 +55,7 @@ func TestWebhookChecker_UnknownInstance(t *testing.T) {
 
 func TestWebhookChecker_NilLoadIsUnknown(t *testing.T) {
 	t.Parallel()
-	c := NewWebhookChecker(handlers.InstanceRegistry{})
+	c := NewWebhookChecker(catalogrest.InstanceRegistry{})
 
 	ok, err := c.IsInstalled(context.Background(), "alpha")
 	assert.False(t, ok)

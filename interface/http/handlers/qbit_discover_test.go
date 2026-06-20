@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
@@ -27,7 +28,7 @@ func newDiscoverTestRig(t *testing.T, sonarrHandler http.HandlerFunc) (*gin.Engi
 
 	client := sonarr.New("alpha", srv.URL, "k", 2*time.Second,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+	reg := catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
 		return map[string]scan.Instance{
 			"alpha": {Config: config.SonarrInstance{Name: "alpha"}, Client: client},
 		}
@@ -119,7 +120,7 @@ func TestQbitDiscover_502SonarrNetworkError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := sonarr.New("alpha", "http://127.0.0.1:1", "k", 200*time.Millisecond,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+	reg := catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
 		return map[string]scan.Instance{
 			"alpha": {Config: config.SonarrInstance{Name: "alpha"}, Client: client},
 		}

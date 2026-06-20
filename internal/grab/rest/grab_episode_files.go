@@ -11,7 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
@@ -21,13 +21,13 @@ import (
 // item 5 / decision #6 (lazy, no persistence). 043c.
 type GrabEpisodeFilesHandler struct {
 	grabs  ports.GrabRepository
-	reg    handlers.InstanceRegistry
+	reg    catalogrest.InstanceRegistry
 	logger *slog.Logger
 }
 
 func NewGrabEpisodeFilesHandler(
 	grabs ports.GrabRepository,
-	reg handlers.InstanceRegistry,
+	reg catalogrest.InstanceRegistry,
 	logger *slog.Logger,
 ) *GrabEpisodeFilesHandler {
 	if logger == nil {

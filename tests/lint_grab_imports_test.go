@@ -64,12 +64,17 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 	//
 	// Grab-specific (vs admin) additions:
 	//   * interface/http/handlers — the rest layer reuses ToGrabDTO,
-	//     WriteError, WriteInternalError, InstanceRegistry from the
-	//     catch-all handlers package. A later story will relocate these
-	//     into per-context homes (likely interface/http/shared/).
+	//     WriteError, WriteInternalError from the catch-all handlers
+	//     package. A later story will relocate these into per-context
+	//     homes (likely interface/http/shared/). InstanceRegistry moved
+	//     into internal/catalog/rest in story 444 (A-1-18) — see the
+	//     internal/catalog/rest carve-out below.
+	//   * internal/catalog/rest — the rest layer pulls InstanceRegistry
+	//     from the catalog vertical-slice (story 444 A-1-18). Read-only
+	//     cross-context type reuse.
 	//   * application/scan — UseCase consumes scan.Instance via the
 	//     handler InstanceRegistry shape; transitive include from the
-	//     rest layer's reuse of handlers.InstanceRegistry.
+	//     rest layer's reuse of catalogrest.InstanceRegistry.
 	//   * application/torrentsync — persistence implements
 	//     torrentsync.GrabHashLookup port (cross-context contract).
 	//   * domain (root) + domain/decision + domain/release + domain/series

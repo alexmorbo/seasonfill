@@ -19,6 +19,7 @@ import (
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/instance"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -134,8 +135,8 @@ func BuildAuth(
 //     handler owns the only production reference.
 type InstanceBundle struct {
 	UC           *instance.UseCase
-	CRUDHandler  *handlers.InstanceCRUDHandler
-	ProbeHandler *handlers.InstanceProbeHandler
+	CRUDHandler  *catalogrest.InstanceCRUDHandler
+	ProbeHandler *catalogrest.InstanceProbeHandler
 	ProbeClient  *http.Client
 }
 
@@ -147,10 +148,10 @@ type InstanceBundle struct {
 //  1. instance.New(instanceRepo, runtimeRepo, cipher, bus, log) chained
 //     through WithWebhookReconciler(webhook.ReconcilerAdapter) +
 //     WithWebhookStatusCache(webhook.StatusCache).
-//  2. handlers.NewInstanceCRUDHandler(uc, log).
+//  2. catalogrest.NewInstanceCRUDHandler(uc, log).
 //  3. *http.Client tuned for probe (5s dial + TLS + response-header
 //     timeouts, 64 KiB response-header cap, short-circuited redirects).
-//  4. handlers.NewInstanceProbeHandler(probeClient, log).
+//  4. catalogrest.NewInstanceProbeHandler(probeClient, log).
 //
 // No error path — every step is in-memory construction. The signature
 // returns error for symmetry with the other Build* wirers.
@@ -174,7 +175,7 @@ func BuildInstance(
 		WithWebhookReconciler(webhook.ReconcilerAdapter).
 		WithWebhookStatusCache(webhook.StatusCache)
 
-	crudHandler := handlers.NewInstanceCRUDHandler(uc, log)
+	crudHandler := catalogrest.NewInstanceCRUDHandler(uc, log)
 
 	probeClient := &http.Client{
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -187,7 +188,7 @@ func BuildInstance(
 			MaxResponseHeaderBytes: 64 << 10,
 		},
 	}
-	probeHandler := handlers.NewInstanceProbeHandler(probeClient, log)
+	probeHandler := catalogrest.NewInstanceProbeHandler(probeClient, log)
 
 	return &InstanceBundle{
 		UC:           uc,

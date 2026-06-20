@@ -13,10 +13,10 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	appextsvc "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
@@ -69,7 +69,7 @@ type SonarrBundle struct {
 	ScanInstancesByName map[string]scan.Instance
 	CfgByName           map[string]config.HealthCheckConfig
 	Holder              *adapters.InstanceMapHolder
-	InstanceReg         handlers.InstanceRegistry
+	InstanceReg         catalogrest.InstanceRegistry
 	InstanceRegistry    adapters.RegrabInstanceRegistry
 	GlobalLimiterPtr    *atomic.Pointer[ratelimit.Limiter]
 }
@@ -133,7 +133,7 @@ func BuildSonarr(snap runtime.Snapshot, log *slog.Logger) (*SonarrBundle, error)
 	// downstream caller (webhookReconciler, qbitSettingsUC,
 	// httpServer.NewServer, regrabUC) reads through the same
 	// value — no per-site reconstruction.
-	instanceReg := handlers.InstanceRegistry{Load: holder.Load}
+	instanceReg := catalogrest.InstanceRegistry{Load: holder.Load}
 
 	return &SonarrBundle{
 		ClientFactory:       clientFactory,

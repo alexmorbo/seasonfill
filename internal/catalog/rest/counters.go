@@ -11,7 +11,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -22,13 +21,13 @@ import (
 // repo is the dialect-aware bucket aggregator. clock returns the
 // current UTC instant; production wires time.Now, tests freeze it.
 type CountersHandler struct {
-	reg    handlers.InstanceRegistry
+	reg    InstanceRegistry
 	repo   ports.CounterRepository
 	clock  func() time.Time
 	logger *slog.Logger
 }
 
-func NewCountersHandler(reg handlers.InstanceRegistry, repo ports.CounterRepository, logger *slog.Logger) *CountersHandler {
+func NewCountersHandler(reg InstanceRegistry, repo ports.CounterRepository, logger *slog.Logger) *CountersHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}

@@ -21,11 +21,11 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
@@ -89,8 +89,8 @@ func (s stubSonarrEF) ParseRelease(_ context.Context, _ string) (ports.ParseResu
 }
 func (s stubSonarrEF) Name() string { return "stub" }
 
-func makeInstanceRegistry(inst map[string]scan.Instance) handlers.InstanceRegistry {
-	return handlers.InstanceRegistry{
+func makeInstanceRegistry(inst map[string]scan.Instance) catalogrest.InstanceRegistry {
+	return catalogrest.InstanceRegistry{
 		Load: func() map[string]scan.Instance {
 			return inst
 		},

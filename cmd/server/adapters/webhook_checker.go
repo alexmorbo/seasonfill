@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // WebhookChecker satisfies regrab.WebhookChecker. It looks up the
-// Sonarr client by instance name (via the reload-bus-fed handlers.
-// InstanceRegistry), calls Sonarr's /api/v3/notification list, and
+// Sonarr client by instance name (via the reload-bus-fed
+// catalogrest.InstanceRegistry), calls Sonarr's /api/v3/notification list, and
 // reports whether any Webhook notification's url field matches the
 // canonical `/api/v1/webhook/sonarr/<instance>` path.
 //
@@ -23,11 +23,11 @@ import (
 // recognised — the operator does not need to re-install after a port
 // change.
 type WebhookChecker struct {
-	reg handlers.InstanceRegistry
+	reg catalogrest.InstanceRegistry
 }
 
 // NewWebhookChecker is the constructor consumed by server.go.
-func NewWebhookChecker(reg handlers.InstanceRegistry) *WebhookChecker {
+func NewWebhookChecker(reg catalogrest.InstanceRegistry) *WebhookChecker {
 	return &WebhookChecker{reg: reg}
 }
 

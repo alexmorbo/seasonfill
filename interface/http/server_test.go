@@ -20,7 +20,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
@@ -28,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -255,7 +255,7 @@ func buildServer(t *testing.T) *Server {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		handlers.InstanceRegistry{},
+		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
@@ -313,7 +313,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 	}, scanUC, okWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		adminRepo, nil, nil,
-		handlers.InstanceRegistry{Load: func() map[string]scan.Instance {
+		catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
 			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
@@ -489,7 +489,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 	}, scanUC, noopWebhookUC{}, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
-		handlers.InstanceRegistry{},
+		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler

@@ -19,10 +19,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -210,7 +210,7 @@ func newGrabFixture(t *testing.T, forceErr error) *grabFixture {
 		},
 		Client: sn,
 	}
-	reg := handlers.InstanceRegistry{Load: func() map[string]scan.Instance {
+	reg := catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
 		return map[string]scan.Instance{"alpha": inst}
 	}}
 	h := NewGrabHandler(dec, gr, cd, grabUC, reg, lg)

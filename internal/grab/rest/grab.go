@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	domaindecision "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
@@ -27,7 +28,7 @@ type GrabHandler struct {
 	grabs     ports.GrabRepository
 	cooldowns ports.CooldownRepository
 	grabUC    *appgrab.UseCase
-	reg       handlers.InstanceRegistry
+	reg       catalogrest.InstanceRegistry
 	logger    *slog.Logger
 }
 
@@ -35,7 +36,7 @@ type GrabHandler struct {
 // (e.g. docs_test). reg.Load nil-OK for the same reason.
 func NewGrabHandler(decisions ports.DecisionRepository, grabs ports.GrabRepository,
 	cooldowns ports.CooldownRepository, grabUC *appgrab.UseCase,
-	reg handlers.InstanceRegistry, logger *slog.Logger) *GrabHandler {
+	reg catalogrest.InstanceRegistry, logger *slog.Logger) *GrabHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}

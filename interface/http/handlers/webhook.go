@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhook"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -23,7 +24,7 @@ type WebhookProcessor interface {
 
 type WebhookHandler struct {
 	uc     WebhookProcessor
-	reg    InstanceRegistry
+	reg    catalogrest.InstanceRegistry
 	logger *slog.Logger
 }
 
@@ -31,7 +32,7 @@ type WebhookHandler struct {
 // In production, reg is wired to the same instanceMapHolder the reload
 // bus updates, so a Sonarr added via Settings UI is reachable on its
 // webhook URL within one bus tick — no pod restart.
-func NewWebhookHandler(uc WebhookProcessor, reg InstanceRegistry, logger *slog.Logger) *WebhookHandler {
+func NewWebhookHandler(uc WebhookProcessor, reg catalogrest.InstanceRegistry, logger *slog.Logger) *WebhookHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -47,7 +48,7 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 	// reg.Load nil = accept any (test only). Otherwise consult the
 	// reload-aware snapshot every request.
 	if h.reg.Load != nil {
-		if _, ok := h.reg.snapshot()[name]; !ok {
+		if _, ok := h.reg.Snapshot()[name]; !ok {
 			h.logger.WarnContext(c.Request.Context(), "webhook_unknown_instance",
 				slog.String("instance", name))
 			writeError(c, http.StatusNotFound, "unknown instance")

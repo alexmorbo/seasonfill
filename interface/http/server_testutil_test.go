@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
@@ -21,7 +21,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	admin := &stubAdminRepo{}
 	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
-		handlers.InstanceRegistry{},
+		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
 		nil, nil, // seriesCacheRepo, counterRepo
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler

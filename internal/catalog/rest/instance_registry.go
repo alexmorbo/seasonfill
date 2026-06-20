@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"

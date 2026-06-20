@@ -1,19 +1,19 @@
 package adapters
 
 import (
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 )
 
-// RegrabInstanceRegistry adapts handlers.InstanceRegistry to the
+// RegrabInstanceRegistry adapts catalogrest.InstanceRegistry to the
 // application/regrab.InstanceRegistry interface. The Get(name) →
 // (scan.Instance, bool) semantics are a thin nil-safe wrapper.
 type RegrabInstanceRegistry struct {
-	Reg handlers.InstanceRegistry
+	Reg catalogrest.InstanceRegistry
 }
 
 // NewRegrabInstanceRegistry wraps the supplied registry.
-func NewRegrabInstanceRegistry(reg handlers.InstanceRegistry) RegrabInstanceRegistry {
+func NewRegrabInstanceRegistry(reg catalogrest.InstanceRegistry) RegrabInstanceRegistry {
 	return RegrabInstanceRegistry{Reg: reg}
 }
 

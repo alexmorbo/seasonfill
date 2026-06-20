@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
@@ -16,6 +16,12 @@ import (
 // caught up — tiles render the moment the canon row carries a path,
 // and the media handler's on-demand fetch covers "hash known, bytes
 // not yet downloaded".
+//
+// Story 444 (A-1-18) — duplicate of the same helper in
+// interface/http/handlers/media_hash.go. Two-line copy avoids the
+// import cycle that would otherwise arise from catalog/rest →
+// handlers (for the exported alias) and handlers → catalog/rest (for
+// InstanceRegistry — see qbit_discover.go).
 func mediaHashForPosterAsset(posterAsset *string) *string {
 	if posterAsset == nil {
 		return nil

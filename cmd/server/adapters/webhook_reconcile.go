@@ -3,21 +3,21 @@ package adapters
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// NewWebhookReconcileLookup adapts handlers.InstanceRegistry (reload-
+// NewWebhookReconcileLookup adapts catalogrest.InstanceRegistry (reload-
 // aware map of scan.Instance) to webhookinstall.InstanceLookup. The
 // Sonarr client is type-asserted to *sonarr.Client so the reconciler
 // can reach notification methods ports.SonarrClient intentionally
 // omits. A type-assert miss yields ok=false so a test fixture with a
 // fake client degrades to "unknown instance" rather than panicking.
-func NewWebhookReconcileLookup(reg handlers.InstanceRegistry) webhookinstall.InstanceLookup {
+func NewWebhookReconcileLookup(reg catalogrest.InstanceRegistry) webhookinstall.InstanceLookup {
 	return func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
 		var inst scan.Instance
 		var ok bool
