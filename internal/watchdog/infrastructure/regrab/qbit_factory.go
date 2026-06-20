@@ -10,7 +10,7 @@ package regrab
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	appregrab "github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 

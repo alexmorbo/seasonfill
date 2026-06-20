@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

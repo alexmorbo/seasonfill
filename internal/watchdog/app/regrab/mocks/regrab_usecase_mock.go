@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	scan "github.com/alexmorbo/seasonfill/application/scan"
-	qbit "github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	qbit "github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	regrab "github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	gomock "go.uber.org/mock/gomock"

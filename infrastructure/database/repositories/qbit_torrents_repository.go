@@ -11,7 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
