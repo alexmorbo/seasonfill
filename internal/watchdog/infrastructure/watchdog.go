@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/instance"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
 
