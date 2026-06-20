@@ -4,11 +4,85 @@ Seasonfill splits Go tests into three tiers via build tags. This document maps e
 
 ## Tier table
 
-| Tier | Build tag | CI job | Local target | Trigger | Timeout |
-|------|-----------|--------|---------------|---------|---------|
+| Tier | Build tag | CI jobs | Local targets | Trigger | Timeout |
+|------|-----------|---------|---------------|---------|---------|
 | Unit | (none) | `unit` | `make test-race` | Every push | 5m |
-| Integration | `integration` | `integration` | `make test-integration` | PR + push to `main` / `v*` tag | 15m |
+| Integration | `integration` | `integration-sqlite` + `integration-postgres` | `make test-integration-sqlite` + `make test-integration-postgres` | PR + push to `main` / `v*` tag | 15m + 20m |
 | End-to-end | `integration_e2e` (implies `integration`) | `nightly-deep` | `make test-integration-e2e` | Cron `0 3 * * *` UTC + `workflow_dispatch` | 30m |
+
+## Dual-backend integration testing
+
+Story A-4 (testcontainers-go migration) introduces a dual-backend strategy for integration tests:
+
+### SQLite (default, fast)
+
+- No external dependencies — tests run against `:memory:` SQLite databases.
+- Enabled by default: `make test-integration-sqlite` (~3 min).
+- CI job `integration-sqlite` runs on every PR and push to `main`/`v*`.
+- `go test ./... -tags integration` (local default).
+
+### Postgres (opt-in, requires Docker)
+
+- Tests run against a testcontainers-go Postgres 17 container.
+- Opt-in via `SEASONFILL_TEST_POSTGRES_ENABLE=1`: `make test-integration-postgres` (~6 min).
+- CI job `integration-postgres` runs in parallel with SQLite on every PR and push to `main`/`v*`.
+- Tests using `testhelpers.AllBackends(t)` automatically dispatch both backends when enabled.
+- Useful for catching database-dialect-specific bugs (NULL handling, constraint behavior, transaction isolation).
+
+### Migration pattern (from story A-4-3)
+
+When migrating a repo test to dual-backend:
+
+```go
+// Before (SQLite only):
+func TestMyRepo_DoWork(t *testing.T) {
+    t.Parallel()
+    db := testhelpers.NewSQLiteDB(t)
+    repo := NewMyRepository(db)
+    // ...test body...
+}
+
+// After (dual-backend):
+func TestMyRepo_DoWork(t *testing.T) {
+    t.Parallel()
+    for _, backend := range testhelpers.AllBackends(t) {
+        t.Run(backend.Name, func(t *testing.T) {
+            t.Parallel()
+            db := backend.NewDB(t)
+            repo := NewMyRepository(db)
+            // ...test body...
+        })
+    }
+}
+```
+
+The `testhelpers.AllBackends(t)` helper:
+- Returns `[{Name: "sqlite", NewDB: newSQLiteDB}]` by default.
+- When `SEASONFILL_TEST_POSTGRES_ENABLE=1` or `SEASONFILL_TEST_POSTGRES_DSN` is set, appends a Postgres backend.
+- Each backend gets a fresh isolated DB via `NewDB(t)`.
+- SQLite uses an `:memory:` database; Postgres creates a random per-test DB inside the shared container.
+
+### Local workflow
+
+```bash
+# Fast unit + SQLite integration (no Docker needed):
+make test-race                          # ~5 min total
+make test-integration-sqlite            # ~3 min
+
+# Full dual-backend (requires Docker):
+make test-integration                   # both sqlite + postgres ~9 min
+SEASONFILL_TEST_POSTGRES_ENABLE=1 \
+  go test -tags integration -race ./... # same as above
+```
+
+### CI workflow
+
+Both jobs are **merge-gating** (required status checks):
+
+- **`integration-sqlite`** (runs first, fast): ~3 min, no Docker.
+- **`integration-postgres`** (runs in parallel): ~6 min, Docker available.
+
+Both must pass before merge. They run in parallel on separate runners.
 
 ## Files by tier
 
@@ -57,7 +131,13 @@ package mypkg
 # Unit tier (fast, every-commit):
 make test-race
 
-# Integration tier (CI integration job):
+# Integration tier (SQLite only, no Docker):
+make test-integration-sqlite
+
+# Integration tier (Postgres, requires Docker):
+SEASONFILL_TEST_POSTGRES_ENABLE=1 make test-integration-postgres
+
+# Integration tier (both backends in sequence):
 make test-integration
 
 # E2E tier (CI nightly):
