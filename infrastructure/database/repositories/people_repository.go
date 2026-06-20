@@ -157,28 +157,40 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 	}
 
 	m := fromPerson(p)
-	var conflict clause.OnConflict
+	// No PK + no natural key ⇒ pure INSERT, no ON CONFLICT clause.
+	// Previously this branch emitted `clause.OnConflict{DoNothing:
+	// false}` which serialized to a bare `ON CONFLICT DO UPDATE`;
+	// SQLite tolerates the empty target, Postgres rejects it with
+	// SQLSTATE 42601 ("requires inference specification or constraint
+	// name"). Story 424a dual-backend migration caught this on the
+	// IMDB-only orphan path (tmdb_id NULL with non-nil imdb_id).
 	switch {
 	case m.ID != 0:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns(peopleUpdateCols()),
+		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert person: %w", err)
 		}
 	case m.TMDBID != nil:
 		// Partial unique index on tmdb_id WHERE tmdb_id IS NOT NULL —
 		// SQLite + Postgres both require the index predicate to be
 		// repeated in the ON CONFLICT target so the planner picks the
 		// partial index rather than rejecting "no matching constraint".
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
 			DoUpdates:   clause.AssignmentColumns(peopleUpdateCols()),
 		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert person: %w", err)
+		}
 	default:
-		conflict = clause.OnConflict{DoNothing: false}
-	}
-	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
-		return 0, fmt.Errorf("upsert person: %w", err)
+		// No PK and no natural key — pure insert. GORM assigns id.
+		if err := db.Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert person: %w", err)
+		}
 	}
 	return m.ID, nil
 }

@@ -108,24 +108,35 @@ func (r *KeywordsRepository) Upsert(ctx context.Context, k taxonomy.Keyword) (in
 	}
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	var conflict clause.OnConflict
+	// No PK + no natural key ⇒ pure INSERT, no ON CONFLICT clause.
+	// Previously this branch emitted `clause.OnConflict{DoNothing:
+	// false}` which serialized to a bare `ON CONFLICT DO UPDATE`;
+	// SQLite tolerates the empty target, Postgres rejects it with
+	// SQLSTATE 42601 ("requires inference specification or constraint
+	// name"). Story 424a dual-backend migration caught this.
 	switch {
 	case m.ID != 0:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns([]string{"tmdb_id", "updated_at"}),
 		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert keyword: %w", err)
+		}
 	case m.TMDBID != nil:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
 			DoUpdates:   clause.AssignmentColumns([]string{"tmdb_id", "updated_at"}),
 		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert keyword: %w", err)
+		}
 	default:
-		conflict = clause.OnConflict{DoNothing: false}
-	}
-	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
-		return 0, fmt.Errorf("upsert keyword: %w", err)
+		// No PK and no natural key — pure insert. GORM assigns id.
+		if err := db.Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert keyword: %w", err)
+		}
 	}
 	return m.ID, nil
 }

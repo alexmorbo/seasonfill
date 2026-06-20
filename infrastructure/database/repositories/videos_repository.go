@@ -99,27 +99,39 @@ func (r *VideosRepository) Upsert(ctx context.Context, v Video) (int64, error) {
 	v.UpdatedAt = now
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	var conflict clause.OnConflict
+	// No PK + no natural key ⇒ pure INSERT, no ON CONFLICT clause.
+	// Previously this branch emitted `clause.OnConflict{DoNothing:
+	// false}` which serialized to a bare `ON CONFLICT DO UPDATE`;
+	// SQLite tolerates the empty target, Postgres rejects it with
+	// SQLSTATE 42601 ("requires inference specification or constraint
+	// name"). Story 424a dual-backend migration caught this on the
+	// curated-video path (tmdb_video_id NULL — e.g. operator-added).
 	switch {
 	case v.ID != 0:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns(videoUpdateCols()),
+		}
+		if err := db.Clauses(conflict).Create(&v).Error; err != nil {
+			return 0, fmt.Errorf("upsert video: %w", err)
 		}
 	case v.TMDBVideoID != nil:
 		// Partial unique on tmdb_video_id WHERE tmdb_video_id IS NOT NULL
 		// — both engines require the index predicate be repeated in the
 		// ON CONFLICT target so the planner picks the partial index.
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_video_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_video_id IS NOT NULL"}}},
 			DoUpdates:   clause.AssignmentColumns(videoUpdateCols()),
 		}
+		if err := db.Clauses(conflict).Create(&v).Error; err != nil {
+			return 0, fmt.Errorf("upsert video: %w", err)
+		}
 	default:
-		conflict = clause.OnConflict{DoNothing: false}
-	}
-	if err := db.Clauses(conflict).Create(&v).Error; err != nil {
-		return 0, fmt.Errorf("upsert video: %w", err)
+		// No PK and no natural key — pure insert. GORM assigns id.
+		if err := db.Create(&v).Error; err != nil {
+			return 0, fmt.Errorf("upsert video: %w", err)
+		}
 	}
 	return v.ID, nil
 }
