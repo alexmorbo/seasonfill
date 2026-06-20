@@ -25,6 +25,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -743,7 +744,7 @@ type TorrentsyncBundle struct {
 	UC                    *torrentsync.UseCase
 	Loop                  *loops.TorrentsyncLoop
 	Query                 *torrentsync.Query
-	SeriesTorrentsHandler *handlers.SeriesTorrentsHandler
+	SeriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler
 }
 
 // BuildTorrentsync wires the torrentsync stack (220 A-2 + 221 A-3 +
@@ -861,7 +862,7 @@ func BuildTorrentsync(
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	// HTTP handler stays on bare `log` — see qbitLog godoc above.
-	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(
+	seriesTorrentsHandler := seriesdetailrest.NewSeriesTorrentsHandler(
 		query, seriesCacheRepo, seriesRepo, log,
 	)
 

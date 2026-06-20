@@ -27,6 +27,7 @@ import (
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"
 )
@@ -70,12 +71,12 @@ func NewServer(
 	webhooksAggregateHandler *catalogrest.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
-	seriesDetailHandler *handlers.SeriesDetailHandler,
-	seriesSeasonHandler *handlers.SeriesSeasonHandler,
-	seriesCastHandler *handlers.SeriesCastHandler,
+	seriesDetailHandler *seriesdetailrest.SeriesDetailHandler,
+	seriesSeasonHandler *seriesdetailrest.SeriesSeasonHandler,
+	seriesCastHandler *seriesdetailrest.SeriesCastHandler,
 	peopleHandler *enrichrest.PeopleHandler,
 	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
-	seriesTorrentsHandler *handlers.SeriesTorrentsHandler,
+	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
 	timezoneHandler *adminrest.TimezoneHandler,
 	logger *slog.Logger,
 ) *Server {

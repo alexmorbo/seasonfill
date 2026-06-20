@@ -12,7 +12,6 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
-	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
@@ -26,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -244,9 +244,9 @@ type SeriesDetailBundle struct {
 	CastComposer         *seriesdetail.CastComposer
 	PeopleUC             *apppeople.UseCase
 	SeriesRefreshUC      *seriesrefresh.UseCase
-	DetailHandler        *handlers.SeriesDetailHandler
-	SeasonHandler        *handlers.SeriesSeasonHandler
-	CastHandler          *handlers.SeriesCastHandler
+	DetailHandler        *seriesdetailrest.SeriesDetailHandler
+	SeasonHandler        *seriesdetailrest.SeriesSeasonHandler
+	CastHandler          *seriesdetailrest.SeriesCastHandler
 	PeopleHandler        *enrichrest.PeopleHandler
 	RefreshHandler       *enrichrest.SeriesRefreshHandler
 	PersonEnqueuerHolder *adapters.PersonEnqueuerHolder
@@ -384,8 +384,8 @@ func BuildSeriesDetail(
 		Logger:        composerLog,
 		MediaResolver: mediaResolver,
 	})
-	detailHandler := handlers.NewSeriesDetailHandler(composer, log)
-	seasonHandler := handlers.NewSeriesSeasonHandler(composer, log)
+	detailHandler := seriesdetailrest.NewSeriesDetailHandler(composer, log)
+	seasonHandler := seriesdetailrest.NewSeriesSeasonHandler(composer, log)
 
 	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
 	// repos (series_cache + series + series_people + people) plus
@@ -404,7 +404,7 @@ func BuildSeriesDetail(
 		Logger:            composerLog,
 		MediaResolver:     mediaResolver,
 	})
-	castHandler := handlers.NewSeriesCastHandler(castComposer, log)
+	castHandler := seriesdetailrest.NewSeriesCastHandler(castComposer, log)
 
 	// Story 217 (H-2) — person detail use case. Adapter wraps
 	// PeopleRepository so the application port distinguishes the
