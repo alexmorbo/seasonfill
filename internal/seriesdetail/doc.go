@@ -44,7 +44,7 @@
 //
 // Cross-context boundary: the seriesdetail composers are consumed by
 // the seriesdetail rest leaf (internal/seriesdetail/rest, story 446)
-// — wired by cmd/server/wiring. They expose value types (Detail,
+// — wired by internal/wiring. They expose value types (Detail,
 // CastPage, CastDetail, RecentItem, RecommendationDetail,
 // MediaResolver, ...) that other contexts read by value; behaviour is
 // reached strictly through Composer/CastComposer constructors with

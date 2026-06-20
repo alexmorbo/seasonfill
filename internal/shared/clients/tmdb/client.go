@@ -167,7 +167,7 @@ func New(cfg Config) (*Client, error) {
 	// metrics transport. We CLONE the *http.Client so the caller's
 	// shared pointer is left untouched (the media downloader uses the
 	// SAME shared pointer for image.tmdb.org and needs its own
-	// "tmdb_cdn"-labelled wrap — see cmd/server/wiring/enrichment.go).
+	// "tmdb_cdn"-labelled wrap — see internal/wiring/enrichment.go).
 	// Jar + CheckRedirect are round-tripped even if nil — keeps the
 	// clone faithful so a future externalservices.HttpClientFor change
 	// that sets them doesn't silently break.

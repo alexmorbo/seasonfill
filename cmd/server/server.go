@@ -11,7 +11,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
-	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
+	"github.com/alexmorbo/seasonfill/internal/wiring"
 )
 
 // Options carries optional construction-time hooks. OnReady fires from

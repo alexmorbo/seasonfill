@@ -34,7 +34,7 @@
 //     duration before attempt N (1-indexed).
 //
 // Cross-package consumers (interface/http/handlers + internal/grab/
-// rest + application/regrab + application/scan + cmd/server/wiring)
+// rest + application/regrab + application/scan + internal/wiring)
 // import these names directly from package grab via the import path
 // `github.com/alexmorbo/seasonfill/internal/grab/app` — the bare
 // package identifier `grab` survived the story 431 move unchanged.

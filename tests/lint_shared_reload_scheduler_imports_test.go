@@ -16,7 +16,7 @@ import (
 // internal/shared/reload/ and internal/shared/scheduler/ as part of
 // the shared kernel (PRD §3.2). The bus subscribes loops + caches to
 // config-change events; the scheduler wraps robfig/cron. Both are
-// imported by cmd/server/wiring/, commands/, every loop, and several
+// imported by internal/wiring/, commands/, every loop, and several
 // caches — so they sit ABOVE every vertical context and BELOW only the
 // other kernel packages (internal/shared/*).
 //

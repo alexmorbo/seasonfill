@@ -60,6 +60,6 @@
 //
 // Story origin:
 //   - 447 — vertical-slice skeleton (this reservation).
-//   - 452 — placeholder wiring (cmd/server/wiring/discovery.go).
+//   - 452 — placeholder wiring (internal/wiring/discovery.go).
 //   - Phase 3 N-2 — actual feature implementation.
 package discovery

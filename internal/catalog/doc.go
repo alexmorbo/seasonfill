@@ -43,7 +43,7 @@
 // webhook.Event) by value through application/ports contracts. They
 // MUST NOT reach into internal/catalog/app/* for behavior — the
 // InstanceUseCase is exposed via the application/ports.Instance
-// contract and wired by cmd/server/wiring.
+// contract and wired by internal/wiring.
 //
 // Story origin:
 //   - 441 — vertical-slice extraction (this layout): domain/series,

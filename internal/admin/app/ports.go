@@ -42,7 +42,7 @@
 //     interface/http/handlers/webhook*.go.
 //
 // Cross-package consumers (interface/http/handlers + middleware,
-// infrastructure/reload, cmd/server/wiring) import these names directly
+// infrastructure/reload, internal/wiring) import these names directly
 // from package auth via the import path
 // `github.com/alexmorbo/seasonfill/internal/admin/app` — the bare
 // package identifier `auth` survived the story 428 move unchanged.
