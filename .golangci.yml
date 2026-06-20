@@ -119,8 +119,9 @@ linters:
       #   * cmd/server/ + application/bootstrap/ — operator-facing CLI
       #     stdout/stderr (reset-password, auth-mode, backfill-assets,
       #     reparse, apikey bootstrap, main usage/fatal).
-      #   * application/evaluate/error_detail.go — fmt.Fprintf into a
-      #     bytes.Buffer for error-detail rendering, not stdout.
+      #   * internal/grab/app/evaluate/error_detail.go — fmt.Fprintf
+      #     into a bytes.Buffer for error-detail rendering, not stdout.
+      #     (Moved from application/evaluate in story 432 A-1-6.)
       #   * internal/logger/ — the logger factory itself (slog.New
       #     contextHandler wrap) and the GORM adapter nil-fallback.
       #   * internal/shared/ports/context.go — LoggerFromContext nil
@@ -137,7 +138,7 @@ linters:
         linters:
           - forbidigo
         text: 'fmt\.Fprint'
-      - path: 'application/evaluate/error_detail\.go'
+      - path: 'internal/grab/app/evaluate/error_detail\.go'
         linters:
           - forbidigo
         text: 'fmt\.Fprint'

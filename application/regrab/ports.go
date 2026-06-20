@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/evaluate"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
+	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
