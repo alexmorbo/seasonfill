@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 func TestRun_BootstrapSmoke(t *testing.T) {

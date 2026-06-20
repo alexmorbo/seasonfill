@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
@@ -14,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 
 	"gorm.io/gorm"

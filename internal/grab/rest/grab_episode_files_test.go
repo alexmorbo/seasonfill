@@ -19,7 +19,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
@@ -29,6 +28,7 @@ import (
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

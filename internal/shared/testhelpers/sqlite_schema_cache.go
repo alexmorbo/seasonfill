@@ -8,7 +8,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // SQLite schema-cache fast path (story A-4-3b-7).

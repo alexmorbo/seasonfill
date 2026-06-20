@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // QuotaCounterRepository is the GORM-backed quota.QuotaCounter

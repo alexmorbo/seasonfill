@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // PersonCreditsAdapter projects repositories.PersonCredit rows down

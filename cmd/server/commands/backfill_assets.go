@@ -23,9 +23,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // AssetKindPoster is the --kind=poster sentinel.

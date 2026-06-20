@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // ExternalID is the read-shape returned by ExternalIDsRepository.

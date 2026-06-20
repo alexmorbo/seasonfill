@@ -18,8 +18,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // Service is the enum of supported enrichment sources.

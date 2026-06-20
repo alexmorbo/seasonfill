@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -17,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
 
 // AuthMode implements `seasonfill auth-mode`. Two modes (mutually
