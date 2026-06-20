@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
@@ -35,7 +36,7 @@ type PersistenceBundle struct {
 	MasterKey       string
 	RuntimeRepo     *repositories.RuntimeConfigRepository
 	InstanceRepo    *repositories.SonarrInstanceRepository
-	AppSettingsRepo *repositories.AppSettingsRepository
+	AppSettingsRepo *adminpersistence.AppSettingsRepository
 	QuotaCounter    *repositories.QuotaCounterRepository
 	TZResolver      *tz.Resolver
 	TimezoneHandler *handlers.TimezoneHandler
@@ -89,7 +90,7 @@ func BuildPersistence(
 	// factory and the HTTP handler share the same Resolver. The
 	// store is the GORM-backed app_settings repo; the v36 seed
 	// guarantees a singleton row exists.
-	appSettingsRepo := repositories.NewAppSettingsRepository(db)
+	appSettingsRepo := adminpersistence.NewAppSettingsRepository(db)
 	// F-4b-8: tz resolver loads the operator timezone at boot —
 	// configuration-resolution records belong to the "boot" slot.
 	tzResolver := tz.New(bgCtx, appSettingsRepo, sharedports.DomainLogger(log, "boot"))
