@@ -17,7 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
-	"github.com/alexmorbo/seasonfill/interface/healthcheck"
+	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

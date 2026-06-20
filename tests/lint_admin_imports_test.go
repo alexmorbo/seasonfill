@@ -77,10 +77,57 @@ func TestAdminNoBackwardsImports(t *testing.T) {
 		modPath + "/interface/",
 	}
 	// Carve-outs — see godoc above for rationale.
+	//
+	// Story 430 (A-1-4) additions: the admin/rest leaf is an HTTP
+	// integration point that wires admin endpoints to shared kernel
+	// types. The handlers + healthcheck Checker legitimately reference:
+	//
+	//   * interface/http/middleware — the auth gate + AuthRuntimePointer
+	//     used by every guarded admin route. Story 450 owns the move
+	//     of middleware into a per-context home; until then, every
+	//     rest handler imports it via its current path.
+	//   * interface/http/handlers — audit.go references the cross-
+	//     handler CatalogMediaPendingWriter / CatalogMediaPrewarmer
+	//     port interfaces (defined in interface/http/handlers/media_pending.go
+	//     and shared by catalog handlers that stay in the old package).
+	//     Will relocate when media_pending lives in an internal/shared/
+	//     dto-port package.
+	//   * internal/runtime (+ /tz, /crypto) — runtime config snapshots
+	//     consumed by auth_config / timezone / auth handlers; the
+	//     runtime root is the live-config singleton.
+	//   * internal/observability — Prometheus writer for /metrics.
+	//   * application/decision, domain/decision, domain/grab — audit
+	//     endpoints render decision + grab read models; these are
+	//     read-only cross-context types until a dedicated audit-DTO
+	//     package emerges.
+	//   * domain (root) + domain/instance — healthcheck Checker reads
+	//     sentinel errors and the shared instance.Registry; both are
+	//     genuinely cross-cutting kernel types.
+	//
+	// Test-only additions (used by *_test.go fixtures inside admin/rest):
+	//   * domain/release, domain/series — fakeSonarr fixture returns.
+	//   * infrastructure/database/repositories — audit_test builds a
+	//     real MediaAssetsRepository against in-memory SQLite for
+	//     stronger coverage than a fake.
+	//   * internal/mediaproxy/{app,domain} — audit_test wires the
+	//     real media pending pipeline.
 	allowList := []string{
 		modPath + "/application/ports",
+		modPath + "/application/decision",
+		modPath + "/domain",
+		modPath + "/domain/decision",
+		modPath + "/domain/grab",
+		modPath + "/domain/instance",
+		modPath + "/domain/release",
+		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
+		modPath + "/interface/http/handlers",
+		modPath + "/interface/http/middleware",
+		modPath + "/internal/mediaproxy/app",
+		modPath + "/internal/mediaproxy/domain",
+		modPath + "/internal/observability",
+		modPath + "/internal/runtime",
 	}
 
 	isAllowed := func(imp string) bool {
