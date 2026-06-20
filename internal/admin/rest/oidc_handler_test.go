@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 // stubAdminRepo satisfies ports.AdminUserRepository for unit tests that

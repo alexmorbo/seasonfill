@@ -5,9 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 const oidcLoginPath = "/api/v1/auth/oidc/start"

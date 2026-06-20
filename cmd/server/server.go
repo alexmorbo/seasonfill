@@ -14,7 +14,6 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -23,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 )

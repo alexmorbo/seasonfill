@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 type refreshHandlerFakeCache struct {

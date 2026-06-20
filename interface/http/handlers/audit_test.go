@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -31,6 +30,7 @@ import (
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 // --- harness --------------------------------------------------------------

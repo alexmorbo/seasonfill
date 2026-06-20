@@ -19,10 +19,10 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 type fakeAdminRepo struct {

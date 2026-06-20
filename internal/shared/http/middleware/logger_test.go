@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

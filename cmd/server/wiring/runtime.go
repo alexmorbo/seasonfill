@@ -12,7 +12,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gc"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
@@ -21,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 	"github.com/alexmorbo/seasonfill/internal/shared/scheduler"

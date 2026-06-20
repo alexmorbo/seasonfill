@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 type AuthMiddlewareSubscriber struct {

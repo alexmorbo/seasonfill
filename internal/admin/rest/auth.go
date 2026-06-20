@@ -12,10 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 const (
