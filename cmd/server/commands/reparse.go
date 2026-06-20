@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -83,7 +84,7 @@ func Reparse(ctx context.Context, args []string) error {
 		return c, ok
 	}
 
-	grabRepo := repositories.NewGrabRepository(db)
+	grabRepo := grabpersistence.NewGrabRepository(db)
 	return reparseInternal(ctx, args, grabRepo, clientFor, log)
 }
 

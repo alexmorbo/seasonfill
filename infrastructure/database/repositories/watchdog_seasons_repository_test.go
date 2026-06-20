@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -442,7 +443,7 @@ func TestWatchdogSeasons_RecentGrabs_CappedPerSeason(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			grabRepo := NewGrabRepository(db)
+			grabRepo := grabpersistence.NewGrabRepository(db)
 			base := time.Now().UTC().Truncate(time.Second)
 
 			for i := range 4 {

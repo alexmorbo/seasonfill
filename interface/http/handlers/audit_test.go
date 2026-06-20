@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -37,7 +38,7 @@ type auditFixture struct {
 	db          *gorm.DB
 	scans       *repositories.ScanRepository
 	decs        *repositories.DecisionRepository
-	grabs       *repositories.GrabRepository
+	grabs       *grabpersistence.GrabRepository
 	seriesCache *repositories.SeriesCacheRepository
 	router      *gin.Engine
 }
@@ -58,7 +59,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 
 	scans := repositories.NewScanRepository(db)
 	decs := repositories.NewDecisionRepository(db)
-	grabs := repositories.NewGrabRepository(db)
+	grabs := grabpersistence.NewGrabRepository(db)
 	seriesCache := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Note: WithSeriesCache is wired here so the per-test slug

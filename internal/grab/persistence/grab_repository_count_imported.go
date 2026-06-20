@@ -1,10 +1,11 @@
-package repositories
+package persistence
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -21,7 +22,7 @@ import (
 // steady state, not an error. Real DB failures wrap with %w.
 func (r *GrabRepository) CountImportedEpisodes(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, seasonNumber int) (int, error) {
 	var count int64
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.GrabRecordModel{}).
 		Where("instance_name = ? AND series_id = ? AND season_number = ? AND status = ?",
 			instance, seriesID, seasonNumber, "imported").

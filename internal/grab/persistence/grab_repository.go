@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -28,7 +29,7 @@ func NewGrabRepository(db *gorm.DB) *GrabRepository {
 
 func (r *GrabRepository) Create(ctx context.Context, rec grab.Record) error {
 	model := toGrabModel(rec)
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("create grab_record: %w", err)
 	}
 	return nil
@@ -75,7 +76,7 @@ func (r *GrabRepository) List(ctx context.Context, f ports.GrabFilter, p ports.P
 	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
 		return nil, nil, fmt.Errorf("grab list: %w", ports.ErrInvalidLimit)
 	}
-	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.GrabRecordModel{})
+	q := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Model(&database.GrabRecordModel{})
 	if f.Instance != nil {
 		q = q.Where("instance_name = ?", *f.Instance)
 	}
@@ -174,7 +175,7 @@ func parseReplayOfID(s *string) *uuid.UUID {
 // short-circuits as soon as DownloadID resolves a non-terminal row; the
 // fallback runs only when DownloadID is empty OR the primary missed.
 func (r *GrabRepository) MatchLatest(ctx context.Context, key ports.MatchKey) (grab.Record, error) {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 
 	terminal := []string{
 		string(grab.StatusImported),
@@ -235,7 +236,7 @@ func (r *GrabRepository) MatchLatest(ctx context.Context, key ports.MatchKey) (g
 // guard: reads current status and rejects the write via
 // grab.ErrInvalidStatusTransition when the move is forbidden.
 func (r *GrabRepository) UpdateStatus(ctx context.Context, id uuid.UUID, newStatus grab.Status, message string) error {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 
 	var current database.GrabRecordModel
 	if err := db.Select("id", "status").First(&current, "id = ?", id.String()).Error; err != nil {
@@ -281,7 +282,7 @@ func (r *GrabRepository) UpdateTorrentHash(ctx context.Context, id uuid.UUID, ha
 	if hash == "" {
 		return nil
 	}
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 
 	var current database.GrabRecordModel
 	if err := db.Select("id", "torrent_hash").First(&current, "id = ?", id.String()).Error; err != nil {
@@ -329,7 +330,7 @@ func (r *GrabRepository) FindLatestSuccessByHash(ctx context.Context, hash strin
 	if hash == "" {
 		return grab.Record{}, ports.ErrNotFound
 	}
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 
 	var m database.GrabRecordModel
 	err := db.Model(&database.GrabRecordModel{}).
@@ -367,7 +368,7 @@ func (r *GrabRepository) CreateReplay(ctx context.Context, rec grab.Record, repl
 // same triple due to the per-instance ticker, but the no-overwrite
 // rule prevents accidental audit-pointer corruption).
 func (r *GrabRepository) SetReplayOfID(ctx context.Context, id uuid.UUID, replayOfID uuid.UUID) error {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	now := time.Now().UTC()
 	res := db.Model(&database.GrabRecordModel{}).
 		Where("id = ? AND replay_of_id IS NULL", id.String()).
@@ -432,7 +433,7 @@ func (r *GrabRepository) ListReplaysOf(
 		ReplayOfID *string `gorm:"column:replay_of_id"`
 	}
 	var rows []row
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	if err := db.Table("grab_records").
 		Select("id", "replay_of_id").
 		Where("replay_of_id IN ?", parentStrs).
@@ -468,7 +469,7 @@ func (r *GrabRepository) UpdateSizeBytes(ctx context.Context, id uuid.UUID, size
 	if size <= 0 {
 		return nil
 	}
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 
 	var current database.GrabRecordModel
 	if err := db.Select("id", "size_bytes").First(&current, "id = ?", id.String()).Error; err != nil {
@@ -498,7 +499,7 @@ func (r *GrabRepository) UpdateSizeBytes(ctx context.Context, id uuid.UUID, size
 // 043c: powers the episode-files endpoint lookup. Returns
 // ports.ErrNotFound on miss. Other repo errors wrap with %w.
 func (r *GrabRepository) GetByID(ctx context.Context, id uuid.UUID) (grab.Record, error) {
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	var m database.GrabRecordModel
 	if err := db.First(&m, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -591,7 +592,7 @@ func (r *GrabRepository) ListUnparsedSince(ctx context.Context, since time.Time,
 	if limit <= 0 || limit > 10000 {
 		limit = 1000
 	}
-	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.GrabRecordModel{}).
+	q := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Model(&database.GrabRecordModel{}).
 		Where("parsed_at IS NULL").
 		Where("created_at >= ?", since).
 		Order("created_at DESC").
@@ -641,7 +642,7 @@ func (r *GrabRepository) UpdateParsed(ctx context.Context, id uuid.UUID, parsed 
 		updates["parsed_subs"] = "null"
 		updates["parsed_release_group"] = nil
 	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.GrabRecordModel{}).
 		Where("id = ?", id.String()).
 		Updates(updates)
@@ -683,7 +684,7 @@ func (r *GrabRepository) FindSeriesByTorrentHashes(ctx context.Context, instance
 	if len(hashes) == 0 {
 		return nil, nil
 	}
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	var models []database.GrabRecordModel
 	err := db.Model(&database.GrabRecordModel{}).
 		Select("id", "instance_name", "series_id", "season_number", "torrent_hash", "status").

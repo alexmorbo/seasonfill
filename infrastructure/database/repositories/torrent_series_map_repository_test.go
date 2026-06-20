@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -231,7 +232,7 @@ func TestGrabRepository_FindSeriesByTorrentHashes(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			grabRepo := NewGrabRepository(db)
+			grabRepo := grabpersistence.NewGrabRepository(db)
 			ctx := context.Background()
 
 			// Empty input is a no-op.

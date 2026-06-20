@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
@@ -32,7 +33,7 @@ func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 
-			grabRepo := NewGrabRepository(db)
+			grabRepo := grabpersistence.NewGrabRepository(db)
 			cooldownRepo := &failingCooldownRepo{inner: NewCooldownRepository(db)}
 			tx := NewGormTransactor(db)
 

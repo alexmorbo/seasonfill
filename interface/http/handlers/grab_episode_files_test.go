@@ -23,11 +23,11 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -129,7 +129,7 @@ func makeEFGrabRecord(t *testing.T, instance shareddomain.InstanceName, status g
 func TestEpisodeFiles_Imported_ReturnsItems(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	rec := makeEFGrabRecord(t, "main", grab.StatusImported)
 	require.NoError(t, repo.Create(context.Background(), rec))
 
@@ -160,7 +160,7 @@ func TestEpisodeFiles_Imported_ReturnsItems(t *testing.T) {
 func TestEpisodeFiles_NotImported_EmptyItems(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	rec := makeEFGrabRecord(t, "main", grab.StatusGrabbed)
 	require.NoError(t, repo.Create(context.Background(), rec))
 
@@ -185,7 +185,7 @@ func TestEpisodeFiles_NotImported_EmptyItems(t *testing.T) {
 func TestEpisodeFiles_UnknownInstance_404(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	reg := makeInstanceRegistry(map[string]scan.Instance{})
 	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
@@ -201,7 +201,7 @@ func TestEpisodeFiles_UnknownInstance_404(t *testing.T) {
 func TestEpisodeFiles_UnknownID_404(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{}},
 	})
@@ -220,7 +220,7 @@ func TestEpisodeFiles_UnknownID_404(t *testing.T) {
 func TestEpisodeFiles_InstanceMismatch_404(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	rec := makeEFGrabRecord(t, "other", grab.StatusImported)
 	require.NoError(t, repo.Create(context.Background(), rec))
 
@@ -242,7 +242,7 @@ func TestEpisodeFiles_InstanceMismatch_404(t *testing.T) {
 func TestEpisodeFiles_SonarrUnavailable_502(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	rec := makeEFGrabRecord(t, "main", grab.StatusImported)
 	require.NoError(t, repo.Create(context.Background(), rec))
 
@@ -263,7 +263,7 @@ func TestEpisodeFiles_SonarrUnavailable_502(t *testing.T) {
 func TestEpisodeFiles_SonarrUnauthorized_502(t *testing.T) {
 	t.Parallel()
 	db := setupEFTestDB(t)
-	repo := repositories.NewGrabRepository(db)
+	repo := grabpersistence.NewGrabRepository(db)
 	rec := makeEFGrabRecord(t, "main", grab.StatusImported)
 	require.NoError(t, repo.Create(context.Background(), rec))
 

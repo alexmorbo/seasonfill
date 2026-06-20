@@ -29,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -37,7 +38,7 @@ import (
 type seriesCacheFixture struct {
 	db     *gorm.DB
 	repo   *repositories.SeriesCacheRepository
-	grabs  *repositories.GrabRepository
+	grabs  *grabpersistence.GrabRepository
 	router *gin.Engine
 }
 
@@ -59,7 +60,7 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	sqlDB.SetMaxIdleConns(1)
 
 	repo := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
-	grabs := repositories.NewGrabRepository(db)
+	grabs := grabpersistence.NewGrabRepository(db)
 
 	instMap := map[string]scan.Instance{}
 	for _, name := range instances {

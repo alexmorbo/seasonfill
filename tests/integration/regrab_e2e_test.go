@@ -31,6 +31,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -202,7 +203,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := repositories.NewDecisionRepository(db)
-	grabRepo := repositories.NewGrabRepository(db)
+	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)

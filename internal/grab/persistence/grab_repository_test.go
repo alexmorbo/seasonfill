@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -545,19 +545,6 @@ func buildSuccessRec(t *testing.T, instance domain.InstanceName, seriesID domain
 		rec.TorrentHash = &h
 	}
 	return rec
-}
-
-func ptrTMDBID(i int) *domain.TMDBID {
-	v := domain.TMDBID(i)
-	return &v
-}
-func ptrIMDBID(s string) *domain.IMDBID {
-	v := domain.IMDBID(s)
-	return &v
-}
-func ptrTVDBID(i int) *domain.TVDBID {
-	v := domain.TVDBID(i)
-	return &v
 }
 
 func ptrInstanceName(s string) *domain.InstanceName {

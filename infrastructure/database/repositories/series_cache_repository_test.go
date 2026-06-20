@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
@@ -382,7 +383,7 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
-			grabs := NewGrabRepository(db)
+			grabs := grabpersistence.NewGrabRepository(db)
 			ctx := context.Background()
 
 			for i := 1; i <= 3; i++ {
@@ -681,7 +682,7 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
-			grabs := NewGrabRepository(db)
+			grabs := grabpersistence.NewGrabRepository(db)
 			ctx := context.Background()
 
 			now := time.Now().UTC()

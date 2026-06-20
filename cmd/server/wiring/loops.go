@@ -23,6 +23,7 @@ import (
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -108,7 +109,7 @@ type ScanBundle struct {
 	RescanUC     *rescan.UseCase
 	Sweeper      *loops.SweepLoop
 	ScanRepo     *repositories.ScanRepository
-	GrabRepo     *repositories.GrabRepository
+	GrabRepo     *grabpersistence.GrabRepository
 	CooldownRepo *repositories.CooldownRepository
 	OriginRepo   *repositories.OriginReleaseRepository
 	DecisionRepo *repositories.DecisionRepository
@@ -163,7 +164,7 @@ func BuildScan(
 
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := repositories.NewDecisionRepository(db)
-	grabRepo := repositories.NewGrabRepository(db)
+	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 

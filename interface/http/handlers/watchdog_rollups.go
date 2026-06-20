@@ -38,7 +38,7 @@ type InstanceIDLookup interface {
 }
 
 // rollupGrabCounter is the narrowed slice of GrabRepository the handler
-// needs. *repositories.GrabRepository satisfies it via the methods added
+// needs. *grabpersistence.GrabRepository satisfies it via the methods added
 // in this story.
 type rollupGrabCounter interface {
 	CountReplaysSince(ctx context.Context, instance domain.InstanceName, since time.Time) (int, error)

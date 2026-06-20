@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 )
 
 type capturedGrab struct {
@@ -107,7 +108,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 
 	decisionRepo := repositories.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
-	grabRepo := repositories.NewGrabRepository(db)
+	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
@@ -241,7 +242,7 @@ func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
 
 	decisionRepo := repositories.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
-	grabRepo := repositories.NewGrabRepository(db)
+	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
