@@ -11,15 +11,17 @@ import (
 	"testing"
 )
 
-// TestSharedClientsNoBackwardsImports enforces story 435 A-1-9 §3.3:
-// every package under internal/shared/clients/ and internal/shared/http/
-// is part of the shared kernel (PRD §3.2) — TMDB, OMDb, and the
-// externalservices HTTP primitive + Settings UseCase are imported by
-// enrichment, mediaproxy, and seriesdetail without crossing context
-// boundaries. The kernel layer MUST NOT import application/, domain/,
-// infrastructure/, or interface/ (except via the explicit allowList
-// carve-outs documented below and internal/shared/ which is always
-// allowed).
+// TestSharedClientsNoBackwardsImports enforces story 435 A-1-9 §3.3
+// + story 436 A-1-10 (errtext kernel addition): every package under
+// internal/shared/clients/, internal/shared/http/, and
+// internal/shared/errtext/ is part of the shared kernel (PRD §3.2) —
+// TMDB, OMDb, the externalservices HTTP primitive + Settings UseCase,
+// and the upstream-error clamp helper are imported by enrichment,
+// mediaproxy, grab, watchdog, scan, webhook, and seriesdetail without
+// crossing context boundaries. The kernel layer MUST NOT import
+// application/, domain/, infrastructure/, or interface/ (except via
+// the explicit allowList carve-outs documented below and
+// internal/shared/ which is always allowed).
 //
 // Scope: production .go files and _test.go files alike. The story 435
 // move was structural; no test should suddenly reach into the legacy
@@ -54,6 +56,7 @@ func TestSharedClientsNoBackwardsImports(t *testing.T) {
 	roots := []string{
 		filepath.Join(repoRoot, "internal", "shared", "clients"),
 		filepath.Join(repoRoot, "internal", "shared", "http"),
+		filepath.Join(repoRoot, "internal", "shared", "errtext"),
 	}
 
 	modPath := "github.com/alexmorbo/seasonfill"
