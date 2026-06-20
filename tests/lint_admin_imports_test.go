@@ -261,3 +261,106 @@ func TestAdminPersistenceNoBackwardsImports(t *testing.T) {
 		}
 	}
 }
+
+// TestAdminRestNoBackwardsImports is the focused sub-guard for story
+// 430 A-1-4: the newly extracted internal/admin/rest/ leaf — Gin
+// handler wiring for /auth/*, /oidc/*, /healthz, /readyz, /metrics,
+// and /api/v1/settings/timezone — MUST NOT reach back into the old
+// catch-all interface/http/handlers/ tree EXCEPT through the explicit
+// kernel-shaped carve-outs documented on TestAdminNoBackwardsImports.
+//
+// The general admin guard above would also catch a regression here at
+// the layer-level "no interface/" rule, but this dedicated check pins
+// the regression message to the exact story-430 rule so future
+// boundary breaches self-document in test output without forcing
+// operators to grep the PRD §3.1 admin slice.
+//
+// Scope: every .go file under internal/admin/rest (production +
+// _test.go). Banned: any non-allowlisted import under interface/,
+// application/, domain/, infrastructure/. The dedicated check
+// re-uses the same allowList so a single edit to TestAdminNoBackwardsImports
+// updates both — they share the carve-out set by design.
+func TestAdminRestNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	ctxRoot := filepath.Join(repoRoot, "internal", "admin", "rest")
+
+	modPath := "github.com/alexmorbo/seasonfill"
+	bannedLayerRoots := []string{
+		modPath + "/application/",
+		modPath + "/domain/",
+		modPath + "/infrastructure/",
+		modPath + "/interface/",
+	}
+	allowList := []string{
+		modPath + "/application/ports",
+		modPath + "/application/decision",
+		modPath + "/domain",
+		modPath + "/domain/decision",
+		modPath + "/domain/grab",
+		modPath + "/domain/instance",
+		modPath + "/domain/release",
+		modPath + "/domain/series",
+		modPath + "/infrastructure/database",
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/handlers",
+		modPath + "/interface/http/middleware",
+		modPath + "/internal/mediaproxy/app",
+		modPath + "/internal/mediaproxy/domain",
+		modPath + "/internal/observability",
+		modPath + "/internal/runtime",
+	}
+	isAllowed := func(imp string) bool {
+		for _, a := range allowList {
+			if imp == a || strings.HasPrefix(imp, a+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	fset := token.NewFileSet()
+	var offenders []string
+
+	walkErr := filepath.WalkDir(ctxRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if perr != nil {
+			t.Logf("parse %s: %v", path, perr)
+			return nil
+		}
+		for _, imp := range f.Imports {
+			v := strings.Trim(imp.Path.Value, `"`)
+			for _, lr := range bannedLayerRoots {
+				if strings.HasPrefix(v, lr) && !isAllowed(v) {
+					rel, _ := filepath.Rel(repoRoot, path)
+					offenders = append(offenders, rel+": imports horizontal-CA path "+v+" (admin/rest is a leaf; use internal/shared/ or its own subtree)")
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", ctxRoot, walkErr)
+	}
+
+	if len(offenders) > 0 {
+		t.Errorf("admin/rest has %d backward-import offenders — story 430 boundary breached:", len(offenders))
+		for _, o := range offenders {
+			t.Errorf("  %s", o)
+		}
+	}
+}
