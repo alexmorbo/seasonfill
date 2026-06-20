@@ -28,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	watchdog "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure"
 	infraregrab "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure/regrab"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 // WatchdogBundle holds the boot-time health monitor + state watchdog
@@ -110,7 +111,7 @@ type ScanBundle struct {
 	Sweeper      *loops.SweepLoop
 	ScanRepo     *repositories.ScanRepository
 	GrabRepo     *grabpersistence.GrabRepository
-	CooldownRepo *repositories.CooldownRepository
+	CooldownRepo *watchdogpersistence.CooldownRepository
 	OriginRepo   *repositories.OriginReleaseRepository
 	DecisionRepo *grabpersistence.DecisionRepository
 	Txr          *repositories.GormTransactor
@@ -165,7 +166,7 @@ func BuildScan(
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
-	cooldownRepo := repositories.NewCooldownRepository(db)
+	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 
 	txr := repositories.NewGormTransactor(db)
@@ -507,7 +508,7 @@ type RegrabBundle struct {
 	QbitSettingsUC           *regrab.SettingsUseCase
 	QbitSettingsHandler      *handlers.QbitSettingsHandler
 	BlacklistRepo            *repositories.WatchdogBlacklistRepository
-	NoBetterCounterRepo      *repositories.NoBetterCounterRepository
+	NoBetterCounterRepo      *watchdogpersistence.NoBetterCounterRepository
 	RegrabUC                 *regrab.UseCase
 	RegrabLoop               *loops.RegrabLoop
 	WatchdogRollupHandler    *handlers.WatchdogRollupHandler
@@ -577,7 +578,7 @@ func BuildRegrab(
 	// case (Lookup), instance registry (Get), qBit + detector factories,
 	// grab / cooldown / blacklist / counter repos, evaluator + grab UC.
 	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
-	noBetterCounterRepo := repositories.NewNoBetterCounterRepository(db)
+	noBetterCounterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
 		sonarrBundle.InstanceRegistry,

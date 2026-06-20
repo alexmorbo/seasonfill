@@ -26,6 +26,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 type capturedGrab struct {
@@ -109,7 +110,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
-	cdRepo := repositories.NewCooldownRepository(db)
+	cdRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cdRepo, originRepo, sonarr.Classifier{}, log).
@@ -243,7 +244,7 @@ func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
-	cdRepo := repositories.NewCooldownRepository(db)
+	cdRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cdRepo, originRepo, sonarr.Classifier{}, log).

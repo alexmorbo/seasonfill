@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
@@ -39,7 +40,7 @@ func (r *CooldownRepository) Set(ctx context.Context, c cooldown.Cooldown) error
 		Reason:    cooldown.ClampReason(c.Reason),
 		CreatedAt: c.CreatedAt,
 	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "scope"}, {Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"expires_at", "reason", "created_at",
@@ -53,7 +54,7 @@ func (r *CooldownRepository) Set(ctx context.Context, c cooldown.Cooldown) error
 
 func (r *CooldownRepository) Get(ctx context.Context, scope cooldown.Scope, key string) (cooldown.Cooldown, bool, error) {
 	var model database.CooldownModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "scope = ? AND key = ?", string(scope), key).Error
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).First(&model, "scope = ? AND key = ?", string(scope), key).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return cooldown.Cooldown{}, false, nil
@@ -74,7 +75,7 @@ func (r *CooldownRepository) FilterActive(ctx context.Context, scope cooldown.Sc
 		return nil, nil
 	}
 	var models []database.CooldownModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("scope = ? AND key IN ? AND expires_at > ?", string(scope), keys, now).
 		Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("filter active cooldowns: %w", err)
@@ -93,7 +94,7 @@ func (r *CooldownRepository) FilterActive(ctx context.Context, scope cooldown.Sc
 }
 
 func (r *CooldownRepository) Sweep(ctx context.Context, now time.Time) (int64, error) {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Where("expires_at <= ?", now).Delete(&database.CooldownModel{})
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Where("expires_at <= ?", now).Delete(&database.CooldownModel{})
 	if res.Error != nil {
 		return 0, fmt.Errorf("sweep cooldowns: %w", res.Error)
 	}

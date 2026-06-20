@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -10,16 +10,17 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
-// noBetterCounterModel mirrors regrab_no_better_counter row-for-row.
+// NoBetterCounterModel mirrors regrab_no_better_counter row-for-row.
 // Lives in this file rather than infrastructure/database/models.go
 // because no other repository reads/writes the table — keeping the
 // type and the repo together reduces blast radius if the schema
 // changes.
-type noBetterCounterModel struct {
+type NoBetterCounterModel struct {
 	ID           uint                  `gorm:"primaryKey"`
 	InstanceID   uint                  `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:1;index:idx_regrab_no_better_counter_instance_id"`
 	SeriesID     domain.SonarrSeriesID `gorm:"uniqueIndex:idx_regrab_no_better_counter_triple,priority:2"`
@@ -30,7 +31,7 @@ type noBetterCounterModel struct {
 	UpdatedAt    time.Time
 }
 
-func (noBetterCounterModel) TableName() string { return "regrab_no_better_counter" }
+func (NoBetterCounterModel) TableName() string { return "regrab_no_better_counter" }
 
 type NoBetterCounterRepository struct {
 	db *gorm.DB
@@ -43,8 +44,8 @@ func NewNoBetterCounterRepository(db *gorm.DB) *NoBetterCounterRepository {
 // Get returns the counter row for the triple. ports.ErrNotFound on
 // miss — the use case treats that as "fresh triple, call Increment".
 func (r *NoBetterCounterRepository) Get(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.NoBetterCounter, error) {
-	var m noBetterCounterModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	var m NoBetterCounterModel
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
 		First(&m).Error
 	if err != nil {
@@ -68,7 +69,7 @@ func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID ui
 	utc := now.UTC()
 
 	// First-contact row payload — used when the conflict path doesn't fire.
-	insert := noBetterCounterModel{
+	insert := NoBetterCounterModel{
 		InstanceID:   instanceID,
 		SeriesID:     seriesID,
 		SeasonNumber: season,
@@ -82,7 +83,7 @@ func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID ui
 	// SET consecutive = regrab_no_better_counter.consecutive + 1,
 	//     last_seen_at = excluded.last_seen_at,
 	//     updated_at = excluded.updated_at.
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "instance_id"},
 			{Name: "series_id"},
@@ -111,8 +112,8 @@ func (r *NoBetterCounterRepository) Increment(ctx context.Context, instanceID ui
 // Reset zeros the row's consecutive counter. ports.ErrNotFound on miss.
 func (r *NoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) error {
 	utc := now.UTC()
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
-		Model(&noBetterCounterModel{}).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Model(&NoBetterCounterModel{}).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
 		Updates(map[string]any{
 			"consecutive": 0,
@@ -129,9 +130,9 @@ func (r *NoBetterCounterRepository) Reset(ctx context.Context, instanceID uint, 
 
 // DeleteByTriple removes the row entirely.
 func (r *NoBetterCounterRepository) DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_id = ? AND series_id = ? AND season_number = ?", instanceID, seriesID, season).
-		Delete(&noBetterCounterModel{})
+		Delete(&NoBetterCounterModel{})
 	if res.Error != nil {
 		return fmt.Errorf("delete no_better_counter: %w", res.Error)
 	}
@@ -141,7 +142,7 @@ func (r *NoBetterCounterRepository) DeleteByTriple(ctx context.Context, instance
 	return nil
 }
 
-func toNoBetterCounter(m noBetterCounterModel) regrab.NoBetterCounter {
+func toNoBetterCounter(m NoBetterCounterModel) regrab.NoBetterCounter {
 	return regrab.NoBetterCounter{
 		ID:           m.ID,
 		InstanceID:   m.InstanceID,

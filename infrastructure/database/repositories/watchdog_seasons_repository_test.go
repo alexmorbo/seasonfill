@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
@@ -185,8 +186,8 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
 			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
-			cdRepo := NewCooldownRepository(db)
-			nbRepo := NewNoBetterCounterRepository(db)
+			cdRepo := watchdogpersistence.NewCooldownRepository(db)
+			nbRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 			blRepo := NewWatchdogBlacklistRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 
@@ -237,7 +238,7 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
 			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
-			cdRepo := NewCooldownRepository(db)
+			cdRepo := watchdogpersistence.NewCooldownRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")

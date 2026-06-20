@@ -34,6 +34,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	infraregrab "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure/regrab"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 // regrabHarness bundles every collaborator the test needs so the
@@ -204,10 +205,10 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	scanRepo := repositories.NewScanRepository(db)
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
-	cooldownRepo := repositories.NewCooldownRepository(db)
+	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
 	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
-	counterRepo := repositories.NewNoBetterCounterRepository(db)
+	counterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 
 	_ = scanRepo // referenced by use cases that need a scan id source
 

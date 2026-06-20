@@ -14,6 +14,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 var errForcedMidTx = errors.New("forced mid-transaction failure")
@@ -34,7 +35,7 @@ func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
 			db := backend.NewDB(t)
 
 			grabRepo := grabpersistence.NewGrabRepository(db)
-			cooldownRepo := &failingCooldownRepo{inner: NewCooldownRepository(db)}
+			cooldownRepo := &failingCooldownRepo{inner: watchdogpersistence.NewCooldownRepository(db)}
 			tx := NewGormTransactor(db)
 
 			rec := grab.Record{
@@ -79,9 +80,9 @@ func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
 	}
 }
 
-// failingCooldownRepo wraps CooldownRepository and returns errForcedMidTx from Set.
+// failingCooldownRepo wraps watchdogpersistence.CooldownRepository and returns errForcedMidTx from Set.
 type failingCooldownRepo struct {
-	inner *CooldownRepository
+	inner *watchdogpersistence.CooldownRepository
 }
 
 func (r *failingCooldownRepo) Set(_ context.Context, _ cooldown.Cooldown) error {
