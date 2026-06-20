@@ -3,18 +3,35 @@
 // catalog projection rows, enrichment data, queue state, and media
 // asset references into the document the SPA renders at /series/:id.
 //
-// Layout (PRD §3.2 vertical slice, established in story 445 A-1-19):
+// Layout (PRD §3.2 vertical slice, established in story 445 A-1-19
+// and extended in story 446 A-1-20):
 //
 //	internal/seriesdetail/
-//	  app/  — Composer (9-branch errgroup fan-in for the series page),
-//	          CastComposer (single-purpose cast & crew sibling),
-//	          MediaResolver (raw TMDB path -> sha256 wire hash bridge),
-//	          and the cross-context ports.go contract surface that
-//	          declares the narrow read-side interfaces the composers
-//	          depend on (SeriesPort, SeasonPort, EpisodePort,
-//	          QbitTorrentPort, EnrichmentPort, PeoplePort,
-//	          PersonCreditsPort, TaxonomyPort, MediaHashLookupPort,
-//	          MediaAssetReader, SonarrQueueLister, ...).
+//	  app/   — Composer (9-branch errgroup fan-in for the series page),
+//	           CastComposer (single-purpose cast & crew sibling),
+//	           MediaResolver (raw TMDB path -> sha256 wire hash bridge),
+//	           and the cross-context ports.go contract surface that
+//	           declares the narrow read-side interfaces the composers
+//	           depend on (SeriesPort, SeasonPort, EpisodePort,
+//	           QbitTorrentPort, EnrichmentPort, PeoplePort,
+//	           PersonCreditsPort, TaxonomyPort, MediaHashLookupPort,
+//	           MediaAssetReader, SonarrQueueLister, ...).
+//	  rest/  — Gin handlers that translate /api/v1 series-page reads
+//	           into Composer / CastComposer / torrentsync.Query calls
+//	           and project the results onto the shared HTTP wire DTOs
+//	           (interface/http/dto). The interface-layer leaf of the
+//	           seriesdetail vertical slice extracted by story 446
+//	           (A-1-20) out of the catch-all interface/http/handlers/
+//	           tree. Owns: SeriesDetailHandler (GET .../series/:id),
+//	           SeriesSeasonHandler (GET .../series/:id/season/:n),
+//	           SeriesCastHandler (GET .../series/:id/cast), and
+//	           SeriesTorrentsHandler (GET .../series/:id/torrents).
+//	           Local writeError + writeInternalError helpers (helpers.go)
+//	           duplicate the small helpers in interface/http/handlers/
+//	           to avoid the cycle that seriesdetailrest -> handlers
+//	           (helpers) and handlers -> seriesdetailrest (handler
+//	           types) would otherwise create — mirrors the catalog/rest
+//	           pattern from story 444.
 //
 // Import direction (PRD §3.3 — enforced by the depcheck test):
 //
@@ -26,14 +43,13 @@
 //	      same deferral as catalog/grab/watchdog, story 449+).
 //
 // Cross-context boundary: the seriesdetail composers are consumed by
-// the HTTP interface layer (interface/http/handlers/series_detail.go,
-// series_cast.go, series_season.go, series_torrents.go) and wired by
-// cmd/server/wiring. They expose value types (Detail, CastPage,
-// CastDetail, RecentItem, RecommendationDetail, MediaResolver, ...)
-// that other contexts read by value; behaviour is reached strictly
-// through Composer/CastComposer constructors with narrow port
-// dependencies — never reach into internal/seriesdetail/app/* for
-// state or shared mutable singletons.
+// the seriesdetail rest leaf (internal/seriesdetail/rest, story 446)
+// — wired by cmd/server/wiring. They expose value types (Detail,
+// CastPage, CastDetail, RecentItem, RecommendationDetail,
+// MediaResolver, ...) that other contexts read by value; behaviour is
+// reached strictly through Composer/CastComposer constructors with
+// narrow port dependencies — never reach into
+// internal/seriesdetail/app/* for state or shared mutable singletons.
 //
 // B-13 invariants preserved bit-for-bit by the story 445 move (per
 // project_seasonfill_b13_series_detail_v2):
@@ -50,6 +66,14 @@
 // origins modulo the package's own import path. No logic, no field,
 // no error message changed.
 //
+// The 446 move is also path-only — series_detail.go, series_cast.go,
+// series_season.go, series_torrents.go are byte-identical to their
+// interface/http/handlers/ origins modulo the package declaration
+// (`package handlers` -> `package rest`). No HTTP route changed, no
+// response field renamed, no error envelope altered. The
+// writeInternalError helper was duplicated into helpers.go (mirrors
+// the catalog/rest pattern from story 444) to avoid the cycle.
+//
 // Story origin:
 //   - 215 / G-1 — composer hatchout (canonical series-detail document)
 //   - 216 / H-1 — cast & crew sibling composer
@@ -59,5 +83,6 @@
 //   - 354-380 — B-13 Series Detail v2 (bleed hero + 9 polish + per-
 //     season Sonarr stats + lucide icons + in-progress pill + scan-
 //     path fix)
-//   - 445 — vertical-slice extraction (this layout)
+//   - 445 — vertical-slice extraction (app/ leaf)
+//   - 446 — interface-layer extraction (rest/ leaf)
 package seriesdetail

@@ -11,11 +11,11 @@ import (
 	"testing"
 )
 
-// TestSeriesDetailNoBackwardsImports enforces story 445 A-1-19 §3.3:
-// every package under internal/seriesdetail/ MUST NOT import the
-// legacy horizontal-CA dir that the bounded context was migrated OUT
-// of. Specifically the old sibling that hosted seriesdetail code
-// before the vertical-slice extraction:
+// TestSeriesDetailNoBackwardsImports enforces story 445 A-1-19 §3.3
+// and 446 A-1-20 §3.3: every package under internal/seriesdetail/
+// MUST NOT import the legacy horizontal-CA dir that the bounded
+// context was migrated OUT of. Specifically the old siblings that
+// hosted seriesdetail code before the vertical-slice extraction:
 //
 //   - application/seriesdetail (now internal/seriesdetail/app)
 //
@@ -25,8 +25,8 @@ import (
 // at all (except via the internal/shared/ kernel, the cross-context
 // ports.go contracts, and the carve-outs below).
 //
-// Scope: production .go files and _test.go files alike. The story
-// 445 move was structural; no test should suddenly reach into the
+// Scope: production .go files and _test.go files alike. The 445 and
+// 446 moves were structural; no test should suddenly reach into the
 // legacy tree either.
 //
 // Carve-outs (explicit allowlist):
@@ -35,6 +35,9 @@ import (
 //   - internal/catalog/domain/* — sibling vertical context domain
 //     types consumed by value (series.Canon, ...). Catalog owns the
 //     canonical projection types the composer fans in.
+//   - internal/catalog/app/torrentsync — sibling vertical context
+//     app type consumed by the series_torrents handler (Query +
+//     QueryRow row shape for the per-series torrents document).
 //   - internal/enrichment/domain/* — sibling vertical context domain
 //     types consumed by value (enrichment.Series, people.Person,
 //     taxonomy.Genre, ...). Enrichment owns the third-party metadata
@@ -48,6 +51,17 @@ import (
 //   - infrastructure/database/repositories — Composer's narrow ports
 //     declare repository constructor types; the carve-out matches
 //     application/ports — story 449+ extracts these.
+//   - interface/http/dto — story 446 (A-1-20) carve-out: the
+//     seriesdetail rest leaf renders response bodies through the
+//     shared wire DTOs. Mirrors the equivalents in
+//     tests/lint_catalog_imports_test.go,
+//     tests/lint_grab_imports_test.go, and
+//     tests/lint_admin_imports_test.go; story D-3 / 449 will lift
+//     the wire DTOs into a per-context home so this can be tightened.
+//   - interface/http/middleware — story 446 (A-1-20) carve-out: the
+//     seriesdetail rest tests depend on the typed-error envelope
+//     middleware for the F-2c-1 contract. Same rationale + same
+//     future deferral as the dto carve-out.
 //
 // Run via: `make test-lint-rule` (lint build tag).
 func TestSeriesDetailNoBackwardsImports(t *testing.T) {
@@ -75,10 +89,23 @@ func TestSeriesDetailNoBackwardsImports(t *testing.T) {
 	allowList := []string{
 		modPath + "/application/ports",
 		modPath + "/infrastructure/database",
+		// Story 446 (A-1-20) — seriesdetail rest leaf carve-outs. The
+		// Gin handlers translate composer results into the shared HTTP
+		// wire DTOs and depend on the shared middleware for the
+		// typed-error envelope. These two carve-outs mirror the
+		// equivalents in tests/lint_catalog_imports_test.go,
+		// tests/lint_grab_imports_test.go, and
+		// tests/lint_admin_imports_test.go; story D-3 / 449 will lift
+		// the wire DTOs into a per-context home so this can be tightened.
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/middleware",
 	}
-	// Cross-context sibling-domain reads (read by value only).
+	// Cross-context sibling-domain reads (read by value only) — and
+	// the one sibling-app carve-out the series_torrents handler needs
+	// for the torrentsync.Query + torrentsync.QueryRow row shape.
 	allowedInternalDomains := []string{
 		modPath + "/internal/catalog/domain/",
+		modPath + "/internal/catalog/app/torrentsync",
 		modPath + "/internal/enrichment/domain/",
 	}
 
