@@ -80,8 +80,10 @@ func TestWatchdogNoBackwardsImports(t *testing.T) {
 	allowList := []string{
 		modPath + "/application/errtext",
 		modPath + "/application/ports",
+		modPath + "/application/rescan",
 		modPath + "/application/scan",
 		modPath + "/domain",
+		modPath + "/domain/instance",
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
@@ -204,6 +206,159 @@ func TestWatchdogDomainCooldownNoBackwardsImports(t *testing.T) {
 		modPath + "/interface/",
 	}
 	checkWatchdogLeafImports(t, ctxRoot, "watchdog/domain/cooldown", bannedLayerRoots)
+}
+
+// TestWatchdogPersistenceNoBackwardsImports pins the story 434 A-1-8
+// move for internal/watchdog/persistence/ (folded from
+// infrastructure/database/repositories/cooldown_repository.go +
+// no_better_counter_repository.go). The persistence layer is allowed to
+// reach down into infrastructure/database for the GORM model types and
+// up into application/ports for the repository contracts; everything
+// else under the horizontal-CA roots must remain off-limits so a future
+// repo cannot accidentally pull in a handler or use case.
+func TestWatchdogPersistenceNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	ctxRoot := watchdogSubtree(t, "persistence")
+	modPath := "github.com/alexmorbo/seasonfill"
+	allowList := []string{
+		modPath + "/application/ports",
+		modPath + "/infrastructure/database",
+	}
+	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/persistence", allowList)
+}
+
+// TestWatchdogInfrastructureNoBackwardsImports pins the story 434 A-1-8
+// move for internal/watchdog/infrastructure/ (folded from
+// infrastructure/watchdog and infrastructure/regrab). The state
+// watchdog reads its per-instance Sonarr config via domain/instance and
+// internal/config; the regrab cmd/server adapter satisfies the
+// app/regrab QbitClientFactory port against infrastructure/qbit. No
+// other horizontal-CA paths are allowed.
+func TestWatchdogInfrastructureNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	ctxRoot := watchdogSubtree(t, "infrastructure")
+	modPath := "github.com/alexmorbo/seasonfill"
+	allowList := []string{
+		modPath + "/domain/instance",
+		modPath + "/infrastructure/qbit",
+	}
+	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/infrastructure", allowList)
+}
+
+// TestWatchdogRestNoBackwardsImports pins the story 434 A-1-8 move for
+// internal/watchdog/rest/ (folded from interface/http/handlers/
+// watchdog_*.go + rescan.go). The rest layer needs handlers for the
+// shared WriteError/WriteInternalError/ParseLimit/HandleQueryErr
+// helpers and the InstanceLister/InstanceRegistry types; dto/middleware
+// for response shapes and routing wiring; infrastructure/database/
+// repositories for the read-side row types the seasons handler maps;
+// infrastructure/qbit for the on-demand torrents list shape; and
+// application/{ports,rescan,scan} + domain/{release,series} for the
+// rescan handler's collaborator surface.
+func TestWatchdogRestNoBackwardsImports(t *testing.T) {
+	t.Parallel()
+
+	ctxRoot := watchdogSubtree(t, "rest")
+	modPath := "github.com/alexmorbo/seasonfill"
+	allowList := []string{
+		modPath + "/application/ports",
+		modPath + "/application/rescan",
+		modPath + "/application/scan",
+		modPath + "/domain/release",
+		modPath + "/domain/series",
+		modPath + "/infrastructure/database",
+		modPath + "/infrastructure/qbit",
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/handlers",
+		modPath + "/interface/http/middleware",
+	}
+	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/rest", allowList)
+}
+
+// watchdogSubtree resolves an internal/watchdog/<name> absolute path.
+func watchdogSubtree(t *testing.T, name string) string {
+	t.Helper()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	return filepath.Join(repoRoot, "internal", "watchdog", name)
+}
+
+// checkWatchdogSubtreeImports walks ctxRoot and asserts that every .go
+// file's imports under the four horizontal-CA roots
+// (application/, domain/, infrastructure/, interface/) fall inside
+// allowList. allowList entries are matched as exact paths or as
+// prefixes (`pkg/` matches sub-packages too). Shared helper so each
+// subtree's depcheck guard reuses the same boundary-message shape and
+// the same allow-list semantics as the package-level umbrella in
+// TestWatchdogNoBackwardsImports above.
+func checkWatchdogSubtreeImports(t *testing.T, ctxRoot, label string, allowList []string) {
+	t.Helper()
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	modPath := "github.com/alexmorbo/seasonfill"
+	bannedLayerRoots := []string{
+		modPath + "/application/",
+		modPath + "/domain/",
+		modPath + "/infrastructure/",
+		modPath + "/interface/",
+	}
+
+	isAllowed := func(imp string) bool {
+		for _, a := range allowList {
+			if imp == a || strings.HasPrefix(imp, a+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	fset := token.NewFileSet()
+	var offenders []string
+
+	walkErr := filepath.WalkDir(ctxRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if perr != nil {
+			t.Logf("parse %s: %v", path, perr)
+			return nil
+		}
+		for _, imp := range f.Imports {
+			v := strings.Trim(imp.Path.Value, `"`)
+			for _, lr := range bannedLayerRoots {
+				if strings.HasPrefix(v, lr) && !isAllowed(v) {
+					rel, _ := filepath.Rel(repoRoot, path)
+					offenders = append(offenders, rel+": imports horizontal-CA path "+v+" ("+label+" must stay inside its allowList)")
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", ctxRoot, walkErr)
+	}
+
+	if len(offenders) > 0 {
+		t.Errorf("%s has %d backward-import offenders — story 434 A-1-8 boundary breached:", label, len(offenders))
+		for _, o := range offenders {
+			t.Errorf("  %s", o)
+		}
+	}
 }
 
 // checkWatchdogLeafImports walks ctxRoot (a internal/watchdog/
