@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 )
 
 // TestComposePrewarmAssets_EpisodeStills locks the story 322 invariant:

@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"

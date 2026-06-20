@@ -1,7 +1,7 @@
 package enrichment
 
 import (
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )

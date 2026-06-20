@@ -18,7 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/domain/release"
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

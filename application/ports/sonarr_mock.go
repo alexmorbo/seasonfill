@@ -5,10 +5,11 @@ package ports
 
 import (
 	"context"
-	"github.com/alexmorbo/seasonfill/domain/release"
-	"github.com/alexmorbo/seasonfill/domain/series"
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"sync"
+
+	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Ensure, that SonarrClientMock does implement SonarrClient.

@@ -16,7 +16,7 @@ package repositories
 // into the persistence package's own sample_helpers_test.go.
 
 import (
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )

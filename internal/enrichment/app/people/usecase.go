@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
