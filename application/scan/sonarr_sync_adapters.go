@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
