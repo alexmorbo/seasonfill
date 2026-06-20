@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 // fakeNotifier records the most recent Create/Update/Delete call and

@@ -3,8 +3,8 @@ package webhookinstall
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 // SonarrNotifier is the narrow Sonarr-mutation surface the reconciler

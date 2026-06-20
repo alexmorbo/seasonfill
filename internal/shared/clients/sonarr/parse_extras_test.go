@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 func TestExtractExtras(t *testing.T) {

@@ -21,11 +21,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/series"
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

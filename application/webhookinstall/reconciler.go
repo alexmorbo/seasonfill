@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

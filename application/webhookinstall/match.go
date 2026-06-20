@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 const webhookPathPrefix = "/api/v1/webhook/sonarr/"

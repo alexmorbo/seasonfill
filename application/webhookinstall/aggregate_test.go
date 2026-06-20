@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 type fakeReconcileNotifier struct {

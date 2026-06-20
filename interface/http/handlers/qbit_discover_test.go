@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 func newDiscoverTestRig(t *testing.T, sonarrHandler http.HandlerFunc) (*gin.Engine, *httptest.Server) {

@@ -3,7 +3,7 @@ package webhookinstall
 import (
 	"testing"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 func TestMatchesWebhookURL(t *testing.T) {
