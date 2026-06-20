@@ -28,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
@@ -250,7 +251,7 @@ func BuildExtSvc(
 type MediaBundle struct {
 	Store      mediastore.Store
 	AssetsRepo *repositories.MediaAssetsRepository
-	Handler    *handlers.MediaHandler
+	Handler    *mediaproxyrest.MediaHandler
 }
 
 // BuildMedia wires the media pipeline (Story 214 F-1 + Story 320 + 321
@@ -295,7 +296,7 @@ func BuildMedia(
 	// calls SetOnDemandFetcher after wireEnrichment returns. Until then,
 	// pending hashes serve the embedded SVG placeholder — visually stable
 	// while the media pipeline boots.
-	handler := handlers.NewMediaHandler(handlers.MediaHandlerDeps{
+	handler := mediaproxyrest.NewMediaHandler(mediaproxyrest.MediaHandlerDeps{
 		Store:           store,
 		Repo:            assetsRepo,
 		PendingResolver: assetsRepo, // story 320: satisfies GetSourceURLByHash

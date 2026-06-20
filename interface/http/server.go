@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
@@ -62,7 +63,7 @@ func NewServer(
 	watchdogBlacklistHandler *handlers.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
-	mediaHandler *handlers.MediaHandler,
+	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending handlers.CatalogMediaPendingWriter,
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
