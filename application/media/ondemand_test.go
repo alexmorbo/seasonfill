@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 )
 
 // ondemandFakeStore implements mediastore.Store for ondemand tests.

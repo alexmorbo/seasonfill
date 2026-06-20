@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 )
 
 type fakeLiveHashes struct {

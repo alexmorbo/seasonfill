@@ -21,8 +21,8 @@ import (
 
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 )
 
 // stubRepo for the handler tests.

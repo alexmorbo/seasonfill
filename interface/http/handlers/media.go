@@ -18,9 +18,9 @@ import (
 
 	appmedia "github.com/alexmorbo/seasonfill/application/media"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 )
 
 // mediaCacheMaxBytes is the LRU's byte cap — 32 MiB. Sized for hot-path

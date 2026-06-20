@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

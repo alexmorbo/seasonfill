@@ -21,7 +21,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
