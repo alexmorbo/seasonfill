@@ -38,7 +38,7 @@ import (
 //     still exports the cross-context port set; story 428+ may relocate
 //     them to internal/shared/ports. Until then, mediaproxy MAY import
 //     application/ports/{repository,sonarr,counters,pagination,...}.
-//   - infrastructure/database — TEMP tolerance for the dual-backend
+//   - internal/shared/db — TEMP tolerance for the dual-backend
 //     test helper used by media_assets repo tests. Story 443 (catalog
 //     extraction) will own this path.
 //   - interface/http/dto — shared HTTP error/envelope DTO used by every
@@ -74,6 +74,7 @@ func TestMediaProxyNoBackwardsImports(t *testing.T) {
 	// Carve-outs — see godoc above for rationale.
 	allowList := []string{
 		modPath + "/application/ports",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 	}

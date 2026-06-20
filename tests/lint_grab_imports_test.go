@@ -84,7 +84,7 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 	//     explicit-confirm path; cooldown moved into the watchdog
 	//     vertical slice in story 433 A-1-7, allowed here as a read-
 	//     only cross-context type.
-	//   * infrastructure/database — shared GORM model types
+	//   * internal/shared/db — shared GORM model types
 	//     (GrabRecordModel etc) the persistence repo references. Story
 	//     449 (model split) will relocate them into per-context homes.
 	//   * internal/config — webhook + scan test fixtures.
@@ -99,6 +99,7 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 		modPath + "/domain",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
@@ -181,7 +182,7 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 // to a catalog repo (e.g. SonarrInstanceRepository, CooldownRepository,
 // etc.) is a vertical-slice boundary breach.
 //
-// Allowed (carve-outs): infrastructure/database (shared GORM models;
+// Allowed (carve-outs): internal/shared/db (shared GORM models;
 // the story 449 model split will eventually relocate them too).
 func TestGrabPersistenceNoBackwardsImports(t *testing.T) {
 	t.Parallel()
@@ -276,6 +277,7 @@ func TestGrabRestNoBackwardsImports(t *testing.T) {
 		modPath + "/domain",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
@@ -360,6 +362,7 @@ func checkGrabLeafImports(t *testing.T, ctxRoot, label, storyTag string) {
 		modPath + "/domain",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",

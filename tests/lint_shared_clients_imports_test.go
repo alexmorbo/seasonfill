@@ -44,7 +44,7 @@ import (
 //     the catch-all ExternalServicesRepository port surface defined
 //     in application/ports. Will relocate when story 449 splits the
 //     ports catalog into per-context homes.
-//   - infrastructure/database — externalservices.Settings UseCase
+//   - internal/shared/db — externalservices.Settings UseCase
 //     reads/writes the external_services + quota_state GORM model
 //     types (ExternalServicesModel, QuotaStateModel). Same model-
 //     split deferral as above.
@@ -78,6 +78,7 @@ func TestSharedClientsNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/catalog/domain/series",
 		modPath + "/domain/taxonomy",
 		modPath + "/internal/catalog/domain/webhook",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 	}
 

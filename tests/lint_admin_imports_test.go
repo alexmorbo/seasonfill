@@ -40,7 +40,7 @@ import (
 //     surface lands in internal/admin/app/ports.go) will relocate
 //     these into the admin context. Until then, internal/admin/ MAY
 //     import application/ports/{...}.
-//   - infrastructure/database — TEMP tolerance for the shared GORM
+//   - internal/shared/db — TEMP tolerance for the shared GORM
 //     model types (AdminUserModel, AppSettingsModel, QuotaStateModel)
 //     that the admin persistence repos still reference. The repos
 //     themselves were moved into internal/admin/persistence by story
@@ -120,6 +120,7 @@ func TestAdminNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/catalog/domain/instance",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
@@ -208,7 +209,7 @@ func TestAdminNoBackwardsImports(t *testing.T) {
 // + _test.go). Banned: the catalog repository package and any non-
 // admin sibling under infrastructure/database/repositories/.
 //
-// Allowed (carve-outs): infrastructure/database (shared GORM models,
+// Allowed (carve-outs): internal/shared/db (shared GORM models,
 // see TestAdminNoBackwardsImports godoc for the story 449 take-up
 // note).
 func TestAdminPersistenceNoBackwardsImports(t *testing.T) {
@@ -305,6 +306,7 @@ func TestAdminRestNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/catalog/domain/instance",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",

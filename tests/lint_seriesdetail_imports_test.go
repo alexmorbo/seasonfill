@@ -45,7 +45,7 @@ import (
 //   - application/ports — temporary tolerance because the catch-all
 //     ports package still exports cross-context port contracts. Story
 //     449 will split the ports catalog into per-context homes.
-//   - infrastructure/database — Composer/MediaResolver read the
+//   - internal/shared/db — Composer/MediaResolver read the
 //     GORM-generated row types directly (model carve-out). Same
 //     deferral as the catalog/grab/watchdog vertical slices.
 //   - infrastructure/database/repositories — Composer's narrow ports
@@ -88,6 +88,7 @@ func TestSeriesDetailNoBackwardsImports(t *testing.T) {
 	// Carve-outs — see godoc above for rationale.
 	allowList := []string{
 		modPath + "/application/ports",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		// Story 446 (A-1-20) — seriesdetail rest leaf carve-outs. The
 		// Gin handlers translate composer results into the shared HTTP

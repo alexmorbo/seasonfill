@@ -48,7 +48,7 @@ import (
 //     ports package still exports cross-context port contracts
 //     (Settings, Repository, Reload). Story 449 will split the ports
 //     catalog into per-context homes.
-//   - infrastructure/database — InstanceUseCase reads/writes the
+//   - internal/shared/db — InstanceUseCase reads/writes the
 //     sonarr_instance GORM model directly (cipher + reload bus
 //     orchestrator). Same model-split deferral as A-1-9 / A-1-10.
 //   - internal/runtime — InstanceUseCase reads the active runtime
@@ -98,6 +98,7 @@ func TestCatalogNoBackwardsImports(t *testing.T) {
 	// Carve-outs — see godoc above for rationale.
 	allowList := []string{
 		modPath + "/application/ports",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/internal/runtime",
 		// Story 444 (A-1-18) — catalog rest leaf carve-outs. The Gin

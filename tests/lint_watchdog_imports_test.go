@@ -83,6 +83,7 @@ func TestWatchdogNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/catalog/domain/instance",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
@@ -207,7 +208,7 @@ func TestWatchdogDomainCooldownNoBackwardsImports(t *testing.T) {
 // move for internal/watchdog/persistence/ (folded from
 // infrastructure/database/repositories/cooldown_repository.go +
 // no_better_counter_repository.go). The persistence layer is allowed to
-// reach down into infrastructure/database for the GORM model types and
+// reach down into internal/shared/db for the GORM model types and
 // up into application/ports for the repository contracts; everything
 // else under the horizontal-CA roots must remain off-limits so a future
 // repo cannot accidentally pull in a handler or use case.
@@ -218,6 +219,7 @@ func TestWatchdogPersistenceNoBackwardsImports(t *testing.T) {
 	modPath := "github.com/alexmorbo/seasonfill"
 	allowList := []string{
 		modPath + "/application/ports",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 	}
 	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/persistence", allowList)
@@ -264,6 +266,7 @@ func TestWatchdogRestNoBackwardsImports(t *testing.T) {
 		modPath + "/application/scan",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",

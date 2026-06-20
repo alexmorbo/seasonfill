@@ -35,7 +35,7 @@ import (
 // internal/enrichment/persistence (catalog-data + people + taxonomy +
 // i18n repositories migrated out of infrastructure/database/
 // repositories). Persistence files are covered by this same depcheck
-// — they may import infrastructure/database (for GORM models) but
+// — they may import internal/shared/db (for GORM models) but
 // MUST NOT reach back into infrastructure/database/repositories for
 // neighbour repos, application/*, domain/*, or interface/*. Story 438
 // (A-1-12) extended the bounded context with internal/enrichment/rest
@@ -62,7 +62,7 @@ import (
 //     lookup), externalservices test_runner (instance config), and
 //     shared error sentinels. Relocate when their respective vertical
 //     slices land.
-//   - infrastructure/database — externalservices.Settings UseCase
+//   - internal/shared/db — externalservices.Settings UseCase
 //     reads/writes the external_services + quota_state GORM model
 //     types (ExternalServicesModel, QuotaStateModel). Same model-
 //     split deferral as A-1-9.
@@ -105,6 +105,7 @@ func TestEnrichmentNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/catalog/domain/instance",
 		modPath + "/internal/catalog/domain/release",
 		modPath + "/internal/catalog/domain/webhook",
+		modPath + "/internal/shared/db",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/middleware",
