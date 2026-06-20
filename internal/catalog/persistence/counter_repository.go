@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -68,7 +69,7 @@ func (r *CounterRepository) BucketCounters(
 	}
 
 	var rows []bucketRow
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlText, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("counter bucket query: %w", err)
 	}
@@ -86,7 +87,7 @@ func (r *CounterRepository) AvgGrabsLast7Days(
 	start := end.Add(-7 * 24 * time.Hour)
 
 	var total int64
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("grab_records").
 		Where("instance_name = ? AND created_at >= ? AND created_at < ?",
 			instance, start, end).

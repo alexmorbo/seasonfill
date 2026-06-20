@@ -87,7 +87,7 @@ func TestIntegration_ScanHijackSeason2_DryRun_LogsGrabDecision(t *testing.T) {
 	client := sonarr.New("test", srv.URL, "key", 10*time.Second, log)
 
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
-	scanRepo := repositories.NewScanRepository(db)
+	scanRepo := catalogpersistence.NewScanRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 
 	// Explicit dry_run: true to preserve Phase 1 no-POST contract (Q5).

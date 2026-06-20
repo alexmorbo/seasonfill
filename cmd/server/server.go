@@ -46,7 +46,7 @@ type Server struct {
 
 	httpServer   *httpserver.Server
 	scanUC       *scan.UseCase
-	scanRepo     *repositories.ScanRepository
+	scanRepo     *catalogpersistence.ScanRepository
 	enrichBundle *wiring.EnrichmentBundle
 	subSched     *reload.SchedulerSubscriber
 	persistence  *wiring.PersistenceBundle
@@ -173,7 +173,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// counterRepo are still consumed by BuildHTTPServer below.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
-	counterRepo := repositories.NewCounterRepository(db)
+	counterRepo := catalogpersistence.NewCounterRepository(db)
 
 	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, log)
 	if err != nil {

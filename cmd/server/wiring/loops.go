@@ -112,7 +112,7 @@ type ScanBundle struct {
 	ScanUC       *scan.UseCase
 	RescanUC     *rescan.UseCase
 	Sweeper      *loops.SweepLoop
-	ScanRepo     *repositories.ScanRepository
+	ScanRepo     *catalogpersistence.ScanRepository
 	GrabRepo     *grabpersistence.GrabRepository
 	CooldownRepo *watchdogpersistence.CooldownRepository
 	OriginRepo   *enrichpersistence.OriginReleaseRepository
@@ -166,7 +166,7 @@ func BuildScan(
 	// tagging them "scan" here would mistag regrab decisions.
 	scanLog := sharedports.DomainLogger(log, "scan")
 
-	scanRepo := repositories.NewScanRepository(db)
+	scanRepo := catalogpersistence.NewScanRepository(db)
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)

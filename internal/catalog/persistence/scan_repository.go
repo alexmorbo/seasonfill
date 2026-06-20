@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -23,7 +24,7 @@ func NewScanRepository(db *gorm.DB) *ScanRepository {
 
 func (r *ScanRepository) Create(ctx context.Context, rec ports.ScanRecord) error {
 	model := toScanModel(rec)
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("create scan: %w", err)
 	}
 	return nil
@@ -36,7 +37,7 @@ func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error
 	// clobber the row's original created_at to 0001-01-01. Omit it so the
 	// stored timestamp survives the completion update. UpdatedAt stays
 	// auto-managed by GORM.
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Omit("CreatedAt").Save(&model).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Omit("CreatedAt").Save(&model).Error; err != nil {
 		return fmt.Errorf("update scan: %w", err)
 	}
 	return nil
@@ -50,7 +51,7 @@ func (r *ScanRepository) Update(ctx context.Context, rec ports.ScanRecord) error
 // errors.As → 404 + scan_run_not_found slug.
 func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanRecord, error) {
 	var model database.ScanRunModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ports.ScanRecord{}, &sharedErrors.ScanRunNotFoundError{ID: id}
 		}
@@ -60,7 +61,7 @@ func (r *ScanRepository) GetByID(ctx context.Context, id uuid.UUID) (ports.ScanR
 }
 
 func (r *ScanRepository) MarkAborted(ctx context.Context, id uuid.UUID, reason string) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{}).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{}).
 		Where("id = ?", id.String()).
 		Updates(map[string]any{
 			"status":        "aborted",
@@ -75,7 +76,7 @@ func (r *ScanRepository) MarkAborted(ctx context.Context, id uuid.UUID, reason s
 // IncrementSeriesScanned atomically adds `by` to the row's
 // series_scanned column. ErrNotFound when no row matches.
 func (r *ScanRepository) IncrementSeriesScanned(ctx context.Context, id uuid.UUID, by int) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.ScanRunModel{}).
 		Where("id = ?", id.String()).
 		UpdateColumn("series_scanned", gorm.Expr("series_scanned + ?", by))
@@ -92,7 +93,7 @@ func (r *ScanRepository) List(ctx context.Context, f ports.ScanFilter, p ports.P
 	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
 		return nil, nil, fmt.Errorf("scan list: %w", ports.ErrInvalidLimit)
 	}
-	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{})
+	q := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Model(&database.ScanRunModel{})
 	if f.Instance != nil {
 		q = q.Where("instance_name = ?", *f.Instance)
 	}

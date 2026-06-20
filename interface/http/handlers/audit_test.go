@@ -19,7 +19,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -38,7 +37,7 @@ import (
 
 type auditFixture struct {
 	db          *gorm.DB
-	scans       *repositories.ScanRepository
+	scans       *catalogpersistence.ScanRepository
 	decs        *grabpersistence.DecisionRepository
 	grabs       *grabpersistence.GrabRepository
 	seriesCache *catalogpersistence.SeriesCacheRepository
@@ -59,7 +58,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
-	scans := repositories.NewScanRepository(db)
+	scans := catalogpersistence.NewScanRepository(db)
 	decs := grabpersistence.NewDecisionRepository(db)
 	grabs := grabpersistence.NewGrabRepository(db)
 	seriesCache := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
