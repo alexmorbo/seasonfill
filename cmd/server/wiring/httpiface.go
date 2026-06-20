@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
@@ -26,6 +25,7 @@ import (
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"

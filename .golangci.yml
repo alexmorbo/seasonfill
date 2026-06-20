@@ -241,6 +241,15 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/seriesdetail/ inherits the application/ carve-out — the
+      # Composer, CastComposer, and MediaResolver constructors all
+      # accept *slog.Logger and fall back to sharedports.DomainLogger(
+      # slog.Default(), "composer") when nil. Established pattern moved
+      # from application/seriesdetail in story 445 (A-1-19).
+      - path: 'internal/seriesdetail/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

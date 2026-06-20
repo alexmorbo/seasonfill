@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
@@ -22,6 +21,7 @@ import (
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
