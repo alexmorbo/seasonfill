@@ -4,10 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-
-	"github.com/alexmorbo/seasonfill/infrastructure/database"
 )
 
 // envPostgresEnable opts the Postgres backend into AllBackends(t).
@@ -94,36 +91,23 @@ func postgresEnabled() bool {
 	return false
 }
 
-// newSQLiteDB opens a fresh `:memory:` GORM handle and runs the full
-// embedded migration set against it.
+// newSQLiteDB returns a fresh isolated `:memory:` GORM handle with all
+// embedded migrations applied.
+//
+// Story A-4-3b-7: implementation lifted into the shared SQLite
+// schema-cache fast path (newSQLiteDBFromCache). At the first call the
+// helper runs database.Migrate once against a template DB, snapshots
+// the resulting schema + migration-seeded rows, and replays the DDL +
+// seed data onto every subsequent handle. ~80x faster than calling
+// database.Migrate per test, which matters once the repositories
+// package fan-out (~300 tests under -race) is in the picture.
 //
 // Each call returns a brand-new isolated DB. We pin SetMaxOpenConns(1)
 // so every query lands on the same underlying SQLite database — without
 // this, the database/sql connection pool would hand out independent
 // `:memory:` databases per connection and tests would see empty results
 // at random.
-//
-// Performance note: this calls database.Migrate end-to-end (all 44
-// migrations) per test, which is the slow path. The repositories test
-// package owns a per-process schema-cache shortcut (scan_repository_test.go
-// TestMain, story 314) that's ~80x faster. A-4-3 (story 424) will lift
-// that cache into testhelpers so AllBackends can share it; until then
-// the pilot pays ~80ms × N tests, which is acceptable for ~37 tests.
 func newSQLiteDB(t testing.TB) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql.DB: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	if err := database.Migrate(db); err != nil {
-		t.Fatalf("migrate sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
+	return newSQLiteDBFromCache(t)
 }

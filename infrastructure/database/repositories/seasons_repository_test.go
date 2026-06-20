@@ -8,43 +8,54 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestSeasonsRepository_UpsertAndList(t *testing.T) {
 	t.Parallel()
-	db := setupTestDB(t)
-	repoS := NewSeriesRepository(db)
-	repo := NewSeasonsRepository(db)
-	ctx := context.Background()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repoS := NewSeriesRepository(db)
+			repo := NewSeasonsRepository(db)
+			ctx := context.Background()
 
-	seriesID, err := repoS.Upsert(ctx, sampleCanon("Foundation"))
-	require.NoError(t, err)
+			seriesID, err := repoS.Upsert(ctx, sampleCanon("Foundation"))
+			require.NoError(t, err)
 
-	id1, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, Name: new("Season 1")})
-	require.NoError(t, err)
-	id2, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 2, Name: new("Season 2")})
-	require.NoError(t, err)
-	assert.NotEqual(t, id1, id2)
+			id1, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, Name: new("Season 1")})
+			require.NoError(t, err)
+			id2, err := repo.Upsert(ctx, series.CanonSeason{SeriesID: seriesID, SeasonNumber: 2, Name: new("Season 2")})
+			require.NoError(t, err)
+			assert.NotEqual(t, id1, id2)
 
-	rows, err := repo.ListBySeries(ctx, seriesID)
-	require.NoError(t, err)
-	require.Len(t, rows, 2)
-	assert.Equal(t, 1, rows[0].SeasonNumber)
-	assert.Equal(t, 2, rows[1].SeasonNumber)
+			rows, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+			assert.Equal(t, 1, rows[0].SeasonNumber)
+			assert.Equal(t, 2, rows[1].SeasonNumber)
+		})
+	}
 }
 
 func TestSeasonsRepository_Upsert_Idempotent(t *testing.T) {
 	t.Parallel()
-	db := setupTestDB(t)
-	seriesID, err := NewSeriesRepository(db).Upsert(context.Background(), sampleCanon("Severance"))
-	require.NoError(t, err)
-	repo := NewSeasonsRepository(db)
-	ctx := context.Background()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			seriesID, err := NewSeriesRepository(db).Upsert(context.Background(), sampleCanon("Severance"))
+			require.NoError(t, err)
+			repo := NewSeasonsRepository(db)
+			ctx := context.Background()
 
-	s := series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, EpisodeCount: new(9)}
-	id1, err := repo.Upsert(ctx, s)
-	require.NoError(t, err)
-	id2, err := repo.Upsert(ctx, s)
-	require.NoError(t, err)
-	assert.Equal(t, id1, id2, "natural-key conflict must reuse the row")
+			s := series.CanonSeason{SeriesID: seriesID, SeasonNumber: 1, EpisodeCount: new(9)}
+			id1, err := repo.Upsert(ctx, s)
+			require.NoError(t, err)
+			id2, err := repo.Upsert(ctx, s)
+			require.NoError(t, err)
+			assert.Equal(t, id1, id2, "natural-key conflict must reuse the row")
+		})
+	}
 }

@@ -171,7 +171,10 @@ func TestCounterRepository_AvgGrabsLast7Days(t *testing.T) {
 // `_Postgres` variant — don't try to wedge both into one body.
 func TestCounterRepository_ExplainUsesIndex_SQLite(t *testing.T) {
 	t.Parallel()
-	db := setupTestDB(t)
+	// SQLite-only by design — use the first backend (always SQLite under
+	// AllBackends contract: SQLite is the default, postgres only adds on
+	// when SEASONFILL_TEST_POSTGRES_ENABLE=1).
+	db := testhelpers.AllBackends(t)[0].NewDB(t)
 	var plan []struct {
 		ID     int
 		Parent int
