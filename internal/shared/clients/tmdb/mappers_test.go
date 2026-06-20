@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 )
 
 func loadTV(t *testing.T, name string) *TVResponse {

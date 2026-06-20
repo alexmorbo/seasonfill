@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 )
 
 // TestPersonCreditsAdapter_DomainModelRoundTrip covers Story 307.

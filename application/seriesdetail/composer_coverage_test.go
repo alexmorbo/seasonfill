@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

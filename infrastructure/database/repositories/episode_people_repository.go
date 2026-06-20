@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )

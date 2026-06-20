@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/alexmorbo/seasonfill/application/people"
-	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
-	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

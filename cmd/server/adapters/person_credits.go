@@ -6,9 +6,9 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
-	dompeople "github.com/alexmorbo/seasonfill/domain/people"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 )
 
 // PersonCreditsAdapter projects repositories.PersonCredit rows down
