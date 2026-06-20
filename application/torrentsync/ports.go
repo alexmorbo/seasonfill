@@ -76,6 +76,24 @@ type EventsRepo interface {
 	Insert(ctx context.Context, row EventRow) error
 }
 
+// EventsPruner is the retention-sweep surface for qbit_torrent_events.
+// Story 218 (E-2) added the weekly prune; story 421 (A-3 mini) lifted it
+// out of application/gc so the application layer no longer depends on
+// the ORM directly.
+//
+// Deleted: number of rows removed.
+// Skipped: true when the table does not yet exist (pre-A-1 schemas);
+//
+//	callers should report SkipReason via the weekly-gc skip log line
+//	instead of treating it as an error.
+//
+// SkipReason: short stable identifier — currently only
+//
+//	"table_not_present_pending_a3" (see story 219 history).
+type EventsPruner interface {
+	PruneOlderThan(ctx context.Context, cutoff time.Time) (deleted int, skipped bool, skipReason string, err error)
+}
+
 // EventRow is the value-shape the EventsRepo persists. Kept
 // here (application layer) rather than on the infra side so the
 // persist policy does not need to import a database model.

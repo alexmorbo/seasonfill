@@ -58,5 +58,49 @@ func (r *QbitTorrentEventsRepository) Insert(ctx context.Context, row torrentsyn
 	return nil
 }
 
+// PruneOlderThan deletes qbit_torrent_events rows with occurred_at < cutoff.
+// Returns (deleted, skipped=false, "", nil) on the happy path. When the
+// table does not yet exist (pre-A-1 schemas), returns
+// (0, true, "table_not_present_pending_a3", nil) so the caller logs a
+// skip rather than treating it as a failure.
+//
+// Story 421 (A-3 mini) lifted this out of application/gc/event_prune.go
+// so the application layer no longer imports gorm.io/gorm.
+func (r *QbitTorrentEventsRepository) PruneOlderThan(ctx context.Context, cutoff time.Time) (int, bool, string, error) {
+	if !r.tableExists(ctx, "qbit_torrent_events") {
+		return 0, true, "table_not_present_pending_a3", nil
+	}
+	res := r.db.WithContext(ctx).
+		Exec(`DELETE FROM qbit_torrent_events WHERE occurred_at < ?`, cutoff)
+	if res.Error != nil {
+		return 0, false, "", fmt.Errorf("prune qbit_torrent_events: %w", res.Error)
+	}
+	return int(res.RowsAffected), false, "", nil
+}
+
+// tableExists probes information_schema (postgres) / sqlite_master (sqlite).
+// Returns false on any error so callers can skip silently rather than crash.
+// Moved from application/gc/event_prune.go in story 421.
+func (r *QbitTorrentEventsRepository) tableExists(ctx context.Context, name string) bool {
+	if r.db == nil {
+		return false
+	}
+	var probe string
+	switch r.db.Name() {
+	case "postgres":
+		probe = `SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1`
+	case "sqlite":
+		probe = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`
+	default:
+		return false
+	}
+	var found int
+	err := r.db.WithContext(ctx).Raw(probe, name).Scan(&found).Error
+	return err == nil && found == 1
+}
+
 // Compile-time port check.
 var _ torrentsync.EventsRepo = (*QbitTorrentEventsRepository)(nil)
+
+// Compile-time port check for the prune surface (story 421).
+var _ torrentsync.EventsPruner = (*QbitTorrentEventsRepository)(nil)

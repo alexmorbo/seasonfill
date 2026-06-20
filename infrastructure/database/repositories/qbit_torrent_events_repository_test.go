@@ -53,3 +53,44 @@ func TestQbitTorrentEventsRepository_InsertDeletedHasNilToGroup(t *testing.T) {
 	assert.Equal(t, "deleted", got.Event)
 	assert.Nil(t, got.ToGroup, "deleted events leave to_group null")
 }
+
+// TestQbitTorrentEventsRepository_PruneOlderThan_MissingTable_Skips
+// exercises the pre-A-1 skip path. Migrated from application/gc in
+// story 421 (A-3 mini).
+func TestQbitTorrentEventsRepository_PruneOlderThan_MissingTable_Skips(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	// 219 (A-1) created qbit_torrent_events as part of the standard
+	// migration chain; drop it to exercise the pre-A-1 skip path.
+	require.NoError(t, db.Exec(`DROP TABLE IF EXISTS qbit_torrent_events`).Error)
+	r := NewQbitTorrentEventsRepository(db)
+	deleted, skipped, skipReason, err := r.PruneOlderThan(context.Background(), time.Now().UTC())
+	require.NoError(t, err)
+	assert.True(t, skipped)
+	assert.Equal(t, "table_not_present_pending_a3", skipReason)
+	assert.Equal(t, 0, deleted)
+}
+
+// TestQbitTorrentEventsRepository_PruneOlderThan_DeletesOldRows
+// migrated from application/gc in story 421 (A-3 mini).
+func TestQbitTorrentEventsRepository_PruneOlderThan_DeletesOldRows(t *testing.T) {
+	t.Parallel()
+	db := setupTestDB(t)
+	r := NewQbitTorrentEventsRepository(db)
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	old := now.Add(-200 * 24 * time.Hour)
+	fresh := now.Add(-10 * 24 * time.Hour)
+	require.NoError(t, db.Exec(
+		`INSERT INTO qbit_torrent_events (instance_name, torrent_hash, event, occurred_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+		"inst", "h1", "added", old,
+		"inst", "h2", "added", fresh,
+	).Error)
+
+	cutoff := now.Add(-180 * 24 * time.Hour)
+	deleted, skipped, skipReason, err := r.PruneOlderThan(context.Background(), cutoff)
+	require.NoError(t, err)
+	assert.False(t, skipped)
+	assert.Empty(t, skipReason)
+	assert.Equal(t, 1, deleted)
+}

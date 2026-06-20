@@ -352,7 +352,7 @@ func BuildScheduler(
 				Logger:  gcLog,
 			}.Build(),
 			EventPrune: gc.EventPruneDeps{
-				DB:     db,
+				Repo:   repositories.NewQbitTorrentEventsRepository(db),
 				Logger: gcLog,
 			}.Build(),
 			Logger: gcLog,

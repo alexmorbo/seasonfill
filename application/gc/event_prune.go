@@ -1,29 +1,25 @@
-// event_prune.go — story 218 E-2.
+// event_prune.go — story 218 E-2, refactored in story 421 (A-3 mini).
 //
-// Prunes qbit_torrent_events older than 180d (PRD §6.7). The table
-// is added by the A-* branch (story 219+); the existence probe lets
-// 218 ship before 219 lands and the prune become a no-op skip in
-// that window. As of 219 the schema uses `occurred_at` as the row
-// timestamp (PRD §7.3).
+// Prunes qbit_torrent_events older than 180d (PRD §6.7). The
+// existence-probe + DELETE pair now lives in the qbit-torrent-events
+// repository so the application layer no longer depends on the ORM.
 
 package gc
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
-	"gorm.io/gorm"
-
+	"github.com/alexmorbo/seasonfill/application/torrentsync"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// EventPruneDeps is the consumer-side bundle. DB is the raw gorm
-// handle — we run two raw statements (existence probe + delete) and
-// don't need a full repository surface.
+// EventPruneDeps is the consumer-side bundle. Repo is the
+// torrentsync.EventsPruner port; the GC owns only the cadence,
+// retention window, and result-shape mapping.
 type EventPruneDeps struct {
-	DB     *gorm.DB
+	Repo   torrentsync.EventsPruner
 	Clock  func() time.Time
 	Logger *slog.Logger
 	// RetentionAge overrides the default 180d.
@@ -45,43 +41,26 @@ func (d EventPruneDeps) Build() func(ctx context.Context) (EventPruneResult, err
 		retention = 180 * 24 * time.Hour
 	}
 	return func(ctx context.Context) (EventPruneResult, error) {
-		if !tableExists(ctx, d.DB, "qbit_torrent_events") {
+		if d.Repo == nil {
 			return EventPruneResult{
 				Skipped:    true,
-				SkipReason: "table_not_present_pending_a3",
+				SkipReason: "repo_not_configured",
 			}, nil
 		}
 		cutoff := clock().Add(-retention)
-		res := d.DB.WithContext(ctx).
-			Exec(`DELETE FROM qbit_torrent_events WHERE occurred_at < ?`, cutoff)
-		if res.Error != nil {
-			return EventPruneResult{}, fmt.Errorf("prune qbit_torrent_events: %w", res.Error)
+		deleted, skipped, skipReason, err := d.Repo.PruneOlderThan(ctx, cutoff)
+		if err != nil {
+			return EventPruneResult{}, err
+		}
+		if skipped {
+			return EventPruneResult{
+				Skipped:    true,
+				SkipReason: skipReason,
+			}, nil
 		}
 		log.InfoContext(ctx, "event_prune.deleted",
-			slog.Int64("rows", res.RowsAffected),
+			slog.Int("rows", deleted),
 			slog.Time("cutoff", cutoff))
-		return EventPruneResult{Deleted: int(res.RowsAffected)}, nil
+		return EventPruneResult{Deleted: deleted}, nil
 	}
-}
-
-// tableExists probes information_schema (postgres) / sqlite_master
-// (sqlite). Returns false on any error — skip silently rather than
-// crash the GC.
-func tableExists(ctx context.Context, db *gorm.DB, name string) bool {
-	if db == nil {
-		return false
-	}
-	dialect := db.Name()
-	var probe string
-	switch dialect {
-	case "postgres":
-		probe = `SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1`
-	case "sqlite":
-		probe = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`
-	default:
-		return false
-	}
-	var found int
-	err := db.WithContext(ctx).Raw(probe, name).Scan(&found).Error
-	return err == nil && found == 1
 }
