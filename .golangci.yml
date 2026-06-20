@@ -211,6 +211,15 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/shared/clients/ inherits the same carve-out — TMDB
+      # and OMDb client constructors accept *slog.Logger and fall back
+      # to sharedports.DomainLogger(slog.Default(), "tmdb"/"omdb") when
+      # nil. Established pattern moved from infrastructure/tmdb +
+      # infrastructure/omdb in story 435 (A-1-9).
+      - path: 'internal/shared/clients/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

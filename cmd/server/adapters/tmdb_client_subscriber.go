@@ -7,7 +7,7 @@ import (
 	"time"
 
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
-	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

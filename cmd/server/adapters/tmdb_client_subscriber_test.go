@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
-	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )
 
 // newStubTMDBClient builds a real *tmdb.Client (rate limiter + token

@@ -2,7 +2,7 @@ package enrichment_test
 
 import (
 	"github.com/alexmorbo/seasonfill/application/enrichment"
-	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )
 
 // Compile-time guarantee: *tmdb.Client satisfies the TMDBClient

@@ -9,7 +9,7 @@ import (
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
-	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
