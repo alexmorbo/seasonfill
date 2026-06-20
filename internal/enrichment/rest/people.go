@@ -9,11 +9,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // PeopleHandler serves the H-2 person detail payload (Story 217 /

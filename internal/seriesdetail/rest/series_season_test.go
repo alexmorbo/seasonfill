@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // newSeasonRouter mounts gin + the F-2c-1 typed-error middleware so the

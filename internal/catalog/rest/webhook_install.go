@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // WebhookInstallHandler — POST /api/v1/instances/{name}/webhook/install.

@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
@@ -24,6 +23,7 @@ import (
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // newPeopleRouter mounts the F-2c-1 typed-error middleware so the

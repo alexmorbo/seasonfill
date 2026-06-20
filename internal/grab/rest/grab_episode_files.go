@@ -10,9 +10,9 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // GrabEpisodeFilesHandler exposes

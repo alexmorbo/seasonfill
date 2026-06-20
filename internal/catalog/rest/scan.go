@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 type ScanHandler struct {

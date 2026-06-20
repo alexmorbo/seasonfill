@@ -10,10 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // stubLister satisfies InstanceLister for the aggregate webhook tests.

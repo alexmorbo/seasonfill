@@ -19,7 +19,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -27,6 +26,7 @@ import (
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 func TestInstancesHandler_List_AfterPreflight(t *testing.T) {

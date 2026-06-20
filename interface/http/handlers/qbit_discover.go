@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // QbitDiscoverHandler — GET /api/v1/instances/{name}/discover/qbit.

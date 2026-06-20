@@ -10,10 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // SeriesTorrentsHandler serves the per-series torrents document

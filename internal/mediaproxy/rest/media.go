@@ -17,10 +17,10 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // mediaCacheMaxBytes is the LRU's byte cap — 32 MiB. Sized for hot-path

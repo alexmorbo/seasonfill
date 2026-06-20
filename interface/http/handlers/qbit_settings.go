@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 

@@ -7,10 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	appext "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // ExternalServicesHandler exposes the runtime config for the three
