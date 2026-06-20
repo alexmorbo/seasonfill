@@ -49,6 +49,14 @@ import (
 //     types (ExternalServicesModel, QuotaStateModel). Same model-
 //     split deferral as above.
 //
+// internal/shared/http/edge/ (the HTTP composition root that wires the
+// 37-arg NewServer) is intentionally excluded from this scan — it is
+// the wirer that bolts every vertical REST handler onto Gin and must
+// import the full vertical-context surface to do so. The edge tree is
+// covered by its own depcheck boundary (story 450 keeps it free of
+// horizontal-CA carve-outs other than the documented ones in
+// TestSharedHTTPNoBackwardsImports).
+//
 // Run via: `make test-lint-rule` (lint build tag).
 func TestSharedClientsNoBackwardsImports(t *testing.T) {
 	t.Parallel()
@@ -94,12 +102,17 @@ func TestSharedClientsNoBackwardsImports(t *testing.T) {
 	fset := token.NewFileSet()
 	var offenders []string
 
+	edgeRoot := filepath.Join(repoRoot, "internal", "shared", "http", "edge")
+
 	for _, ctxRoot := range roots {
 		walkErr := filepath.WalkDir(ctxRoot, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			if d.IsDir() {
+				if path == edgeRoot {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if !strings.HasSuffix(path, ".go") {
