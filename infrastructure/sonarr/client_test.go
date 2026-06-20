@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/infrastructure/ratelimit"
+	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
