@@ -523,7 +523,11 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 		// Subsequent responses 200 so the retries succeed and the
 		// goroutines exit cleanly.
 		if n <= 2 {
-			w.Header().Set("Retry-After", "1") // 1s — same window for both 429s
+			// 3s window — wide enough for both goroutines to land within it
+			// even under -race + CI runner load (was 1s, flaked on scheduling
+			// jitter: second goroutine's 429 arrived after the 1s window had
+			// already expired, creating delta=2 instead of delta=1).
+			w.Header().Set("Retry-After", "3")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -535,7 +539,7 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 		BaseURL:    srv.URL,
 		Token:      "tk",
 		Language:   "en-US",
-		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+		HTTPClient: &http.Client{Timeout: 15 * time.Second},
 		RPS:        1000,
 	})
 	if err != nil {
@@ -561,22 +565,23 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}
 	close(start)
 
-	// Wait for both goroutines to complete. With Retry-After=1s + retry
-	// loop, each goroutine finishes in ~1-2s. Bound the test at 5s.
+	// Wait for both goroutines to complete. With Retry-After=3s + retry
+	// loop, each goroutine finishes in ~3-4s. Bound the test at 12s to
+	// absorb -race overhead on slow CI runners.
 	for i := range 2 {
 		select {
 		case err := <-done:
 			if err != nil {
 				t.Fatalf("goroutine %d: %v", i, err)
 			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("goroutine %d did not complete in 5s", i)
+		case <-time.After(12 * time.Second):
+			t.Fatalf("goroutine %d did not complete in 12s", i)
 		}
 	}
 
 	after := countersFromMetrics(t, "tmdb_rate_limit_pauses_total")
 
-	// Both 429s landed within the FIRST 1s pause window. Counter delta
+	// Both 429s landed within the FIRST 3s pause window. Counter delta
 	// must be exactly 1 (not 2 — no compounding). hits should be 4: 2
 	// initial 429s + 2 post-pause 200s.
 	if delta := after - before; delta != 1 {
