@@ -15,10 +15,10 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"

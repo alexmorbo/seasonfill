@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alexmorbo/seasonfill/domain/grab"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
 func TestDeriveReplayKind(t *testing.T) {

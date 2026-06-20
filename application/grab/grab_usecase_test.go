@@ -18,9 +18,9 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
+	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

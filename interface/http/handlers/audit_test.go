@@ -19,12 +19,12 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"

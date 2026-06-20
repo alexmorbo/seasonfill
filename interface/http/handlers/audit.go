@@ -11,9 +11,9 @@ import (
 	appdecision "github.com/alexmorbo/seasonfill/application/decision"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

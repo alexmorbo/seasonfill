@@ -3,7 +3,7 @@ package grab_test
 import (
 	"testing"
 
-	"github.com/alexmorbo/seasonfill/domain/grab"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
 func TestParsed_IsZero(t *testing.T) {

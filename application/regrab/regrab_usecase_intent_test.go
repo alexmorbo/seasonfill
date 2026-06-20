@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
+	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
 // TestRefineWatchdogIntent_Quality — when the selected release's

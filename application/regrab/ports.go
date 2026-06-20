@@ -14,7 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
+	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

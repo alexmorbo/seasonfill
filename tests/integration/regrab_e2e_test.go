@@ -25,12 +25,12 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )

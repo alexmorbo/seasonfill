@@ -22,11 +22,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
-	domaingrab "github.com/alexmorbo/seasonfill/domain/grab"
 	domainregrab "github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

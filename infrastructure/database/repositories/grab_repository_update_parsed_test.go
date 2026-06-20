@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/grab"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 

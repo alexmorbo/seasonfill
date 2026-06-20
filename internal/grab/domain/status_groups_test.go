@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alexmorbo/seasonfill/domain/grab"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
 func TestFailStatuses_Contents(t *testing.T) {

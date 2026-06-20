@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/alexmorbo/seasonfill/domain/grab"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
 // ParseResult is the trimmed projection of Sonarr's ParseResource we

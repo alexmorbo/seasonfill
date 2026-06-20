@@ -21,7 +21,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
@@ -29,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
