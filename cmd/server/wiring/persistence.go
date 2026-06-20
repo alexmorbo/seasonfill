@@ -8,8 +8,8 @@ import (
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
@@ -39,7 +39,7 @@ type PersistenceBundle struct {
 	AppSettingsRepo *adminpersistence.AppSettingsRepository
 	QuotaCounter    *adminpersistence.QuotaCounterRepository
 	TZResolver      *tz.Resolver
-	TimezoneHandler *handlers.TimezoneHandler
+	TimezoneHandler *adminrest.TimezoneHandler
 }
 
 // BuildPersistence opens the database, runs migrations, derives the
@@ -97,7 +97,7 @@ func BuildPersistence(
 	log.Info("timezone resolver",
 		slog.String("name", tzResolver.Name()),
 		slog.String("source", string(tzResolver.Source())))
-	timezoneHandler := handlers.NewTimezoneHandler(tzResolver, log)
+	timezoneHandler := adminrest.NewTimezoneHandler(tzResolver, log)
 
 	// Story 305: generic DB-backed rate-limit counter. Currently
 	// consumed by the OMDb budget guard (replaces the in-process

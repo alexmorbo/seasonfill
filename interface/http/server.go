@@ -72,7 +72,7 @@ func NewServer(
 	peopleHandler *handlers.PeopleHandler,
 	seriesRefreshHandler *handlers.SeriesRefreshHandler,
 	seriesTorrentsHandler *handlers.SeriesTorrentsHandler,
-	timezoneHandler *handlers.TimezoneHandler,
+	timezoneHandler *adminrest.TimezoneHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
