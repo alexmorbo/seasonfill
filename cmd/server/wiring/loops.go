@@ -17,7 +17,6 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
-	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
@@ -28,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
+	watchdog "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure"
 )
 
 // WatchdogBundle holds the boot-time health monitor + state watchdog

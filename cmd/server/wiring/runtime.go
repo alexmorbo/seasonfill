@@ -18,13 +18,13 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
-	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
+	watchdog "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure"
 )
 
 // HTTPServeConfig is the on-the-stack config DTO previously inlined as
