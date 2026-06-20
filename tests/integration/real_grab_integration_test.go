@@ -18,13 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
-	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 )
 
 type capturedGrab struct {

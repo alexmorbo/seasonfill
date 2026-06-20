@@ -10,12 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	domaindecision "github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 )
 
 // GrabHandler exposes POST /decisions/{id}/grab — explicit-confirm

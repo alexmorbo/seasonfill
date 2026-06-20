@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
-	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"

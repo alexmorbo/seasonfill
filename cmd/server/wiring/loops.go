@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/evaluate"
-	"github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/rescan"
@@ -23,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/watchdog"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
