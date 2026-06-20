@@ -2,6 +2,42 @@
 // parent story 039 D-T1 the Go package is named `regrab` (not
 // `watchdog`) to avoid collision with `infrastructure/watchdog/`
 // (D24 instance-health recheck loop).
+//
+// ports.go gathers the narrow port interfaces and exported entry-
+// points this layer publishes to its consumers. Story 433 (A-1-7)
+// carved the watchdog bounded context out of the horizontal-CA
+// application/regrab + domain/regrab + domain/cooldown trees and
+// settled them under internal/watchdog/{app,domain}/. The interfaces
+// themselves are declared in their owning files (so the production
+// impl + test fakes live next to the interface that constrains them)
+// — this file additionally hosts WebhookChecker, the C-3 gate
+// boundary the Settings UseCase calls before persisting an enable
+// flag, plus the nullWebhookChecker bootstrap fallback. A future
+// normalization story (model split / persistence carve-out 434+435)
+// will also relocate the operator-visible WatchdogBlacklist + Counter
+// repository ports OUT of application/ports and into this file. Until
+// then, see:
+//
+//   - UseCase (regrab_usecase.go) — Execute one regrab attempt for
+//     a missing season. Holds the grab.UseCase port (the actual
+//     grab handoff lives in internal/grab/app), blacklist + counter
+//     repositories, qbit factory, and the optional Transactor wrapper.
+//
+//   - SettingsUseCase (settings_usecase.go) — CRUD on the per-
+//     instance watchdog runtime config (enabled, cap, schedule),
+//     with the C-3 webhook-required gate enforced through the
+//     WebhookChecker port declared in this file.
+//
+//   - RuntimeState (runtime_state.go) — in-memory snapshot of the
+//     current regrab cycle (cap, drained set, pending decisions)
+//     read by the rest layer for live status display.
+//
+// Cross-package consumers (cmd/server/{loops,wiring,adapters} +
+// interface/http/handlers + tests/integration) import these names
+// directly from package regrab via the import path
+// `github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab` —
+// the bare package identifier `regrab` survived the story 433 move
+// unchanged.
 package regrab
 
 import (
