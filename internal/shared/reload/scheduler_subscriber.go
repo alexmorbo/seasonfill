@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/scheduler"
 )
 
 // SchedulerFactory builds a fresh scheduler bound to the supplied

@@ -16,7 +16,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/infrastructure/scheduler"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -24,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
+	"github.com/alexmorbo/seasonfill/internal/shared/scheduler"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	watchdog "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure"
 )
