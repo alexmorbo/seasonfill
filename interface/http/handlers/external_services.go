@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	appext "github.com/alexmorbo/seasonfill/application/externalservices"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	appext "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 

@@ -6,7 +6,7 @@ import (
 	"maps"
 	"sync"
 
-	appext "github.com/alexmorbo/seasonfill/application/externalservices"
+	appext "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
