@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -25,8 +26,8 @@ type AuditHandler struct {
 	decisions      ports.DecisionRepository
 	grabs          ports.GrabRepository
 	seriesCache    ports.SeriesCacheRepository
-	mediaPending   CatalogMediaPendingWriter // story 352, nil-OK
-	mediaPrewarmer CatalogMediaPrewarmer     // story 352, nil-OK
+	mediaPending   adminrest.CatalogMediaPendingWriter // story 352, nil-OK
+	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
 	logger         *slog.Logger
 }
 
@@ -60,14 +61,14 @@ func (h *AuditHandler) WithSeriesCache(repo ports.SeriesCacheRepository) *AuditH
 // minimal boot).
 //
 // Story 352.
-func (h *AuditHandler) WithMediaPending(w CatalogMediaPendingWriter) *AuditHandler {
+func (h *AuditHandler) WithMediaPending(w adminrest.CatalogMediaPendingWriter) *AuditHandler {
 	h.mediaPending = w
 	return h
 }
 
 // WithMediaPrewarmer wires the optional downloader-enqueue kick.
 // nil-OK — see story 352 MVP scope.
-func (h *AuditHandler) WithMediaPrewarmer(p CatalogMediaPrewarmer) *AuditHandler {
+func (h *AuditHandler) WithMediaPrewarmer(p adminrest.CatalogMediaPrewarmer) *AuditHandler {
 	h.mediaPrewarmer = p
 	return h
 }
@@ -645,7 +646,7 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 	// EnsurePending kick covers exactly the hashes the wire DTO will
 	// carry. Allocated outside the for loop so the kick batches one
 	// goroutine per request rather than one per instance.
-	var pendingEntries []catalogPosterEntry
+	var pendingEntries []adminrest.CatalogPosterEntry
 	for inst := range instances {
 		entries, err := h.seriesCache.ListActiveByInstance(ctx, inst)
 		if err != nil {
@@ -666,14 +667,14 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 			// bytes when the FE first requests them.
 			if hash := mediaHashForPosterAsset(e.PosterAsset); hash != nil {
 				hashes[key] = hash
-				pendingEntries = append(pendingEntries, catalogPosterEntry{PosterAsset: e.PosterAsset})
+				pendingEntries = append(pendingEntries, adminrest.CatalogPosterEntry{PosterAsset: e.PosterAsset})
 			}
 		}
 	}
 	// Story 352: best-effort fire-and-forget. nil mediaPending = no-op.
 	if h.mediaPending != nil && len(pendingEntries) > 0 {
-		kickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer,
-			pendingEntries, catalogPosterKindW342, h.logger)
+		adminrest.KickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer,
+			pendingEntries, adminrest.CatalogPosterKindW342, h.logger)
 	}
 	return slugs, hashes
 }

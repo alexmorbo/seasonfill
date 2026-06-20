@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -42,8 +43,8 @@ type InstancesHandler struct {
 	reg            InstanceRegistry
 	seriesCache    ports.SeriesCacheRepository
 	episodesCache  sonarr.EpisodesCache
-	mediaPending   CatalogMediaPendingWriter // story 352, nil-OK
-	mediaPrewarmer CatalogMediaPrewarmer     // story 352, nil-OK
+	mediaPending   adminrest.CatalogMediaPendingWriter // story 352, nil-OK
+	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
 	logger         *slog.Logger
 }
 
@@ -85,7 +86,7 @@ func (h *InstancesHandler) WithEpisodesCache(cache sonarr.EpisodesCache) *Instan
 // (ListSeriesCache, Missing) also land a pending media_assets row
 // keyed on the same hash. nil writer = no-op (boot ordering /
 // minimal-boot tests).
-func (h *InstancesHandler) WithMediaPending(w CatalogMediaPendingWriter) *InstancesHandler {
+func (h *InstancesHandler) WithMediaPending(w adminrest.CatalogMediaPendingWriter) *InstancesHandler {
 	h.mediaPending = w
 	return h
 }
@@ -94,7 +95,7 @@ func (h *InstancesHandler) WithMediaPending(w CatalogMediaPendingWriter) *Instan
 // fired after EnsurePending lands the rows. nil-OK: without it,
 // the media handler's on-demand fetch path covers the bytes-not-
 // ready case on the first GET /api/v1/media/<hash>.
-func (h *InstancesHandler) WithMediaPrewarmer(p CatalogMediaPrewarmer) *InstancesHandler {
+func (h *InstancesHandler) WithMediaPrewarmer(p adminrest.CatalogMediaPrewarmer) *InstancesHandler {
 	h.mediaPrewarmer = p
 	return h
 }
@@ -845,11 +846,11 @@ func (h *InstancesHandler) kickPendingForSeriesCacheEntries(ctx context.Context,
 	if h.mediaPending == nil || len(entries) == 0 {
 		return
 	}
-	work := make([]catalogPosterEntry, 0, len(entries))
+	work := make([]adminrest.CatalogPosterEntry, 0, len(entries))
 	for _, e := range entries {
-		work = append(work, catalogPosterEntry{PosterAsset: e.PosterAsset})
+		work = append(work, adminrest.CatalogPosterEntry{PosterAsset: e.PosterAsset})
 	}
-	kickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer, work, catalogPosterKindW342, h.logger)
+	adminrest.KickEnsurePendingForCatalog(ctx, h.mediaPending, h.mediaPrewarmer, work, adminrest.CatalogPosterKindW342, h.logger)
 }
 
 func parseSeriesCacheState(c *gin.Context) (ports.SeriesCacheState, error) {

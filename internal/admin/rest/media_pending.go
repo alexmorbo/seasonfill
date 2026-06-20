@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -33,15 +33,15 @@ type CatalogMediaPrewarmer interface {
 	Enqueue(ctx context.Context, reqs []appmedia.EnqueueRequest)
 }
 
-// catalogPosterEntry is the minimal shape batchEnsurePendingForCatalog
+// CatalogPosterEntry is the minimal shape batchEnsurePendingForCatalog
 // reads off each catalog item. series.CacheEntry exposes PosterAsset
 // directly; the helper takes a slice of *string so callers can
 // project from any source.
-type catalogPosterEntry struct {
+type CatalogPosterEntry struct {
 	PosterAsset *string
 }
 
-// kickEnsurePendingForCatalog fires a background goroutine that
+// KickEnsurePendingForCatalog fires a background goroutine that
 // ensures a pending media_assets row exists for each catalog entry's
 // derived eager poster_hash. The kind is fixed to "poster_w342" to
 // match what the series_worker prewarmer would write — the catalog
@@ -55,11 +55,11 @@ type catalogPosterEntry struct {
 // server.
 //
 // nil writer → no-op (boot ordering / minimal-boot tests).
-func kickEnsurePendingForCatalog(
+func KickEnsurePendingForCatalog(
 	ctx context.Context,
 	writer CatalogMediaPendingWriter,
 	prewarmer CatalogMediaPrewarmer,
-	entries []catalogPosterEntry,
+	entries []CatalogPosterEntry,
 	kind string,
 	logger *slog.Logger,
 ) {
@@ -71,7 +71,7 @@ func kickEnsurePendingForCatalog(
 	}
 	// Snapshot the slice into a fresh allocation — the caller's slice
 	// may be reused or mutated after the response commits.
-	work := make([]catalogPosterEntry, 0, len(entries))
+	work := make([]CatalogPosterEntry, 0, len(entries))
 	for _, e := range entries {
 		if e.PosterAsset == nil {
 			continue
@@ -106,7 +106,7 @@ func runEnsurePendingForCatalog(
 	ctx context.Context,
 	writer CatalogMediaPendingWriter,
 	prewarmer CatalogMediaPrewarmer,
-	entries []catalogPosterEntry,
+	entries []CatalogPosterEntry,
 	kind string,
 	logger *slog.Logger,
 ) {
@@ -150,4 +150,4 @@ func runEnsurePendingForCatalog(
 // element type (series.CacheEntry vs (grab.Record + per-instance
 // series.CacheEntry lookup)) enough that an explicit conversion
 // keeps the call site clearer than a Go 1.18 generic helper.
-const catalogPosterKindW342 = "poster_w342"
+const CatalogPosterKindW342 = "poster_w342"

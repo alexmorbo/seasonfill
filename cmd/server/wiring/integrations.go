@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/tmdb"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
@@ -315,7 +316,7 @@ func BuildMedia(
 // pending writer port consumed by InstancesHandler + AuditHandler
 // (story 352). Catches a future signature drift at build time rather
 // than at runtime.
-var _ handlers.CatalogMediaPendingWriter = (*repositories.MediaAssetsRepository)(nil)
+var _ adminrest.CatalogMediaPendingWriter = (*repositories.MediaAssetsRepository)(nil)
 
 // EnrichmentBundle groups the dispatcher + the nightly job closure
 // so main.go's wiring stays a single call.

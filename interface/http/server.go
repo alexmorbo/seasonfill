@@ -65,7 +65,7 @@ func NewServer(
 	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
-	mediaPending handlers.CatalogMediaPendingWriter,
+	mediaPending adminrest.CatalogMediaPendingWriter,
 	seriesDetailHandler *handlers.SeriesDetailHandler,
 	seriesSeasonHandler *handlers.SeriesSeasonHandler,
 	seriesCastHandler *handlers.SeriesCastHandler,
