@@ -86,11 +86,18 @@ describe('<PosterTile />', () => {
     expect(screen.getByText(/AMC/)).toBeInTheDocument();
   });
 
-  it('renders mono-mark letter (first char uppercase) when poster_hash absent and title present', () => {
+  it("renders brand 'sf' monogram glyph when poster_hash absent", () => {
     const { poster_hash: _ph, ...rest } = fixture;
     renderTile(rest as SeriesCacheItem);
-    const mark = screen.getByText('B', { selector: 'span' });
-    expect(mark).toBeInTheDocument();
+    // Story 353: MonogramFallback renders the brand-fixed "sf"
+    // engraved glyph, not a per-title initial. The glyph is rendered
+    // as `s<b>f</b>` inside `<span class="glyph">` — combined
+    // textContent === 'sf'. See MonogramFallback.test.tsx for the
+    // canonical contract.
+    const fallback = screen.getByTestId('monogram-fallback');
+    const glyph = fallback.querySelector('span.glyph') as HTMLSpanElement;
+    expect(glyph).not.toBeNull();
+    expect(glyph.textContent).toBe('sf');
   });
 
   it('renders gradient placeholder with data-testid', () => {
