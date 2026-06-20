@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
+import type { SeriesHero as HeroDTO } from '@/api/seriesDetail';
 import { SeriesHero } from './SeriesHero';
 
 function wrap(ui: React.ReactElement) {
@@ -32,12 +33,12 @@ const baseHero = {
 
 describe('SeriesHero v2 bleed', () => {
   it('does NOT render a StatusPill in the title row', () => {
-    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as any} />));
+    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as unknown as HeroDTO} />));
     expect(screen.queryByTestId('status-pill')).toBeNull();
   });
 
   it('does NOT render the networks strip in the meta row', () => {
-    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as any} />));
+    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as unknown as HeroDTO} />));
     expect(screen.queryByText(/AppleTV\+/i)).toBeNull();
   });
 
@@ -47,7 +48,7 @@ describe('SeriesHero v2 bleed', () => {
       next_episode: { season_number: 5, episode_number: 3, title: 'Glasnost',
         air_date: new Date(Date.now() + 4*86400_000).toISOString() },
     };
-    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={heroWithNext as any} />));
+    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={heroWithNext as unknown as HeroDTO} />));
     expect(screen.getByTestId('hero-next-wrap')).toBeInTheDocument();
     expect(screen.getByTestId('next-episode-card').dataset['variant']).toBe('default');
   });
@@ -56,7 +57,7 @@ describe('SeriesHero v2 bleed', () => {
     render(wrap(<SeriesHero
       instance="homelab"
       seriesId={369}
-      hero={baseHero as any}
+      hero={baseHero as unknown as HeroDTO}
       library={{ monitored: true, episodes_total: 48, episodes_on_disk: 42,
                  missing_count: 6, size_on_disk_bytes: 12_000_000_000, dominant_quality: '' }}
     />));
@@ -68,14 +69,14 @@ describe('SeriesHero v2 bleed', () => {
     render(wrap(<SeriesHero
       instance="homelab"
       seriesId={369}
-      hero={{ title: 'Cold', status: 'unknown' } as any}
+      hero={{ title: 'Cold', status: 'unknown' } as unknown as HeroDTO}
     />));
     expect(screen.getByTestId('series-hero').dataset['fallback']).toBe('sonarr-only');
     expect(screen.queryByTestId('hero-scrim')).toBeNull();
   });
 
   it('renders the in-hero back-link with the seriesDetail.back label', () => {
-    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as any} />));
+    render(wrap(<SeriesHero instance="homelab" seriesId={369} hero={baseHero as unknown as HeroDTO} />));
     const link = screen.getByTestId('hero-back-link');
     expect(link).toBeInTheDocument();
     expect(link.getAttribute('href')).toBe('/series');
@@ -87,7 +88,7 @@ describe('SeriesHero v2 bleed', () => {
     render(wrap(<SeriesHero
       instance="homelab"
       seriesId={369}
-      hero={{ title: 'Cold', status: 'unknown' } as any}
+      hero={{ title: 'Cold', status: 'unknown' } as unknown as HeroDTO}
     />));
     expect(screen.getByTestId('hero-back-link')).toBeInTheDocument();
   });

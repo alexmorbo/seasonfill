@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
+import type { components } from '@/api/schema';
 import { EpisodeRow } from './EpisodeRow';
+
+type Episode = components['schemas']['dto.Episode'];
 
 function r(node: React.ReactElement) {
   return render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
@@ -64,7 +67,7 @@ describe('<EpisodeRow />', () => {
       audio_codec: 'DDP',
       audio_channels: '5.1',
       release_group: 'RARBG',
-    } as any} />);
+    } as unknown as Episode} />);
     const chip = screen.getByTestId('episode-row-eq');
     expect(chip.textContent).toBe('WEB-DL 1080p · HEVC · DD+ 5.1 · RARBG');
   });
@@ -72,14 +75,14 @@ describe('<EpisodeRow />', () => {
   it('suppresses the .eq chip when episode has no file', () => {
     r(<EpisodeRow episode={{
       episode_number: 1, has_file: false, monitored: true,
-    } as any} />);
+    } as unknown as Episode} />);
     expect(screen.queryByTestId('episode-row-eq')).toBeNull();
   });
 
   it('suppresses the .eq chip when no media-meta fields are populated', () => {
     r(<EpisodeRow episode={{
       episode_number: 1, has_file: true, monitored: true,
-    } as any} />);
+    } as unknown as Episode} />);
     expect(screen.queryByTestId('episode-row-eq')).toBeNull();
   });
 });

@@ -3,7 +3,10 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
+import type { components } from '@/api/schema';
 import { CastStrip } from './CastStrip';
+
+type CastMember = components['schemas']['dto.CastMember'];
 
 function wrap(ui: React.ReactElement) {
   return (
@@ -61,7 +64,7 @@ describe('CastStrip', () => {
       { person_id: 1, name: 'Alex', character_name: 'Alex' },
       { person_id: 2, name: 'Sam', character_name: 'Sam' },
     ];
-    render(wrap(<CastStrip instance="homelab" seriesId={377} cast={cast as any} />));
+    render(wrap(<CastStrip instance="homelab" seriesId={377} cast={cast as unknown as CastMember[]} />));
     const header = screen.getByTestId('cast-strip-header');
     expect(header.className).toContain('justify-between');
     // view-all is a direct child of the header.
