@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
+	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -56,7 +56,7 @@ func ResetPassword(args []string) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	repo := repositories.NewAdminUserRepository(db)
+	repo := adminpersistence.NewAdminUserRepository(db)
 	ctx := context.Background()
 
 	var plain string

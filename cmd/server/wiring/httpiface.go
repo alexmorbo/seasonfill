@@ -20,6 +20,7 @@ import (
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
+	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -47,7 +48,7 @@ import (
 //
 //	the standard LoginLimit() / WebhookLimit() rates.
 type AuthBundle struct {
-	AdminRepo      *repositories.AdminUserRepository
+	AdminRepo      *adminpersistence.AdminUserRepository
 	OIDCCache      *infraoidc.ProviderCache
 	OIDCUC         *authapp.OIDCLoginUseCase
 	LoginLimiter   *authapp.IPLimiter
@@ -80,7 +81,7 @@ func BuildAuth(
 	_ = bus
 	bgCtx := context.Background()
 
-	adminRepo := repositories.NewAdminUserRepository(persistence.DB)
+	adminRepo := adminpersistence.NewAdminUserRepository(persistence.DB)
 	oidcCache := infraoidc.NewProviderCache()
 	oidcUC := authapp.NewOIDCLoginUseCase(oidcCache, adminRepo)
 
