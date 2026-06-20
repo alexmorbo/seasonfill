@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	domaindecision "github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 )
 
@@ -26,7 +27,7 @@ type GrabHandler struct {
 	grabs     ports.GrabRepository
 	cooldowns ports.CooldownRepository
 	grabUC    *appgrab.UseCase
-	reg       InstanceRegistry
+	reg       handlers.InstanceRegistry
 	logger    *slog.Logger
 }
 
@@ -34,7 +35,7 @@ type GrabHandler struct {
 // (e.g. docs_test). reg.Load nil-OK for the same reason.
 func NewGrabHandler(decisions ports.DecisionRepository, grabs ports.GrabRepository,
 	cooldowns ports.CooldownRepository, grabUC *appgrab.UseCase,
-	reg InstanceRegistry, logger *slog.Logger) *GrabHandler {
+	reg handlers.InstanceRegistry, logger *slog.Logger) *GrabHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -65,7 +66,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	ctx := c.Request.Context()
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid id")
+		handlers.WriteError(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 
@@ -77,25 +78,25 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 
 	if d.Outcome != domaindecision.OutcomeGrab ||
 		d.Selected == nil || d.Selected.Release.GUID == "" {
-		writeError(c, http.StatusBadRequest, "decision did not select a release")
+		handlers.WriteError(c, http.StatusBadRequest, "decision did not select a release")
 		return
 	}
 	if !d.DryRunWouldGrab {
-		writeError(c, http.StatusConflict, "already executed at scan time")
+		handlers.WriteError(c, http.StatusConflict, "already executed at scan time")
 		return
 	}
 
-	inst, ok := h.reg.snapshot()[string(d.InstanceName)]
+	inst, ok := h.reg.Snapshot()[string(d.InstanceName)]
 	if !ok {
 		h.logger.WarnContext(ctx, "grab_unknown_instance",
 			slog.String("decision_id", id.String()),
 			slog.String("instance", string(d.InstanceName)))
-		writeError(c, http.StatusNotFound, "unknown instance: "+string(d.InstanceName))
+		handlers.WriteError(c, http.StatusNotFound, "unknown instance: "+string(d.InstanceName))
 		return
 	}
 
 	if existingID, found, lookupErr := h.findExistingGrab(ctx, d); lookupErr != nil {
-		writeInternalError(c, h.logger, "grab_idempotency_lookup_failed", lookupErr,
+		handlers.WriteInternalError(c, h.logger, "grab_idempotency_lookup_failed", lookupErr,
 			slog.String("decision_id", id.String()))
 		return
 	} else if found {
@@ -105,7 +106,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	}
 
 	if blockedKey, blockedErr := h.checkCooldowns(ctx, d); blockedErr != nil {
-		writeInternalError(c, h.logger, "grab_cooldown_lookup_failed", blockedErr,
+		handlers.WriteInternalError(c, h.logger, "grab_cooldown_lookup_failed", blockedErr,
 			slog.String("decision_id", id.String()))
 		return
 	} else if blockedKey != "" {
@@ -163,7 +164,7 @@ func (h *GrabHandler) ByDecision(c *gin.Context) {
 	// shipping it on this single-row 200 path adds latency for a
 	// drawer field the SPA can re-fetch via GET /decisions/:id. The
 	// frontend treats nil intent here as "fetch on drawer open".
-	c.JSON(http.StatusOK, toGrabDTO(out.Record, nil, nil, nil, "", nil))
+	c.JSON(http.StatusOK, handlers.ToGrabDTO(out.Record, nil, nil, nil, "", nil))
 }
 
 // findExistingGrab returns the first non-terminal row for this

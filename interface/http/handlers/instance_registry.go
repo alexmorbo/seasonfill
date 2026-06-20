@@ -19,6 +19,15 @@ type InstanceRegistry struct {
 // Load is nil. Centralised so every handler reads through the same
 // nil-safe path.
 func (r InstanceRegistry) snapshot() map[string]scan.Instance {
+	return r.Snapshot()
+}
+
+// Snapshot is the exported variant of snapshot — story 431 (A-1-5)
+// added it so the new internal/grab/rest handlers can resolve the
+// runtime-mutable Sonarr instance map through the same nil-safe path
+// without duplicating the helper. The unexported alias stays so the
+// catch-all handlers package call sites don't churn.
+func (r InstanceRegistry) Snapshot() map[string]scan.Instance {
 	if r.Load == nil {
 		return map[string]scan.Instance{}
 	}

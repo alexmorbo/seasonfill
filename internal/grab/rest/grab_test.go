@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
@@ -209,7 +210,7 @@ func newGrabFixture(t *testing.T, forceErr error) *grabFixture {
 		},
 		Client: sn,
 	}
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
+	reg := handlers.InstanceRegistry{Load: func() map[string]scan.Instance {
 		return map[string]scan.Instance{"alpha": inst}
 	}}
 	h := NewGrabHandler(dec, gr, cd, grabUC, reg, lg)

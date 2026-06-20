@@ -1,4 +1,4 @@
-package handlers_test
+package rest_test
 
 import (
 	"context"
@@ -28,12 +28,13 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
+	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // newEFRouter builds a gin engine with the F-2c-1 typed-error middleware
 // so the handler's c.Error(err) dispatch reaches the JSON envelope.
-func newEFRouter(h *handlers.GrabEpisodeFilesHandler) *gin.Engine {
+func newEFRouter(h *grabrest.GrabEpisodeFilesHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
@@ -140,7 +141,7 @@ func TestEpisodeFiles_Imported_ReturnsItems(t *testing.T) {
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{files: files}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -167,7 +168,7 @@ func TestEpisodeFiles_NotImported_EmptyItems(t *testing.T) {
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -187,7 +188,7 @@ func TestEpisodeFiles_UnknownInstance_404(t *testing.T) {
 	db := setupEFTestDB(t)
 	repo := grabpersistence.NewGrabRepository(db)
 	reg := makeInstanceRegistry(map[string]scan.Instance{})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -205,7 +206,7 @@ func TestEpisodeFiles_UnknownID_404(t *testing.T) {
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	// F-2c-1: this case hits the GrabRepository.GetByID NotFound path
 	// which now dispatches via c.Error → typed-error middleware. The
@@ -228,7 +229,7 @@ func TestEpisodeFiles_InstanceMismatch_404(t *testing.T) {
 		"main":  {Client: stubSonarrEF{}},
 		"other": {Client: stubSonarrEF{}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -249,7 +250,7 @@ func TestEpisodeFiles_SonarrUnavailable_502(t *testing.T) {
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{err: errors.New("connection refused")}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -270,7 +271,7 @@ func TestEpisodeFiles_SonarrUnauthorized_502(t *testing.T) {
 	reg := makeInstanceRegistry(map[string]scan.Instance{
 		"main": {Client: stubSonarrEF{err: domain.ErrInstanceUnauthorized}},
 	})
-	h := handlers.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
+	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

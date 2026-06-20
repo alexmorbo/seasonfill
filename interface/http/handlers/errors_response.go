@@ -7,6 +7,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// WriteError is the exported alias of writeError. Story 431 (A-1-5)
+// added it so the new internal/grab/rest package can dispatch the same
+// JSON error envelope without forking the helper. The unexported name
+// stays so the catch-all handlers package's existing 20-ish call sites
+// don't churn.
+func WriteError(c *gin.Context, status int, msg string) {
+	writeError(c, status, msg)
+}
+
+// WriteInternalError is the exported alias of writeInternalError. See
+// WriteError above for the rationale (story 431 vertical-slice carve).
+func WriteInternalError(c *gin.Context, log *slog.Logger, event string, err error, attrs ...slog.Attr) {
+	writeInternalError(c, log, event, err, attrs...)
+}
+
 // writeInternalError is the single boundary at which a 5xx HTTP
 // response is written. It (a) logs the underlying error + caller
 // attrs at ERROR level so operators can correlate, then (b) writes

@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
+	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -110,7 +111,7 @@ func NewServer(
 		WithSeriesCache(seriesCacheRepo).
 		WithMediaPending(mediaPending)
 	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
-	grabHandler := handlers.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
+	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
@@ -253,7 +254,7 @@ func NewServer(
 		guarded.GET("/decisions/:id", auditHandler.GetDecision)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
 		guarded.GET("/counters", countersHandler.Aggregate)
-		grabEpisodeFilesHandler := handlers.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
+		grabEpisodeFilesHandler := grabrest.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
 		guarded.GET("/instances/:name/grabs/:id/episode-files", grabEpisodeFilesHandler.List)
 		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
 		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)

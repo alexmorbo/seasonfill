@@ -181,6 +181,14 @@ func supersededByIDString(id *uuid.UUID) string {
 	return id.String()
 }
 
+// ToGrabDTO is the exported variant of toGrabDTO — story 431 (A-1-5)
+// added it so the new internal/grab/rest GrabHandler.ByDecision can
+// reuse the canonical Record→dto.Grab translation. The unexported alias
+// stays so the catch-all handlers package call sites don't churn.
+func ToGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent, titleSlug string, posterHash *string) dto.Grab {
+	return toGrabDTO(r, replayedBy, parent, intent, titleSlug, posterHash)
+}
+
 func toGrabDTO(r grab.Record, replayedBy []uuid.UUID, parent *grab.Record, intent *decision.Intent, titleSlug string, posterHash *string) dto.Grab {
 	d := dto.Grab{
 		ID:                r.ID.String(),

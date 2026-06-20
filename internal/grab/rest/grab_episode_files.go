@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"errors"
@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 )
 
@@ -20,13 +21,13 @@ import (
 // item 5 / decision #6 (lazy, no persistence). 043c.
 type GrabEpisodeFilesHandler struct {
 	grabs  ports.GrabRepository
-	reg    InstanceRegistry
+	reg    handlers.InstanceRegistry
 	logger *slog.Logger
 }
 
 func NewGrabEpisodeFilesHandler(
 	grabs ports.GrabRepository,
-	reg InstanceRegistry,
+	reg handlers.InstanceRegistry,
 	logger *slog.Logger,
 ) *GrabEpisodeFilesHandler {
 	if logger == nil {
@@ -57,7 +58,7 @@ func (h *GrabEpisodeFilesHandler) List(c *gin.Context) {
 	name := c.Param("name")
 	idRaw := c.Param("id")
 
-	inst, ok := h.reg.snapshot()[name]
+	inst, ok := h.reg.Snapshot()[name]
 	if !ok || inst.Client == nil {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
 		return

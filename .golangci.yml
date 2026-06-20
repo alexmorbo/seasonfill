@@ -191,6 +191,16 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/grab/ inherits the same carve-out — UseCase (app),
+      # GrabRepository (persistence), and GrabHandler / GrabEpisodeFiles
+      # constructors accept *slog.Logger and fall back to slog.Default()
+      # wrapped via sharedports.DomainLogger when nil. Established
+      # pattern moved from application/grab + interface/http/handlers
+      # in story 431 (A-1-5).
+      - path: 'internal/grab/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:
