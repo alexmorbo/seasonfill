@@ -3,7 +3,7 @@ package adapters
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
@@ -11,12 +11,12 @@ import (
 // InstanceLister + InstanceIDLookup interfaces the watchdog rollup
 // handler depends on. One value satisfies both.
 type WatchdogInstanceLister struct {
-	repo   *repositories.SonarrInstanceRepository
+	repo   *catalogpersistence.SonarrInstanceRepository
 	cipher *crypto.Cipher
 }
 
 // NewWatchdogInstanceLister wraps the supplied repository + cipher.
-func NewWatchdogInstanceLister(repo *repositories.SonarrInstanceRepository, cipher *crypto.Cipher) WatchdogInstanceLister {
+func NewWatchdogInstanceLister(repo *catalogpersistence.SonarrInstanceRepository, cipher *crypto.Cipher) WatchdogInstanceLister {
 	return WatchdogInstanceLister{repo: repo, cipher: cipher}
 }
 

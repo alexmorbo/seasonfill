@@ -201,7 +201,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	cipher, err := crypto.New("0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
 
-	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+	instanceRepo := catalogpersistence.NewSonarrInstanceRepository(db)
 	qbitSettingsRepo := catalogpersistence.NewQbitSettingsRepository(db)
 	scanRepo := catalogpersistence.NewScanRepository(db)
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
@@ -278,7 +278,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	// --- Use case wiring ---
 	settingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, slog.Default())
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, slog.Default())
-	txr := repositories.NewGormTransactor(db)
+	txr := catalogpersistence.NewGormTransactor(db)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, slog.Default()).
 		WithTransactor(txr)
 	regrabUC := regrab.NewUseCase(

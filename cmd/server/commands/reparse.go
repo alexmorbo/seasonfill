@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -49,7 +48,7 @@ func Reparse(ctx context.Context, args []string) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+	instanceRepo := catalogpersistence.NewSonarrInstanceRepository(db)
 	bgCtx := context.Background()
 
 	// Resolve API key and cipher.

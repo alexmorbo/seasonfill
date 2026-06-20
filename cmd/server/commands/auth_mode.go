@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -63,7 +62,7 @@ func AuthMode(args []string) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+	instanceRepo := catalogpersistence.NewSonarrInstanceRepository(db)
 	ctx := context.Background()
 
 	// Need a cipher for the runtimeconfig.UseCase publish path, but

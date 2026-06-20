@@ -11,7 +11,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/instance"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
@@ -209,7 +208,7 @@ type ScanBundle struct {
 	CooldownRepo *watchdogpersistence.CooldownRepository
 	OriginRepo   *enrichpersistence.OriginReleaseRepository
 	DecisionRepo *grabpersistence.DecisionRepository
-	Txr          *repositories.GormTransactor
+	Txr          *catalogpersistence.GormTransactor
 }
 
 // BuildScan wires the scan + grab + rescan + cooldown-sweep stack.
@@ -264,7 +263,7 @@ func BuildScan(
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
 
-	txr := repositories.NewGormTransactor(db)
+	txr := catalogpersistence.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
 		WithTransactor(txr)
@@ -365,7 +364,7 @@ type WebhookBundle struct {
 	Reconciler           *webhookinstall.Reconciler
 	StatusCache          *webhookinstall.StatusCache
 	ReconcilerAdapter    adapters.ReconcilerAdapter
-	TorrentSeriesMapRepo *repositories.TorrentSeriesMapRepository
+	TorrentSeriesMapRepo *catalogpersistence.TorrentSeriesMapRepository
 	EpisodeStatesRepo    *catalogpersistence.EpisodeStatesRepository
 	SeasonStatsRepo      *catalogpersistence.SeasonStatsRepository
 }
@@ -441,7 +440,7 @@ func BuildWebhook(
 	// path can write the bridge row in the same tx as the
 	// grab_records.torrent_hash update. Repo also feeds the
 	// torrentsync reconciler constructed later in server.go.
-	torrentSeriesMapRepo := repositories.NewTorrentSeriesMapRepository(db)
+	torrentSeriesMapRepo := catalogpersistence.NewTorrentSeriesMapRepository(db)
 
 	// Story 300 (E-1 wiring fix) — construct scan.Syncer so the
 	// webhook SeriesAdd path populates the canonical entity model

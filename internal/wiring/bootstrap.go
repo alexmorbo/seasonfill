@@ -13,7 +13,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gc"
@@ -71,7 +70,7 @@ type PersistenceBundle struct {
 	Cipher          *crypto.Cipher
 	MasterKey       string
 	RuntimeRepo     *catalogpersistence.RuntimeConfigRepository
-	InstanceRepo    *repositories.SonarrInstanceRepository
+	InstanceRepo    *catalogpersistence.SonarrInstanceRepository
 	AppSettingsRepo *adminpersistence.AppSettingsRepository
 	QuotaCounter    *adminpersistence.QuotaCounterRepository
 	TZResolver      *tz.Resolver
@@ -105,7 +104,7 @@ func BuildPersistence(
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
-	instanceRepo := repositories.NewSonarrInstanceRepository(db)
+	instanceRepo := catalogpersistence.NewSonarrInstanceRepository(db)
 
 	// Temporary repo without cipher to resolve the API key first.
 	// Then rebuild the repo with the derived cipher so encrypted
