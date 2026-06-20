@@ -42,7 +42,7 @@ type Server struct {
 func NewServer(
 	cfg config.HTTPConfig,
 	scanUC *scan.UseCase,
-	webhookUC handlers.WebhookProcessor,
+	webhookUC catalogrest.WebhookProcessor,
 	checker *healthcheck.Checker,
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
@@ -67,7 +67,7 @@ func NewServer(
 	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
 	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
-	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
+	webhooksAggregateHandler *catalogrest.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
 	seriesDetailHandler *handlers.SeriesDetailHandler,
@@ -113,7 +113,7 @@ func NewServer(
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithMediaPending(mediaPending)
-	webhookHandler := handlers.NewWebhookHandler(webhookUC, instanceReg, logger)
+	webhookHandler := catalogrest.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
@@ -220,9 +220,9 @@ func NewServer(
 		}
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
-		webhookInstallHandler := handlers.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)
+		webhookInstallHandler := catalogrest.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)
 		guarded.POST("/instances/:name/webhook/install", reconcileContextMiddleware(), webhookInstallHandler.Install)
-		webhookStatusHandler := handlers.NewWebhookStatusHandler(webhookReconciler, logger)
+		webhookStatusHandler := catalogrest.NewWebhookStatusHandler(webhookReconciler, logger)
 		guarded.GET("/instances/:name/webhook/status", reconcileContextMiddleware(), webhookStatusHandler.Status)
 		guarded.GET("/instances/:name", instanceCRUD.Get)
 		guarded.POST("/instances", reconcileContextMiddleware(), instanceCRUD.Create)

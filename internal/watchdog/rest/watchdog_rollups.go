@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
@@ -95,7 +96,7 @@ type WatchdogRollupHandler struct {
 	snapshots      RollupSnapshotProvider
 	grabs          rollupGrabCounter
 	blacklist      rollupBlacklistCounter
-	instances      handlers.InstanceLister
+	instances      catalogrest.InstanceLister
 	instanceLookup InstanceIDLookup
 	probe          QbitProbe
 	lister         QbitTorrentsLister
@@ -115,7 +116,7 @@ func NewWatchdogRollupHandler(
 	snapshots RollupSnapshotProvider,
 	grabs rollupGrabCounter,
 	blacklist rollupBlacklistCounter,
-	instances handlers.InstanceLister,
+	instances catalogrest.InstanceLister,
 	instanceLookup InstanceIDLookup,
 	logger *slog.Logger,
 ) *WatchdogRollupHandler {

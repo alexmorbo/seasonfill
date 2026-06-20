@@ -18,6 +18,7 @@ import (
 	webhookuc "github.com/alexmorbo/seasonfill/internal/catalog/app/webhook"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
@@ -517,7 +518,7 @@ type RegrabBundle struct {
 	WatchdogRollupHandler    *watchdogrest.WatchdogRollupHandler
 	WatchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler
 	WatchdogSeasonsHandler   *watchdogrest.WatchdogSeasonsHandler
-	WebhooksAggregateHandler *handlers.WebhooksAggregateHandler
+	WebhooksAggregateHandler *catalogrest.WebhooksAggregateHandler
 	QbitLoader               adapters.QbitSettingsLoaderFunc
 }
 
@@ -632,7 +633,7 @@ func BuildRegrab(
 		log,
 	)
 
-	webhooksAggregateHandler := handlers.NewWebhooksAggregateHandler(
+	webhooksAggregateHandler := catalogrest.NewWebhooksAggregateHandler(
 		webhookBundle.Reconciler,
 		watchdogInstanceAdapter, // InstanceLister
 		log,
