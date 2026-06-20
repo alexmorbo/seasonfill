@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/admin"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/domain/admin"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 )
 
 // AdminUserRepository persists the single admin_users row. Methods

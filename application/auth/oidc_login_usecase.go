@@ -15,8 +15,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/admin"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

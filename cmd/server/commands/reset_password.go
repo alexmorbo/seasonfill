@@ -9,9 +9,9 @@ import (
 	"os"
 
 	authapp "github.com/alexmorbo/seasonfill/application/auth"
-	"github.com/alexmorbo/seasonfill/domain/admin"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"

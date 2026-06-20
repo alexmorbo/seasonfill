@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/admin"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 )
 
 type fakeAdminRepo struct {

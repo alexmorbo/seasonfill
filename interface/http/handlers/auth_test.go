@@ -20,8 +20,8 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/admin"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 

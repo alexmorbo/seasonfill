@@ -23,7 +23,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/domain/admin"
 	"github.com/alexmorbo/seasonfill/domain/decision"
 	"github.com/alexmorbo/seasonfill/domain/grab"
 	"github.com/alexmorbo/seasonfill/domain/release"
@@ -31,6 +30,7 @@ import (
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )

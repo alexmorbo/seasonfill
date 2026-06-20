@@ -11,9 +11,9 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/admin"
 	infraoidc "github.com/alexmorbo/seasonfill/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
