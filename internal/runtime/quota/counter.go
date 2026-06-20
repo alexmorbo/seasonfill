@@ -27,7 +27,7 @@ import (
 )
 
 // QuotaCounter is the port. Implementations:
-//   - *repositories.QuotaCounterRepository (production, DB-backed)
+//   - *adminpersistence.QuotaCounterRepository (production, DB-backed)
 //   - *InMemoryCounter (unit tests, single-process fallback)
 type QuotaCounter interface {
 	// Increment atomically bumps the (service, window) row by 1

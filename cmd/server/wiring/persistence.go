@@ -37,7 +37,7 @@ type PersistenceBundle struct {
 	RuntimeRepo     *repositories.RuntimeConfigRepository
 	InstanceRepo    *repositories.SonarrInstanceRepository
 	AppSettingsRepo *adminpersistence.AppSettingsRepository
-	QuotaCounter    *repositories.QuotaCounterRepository
+	QuotaCounter    *adminpersistence.QuotaCounterRepository
 	TZResolver      *tz.Resolver
 	TimezoneHandler *handlers.TimezoneHandler
 }
@@ -104,7 +104,7 @@ func BuildPersistence(
 	// counter that zeroed on every pod restart). Other external-
 	// service clients can opt in by injecting `quotaCounter` and
 	// switching their guard to the QuotaCounter port.
-	quotaCounter := repositories.NewQuotaCounterRepository(db)
+	quotaCounter := adminpersistence.NewQuotaCounterRepository(db)
 
 	return &PersistenceBundle{
 		DB:              db,
