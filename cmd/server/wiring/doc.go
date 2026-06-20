@@ -6,9 +6,29 @@
 // reference to higher layers (cmd/server.server.go, other wiring
 // constructors).
 //
-// Import rules (enforced by convention; future arch_test may codify):
-//   - wiring/<area>.go may import application/, infrastructure/,
-//     interface/, internal/, domain/, and cmd/server/adapters.
+// File layout (post-A-1 vertical-slice):
+//
+//   - persistence.go — DB handle + bedrock repositories (admin,
+//     catalog) + crypto + tz resolver. Returned by BuildPersistence.
+//   - integrations.go — outbound clients (Sonarr per-instance, TMDB,
+//     OMDb, mediaproxy store) + their Holder/reload plumbing.
+//   - runtime.go — reload bus, scheduler, runtime config snapshot,
+//     watchdog runtime, GC use case.
+//   - loops.go — long-running background loops (scan, rescan,
+//     torrentsync, webhook, grab, regrab, watchdog, healthcheck).
+//   - httpiface.go — HTTP edge: admin/auth, catalog, enrichment,
+//     mediaproxy, seriesdetail REST routers + middleware wiring.
+//
+// Import rules (enforced by convention; depguard codifies the
+// shared/http kernel boundary):
+//
+//   - wiring/<area>.go imports from per-context internal/<ctx>/
+//     subtrees (app/, persistence/, rest/, domain/, infrastructure/)
+//     and from internal/shared/ for cross-context primitives
+//     (clients/, db/, domain/, http/, ports/, reload/, scheduler/).
+//   - Legacy top-level application/, infrastructure/, and interface/
+//     paths are still referenced where symbols have not yet been
+//     drained into per-context trees (Phase 2+ work).
 //   - wiring/<area>.go MUST NOT import cmd/server, cmd/server/loops,
 //     or other wiring/<area>.go directly. Cross-area dependencies
 //     flow via Bundle references passed into the constructor.
