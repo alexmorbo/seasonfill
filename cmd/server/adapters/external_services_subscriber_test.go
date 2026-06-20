@@ -14,7 +14,7 @@ import (
 
 	appextsvc "github.com/alexmorbo/seasonfill/application/externalservices"
 	apports "github.com/alexmorbo/seasonfill/application/ports"
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 // TestExternalServicesSubscriber_RegisterListener_FiresAfterApply

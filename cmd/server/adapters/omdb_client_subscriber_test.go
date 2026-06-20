@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 // TestOMDbClientSubscriber_FirstApplyRebuildsWhenEnabled covers the

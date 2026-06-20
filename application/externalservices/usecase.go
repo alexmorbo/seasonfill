@@ -8,7 +8,7 @@ import (
 	"time"
 
 	apports "github.com/alexmorbo/seasonfill/application/ports"
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

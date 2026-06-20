@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	appext "github.com/alexmorbo/seasonfill/application/externalservices"
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

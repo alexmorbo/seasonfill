@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	appenrich "github.com/alexmorbo/seasonfill/application/enrichment"
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 func TestClassifyTransportErr_ProxyConfigWins(t *testing.T) {

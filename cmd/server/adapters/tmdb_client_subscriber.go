@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

@@ -14,7 +14,7 @@ import (
 
 	appext "github.com/alexmorbo/seasonfill/application/externalservices"
 	apports "github.com/alexmorbo/seasonfill/application/ports"
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 type fakeExtRepo struct {

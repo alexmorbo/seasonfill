@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 // Repository is the port the use case consumes. infrastructure

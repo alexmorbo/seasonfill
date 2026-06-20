@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
-	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	infra "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
+	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 )
 
 // realTester implements Tester by issuing the documented cheap probe
