@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/torrentsync"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"

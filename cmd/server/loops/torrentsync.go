@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/torrentsync"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"

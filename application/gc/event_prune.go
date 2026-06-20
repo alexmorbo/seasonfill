@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/torrentsync"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
