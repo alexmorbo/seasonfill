@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/alexmorbo/seasonfill/application/bootstrap"
-	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
