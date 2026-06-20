@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/instance"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -18,6 +17,7 @@ import (
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/instance"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"

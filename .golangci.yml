@@ -232,6 +232,15 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/catalog/ inherits the application/ carve-out — the
+      # instance UseCase constructor accepts *slog.Logger and falls
+      # back to sharedports.DomainLogger(slog.Default(), "admin") when
+      # nil. Established pattern moved from application/instance +
+      # domain/{series,instance,webhook,release} in story 441 (A-1-15).
+      - path: 'internal/catalog/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:
