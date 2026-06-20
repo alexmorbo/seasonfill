@@ -31,7 +31,7 @@ type Server struct {
 	cfg         config.HTTPConfig
 	server      *http.Server
 	engine      *gin.Engine
-	authHandler *handlers.AuthHandler
+	authHandler *adminrest.AuthHandler
 	logger      *slog.Logger
 }
 
@@ -118,7 +118,7 @@ func NewServer(
 
 	api := r.Group("/api/v1")
 
-	var serverAuthHandler *handlers.AuthHandler
+	var serverAuthHandler *adminrest.AuthHandler
 	if cfg.Auth.Enabled {
 		sessionKey, err := crypto.DeriveSessionHMACKey(cfg.Auth.APIKey)
 		if err != nil {
@@ -128,10 +128,10 @@ func NewServer(
 		// per ClientIP. Independent from the login limiter so a brute-
 		// forcer with a stolen cookie can't exhaust BOTH paths.
 		passwordLimiter := auth.NewIPLimiter(auth.PasswordChangeLimit(), 3)
-		authHandler := handlers.NewAuthHandler(
+		authHandler := adminrest.NewAuthHandler(
 			cfg.Auth.APIKey, adminRepo, cfg.Auth.SessionTTL,
 			cfg.Auth.SecureCookie, loginLimiter, logger,
-			handlers.WithPasswordLimiter(passwordLimiter),
+			adminrest.WithPasswordLimiter(passwordLimiter),
 		)
 		// Hold a reference so the reload subscriber can pull the
 		// shared AuthRuntime pointer out at startup.
@@ -140,7 +140,7 @@ func NewServer(
 		// Public bootstrap endpoint — MUST be registered before the
 		// guarded group so it inherits NO RequireAuth middleware.
 		// Reads from the same AuthRuntime atomic the dispatcher uses.
-		authConfigHandler := handlers.NewAuthConfigHandler(authHandler.AuthRuntime())
+		authConfigHandler := adminrest.NewAuthConfigHandler(authHandler.AuthRuntime())
 		api.GET("/auth/config", authConfigHandler.Get)
 
 		oidcHandler := handlers.NewOIDCHandler(
@@ -365,7 +365,7 @@ func (s *Server) Engine() *gin.Engine {
 // AuthHandler returns the handler if auth is enabled, or nil
 // otherwise. Used by the reload subscriber to obtain the shared
 // AuthRuntime pointer for in-process TTL swaps.
-func (s *Server) AuthHandler() *handlers.AuthHandler {
+func (s *Server) AuthHandler() *adminrest.AuthHandler {
 	return s.authHandler
 }
 
