@@ -28,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
@@ -59,7 +60,7 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
-	repo := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
+	repo := repositories.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 	grabs := grabpersistence.NewGrabRepository(db)
 
 	instMap := map[string]scan.Instance{}

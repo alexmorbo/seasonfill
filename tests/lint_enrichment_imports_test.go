@@ -31,7 +31,13 @@ import (
 //
 // Scope: production .go files and _test.go files alike. The story 436
 // move was structural; no test should suddenly reach into the legacy
-// tree either.
+// tree either. Story 437 (A-1-11) extended the bounded context with
+// internal/enrichment/persistence (catalog-data + people + taxonomy +
+// i18n repositories migrated out of infrastructure/database/
+// repositories). Persistence files are covered by this same depcheck
+// — they may import infrastructure/database (for GORM models) but
+// MUST NOT reach back into infrastructure/database/repositories for
+// neighbour repos, application/*, domain/*, or interface/*.
 //
 // Carve-outs (explicit allowlist):
 //

@@ -6,6 +6,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -13,11 +14,11 @@ import (
 // thin seriesrefresh.CanonView shape so the use case stays free of
 // the domain/series import. Story 218 (E-2).
 type SeriesRefreshSeriesAdapter struct {
-	R *repositories.SeriesRepository
+	R *persistence.SeriesRepository
 }
 
 // NewSeriesRefreshSeriesAdapter wraps the supplied repository.
-func NewSeriesRefreshSeriesAdapter(r *repositories.SeriesRepository) SeriesRefreshSeriesAdapter {
+func NewSeriesRefreshSeriesAdapter(r *persistence.SeriesRepository) SeriesRefreshSeriesAdapter {
 	return SeriesRefreshSeriesAdapter{R: r}
 }
 

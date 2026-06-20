@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
@@ -176,7 +177,7 @@ func BuildScan(
 		WithTransactor(txr)
 
 	// seriesCacheRepo is local to this wirer — see godoc above.
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	// Story 380: season_stats writer was only wired into webhook.go and
 	// seriesdetail.go before — the scan loop's fillSeriesCache never wrote
@@ -362,9 +363,9 @@ func BuildWebhook(
 	// not on ports.SonarrClient. Unknown instance OR a non-concrete
 	// client → (nil, false), webhook silently falls back to the
 	// pre-E-1 thin CacheEntry path.
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
-	webhookEpisodesRepo := repositories.NewEpisodesRepository(db)
+	webhookEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	webhookEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
 	webhookGenresRepo := repositories.NewGenresRepository(db)
 	webhookGenresI18nRepo := repositories.NewGenresI18nRepository(db)
@@ -612,7 +613,7 @@ func BuildRegrab(
 
 	// 047b — blacklist handler. seriesRepo + seriesCacheRepo are local
 	// (stateless GORM wrappers, same pattern as scan.go / webhook.go).
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	watchdogBlacklistHandler := watchdogrest.NewWatchdogBlacklistHandler(
 		blacklistRepo,           // BlacklistPager
@@ -855,7 +856,7 @@ func BuildTorrentsync(
 	// same pattern as webhook.go / regrab.go — re-constructing them
 	// here is free and mirrors the pre-338 inline body which captured
 	// the seriesdetail-block instances).
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	// HTTP handler stays on bare `log` — see qbitLog godoc above.
 	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(

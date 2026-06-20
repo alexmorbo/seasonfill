@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -27,10 +28,10 @@ import (
 // grab_records FK references.
 type SeriesCacheRepository struct {
 	db     *gorm.DB
-	series *SeriesRepository
+	series *persistence.SeriesRepository
 }
 
-func NewSeriesCacheRepository(db *gorm.DB, series *SeriesRepository) *SeriesCacheRepository {
+func NewSeriesCacheRepository(db *gorm.DB, series *persistence.SeriesRepository) *SeriesCacheRepository {
 	return &SeriesCacheRepository{db: db, series: series}
 }
 

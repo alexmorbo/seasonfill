@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -18,6 +19,48 @@ import (
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
+
+// upsertSyncLog inserts a sync_log row directly via gorm. Inlined here
+// to break the import cycle that would otherwise arise from importing
+// infrastructure/database/repositories.SyncLogRepository — that package
+// already imports this one for SeriesCacheRepository's dependency on
+// *persistence.SeriesRepository. Functional behavior matches the
+// production SyncLogRepository.Upsert codepath: same OnConflict
+// 3-column primary key, same DoUpdates set.
+func upsertSyncLog(t *testing.T, db *gorm.DB, entry enrichment.SyncLog) {
+	t.Helper()
+	if entry.Outcome == "" {
+		entry.Outcome = enrichment.OutcomePending
+	}
+	entry.UpdatedAt = time.Now().UTC()
+	m := database.SyncLogModel{
+		EntityType:    string(entry.EntityType),
+		EntityID:      entry.EntityID,
+		Source:        string(entry.Source),
+		SyncedAt:      entry.SyncedAt,
+		Outcome:       string(entry.Outcome),
+		ErrorDetail:   entry.ErrorDetail,
+		ETag:          entry.ETag,
+		Attempts:      entry.Attempts,
+		NextAttemptAt: entry.NextAttemptAt,
+		DurationMs:    entry.DurationMs,
+		UpdatedAt:     entry.UpdatedAt,
+	}
+	require.NoError(t, db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "entity_type"},
+			{Name: "entity_id"},
+			{Name: "source"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"synced_at", "outcome",
+			"error_detail", "etag",
+			"attempts", "next_attempt_at",
+			"duration_ms",
+			"updated_at",
+		}),
+	}).Create(&m).Error)
+}
 
 func sampleCanon(title string) series.Canon {
 	return series.Canon{
@@ -223,7 +266,7 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewSeriesRepository(db)
-			syncLogRepo := NewSyncLogRepository(db)
+
 			ctx := context.Background()
 
 			// 3 series; the first two get a sync_log(tmdb_series) row, the
@@ -246,18 +289,18 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 			idC, err := repo.Upsert(ctx, c)
 			require.NoError(t, err)
 
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(idA),
 				Source:     enrichment.SourceTMDBSeries,
 				Outcome:    enrichment.OutcomeOK,
-			}))
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			})
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(idB),
 				Source:     enrichment.SourceTMDBSeries,
 				Outcome:    enrichment.OutcomeError,
-			}))
+			})
 
 			ids, err := repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
 			require.NoError(t, err)
@@ -266,12 +309,12 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 
 			// A sync_log row for an unrelated source must NOT mark the series
 			// as journalled for tmdb_series.
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(idC),
 				Source:     enrichment.SourceOMDb,
 				Outcome:    enrichment.OutcomeOK,
-			}))
+			})
 			ids, err = repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
 			require.NoError(t, err)
 			require.Len(t, ids, 1, "different-source rows must not cover the join")
@@ -309,7 +352,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewSeriesRepository(db)
-			syncLogRepo := NewSyncLogRepository(db)
+
 			ctx := context.Background()
 
 			// 3 library series (each with a series_cache row).
@@ -348,12 +391,12 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 			idD, err := repo.Upsert(ctx, d)
 			require.NoError(t, err)
 			seedSeriesCacheRow(t, db, idD, "main", 5, false)
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(idD),
 				Source:     enrichment.SourceOMDb,
 				Outcome:    enrichment.OutcomeNotFound,
-			}))
+			})
 
 			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
@@ -379,7 +422,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewSeriesRepository(db)
-			syncLogRepo := NewSyncLogRepository(db)
+
 			ctx := context.Background()
 
 			s := sampleCanon("Fresh")
@@ -391,13 +434,13 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 
 			now := time.Now().UTC()
 			fresh := now.Add(-30 * time.Minute)
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(id),
 				Source:     enrichment.SourceOMDb,
 				Outcome:    enrichment.OutcomeOK,
 				SyncedAt:   &fresh,
-			}))
+			})
 
 			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
@@ -405,13 +448,13 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 
 			// Now mark synced_at as 25h ago (past TTL) → series returns.
 			stale := now.Add(-25 * time.Hour)
-			require.NoError(t, syncLogRepo.Upsert(ctx, enrichment.SyncLog{
+			upsertSyncLog(t, db, enrichment.SyncLog{
 				EntityType: enrichment.EntityTypeSeries,
 				EntityID:   int64(id),
 				Source:     enrichment.SourceOMDb,
 				Outcome:    enrichment.OutcomeOK,
 				SyncedAt:   &stale,
-			}))
+			})
 			ids, err = repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
 			assert.Contains(t, ids, id, "stale sync past TTL returned")

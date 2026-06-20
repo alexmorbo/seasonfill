@@ -24,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
@@ -907,11 +908,11 @@ type OMDbBatchScanner interface {
 // OMDbBatchScanner. Out-of-application boundary, no
 // imports of infrastructure/database from app.
 type omdbBatchScannerAdapter struct {
-	inner *repositories.SeriesRepository
+	inner *enrichpersistence.SeriesRepository
 }
 
 // NewOMDbBatchScannerAdapter returns the wrapper for main.go's wiring.
-func NewOMDbBatchScannerAdapter(s *repositories.SeriesRepository) OMDbBatchScanner {
+func NewOMDbBatchScannerAdapter(s *enrichpersistence.SeriesRepository) OMDbBatchScanner {
 	return omdbBatchScannerAdapter{inner: s}
 }
 
@@ -1113,12 +1114,12 @@ func yearFromReleaseDate(t *time.Time) *int {
 // appenrich.ColdStartScanner. The adapter exists so the application
 // port doesn't import infrastructure/database.
 type coldStartScannerAdapter struct {
-	inner *repositories.SeriesRepository
+	inner *enrichpersistence.SeriesRepository
 }
 
 // NewColdStartScannerAdapter returns the wrapper. Kept exported for
 // main.go's wiring.
-func NewColdStartScannerAdapter(s *repositories.SeriesRepository) appenrich.ColdStartScanner {
+func NewColdStartScannerAdapter(s *enrichpersistence.SeriesRepository) appenrich.ColdStartScanner {
 	return coldStartScannerAdapter{inner: s}
 }
 

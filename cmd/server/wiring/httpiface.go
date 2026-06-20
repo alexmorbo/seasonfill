@@ -22,6 +22,7 @@ import (
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -321,11 +322,11 @@ func BuildSeriesDetail(
 	// are stateless GORM wrappers around `db`, so re-constructing
 	// them here is free; the enrichment block in server.go re-uses
 	// its own instances of the same set for the worker pipeline.
-	sdSeriesRepo := repositories.NewSeriesRepository(db)
+	sdSeriesRepo := enrichpersistence.NewSeriesRepository(db)
 	sdSeriesCacheRepo := repositories.NewSeriesCacheRepository(db, sdSeriesRepo)
 	sdSeriesTextsRepo := repositories.NewSeriesTextsRepository(db)
-	sdSeasonsRepo := repositories.NewSeasonsRepository(db)
-	sdEpisodesRepo := repositories.NewEpisodesRepository(db)
+	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)
+	sdEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
 	sdSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)

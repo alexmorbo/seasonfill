@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
@@ -60,7 +61,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	scans := repositories.NewScanRepository(db)
 	decs := grabpersistence.NewDecisionRepository(db)
 	grabs := grabpersistence.NewGrabRepository(db)
-	seriesCache := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
+	seriesCache := repositories.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Note: WithSeriesCache is wired here so the per-test slug
 	// fixture works. Tests that don't seed series_cache still see

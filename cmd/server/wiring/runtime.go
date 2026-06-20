@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
@@ -338,7 +339,7 @@ func BuildScheduler(
 		// orchestrator + three sub-tasks all anchor on the new "gc" slot
 		// in AllowedDomains. PRD §6.5.
 		gcLog := sharedports.DomainLogger(log, "gc")
-		seriesRepo := repositories.NewSeriesRepository(db)
+		seriesRepo := enrichpersistence.NewSeriesRepository(db)
 		liveAssetsRepo := repositories.NewLiveAssetsRepository(db)
 		weeklyJob := gc.WeeklyJob{
 			OrphanSeries: gc.OrphanSeriesDeps{

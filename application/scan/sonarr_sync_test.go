@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -31,9 +32,9 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	require.NoError(t, err)
 	require.NoError(t, database.Migrate(db))
 
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
-	episodesRepo := repositories.NewEpisodesRepository(db)
+	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	episodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
 	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
 	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)

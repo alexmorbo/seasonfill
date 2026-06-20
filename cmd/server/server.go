@@ -19,6 +19,7 @@ import (
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
@@ -169,7 +170,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// seriesRepo / seriesCacheRepo / counterRepo are stateless GORM
 	// wrappers — each call site gets its own. seriesCacheRepo +
 	// counterRepo are still consumed by BuildHTTPServer below.
-	seriesRepo := repositories.NewSeriesRepository(db)
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
 
@@ -268,8 +269,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// Story 211 (C-2) repositories — fed to the enrichment dispatcher.
 	seriesTextsRepo := repositories.NewSeriesTextsRepository(db)
-	seasonsRepo := repositories.NewSeasonsRepository(db)
-	episodesRepo := repositories.NewEpisodesRepository(db)
+	seasonsRepo := enrichpersistence.NewSeasonsRepository(db)
+	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
 	peopleRepo := repositories.NewPeopleRepository(db)
 	seriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
