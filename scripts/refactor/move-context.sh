@@ -115,8 +115,18 @@ fi
 echo "[move-context] step 4/6: drop *.go.bak sidecars" >&2
 find . -name "*.go.bak" -not -path "./vendor/*" -not -path "./node_modules/*" -delete
 
-echo "[move-context] step 5/6: gofmt -w $DST" >&2
+echo "[move-context] step 5/6: gofmt -w $DST + consumers" >&2
 gofmt -w "$DST"
+# Reformat every file that had its imports rewritten so the import block
+# stays sorted (the sed retarget can break alphabetical order inside a
+# group). goimports preferred when available; fall back to plain gofmt.
+if [[ ${#consumer_files[@]} -gt 0 ]]; then
+    if command -v goimports >/dev/null 2>&1; then
+        goimports -w "${consumer_files[@]}"
+    else
+        gofmt -w "${consumer_files[@]}"
+    fi
+fi
 
 echo "[move-context] step 6/6: go build ./..." >&2
 if ! go build ./...; then

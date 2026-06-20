@@ -17,8 +17,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain/media"
 	"github.com/alexmorbo/seasonfill/infrastructure/mediastore"
+	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 )
 
 // fakeRepo is a thread-safe in-memory AssetRepo.
