@@ -4,7 +4,7 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 )
 
 // InstanceMapHolder is the shared, mutex-protected container the

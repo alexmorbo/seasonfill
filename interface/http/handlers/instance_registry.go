@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 )
 
 // InstanceRegistry — reload-aware snapshot accessor shared by handlers

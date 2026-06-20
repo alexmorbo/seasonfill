@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/scan"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"

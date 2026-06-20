@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/webhookinstall"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 

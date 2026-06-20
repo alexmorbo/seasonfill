@@ -1,8 +1,8 @@
 package adapters
 
 import (
-	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 )
 
 // RegrabInstanceRegistry adapts handlers.InstanceRegistry to the

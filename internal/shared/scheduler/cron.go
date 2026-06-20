@@ -18,7 +18,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/alexmorbo/seasonfill/application/scan"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 )
 
 // ScanJobName is the name the existing scan job registers under.
