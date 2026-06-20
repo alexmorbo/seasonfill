@@ -112,9 +112,31 @@ jobs:
           go test -tags integration -race -timeout 15m $PKGS
 
   integration-postgres:
-    name: Integration (Postgres via testcontainers)
+    name: Integration (Postgres via services container)
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
+    # GitHub Actions service container shared across all packages in this job.
+    # Switched from per-process testcontainers (sync.Once-per-test-binary) because
+    # `go test ./pkgA ./pkgB` spawns one process per package; each process booted
+    # and then terminated its own container, leaving later packages with a stale
+    # cached port and "connection refused". One services container shared across
+    # the job sidesteps the lifecycle entirely. Per-test DB isolation is preserved
+    # by testhelpers.PostgresContainer.NewDB which CREATEs a fresh
+    # `seasonfill_test_<rand>` database per call.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: seasonfill
+          POSTGRES_PASSWORD: seasonfill
+          POSTGRES_DB: seasonfill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U seasonfill -d seasonfill_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -128,6 +150,7 @@ jobs:
       - name: Test (integration, postgres backend)
         env:
           SEASONFILL_TEST_POSTGRES_ENABLE: "1"
+          SEASONFILL_TEST_POSTGRES_DSN: "postgres://seasonfill:seasonfill@localhost:5432/seasonfill_test?sslmode=disable"
           GOMAXPROCS: "4"
         run: |
           PKGS=$(go list ./internal/shared/testhelpers ./infrastructure/database/repositories/...)
