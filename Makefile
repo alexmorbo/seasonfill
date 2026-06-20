@@ -59,7 +59,7 @@ lint:
 # express in the main config. use-any/modernize need golangci-lint on
 # PATH; bare-id-int is pure stdlib.
 test-lint-rule:
-	go test -tags lint -run 'TestUseAnyRejectsInterfaceLiteral|TestBareIDIntRegression|TestModernizeRejectsLegacyPatterns|TestNoGormInApplication|TestMediaProxyNoBackwardsImports|TestAdminNoBackwardsImports' ./tests/...
+	go test -tags lint -run 'TestUseAnyRejectsInterfaceLiteral|TestBareIDIntRegression|TestModernizeRejectsLegacyPatterns|TestNoGormInApplication|TestMediaProxyNoBackwardsImports|TestAdminNoBackwardsImports|TestAdminPersistenceNoBackwardsImports' ./tests/...
 
 vuln: vuln-go vuln-web ## Run security vulnerability scanners (Go + web)
 
