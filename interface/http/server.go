@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
@@ -113,7 +114,7 @@ func NewServer(
 
 	r.GET("/healthz", healthHandler.Live)
 	r.GET("/readyz", healthHandler.Ready)
-	r.GET("/metrics", handlers.MetricsHandler())
+	r.GET("/metrics", adminrest.MetricsHandler())
 
 	api := r.Group("/api/v1")
 

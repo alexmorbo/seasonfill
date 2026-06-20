@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -287,7 +288,7 @@ func TestWebhookHandler_NonTransientUseCaseError_200_EmitsMetric(t *testing.T) {
 		"non-transient must NOT 500 — Sonarr retries would pollute the failure rate")
 
 	mrouter := gin.New()
-	mrouter.GET("/metrics", MetricsHandler())
+	mrouter.GET("/metrics", adminrest.MetricsHandler())
 	mreq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil)
 	mw := httptest.NewRecorder()
 	mrouter.ServeHTTP(mw, mreq)
