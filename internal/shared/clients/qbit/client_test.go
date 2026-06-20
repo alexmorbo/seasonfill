@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // fakeQbit emulates the qBit Web API surface this wrapper exercises:
@@ -154,7 +154,7 @@ func TestClient_LoginBadCredentialsMapsAuth(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	if !errors.Is(err, domain.ErrInstanceUnauthorized) {
+	if !errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 		t.Fatalf("want ErrInstanceUnauthorized in chain, got %v", err)
 	}
 }
@@ -169,7 +169,7 @@ func TestClient_LoginIPBannedMapsAuth(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	if !errors.Is(err, domain.ErrInstanceUnauthorized) {
+	if !errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 		t.Fatalf("want ErrInstanceUnauthorized in chain, got %v", err)
 	}
 }
@@ -196,7 +196,7 @@ func TestClient_LoginNetworkFailureMapsNetwork(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	if !errors.Is(err, domain.ErrInstanceNetwork) {
+	if !errors.Is(err, sharedErrors.ErrInstanceNetwork) {
 		t.Fatalf("want ErrInstanceNetwork in chain, got %v", err)
 	}
 }

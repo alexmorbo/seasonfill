@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type Client struct {
@@ -144,13 +144,13 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	// the instance to SelfThrottled instead of UnavailableUnknown.
 	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
 		if errors.Is(err, ratelimit.ErrSelfThrottled) {
-			return fmt.Errorf("rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+			return fmt.Errorf("rate limit wait %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceSelfThrottled))
 		}
 		return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
 	}
 	if err := ratelimit.Wait(c.globalLimiter(), ctx); err != nil {
 		if errors.Is(err, ratelimit.ErrSelfThrottled) {
-			return fmt.Errorf("global rate limit wait %s: %w", endpoint, errors.Join(err, domain.ErrInstanceSelfThrottled))
+			return fmt.Errorf("global rate limit wait %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceSelfThrottled))
 		}
 		return fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
 	}
@@ -167,7 +167,7 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 		}
 		// Transport errors (DNS/connect/timeout) join the network sentinel so
 		// the scan/watchdog can classify without re-parsing url.Error.
-		return fmt.Errorf("call %s: %w", endpoint, errors.Join(err, domain.ErrInstanceNetwork))
+		return fmt.Errorf("call %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -178,7 +178,7 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, SonarrBodyMaxBytes))
 		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			return fmt.Errorf("%w: %w", domain.ErrInstanceUnauthorized, se)
+			return fmt.Errorf("%w: %w", sharedErrors.ErrInstanceUnauthorized, se)
 		}
 		return se
 	}

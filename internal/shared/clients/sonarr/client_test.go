@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *Client) {
@@ -114,7 +114,7 @@ func TestClient_UnauthorizedMappedToDomainSentinel(t *testing.T) {
 	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.SystemStatus(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, domain.ErrInstanceUnauthorized))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
 	assert.True(t, IsAuth(err))
 	var se *StatusError
 	assert.True(t, errors.As(err, &se))
@@ -130,7 +130,7 @@ func TestClient_ForbiddenMappedToDomainSentinel(t *testing.T) {
 	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.SystemStatus(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, domain.ErrInstanceUnauthorized))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
 	assert.True(t, IsAuth(err))
 }
 
@@ -139,7 +139,7 @@ func TestClient_NetworkErrorMappedToDomainSentinel(t *testing.T) {
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.SystemStatus(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, domain.ErrInstanceNetwork))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceNetwork))
 }
 
 func TestClient_ForceGrab_Success(t *testing.T) {
@@ -270,7 +270,7 @@ func TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork(t *testing.T) {
 	_, err := c.SystemStatus(ctx)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, context.DeadlineExceeded), "expected context.DeadlineExceeded, got: %v", err)
-	assert.False(t, errors.Is(err, domain.ErrInstanceNetwork), "ctx cancel must not be wrapped as network error")
+	assert.False(t, errors.Is(err, sharedErrors.ErrInstanceNetwork), "ctx cancel must not be wrapped as network error")
 }
 
 func TestClient_NilLimitersAreNoOp(t *testing.T) {

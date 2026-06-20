@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type episodesFakeSonarr struct {
@@ -178,7 +178,7 @@ func TestInstancesHandler_SeasonEpisodes_SonarrUnauthorized(t *testing.T) {
 	t.Parallel()
 	mf := &episodesFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
-		err:        domain.ErrInstanceUnauthorized,
+		err:        sharedErrors.ErrInstanceUnauthorized,
 	}
 	w := doSeasonEpisodes(t, "alpha", 1, 1,
 		map[string]ports.SonarrClient{"alpha": mf})

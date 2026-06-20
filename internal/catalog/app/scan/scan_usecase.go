@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -23,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/errtext"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
@@ -352,7 +352,7 @@ func (u *UseCase) startOne(parent context.Context, inst Instance, trigger Trigge
 			)
 			return RunResult{InstanceName: instName, Status: "skipped"},
 				fmt.Errorf("%w: %s state=%s",
-					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
+					sharedErrors.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
 		}
 	}
 
@@ -438,7 +438,7 @@ func (u *UseCase) runOne(parent context.Context, inst Instance, trigger Trigger,
 			)
 			return RunResult{InstanceName: instName, Status: "skipped"},
 				fmt.Errorf("%w: %s state=%s",
-					domain.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
+					sharedErrors.ErrInstanceUnavailable, inst.Config.Name, snap.Health)
 		}
 	}
 	if err := u.acquire(instName, scanID); err != nil {
@@ -496,7 +496,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 	seriesList, err := inst.Client.ListSeries(ctx)
 	if err != nil {
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			return u.finalizeScanAborted(ctx, rec, inst, started, err)
 		}
 		return u.finalizeScanFailed(ctx, rec, inst, started, fmt.Errorf("list series: %w", err))
@@ -541,7 +541,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		// Auth abort wins over D-2.5 fail-CLOSED — a 401/403 means the
 		// instance is unreachable, so no useful work is possible. The
 		// fail-CLOSED gate below is for transient ListTags failures only.
-		if errors.Is(tagErr, domain.ErrInstanceUnauthorized) {
+		if errors.Is(tagErr, sharedErrors.ErrInstanceUnauthorized) {
 			return u.finalizeScanAborted(ctx, rec, inst, started, tagErr)
 		}
 		// D-2.5 / M-new-2: fail-CLOSED when include is non-empty.
@@ -645,7 +645,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		} else {
 			p, perr := inst.Client.GetQualityProfile(ctx, s.QualityProfile)
 			if perr != nil {
-				if errors.Is(perr, domain.ErrInstanceUnauthorized) {
+				if errors.Is(perr, sharedErrors.ErrInstanceUnauthorized) {
 					return u.finalizeScanAborted(ctx, rec, inst, started, perr)
 				}
 				u.logger.WarnContext(ctx, "fetch quality profile failed",
@@ -663,7 +663,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 		fileQuality, ferr := inst.Client.ListEpisodeFiles(ctx, s.ID)
 		if ferr != nil {
-			if errors.Is(ferr, domain.ErrInstanceUnauthorized) {
+			if errors.Is(ferr, sharedErrors.ErrInstanceUnauthorized) {
 				return u.finalizeScanAborted(ctx, rec, inst, started, ferr)
 			}
 			u.logger.WarnContext(ctx, "list episode files failed",
@@ -749,7 +749,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 
 			episodes, eerr := inst.Client.ListEpisodes(ctx, s.ID, season.Number)
 			if eerr != nil {
-				if errors.Is(eerr, domain.ErrInstanceUnauthorized) {
+				if errors.Is(eerr, sharedErrors.ErrInstanceUnauthorized) {
 					return u.finalizeScanAborted(ctx, rec, inst, started, eerr)
 				}
 				u.logger.WarnContext(ctx, "list episodes failed",
@@ -780,7 +780,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 					if history, herr := inst.Client.GrabHistory(ctx, s.ID); herr == nil {
 						liveOriginIndexer = dominantIndexer(history)
 					} else {
-						if errors.Is(herr, domain.ErrInstanceUnauthorized) {
+						if errors.Is(herr, sharedErrors.ErrInstanceUnauthorized) {
 							return u.finalizeScanAborted(ctx, rec, inst, started, herr)
 						}
 						u.logger.WarnContext(ctx, "fetch grab history failed",
@@ -812,7 +812,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				Cooldowns:            u.cooldowns,
 			})
 			if evErr != nil {
-				if errors.Is(evErr, domain.ErrInstanceUnauthorized) {
+				if errors.Is(evErr, sharedErrors.ErrInstanceUnauthorized) {
 					return u.finalizeScanAborted(ctx, rec, inst, started, evErr)
 				}
 				errorsCount++
@@ -854,7 +854,7 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 					grabsFailed++
 					consecutiveGrabFails++
 					errorsCount++
-					if errors.Is(out.Err, domain.ErrInstanceUnauthorized) {
+					if errors.Is(out.Err, sharedErrors.ErrInstanceUnauthorized) {
 						rec.GrabsPerformed = grabsDone
 						rec.GrabsFailed = grabsFailed
 						rec.ErrorsCount = errorsCount

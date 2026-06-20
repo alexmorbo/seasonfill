@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type fakeSonarr struct {
@@ -109,7 +109,7 @@ func TestChecker_Preflight_Auth(t *testing.T) {
 	db := openDB(t)
 	c := New(db, []ports.SonarrClient{&fakeSonarr{
 		name: "main",
-		err:  fmt.Errorf("%w: 401", domain.ErrInstanceUnauthorized),
+		err:  fmt.Errorf("%w: 401", sharedErrors.ErrInstanceUnauthorized),
 	}})
 	c.Preflight(context.Background())
 	snap := c.Snapshot()
@@ -122,7 +122,7 @@ func TestChecker_Preflight_Network(t *testing.T) {
 	db := openDB(t)
 	c := New(db, []ports.SonarrClient{&fakeSonarr{
 		name: "main",
-		err:  fmt.Errorf("dial fail: %w", domain.ErrInstanceNetwork),
+		err:  fmt.Errorf("dial fail: %w", sharedErrors.ErrInstanceNetwork),
 	}})
 	c.Preflight(context.Background())
 	snap := c.Snapshot()
@@ -145,7 +145,7 @@ func TestChecker_Preflight_SelfThrottled(t *testing.T) {
 	db := openDB(t)
 	c := New(db, []ports.SonarrClient{&fakeSonarr{
 		name: "main",
-		err:  fmt.Errorf("global rate limit wait /api/v3/system/status: %w", domain.ErrInstanceSelfThrottled),
+		err:  fmt.Errorf("global rate limit wait /api/v3/system/status: %w", sharedErrors.ErrInstanceSelfThrottled),
 	}})
 	c.Preflight(context.Background())
 	snap := c.Snapshot()

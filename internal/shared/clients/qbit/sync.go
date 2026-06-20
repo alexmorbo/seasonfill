@@ -10,7 +10,7 @@ import (
 
 	qbt "github.com/autobrr/go-qbittorrent"
 
-	"github.com/alexmorbo/seasonfill/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // TorrentInfo is the seasonfill-owned projection of qbt.Torrent. It
@@ -154,7 +154,7 @@ func (s *syncSession) Refresh(ctx context.Context) (Snapshot, error) {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Snapshot{}, fmt.Errorf("qbit sync refresh: %w", ctxErr)
 		}
-		return Snapshot{}, fmt.Errorf("qbit sync refresh: %w", errors.Join(err, domain.ErrInstanceNetwork))
+		return Snapshot{}, fmt.Errorf("qbit sync refresh: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 
 	torrents := make(map[string]TorrentInfo, len(s.main.Torrents))

@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -26,6 +25,7 @@ import (
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
@@ -744,7 +744,7 @@ func TestSearchSeries_UnknownInstance(t *testing.T) {
 func TestSearchSeries_SonarrUnauthorized(t *testing.T) {
 	mf := &missingFakeSonarr{
 		fakeSonarr: &fakeSonarr{name: "alpha"},
-		err:        domain.ErrInstanceUnauthorized,
+		err:        sharedErrors.ErrInstanceUnauthorized,
 	}
 	w := doSearch(t, "alpha", "", map[string]ports.SonarrClient{"alpha": mf})
 	require.Equal(t, http.StatusBadGateway, w.Code)

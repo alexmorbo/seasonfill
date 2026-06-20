@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -25,6 +24,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
@@ -466,7 +466,7 @@ func TestScan_PreflightGate_SkipsUnavailable(t *testing.T) {
 	require.Error(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "skipped", results[0].Status)
-	assert.True(t, errors.Is(err, domain.ErrInstanceUnavailable))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnavailable))
 	// The scan was skipped before scanRepo.Create was called.
 	assert.Empty(t, scanRepo.FinalStatus())
 	// Deferred-item #4: assert NO Sonarr method was invoked during the gated scan.
@@ -483,7 +483,7 @@ func (f *authFailFakeSonarrWrapped) SystemStatus(_ context.Context) (ports.Syste
 	return ports.SystemStatus{Version: "x"}, nil
 }
 func (f *authFailFakeSonarrWrapped) ListSeries(_ context.Context) ([]series.Series, error) {
-	return nil, errors.Join(errors.New("401 from sonarr"), domain.ErrInstanceUnauthorized)
+	return nil, errors.Join(errors.New("401 from sonarr"), sharedErrors.ErrInstanceUnauthorized)
 }
 func (f *authFailFakeSonarrWrapped) ListSeriesCache(_ context.Context, _ shareddomain.InstanceName) ([]series.CacheEntry, error) {
 	return nil, nil

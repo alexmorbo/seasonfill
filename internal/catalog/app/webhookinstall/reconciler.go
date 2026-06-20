@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -243,7 +243,7 @@ func (r *Reconciler) successStatus(now time.Time, id int, installedURL string) S
 func (r *Reconciler) recordFailure(ctx context.Context, instanceName string, now time.Time, op string, err error) Status {
 	prev, _ := r.cache.Get(instanceName)
 	msg := op + ": " + err.Error()
-	if errors.Is(err, domain.ErrInstanceUnauthorized) {
+	if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 		msg = op + ": sonarr unauthorized"
 	}
 	next := now.Add(DefaultRetryAfter)

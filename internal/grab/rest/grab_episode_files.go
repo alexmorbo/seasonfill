@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
@@ -97,7 +97,7 @@ func (h *GrabEpisodeFilesHandler) List(c *gin.Context) {
 
 	all, err := inst.Client.ListEpisodeFilesBySeason(ctx, rec.SeriesID, rec.SeasonNumber)
 	if err != nil {
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "grab_episode_files_upstream_unauthorized",
 				slog.String("instance", name),
 				slog.String("grab_id", id.String()),

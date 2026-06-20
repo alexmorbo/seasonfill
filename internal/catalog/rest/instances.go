@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
@@ -24,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
@@ -150,7 +150,7 @@ func (h *InstancesHandler) Missing(c *gin.Context) {
 	if err != nil {
 		// Upstream-auth failure surfaces as 502 — admin IS authenticated
 		// to seasonfill; the Sonarr-side problem is a separate concern.
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "missing_upstream_unauthorized",
 				slog.String("instance", name), slog.String("error", err.Error()))
 			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
@@ -471,7 +471,7 @@ func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	ctx := c.Request.Context()
 	allSeries, err := inst.Client.ListSeries(ctx)
 	if err != nil {
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "search_upstream_unauthorized",
 				slog.String("instance", name), slog.String("error", err.Error()))
 			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
@@ -555,7 +555,7 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 	ctx := c.Request.Context()
 	eps, err := inst.Client.ListEpisodes(ctx, seriesID, seasonNumber)
 	if err != nil {
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "season_episodes_upstream_unauthorized",
 				slog.String("instance", name),
 				slog.Int("series_id", int(seriesID)),

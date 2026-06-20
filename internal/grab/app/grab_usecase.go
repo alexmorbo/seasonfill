@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/errtext"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
@@ -240,7 +240,7 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 	observability.GrabRecorded(in.InstanceName, in.Selected.Release.IndexerName, "failed")
 	observability.GrabAttempt(in.InstanceName, "failed")
 	u.activateGUIDCooldown(ctx, in, rec.ErrorMessage)
-	return Output{Record: rec, Attempts: attempts, Err: fmt.Errorf("%w: %w", domain.ErrGrabFailed, lastErr)}
+	return Output{Record: rec, Attempts: attempts, Err: fmt.Errorf("%w: %w", sharedErrors.ErrGrabFailed, lastErr)}
 }
 
 // persistSuccess wraps the three success-side writes in a single transaction
@@ -324,8 +324,8 @@ func (u *UseCase) activateGUIDCooldown(ctx context.Context, in Input, reason str
 }
 
 // IsGrabFailed reports whether the error from Execute is the wrapped
-// domain.ErrGrabFailed sentinel.
-func IsGrabFailed(err error) bool { return errors.Is(err, domain.ErrGrabFailed) }
+// sharedErrors.ErrGrabFailed sentinel.
+func IsGrabFailed(err error) bool { return errors.Is(err, sharedErrors.ErrGrabFailed) }
 
 // sizeBytesPtr lifts a non-zero int64 size into *int64 for the Record
 // SizeBytes field. Sonarr's releaseDTO.Size is 0 when the indexer

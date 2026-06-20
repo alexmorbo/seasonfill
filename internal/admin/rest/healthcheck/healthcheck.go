@@ -10,10 +10,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // preflightConcurrency bounds the number of in-flight checkOne probes
@@ -103,11 +103,11 @@ func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
 	}
 	state := instance.HealthUnavailableUnknown
 	switch {
-	case errors.Is(err, domain.ErrInstanceUnauthorized):
+	case errors.Is(err, sharedErrors.ErrInstanceUnauthorized):
 		state = instance.HealthUnavailableAuth
-	case errors.Is(err, domain.ErrInstanceNetwork):
+	case errors.Is(err, sharedErrors.ErrInstanceNetwork):
 		state = instance.HealthUnavailableNetwork
-	case errors.Is(err, domain.ErrInstanceSelfThrottled):
+	case errors.Is(err, sharedErrors.ErrInstanceSelfThrottled):
 		state = instance.HealthSelfThrottled
 	}
 	c.registry.MarkUnavailable(name, state, err.Error(), now)

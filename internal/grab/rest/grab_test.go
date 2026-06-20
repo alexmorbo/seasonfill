@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
@@ -357,7 +356,7 @@ func TestGrabHandler_ByDecision_CooldownBlocked(t *testing.T) {
 
 func TestGrabHandler_ByDecision_SonarrUnauthorized(t *testing.T) {
 	t.Parallel()
-	f := newGrabFixture(t, domain.ErrInstanceUnauthorized)
+	f := newGrabFixture(t, sharedErrors.ErrInstanceUnauthorized)
 	d := f.seedEligible(t)
 	assertErrBody(t, f.do(t, d.ID.String()), http.StatusBadGateway, "sonarr unauthorized")
 }

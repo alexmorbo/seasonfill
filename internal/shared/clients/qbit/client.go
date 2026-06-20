@@ -9,7 +9,7 @@ import (
 
 	qbt "github.com/autobrr/go-qbittorrent"
 
-	"github.com/alexmorbo/seasonfill/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 // Config is the constructor input for a Client. Username + Password may
@@ -110,9 +110,9 @@ func NewClient(cfg Config) (Client, error) {
 //
 // Error mapping:
 //   - qbt.ErrBadCredentials / qbt.ErrIPBanned →
-//     errors.Join(err, domain.ErrInstanceUnauthorized)
+//     errors.Join(err, sharedErrors.ErrInstanceUnauthorized)
 //   - any other transport / wrap error →
-//     errors.Join(err, domain.ErrInstanceNetwork)
+//     errors.Join(err, sharedErrors.ErrInstanceNetwork)
 func (c *client) Login(ctx context.Context) error {
 	if c.closed {
 		return errors.New("qbit client closed")
@@ -122,12 +122,12 @@ func (c *client) Login(ctx context.Context) error {
 	}
 	if err := c.inner.LoginCtx(ctx); err != nil {
 		if errors.Is(err, qbt.ErrBadCredentials) || errors.Is(err, qbt.ErrIPBanned) {
-			return fmt.Errorf("qbit login: %w", errors.Join(err, domain.ErrInstanceUnauthorized))
+			return fmt.Errorf("qbit login: %w", errors.Join(err, sharedErrors.ErrInstanceUnauthorized))
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("qbit login: %w", ctxErr)
 		}
-		return fmt.Errorf("qbit login: %w", errors.Join(err, domain.ErrInstanceNetwork))
+		return fmt.Errorf("qbit login: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 	return nil
 }
@@ -148,7 +148,7 @@ func (c *client) ListTorrents(ctx context.Context) ([]Torrent, error) {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("qbit list torrents: %w", ctxErr)
 		}
-		return nil, fmt.Errorf("qbit list torrents: %w", errors.Join(err, domain.ErrInstanceNetwork))
+		return nil, fmt.Errorf("qbit list torrents: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 	out := make([]Torrent, 0, len(raw))
 	for _, t := range raw {
@@ -180,7 +180,7 @@ func (c *client) GetTrackers(ctx context.Context, hash string) ([]Tracker, error
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("qbit get trackers: %w", ctxErr)
 		}
-		return nil, fmt.Errorf("qbit get trackers: %w", errors.Join(err, domain.ErrInstanceNetwork))
+		return nil, fmt.Errorf("qbit get trackers: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 	if raw == nil {
 		return nil, fmt.Errorf("qbit get trackers %q: %w", hash, ErrTorrentNotFound)
@@ -216,7 +216,7 @@ func (c *client) Ping(ctx context.Context) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("qbit ping: %w", ctxErr)
 		}
-		return fmt.Errorf("qbit ping: %w", errors.Join(err, domain.ErrInstanceNetwork))
+		return fmt.Errorf("qbit ping: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
 	return nil
 }

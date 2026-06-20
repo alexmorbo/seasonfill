@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/domain"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
@@ -75,7 +75,7 @@ func (h *QbitDiscoverHandler) Discover(c *gin.Context) {
 	ctx := c.Request.Context()
 	clients, err := concrete.ListDownloadClients(ctx)
 	if err != nil {
-		if errors.Is(err, domain.ErrInstanceUnauthorized) {
+		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
 			h.logger.WarnContext(ctx, "qbit_discover_upstream_unauthorized",
 				slog.String("instance", name), slog.String("error", err.Error()))
 			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})

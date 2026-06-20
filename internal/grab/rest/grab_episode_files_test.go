@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -28,6 +27,7 @@ import (
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
@@ -269,7 +269,7 @@ func TestEpisodeFiles_SonarrUnauthorized_502(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), rec))
 
 	reg := makeInstanceRegistry(map[string]scan.Instance{
-		"main": {Client: stubSonarrEF{err: domain.ErrInstanceUnauthorized}},
+		"main": {Client: stubSonarrEF{err: sharedErrors.ErrInstanceUnauthorized}},
 	})
 	h := grabrest.NewGrabEpisodeFilesHandler(repo, reg, slog.Default())
 

@@ -1,9 +1,11 @@
-package domain
+package errors
 
 import "errors"
 
 // Sentinel errors propagated across layer boundaries. Wrap with %w when adding
-// context.
+// context. Story 453 (A-1-27) folded these from the legacy top-level `domain`
+// package into `internal/shared/errors` so the vertical-slice contexts have a
+// single canonical home for cross-cutting error sentinels.
 var (
 	// ErrCooldownActive indicates a guid or series is currently in cooldown.
 	ErrCooldownActive = errors.New("cooldown active")

@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
@@ -311,7 +311,7 @@ func TestExecute_TransientExhausted(t *testing.T) {
 
 	require.Error(t, out.Err)
 	assert.True(t, IsGrabFailed(out.Err))
-	assert.True(t, errors.Is(out.Err, domain.ErrGrabFailed))
+	assert.True(t, errors.Is(out.Err, sharedErrors.ErrGrabFailed))
 	assert.Equal(t, 3, sonarr.calls)
 	assert.Equal(t, domaingrab.StatusGrabFailed, out.Record.Status)
 	require.Len(t, gr.recs, 1)

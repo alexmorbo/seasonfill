@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func newNotifTestClient(t *testing.T, mux *http.ServeMux) *Client {
@@ -198,7 +198,7 @@ func TestClient_Notification_Unauthorized(t *testing.T) {
 	c := newNotifTestClient(t, mux)
 	_, err := c.ListNotifications(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, domain.ErrInstanceUnauthorized))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
 }
 
 func TestClient_Notification_NetworkError(t *testing.T) {
@@ -207,7 +207,7 @@ func TestClient_Notification_NetworkError(t *testing.T) {
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.ListDownloadClients(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, domain.ErrInstanceNetwork))
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceNetwork))
 }
 
 func TestClient_CreateNotification_FallbackOnUnknownSeriesTrigger(t *testing.T) {
