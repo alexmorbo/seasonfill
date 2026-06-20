@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 // TestPersonBiographiesRepository_FallbackThreeScenarios covers the
@@ -57,53 +58,67 @@ func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			db := setupTestDB(t)
-			ctx := context.Background()
-			repo := NewPersonBiographiesRepository(db)
-			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Pedro Pascal"))
-			require.NoError(t, err)
-			for _, row := range tc.seed {
-				row.PersonID = personID
-				require.NoError(t, repo.Upsert(ctx, row))
+			for _, backend := range testhelpers.AllBackends(t) {
+				t.Run(backend.Name, func(t *testing.T) {
+					db := backend.NewDB(t)
+					ctx := context.Background()
+					repo := NewPersonBiographiesRepository(db)
+					personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Pedro Pascal"))
+					require.NoError(t, err)
+					for _, row := range tc.seed {
+						row.PersonID = personID
+						require.NoError(t, repo.Upsert(ctx, row))
+					}
+					got, err := repo.GetWithFallback(ctx, personID, tc.requested)
+					require.NoError(t, err)
+					assert.Equal(t, tc.wantLang, got.Language)
+					require.NotNil(t, got.Biography)
+					assert.Equal(t, tc.wantText, *got.Biography)
+				})
 			}
-			got, err := repo.GetWithFallback(ctx, personID, tc.requested)
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantLang, got.Language)
-			require.NotNil(t, got.Biography)
-			assert.Equal(t, tc.wantText, *got.Biography)
 		})
 	}
 }
 
 func TestPersonBiographiesRepository_Fallback_NoRows(t *testing.T) {
 	t.Parallel()
-	db := setupTestDB(t)
-	ctx := context.Background()
-	personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Pedro Pascal"))
-	require.NoError(t, err)
-	repo := NewPersonBiographiesRepository(db)
-	_, err = repo.GetWithFallback(ctx, personID, "ru-RU")
-	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Pedro Pascal"))
+			require.NoError(t, err)
+			repo := NewPersonBiographiesRepository(db)
+			_, err = repo.GetWithFallback(ctx, personID, "ru-RU")
+			assert.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
 }
 
 func TestPersonBiographiesRepository_Upsert_Idempotent(t *testing.T) {
 	t.Parallel()
-	db := setupTestDB(t)
-	ctx := context.Background()
-	personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Florence Pugh"))
-	require.NoError(t, err)
-	repo := NewPersonBiographiesRepository(db)
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Florence Pugh"))
+			require.NoError(t, err)
+			repo := NewPersonBiographiesRepository(db)
 
-	bio := people.PersonBiography{
-		PersonID:  personID,
-		Language:  "en-US",
-		Biography: new("English actress."),
+			bio := people.PersonBiography{
+				PersonID:  personID,
+				Language:  "en-US",
+				Biography: new("English actress."),
+			}
+			require.NoError(t, repo.Upsert(ctx, bio))
+			require.NoError(t, repo.Upsert(ctx, bio))
+
+			got, err := repo.Get(ctx, personID, "en-US")
+			require.NoError(t, err)
+			require.NotNil(t, got.Biography)
+			assert.Equal(t, "English actress.", *got.Biography)
+		})
 	}
-	require.NoError(t, repo.Upsert(ctx, bio))
-	require.NoError(t, repo.Upsert(ctx, bio))
-
-	got, err := repo.Get(ctx, personID, "en-US")
-	require.NoError(t, err)
-	require.NotNil(t, got.Biography)
-	assert.Equal(t, "English actress.", *got.Biography)
 }
