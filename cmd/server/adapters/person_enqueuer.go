@@ -1,8 +1,8 @@
 package adapters
 
 import (
-	"github.com/alexmorbo/seasonfill/application/people"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 )
 
 // PersonEnqueuerHolder late-binds the enrichment dispatcher into
