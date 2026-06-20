@@ -1,10 +1,11 @@
-.PHONY: build test test-race test-coverage test-integration test-integration-sqlite test-integration-postgres test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration test-integration-sqlite test-integration-postgres test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help atlas-install migrations-diff migrations-lint migrations-apply-dev
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
 
 help:
 	@echo "Targets: build test test-race test-coverage lint vuln run clean tidy docker-build"
+	@echo "Atlas (dev-time schema tooling): atlas-install migrations-diff NAME=foo migrations-lint migrations-apply-dev"
 
 build:
 	CGO_ENABLED=0 go build -ldflags='-w -s' -trimpath -o bin/$(BINARY) ./cmd/server
@@ -151,3 +152,57 @@ pre-commit-install: ## Install local pre-commit + pre-push hooks (local-only gat
 # before opening an MR or to sanity-check a freshly cloned checkout.
 pre-commit-run: ## Run all pre-commit hooks on the whole tree
 	pre-commit run --all-files
+
+# ────────────────────────────────────────────────────────────────────
+# Atlas dev-time schema tooling (PRD §6.6 / §D-1)
+# ────────────────────────────────────────────────────────────────────
+# Atlas is a dev-time codegen tool — production runtime uses golang-migrate
+# to apply the generated SQL files. CI does NOT install atlas for the main
+# test matrix; only the dedicated migrations-diff-check job (added in
+# story 461 / D-1-8) requires the binary.
+
+ATLAS_VERSION := v0.31.0
+
+# Install the pinned atlas CLI into $GOPATH/bin (or GOBIN). Idempotent —
+# re-running upgrades to the pinned version. Uses the official release
+# binaries from release.ariga.io because the upstream `ariga.io/atlas/cmd/atlas`
+# subpath carries `replace` directives that block `go install`.
+# Falls back to a no-op exit code on `command -v` mismatch so CI can detect
+# the misconfigured PATH.
+atlas-install: ## Install pinned atlas CLI for dev-time schema work
+	@echo "Installing atlas $(ATLAS_VERSION) ..."
+	@os=$$(uname -s | tr 'A-Z' 'a-z'); \
+	arch=$$(uname -m); \
+	case "$$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac; \
+	dest_dir=$${GOBIN:-$$(go env GOPATH)/bin}; \
+	mkdir -p "$$dest_dir"; \
+	url="https://release.ariga.io/atlas/atlas-$$os-$$arch-$(ATLAS_VERSION)"; \
+	echo "  -> $$url -> $$dest_dir/atlas"; \
+	curl -sSL --fail "$$url" -o "$$dest_dir/atlas"; \
+	chmod +x "$$dest_dir/atlas"
+	@command -v atlas >/dev/null || { echo "ERROR: atlas not on PATH after install — ensure \$$GOPATH/bin (or GOBIN) is on PATH"; exit 1; }
+	@atlas version
+
+# Generate migration diff for BOTH dialects. NAME=... is required.
+# Writes NNNNNN_<NAME>.{up,down}.sql to
+# infrastructure/database/migrations/{postgres,sqlite}/.
+migrations-diff: ## Generate migration diff for both dialects (require NAME=)
+	@test -n "$(NAME)" || (echo "Usage: make migrations-diff NAME=add_foo_column"; exit 1)
+	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
+	atlas migrate diff $(NAME) --env postgres
+	atlas migrate diff $(NAME) --env sqlite
+
+# Lint the last migration of each dialect — catches destructive ops,
+# missing down, integrity hash drift, backwards-incompatible changes.
+migrations-lint: ## Lint last migration on both dialects
+	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
+	atlas migrate lint --env postgres --latest 1
+	atlas migrate lint --env sqlite --latest 1
+
+# Apply migrations to a local dev DB via atlas (dev convenience —
+# production uses golang-migrate). Reads SEASONFILL_DATABASE_DRIVER to
+# pick the env block from atlas.hcl.
+migrations-apply-dev: ## Apply pending migrations to a local dev DB (atlas, not prod path)
+	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
+	@test -n "$$SEASONFILL_DATABASE_DRIVER" || (echo "SEASONFILL_DATABASE_DRIVER must be set (postgres|sqlite)"; exit 1)
+	atlas migrate apply --env $$SEASONFILL_DATABASE_DRIVER
