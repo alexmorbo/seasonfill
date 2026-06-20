@@ -95,9 +95,9 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 //
 // Returns the underlying *MediaAssetsRepository so tests can poll
 // media_assets for the row.
-func (f *auditFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsRepository {
+func (f *auditFixture) withMediaPending(t *testing.T) *enrichpersistence.MediaAssetsRepository {
 	t.Helper()
-	mediaRepo := repositories.NewMediaAssetsRepository(f.db)
+	mediaRepo := enrichpersistence.NewMediaAssetsRepository(f.db)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := NewAuditHandler(f.scans, f.decs, f.grabs, lg).
 		WithSeriesCache(f.seriesCache).

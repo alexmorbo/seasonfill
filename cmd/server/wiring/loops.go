@@ -114,7 +114,7 @@ type ScanBundle struct {
 	ScanRepo     *repositories.ScanRepository
 	GrabRepo     *grabpersistence.GrabRepository
 	CooldownRepo *watchdogpersistence.CooldownRepository
-	OriginRepo   *repositories.OriginReleaseRepository
+	OriginRepo   *enrichpersistence.OriginReleaseRepository
 	DecisionRepo *grabpersistence.DecisionRepository
 	Txr          *repositories.GormTransactor
 }
@@ -169,7 +169,7 @@ func BuildScan(
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := repositories.NewOriginReleaseRepository(db)
+	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
 
 	txr := repositories.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
@@ -366,10 +366,10 @@ func BuildWebhook(
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	webhookEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
-	webhookEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
-	webhookGenresRepo := repositories.NewGenresRepository(db)
-	webhookGenresI18nRepo := repositories.NewGenresI18nRepository(db)
-	webhookNetworksRepo := repositories.NewNetworksRepository(db)
+	webhookEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
+	webhookGenresRepo := enrichpersistence.NewGenresRepository(db)
+	webhookGenresI18nRepo := enrichpersistence.NewGenresI18nRepository(db)
+	webhookNetworksRepo := enrichpersistence.NewNetworksRepository(db)
 	webhookSeriesSyncer := &scan.Syncer{
 		Deps: scan.SyncDeps{
 			Series:        seriesRepo,

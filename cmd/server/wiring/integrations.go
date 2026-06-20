@@ -252,7 +252,7 @@ func BuildExtSvc(
 //     the embedded SVG placeholder remains the boot fallback.
 type MediaBundle struct {
 	Store      mediastore.Store
-	AssetsRepo *repositories.MediaAssetsRepository
+	AssetsRepo *enrichpersistence.MediaAssetsRepository
 	Handler    *mediaproxyrest.MediaHandler
 }
 
@@ -292,7 +292,7 @@ func BuildMedia(
 		return nil, fmt.Errorf("mediastore: %w", err)
 	}
 
-	assetsRepo := repositories.NewMediaAssetsRepository(persistence.DB)
+	assetsRepo := enrichpersistence.NewMediaAssetsRepository(persistence.DB)
 
 	// Story 321: handler constructed WITHOUT on-demand fetcher. server.go
 	// calls SetOnDemandFetcher after wireEnrichment returns. Until then,
@@ -317,7 +317,7 @@ func BuildMedia(
 // pending writer port consumed by InstancesHandler + AuditHandler
 // (story 352). Catches a future signature drift at build time rather
 // than at runtime.
-var _ adminrest.CatalogMediaPendingWriter = (*repositories.MediaAssetsRepository)(nil)
+var _ adminrest.CatalogMediaPendingWriter = (*enrichpersistence.MediaAssetsRepository)(nil)
 
 // EnrichmentBundle groups the dispatcher + the nightly job closure
 // so main.go's wiring stays a single call.
@@ -987,14 +987,14 @@ func (a VideosRepoAdapter) Upsert(ctx context.Context, v appenrich.VideoRow) err
 // ContentRatingsRepoAdapter wraps the canonical repo to match the
 // (seriesID, country, rating) tuple shape the worker uses.
 type ContentRatingsRepoAdapter struct {
-	Inner *repositories.ContentRatingsRepository
+	Inner *enrichpersistence.ContentRatingsRepository
 }
 
 func (a ContentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID domain.SeriesID, country, rating string) error {
 	if country == "" || rating == "" {
 		return nil
 	}
-	return a.Inner.Upsert(ctx, repositories.ContentRating{
+	return a.Inner.Upsert(ctx, enrichpersistence.ContentRating{
 		SeriesID: seriesID, CountryCode: country, Rating: rating,
 	})
 }
@@ -1004,8 +1004,8 @@ func (a ContentRatingsRepoAdapter) Upsert(ctx context.Context, seriesID domain.S
 // write as a single method; the production split is invisible to
 // the worker.
 type GenresRepoAdapter struct {
-	Main *repositories.GenresRepository
-	I18n *repositories.GenresI18nRepository
+	Main *enrichpersistence.GenresRepository
+	I18n *enrichpersistence.GenresI18nRepository
 }
 
 func (a GenresRepoAdapter) Upsert(ctx context.Context, g taxonomy.Genre) (int64, error) {
@@ -1026,8 +1026,8 @@ func (a GenresRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, id
 
 // KeywordsRepoAdapter mirrors GenresRepoAdapter.
 type KeywordsRepoAdapter struct {
-	Main *repositories.KeywordsRepository
-	I18n *repositories.KeywordsI18nRepository
+	Main *enrichpersistence.KeywordsRepository
+	I18n *enrichpersistence.KeywordsI18nRepository
 }
 
 func (a KeywordsRepoAdapter) Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error) {
@@ -1049,7 +1049,7 @@ func (a KeywordsRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, 
 // ExternalIDsRepoAdapter wraps the canonical repo to match the
 // (entityType, entityID, provider, value) tuple shape.
 type ExternalIDsRepoAdapter struct {
-	Inner *repositories.ExternalIDsRepository
+	Inner *enrichpersistence.ExternalIDsRepository
 }
 
 func (a ExternalIDsRepoAdapter) Upsert(ctx context.Context, entityType enrichment.EntityType, entityID int64, provider, value string) error {

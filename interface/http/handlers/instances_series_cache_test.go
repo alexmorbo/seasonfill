@@ -87,9 +87,9 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 //
 // Returns the underlying *MediaAssetsRepository so the test can query
 // media_assets rows for assertions.
-func (f *seriesCacheFixture) withMediaPending(t *testing.T) *repositories.MediaAssetsRepository {
+func (f *seriesCacheFixture) withMediaPending(t *testing.T) *enrichpersistence.MediaAssetsRepository {
 	t.Helper()
-	mediaRepo := repositories.NewMediaAssetsRepository(f.db)
+	mediaRepo := enrichpersistence.NewMediaAssetsRepository(f.db)
 
 	// Rebuild the router with a fresh handler chain that includes
 	// WithMediaPending. The fixture's existing router has the handler
@@ -194,7 +194,7 @@ func (f *seriesCacheFixture) seedNetworkForSeries(t *testing.T, instance sharedd
 		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID, "series_cache row must have a resolved series_id")
-	netRepo := repositories.NewNetworksRepository(f.db)
+	netRepo := enrichpersistence.NewNetworksRepository(f.db)
 	id, err := netRepo.ResolveByName(context.Background(), name)
 	if err != nil {
 		id, err = netRepo.Upsert(context.Background(), taxonomy.Network{Name: name})

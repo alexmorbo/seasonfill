@@ -8,20 +8,20 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 type genresAdapter struct {
-	genres *repositories.GenresRepository
-	i18n   *repositories.GenresI18nRepository
+	genres *persistence.GenresRepository
+	i18n   *persistence.GenresI18nRepository
 }
 
 // NewGenresAdapter wires GenresRepository + GenresI18nRepository as a
 // GenresPort implementation. Façade; no behaviour of its own.
-func NewGenresAdapter(g *repositories.GenresRepository, i *repositories.GenresI18nRepository) GenresPort {
+func NewGenresAdapter(g *persistence.GenresRepository, i *persistence.GenresI18nRepository) GenresPort {
 	return &genresAdapter{genres: g, i18n: i}
 }
 
@@ -47,11 +47,11 @@ func (a *genresAdapter) Set(ctx context.Context, seriesID domain.SeriesID, ids [
 }
 
 type networksAdapter struct {
-	networks *repositories.NetworksRepository
+	networks *persistence.NetworksRepository
 }
 
 // NewNetworksAdapter wires NetworksRepository as a NetworksPort.
-func NewNetworksAdapter(n *repositories.NetworksRepository) NetworksPort {
+func NewNetworksAdapter(n *persistence.NetworksRepository) NetworksPort {
 	return &networksAdapter{networks: n}
 }
 

@@ -45,18 +45,54 @@ func sampleCanon(title string) series.Canon {
 // sites unchanged. These resolve to the moved constructors in
 // internal/enrichment/persistence.
 var (
-	NewSeriesRepository   = enrichpersistence.NewSeriesRepository
-	NewSeasonsRepository  = enrichpersistence.NewSeasonsRepository
-	NewEpisodesRepository = enrichpersistence.NewEpisodesRepository
+	NewSeriesRepository          = enrichpersistence.NewSeriesRepository
+	NewSeasonsRepository         = enrichpersistence.NewSeasonsRepository
+	NewEpisodesRepository        = enrichpersistence.NewEpisodesRepository
+	NewPeopleRepository          = enrichpersistence.NewPeopleRepository
+	NewPersonCreditsRepository   = enrichpersistence.NewPersonCreditsRepository
+	NewSeriesPeopleRepository    = enrichpersistence.NewSeriesPeopleRepository
+	NewEpisodePeopleRepository   = enrichpersistence.NewEpisodePeopleRepository
+	NewGenresRepository          = enrichpersistence.NewGenresRepository
+	NewGenresI18nRepository      = enrichpersistence.NewGenresI18nRepository
+	NewNetworksRepository        = enrichpersistence.NewNetworksRepository
+	NewCompaniesRepository       = enrichpersistence.NewCompaniesRepository
+	NewKeywordsRepository        = enrichpersistence.NewKeywordsRepository
+	NewKeywordsI18nRepository    = enrichpersistence.NewKeywordsI18nRepository
+	NewSeriesTextsRepository     = enrichpersistence.NewSeriesTextsRepository
+	NewEpisodeTextsRepository    = enrichpersistence.NewEpisodeTextsRepository
+	NewExternalIDsRepository     = enrichpersistence.NewExternalIDsRepository
+	NewContentRatingsRepository  = enrichpersistence.NewContentRatingsRepository
+	NewOriginReleaseRepository   = enrichpersistence.NewOriginReleaseRepository
+	NewRecommendationsRepository = enrichpersistence.NewRecommendationsRepository
+	NewLiveAssetsRepository      = enrichpersistence.NewLiveAssetsRepository
+	NewMediaAssetsRepository     = enrichpersistence.NewMediaAssetsRepository
 )
 
 // Type aliases so a stay test can keep `*SeriesRepository` shape
 // annotations and `_ var = (*SeriesRepository)(nil)` assertions
 // running without import churn.
 type (
-	SeriesRepository   = enrichpersistence.SeriesRepository
-	SeasonsRepository  = enrichpersistence.SeasonsRepository
-	EpisodesRepository = enrichpersistence.EpisodesRepository
+	SeriesRepository          = enrichpersistence.SeriesRepository
+	SeasonsRepository         = enrichpersistence.SeasonsRepository
+	EpisodesRepository        = enrichpersistence.EpisodesRepository
+	PeopleRepository          = enrichpersistence.PeopleRepository
+	PersonCreditsRepository   = enrichpersistence.PersonCreditsRepository
+	SeriesPeopleRepository    = enrichpersistence.SeriesPeopleRepository
+	EpisodePeopleRepository   = enrichpersistence.EpisodePeopleRepository
+	GenresRepository          = enrichpersistence.GenresRepository
+	GenresI18nRepository      = enrichpersistence.GenresI18nRepository
+	NetworksRepository        = enrichpersistence.NetworksRepository
+	CompaniesRepository       = enrichpersistence.CompaniesRepository
+	KeywordsRepository        = enrichpersistence.KeywordsRepository
+	KeywordsI18nRepository    = enrichpersistence.KeywordsI18nRepository
+	SeriesTextsRepository     = enrichpersistence.SeriesTextsRepository
+	EpisodeTextsRepository    = enrichpersistence.EpisodeTextsRepository
+	ExternalIDsRepository     = enrichpersistence.ExternalIDsRepository
+	ContentRatingsRepository  = enrichpersistence.ContentRatingsRepository
+	OriginReleaseRepository   = enrichpersistence.OriginReleaseRepository
+	RecommendationsRepository = enrichpersistence.RecommendationsRepository
+	LiveAssetsRepository      = enrichpersistence.LiveAssetsRepository
+	MediaAssetsRepository     = enrichpersistence.MediaAssetsRepository
 )
 
 // _ keeps the `domain` import alive when this file is the only

@@ -36,11 +36,11 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
 	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	episodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
-	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
+	episodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
 	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
-	genresRepo := repositories.NewGenresRepository(db)
-	genresI18nRepo := repositories.NewGenresI18nRepository(db)
-	networksRepo := repositories.NewNetworksRepository(db)
+	genresRepo := enrichpersistence.NewGenresRepository(db)
+	genresI18nRepo := enrichpersistence.NewGenresI18nRepository(db)
+	networksRepo := enrichpersistence.NewNetworksRepository(db)
 
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 

@@ -1,12 +1,16 @@
-// Package repositories — live asset-hash collector for the weekly GC
+// Package persistence — live asset-hash collector for the weekly GC
 // media sweep (story 218 E-2).
 //
 // One method, one transaction: walk every *_asset-bearing column we
 // own and union the non-NULL distinct values into a set. Memory cost
 // is O(n) hashes; for a typical 300-series library this is ~5000
 // strings (≈400 KiB). Fine for a once-a-week sweep.
+//
+// Story 437 (A-1-11) carried this file out of
+// infrastructure/database/repositories into the enrichment vertical-
+// slice persistence package along with the rest of the catalog repos.
 
-package repositories
+package persistence
 
 import (
 	"context"

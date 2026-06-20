@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -160,14 +161,14 @@ type VideosPort interface {
 // ContentRatingsPort lists per-country age ratings; composer picks
 // one via locale fallback.
 type ContentRatingsPort interface {
-	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]repositories.ContentRating, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]enrichpersistence.ContentRating, error)
 }
 
 // ExternalIDsPort lists external provider ids for an entity (here:
 // the series). The composer projects imdb/tmdb/tvdb into the
 // ExternalLinks DTO struct.
 type ExternalIDsPort interface {
-	ListByEntity(ctx context.Context, entityType enrichment.EntityType, entityID int64) ([]repositories.ExternalID, error)
+	ListByEntity(ctx context.Context, entityType enrichment.EntityType, entityID int64) ([]enrichpersistence.ExternalID, error)
 }
 
 // RecommendationsPort lists recommended series ids. The composer

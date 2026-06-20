@@ -340,7 +340,7 @@ func BuildScheduler(
 		// in AllowedDomains. PRD §6.5.
 		gcLog := sharedports.DomainLogger(log, "gc")
 		seriesRepo := enrichpersistence.NewSeriesRepository(db)
-		liveAssetsRepo := repositories.NewLiveAssetsRepository(db)
+		liveAssetsRepo := enrichpersistence.NewLiveAssetsRepository(db)
 		weeklyJob := gc.WeeklyJob{
 			OrphanSeries: gc.OrphanSeriesDeps{
 				Repo:   seriesRepo,

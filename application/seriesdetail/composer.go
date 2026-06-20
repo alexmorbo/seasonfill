@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -39,7 +40,7 @@ type Detail struct {
 	Seasons         []SeasonDetail
 	Cast            []CastDetail
 	Trailer         *repositories.Video
-	ContentRating   *repositories.ContentRating
+	ContentRating   *enrichpersistence.ContentRating
 	ExternalIDs     map[string]string
 	Recommendations []RecommendationDetail
 	Genres          []taxonomy.Genre
@@ -753,7 +754,7 @@ func resolveLang(lang string) string {
 	return lang
 }
 
-func pickContentRating(rs []repositories.ContentRating, lang string) *repositories.ContentRating {
+func pickContentRating(rs []enrichpersistence.ContentRating, lang string) *enrichpersistence.ContentRating {
 	// Pick by user-locale country prefix (lang="ru-RU" → "RU"),
 	// then en-US ("US"), then first available. v1 keeps the
 	// matching naive — composer correctness over locale subtlety.
@@ -761,7 +762,7 @@ func pickContentRating(rs []repositories.ContentRating, lang string) *repositori
 	if i := strings.Index(lang, "-"); i > 0 {
 		country = strings.ToUpper(lang[i+1:])
 	}
-	var pickUS *repositories.ContentRating
+	var pickUS *enrichpersistence.ContentRating
 	for i := range rs {
 		r := rs[i]
 		if country != "" && r.CountryCode == country {
