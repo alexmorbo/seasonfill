@@ -16,6 +16,16 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
+// stubLister satisfies InstanceLister for the aggregate webhook tests.
+// Defined here (rather than in a shared test-helper package) because
+// story 434 A-1-8 moved the watchdog rollups tests — which used to host
+// a similar stub in the handlers package — into internal/watchdog/rest.
+type stubLister []string
+
+func (s stubLister) ListNames(context.Context) ([]string, error) {
+	return []string(s), nil
+}
+
 type aggFakeNotifier struct {
 	notifications []sonarr.Notification
 }

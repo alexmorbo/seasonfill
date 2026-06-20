@@ -29,6 +29,7 @@ import (
 	watchdog "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure"
 	infraregrab "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure/regrab"
 	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
+	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"
 )
 
 // WatchdogBundle holds the boot-time health monitor + state watchdog
@@ -511,9 +512,9 @@ type RegrabBundle struct {
 	NoBetterCounterRepo      *watchdogpersistence.NoBetterCounterRepository
 	RegrabUC                 *regrab.UseCase
 	RegrabLoop               *loops.RegrabLoop
-	WatchdogRollupHandler    *handlers.WatchdogRollupHandler
-	WatchdogBlacklistHandler *handlers.WatchdogBlacklistHandler
-	WatchdogSeasonsHandler   *handlers.WatchdogSeasonsHandler
+	WatchdogRollupHandler    *watchdogrest.WatchdogRollupHandler
+	WatchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler
+	WatchdogSeasonsHandler   *watchdogrest.WatchdogSeasonsHandler
 	WebhooksAggregateHandler *handlers.WebhooksAggregateHandler
 	QbitLoader               adapters.QbitSettingsLoaderFunc
 }
@@ -598,7 +599,7 @@ func BuildRegrab(
 
 	// 047a — watchdog rollup handler.
 	watchdogInstanceAdapter := adapters.NewWatchdogInstanceLister(instanceRepo, cipher)
-	watchdogRollupHandler := handlers.NewWatchdogRollupHandler(
+	watchdogRollupHandler := watchdogrest.NewWatchdogRollupHandler(
 		qbitSettingsUC,          // SettingsLookup
 		regrabUC,                // RollupSnapshotProvider
 		scanBundle.GrabRepo,     // rollupGrabCounter
@@ -613,7 +614,7 @@ func BuildRegrab(
 	// (stateless GORM wrappers, same pattern as scan.go / webhook.go).
 	seriesRepo := repositories.NewSeriesRepository(db)
 	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
-	watchdogBlacklistHandler := handlers.NewWatchdogBlacklistHandler(
+	watchdogBlacklistHandler := watchdogrest.NewWatchdogBlacklistHandler(
 		blacklistRepo,           // BlacklistPager
 		seriesCacheRepo,         // SeriesTitleResolver
 		watchdogInstanceAdapter, // InstanceIDLookup
@@ -622,7 +623,7 @@ func BuildRegrab(
 
 	// 098a — watchdog seasons aggregate read view.
 	watchdogSeasonsRepo := repositories.NewWatchdogSeasonsRepository(db)
-	watchdogSeasonsHandler := handlers.NewWatchdogSeasonsHandler(
+	watchdogSeasonsHandler := watchdogrest.NewWatchdogSeasonsHandler(
 		watchdogSeasonsRepo,
 		watchdogSeasonsRepo,
 		qbitSettingsUC,

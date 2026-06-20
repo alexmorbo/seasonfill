@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"errors"
@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 )
 
 type RescanHandler struct {
@@ -52,7 +53,7 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 	ctx := c.Request.Context()
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid id")
+		handlers.WriteError(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 	res, err := h.rescanUC.Start(ctx, rescan.Input{DecisionID: id})
@@ -73,9 +74,9 @@ func (h *RescanHandler) ByDecision(c *gin.Context) {
 				Code:     "SCAN_IN_PROGRESS",
 			})
 		case strings.HasPrefix(err.Error(), "unknown instance: "):
-			writeError(c, http.StatusNotFound, err.Error())
+			handlers.WriteError(c, http.StatusNotFound, err.Error())
 		default:
-			writeInternalError(c, h.logger, "rescan_failed", err,
+			handlers.WriteInternalError(c, h.logger, "rescan_failed", err,
 				slog.String("decision_id", id.String()))
 		}
 		return

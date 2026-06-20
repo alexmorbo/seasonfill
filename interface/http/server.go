@@ -26,6 +26,7 @@ import (
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"
 )
 
 type Server struct {
@@ -61,9 +62,9 @@ func NewServer(
 	webhookStatusCache *webhookinstall.StatusCache,
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
-	watchdogRollupHandler *handlers.WatchdogRollupHandler,
-	watchdogBlacklistHandler *handlers.WatchdogBlacklistHandler,
-	watchdogSeasonsHandler *handlers.WatchdogSeasonsHandler,
+	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
+	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
+	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
 	webhooksAggregateHandler *handlers.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
@@ -257,7 +258,7 @@ func NewServer(
 		grabEpisodeFilesHandler := grabrest.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
 		guarded.GET("/instances/:name/grabs/:id/episode-files", grabEpisodeFilesHandler.List)
 		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
-		rescanHandler := handlers.NewRescanHandler(rescanUC, logger)
+		rescanHandler := watchdogrest.NewRescanHandler(rescanUC, logger)
 		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
 		guarded.POST("/scans/:id/cancel", scanHandler.Cancel)
 		guarded.GET("/config/runtime", runtimeConfigHandler.Get)

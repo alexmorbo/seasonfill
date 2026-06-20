@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
@@ -25,11 +26,6 @@ import (
 type RollupSnapshotProvider interface {
 	Snapshot(instance domain.InstanceName) (regrab.RuntimeState, bool)
 	SnapshotAll() map[domain.InstanceName]regrab.RuntimeState
-}
-
-// InstanceLister returns every configured Sonarr instance name.
-type InstanceLister interface {
-	ListNames(ctx context.Context) ([]string, error)
 }
 
 // InstanceIDLookup maps a name to its DB id.
@@ -99,7 +95,7 @@ type WatchdogRollupHandler struct {
 	snapshots      RollupSnapshotProvider
 	grabs          rollupGrabCounter
 	blacklist      rollupBlacklistCounter
-	instances      InstanceLister
+	instances      handlers.InstanceLister
 	instanceLookup InstanceIDLookup
 	probe          QbitProbe
 	lister         QbitTorrentsLister
@@ -119,7 +115,7 @@ func NewWatchdogRollupHandler(
 	snapshots RollupSnapshotProvider,
 	grabs rollupGrabCounter,
 	blacklist rollupBlacklistCounter,
-	instances InstanceLister,
+	instances handlers.InstanceLister,
 	instanceLookup InstanceIDLookup,
 	logger *slog.Logger,
 ) *WatchdogRollupHandler {
@@ -203,17 +199,17 @@ func (h *WatchdogRollupHandler) One(c *gin.Context) {
 
 	id, ok, err := h.instanceLookup.IDByName(ctx, name)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_rollups_lookup_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_rollups_lookup_failed", err,
 			slog.String("instance", name))
 		return
 	}
 	if !ok {
-		writeError(c, http.StatusNotFound, "unknown instance: "+name)
+		handlers.WriteError(c, http.StatusNotFound, "unknown instance: "+name)
 		return
 	}
 	row, err := h.buildOne(ctx, name, id)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_rollups_build_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_rollups_build_failed", err,
 			slog.String("instance", name))
 		return
 	}
@@ -234,7 +230,7 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 	ctx := c.Request.Context()
 	names, err := h.instances.ListNames(ctx)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_rollups_list_failed", err)
+		handlers.WriteInternalError(c, h.logger, "watchdog_rollups_list_failed", err)
 		return
 	}
 	rows := make([]dto.WatchdogRollup, len(names))
@@ -265,7 +261,7 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 		})
 	}
 	if err := g.Wait(); err != nil {
-		writeInternalError(c, h.logger, "watchdog_rollups_fan_out_failed", err)
+		handlers.WriteInternalError(c, h.logger, "watchdog_rollups_fan_out_failed", err)
 		return
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].InstanceName < rows[j].InstanceName })

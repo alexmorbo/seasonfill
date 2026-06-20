@@ -22,6 +22,20 @@ func WriteInternalError(c *gin.Context, log *slog.Logger, event string, err erro
 	writeInternalError(c, log, event, err, attrs...)
 }
 
+// ParseLimit is the exported alias of parseLimit. Story 434 (A-1-8)
+// added it so the watchdog rest handlers (now in internal/watchdog/rest)
+// can use the same query-string limit parser as the catalog handlers
+// without forking the helper or exposing the unexported version.
+func ParseLimit(c *gin.Context) (int, error) {
+	return parseLimit(c)
+}
+
+// HandleQueryErr is the exported alias of handleQueryErr. Story 434
+// (A-1-8) — same rationale as ParseLimit above.
+func HandleQueryErr(c *gin.Context, err error) bool {
+	return handleQueryErr(c, err)
+}
+
 // writeInternalError is the single boundary at which a 5xx HTTP
 // response is written. It (a) logs the underlying error + caller
 // attrs at ERROR level so operators can correlate, then (b) writes

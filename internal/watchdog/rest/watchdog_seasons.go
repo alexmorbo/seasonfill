@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
@@ -114,7 +115,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 
 	limit, err := parseSeasonsLimit(c)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, err.Error())
+		handlers.WriteError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -122,7 +123,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 	if raw := c.Query("cursor"); raw != "" {
 		parsed, perr := decodeSeasonsCursor(raw)
 		if perr != nil {
-			writeError(c, http.StatusBadRequest, "invalid cursor")
+			handlers.WriteError(c, http.StatusBadRequest, "invalid cursor")
 			return
 		}
 		cur = parsed
@@ -137,7 +138,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 
 	rows, next, err := h.repo.ListSeasons(ctx, filter, limit, cur, h.now())
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_seasons_list_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_seasons_list_failed", err,
 			slog.String("instance", string(filter.Instance)))
 		return
 	}
@@ -172,41 +173,41 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 	instanceRaw := strings.TrimSpace(c.Param("instance"))
 	rawID := c.Param("id")
 	if instanceRaw == "" {
-		writeError(c, http.StatusBadRequest, "instance required")
+		handlers.WriteError(c, http.StatusBadRequest, "instance required")
 		return
 	}
 	instance := domain.InstanceName(instanceRaw)
 	parsedID, err := strconv.Atoi(rawID)
 	if err != nil || parsedID <= 0 {
-		writeError(c, http.StatusBadRequest, "invalid series id")
+		handlers.WriteError(c, http.StatusBadRequest, "invalid series id")
 		return
 	}
 	seriesID := domain.SonarrSeriesID(parsedID)
 
 	rows, err := h.series.SeasonsForSeries(ctx, instance, seriesID, h.now())
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_series_load_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_series_load_failed", err,
 			slog.String("instance", instanceRaw),
 			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	stats, err := h.series.SeasonStatsFromDecisions(ctx, instance, seriesID)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_series_stats_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_series_stats_failed", err,
 			slog.String("instance", instanceRaw),
 			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	decisionsBySeason, err := h.series.RecentDecisionsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_series_decisions_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_series_decisions_failed", err,
 			slog.String("instance", instanceRaw),
 			slog.Int("series_id", int(seriesID)))
 		return
 	}
 	grabsBySeason, err := h.series.RecentGrabsBySeason(ctx, instance, seriesID, watchdogSeriesRecentCap)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_series_grabs_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_series_grabs_failed", err,
 			slog.String("instance", instanceRaw),
 			slog.Int("series_id", int(seriesID)))
 		return

@@ -1,4 +1,4 @@
-package handlers
+package rest
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
+	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
@@ -77,17 +78,17 @@ func (h *WatchdogBlacklistHandler) List(c *gin.Context) {
 
 	id, ok, err := h.instanceLookup.IDByName(ctx, name)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_blacklist_list_lookup_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_blacklist_list_lookup_failed", err,
 			slog.String("instance", name))
 		return
 	}
 	if !ok {
-		writeError(c, http.StatusNotFound, "unknown instance: "+name)
+		handlers.WriteError(c, http.StatusNotFound, "unknown instance: "+name)
 		return
 	}
 
-	limit, err := parseLimit(c)
-	if handleQueryErr(c, err) {
+	limit, err := handlers.ParseLimit(c)
+	if handlers.HandleQueryErr(c, err) {
 		return
 	}
 
@@ -96,7 +97,7 @@ func (h *WatchdogBlacklistHandler) List(c *gin.Context) {
 	if raw := c.Query("cursor"); raw != "" {
 		at, idu, perr := decodeBlacklistCursor(raw)
 		if perr != nil {
-			writeError(c, http.StatusBadRequest, "invalid cursor")
+			handlers.WriteError(c, http.StatusBadRequest, "invalid cursor")
 			return
 		}
 		afterAt = at
@@ -105,7 +106,7 @@ func (h *WatchdogBlacklistHandler) List(c *gin.Context) {
 
 	rows, err := h.pager.ListByInstanceWithLimit(ctx, id, limit, afterAt, afterID)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_blacklist_list_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_blacklist_list_failed", err,
 			slog.String("instance", name))
 		return
 	}
@@ -157,18 +158,18 @@ func (h *WatchdogBlacklistHandler) Delete(c *gin.Context) {
 
 	id, err := strconv.ParseUint(rawID, 10, 64)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid id")
+		handlers.WriteError(c, http.StatusBadRequest, "invalid id")
 		return
 	}
 
 	instanceID, ok, err := h.instanceLookup.IDByName(ctx, name)
 	if err != nil {
-		writeInternalError(c, h.logger, "watchdog_blacklist_delete_lookup_failed", err,
+		handlers.WriteInternalError(c, h.logger, "watchdog_blacklist_delete_lookup_failed", err,
 			slog.String("instance", name))
 		return
 	}
 	if !ok {
-		writeError(c, http.StatusNotFound, "unknown instance: "+name)
+		handlers.WriteError(c, http.StatusNotFound, "unknown instance: "+name)
 		return
 	}
 
