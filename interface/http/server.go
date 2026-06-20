@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/webhookinstall"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
@@ -19,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"

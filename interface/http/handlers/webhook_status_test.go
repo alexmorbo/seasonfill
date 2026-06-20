@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/webhookinstall"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
