@@ -18,6 +18,7 @@ import (
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/instance"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -324,12 +325,12 @@ func BuildSeriesDetail(
 	// them here is free; the enrichment block in server.go re-uses
 	// its own instances of the same set for the worker pipeline.
 	sdSeriesRepo := enrichpersistence.NewSeriesRepository(db)
-	sdSeriesCacheRepo := repositories.NewSeriesCacheRepository(db, sdSeriesRepo)
+	sdSeriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, sdSeriesRepo)
 	sdSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db)
 	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)
 	sdEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
-	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
-	sdSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
+	sdEpisodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
+	sdSeasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
 	sdSeriesPeopleRepo := enrichpersistence.NewSeriesPeopleRepository(db)
 	sdPeopleRepo := enrichpersistence.NewPeopleRepository(db)

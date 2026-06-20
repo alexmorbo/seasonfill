@@ -17,6 +17,7 @@ import (
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
@@ -171,7 +172,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// wrappers — each call site gets its own. seriesCacheRepo +
 	// counterRepo are still consumed by BuildHTTPServer below.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	counterRepo := repositories.NewCounterRepository(db)
 
 	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, log)

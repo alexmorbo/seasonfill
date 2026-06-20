@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -14,7 +14,8 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
-	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -28,10 +29,10 @@ import (
 // grab_records FK references.
 type SeriesCacheRepository struct {
 	db     *gorm.DB
-	series *persistence.SeriesRepository
+	series *enrichpersistence.SeriesRepository
 }
 
-func NewSeriesCacheRepository(db *gorm.DB, series *persistence.SeriesRepository) *SeriesCacheRepository {
+func NewSeriesCacheRepository(db *gorm.DB, series *enrichpersistence.SeriesRepository) *SeriesCacheRepository {
 	return &SeriesCacheRepository{db: db, series: series}
 }
 
@@ -128,7 +129,7 @@ const seriesCacheJoin = `INNER JOIN series s ON s.id = series_cache.series_id`
 // (typed → 404) or wrap with %w (errors.As still walks the chain).
 func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (series.CacheEntry, error) {
 	var row cacheRow
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
 		Select(seriesCacheSelect).
 		Joins(seriesCacheJoin).
@@ -187,7 +188,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 		UpdatedAt:         entry.UpdatedAt,
 		DeletedAt:         nil,
 	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "instance_name"},
 			{Name: "sonarr_series_id"},
@@ -251,7 +252,7 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 // ErrNotFound would just spam logs without driving any action.
 func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error {
 	now := time.Now().UTC()
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instanceName, sonarrSeriesID).
 		Updates(map[string]any{
@@ -272,7 +273,7 @@ func (r *SeriesCacheRepository) SoftDelete(ctx context.Context, instanceName dom
 // only.
 func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error) {
 	var rows []cacheRow
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
 		Select(seriesCacheSelect).
 		Joins(seriesCacheJoin).
@@ -290,7 +291,7 @@ func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID dom
 
 func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	var rows []cacheRow
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("series_cache").
 		Select(seriesCacheSelect).
 		Joins(seriesCacheJoin).
@@ -337,7 +338,7 @@ func (r *SeriesCacheRepository) ListByFilter(
 		return nil, 0, false, nil, fmt.Errorf("list series_cache: invalid state %q", filter.State)
 	}
 
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	base := db.Table("series_cache").
 		Joins(seriesCacheJoin).
 		Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", instanceName)
@@ -577,13 +578,13 @@ func (r *SeriesCacheRepository) FetchLastGrabInfo(
 		SeasonNumber int                   `gorm:"column:season_number"`
 	}
 	var rows []row
-	sub := dbFromContext(ctx, r.db).WithContext(ctx).
+	sub := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("grab_records").
 		Select("series_id, MAX(created_at) AS max_created_at").
 		Where("instance_name = ? AND series_id IN ? AND status = ?",
 			instanceName, seriesIDs, "imported").
 		Group("series_id")
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("grab_records AS g").
 		Select("g.series_id, g.created_at AS max_created_at, g.season_number").
 		Joins("JOIN (?) AS agg ON g.series_id = agg.series_id AND g.created_at = agg.max_created_at",
@@ -613,7 +614,7 @@ func (r *SeriesCacheRepository) ListDistinctNetworks(
 	if instanceName == "" {
 		return nil, fmt.Errorf("list distinct networks: instance_name must be non-empty")
 	}
-	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	var rows []string
 	err := db.Table("series_cache").
 		Joins(seriesCacheJoin).

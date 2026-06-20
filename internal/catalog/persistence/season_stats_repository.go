@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -45,7 +46,7 @@ func (r *SeasonStatsRepository) Upsert(ctx context.Context, s series.SeasonStat)
 	s.UpdatedAt = now
 	s.DeletedAt = nil
 	m := fromSeasonStat(s)
-	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "instance_name"},
 			{Name: "sonarr_series_id"},
@@ -78,7 +79,7 @@ func (r *SeasonStatsRepository) ListBySeries(
 		return nil, fmt.Errorf("list season_stats: instance_name must be non-empty")
 	}
 	var models []database.SeasonStatModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND sonarr_series_id = ? AND deleted_at IS NULL",
 			instanceName, sonarrSeriesID).
 		Order("season_number ASC").
@@ -104,7 +105,7 @@ func (r *SeasonStatsRepository) SoftDeleteBySeries(
 		return 0, fmt.Errorf("soft delete season_stats: instance_name must be non-empty")
 	}
 	now := time.Now().UTC()
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.SeasonStatModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instanceName, sonarrSeriesID).
 		Updates(map[string]any{

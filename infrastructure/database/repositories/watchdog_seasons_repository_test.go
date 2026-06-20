@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
@@ -51,7 +52,7 @@ func seedOrigin(t *testing.T, db *gorm.DB, repo *OriginReleaseRepository, instan
 	}))
 }
 
-func seedSeriesCache(t *testing.T, db *gorm.DB, repo *SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
+func seedSeriesCache(t *testing.T, db *gorm.DB, repo *catalogpersistence.SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   instance,
@@ -87,7 +88,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")
@@ -125,7 +126,7 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
 			// Configured instance + its series + its origin row.
@@ -159,7 +160,7 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")
@@ -185,7 +186,7 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			cdRepo := watchdogpersistence.NewCooldownRepository(db)
 			nbRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 			blRepo := NewWatchdogBlacklistRepository(db)
@@ -237,7 +238,7 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			cdRepo := watchdogpersistence.NewCooldownRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 
@@ -272,7 +273,7 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")
@@ -298,7 +299,7 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")
@@ -332,7 +333,7 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
-			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			scRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			decRepo := grabpersistence.NewDecisionRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 

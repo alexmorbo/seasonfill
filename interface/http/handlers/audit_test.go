@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
@@ -40,7 +41,7 @@ type auditFixture struct {
 	scans       *repositories.ScanRepository
 	decs        *grabpersistence.DecisionRepository
 	grabs       *grabpersistence.GrabRepository
-	seriesCache *repositories.SeriesCacheRepository
+	seriesCache *catalogpersistence.SeriesCacheRepository
 	router      *gin.Engine
 }
 
@@ -61,7 +62,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	scans := repositories.NewScanRepository(db)
 	decs := grabpersistence.NewDecisionRepository(db)
 	grabs := grabpersistence.NewGrabRepository(db)
-	seriesCache := repositories.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
+	seriesCache := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Note: WithSeriesCache is wired here so the per-test slug
 	// fixture works. Tests that don't seed series_cache still see

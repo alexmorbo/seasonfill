@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -855,7 +856,7 @@ func TestSonarrInstanceRepository_Delete_PurgesSeriesCache(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			instRepo := NewSonarrInstanceRepository(db)
-			cacheRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			cacheRepo := catalogpersistence.NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			ctx := context.Background()
 
 			cipher, err := crypto.New("test-master-key-12345")

@@ -13,9 +13,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -33,11 +33,11 @@ func newSyncFixture(t *testing.T) *syncFixture {
 	require.NoError(t, database.Migrate(db))
 
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
-	episodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
+	episodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
 	episodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
-	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
+	seasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	genresRepo := enrichpersistence.NewGenresRepository(db)
 	genresI18nRepo := enrichpersistence.NewGenresI18nRepository(db)
 	networksRepo := enrichpersistence.NewNetworksRepository(db)
@@ -352,7 +352,7 @@ func TestSyncSeriesFromSonarr_WritesSeasonStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, f.countTable(t, "season_stats"))
 
-	repo := repositories.NewSeasonStatsRepository(f.db)
+	repo := catalogpersistence.NewSeasonStatsRepository(f.db)
 	got, err := repo.ListBySeries(ctx, "homelab", 140)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -389,7 +389,7 @@ func TestSyncSeriesFromSonarr_SeasonStats_PartialPack(t *testing.T) {
 	}
 	_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
 	require.NoError(t, err)
-	repo := repositories.NewSeasonStatsRepository(f.db)
+	repo := catalogpersistence.NewSeasonStatsRepository(f.db)
 	got, err := repo.ListBySeries(ctx, "homelab", 369)
 	require.NoError(t, err)
 	require.Len(t, got, 1)

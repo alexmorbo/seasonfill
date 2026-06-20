@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	webhookuc "github.com/alexmorbo/seasonfill/internal/catalog/app/webhook"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
@@ -178,12 +179,12 @@ func BuildScan(
 
 	// seriesCacheRepo is local to this wirer — see godoc above.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	// Story 380: season_stats writer was only wired into webhook.go and
 	// seriesdetail.go before — the scan loop's fillSeriesCache never wrote
 	// per-season counters, so DB stayed empty for any instance whose
 	// webhook never fired. Mirrors the BuildWebhook pattern.
-	seasonStatsRepo := repositories.NewSeasonStatsRepository(db)
+	seasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 
 	scanUC := scan.NewUseCase(sonarrBundle.ScanInstances, evaluator, scanRepo, scanLog, cfg.DryRun).
 		WithGrabUseCase(grabUC).
@@ -273,8 +274,8 @@ type WebhookBundle struct {
 	StatusCache          *webhookinstall.StatusCache
 	ReconcilerAdapter    adapters.ReconcilerAdapter
 	TorrentSeriesMapRepo *repositories.TorrentSeriesMapRepository
-	EpisodeStatesRepo    *repositories.EpisodeStatesRepository
-	SeasonStatsRepo      *repositories.SeasonStatsRepository
+	EpisodeStatesRepo    *catalogpersistence.EpisodeStatesRepository
+	SeasonStatsRepo      *catalogpersistence.SeasonStatsRepository
 }
 
 // BuildWebhook wires the webhook UC + Syncer + Reconciler + StatusCache
@@ -342,8 +343,8 @@ func BuildWebhook(
 	// Story 218 (E-2) — webhook SeriesDelete cascade soft-deletes
 	// episode_states under the deleted series. Repo is constructed
 	// here so the cascade port is wired at boot.
-	webhookEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
-	webhookSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
+	webhookEpisodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
+	webhookSeasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	// 221 (A-3) — torrent_series_map repo wired here so the webhook
 	// path can write the bridge row in the same tx as the
 	// grab_records.torrent_hash update. Repo also feeds the
@@ -364,7 +365,7 @@ func BuildWebhook(
 	// client → (nil, false), webhook silently falls back to the
 	// pre-E-1 thin CacheEntry path.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	webhookEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	webhookEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
 	webhookGenresRepo := enrichpersistence.NewGenresRepository(db)
@@ -614,7 +615,7 @@ func BuildRegrab(
 	// 047b — blacklist handler. seriesRepo + seriesCacheRepo are local
 	// (stateless GORM wrappers, same pattern as scan.go / webhook.go).
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	watchdogBlacklistHandler := watchdogrest.NewWatchdogBlacklistHandler(
 		blacklistRepo,           // BlacklistPager
 		seriesCacheRepo,         // SeriesTitleResolver
@@ -857,7 +858,7 @@ func BuildTorrentsync(
 	// here is free and mirrors the pre-338 inline body which captured
 	// the seriesdetail-block instances).
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := repositories.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	// HTTP handler stays on bare `log` — see qbitLog godoc above.
 	seriesTorrentsHandler := handlers.NewSeriesTorrentsHandler(
 		query, seriesCacheRepo, seriesRepo, log,

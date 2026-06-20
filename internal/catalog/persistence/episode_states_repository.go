@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -32,7 +33,7 @@ func NewEpisodeStatesRepository(db *gorm.DB) *EpisodeStatesRepository {
 // external callers; tests use errors.As to assert the typed sentinel.
 func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.InstanceName, episodeID domain.EpisodeID) (series.EpisodeState, error) {
 	var m database.EpisodeStateModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Where("instance_name = ? AND episode_id = ? AND deleted_at IS NULL", instanceName, episodeID).
 		First(&m).Error
 	if err != nil {
@@ -50,7 +51,7 @@ func (r *EpisodeStatesRepository) Get(ctx context.Context, instanceName domain.I
 // state table.
 func (r *EpisodeStatesRepository) ListBySeries(ctx context.Context, instanceName domain.InstanceName, seriesID domain.SeriesID) ([]series.EpisodeState, error) {
 	var models []database.EpisodeStateModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.EpisodeStateModel{}).
 		Joins("JOIN episodes ON episodes.id = episode_states.episode_id").
 		Where("episode_states.instance_name = ? AND episodes.series_id = ? AND episode_states.deleted_at IS NULL", instanceName, seriesID).
@@ -75,7 +76,7 @@ func (r *EpisodeStatesRepository) Upsert(ctx context.Context, s series.EpisodeSt
 	}
 	s.UpdatedAt = time.Now().UTC()
 	m := fromEpisodeState(s)
-	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "instance_name"},
 			{Name: "episode_id"},
@@ -107,7 +108,7 @@ func (r *EpisodeStatesRepository) SoftDeleteBySeries(
 		return 0, fmt.Errorf("soft delete episode_states by series: instance_name must be non-empty")
 	}
 	now := time.Now().UTC()
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Table("episode_states").
 		Where(`instance_name = ?
 		   AND episode_id IN (

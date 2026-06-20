@@ -21,11 +21,11 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -38,7 +38,7 @@ import (
 
 type seriesCacheFixture struct {
 	db     *gorm.DB
-	repo   *repositories.SeriesCacheRepository
+	repo   *catalogpersistence.SeriesCacheRepository
 	grabs  *grabpersistence.GrabRepository
 	router *gin.Engine
 }
@@ -60,7 +60,7 @@ func newSeriesCacheFixture(t *testing.T, instances ...string) *seriesCacheFixtur
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
-	repo := repositories.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
+	repo := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 	grabs := grabpersistence.NewGrabRepository(db)
 
 	instMap := map[string]scan.Instance{}
