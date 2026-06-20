@@ -104,26 +104,28 @@ func (q *priorityQueue) enqueue(j Job) bool {
 	q.inFlight[key] = struct{}{}
 	q.depth[j.Kind]++
 	depthAfter := q.depth[j.Kind]
-	q.mu.Unlock()
 
-	// Publish the per-kind depth outside the mutex (still single-writer
-	// because the previous block was holding the lock when it computed
-	// depthAfter). Story 306.
-	observability.SetEnrichmentQueueDepth(string(j.Kind), depthAfter)
-
+	// The non-blocking channel send is performed while still holding mu.
+	// This closes the race window between the closed-check above and the
+	// actual ch<-j: since close() also holds mu when it closes the
+	// channels, the two operations are mutually exclusive — we will
+	// either see closed=true and bail, or we will complete the send
+	// before close() gets the lock. Holding mu across a non-blocking
+	// select is safe because the select completes instantly (buffered
+	// channel, capacity 200).
 	ch := q.cold
 	if j.Priority == PriorityHot {
 		ch = q.hot
 	}
+	var sent bool
 	select {
 	case ch <- j:
-		return true
+		sent = true
 	default:
-		// Channel full — release the dedup slot and the depth, then
-		// report the drop. The gauge re-publish guarantees the depth
-		// reflects the rollback. Story 318: also tick the drops
-		// counter so the operator can see saturation on Grafana.
-		q.mu.Lock()
+	}
+	if !sent {
+		// Channel full — roll back the dedup slot and depth, then
+		// report the drop. Story 318: tick the drops counter.
 		delete(q.inFlight, key)
 		q.depth[j.Kind]--
 		depthAfter = q.depth[j.Kind]
@@ -132,6 +134,13 @@ func (q *priorityQueue) enqueue(j Job) bool {
 		observability.IncEnrichmentQueueDrop(string(j.Kind))
 		return false
 	}
+	q.mu.Unlock()
+
+	// Publish the per-kind depth outside the mutex (still single-writer
+	// because the previous block computed depthAfter while holding the
+	// lock). Story 306.
+	observability.SetEnrichmentQueueDepth(string(j.Kind), depthAfter)
+	return true
 }
 
 // dequeue blocks until a job is available or ctx cancels. Hot beats
