@@ -13,27 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	domainregrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 type stubSeasonsLister struct {
-	rows []repositories.WatchdogSeasonRow
-	next *repositories.WatchdogSeasonsCursor
+	rows []watchdogpersistence.WatchdogSeasonRow
+	next *watchdogpersistence.WatchdogSeasonsCursor
 	err  error
 
-	gotFilter repositories.WatchdogSeasonsFilter
+	gotFilter watchdogpersistence.WatchdogSeasonsFilter
 	gotLimit  int
-	gotCursor *repositories.WatchdogSeasonsCursor
+	gotCursor *watchdogpersistence.WatchdogSeasonsCursor
 }
 
-func (s *stubSeasonsLister) ListSeasons(_ context.Context, f repositories.WatchdogSeasonsFilter,
-	limit int, cur *repositories.WatchdogSeasonsCursor, _ time.Time,
-) ([]repositories.WatchdogSeasonRow, *repositories.WatchdogSeasonsCursor, error) {
+func (s *stubSeasonsLister) ListSeasons(_ context.Context, f watchdogpersistence.WatchdogSeasonsFilter,
+	limit int, cur *watchdogpersistence.WatchdogSeasonsCursor, _ time.Time,
+) ([]watchdogpersistence.WatchdogSeasonRow, *watchdogpersistence.WatchdogSeasonsCursor, error) {
 	s.gotFilter = f
 	s.gotLimit = limit
 	s.gotCursor = cur
@@ -44,22 +44,22 @@ func (s *stubSeasonsLister) ListSeasons(_ context.Context, f repositories.Watchd
 }
 
 type stubSeriesLister struct {
-	rows      []repositories.WatchdogSeasonRow
-	stats     map[int]repositories.WatchdogSeasonStats
-	decisions map[int][]repositories.RecentDecisionRow
-	grabs     map[int][]repositories.RecentGrabRow
+	rows      []watchdogpersistence.WatchdogSeasonRow
+	stats     map[int]watchdogpersistence.WatchdogSeasonStats
+	decisions map[int][]watchdogpersistence.RecentDecisionRow
+	grabs     map[int][]watchdogpersistence.RecentGrabRow
 }
 
-func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ time.Time) ([]repositories.WatchdogSeasonRow, error) {
+func (s *stubSeriesLister) SeasonsForSeries(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ time.Time) ([]watchdogpersistence.WatchdogSeasonRow, error) {
 	return s.rows, nil
 }
-func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (map[int]repositories.WatchdogSeasonStats, error) {
+func (s *stubSeriesLister) SeasonStatsFromDecisions(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (map[int]watchdogpersistence.WatchdogSeasonStats, error) {
 	return s.stats, nil
 }
-func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]repositories.RecentDecisionRow, error) {
+func (s *stubSeriesLister) RecentDecisionsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]watchdogpersistence.RecentDecisionRow, error) {
 	return s.decisions, nil
 }
-func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]repositories.RecentGrabRow, error) {
+func (s *stubSeriesLister) RecentGrabsBySeason(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID, _ int) (map[int][]watchdogpersistence.RecentGrabRow, error) {
 	return s.grabs, nil
 }
 
@@ -116,7 +116,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 		Reason: domainregrab.ReasonConsecutiveNoBetter, Consecutive: 3, CreatedAt: now,
 	}
 	lastAired := now.Add(-24 * time.Hour)
-	row := repositories.WatchdogSeasonRow{
+	row := watchdogpersistence.WatchdogSeasonRow{
 		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
@@ -134,7 +134,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 		NoBetterCounter:   &nb,
 		Blacklist:         &bl,
 	}
-	lister := &stubSeasonsLister{rows: []repositories.WatchdogSeasonRow{row}}
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{row}}
 	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{
 		"homelab": {InstanceName: "homelab", MaxConsecutiveNoBetter: 3},
 	}, nil).WithClock(func() time.Time { return now })
@@ -166,7 +166,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 func TestWatchdogSeasons_List_FiltersAndCursor(t *testing.T) {
 	t.Parallel()
 	lister := &stubSeasonsLister{
-		next: &repositories.WatchdogSeasonsCursor{InstanceName: "homelab", SeriesID: 200, SeasonNumber: 1},
+		next: &watchdogpersistence.WatchdogSeasonsCursor{InstanceName: "homelab", SeriesID: 200, SeasonNumber: 1},
 	}
 	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil)
 	r := newSeasonsRouter(h)
@@ -231,7 +231,7 @@ func TestWatchdogSeasons_List_RejectsInvalidCursor(t *testing.T) {
 func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	row := repositories.WatchdogSeasonRow{
+	row := watchdogpersistence.WatchdogSeasonRow{
 		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
@@ -244,14 +244,14 @@ func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 		OriginLastSeenAt:  now,
 	}
 	series := &stubSeriesLister{
-		rows: []repositories.WatchdogSeasonRow{row},
-		stats: map[int]repositories.WatchdogSeasonStats{
+		rows: []watchdogpersistence.WatchdogSeasonRow{row},
+		stats: map[int]watchdogpersistence.WatchdogSeasonStats{
 			2: {AiredEpisodes: 10, ExistingEpisodes: 9},
 		},
-		decisions: map[int][]repositories.RecentDecisionRow{
+		decisions: map[int][]watchdogpersistence.RecentDecisionRow{
 			2: {{ID: "d1", ScanRunID: "s1", Decision: "skip", Reason: "skip_all_complete", CreatedAt: now}},
 		},
-		grabs: map[int][]repositories.RecentGrabRow{
+		grabs: map[int][]watchdogpersistence.RecentGrabRow{
 			2: {{ID: "g-uuid", ReleaseTitle: "Title", Status: "imported", CreatedAt: now}},
 		},
 	}
@@ -297,7 +297,7 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	hash := domain.QbitHash("a1b2c3d4e5f60718293a4b5c6d7e8f9001122334")
-	row := repositories.WatchdogSeasonRow{
+	row := watchdogpersistence.WatchdogSeasonRow{
 		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
@@ -310,8 +310,8 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 		OriginLastSeenAt:  now,
 	}
 	series := &stubSeriesLister{
-		rows: []repositories.WatchdogSeasonRow{row},
-		grabs: map[int][]repositories.RecentGrabRow{
+		rows: []watchdogpersistence.WatchdogSeasonRow{row},
+		grabs: map[int][]watchdogpersistence.RecentGrabRow{
 			2: {
 				{ID: "newer", ReleaseTitle: "Title", Status: "imported", TorrentHash: &hash, CreatedAt: now},
 				{ID: "older", ReleaseTitle: "Old", Status: "import_failed", CreatedAt: now.Add(-time.Hour)},
@@ -337,7 +337,7 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	row := repositories.WatchdogSeasonRow{
+	row := watchdogpersistence.WatchdogSeasonRow{
 		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
@@ -350,8 +350,8 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
 		OriginLastSeenAt:  now,
 	}
 	series := &stubSeriesLister{
-		rows: []repositories.WatchdogSeasonRow{row},
-		grabs: map[int][]repositories.RecentGrabRow{
+		rows: []watchdogpersistence.WatchdogSeasonRow{row},
+		grabs: map[int][]watchdogpersistence.RecentGrabRow{
 			2: {{ID: "no-hash", ReleaseTitle: "Title", Status: "imported", CreatedAt: now}},
 		},
 	}

@@ -208,7 +208,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)
-	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
+	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
 	counterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 
 	_ = scanRepo // referenced by use cases that need a scan id source

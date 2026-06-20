@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
-	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 // WatchdogSeasonRow is the read-only join projection driving the
@@ -297,7 +296,7 @@ func (r *WatchdogSeasonsRepository) enrichSiblings(ctx context.Context, rows []W
 		idList = append(idList, id)
 	}
 
-	var nbModels []watchdogpersistence.NoBetterCounterModel
+	var nbModels []NoBetterCounterModel
 	if err := db.Where("instance_id IN ?", idList).
 		Find(&nbModels).Error; err != nil {
 		return fmt.Errorf("load no_better counters: %w", err)

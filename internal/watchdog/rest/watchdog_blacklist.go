@@ -24,7 +24,7 @@ type SeriesTitleResolver interface {
 }
 
 // BlacklistPager is the narrowed slice of WatchdogBlacklistRepository
-// the handler reads. The production *repositories.WatchdogBlacklistRepository
+// the handler reads. The production *watchdogpersistence.WatchdogBlacklistRepository
 // satisfies it via the new methods added by 047b.
 type BlacklistPager interface {
 	ListByInstanceWithLimit(ctx context.Context, instanceID uint, limit int, afterCreatedAt time.Time, afterID uint) ([]regrab.BlacklistEntry, error)

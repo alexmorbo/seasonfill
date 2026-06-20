@@ -13,30 +13,30 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
+	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
 
 // WatchdogSeasonsLister is the narrow slice of
-// repositories.WatchdogSeasonsRepository the handler needs for the
+// watchdogpersistence.WatchdogSeasonsRepository the handler needs for the
 // `/watchdog/seasons` page. Production is satisfied directly by
-// *repositories.WatchdogSeasonsRepository.
+// *watchdogpersistence.WatchdogSeasonsRepository.
 type WatchdogSeasonsLister interface {
-	ListSeasons(ctx context.Context, f repositories.WatchdogSeasonsFilter,
-		limit int, cur *repositories.WatchdogSeasonsCursor, now time.Time,
-	) ([]repositories.WatchdogSeasonRow, *repositories.WatchdogSeasonsCursor, error)
+	ListSeasons(ctx context.Context, f watchdogpersistence.WatchdogSeasonsFilter,
+		limit int, cur *watchdogpersistence.WatchdogSeasonsCursor, now time.Time,
+	) ([]watchdogpersistence.WatchdogSeasonRow, *watchdogpersistence.WatchdogSeasonsCursor, error)
 }
 
 // WatchdogSeasonsSeriesLister is the narrow slice for the per-series
-// drill endpoint. Production: *repositories.WatchdogSeasonsRepository.
+// drill endpoint. Production: *watchdogpersistence.WatchdogSeasonsRepository.
 type WatchdogSeasonsSeriesLister interface {
-	SeasonsForSeries(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, now time.Time) ([]repositories.WatchdogSeasonRow, error)
-	SeasonStatsFromDecisions(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID) (map[int]repositories.WatchdogSeasonStats, error)
-	RecentDecisionsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]repositories.RecentDecisionRow, error)
-	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]repositories.RecentGrabRow, error)
+	SeasonsForSeries(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, now time.Time) ([]watchdogpersistence.WatchdogSeasonRow, error)
+	SeasonStatsFromDecisions(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID) (map[int]watchdogpersistence.WatchdogSeasonStats, error)
+	RecentDecisionsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]watchdogpersistence.RecentDecisionRow, error)
+	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]watchdogpersistence.RecentGrabRow, error)
 }
 
 // Limits for the `/watchdog/seasons` page. The defaults match the
@@ -119,7 +119,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 		return
 	}
 
-	var cur *repositories.WatchdogSeasonsCursor
+	var cur *watchdogpersistence.WatchdogSeasonsCursor
 	if raw := c.Query("cursor"); raw != "" {
 		parsed, perr := decodeSeasonsCursor(raw)
 		if perr != nil {
@@ -129,7 +129,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 		cur = parsed
 	}
 
-	filter := repositories.WatchdogSeasonsFilter{
+	filter := watchdogpersistence.WatchdogSeasonsFilter{
 		Instance:        domain.InstanceName(strings.TrimSpace(c.Query("instance"))),
 		Q:               strings.TrimSpace(c.Query("q")),
 		CooldownOnly:    boolQuery(c, "cooldown_only"),
@@ -254,7 +254,7 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 // toSeasonDTO is the per-row mapper for the seasons list. Inlined as
 // a method so it can reach SettingsLookup for the noBetterMax field
 // without threading it through repo rows.
-func (h *WatchdogSeasonsHandler) toSeasonDTO(ctx context.Context, row repositories.WatchdogSeasonRow) dto.WatchdogSeason {
+func (h *WatchdogSeasonsHandler) toSeasonDTO(ctx context.Context, row watchdogpersistence.WatchdogSeasonRow) dto.WatchdogSeason {
 	item := dto.WatchdogSeason{
 		Instance:          row.InstanceName,
 		SeriesID:          row.SeriesID,
@@ -291,7 +291,7 @@ func (h *WatchdogSeasonsHandler) noBetterMaxFor(ctx context.Context, instance do
 	return s.MaxConsecutiveNoBetter
 }
 
-func originDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonOrigin {
+func originDTO(row watchdogpersistence.WatchdogSeasonRow) *dto.WatchdogSeasonOrigin {
 	if row.OriginGUID == "" && row.OriginFirstSeenAt.IsZero() && row.OriginLastSeenAt.IsZero() {
 		// Row was synthesised from decisions only (no origin_releases
 		// row exists). Surface origin = null per the wire contract.
@@ -306,7 +306,7 @@ func originDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonOrigin {
 	}
 }
 
-func cooldownDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonCooldown {
+func cooldownDTO(row watchdogpersistence.WatchdogSeasonRow) *dto.WatchdogSeasonCooldown {
 	if row.Cooldown == nil {
 		return nil
 	}
@@ -316,7 +316,7 @@ func cooldownDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonCooldown
 	}
 }
 
-func noBetterDTO(row repositories.WatchdogSeasonRow, max int) *dto.WatchdogSeasonNoBetter {
+func noBetterDTO(row watchdogpersistence.WatchdogSeasonRow, max int) *dto.WatchdogSeasonNoBetter {
 	if row.NoBetterCounter == nil {
 		return nil
 	}
@@ -327,7 +327,7 @@ func noBetterDTO(row repositories.WatchdogSeasonRow, max int) *dto.WatchdogSeaso
 	}
 }
 
-func blacklistDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonBlacklist {
+func blacklistDTO(row watchdogpersistence.WatchdogSeasonRow) *dto.WatchdogSeasonBlacklist {
 	if row.Blacklist == nil {
 		return nil
 	}
@@ -337,7 +337,7 @@ func blacklistDTO(row repositories.WatchdogSeasonRow) *dto.WatchdogSeasonBlackli
 	}
 }
 
-func toRecentDecisionDTOs(rows []repositories.RecentDecisionRow) []dto.WatchdogSeriesRecentDecision {
+func toRecentDecisionDTOs(rows []watchdogpersistence.RecentDecisionRow) []dto.WatchdogSeriesRecentDecision {
 	out := make([]dto.WatchdogSeriesRecentDecision, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, dto.WatchdogSeriesRecentDecision{
@@ -351,7 +351,7 @@ func toRecentDecisionDTOs(rows []repositories.RecentDecisionRow) []dto.WatchdogS
 	return out
 }
 
-func toRecentGrabDTOs(rows []repositories.RecentGrabRow) []dto.WatchdogSeriesRecentGrab {
+func toRecentGrabDTOs(rows []watchdogpersistence.RecentGrabRow) []dto.WatchdogSeriesRecentGrab {
 	out := make([]dto.WatchdogSeriesRecentGrab, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, dto.WatchdogSeriesRecentGrab{
@@ -368,7 +368,7 @@ func toRecentGrabDTOs(rows []repositories.RecentGrabRow) []dto.WatchdogSeriesRec
 // firstNonEmptyHash returns the torrent_hash of the most recent grab row
 // that has one. Returns "" when no row has a non-nil hash. Rows are
 // already sorted most-recent-first by RecentGrabsBySeason.
-func firstNonEmptyHash(rows []repositories.RecentGrabRow) domain.QbitHash {
+func firstNonEmptyHash(rows []watchdogpersistence.RecentGrabRow) domain.QbitHash {
 	for _, r := range rows {
 		if r.TorrentHash != nil && *r.TorrentHash != "" {
 			return *r.TorrentHash
@@ -407,12 +407,12 @@ func boolQuery(c *gin.Context, name string) bool {
 // encodeSeasonsCursor packs the keyset tuple into a URL-safe base64
 // string. The decoder rejects any payload with a different number of
 // segments so a hand-crafted cursor can't trip the keyset predicate.
-func encodeSeasonsCursor(c repositories.WatchdogSeasonsCursor) string {
+func encodeSeasonsCursor(c watchdogpersistence.WatchdogSeasonsCursor) string {
 	raw := string(c.InstanceName) + "\x00" + strconv.Itoa(int(c.SeriesID)) + "\x00" + strconv.Itoa(c.SeasonNumber)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-func decodeSeasonsCursor(s string) (*repositories.WatchdogSeasonsCursor, error) {
+func decodeSeasonsCursor(s string) (*watchdogpersistence.WatchdogSeasonsCursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
 		return nil, err
@@ -429,7 +429,7 @@ func decodeSeasonsCursor(s string) (*repositories.WatchdogSeasonsCursor, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &repositories.WatchdogSeasonsCursor{
+	return &watchdogpersistence.WatchdogSeasonsCursor{
 		InstanceName: domain.InstanceName(parts[0]),
 		SeriesID:     domain.SonarrSeriesID(seriesID),
 		SeasonNumber: season,

@@ -7,7 +7,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -112,7 +111,7 @@ func BuildWatchdog(persistence *PersistenceBundle, sonarr *SonarrBundle, log *sl
 type RegrabBundle struct {
 	QbitSettingsUC           *regrab.SettingsUseCase
 	QbitSettingsHandler      *handlers.QbitSettingsHandler
-	BlacklistRepo            *repositories.WatchdogBlacklistRepository
+	BlacklistRepo            *watchdogpersistence.WatchdogBlacklistRepository
 	NoBetterCounterRepo      *watchdogpersistence.NoBetterCounterRepository
 	RegrabUC                 *regrab.UseCase
 	RegrabLoop               *loops.RegrabLoop
@@ -182,7 +181,7 @@ func BuildRegrab(
 	// regrab orchestrator — Phase 10 core. Depends on the settings use
 	// case (Lookup), instance registry (Get), qBit + detector factories,
 	// grab / cooldown / blacklist / counter repos, evaluator + grab UC.
-	blacklistRepo := repositories.NewWatchdogBlacklistRepository(db)
+	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
 	noBetterCounterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
@@ -226,7 +225,7 @@ func BuildRegrab(
 	)
 
 	// 098a — watchdog seasons aggregate read view.
-	watchdogSeasonsRepo := repositories.NewWatchdogSeasonsRepository(db)
+	watchdogSeasonsRepo := watchdogpersistence.NewWatchdogSeasonsRepository(db)
 	watchdogSeasonsHandler := watchdogrest.NewWatchdogSeasonsHandler(
 		watchdogSeasonsRepo,
 		watchdogSeasonsRepo,
