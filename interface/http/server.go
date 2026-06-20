@@ -143,7 +143,7 @@ func NewServer(
 		authConfigHandler := adminrest.NewAuthConfigHandler(authHandler.AuthRuntime())
 		api.GET("/auth/config", authConfigHandler.Get)
 
-		oidcHandler := handlers.NewOIDCHandler(
+		oidcHandler := adminrest.NewOIDCHandler(
 			oidcUC, authHandler.AuthRuntime(), sessionKey,
 			cfg.Auth.SessionTTL, cfg.Auth.SecureCookie, logger,
 		)
@@ -266,7 +266,7 @@ func NewServer(
 			guarded.PATCH("/settings/timezone", timezoneHandler.Patch)
 		}
 
-		oidcTestHandler := handlers.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
+		oidcTestHandler := adminrest.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
 		guarded.POST("/auth/oidc/test", oidcTestHandler.Test)
 
 		// Webhook on the shared auth surface + per-instance rate limit.
