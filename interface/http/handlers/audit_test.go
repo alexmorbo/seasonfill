@@ -37,7 +37,7 @@ import (
 type auditFixture struct {
 	db          *gorm.DB
 	scans       *repositories.ScanRepository
-	decs        *repositories.DecisionRepository
+	decs        *grabpersistence.DecisionRepository
 	grabs       *grabpersistence.GrabRepository
 	seriesCache *repositories.SeriesCacheRepository
 	router      *gin.Engine
@@ -58,7 +58,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	sqlDB.SetMaxIdleConns(1)
 
 	scans := repositories.NewScanRepository(db)
-	decs := repositories.NewDecisionRepository(db)
+	decs := grabpersistence.NewDecisionRepository(db)
 	grabs := grabpersistence.NewGrabRepository(db)
 	seriesCache := repositories.NewSeriesCacheRepository(db, repositories.NewSeriesRepository(db))
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))

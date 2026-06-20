@@ -202,7 +202,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	instanceRepo := repositories.NewSonarrInstanceRepository(db)
 	qbitSettingsRepo := repositories.NewQbitSettingsRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
-	decisionRepo := repositories.NewDecisionRepository(db)
+	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)

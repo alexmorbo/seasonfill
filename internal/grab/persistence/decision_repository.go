@@ -1,4 +1,4 @@
-package repositories
+package persistence
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -91,7 +92,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 		Intent:           intentJSON,
 		CreatedAt:        d.CreatedAt,
 	}
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Create(&model).Error; err != nil {
 		return fmt.Errorf("save decision: %w", err)
 	}
 	return nil
@@ -105,7 +106,7 @@ func (r *DecisionRepository) Save(ctx context.Context, d decision.Decision) erro
 // the chain).
 func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decision.Decision, error) {
 	var model database.DecisionModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).First(&model, "id = ?", id.String()).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return decision.Decision{}, &sharedErrors.DecisionNotFoundError{ID: id}
 		}
@@ -116,7 +117,7 @@ func (r *DecisionRepository) GetByID(ctx context.Context, id uuid.UUID) (decisio
 
 func (r *DecisionRepository) UpdateSupersededBy(ctx context.Context, id, newID uuid.UUID) error {
 	newIDStr := newID.String()
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.DecisionModel{}).
 		Where("id = ?", id.String()).
 		Update("superseded_by_id", &newIDStr)
@@ -146,7 +147,7 @@ func (r *DecisionRepository) UpdateIntent(ctx context.Context, id uuid.UUID, int
 		}
 		payload = raw
 	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.DecisionModel{}).
 		Where("id = ?", id.String()).
 		Update("intent", payload)
@@ -163,7 +164,7 @@ func (r *DecisionRepository) UpdateIntent(ctx context.Context, id uuid.UUID, int
 // path (the goroutine failed after the prelude already pre-applied the
 // supersede pointer; the original must look live again).
 func (r *DecisionRepository) ClearSupersededBy(ctx context.Context, id uuid.UUID) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).
+	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
 		Model(&database.DecisionModel{}).
 		Where("id = ?", id.String()).
 		Update("superseded_by_id", gorm.Expr("NULL"))
@@ -180,7 +181,7 @@ func (r *DecisionRepository) List(ctx context.Context, f ports.DecisionFilter, p
 	if p.Limit <= 0 || p.Limit > ports.MaxListLimit {
 		return nil, nil, fmt.Errorf("decision list: %w", ports.ErrInvalidLimit)
 	}
-	q := dbFromContext(ctx, r.db).WithContext(ctx).Model(&database.DecisionModel{})
+	q := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Model(&database.DecisionModel{})
 	if f.ScanRunID != nil {
 		q = q.Where("scan_run_id = ?", f.ScanRunID.String())
 	}

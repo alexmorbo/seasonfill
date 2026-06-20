@@ -112,7 +112,7 @@ type ScanBundle struct {
 	GrabRepo     *grabpersistence.GrabRepository
 	CooldownRepo *repositories.CooldownRepository
 	OriginRepo   *repositories.OriginReleaseRepository
-	DecisionRepo *repositories.DecisionRepository
+	DecisionRepo *grabpersistence.DecisionRepository
 	Txr          *repositories.GormTransactor
 }
 
@@ -163,7 +163,7 @@ func BuildScan(
 	scanLog := sharedports.DomainLogger(log, "scan")
 
 	scanRepo := repositories.NewScanRepository(db)
-	decisionRepo := repositories.NewDecisionRepository(db)
+	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := repositories.NewCooldownRepository(db)
 	originRepo := repositories.NewOriginReleaseRepository(db)

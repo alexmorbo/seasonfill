@@ -332,7 +332,7 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 			db := backend.NewDB(t)
 			originRepo := NewOriginReleaseRepository(db)
 			scRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
-			decRepo := NewDecisionRepository(db)
+			decRepo := grabpersistence.NewDecisionRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 
 			seedInstance(t, db, "homelab")
@@ -370,7 +370,7 @@ func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			decRepo := NewDecisionRepository(db)
+			decRepo := grabpersistence.NewDecisionRepository(db)
 
 			scanID := uuid.New()
 			older := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
@@ -413,7 +413,7 @@ func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			decRepo := NewDecisionRepository(db)
+			decRepo := grabpersistence.NewDecisionRepository(db)
 			scanID := uuid.New()
 			base := time.Now().UTC().Truncate(time.Second)
 

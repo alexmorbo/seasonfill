@@ -23,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 )
 
 func loadFixture(t *testing.T, name string) []byte {
@@ -85,7 +86,7 @@ func TestIntegration_ScanHijackSeason2_DryRun_LogsGrabDecision(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	client := sonarr.New("test", srv.URL, "key", 10*time.Second, log)
 
-	decisionRepo := repositories.NewDecisionRepository(db)
+	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 

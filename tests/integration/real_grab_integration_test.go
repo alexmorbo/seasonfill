@@ -106,7 +106,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	client := sonarr.New("test", srv.URL, "key", 10*time.Second, log)
 
-	decisionRepo := repositories.NewDecisionRepository(db)
+	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := repositories.NewCooldownRepository(db)
@@ -240,7 +240,7 @@ func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	client := sonarr.New("test", srv.URL, "key", 10*time.Second, log)
 
-	decisionRepo := repositories.NewDecisionRepository(db)
+	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	scanRepo := repositories.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := repositories.NewCooldownRepository(db)
