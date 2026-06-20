@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"os"
 
-	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
+	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/logger"

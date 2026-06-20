@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/evaluate"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
@@ -30,6 +29,7 @@ import (
 	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
+	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"

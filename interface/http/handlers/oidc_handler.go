@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 )
 
 const (

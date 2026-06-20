@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/auth"
 	appgrab "github.com/alexmorbo/seasonfill/application/grab"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	apprescan "github.com/alexmorbo/seasonfill/application/rescan"
@@ -20,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/interface/healthcheck"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	authapp "github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/application/instance"
 	apppeople "github.com/alexmorbo/seasonfill/application/people"
 	"github.com/alexmorbo/seasonfill/application/ports"
@@ -19,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
+	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"

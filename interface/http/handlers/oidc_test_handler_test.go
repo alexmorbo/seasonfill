@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/auth"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
+	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 )
 
 func setupOIDCTest(t *testing.T, snap middleware.OIDCRuntime) *gin.Engine {
