@@ -144,29 +144,40 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (domain.S
 	m := fromCanon(c)
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	var conflict clause.OnConflict
+	// No PK + no natural key (TMDBID) ⇒ pure INSERT, no ON CONFLICT
+	// clause. Previously this branch emitted `clause.OnConflict{
+	// DoNothing: false}` which serialized to a bare `ON CONFLICT DO
+	// UPDATE` — SQLite tolerates the empty target; Postgres rejects it
+	// with SQLSTATE 42601 ("requires inference specification or
+	// constraint name"). The dual-backend pilot caught this via
+	// TestSeriesCacheRepository_NilPointerFieldsRoundTrip / postgres.
 	switch {
 	case m.ID != 0:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.Assignments(seriesUpsertAssignments()),
+		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert series: %w", err)
 		}
 	case m.TMDBID != nil:
 		// Partial unique index on tmdb_id WHERE tmdb_id IS NOT NULL —
 		// SQLite + Postgres both require the index predicate to be
 		// repeated in the ON CONFLICT target so the planner picks the
 		// partial index rather than rejecting "no matching constraint".
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
 			DoUpdates:   clause.Assignments(seriesUpsertAssignments()),
 		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert series: %w", err)
+		}
 	default:
 		// No PK and no natural key — pure insert. GORM will assign id.
-		conflict = clause.OnConflict{DoNothing: false}
-	}
-	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
-		return 0, fmt.Errorf("upsert series: %w", err)
+		if err := db.Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert series: %w", err)
+		}
 	}
 	return m.ID, nil
 }

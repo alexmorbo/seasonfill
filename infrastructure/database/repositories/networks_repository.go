@@ -114,29 +114,39 @@ func (r *NetworksRepository) Upsert(ctx context.Context, n taxonomy.Network) (in
 	m := fromNetwork(n)
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
-	var conflict clause.OnConflict
+	// No PK + no natural key ⇒ pure INSERT, no ON CONFLICT clause.
+	// Previously this branch emitted `clause.OnConflict{DoNothing:
+	// false}` which serialized to a bare `ON CONFLICT DO UPDATE`;
+	// SQLite tolerates the empty target, Postgres rejects it with
+	// SQLSTATE 42601. Dual-backend pilot caught this on the Sonarr-
+	// fallback path (tmdb_id NULL).
 	switch {
 	case m.ID != 0:
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns(networkUpdateCols()),
+		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert network: %w", err)
 		}
 	case m.TMDBID != nil:
 		// Partial unique on tmdb_id WHERE tmdb_id IS NOT NULL — both
 		// engines require the index predicate be repeated in the
 		// ON CONFLICT target so the planner picks the partial index.
-		conflict = clause.OnConflict{
+		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
 			DoUpdates:   clause.AssignmentColumns(networkUpdateCols()),
 		}
+		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert network: %w", err)
+		}
 	default:
 		// No PK and no natural key — pure insert (Sonarr-fallback
 		// path may legitimately land here with tmdb_id NULL).
-		conflict = clause.OnConflict{DoNothing: false}
-	}
-	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
-		return 0, fmt.Errorf("upsert network: %w", err)
+		if err := db.Create(&m).Error; err != nil {
+			return 0, fmt.Errorf("upsert network: %w", err)
+		}
 	}
 	return m.ID, nil
 }
