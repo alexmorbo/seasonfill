@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	infraextsvc "github.com/alexmorbo/seasonfill/infrastructure/externalservices"
-	infraomdb "github.com/alexmorbo/seasonfill/infrastructure/omdb"
+	infraomdb "github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
