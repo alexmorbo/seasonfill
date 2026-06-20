@@ -126,7 +126,7 @@ linters:
       #     contextHandler wrap) and the GORM adapter nil-fallback.
       #   * internal/shared/ports/context.go — LoggerFromContext nil
       #     fallback (background scope).
-      #   * interface/http/handlers/, infrastructure/reload/,
+      #   * interface/http/handlers/, internal/shared/reload/,
       #     infrastructure/tmdb/, internal/runtime/, application/,
       #     cmd/server/ — established nil-logger fallback pattern
       #     (constructor accepts *slog.Logger; nil → slog.Default()).
@@ -154,7 +154,7 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
-      - path: 'infrastructure/reload/'
+      - path: 'internal/shared/reload/'
         linters:
           - forbidigo
         text: 'slog\.Default'

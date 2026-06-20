@@ -15,7 +15,6 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/cmd/server/wiring"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	httpserver "github.com/alexmorbo/seasonfill/interface/http"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -24,6 +23,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 )
 
 // Options carries optional construction-time hooks. OnReady fires from

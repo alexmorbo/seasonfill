@@ -13,7 +13,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -23,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 )
 
 // Reparse is the CLI entry point for `seasonfill grabs reparse`.

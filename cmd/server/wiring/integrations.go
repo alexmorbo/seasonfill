@@ -14,7 +14,6 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
-	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	handlers "github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
@@ -37,6 +36,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 )
 
 // SonarrBundle holds the per-instance Sonarr wiring shared between the

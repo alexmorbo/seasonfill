@@ -7,10 +7,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/instance"
-	"github.com/alexmorbo/seasonfill/infrastructure/reload"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 )
 
 // notifyTestContext is a no-op in non-integration builds. The integration
