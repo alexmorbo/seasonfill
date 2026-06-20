@@ -3,7 +3,7 @@ package evaluate
 import (
 	"sort"
 
-	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 )
 
 type RankInput struct {

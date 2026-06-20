@@ -10,7 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	appwebhook "github.com/alexmorbo/seasonfill/application/webhook"
-	"github.com/alexmorbo/seasonfill/domain/release"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
