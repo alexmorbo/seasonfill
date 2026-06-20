@@ -16,8 +16,8 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
-	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"

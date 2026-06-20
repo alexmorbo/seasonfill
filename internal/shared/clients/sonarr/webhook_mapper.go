@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/webhook"
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

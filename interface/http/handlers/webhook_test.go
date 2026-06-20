@@ -20,8 +20,8 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
-	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
+	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )

@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/alexmorbo/seasonfill/application/webhook"
-	domainwebhook "github.com/alexmorbo/seasonfill/domain/webhook"
+	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
