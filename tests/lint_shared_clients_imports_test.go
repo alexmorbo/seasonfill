@@ -74,10 +74,10 @@ func TestSharedClientsNoBackwardsImports(t *testing.T) {
 	allowList := []string{
 		modPath + "/application/ports",
 		modPath + "/domain/people",
-		modPath + "/domain/release",
-		modPath + "/domain/series",
+		modPath + "/internal/catalog/domain/release",
+		modPath + "/internal/catalog/domain/series",
 		modPath + "/domain/taxonomy",
-		modPath + "/domain/webhook",
+		modPath + "/internal/catalog/domain/webhook",
 		modPath + "/infrastructure/database",
 	}
 

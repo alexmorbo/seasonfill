@@ -101,10 +101,10 @@ func TestEnrichmentNoBackwardsImports(t *testing.T) {
 	// Carve-outs — see godoc above for rationale.
 	allowList := []string{
 		modPath + "/application/ports",
-		modPath + "/domain/series",
-		modPath + "/domain/instance",
-		modPath + "/domain/release",
-		modPath + "/domain/webhook",
+		modPath + "/internal/catalog/domain/series",
+		modPath + "/internal/catalog/domain/instance",
+		modPath + "/internal/catalog/domain/release",
+		modPath + "/internal/catalog/domain/webhook",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/middleware",

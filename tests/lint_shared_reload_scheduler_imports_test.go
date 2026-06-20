@@ -113,8 +113,8 @@ func TestSharedReloadSchedulerNoBackwardsImports(t *testing.T) {
 	allowList := []string{
 		modPath + "/application/ports",
 		modPath + "/application/scan",
-		modPath + "/domain/release",
-		modPath + "/domain/series",
+		modPath + "/internal/catalog/domain/release",
+		modPath + "/internal/catalog/domain/series",
 		modPath + "/interface/http/middleware",
 		modPath + "/internal/admin/infrastructure/oidc",
 		modPath + "/internal/admin/infrastructure/ratelimit",

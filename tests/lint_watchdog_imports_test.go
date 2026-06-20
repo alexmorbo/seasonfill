@@ -80,9 +80,9 @@ func TestWatchdogNoBackwardsImports(t *testing.T) {
 		modPath + "/application/rescan",
 		modPath + "/application/scan",
 		modPath + "/domain",
-		modPath + "/domain/instance",
-		modPath + "/domain/release",
-		modPath + "/domain/series",
+		modPath + "/internal/catalog/domain/instance",
+		modPath + "/internal/catalog/domain/release",
+		modPath + "/internal/catalog/domain/series",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
@@ -237,7 +237,7 @@ func TestWatchdogInfrastructureNoBackwardsImports(t *testing.T) {
 	ctxRoot := watchdogSubtree(t, "infrastructure")
 	modPath := "github.com/alexmorbo/seasonfill"
 	allowList := []string{
-		modPath + "/domain/instance",
+		modPath + "/internal/catalog/domain/instance",
 	}
 	checkWatchdogSubtreeImports(t, ctxRoot, "watchdog/infrastructure", allowList)
 }
@@ -262,8 +262,8 @@ func TestWatchdogRestNoBackwardsImports(t *testing.T) {
 		modPath + "/application/ports",
 		modPath + "/application/rescan",
 		modPath + "/application/scan",
-		modPath + "/domain/release",
-		modPath + "/domain/series",
+		modPath + "/internal/catalog/domain/release",
+		modPath + "/internal/catalog/domain/series",
 		modPath + "/infrastructure/database",
 		modPath + "/interface/http/dto",
 		modPath + "/interface/http/handlers",
