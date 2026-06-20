@@ -128,9 +128,10 @@ jobs:
       - name: Test (integration, postgres backend)
         env:
           SEASONFILL_TEST_POSTGRES_ENABLE: "1"
+          GOMAXPROCS: "4"
         run: |
           PKGS=$(go list ./internal/shared/testhelpers ./infrastructure/database/repositories/...)
-          go test -tags integration -race -timeout 20m $PKGS
+          go test -tags integration -race -timeout 20m -parallel=4 $PKGS
 
   nightly-deep:
     name: Nightly deep

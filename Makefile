@@ -30,8 +30,10 @@ test-integration-sqlite:
 # Story 424 (A-4-3) rolls out the dual-backend pattern across repository tests.
 # Set SEASONFILL_TEST_POSTGRES_ENABLE to gate the Postgres backend in AllBackends(t).
 # Requires Docker for testcontainers; ~6min total.
+# -parallel=4 + GOMAXPROCS=4 caps concurrent test workers to prevent Postgres
+# container OOM under high load on CI runners (2 CPU / 7GB RAM).
 test-integration-postgres:
-	SEASONFILL_TEST_POSTGRES_ENABLE=1 go test -tags integration -race -count=1 -timeout 20m \
+	SEASONFILL_TEST_POSTGRES_ENABLE=1 GOMAXPROCS=4 go test -tags integration -race -count=1 -timeout 20m -parallel=4 \
 		./internal/shared/testhelpers \
 		./infrastructure/database/repositories/...
 
