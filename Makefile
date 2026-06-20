@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage test-integration test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
+.PHONY: build test test-race test-coverage test-integration test-integration-postgres test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -25,6 +25,16 @@ test-coverage:
 # ~3min total. Excluded from default `make test` / `make test-race` runs.
 test-integration:
 	go test -tags integration -race -count=1 -timeout 15m ./...
+
+# test-integration-postgres reserves the future dual-backend entry point.
+# Story 422 (A-4-1) only adds the testcontainers Postgres helper +
+# smoke test under `integration`; story 424 (A-4-3) is what actually
+# rolls out the dual-backend pattern across repository tests, at which
+# point SEASONFILL_TEST_POSTGRES_ENABLE will gate the Postgres backend
+# in AllBackends(t). Until then this target is functionally identical
+# to test-integration — the env var has no consumers yet.
+test-integration-postgres:
+	SEASONFILL_TEST_POSTGRES_ENABLE=1 go test -tags integration -race -count=1 -timeout 15m ./...
 
 # test-integration-e2e runs the `integration_e2e` build tag suite (CI nightly-deep job).
 # Long-running end-to-end flows (regrab full lifecycle, OIDC callback E2E).
