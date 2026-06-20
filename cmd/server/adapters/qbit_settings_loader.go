@@ -3,7 +3,7 @@ package adapters
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/application/regrab"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // QbitSettingsLoaderFunc is a function-typed shim that satisfies the

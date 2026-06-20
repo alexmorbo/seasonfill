@@ -17,13 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 const qbitHandlerTestMasterKey = "handler-master-key-32-bytes-aes-gcm"

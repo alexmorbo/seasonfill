@@ -12,7 +12,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/gc"
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // HTTPServeConfig is the on-the-stack config DTO previously inlined as

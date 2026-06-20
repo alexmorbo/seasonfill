@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // fakeRunner records every RunInstance call and lets tests stub the

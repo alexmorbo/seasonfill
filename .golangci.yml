@@ -202,6 +202,15 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/watchdog/ inherits the same carve-out — UseCase
+      # (regrab + settings) constructors accept *slog.Logger and fall
+      # back to sharedports.DomainLogger(slog.Default(), "watchdog")
+      # when nil. Established pattern moved from application/regrab
+      # in story 433 (A-1-7).
+      - path: 'internal/watchdog/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

@@ -10,8 +10,8 @@ package regrab
 import (
 	"context"
 
-	appregrab "github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
+	appregrab "github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // QbitClientFactoryFunc satisfies application/regrab.QbitClientFactory

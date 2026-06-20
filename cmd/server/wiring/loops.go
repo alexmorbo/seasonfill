@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/rescan"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
@@ -28,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // WatchdogBundle holds the boot-time health monitor + state watchdog

@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
@@ -33,6 +32,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 

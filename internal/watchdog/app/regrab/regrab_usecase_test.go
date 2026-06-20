@@ -15,8 +15,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
-	"github.com/alexmorbo/seasonfill/application/regrab/mocks"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -26,6 +24,8 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab/mocks"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	domainregrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )

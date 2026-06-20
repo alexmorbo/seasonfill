@@ -14,10 +14,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // RollupSnapshotProvider is the read-only slice of *regrab.UseCase the

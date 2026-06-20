@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 )
 
 // RegrabRunner is the narrow surface RegrabLoop calls on each tick. The
