@@ -330,8 +330,8 @@ func BuildSeriesDetail(
 	sdEpisodeStatesRepo := repositories.NewEpisodeStatesRepository(db)
 	sdSeasonStatsRepo := repositories.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
-	sdSeriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
-	sdPeopleRepo := repositories.NewPeopleRepository(db)
+	sdSeriesPeopleRepo := enrichpersistence.NewSeriesPeopleRepository(db)
+	sdPeopleRepo := enrichpersistence.NewPeopleRepository(db)
 	sdGenresRepo := repositories.NewGenresRepository(db)
 	sdKeywordsRepo := repositories.NewKeywordsRepository(db)
 	sdNetworksRepo := repositories.NewNetworksRepository(db)
@@ -389,7 +389,7 @@ func BuildSeriesDetail(
 	// the new EpisodesRepository.CountBySeries method and a thin
 	// adapter projecting repositories.PersonCredit → composer-local
 	// PersonCreditRef.
-	sdPersonCreditsRepo := repositories.NewPersonCreditsRepository(db)
+	sdPersonCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
 	castComposer := seriesdetail.NewCastComposer(seriesdetail.CastDeps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,

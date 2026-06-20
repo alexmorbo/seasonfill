@@ -272,8 +272,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	seasonsRepo := enrichpersistence.NewSeasonsRepository(db)
 	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	episodeTextsRepo := repositories.NewEpisodeTextsRepository(db)
-	peopleRepo := repositories.NewPeopleRepository(db)
-	seriesPeopleRepo := repositories.NewSeriesPeopleRepository(db)
+	peopleRepo := enrichpersistence.NewPeopleRepository(db)
+	seriesPeopleRepo := enrichpersistence.NewSeriesPeopleRepository(db)
 	genresRepo := repositories.NewGenresRepository(db)
 	genresI18nRepo := repositories.NewGenresI18nRepository(db)
 	keywordsRepo := repositories.NewKeywordsRepository(db)
@@ -286,8 +286,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	recommendationsRepo := repositories.NewRecommendationsRepository(db)
 	syncLogRepo := repositories.NewSyncLogRepository(db)
 	// Story 212 (C-3) — person enrichment + cold-start backfill.
-	personBiographiesRepo := repositories.NewPersonBiographiesRepository(db)
-	personCreditsRepo := repositories.NewPersonCreditsRepository(db)
+	personBiographiesRepo := enrichpersistence.NewPersonBiographiesRepository(db)
+	personCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
 	coldStartScanner := wiring.NewColdStartScannerAdapter(seriesRepo)
 
 	// Story 211 (C-2) — enrichment dispatcher. BuildEnrichment returns

@@ -6,9 +6,9 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/seriesdetail"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 )
 
 // PersonCreditsAdapter projects repositories.PersonCredit rows down
@@ -16,11 +16,11 @@ import (
 // projection is cheap (two field copies) and keeps the application
 // layer free of the repository's wide PersonCredit struct.
 type PersonCreditsAdapter struct {
-	R *repositories.PersonCreditsRepository
+	R *persistence.PersonCreditsRepository
 }
 
 // NewPersonCreditsAdapter wraps the supplied repository.
-func NewPersonCreditsAdapter(r *repositories.PersonCreditsRepository) PersonCreditsAdapter {
+func NewPersonCreditsAdapter(r *persistence.PersonCreditsRepository) PersonCreditsAdapter {
 	return PersonCreditsAdapter{R: r}
 }
 
@@ -45,11 +45,11 @@ func (a PersonCreditsAdapter) ListByPerson(ctx context.Context, personID int64) 
 // returns []PersonCreditModel; the adapter converts to
 // []dompeople.PersonCredit row by row.
 type PersonCreditsReaderAdapter struct {
-	R *repositories.PersonCreditsRepository
+	R *persistence.PersonCreditsRepository
 }
 
 // NewPersonCreditsReaderAdapter wraps the supplied repository.
-func NewPersonCreditsReaderAdapter(r *repositories.PersonCreditsRepository) PersonCreditsReaderAdapter {
+func NewPersonCreditsReaderAdapter(r *persistence.PersonCreditsRepository) PersonCreditsReaderAdapter {
 	return PersonCreditsReaderAdapter{R: r}
 }
 

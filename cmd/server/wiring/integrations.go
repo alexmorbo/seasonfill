@@ -1069,7 +1069,7 @@ func (a ExternalIDsRepoAdapter) Upsert(ctx context.Context, entityType enrichmen
 // *string. The conversion lives here so the application layer never
 // touches the database package.
 type PersonCreditsRepoAdapter struct {
-	Inner *repositories.PersonCreditsRepository
+	Inner *enrichpersistence.PersonCreditsRepository
 }
 
 func (a PersonCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {

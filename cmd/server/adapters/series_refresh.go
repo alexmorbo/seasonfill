@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/alexmorbo/seasonfill/application/seriesrefresh"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -38,11 +37,11 @@ func (a SeriesRefreshSeriesAdapter) Get(ctx context.Context, id domain.SeriesID)
 // calling SeriesPeopleRepository.ListBySeries (the composer's existing
 // path) and slicing the first N person ids. Story 218 (E-2).
 type SeriesRefreshCastAdapter struct {
-	R *repositories.SeriesPeopleRepository
+	R *persistence.SeriesPeopleRepository
 }
 
 // NewSeriesRefreshCastAdapter wraps the supplied repository.
-func NewSeriesRefreshCastAdapter(r *repositories.SeriesPeopleRepository) SeriesRefreshCastAdapter {
+func NewSeriesRefreshCastAdapter(r *persistence.SeriesPeopleRepository) SeriesRefreshCastAdapter {
 	return SeriesRefreshCastAdapter{R: r}
 }
 

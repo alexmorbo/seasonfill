@@ -3,9 +3,9 @@ package adapters
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -15,11 +15,11 @@ import (
 // path. The renaming is local; the production repository's
 // method is `Get(ctx, id, language)`.
 type PeopleReaderAdapter struct {
-	R *repositories.PeopleRepository
+	R *persistence.PeopleRepository
 }
 
 // NewPeopleReaderAdapter wraps the supplied repository.
-func NewPeopleReaderAdapter(r *repositories.PeopleRepository) PeopleReaderAdapter {
+func NewPeopleReaderAdapter(r *persistence.PeopleRepository) PeopleReaderAdapter {
 	return PeopleReaderAdapter{R: r}
 }
 
