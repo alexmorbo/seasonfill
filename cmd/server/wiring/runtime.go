@@ -12,12 +12,12 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
-	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gc"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/runtimeconfig"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
+	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -67,7 +67,7 @@ type HTTPServeConfig struct {
 type RuntimeConfigBundle struct {
 	Snap        runtime.Snapshot
 	UC          *runtimeconfig.UseCase
-	Handler     *handlers.RuntimeConfigHandler
+	Handler     *catalogrest.RuntimeConfigHandler
 	ServeConfig HTTPServeConfig
 }
 
@@ -133,7 +133,7 @@ func BuildRuntimeConfig(
 	uc := runtimeconfig.New(persistence.RuntimeRepo, persistence.InstanceRepo,
 		persistence.Cipher, bus, adminLog).
 		WithClientSecretEnv(bootCfg.Auth.OIDCClientSecret)
-	handler := handlers.NewRuntimeConfigHandler(uc, log)
+	handler := catalogrest.NewRuntimeConfigHandler(uc, log)
 
 	// cfg reads from snap (not bootstrap) for the runtime-mutable
 	// fields. APIKey embedded into authCfg comes from MasterKey

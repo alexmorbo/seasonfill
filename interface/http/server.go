@@ -56,7 +56,7 @@ func NewServer(
 	rescanUC *apprescan.UseCase,
 	instanceCRUD *catalogrest.InstanceCRUDHandler,
 	instanceProbe *catalogrest.InstanceProbeHandler,
-	runtimeConfigHandler *handlers.RuntimeConfigHandler,
+	runtimeConfigHandler *catalogrest.RuntimeConfigHandler,
 	qbitSettings *handlers.QbitSettingsHandler,
 	externalServices *enrichrest.ExternalServicesHandler,
 	oidcUC *auth.OIDCLoginUseCase,

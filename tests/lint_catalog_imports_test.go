@@ -12,8 +12,8 @@ import (
 )
 
 // TestCatalogNoBackwardsImports enforces story 441 A-1-15 §3.3,
-// 442 A-1-16 §3.3, and 443 A-1-17 §3.3: every package under
-// internal/catalog/ MUST NOT import the legacy horizontal-CA dirs
+// 442 A-1-16 §3.3, 443 A-1-17 §3.3, and 444 A-1-18 §3.3: every package
+// under internal/catalog/ MUST NOT import the legacy horizontal-CA dirs
 // that the bounded context was migrated OUT of. Specifically the
 // old siblings that hosted catalog code before the vertical-slice
 // extraction:
@@ -53,6 +53,14 @@ import (
 //     orchestrator). Same model-split deferral as A-1-9 / A-1-10.
 //   - internal/runtime — InstanceUseCase reads the active runtime
 //     snapshot + crypto cipher for envelope (de)encryption.
+//   - interface/http/dto — story 444 carve-out: the catalog rest
+//     leaf renders response bodies through the shared wire DTOs.
+//   - interface/http/middleware — story 444 carve-out: the catalog
+//     rest tests depend on the typed-error envelope middleware.
+//   - internal/admin/rest — story 444 carve-out: instances.go
+//     consumes the admin-context CatalogMediaPendingWriter +
+//     CatalogMediaPrewarmer adapter ports (horizontal between
+//     vertical-slice siblings).
 //
 // Run via: `make test-lint-rule` (lint build tag).
 func TestCatalogNoBackwardsImports(t *testing.T) {
@@ -92,6 +100,22 @@ func TestCatalogNoBackwardsImports(t *testing.T) {
 		modPath + "/application/ports",
 		modPath + "/infrastructure/database",
 		modPath + "/internal/runtime",
+		// Story 444 (A-1-18) — catalog rest leaf carve-outs. The Gin
+		// handlers translate use-case results into the shared HTTP wire
+		// DTOs and depend on the shared middleware for the typed-error
+		// envelope. These two carve-outs mirror the equivalents in
+		// tests/lint_admin_imports_test.go and tests/lint_grab_imports_test.go;
+		// a future story (D-3 / 449) will lift the wire DTOs into a
+		// per-context home so this can be tightened.
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/middleware",
+		// Story 444 (A-1-18) — instances.go imports the admin-rest
+		// adapter ports (CatalogMediaPendingWriter, CatalogMediaPrewarmer)
+		// and the healthcheck Checker for the /instances list snapshot.
+		// adminrest is itself a vertical-slice leaf, so the import is
+		// horizontal between siblings rather than backwards toward the
+		// catch-all interface/http layer.
+		modPath + "/internal/admin/rest",
 	}
 
 	isAllowed := func(imp string) bool {
