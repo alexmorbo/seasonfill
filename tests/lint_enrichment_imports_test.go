@@ -37,7 +37,15 @@ import (
 // repositories). Persistence files are covered by this same depcheck
 // — they may import infrastructure/database (for GORM models) but
 // MUST NOT reach back into infrastructure/database/repositories for
-// neighbour repos, application/*, domain/*, or interface/*.
+// neighbour repos, application/*, domain/*, or interface/*. Story 438
+// (A-1-12) extended the bounded context with internal/enrichment/rest
+// (PeopleHandler, ExternalServicesHandler, SeriesRefreshHandler +
+// the seriesrefresh.UseCase migrated out of interface/http/handlers
+// and application/seriesrefresh). REST files cross into
+// interface/http/dto and interface/http/middleware for the wire DTO
+// contract + ErrorResponseMiddleware shared by every other rest slice
+// (internal/grab/rest, internal/mediaproxy/rest, internal/admin/rest,
+// internal/watchdog/rest) — that pair stays carved-out below.
 //
 // Carve-outs (explicit allowlist):
 //
@@ -61,6 +69,10 @@ import (
 //   - infrastructure/sonarr — series_worker pulls Sonarr error
 //     sentinels for the 404-as-degraded mapping. Will relocate when
 //     story 447 extracts the sonarr_sync bounded context.
+//   - interface/http/dto, interface/http/middleware — wire DTO
+//     contract + ErrorResponseMiddleware consumed by every rest
+//     slice (story 438 A-1-12). Same carve-out as the other internal/
+//     */rest packages.
 //
 // Run via: `make test-lint-rule` (lint build tag).
 func TestEnrichmentNoBackwardsImports(t *testing.T) {
@@ -98,6 +110,8 @@ func TestEnrichmentNoBackwardsImports(t *testing.T) {
 		modPath + "/domain/webhook",
 		modPath + "/infrastructure/database",
 		modPath + "/infrastructure/sonarr",
+		modPath + "/interface/http/dto",
+		modPath + "/interface/http/middleware",
 	}
 
 	isAllowed := func(imp string) bool {

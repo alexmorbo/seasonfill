@@ -20,6 +20,22 @@
 //	    people/       — Person page composer (prewarm + on-demand)
 //	    externalservices/ — Settings UseCase (test_runner + provider
 //	                    credentials persistence)
+//	  persistence/  — Postgres GORM repositories for series, seasons,
+//	                  episodes, people, credits, biographies,
+//	                  episode_people, series_people, taxonomy, i18n,
+//	                  external_ids, content_ratings, origin_release,
+//	                  recommendations, live_assets, media_assets
+//	                  (story 437 A-1-11).
+//	  rest/         — HTTP handlers for the enrichment surface
+//	                  (story 438 A-1-12):
+//	                    - PeopleHandler    GET    /api/v1/people/:tmdbId
+//	                    - SeriesRefreshHandler POST
+//	                                /api/v1/instances/:name/series/:id/refresh
+//	                    - ExternalServicesHandler
+//	                                GET/PUT/POST /api/v1/external-services
+//	                                            (+ /:service[/test])
+//	                    seriesrefresh/ — UseCase behind SeriesRefreshHandler
+//	                                (cache resolve → enrichment.Enqueue).
 //
 // Import direction (PRD §3.3 — enforced by the depcheck test):
 //
@@ -47,4 +63,7 @@
 //   - 353 — engraved-monogram fallback hand-off
 //   - 392-398 — F-4b domain logger slog migration
 //   - 436 — vertical-slice extraction (this layout)
+//   - 437 — persistence/ migrated from infrastructure/database
+//   - 438 — rest/ migrated from interface/http/handlers +
+//     application/seriesrefresh
 package enrichment
