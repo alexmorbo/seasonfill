@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 func TestWatchdogBlacklistRepository_CountByInstance(t *testing.T) {

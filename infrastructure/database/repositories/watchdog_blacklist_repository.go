@@ -10,9 +10,9 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 type WatchdogBlacklistRepository struct {

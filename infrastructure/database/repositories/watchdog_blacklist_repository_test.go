@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 func sampleBlacklistEntry(t *testing.T, instanceID uint, seriesID domain.SonarrSeriesID, season int) regrab.BlacklistEntry {

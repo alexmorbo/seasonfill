@@ -16,10 +16,10 @@ import (
 
 	ports "github.com/alexmorbo/seasonfill/application/ports"
 	cooldown "github.com/alexmorbo/seasonfill/domain/cooldown"
-	regrab "github.com/alexmorbo/seasonfill/domain/regrab"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	decision "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	regrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )

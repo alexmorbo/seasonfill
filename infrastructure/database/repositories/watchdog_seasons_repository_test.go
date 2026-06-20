@@ -12,7 +12,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -20,6 +19,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 func seedInstance(t *testing.T, db *gorm.DB, name string) uint {

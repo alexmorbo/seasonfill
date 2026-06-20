@@ -19,7 +19,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/regrab/mocks"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	domainregrab "github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
@@ -28,6 +27,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	domainregrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 const (

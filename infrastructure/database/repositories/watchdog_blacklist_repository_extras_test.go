@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 func TestWatchdogBlacklistRepository_DeleteByID_ScopedToInstance(t *testing.T) {

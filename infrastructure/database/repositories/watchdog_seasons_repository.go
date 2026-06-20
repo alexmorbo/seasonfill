@@ -10,9 +10,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/domain/cooldown"
-	"github.com/alexmorbo/seasonfill/domain/regrab"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
 // WatchdogSeasonRow is the read-only join projection driving the
