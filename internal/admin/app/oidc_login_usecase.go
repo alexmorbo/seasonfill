@@ -14,9 +14,9 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

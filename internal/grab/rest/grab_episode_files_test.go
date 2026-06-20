@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -25,6 +24,7 @@ import (
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"

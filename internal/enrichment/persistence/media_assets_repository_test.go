@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )

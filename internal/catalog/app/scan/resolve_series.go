@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

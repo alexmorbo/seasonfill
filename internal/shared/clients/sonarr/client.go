@@ -16,11 +16,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )

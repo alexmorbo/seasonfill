@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 

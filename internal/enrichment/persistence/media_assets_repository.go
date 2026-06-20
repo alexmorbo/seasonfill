@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )

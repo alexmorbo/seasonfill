@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
@@ -29,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"

@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"

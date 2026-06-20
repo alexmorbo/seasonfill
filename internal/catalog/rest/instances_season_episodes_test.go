@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )

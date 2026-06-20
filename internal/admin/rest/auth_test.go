@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 

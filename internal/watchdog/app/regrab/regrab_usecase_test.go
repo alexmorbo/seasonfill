@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -23,6 +22,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab/mocks"

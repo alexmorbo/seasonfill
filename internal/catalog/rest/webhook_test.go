@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

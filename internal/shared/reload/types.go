@@ -4,7 +4,7 @@ package reload
 import (
 	"context"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 // HealthChecker is the (small) subset of healthcheck.Checker the

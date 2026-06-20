@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -20,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 	"github.com/alexmorbo/seasonfill/internal/wiring"

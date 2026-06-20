@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"

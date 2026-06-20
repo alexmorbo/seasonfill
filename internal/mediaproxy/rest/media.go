@@ -16,10 +16,10 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 

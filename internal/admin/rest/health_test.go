@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 

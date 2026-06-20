@@ -25,10 +25,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

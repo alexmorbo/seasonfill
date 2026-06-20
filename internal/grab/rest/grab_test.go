@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
@@ -25,6 +24,7 @@ import (
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"

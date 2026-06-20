@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
@@ -27,6 +26,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"

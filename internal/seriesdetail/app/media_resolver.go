@@ -29,8 +29,8 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

@@ -9,11 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 

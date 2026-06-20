@@ -8,9 +8,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )

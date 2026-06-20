@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 

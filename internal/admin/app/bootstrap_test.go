@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 type fakeAdminRepo struct {

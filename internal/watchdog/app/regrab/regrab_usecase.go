@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"

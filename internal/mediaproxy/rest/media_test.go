@@ -19,10 +19,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 // stubRepo for the handler tests.

@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 const UsernameContextKey = "auth.username"

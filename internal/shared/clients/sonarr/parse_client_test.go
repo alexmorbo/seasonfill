@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 func TestClient_ParseRelease_HappyPath(t *testing.T) {

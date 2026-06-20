@@ -21,10 +21,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 

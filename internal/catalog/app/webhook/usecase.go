@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -19,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/errtext"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"

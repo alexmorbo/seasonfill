@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )

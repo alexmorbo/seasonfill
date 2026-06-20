@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

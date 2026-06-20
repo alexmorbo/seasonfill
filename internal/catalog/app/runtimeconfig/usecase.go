@@ -17,9 +17,9 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )

@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/commands"
 	"github.com/alexmorbo/seasonfill/cmd/server/loops"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 func main() {

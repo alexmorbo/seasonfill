@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )

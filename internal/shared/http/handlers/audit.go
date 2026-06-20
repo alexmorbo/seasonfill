@@ -8,11 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	appdecision "github.com/alexmorbo/seasonfill/internal/grab/app/decision"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )

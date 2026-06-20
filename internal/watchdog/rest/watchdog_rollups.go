@@ -13,9 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/handlers"

@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"

@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	apports "github.com/alexmorbo/seasonfill/application/ports"
 	appextsvc "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	apports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 // TestExternalServicesSubscriber_RegisterListener_FiresAfterApply

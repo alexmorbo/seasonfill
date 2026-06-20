@@ -14,9 +14,9 @@ import (
 	reflect "reflect"
 	time "time"
 
-	ports "github.com/alexmorbo/seasonfill/application/ports"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	decision "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	domain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	cooldown "github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	regrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"

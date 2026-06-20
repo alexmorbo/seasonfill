@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 // HTTP pagination edge: tighter than ports.MaxListLimit (1000) so the

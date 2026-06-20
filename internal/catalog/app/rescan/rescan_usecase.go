@@ -10,12 +10,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/errtext"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"

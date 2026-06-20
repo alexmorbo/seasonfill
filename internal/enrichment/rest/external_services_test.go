@@ -12,9 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	apports "github.com/alexmorbo/seasonfill/application/ports"
 	appext "github.com/alexmorbo/seasonfill/internal/enrichment/app/externalservices"
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	apports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 type fakeExtRepo struct {

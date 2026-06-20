@@ -19,11 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -31,6 +30,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
@@ -207,7 +207,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := repositories.NewOriginReleaseRepository(db)
+	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
 	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
 	counterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
 

@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 var ErrAPIKeyMismatch = errors.New("SEASONFILL_API_KEY mismatch: cannot decrypt stored secrets")

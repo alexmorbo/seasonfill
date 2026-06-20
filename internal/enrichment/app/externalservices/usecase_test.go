@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	apports "github.com/alexmorbo/seasonfill/application/ports"
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	apports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 type stubRepo struct {

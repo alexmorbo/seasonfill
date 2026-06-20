@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 const DrainDelay = 30 * time.Second
