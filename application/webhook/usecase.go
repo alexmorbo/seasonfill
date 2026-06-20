@@ -14,7 +14,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/application/torrentsync"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/domain/webhook"
 	"github.com/alexmorbo/seasonfill/infrastructure/sonarr"
@@ -23,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // GuidCooldownLookup returns the per-instance guid-after-failed-import

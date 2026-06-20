@@ -12,11 +12,11 @@ import (
 	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // classifier separates transient (retry) from permanent (give-up) Sonarr errors.

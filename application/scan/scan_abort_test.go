@@ -16,7 +16,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
@@ -26,6 +25,7 @@ import (
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // abortFakeSonarr returns enough monitored series + monitored seasons to

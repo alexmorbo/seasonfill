@@ -15,7 +15,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/errtext"
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/instance"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -25,6 +24,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 var (

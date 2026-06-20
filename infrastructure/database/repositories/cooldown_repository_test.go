@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 func TestCooldownRepository_Set_Get(t *testing.T) {

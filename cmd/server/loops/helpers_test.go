@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // nullLogger returns a slog.Logger that discards all output.

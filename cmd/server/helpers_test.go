@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alexmorbo/seasonfill/application/ports"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // fakeCooldownRepo is a minimal in-memory implementation of ports.CooldownRepository.

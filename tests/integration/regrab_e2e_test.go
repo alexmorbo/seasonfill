@@ -22,7 +22,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/infrastructure/database"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	infraregrab "github.com/alexmorbo/seasonfill/infrastructure/regrab"
@@ -34,6 +33,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // regrabHarness bundles every collaborator the test needs so the

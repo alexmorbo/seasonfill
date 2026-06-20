@@ -14,10 +14,10 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/regrab"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/infrastructure/database/repositories"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	domainregrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 

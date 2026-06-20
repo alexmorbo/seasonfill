@@ -16,7 +16,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	"github.com/alexmorbo/seasonfill/infrastructure/qbit"
@@ -28,6 +27,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	domainregrab "github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 

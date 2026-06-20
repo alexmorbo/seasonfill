@@ -20,7 +20,6 @@ import (
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/application/scan"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/release"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	"github.com/alexmorbo/seasonfill/interface/http/middleware"
@@ -30,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // --- fakes ----------------------------------------------------------------

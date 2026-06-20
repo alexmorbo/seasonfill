@@ -12,11 +12,11 @@ import (
 
 	"github.com/alexmorbo/seasonfill/application/ports"
 	"github.com/alexmorbo/seasonfill/domain"
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/interface/http/dto"
 	"github.com/alexmorbo/seasonfill/interface/http/handlers"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	domaindecision "github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 // GrabHandler exposes POST /decisions/{id}/grab — explicit-confirm

@@ -6,11 +6,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/domain/series"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 

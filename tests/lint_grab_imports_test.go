@@ -72,10 +72,13 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 	//     rest layer's reuse of handlers.InstanceRegistry.
 	//   * application/torrentsync — persistence implements
 	//     torrentsync.GrabHashLookup port (cross-context contract).
-	//   * domain (root) + domain/cooldown + domain/decision + domain/release
-	//     + domain/series — read-only cross-context types consumed by
-	//     the rest layer (decision audit projection, cooldown lookup
-	//     for the explicit-confirm path).
+	//   * domain (root) + domain/decision + domain/release + domain/series
+	//     — read-only cross-context types consumed by the rest layer
+	//     (decision audit projection).
+	//   * internal/watchdog/domain/cooldown — cooldown lookup for the
+	//     explicit-confirm path; cooldown moved into the watchdog
+	//     vertical slice in story 433 A-1-7, allowed here as a read-
+	//     only cross-context type.
 	//   * infrastructure/database — shared GORM model types
 	//     (GrabRecordModel etc) the persistence repo references. Story
 	//     449 (model split) will relocate them into per-context homes.
@@ -89,7 +92,6 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 		modPath + "/application/scan",
 		modPath + "/application/torrentsync",
 		modPath + "/domain",
-		modPath + "/domain/cooldown",
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
@@ -99,6 +101,7 @@ func TestGrabNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/config",
 		modPath + "/internal/observability",
 		modPath + "/internal/runtime/crypto",
+		modPath + "/internal/watchdog/domain/cooldown",
 	}
 
 	isAllowed := func(imp string) bool {
@@ -266,7 +269,6 @@ func TestGrabRestNoBackwardsImports(t *testing.T) {
 		modPath + "/application/scan",
 		modPath + "/application/torrentsync",
 		modPath + "/domain",
-		modPath + "/domain/cooldown",
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
@@ -276,6 +278,7 @@ func TestGrabRestNoBackwardsImports(t *testing.T) {
 		modPath + "/internal/config",
 		modPath + "/internal/observability",
 		modPath + "/internal/runtime/crypto",
+		modPath + "/internal/watchdog/domain/cooldown",
 	}
 	isAllowed := func(imp string) bool {
 		for _, a := range allowList {
@@ -350,7 +353,6 @@ func checkGrabLeafImports(t *testing.T, ctxRoot, label, storyTag string) {
 		modPath + "/application/scan",
 		modPath + "/application/torrentsync",
 		modPath + "/domain",
-		modPath + "/domain/cooldown",
 		modPath + "/domain/release",
 		modPath + "/domain/series",
 		modPath + "/infrastructure/database",
@@ -360,6 +362,7 @@ func checkGrabLeafImports(t *testing.T, ctxRoot, label, storyTag string) {
 		modPath + "/internal/config",
 		modPath + "/internal/observability",
 		modPath + "/internal/runtime/crypto",
+		modPath + "/internal/watchdog/domain/cooldown",
 	}
 	isAllowed := func(imp string) bool {
 		for _, a := range allowList {

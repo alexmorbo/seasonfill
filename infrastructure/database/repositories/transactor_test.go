@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/domain/cooldown"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
+	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
 
 var errForcedMidTx = errors.New("forced mid-transaction failure")
