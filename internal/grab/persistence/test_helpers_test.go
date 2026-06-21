@@ -73,3 +73,13 @@ func seedSonarrInstance(tb testing.TB, db *gorm.DB, name domain.InstanceName) {
 		db.Exec(insertSQL, string(name), "http://localhost", "auto", "unknown", 0).Error,
 	)
 }
+
+// seedSeries inserts a minimal series row so FKs into the canonical
+// catalog (download_links.global_series_id, season_stats.series_id,
+// etc.) can be satisfied on Postgres without a full enrichment fixture.
+// ON CONFLICT DO NOTHING keeps the call idempotent.
+func seedSeries(tb testing.TB, db *gorm.DB, id int64, title string) {
+	tb.Helper()
+	const insertSQL = `INSERT INTO series (id, title) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`
+	require.NoError(tb, db.Exec(insertSQL, id, title).Error)
+}

@@ -128,6 +128,10 @@ func TestDownloadLink_SetGlobalSeriesID_Idempotent(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			seedSonarrInstance(t, db, "main")
+			// global_series_id FK→series(id); seed the parent rows the
+			// repo will reference.
+			seedSeries(t, db, 900, "Series 900")
+			seedSeries(t, db, 999, "Series 999")
 			repo := NewDownloadLinkRepository(db)
 			hash := "dddddddddddddddddddddddddddddddddddddddd"
 			require.NoError(t, repo.InsertOnly(context.Background(),
