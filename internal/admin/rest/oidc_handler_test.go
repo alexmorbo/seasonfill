@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -17,22 +18,23 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
-// stubAdminRepo satisfies ports.AdminUserRepository for unit tests that
-// do not exercise the actual repo. OIDC-specific methods return
-// ErrNotFound; the other methods return zero values.
+// stubAdminRepo satisfies ports.UserRepository for unit tests that do
+// not exercise the actual repo. OIDC-specific methods return ErrNotFound;
+// the other methods return zero values.
 type stubAdminRepo struct{}
 
-func (stubAdminRepo) Get(context.Context) (admin.AdminUser, error) {
-	return admin.AdminUser{}, ports.ErrNotFound
+func (stubAdminRepo) Get(context.Context) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
 }
-func (stubAdminRepo) GetByOIDCSubject(context.Context, string) (admin.AdminUser, error) {
-	return admin.AdminUser{}, ports.ErrNotFound
+func (stubAdminRepo) GetByOIDCSubject(context.Context, string) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
 }
-func (stubAdminRepo) Create(context.Context, admin.AdminUser) error { return nil }
-func (stubAdminRepo) CreateFromOIDC(context.Context, string, string) (admin.AdminUser, error) {
-	return admin.AdminUser{}, nil
+func (stubAdminRepo) Create(context.Context, admin.User) error { return nil }
+func (stubAdminRepo) CreateFromOIDC(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
 }
-func (stubAdminRepo) UpdatePassword(context.Context, string, bool) error { return nil }
+func (stubAdminRepo) UpdatePassword(context.Context, uint, string) error       { return nil }
+func (stubAdminRepo) UpdateLastLoginAt(context.Context, uint, time.Time) error { return nil }
 
 func TestOIDCStart_NotConfigured_ReturnsServiceUnavailable(t *testing.T) {
 	t.Parallel()

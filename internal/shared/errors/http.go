@@ -32,7 +32,7 @@ func StatusCode(err error) int {
 		seriesCacheNF *SeriesCacheNotFoundError
 		episodeNF     *EpisodeNotFoundError
 		seasonNF      *SeasonNotFoundError
-		adminNF       *AdminUserNotFoundError
+		adminNF       *UserNotFoundError
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError

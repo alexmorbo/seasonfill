@@ -50,7 +50,7 @@ func IsRetriable(err error) bool {
 		seriesCacheNF *SeriesCacheNotFoundError
 		episodeNF     *EpisodeNotFoundError
 		seasonNF      *SeasonNotFoundError
-		adminNF       *AdminUserNotFoundError
+		adminNF       *UserNotFoundError
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError
@@ -142,7 +142,7 @@ func ErrorCode(err error) string {
 		seriesCacheNF *SeriesCacheNotFoundError
 		episodeNF     *EpisodeNotFoundError
 		seasonNF      *SeasonNotFoundError
-		adminNF       *AdminUserNotFoundError
+		adminNF       *UserNotFoundError
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError

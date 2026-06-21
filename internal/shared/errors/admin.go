@@ -6,16 +6,16 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// AdminUserNotFoundError signals the singleton admin_users row is missing.
+// UserNotFoundError signals a missing row in the `users` table.
 // Reachable from auth handlers, OIDC callback, and password reset CLI.
-// Maps to HTTP 404.
-type AdminUserNotFoundError struct{}
+// Maps to HTTP 404. Greenfield D-5 rename of AdminUserNotFoundError.
+type UserNotFoundError struct{}
 
-func (e *AdminUserNotFoundError) Error() string { return "admin user not found" }
+func (e *UserNotFoundError) Error() string { return "user not found" }
 
-func (e *AdminUserNotFoundError) Code() string { return "admin_user_not_found" }
+func (e *UserNotFoundError) Code() string { return "user_not_found" }
 
-func (e *AdminUserNotFoundError) Retriable() bool { return false }
+func (e *UserNotFoundError) Retriable() bool { return false }
 
 // InstanceNotFoundError signals an unknown Sonarr instance row. Distinct
 // from SonarrInstanceInvalidError (400 — caller named an instance not in

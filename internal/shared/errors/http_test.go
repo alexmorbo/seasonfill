@@ -35,7 +35,7 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, http.StatusNotFound},
 		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, http.StatusNotFound},
 		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 1}, http.StatusNotFound},
-		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, http.StatusNotFound},
+		{"UserNotFoundError", &sharedErrors.UserNotFoundError{}, http.StatusNotFound},
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, http.StatusNotFound},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, http.StatusNotFound},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, http.StatusNotFound},

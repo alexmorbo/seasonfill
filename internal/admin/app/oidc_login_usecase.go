@@ -112,14 +112,14 @@ type CallbackResult struct {
 // and returns plain data; no shared state beyond the provider cache.
 type OIDCLoginUseCase struct {
 	providers *infraoidc.ProviderCache
-	admins    ports.AdminUserRepository
+	users     ports.UserRepository
 	logger    *slog.Logger
 }
 
-func NewOIDCLoginUseCase(cache *infraoidc.ProviderCache, admins ports.AdminUserRepository) *OIDCLoginUseCase {
+func NewOIDCLoginUseCase(cache *infraoidc.ProviderCache, users ports.UserRepository) *OIDCLoginUseCase {
 	return &OIDCLoginUseCase{
 		providers: cache,
-		admins:    admins,
+		users:     users,
 		logger:    sharedports.DomainLogger(slog.Default(), "auth"),
 	}
 }
@@ -266,22 +266,23 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, info Re
 		return CallbackResult{}, ErrOIDCMissingUsername
 	}
 
-	row, err := u.admins.GetByOIDCSubject(ctx, idToken.Subject)
+	emailClaim := stringClaim(claims, "email")
+	row, err := u.users.GetByOIDCSubject(ctx, idToken.Subject)
 	if err != nil {
-		var adminNF *sharedErrors.AdminUserNotFoundError
-		if !errors.As(err, &adminNF) {
-			return CallbackResult{}, fmt.Errorf("oidc: lookup admin: %w", err)
+		var userNF *sharedErrors.UserNotFoundError
+		if !errors.As(err, &userNF) {
+			return CallbackResult{}, fmt.Errorf("oidc: lookup user: %w", err)
 		}
-		u.logger.InfoContext(ctx, "oidc.callback.admin_first_seen",
-			slog.String("code", "admin_user_not_found"),
+		u.logger.InfoContext(ctx, "oidc.callback.user_first_seen",
+			slog.String("code", "user_not_found"),
 			slog.String("subject", idToken.Subject),
 			slog.String("username", username))
-		row, err = u.admins.CreateFromOIDC(ctx, idToken.Subject, username)
+		row, err = u.users.CreateFromOIDC(ctx, idToken.Subject, username, emailClaim)
 		if err != nil {
-			return CallbackResult{}, fmt.Errorf("oidc: create admin row: %w", err)
+			return CallbackResult{}, fmt.Errorf("oidc: create user row: %w", err)
 		}
 	}
-	_ = admin.AdminUser{} // keep admin import alive in builds that don't read the row further
+	_ = admin.User{} // keep admin import alive in builds that don't read the row further
 
 	return CallbackResult{Username: row.Username, Subject: idToken.Subject}, nil
 }

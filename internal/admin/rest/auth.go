@@ -27,7 +27,7 @@ const (
 type AuthHandler struct {
 	apiKey          string
 	sessionKey      []byte // HKDF-derived HMAC sub-key for session cookies
-	repo            ports.AdminUserRepository
+	repo            ports.UserRepository
 	authRuntime     *middleware.AuthRuntimePointer
 	limiter         *auth.IPLimiter
 	passwordLimiter *auth.IPLimiter
@@ -55,7 +55,7 @@ func WithPasswordLimiter(lim *auth.IPLimiter) AuthOption {
 
 // NewAuthHandler — panics on empty apiKey or nil repo.
 func NewAuthHandler(
-	apiKey string, repo ports.AdminUserRepository, sessionTTL time.Duration,
+	apiKey string, repo ports.UserRepository, sessionTTL time.Duration,
 	secureCookie bool, limiter *auth.IPLimiter, logger *slog.Logger, opts ...AuthOption,
 ) *AuthHandler {
 	if apiKey == "" {
@@ -199,6 +199,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.SetCookie(middleware.SessionCookieName, tok,
 		int(ttl.Seconds()), "/", "",
 		h.secureCookieFlag(c), true)
+	// 466a: best-effort last_login_at observability stamp. The cookie
+	// is already issued — any error here is logged at INFO and
+	// swallowed so a slow primary doesn't degrade login latency.
+	if err := h.repo.UpdateLastLoginAt(c.Request.Context(), user.ID, h.now()); err != nil {
+		h.logger.InfoContext(c.Request.Context(), "auth.login.last_login_stamp_failed",
+			slog.String("username", user.Username),
+			slog.String("error", err.Error()))
+	}
 	h.logger.InfoContext(c.Request.Context(), "auth.login.success",
 		slog.String("username", user.Username))
 	c.JSON(http.StatusOK, gin.H{
@@ -348,7 +356,7 @@ func (h *AuthHandler) PasswordChange(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
-	if err := h.repo.UpdatePassword(c.Request.Context(), newHash, false); err != nil {
+	if err := h.repo.UpdatePassword(c.Request.Context(), user.ID, newHash); err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}

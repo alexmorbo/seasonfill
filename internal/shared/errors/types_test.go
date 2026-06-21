@@ -65,7 +65,7 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, false},
 		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, false},
 		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 3}, false},
-		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, false},
+		{"UserNotFoundError", &sharedErrors.UserNotFoundError{}, false},
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, false},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, false},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, false},
@@ -137,7 +137,7 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"SeriesCacheNotFoundError", &sharedErrors.SeriesCacheNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID()}, "series_cache_not_found"},
 		{"EpisodeNotFoundError", &sharedErrors.EpisodeNotFoundError{ID: newEpisodeID()}, "episode_not_found"},
 		{"SeasonNotFoundError", &sharedErrors.SeasonNotFoundError{InstanceName: "main", SonarrSeriesID: newSonarrSeriesID(), SeasonNumber: 2}, "season_not_found"},
-		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, "admin_user_not_found"},
+		{"UserNotFoundError", &sharedErrors.UserNotFoundError{}, "user_not_found"},
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, "instance_not_found"},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, "runtime_config_not_found"},
@@ -247,7 +247,7 @@ func TestIsRetriable_NewTypes_NestedWrap(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}},
+		{"UserNotFoundError", &sharedErrors.UserNotFoundError{}},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}},
 	}
@@ -269,7 +269,7 @@ func TestErrorCode_NewTypes_NestedWrap(t *testing.T) {
 		err  error
 		code string
 	}{
-		{"AdminUserNotFoundError", &sharedErrors.AdminUserNotFoundError{}, "admin_user_not_found"},
+		{"UserNotFoundError", &sharedErrors.UserNotFoundError{}, "user_not_found"},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
 	}

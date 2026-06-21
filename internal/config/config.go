@@ -210,6 +210,7 @@ type AuthBootstrap struct {
 	WebUser          string
 	WebPassword      string
 	WebPasswordHash  string
+	WebEmail         string
 	OIDCClientSecret string
 }
 
@@ -276,6 +277,7 @@ func FromEnv() (*Bootstrap, error) {
 			WebUser:          getenv("SEASONFILL_WEB_USER", "admin"),
 			WebPassword:      os.Getenv("SEASONFILL_WEB_PASSWORD"),
 			WebPasswordHash:  os.Getenv("SEASONFILL_WEB_PASSWORD_HASH"),
+			WebEmail:         os.Getenv("SEASONFILL_WEB_EMAIL"),
 			OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		},
 		MediaStore: MediaStoreConfig{

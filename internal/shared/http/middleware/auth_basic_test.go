@@ -23,39 +23,47 @@ import (
 
 type fakeBasicAdminRepo struct {
 	mu   sync.Mutex
-	user *admin.AdminUser
+	user *admin.User
 	err  error
 }
 
-func (r *fakeBasicAdminRepo) Get(_ context.Context) (admin.AdminUser, error) {
+func (r *fakeBasicAdminRepo) Get(_ context.Context) (admin.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.err != nil {
-		return admin.AdminUser{}, r.err
+		return admin.User{}, r.err
 	}
 	if r.user == nil {
-		return admin.AdminUser{}, ports.ErrNotFound
+		return admin.User{}, ports.ErrNotFound
 	}
 	return *r.user, nil
 }
-func (r *fakeBasicAdminRepo) Create(_ context.Context, _ admin.AdminUser) error {
+func (r *fakeBasicAdminRepo) Create(_ context.Context, _ admin.User) error {
 	return nil
 }
-func (r *fakeBasicAdminRepo) UpdatePassword(_ context.Context, _ string, _ bool) error {
+func (r *fakeBasicAdminRepo) UpdatePassword(_ context.Context, _ uint, _ string) error {
 	return nil
 }
-func (r *fakeBasicAdminRepo) GetByOIDCSubject(_ context.Context, _ string) (admin.AdminUser, error) {
-	return admin.AdminUser{}, ports.ErrNotFound
+func (r *fakeBasicAdminRepo) UpdateLastLoginAt(_ context.Context, _ uint, _ time.Time) error {
+	return nil
 }
-func (r *fakeBasicAdminRepo) CreateFromOIDC(_ context.Context, subject, username string) (admin.AdminUser, error) {
+func (r *fakeBasicAdminRepo) GetByOIDCSubject(_ context.Context, _ string) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
+}
+func (r *fakeBasicAdminRepo) CreateFromOIDC(_ context.Context, subject, username, email string) (admin.User, error) {
 	sub := subject
-	return admin.AdminUser{Username: username, OIDCSubject: &sub}, nil
+	u := admin.User{Username: username, OIDCSubject: &sub}
+	if email != "" {
+		e := email
+		u.Email = &e
+	}
+	return u, nil
 }
 
 func setupAuthBasic(
 	t *testing.T,
 	apiKey string,
-	repo ports.AdminUserRepository,
+	repo ports.UserRepository,
 	lim *auth.IPLimiter,
 	rt *AuthRuntime,
 ) *gin.Engine {
@@ -77,8 +85,8 @@ func seedBasicRepo(t *testing.T, username, password string) *fakeBasicAdminRepo 
 	t.Helper()
 	hash, err := auth.HashPassword(password)
 	require.NoError(t, err)
-	return &fakeBasicAdminRepo{user: &admin.AdminUser{
-		Username: username, PasswordHash: hash,
+	return &fakeBasicAdminRepo{user: &admin.User{
+		ID: 1, Username: username, PasswordHash: hash,
 	}}
 }
 

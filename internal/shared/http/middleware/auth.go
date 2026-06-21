@@ -40,7 +40,7 @@ func RequireAuthWithRuntime(
 	apiKey string,
 	sessionKey []byte,
 	ptr *AuthRuntimePointer,
-	adminRepo ports.AdminUserRepository,
+	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
 	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true, true)
@@ -55,7 +55,7 @@ func RequireAuthWebhook(
 	apiKey string,
 	sessionKey []byte,
 	ptr *AuthRuntimePointer,
-	adminRepo ports.AdminUserRepository,
+	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
 	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false, false)
@@ -69,7 +69,7 @@ func buildAuth(
 	apiKey string,
 	sessionKey []byte,
 	ptr *AuthRuntimePointer,
-	adminRepo ports.AdminUserRepository,
+	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 	localBypassAllowed bool,
 	cookieAllowed bool,
@@ -184,7 +184,7 @@ func maybeSlideCookie(
 
 // handleBasicAuth runs the Basic-mode credential check. Split out so
 // buildAuth stays readable.
-func handleBasicAuth(c *gin.Context, repo ports.AdminUserRepository, lim *auth.IPLimiter) {
+func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimiter) {
 	header := c.GetHeader("Authorization")
 	user, pass, ok := parseBasicHeader(header)
 	if !ok {

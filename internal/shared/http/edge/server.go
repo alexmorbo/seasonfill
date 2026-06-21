@@ -48,7 +48,7 @@ func NewServer(
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
 	grabRepo ports.GrabRepository,
-	adminRepo ports.AdminUserRepository,
+	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 	webhookLimiter *auth.IPLimiter,
 	instanceReg catalogrest.InstanceRegistry,
