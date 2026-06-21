@@ -14,7 +14,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, outcome decision.Outcome, createdAt time.Time) decision.Decision {
@@ -29,7 +28,7 @@ func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domai
 
 func TestDecisionRepository_List_Empty(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -43,7 +42,7 @@ func TestDecisionRepository_List_Empty(t *testing.T) {
 
 func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -77,7 +76,7 @@ func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
 
 func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -105,7 +104,7 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 
 func TestDecisionRepository_List_ScanRunIDFilter(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -129,7 +128,7 @@ func TestDecisionRepository_List_ScanRunIDFilter(t *testing.T) {
 
 func TestDecisionRepository_List_OutcomeFilter(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -151,7 +150,7 @@ func TestDecisionRepository_List_OutcomeFilter(t *testing.T) {
 
 func TestDecisionRepository_List_TimeRange(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -173,7 +172,7 @@ func TestDecisionRepository_List_TimeRange(t *testing.T) {
 
 func TestDecisionRepository_List_LimitDefensive(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

@@ -9,12 +9,11 @@ import (
 
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestGrabRepository_CountReplays(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

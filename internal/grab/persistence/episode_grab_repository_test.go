@@ -12,7 +12,6 @@ import (
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func newEpisodeGrabRec(t *testing.T) grab.Record {
@@ -38,7 +37,7 @@ func newEpisodeGrabRec(t *testing.T) grab.Record {
 
 func TestEpisodeGrab_BatchUpsert_NoOpOnEmpty(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -55,7 +54,7 @@ func TestEpisodeGrab_BatchUpsert_NoOpOnEmpty(t *testing.T) {
 
 func TestEpisodeGrab_BatchUpsert_InsertsFanout(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -89,7 +88,7 @@ func TestEpisodeGrab_BatchUpsert_InsertsFanout(t *testing.T) {
 
 func TestEpisodeGrab_BatchUpsert_ConflictBumpsUpdatedAt(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -131,7 +130,7 @@ func TestEpisodeGrab_BatchUpsert_ConflictBumpsUpdatedAt(t *testing.T) {
 
 func TestEpisodeGrab_ListByGrabID_OrderedByEpisodeNumber(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -162,7 +161,7 @@ func TestEpisodeGrab_ListByGrabID_OrderedByEpisodeNumber(t *testing.T) {
 
 func TestEpisodeGrab_ListByGrabID_EmptyResult(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -176,7 +175,7 @@ func TestEpisodeGrab_ListByGrabID_EmptyResult(t *testing.T) {
 
 func TestEpisodeGrab_ListByEpisodeID(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -211,7 +210,7 @@ func TestEpisodeGrab_ListByEpisodeID(t *testing.T) {
 
 func TestEpisodeGrab_ListByEpisodeID_Empty(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -225,7 +224,7 @@ func TestEpisodeGrab_ListByEpisodeID_Empty(t *testing.T) {
 
 func TestEpisodeGrab_BatchUpsert_ClosedDB_ReturnsError(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 // TestDecisionRepository_SaveAndLoad_SeasonStatsRoundTrip wires the
@@ -20,7 +19,7 @@ import (
 // through Save → GetByID.
 func TestDecisionRepository_SaveAndLoad_SeasonStatsRoundTrip(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -60,7 +59,7 @@ func TestDecisionRepository_SaveAndLoad_SeasonStatsRoundTrip(t *testing.T) {
 // also flow through the List path that powers GET /api/v1/decisions.
 func TestDecisionRepository_List_ReturnsSeasonStats(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

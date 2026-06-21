@@ -11,7 +11,6 @@ import (
 
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 // TestGrab_UpdateTorrentHash_Idempotent — D-6 first-write-wins invariant.
@@ -19,7 +18,7 @@ import (
 // torrent_hash must never be overwritten by a later OnGrab delivery.
 func TestGrab_UpdateTorrentHash_Idempotent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -49,7 +48,7 @@ func TestGrab_UpdateTorrentHash_Idempotent(t *testing.T) {
 // against a row that already has a value is a silent no-op success.
 func TestGrab_UpdateSizeBytes_Idempotent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -84,7 +83,7 @@ func TestGrab_UpdateSizeBytes_Idempotent(t *testing.T) {
 // inside UpdateParsed itself.
 func TestGrab_UpdateParsed_RoundTrip(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -125,7 +124,7 @@ func TestGrab_UpdateParsed_RoundTrip(t *testing.T) {
 // "nil parsed → NULL columns" semantic.
 func TestGrab_UpdateParsed_NilWritesAllNull(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -153,7 +152,7 @@ func TestGrab_UpdateParsed_NilWritesAllNull(t *testing.T) {
 // different uuid must NOT overwrite. Matches first-write-wins pattern.
 func TestGrab_SetReplayOfID_Idempotent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

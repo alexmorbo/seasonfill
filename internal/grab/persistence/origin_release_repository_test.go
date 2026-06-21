@@ -9,12 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestOriginRelease_Upsert_Get(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -47,7 +46,7 @@ func TestOriginRelease_Upsert_Get(t *testing.T) {
 
 func TestOriginRelease_Get_NotFound(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -61,7 +60,7 @@ func TestOriginRelease_Get_NotFound(t *testing.T) {
 
 func TestOriginRelease_Upsert_TrackingLastSeen(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -92,7 +91,7 @@ func TestOriginRelease_Upsert_TrackingLastSeen(t *testing.T) {
 
 func TestOriginRelease_Upsert_ClosedDB_ReturnsError(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

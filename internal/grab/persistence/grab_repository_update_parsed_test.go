@@ -10,12 +10,11 @@ import (
 
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestGrabRepository_UpdateParsed_HappyPath(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -49,7 +48,7 @@ func TestGrabRepository_UpdateParsed_HappyPath(t *testing.T) {
 
 func TestGrabRepository_UpdateParsed_NotFound(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -64,7 +63,7 @@ func TestGrabRepository_UpdateParsed_NotFound(t *testing.T) {
 
 func TestGrabRepository_ListUnparsedSince(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

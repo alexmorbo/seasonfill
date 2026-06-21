@@ -11,7 +11,6 @@ import (
 
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 // TestGrabRepository_CountImportedEpisodes verifies the SQL counter
@@ -20,7 +19,7 @@ import (
 // target triple should count.
 func TestGrabRepository_CountImportedEpisodes(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

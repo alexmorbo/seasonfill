@@ -17,12 +17,11 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestDecisionRepository_Save_NoSelected(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -52,7 +51,7 @@ func TestDecisionRepository_Save_NoSelected(t *testing.T) {
 
 func TestDecisionRepository_Save_WithSelected(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -97,7 +96,7 @@ func TestDecisionRepository_Save_WithSelected(t *testing.T) {
 
 func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -124,7 +123,7 @@ func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
 // dead-link bug.
 func TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -162,7 +161,7 @@ func TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL(t *testing.T) {
 
 func TestDecisionRepository_GetByID_Found(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -191,7 +190,7 @@ func TestDecisionRepository_GetByID_Found(t *testing.T) {
 
 func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -211,7 +210,7 @@ func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
 
 func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -244,7 +243,7 @@ func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {
 
 func TestDecisionRepository_UpdateSupersededBy_Sets(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -273,7 +272,7 @@ func TestDecisionRepository_UpdateSupersededBy_Sets(t *testing.T) {
 
 func TestDecisionRepository_UpdateSupersededBy_NotFound(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

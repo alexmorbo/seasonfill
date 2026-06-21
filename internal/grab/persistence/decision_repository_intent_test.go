@@ -10,7 +10,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 // TestDecisionRepository_SaveAndGet_RoundTripsIntent — 091a / F-P2-2.
@@ -18,7 +17,7 @@ import (
 // and the chosen_because enum.
 func TestDecisionRepository_SaveAndGet_RoundTripsIntent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -55,7 +54,7 @@ func TestDecisionRepository_SaveAndGet_RoundTripsIntent(t *testing.T) {
 // sets it. Save → GetByID must keep Intent == nil.
 func TestDecisionRepository_SaveAndGet_NilIntentStaysNil(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -80,7 +79,7 @@ func TestDecisionRepository_SaveAndGet_NilIntentStaysNil(t *testing.T) {
 // once the candidate's quality is in hand.
 func TestDecisionRepository_UpdateIntent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -113,7 +112,7 @@ func TestDecisionRepository_UpdateIntent(t *testing.T) {
 // when the target row doesn't exist.
 func TestDecisionRepository_UpdateIntent_UnknownID(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

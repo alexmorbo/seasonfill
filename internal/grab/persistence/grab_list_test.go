@@ -14,7 +14,6 @@ import (
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
@@ -41,7 +40,7 @@ func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID 
 
 func TestGrabRepository_List_Empty(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -55,7 +54,7 @@ func TestGrabRepository_List_Empty(t *testing.T) {
 
 func TestGrabRepository_List_FirstAndSecondPage(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -88,7 +87,7 @@ func TestGrabRepository_List_FirstAndSecondPage(t *testing.T) {
 
 func TestGrabRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -114,7 +113,7 @@ func TestGrabRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 
 func TestGrabRepository_List_StatusFilter(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -137,7 +136,7 @@ func TestGrabRepository_List_StatusFilter(t *testing.T) {
 
 func TestGrabRepository_List_TimeRange(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -158,7 +157,7 @@ func TestGrabRepository_List_TimeRange(t *testing.T) {
 
 func TestGrabRepository_List_LimitDefensive(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

@@ -13,7 +13,6 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func mkDownloadLink(hash string, instance domain.InstanceName, source grab.LinkSource) grab.DownloadLink {
@@ -34,7 +33,7 @@ func mkDownloadLink(hash string, instance domain.InstanceName, source grab.LinkS
 
 func TestDownloadLink_InsertOnly_Inserts(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -55,7 +54,7 @@ func TestDownloadLink_InsertOnly_Inserts(t *testing.T) {
 
 func TestDownloadLink_InsertOnly_ConflictReturnsNil(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -88,7 +87,7 @@ func TestDownloadLink_InsertOnly_ConflictReturnsNil(t *testing.T) {
 
 func TestDownloadLink_FindByHash_NotFound(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -102,7 +101,7 @@ func TestDownloadLink_FindByHash_NotFound(t *testing.T) {
 
 func TestDownloadLink_FindByHash_RoundTrip(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -124,7 +123,7 @@ func TestDownloadLink_FindByHash_RoundTrip(t *testing.T) {
 
 func TestDownloadLink_SetGlobalSeriesID_Idempotent(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -157,7 +156,7 @@ func TestDownloadLink_SetGlobalSeriesID_Idempotent(t *testing.T) {
 
 func TestDownloadLink_SetGlobalSeriesID_MissingRowIsNoOp(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -171,7 +170,7 @@ func TestDownloadLink_SetGlobalSeriesID_MissingRowIsNoOp(t *testing.T) {
 
 func TestDownloadLink_ListByInstance_Filters(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -212,7 +211,7 @@ func TestDownloadLink_ListByInstance_Filters(t *testing.T) {
 
 func TestDownloadLink_ListByInstance_ClampsLimit(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -228,7 +227,7 @@ func TestDownloadLink_ListByInstance_ClampsLimit(t *testing.T) {
 
 func TestDownloadLink_InsertOnly_ClosedDB_ReturnsError(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

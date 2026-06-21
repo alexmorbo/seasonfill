@@ -9,12 +9,11 @@ import (
 
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -62,7 +61,7 @@ func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
 
 func TestGrabRepository_Parsed_AbsentRow_StaysNil(t *testing.T) {
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range grabBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
