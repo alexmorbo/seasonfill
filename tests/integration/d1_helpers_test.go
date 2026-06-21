@@ -209,10 +209,12 @@ func d1IndexOf(s, sub string) int {
 // d1AcceptanceTablesPostgres is the canonical Postgres-side table inventory
 // asserted by TestD1_Acceptance_TableInventory. Sourced from
 // schema.Schema(Postgres) on 2026-06-21 (story 461 / D-1-8); extended
-// in D-4 story 465b (scan_runs migration 000015). 42 tables in total:
-// 14 PRD §4 "top-level" canon tables + 28 child/projection/i18n
-// siblings. schema_migrations (golang-migrate tracker) is excluded; it
-// is not part of the seasonfill domain.
+// in D-4 story 465b (scan_runs migration 000015), then D-6 story 467a
+// (decisions / cooldowns / origin_releases), and D-6 story 467c
+// (qbit_settings / qbit_torrents / qbit_torrent_events /
+// torrent_series_map). 51 tables in total — schema_migrations
+// (golang-migrate tracker) is excluded; it is not part of the
+// seasonfill domain.
 //
 // Names are the same on both backends — the SQLite list is identical.
 var d1AcceptanceTablesPostgres = []string{
@@ -244,6 +246,9 @@ var d1AcceptanceTablesPostgres = []string{
 	"person_credits",
 	"production_companies",
 	"production_companies_i18n",
+	"qbit_settings",
+	"qbit_torrent_events",
+	"qbit_torrents",
 	"scan_runs",
 	"season_stats",
 	"seasons",
@@ -258,6 +263,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"series_texts",
 	"sonarr_instance",
 	"sonarr_instance_settings",
+	"torrent_series_map",
 	"user_instance_tags",
 	"users",
 	"videos",
