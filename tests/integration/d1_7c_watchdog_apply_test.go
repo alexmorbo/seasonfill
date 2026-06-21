@@ -233,15 +233,15 @@ func TestD1_7c_WatchdogState_NullableColumns(t *testing.T) {
 	}
 }
 
-// TestD1_7c_WatchdogMigrationDown — apply 000001..000017, then
-// m.Steps(-5) to roll back 000017 (grab_audit, added by 467a / D-6),
-// 000016 (app_config, added by 466b), 000015 (scan_runs, added by
-// 465b), 000014 (people_enrichment, added by 464b), and 000013
-// (watchdog); SELECT 1 from the watchdog tables errors (tables gone);
-// Up() reapplies cleanly.
-// The -5 step count covers the four migrations on top of 000013 added
-// during the D-3 (people_enrichment), D-4 (scan_runs), D-5 (app_config),
-// and D-6 (grab_audit) cutovers.
+// TestD1_7c_WatchdogMigrationDown — apply 000001..000018, then
+// m.Steps(-6) to roll back 000018 (qbit_runtime, added by 467c / D-6),
+// 000017 (grab_audit, added by 467a / D-6), 000016 (app_config, added
+// by 466b), 000015 (scan_runs, added by 465b), 000014
+// (people_enrichment, added by 464b), and 000013 (watchdog); SELECT 1
+// from the watchdog tables errors (tables gone); Up() reapplies
+// cleanly. The -6 step count covers the five migrations on top of
+// 000013 added during the D-3 (people_enrichment), D-4 (scan_runs),
+// D-5 (app_config), D-6 grab_audit + qbit_runtime cutovers.
 func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -252,13 +252,14 @@ func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 			t.Cleanup(cleanup)
 			require.NoError(t, m.Up())
 
-			require.NoError(t, m.Steps(-5), "Steps(-5) should reverse 000017 + 000016 + 000015 + 000014 + 000013")
+			require.NoError(t, m.Steps(-6),
+				"Steps(-6) should reverse 000018 + 000017 + 000016 + 000015 + 000014 + 000013")
 			for _, tbl := range []string{"watchdog_state", "watchdog_blacklist"} {
 				_, err := db.ExecContext(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1")
-				require.Errorf(t, err, "%s should be dropped after Down(5)", tbl)
+				require.Errorf(t, err, "%s should be dropped after Down(6)", tbl)
 			}
 
-			require.NoError(t, m.Up(), "Up() should reapply 000013..000017 cleanly")
+			require.NoError(t, m.Up(), "Up() should reapply 000013..000018 cleanly")
 			for _, tbl := range []string{"watchdog_state", "watchdog_blacklist"} {
 				_, err := db.ExecContext(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1")
 				require.NoErrorf(t, err, "%s should exist after re-Up", tbl)
