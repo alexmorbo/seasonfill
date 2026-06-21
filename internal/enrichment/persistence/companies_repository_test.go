@@ -22,7 +22,7 @@ func sampleCompany(name string, tmdbID int) taxonomy.ProductionCompany {
 }
 
 func TestCompaniesRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -42,7 +42,7 @@ func TestCompaniesRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestCompaniesRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -56,7 +56,7 @@ func TestCompaniesRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestCompaniesRepository_Upsert_Idempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestCompaniesRepository_Upsert_Idempotent(t *testing.T) {
 // unique index excludes them), proving the default branch issues a
 // pure INSERT.
 func TestCompaniesRepository_Upsert_OrphanBranch(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestCompaniesRepository_Upsert_OrphanBranch(t *testing.T) {
 }
 
 func TestCompaniesRepository_Set_ReplacesAndIdempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

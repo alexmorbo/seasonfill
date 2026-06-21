@@ -522,15 +522,18 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID domai
 	}
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	return db.Transaction(func(tx *gorm.DB) error {
+		// D-3 (story 464c): episode_people / series_people / origin_releases
+		// dropped at the schema level. The cascade no longer needs to DELETE
+		// from them — the table doesn't exist in the new schema, so the
+		// statement would fail at runtime. person_credits is shared globally
+		// per tmdb_media_id (PRD §5.3) and explicitly NOT cascade-deleted
+		// from a single series — the credit row outlives every individual
+		// series that referenced it.
 		stmts := []struct {
 			name string
 			sql  string
 			args []any
 		}{
-			{"episode_people",
-				`DELETE FROM episode_people
-				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
-				[]any{seriesID}},
 			{"episode_texts",
 				`DELETE FROM episode_texts
 				    WHERE episode_id IN (SELECT id FROM episodes WHERE series_id = ?)`,
@@ -541,7 +544,6 @@ func (r *SeriesRepository) DropSeriesCascade(ctx context.Context, seriesID domai
 				[]any{seriesID}},
 			{"episodes", `DELETE FROM episodes WHERE series_id = ?`, []any{seriesID}},
 			{"seasons", `DELETE FROM seasons WHERE series_id = ?`, []any{seriesID}},
-			{"series_people", `DELETE FROM series_people WHERE series_id = ?`, []any{seriesID}},
 			{"series_genres", `DELETE FROM series_genres WHERE series_id = ?`, []any{seriesID}},
 			{"series_networks", `DELETE FROM series_networks WHERE series_id = ?`, []any{seriesID}},
 			{"series_companies", `DELETE FROM series_companies WHERE series_id = ?`, []any{seriesID}},
@@ -613,17 +615,22 @@ func seriesUpsertAssignments() map[string]any {
 		"homepage":          gorm.Expr("COALESCE(excluded.homepage, series.homepage)"),
 		"original_language": gorm.Expr("COALESCE(excluded.original_language, series.original_language)"),
 		"origin_country":    gorm.Expr("COALESCE(excluded.origin_country, series.origin_country)"),
-		"origin_countries":  gorm.Expr("COALESCE(excluded.origin_countries, series.origin_countries)"),
-		"popularity":        gorm.Expr("COALESCE(excluded.popularity, series.popularity)"),
-		"in_production":     gorm.Expr("excluded.in_production"),
-		"poster_asset":      gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
-		"backdrop_asset":    gorm.Expr("COALESCE(excluded.backdrop_asset, series.backdrop_asset)"),
-		"tmdb_rating":       gorm.Expr("COALESCE(excluded.tmdb_rating, series.tmdb_rating)"),
-		"tmdb_votes":        gorm.Expr("COALESCE(excluded.tmdb_votes, series.tmdb_votes)"),
-		"imdb_rating":       gorm.Expr("COALESCE(excluded.imdb_rating, series.imdb_rating)"),
-		"imdb_votes":        gorm.Expr("COALESCE(excluded.imdb_votes, series.imdb_votes)"),
-		"omdb_rated":        gorm.Expr("COALESCE(excluded.omdb_rated, series.omdb_rated)"),
-		"omdb_awards":       gorm.Expr("COALESCE(excluded.omdb_awards, series.omdb_awards)"),
+		// origin_countries is NOT NULL DEFAULT '[]' so a Sonarr-stub
+		// canonOut writes the literal '[]' here. Plain COALESCE picks
+		// the first non-NULL value — '[]' wins over series.['US']' and
+		// nukes the enrichment. NULLIF turns the empty-array sentinel
+		// back into NULL so COALESCE falls through to the existing row.
+		"origin_countries": gorm.Expr("COALESCE(NULLIF(excluded.origin_countries, '[]'), series.origin_countries)"),
+		"popularity":       gorm.Expr("COALESCE(excluded.popularity, series.popularity)"),
+		"in_production":    gorm.Expr("excluded.in_production"),
+		"poster_asset":     gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
+		"backdrop_asset":   gorm.Expr("COALESCE(excluded.backdrop_asset, series.backdrop_asset)"),
+		"tmdb_rating":      gorm.Expr("COALESCE(excluded.tmdb_rating, series.tmdb_rating)"),
+		"tmdb_votes":       gorm.Expr("COALESCE(excluded.tmdb_votes, series.tmdb_votes)"),
+		"imdb_rating":      gorm.Expr("COALESCE(excluded.imdb_rating, series.imdb_rating)"),
+		"imdb_votes":       gorm.Expr("COALESCE(excluded.imdb_votes, series.imdb_votes)"),
+		"omdb_rated":       gorm.Expr("COALESCE(excluded.omdb_rated, series.omdb_rated)"),
+		"omdb_awards":      gorm.Expr("COALESCE(excluded.omdb_awards, series.omdb_awards)"),
 		// D-3 freshness columns — COALESCE so a Sonarr-driven canonOut
 		// (PRD §5.4) that carries nil does NOT blank a previously-set
 		// enrichment timestamp. Same protection as poster_asset /

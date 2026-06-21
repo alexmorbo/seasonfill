@@ -14,7 +14,7 @@ import (
 )
 
 func TestExternalIDsRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -35,7 +35,7 @@ func TestExternalIDsRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestExternalIDsRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestExternalIDsRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestExternalIDsRepository_Upsert_InvalidEntityType(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -68,7 +68,7 @@ func TestExternalIDsRepository_Upsert_InvalidEntityType(t *testing.T) {
 // (entity_type, entity_id, provider) makes the same entity_id valid
 // across distinct entity_type values without conflict.
 func TestExternalIDsRepository_Polymorphic_AcrossEntityTypes(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestExternalIDsRepository_Polymorphic_AcrossEntityTypes(t *testing.T) {
 }
 
 func TestExternalIDsRepository_ListByEntity(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

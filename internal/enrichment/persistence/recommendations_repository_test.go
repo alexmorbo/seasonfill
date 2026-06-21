@@ -13,7 +13,7 @@ import (
 )
 
 func TestRecommendationsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestRecommendationsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 }
 
 func TestRecommendationsRepository_Set_RejectsSelfReference(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -81,7 +81,7 @@ func TestRecommendationsRepository_Set_RejectsSelfReference(t *testing.T) {
 }
 
 func TestRecommendationsRepository_Upsert_SingleRow(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestRecommendationsRepository_Upsert_SingleRow(t *testing.T) {
 }
 
 func TestRecommendationsRepository_Set_RejectsSelfReferenceInBatch(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

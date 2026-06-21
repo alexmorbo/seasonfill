@@ -146,22 +146,31 @@ type EpisodeState struct {
 // a BCP-47 tag (v1: `ru-RU` / `en-US`). Helpers read the row with
 // (series_id, language) PK; the §5.6 fallback helper returns the
 // requested language when present, else en-US, else first available.
+//
+// EnrichedAt is the TMDB-worker freshness stamp (D-4 lazy-language
+// enrichment plan, PRD §D-4). NULL = never enriched by TMDB; non-TMDB
+// write paths (Sonarr stub) leave it nil and the Upsert COALESCEs to
+// preserve any previously-set value.
 type SeriesText struct {
-	SeriesID  domain.SeriesID
-	Language  string
-	Title     *string
-	Overview  *string
-	Tagline   *string
-	UpdatedAt time.Time
+	SeriesID   domain.SeriesID
+	Language   string
+	Title      *string
+	Overview   *string
+	Tagline    *string
+	EnrichedAt *time.Time
+	UpdatedAt  time.Time
 }
 
 // EpisodeText is one localised text row of `episode_texts`. Same
 // (entity_id, language) PK shape as SeriesText; per §5.3 it carries
 // only title + overview — episodes have no tagline.
+//
+// EnrichedAt — same semantics as SeriesText.EnrichedAt.
 type EpisodeText struct {
-	EpisodeID domain.EpisodeID
-	Language  string
-	Title     *string
-	Overview  *string
-	UpdatedAt time.Time
+	EpisodeID  domain.EpisodeID
+	Language   string
+	Title      *string
+	Overview   *string
+	EnrichedAt *time.Time
+	UpdatedAt  time.Time
 }

@@ -114,13 +114,21 @@ func (r *SeriesTextsRepository) Upsert(ctx context.Context, t series.SeriesText)
 	}
 	t.UpdatedAt = time.Now().UTC()
 	m := fromSeriesText(t)
+	// COALESCE shield on enriched_at: a Sonarr-side write path that
+	// leaves EnrichedAt nil MUST NOT blank a previously-stamped TMDB
+	// freshness column. Same pattern as series.tmdb_rating / poster_asset
+	// guarded by seriesUpsertAssignments.
 	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "series_id"},
 			{Name: "language"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"title", "overview", "tagline", "updated_at",
+		DoUpdates: clause.Assignments(map[string]any{
+			"title":       gorm.Expr("excluded.title"),
+			"overview":    gorm.Expr("excluded.overview"),
+			"tagline":     gorm.Expr("excluded.tagline"),
+			"enriched_at": gorm.Expr("COALESCE(excluded.enriched_at, series_texts.enriched_at)"),
+			"updated_at":  gorm.Expr("excluded.updated_at"),
 		}),
 	}).Create(&m).Error
 	if err != nil {
@@ -131,23 +139,25 @@ func (r *SeriesTextsRepository) Upsert(ctx context.Context, t series.SeriesText)
 
 func toSeriesText(m database.SeriesTextModel) series.SeriesText {
 	return series.SeriesText{
-		SeriesID:  m.SeriesID,
-		Language:  m.Language,
-		Title:     m.Title,
-		Overview:  m.Overview,
-		Tagline:   m.Tagline,
-		UpdatedAt: m.UpdatedAt,
+		SeriesID:   m.SeriesID,
+		Language:   m.Language,
+		Title:      m.Title,
+		Overview:   m.Overview,
+		Tagline:    m.Tagline,
+		EnrichedAt: m.EnrichedAt,
+		UpdatedAt:  m.UpdatedAt,
 	}
 }
 
 func fromSeriesText(t series.SeriesText) database.SeriesTextModel {
 	return database.SeriesTextModel{
-		SeriesID:  t.SeriesID,
-		Language:  t.Language,
-		Title:     t.Title,
-		Overview:  t.Overview,
-		Tagline:   t.Tagline,
-		UpdatedAt: t.UpdatedAt,
+		SeriesID:   t.SeriesID,
+		Language:   t.Language,
+		Title:      t.Title,
+		Overview:   t.Overview,
+		Tagline:    t.Tagline,
+		EnrichedAt: t.EnrichedAt,
+		UpdatedAt:  t.UpdatedAt,
 	}
 }
 
@@ -201,8 +211,11 @@ func (r *EpisodeTextsRepository) Upsert(ctx context.Context, t series.EpisodeTex
 			{Name: "episode_id"},
 			{Name: "language"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"title", "overview", "updated_at",
+		DoUpdates: clause.Assignments(map[string]any{
+			"title":       gorm.Expr("excluded.title"),
+			"overview":    gorm.Expr("excluded.overview"),
+			"enriched_at": gorm.Expr("COALESCE(excluded.enriched_at, episode_texts.enriched_at)"),
+			"updated_at":  gorm.Expr("excluded.updated_at"),
 		}),
 	}).Create(&m).Error
 	if err != nil {
@@ -213,20 +226,22 @@ func (r *EpisodeTextsRepository) Upsert(ctx context.Context, t series.EpisodeTex
 
 func toEpisodeText(m database.EpisodeTextModel) series.EpisodeText {
 	return series.EpisodeText{
-		EpisodeID: m.EpisodeID,
-		Language:  m.Language,
-		Title:     m.Title,
-		Overview:  m.Overview,
-		UpdatedAt: m.UpdatedAt,
+		EpisodeID:  m.EpisodeID,
+		Language:   m.Language,
+		Title:      m.Title,
+		Overview:   m.Overview,
+		EnrichedAt: m.EnrichedAt,
+		UpdatedAt:  m.UpdatedAt,
 	}
 }
 
 func fromEpisodeText(t series.EpisodeText) database.EpisodeTextModel {
 	return database.EpisodeTextModel{
-		EpisodeID: t.EpisodeID,
-		Language:  t.Language,
-		Title:     t.Title,
-		Overview:  t.Overview,
-		UpdatedAt: t.UpdatedAt,
+		EpisodeID:  t.EpisodeID,
+		Language:   t.Language,
+		Title:      t.Title,
+		Overview:   t.Overview,
+		EnrichedAt: t.EnrichedAt,
+		UpdatedAt:  t.UpdatedAt,
 	}
 }

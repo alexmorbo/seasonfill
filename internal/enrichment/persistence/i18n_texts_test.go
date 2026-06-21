@@ -18,7 +18,7 @@ import (
 // pattern: requested-language hit, en-US fallback, first-available
 // when neither requested nor en-US exists.
 func TestSeriesTextsRepository_FallbackThreeScenarios(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestSeriesTextsRepository_FallbackThreeScenarios(t *testing.T) {
 // TestSeriesTextsRepository_Fallback_NoRows confirms the helper returns
 // ErrNotFound when the entity has no text rows at all.
 func TestSeriesTextsRepository_Fallback_NoRows(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestSeriesTextsRepository_Fallback_NoRows(t *testing.T) {
 // TestEpisodeTextsRepository_FallbackSmoke is a smaller smoke that
 // confirms the same helper wired to episode_texts gives en-US fallback.
 func TestEpisodeTextsRepository_FallbackSmoke(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

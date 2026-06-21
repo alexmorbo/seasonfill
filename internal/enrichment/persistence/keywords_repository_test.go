@@ -14,7 +14,7 @@ import (
 )
 
 func TestKeywordsRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -39,7 +39,7 @@ func TestKeywordsRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestKeywordsRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestKeywordsRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestKeywordsRepository_Upsert_Idempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -78,7 +78,7 @@ func TestKeywordsRepository_Upsert_Idempotent(t *testing.T) {
 // shared §5.6 fallback helper — composer surfaces the Language field
 // so UI can render an "EN" tag.
 func TestKeywordsRepository_Get_EmptyRURUFallsBackToEnUS(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestKeywordsRepository_Get_EmptyRURUFallsBackToEnUS(t *testing.T) {
 // shape — v1 only has en-US rows but the method MUST work today so
 // E-1 (Sonarr) and future RU sources have a single resolve path.
 func TestKeywordsRepository_ResolveByName(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestKeywordsRepository_ResolveByName(t *testing.T) {
 // `ON CONFLICT DO UPDATE` which SQLite tolerated but Postgres rejected
 // with SQLSTATE 42601. Two NULL-tmdb_id rows MUST coexist.
 func TestKeywordsRepository_Upsert_OrphanBranch(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -160,7 +160,7 @@ func TestKeywordsRepository_Upsert_OrphanBranch(t *testing.T) {
 }
 
 func TestKeywordsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

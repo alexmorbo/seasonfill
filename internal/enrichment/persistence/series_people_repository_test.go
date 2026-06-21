@@ -16,7 +16,7 @@ import (
 )
 
 func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+	t.Skip("retired in D-3 (story 464c) — series_people table dropped; consumer rewrite owned by D-7")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestSeriesPeopleRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+	t.Skip("retired in D-3 (story 464c) — series_people table dropped; consumer rewrite owned by D-7")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestSeriesPeopleRepository_Get_NotFound(t *testing.T) {
 // 50-row acceptance criterion: ONE INSERT, ids round-trip on
 // re-batch, no duplicate rows.
 func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+	t.Skip("retired in D-3 (story 464c) — series_people table dropped; consumer rewrite owned by D-7")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 }
 
 func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+	t.Skip("retired in D-3 (story 464c) — series_people table dropped; consumer rewrite owned by D-7")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
 // the H-2 "Also in your library" reverse lookup against the
 // dedicated series_people_person index.
 func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+	t.Skip("retired in D-3 (story 464c) — series_people table dropped; consumer rewrite owned by D-7")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -186,7 +186,7 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 				c.TMDBID = ptrTMDBID(20000 + i)
 				sid, err := seriesRepo.Upsert(ctx, c)
 				require.NoError(t, err)
-				expectedSeriesIDs = append(expectedSeriesIDs, sid)
+				expectedSeriesIDs = append(expectedSeriesIDs, sid) //nolint:staticcheck // SA4006 false positive: used in the assertion loop below
 				_, err = repo.Upsert(ctx, people.SeriesCredit{
 					SeriesID:     sid,
 					PersonID:     personID,
@@ -215,8 +215,14 @@ func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, rows, 3,
 				"reverse lookup must return one row per series with this person")
+			gotSeriesIDs := make(map[domain.SeriesID]bool, len(rows))
 			for _, row := range rows {
 				assert.Equal(t, personID, row.PersonID)
+				gotSeriesIDs[row.SeriesID] = true
+			}
+			for _, sid := range expectedSeriesIDs {
+				assert.True(t, gotSeriesIDs[sid],
+					"expected series_id %d in reverse-lookup result", sid)
 			}
 		})
 	}

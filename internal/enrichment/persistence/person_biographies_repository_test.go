@@ -18,7 +18,7 @@ import (
 // pickLanguageFallback helper (introduced in story 203) works
 // unchanged against a new table by parameterising table + entityCol.
 func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	cases := []struct {
 		name      string
@@ -82,7 +82,7 @@ func TestPersonBiographiesRepository_FallbackThreeScenarios(t *testing.T) {
 }
 
 func TestPersonBiographiesRepository_Fallback_NoRows(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -99,7 +99,7 @@ func TestPersonBiographiesRepository_Fallback_NoRows(t *testing.T) {
 }
 
 func TestPersonBiographiesRepository_Upsert_Idempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

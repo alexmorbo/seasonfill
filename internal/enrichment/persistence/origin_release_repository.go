@@ -2,17 +2,21 @@ package persistence
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
+// OriginReleaseRepository wrapped the legacy `origin_releases` table.
+// The table was dropped in D-1 — origin tracking is not part of the
+// new schema; grab + watchdog reads/writes are owned by the D-6
+// rewrite.
+//
+// D-3 (story 464c) drops the backing schema. The repo stays so the
+// existing grab.UseCase / watchdog wiring compiles; every method
+// panics with the canonical "pending D-6" sentinel.
 type OriginReleaseRepository struct {
 	db *gorm.DB
 }
@@ -22,52 +26,13 @@ func NewOriginReleaseRepository(db *gorm.DB) *OriginReleaseRepository {
 }
 
 func (r *OriginReleaseRepository) Get(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) (ports.OriginRelease, bool, error) {
-	var model database.OriginReleaseModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		First(&model, "instance_name = ? AND series_id = ? AND season_number = ?", instance, seriesID, season).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.OriginRelease{}, false, nil
-		}
-		return ports.OriginRelease{}, false, fmt.Errorf("get origin: %w", err)
-	}
-	return ports.OriginRelease{
-		InstanceName: model.InstanceName,
-		SeriesID:     model.SeriesID,
-		SeasonNumber: model.SeasonNumber,
-		GUID:         model.GUID,
-		IndexerID:    model.IndexerID,
-		IndexerName:  model.IndexerName,
-		Source:       model.Source,
-		FirstSeenAt:  model.FirstSeenAt,
-		LastSeenAt:   model.LastSeenAt,
-		LastUsedAt:   model.LastUsedAt,
-	}, true, nil
+	_, _, _, _ = ctx, instance, seriesID, season
+	panic("not implemented — pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md); origin_releases dropped in D-1")
 }
 
 func (r *OriginReleaseRepository) Upsert(ctx context.Context, rec ports.OriginRelease) error {
-	model := database.OriginReleaseModel{
-		InstanceName: rec.InstanceName,
-		SeriesID:     rec.SeriesID,
-		SeasonNumber: rec.SeasonNumber,
-		GUID:         rec.GUID,
-		IndexerID:    rec.IndexerID,
-		IndexerName:  rec.IndexerName,
-		Source:       rec.Source,
-		FirstSeenAt:  rec.FirstSeenAt,
-		LastSeenAt:   rec.LastSeenAt,
-		LastUsedAt:   rec.LastUsedAt,
-	}
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "instance_name"}, {Name: "series_id"}, {Name: "season_number"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"guid", "indexer_id", "indexer_name", "source", "last_seen_at", "last_used_at",
-		}),
-	}).Create(&model)
-	if res.Error != nil {
-		return fmt.Errorf("upsert origin: %w", res.Error)
-	}
-	return nil
+	_, _ = ctx, rec
+	panic("not implemented — pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md); origin_releases dropped in D-1")
 }
 
 var _ ports.OriginReleaseRepository = (*OriginReleaseRepository)(nil)

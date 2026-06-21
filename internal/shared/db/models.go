@@ -459,14 +459,17 @@ type SeriesModel struct {
 func (SeriesModel) TableName() string { return "series" }
 
 // SeriesTextModel — one localised text row per (series_id, language).
-// The §5.6 fallback helper reads against this table.
+// The §5.6 fallback helper reads against this table. EnrichedAt is
+// the D-3 TMDB-worker freshness stamp (column added in D-1 migration
+// 000002); NULL until the worker runs.
 type SeriesTextModel struct {
-	SeriesID  domain.SeriesID `gorm:"primaryKey;column:series_id"`
-	Language  string          `gorm:"primaryKey;column:language;type:text"`
-	Title     *string         `gorm:"column:title;type:text"`
-	Overview  *string         `gorm:"column:overview;type:text"`
-	Tagline   *string         `gorm:"column:tagline;type:text"`
-	UpdatedAt time.Time       `gorm:"column:updated_at;not null"`
+	SeriesID   domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	Language   string          `gorm:"primaryKey;column:language;type:text"`
+	Title      *string         `gorm:"column:title;type:text"`
+	Overview   *string         `gorm:"column:overview;type:text"`
+	Tagline    *string         `gorm:"column:tagline;type:text"`
+	EnrichedAt *time.Time      `gorm:"column:enriched_at"`
+	UpdatedAt  time.Time       `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesTextModel) TableName() string { return "series_texts" }
@@ -513,12 +516,14 @@ type EpisodeModel struct {
 func (EpisodeModel) TableName() string { return "episodes" }
 
 // EpisodeTextModel — one localised text row per (episode_id, language).
+// EnrichedAt mirrors SeriesTextModel — TMDB-worker freshness stamp.
 type EpisodeTextModel struct {
-	EpisodeID domain.EpisodeID `gorm:"primaryKey;column:episode_id"`
-	Language  string           `gorm:"primaryKey;column:language;type:text"`
-	Title     *string          `gorm:"column:title;type:text"`
-	Overview  *string          `gorm:"column:overview;type:text"`
-	UpdatedAt time.Time        `gorm:"column:updated_at;not null"`
+	EpisodeID  domain.EpisodeID `gorm:"primaryKey;column:episode_id"`
+	Language   string           `gorm:"primaryKey;column:language;type:text"`
+	Title      *string          `gorm:"column:title;type:text"`
+	Overview   *string          `gorm:"column:overview;type:text"`
+	EnrichedAt *time.Time       `gorm:"column:enriched_at"`
+	UpdatedAt  time.Time        `gorm:"column:updated_at;not null"`
 }
 
 func (EpisodeTextModel) TableName() string { return "episode_texts" }
