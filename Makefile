@@ -186,11 +186,22 @@ atlas-install: ## Install pinned atlas CLI for dev-time schema work
 # Generate migration diff for BOTH dialects. NAME=... is required.
 # Writes NNNNNN_<NAME>.{up,down}.sql to
 # infrastructure/database/migrations/{postgres,sqlite}/.
+#
+# Atlas emits a Unix-timestamp prefix by default ("20260620234111_*.sql").
+# Our legacy/runtime migrations under internal/shared/db/migrations/ use
+# zero-padded sequential numbers ("000026_*.sql") and golang-migrate
+# accepts both — but for visual consistency we rename Atlas-emitted files
+# to the next sequential index after generation, then regenerate
+# atlas.sum to match. See scripts/atlas-migrations-renumber.sh.
 migrations-diff: ## Generate migration diff for both dialects (require NAME=)
 	@test -n "$(NAME)" || (echo "Usage: make migrations-diff NAME=add_foo_column"; exit 1)
 	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
 	atlas migrate diff $(NAME) --env postgres
 	atlas migrate diff $(NAME) --env sqlite
+	@./scripts/atlas-migrations-renumber.sh infrastructure/database/migrations/postgres
+	@./scripts/atlas-migrations-renumber.sh infrastructure/database/migrations/sqlite
+	atlas migrate hash --env postgres
+	atlas migrate hash --env sqlite
 
 # Lint the last migration of each dialect — catches destructive ops,
 # missing down, integrity hash drift, backwards-incompatible changes.

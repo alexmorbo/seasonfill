@@ -6,6 +6,14 @@
 // infrastructure/database/migrations/{postgres,sqlite}/. Atlas itself is a
 // dev-time codegen tool — production runtime does NOT require the atlas binary.
 //
+// Why `external_schema` instead of `format=go`:
+//   ariga.io/atlas v0.31.0 does NOT ship a built-in Go schema loader; the
+//   `format=go` URL form is provided by the GORM-specific
+//   ariga.io/atlas-provider-gorm binary (no generic atlas-provider-go exists
+//   upstream). For our pure Atlas-SDK schema we ship a tiny loader binary at
+//   infrastructure/database/schema/cmd/loader that prints the dialect-
+//   appropriate HCL. Atlas runs it via the `program = [...]` clause below.
+//
 // Usage:
 //   make atlas-install              -- install pinned atlas CLI
 //   make migrations-diff NAME=foo   -- generate next migration for both dialects
@@ -16,8 +24,22 @@
 // migrations-diff-check job (added in story 461 / D-1-8) is the only CI
 // surface that requires the atlas binary.
 
+data "external_schema" "postgres" {
+  program = [
+    "go", "run", "./infrastructure/database/schema/cmd/loader",
+    "--dialect", "postgres",
+  ]
+}
+
+data "external_schema" "sqlite" {
+  program = [
+    "go", "run", "./infrastructure/database/schema/cmd/loader",
+    "--dialect", "sqlite",
+  ]
+}
+
 env "postgres" {
-  src = "file://infrastructure/database/schema?format=go"
+  src = data.external_schema.postgres.url
   url = getenv("SEASONFILL_DATABASE_DSN")
   dev = "docker://postgres/17/dev?search_path=public"
 
@@ -34,7 +56,7 @@ env "postgres" {
 }
 
 env "sqlite" {
-  src = "file://infrastructure/database/schema?format=go"
+  src = data.external_schema.sqlite.url
   url = "sqlite://./data/seasonfill.dev.sqlite"
   dev = "sqlite://?mode=memory&_fk=1"
 

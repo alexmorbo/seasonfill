@@ -142,6 +142,14 @@ linters:
         linters:
           - forbidigo
         text: 'fmt\.Fprint'
+      # D-1-2 (story 455): the Atlas schema loader is a dev-time CLI
+      # that Atlas spawns via `data "external_schema"` — it must
+      # write SQL DDL to stdout and human-readable errors to stderr.
+      # DomainLogger isn't available outside the running service.
+      - path: 'infrastructure/database/schema/cmd/loader/'
+        linters:
+          - forbidigo
+        text: 'fmt\.Fprint'
       - path: 'internal/logger/'
         linters:
           - forbidigo

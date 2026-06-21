@@ -14,7 +14,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"gorm.io/gorm"
 
-	sqlitedriver "github.com/alexmorbo/seasonfill/internal/shared/db/internal/migratesqlite"
+	sqlitedriver "github.com/alexmorbo/seasonfill/infrastructure/database/migratesqlite"
 )
 
 //go:embed migrations/postgres/*.sql migrations/sqlite/*.sql
