@@ -15,14 +15,15 @@ import (
 // (users, user_instance_tags) → 36. D-1-7b later adds 3 more
 // (grab_records, episode_grabs, download_links) → 39. D-1-7c (story 460c)
 // adds 2 watchdog tables (watchdog_state, watchdog_blacklist) → 41. D-4
-// story 465b adds scan_runs → 42, so the live assertion below is on 42.
+// story 465b adds scan_runs → 42. D-5 story 466b adds app_config +
+// sonarr_instance_settings → 44, so the live assertion below is on 44.
 func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 42; got != want {
+			if got, want := len(s.Tables), 44; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}

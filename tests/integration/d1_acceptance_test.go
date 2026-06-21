@@ -102,8 +102,9 @@ func TestD1_Acceptance_DoubleUp(t *testing.T) {
 }
 
 // TestD1_Acceptance_TableInventory covers PRD §D-1 bullet #6 — after a
-// full Up the live DB exposes the canonical 42 tables under the same
-// names on both backends (41 D-1 + scan_runs from D-4 story 465b).
+// full Up the live DB exposes the canonical 44 tables under the same
+// names on both backends (41 D-1 + scan_runs from D-4 story 465b +
+// app_config + sonarr_instance_settings from D-5 story 466b).
 // d1AcceptanceTablesPostgres pins the expected set; ElementsMatch
 // reports both missing and unexpected names.
 func TestD1_Acceptance_TableInventory(t *testing.T) {
