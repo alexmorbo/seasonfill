@@ -114,6 +114,21 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 	}
 }
 
+// TestWatchdogSeasons_List_HidesRowsForUnknownInstance verifies the
+// "LIST hides rows whose instance no longer exists" contract. Under
+// D-1+000017 the origin_releases.instance_name FK forbids orphan
+// inserts outright, so the original "insert orphan" variant can no
+// longer be constructed. We exercise the same property via the FK
+// CASCADE path: seed an instance + origin row, drop the instance,
+// then assert LIST returns only the surviving instance's row.
+//
+// Cross-backend symmetry:
+//   - Postgres: ON DELETE CASCADE wipes the origin row alongside the
+//     parent — LIST sees nothing for the dropped instance.
+//   - SQLite (FK pragma off in tests): origin row stays, but the
+//     query's INNER JOIN sonarr_instance filters it. Same observable
+//     outcome with a different mechanism — both halves of the
+//     defence-in-depth get coverage.
 func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -128,8 +143,17 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 			seedSeriesCache(t, db, scRepo, "homelab", 369, "FROM", true, 0, now)
 			seedOrigin(t, db, originRepo, "homelab", 369, 4, "Prowlarr", now)
 
-			// Orphan origin row pointing at a phantom instance ("Sonarr").
+			// Second instance whose origin row must vanish from LIST
+			// after the parent instance is deleted.
+			seedInstance(t, db, "Sonarr")
 			seedOrigin(t, db, originRepo, "Sonarr", 369, 4, "Prowlarr", now)
+
+			// Drop the parent instance. On Postgres the FK CASCADE
+			// removes the origin row; on SQLite it survives but the
+			// query's INNER JOIN on sonarr_instance hides it.
+			require.NoError(t, db.Exec(
+				"DELETE FROM sonarr_instance WHERE name = ?", "Sonarr",
+			).Error)
 
 			repo := NewWatchdogSeasonsRepository(db)
 			rows, _, err := repo.ListSeasons(context.Background(), WatchdogSeasonsFilter{}, 10, nil, now)
