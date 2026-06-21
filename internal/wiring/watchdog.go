@@ -12,7 +12,6 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	handlers "github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
@@ -252,22 +251,12 @@ func BuildRegrab(
 			return map[string]regrab.Settings{}
 		}
 		out := make(map[string]regrab.Settings, len(recs))
-		instances, err := instanceRepo.List(ctx, cipher)
-		if err != nil {
-			watchdogLog.WarnContext(ctx, "qbit_settings_list_instances_failed",
-				slog.String("error", err.Error()))
-			return map[string]regrab.Settings{}
-		}
-		byID := make(map[uint]string, len(instances))
-		for _, inst := range instances {
-			byID[inst.ID] = inst.Name
-		}
 		for _, rec := range recs {
-			name := byID[rec.InstanceID]
+			name := string(rec.InstanceName)
 			if name == "" {
 				continue
 			}
-			s, err := regrab.NewSettingsFromRecord(rec, domain.InstanceName(name), cipher)
+			s, err := regrab.NewSettingsFromRecord(rec, rec.InstanceName, cipher)
 			if err != nil {
 				watchdogLog.WarnContext(ctx, "qbit_settings_decrypt_failed",
 					slog.String("instance", name),

@@ -39,39 +39,36 @@ func newHandlerTestCipher(t *testing.T) *crypto.Cipher {
 // stay package-local; handler-test isolation outweighs DRY here).
 
 type qbitFakeSettings struct {
-	rows map[uint]ports.QbitSettingsRecord
+	rows map[domain.InstanceName]ports.QbitSettingsRecord
 }
 
 func newQbitFakeSettings() *qbitFakeSettings {
-	return &qbitFakeSettings{rows: map[uint]ports.QbitSettingsRecord{}}
+	return &qbitFakeSettings{rows: map[domain.InstanceName]ports.QbitSettingsRecord{}}
 }
 
 func (f *qbitFakeSettings) Upsert(_ context.Context, rec ports.QbitSettingsRecord) error {
-	if rec.ID == 0 {
-		rec.ID = uint(len(f.rows) + 1)
-	}
-	f.rows[rec.InstanceID] = rec
+	f.rows[rec.InstanceName] = rec
 	return nil
 }
-func (f *qbitFakeSettings) GetByInstance(_ context.Context, id uint) (ports.QbitSettingsRecord, error) {
-	r, ok := f.rows[id]
+func (f *qbitFakeSettings) GetByInstance(_ context.Context, name domain.InstanceName) (ports.QbitSettingsRecord, error) {
+	r, ok := f.rows[name]
 	if !ok {
 		// Mirror the F-2b repo: typed error joined with the sentinel.
 		return ports.QbitSettingsRecord{}, errors.Join(
-			&sharedErrors.QbitSettingsNotFoundError{InstanceID: id},
+			&sharedErrors.QbitSettingsNotFoundError{InstanceName: name},
 			ports.ErrNotFound,
 		)
 	}
 	return r, nil
 }
-func (f *qbitFakeSettings) DeleteByInstance(_ context.Context, id uint) error {
-	if _, ok := f.rows[id]; !ok {
+func (f *qbitFakeSettings) DeleteByInstance(_ context.Context, name domain.InstanceName) error {
+	if _, ok := f.rows[name]; !ok {
 		return errors.Join(
-			&sharedErrors.QbitSettingsNotFoundError{InstanceID: id},
+			&sharedErrors.QbitSettingsNotFoundError{InstanceName: name},
 			ports.ErrNotFound,
 		)
 	}
-	delete(f.rows, id)
+	delete(f.rows, name)
 	return nil
 }
 func (f *qbitFakeSettings) List(_ context.Context) ([]ports.QbitSettingsRecord, error) {
@@ -248,7 +245,7 @@ func TestHandler_PutUpdateKeepsPasswordOnEmpty(t *testing.T) {
 	// seed
 	w := f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", validUpsertBody())
 	require.Equal(t, http.StatusOK, w.Code)
-	originalBlob := append([]byte{}, f.settings.rows[7].PasswordEncrypted...)
+	originalBlob := append([]byte{}, f.settings.rows["alpha"].PasswordEncrypted...)
 
 	body := validUpsertBody()
 	body.Password = ""
@@ -259,7 +256,7 @@ func TestHandler_PutUpdateKeepsPasswordOnEmpty(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.True(t, resp.PasswordSet)
 	assert.Equal(t, "http://qbit2.local:8080", resp.URL)
-	assert.Equal(t, originalBlob, f.settings.rows[7].PasswordEncrypted)
+	assert.Equal(t, originalBlob, f.settings.rows["alpha"].PasswordEncrypted)
 }
 
 func TestHandler_PutUpdateChangesPasswordOnNonEmpty(t *testing.T) {
@@ -268,13 +265,13 @@ func TestHandler_PutUpdateChangesPasswordOnNonEmpty(t *testing.T) {
 	f := newTestFixture(t)
 	w := f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", validUpsertBody())
 	require.Equal(t, http.StatusOK, w.Code)
-	originalBlob := append([]byte{}, f.settings.rows[7].PasswordEncrypted...)
+	originalBlob := append([]byte{}, f.settings.rows["alpha"].PasswordEncrypted...)
 
 	body := validUpsertBody()
 	body.Password = "newpass"
 	w = f.do(http.MethodPut, "/api/v1/instances/alpha/qbit/settings", body)
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.NotEqual(t, originalBlob, f.settings.rows[7].PasswordEncrypted)
+	assert.NotEqual(t, originalBlob, f.settings.rows["alpha"].PasswordEncrypted)
 }
 
 func TestHandler_PutEnableWithoutWebhookReturns409(t *testing.T) {

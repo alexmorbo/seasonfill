@@ -113,7 +113,7 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 	t.Parallel()
 	r, grabs, blist, snaps, settings := setupHandler(t)
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		PollInterval: 30 * time.Minute, RegrabCooldown: 120 * time.Hour, MaxConsecutiveNoBetter: 3,
 	}
 	snaps["homelab"] = regrab.RuntimeState{
@@ -183,8 +183,8 @@ func TestWatchdogRollupHandler_OneNoSettings(t *testing.T) {
 func TestWatchdogRollupHandler_AllSorted(t *testing.T) {
 	t.Parallel()
 	r, _, _, _, settings := setupHandler(t)
-	settings["homelab"] = regrab.Settings{InstanceID: 1, InstanceName: "homelab", Enabled: true, PollInterval: 30 * time.Minute}
-	settings["4k"] = regrab.Settings{InstanceID: 2, InstanceName: "4k", Enabled: true, PollInterval: 30 * time.Minute}
+	settings["homelab"] = regrab.Settings{InstanceName: "homelab", Enabled: true, PollInterval: 30 * time.Minute}
+	settings["4k"] = regrab.Settings{InstanceName: "4k", Enabled: true, PollInterval: 30 * time.Minute}
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/watchdog/rollups", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -213,7 +213,7 @@ func TestWatchdogRollupHandler_AggregateLatencyUnder100ms(t *testing.T) {
 		name := "inst" + string(rune('a'+i))
 		names[i] = name
 		lookup[name] = uint(i + 1)
-		settings[name] = regrab.Settings{InstanceID: uint(i + 1), InstanceName: domain.InstanceName(name), Enabled: true, PollInterval: time.Minute}
+		settings[name] = regrab.Settings{InstanceName: domain.InstanceName(name), Enabled: true, PollInterval: time.Minute}
 		snaps[name] = regrab.RuntimeState{LastPollAt: fixedNow, LastPollResult: regrab.PollResultOK, QbitReachable: true, Watched: i}
 	}
 	h := NewWatchdogRollupHandler(
@@ -287,7 +287,7 @@ func TestWatchdogRollupHandler_ProbeWhenSnapshotMissing(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(true, nil)
@@ -318,7 +318,7 @@ func TestWatchdogRollupHandler_ProbeCached(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(true, nil)
@@ -341,7 +341,7 @@ func TestWatchdogRollupHandler_ProbeSkippedWhenDisabled(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: false,
+		InstanceName: "homelab", Enabled: false,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(true, nil)
@@ -359,7 +359,7 @@ func TestWatchdogRollupHandler_ProbeSkippedWhenSnapshotFresh(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	snaps := stubSnapshots{}
@@ -436,7 +436,7 @@ func TestWatchdogRollupHandler_ListTorrentsFillsCountersWhenSnapshotMissing(t *t
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 		Category: "sonarr",
 	}
@@ -475,7 +475,7 @@ func TestWatchdogRollupHandler_ListTorrentsCached(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(true, nil)
@@ -499,7 +499,7 @@ func TestWatchdogRollupHandler_ListTorrentsFallsBackToSnapshotOnError(t *testing
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	snaps := stubSnapshots{}
@@ -531,7 +531,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenSnapshotFresh(t *testing.T
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	snaps := stubSnapshots{}
@@ -560,7 +560,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenQbitUnreachable(t *testing
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(false, nil)
@@ -579,7 +579,7 @@ func TestWatchdogRollupHandler_ListTorrentsSkippedWhenDisabled(t *testing.T) {
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: false,
+		InstanceName: "homelab", Enabled: false,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	probe := newStubProbe(true, nil)
@@ -626,7 +626,7 @@ func TestWatchdogRollupHandler_ProbeRecoveryAfterStaleUnreachable(t *testing.T) 
 	t.Parallel()
 	settings := stubSettings{}
 	settings["homelab"] = regrab.Settings{
-		InstanceID: 1, InstanceName: "homelab", Enabled: true,
+		InstanceName: "homelab", Enabled: true,
 		URL: "http://qbit.local", PollInterval: 30 * time.Minute,
 	}
 	snaps := stubSnapshots{}

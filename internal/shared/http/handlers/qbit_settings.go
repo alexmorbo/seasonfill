@@ -178,8 +178,6 @@ func viewToDTO(v regrab.QbitSettingsView) dto.QbitSettingsDTO {
 		msgs = []string{}
 	}
 	return dto.QbitSettingsDTO{
-		ID:                     v.ID,
-		InstanceID:             v.InstanceID,
 		InstanceName:           v.InstanceName,
 		Enabled:                v.Enabled,
 		URL:                    v.URL,

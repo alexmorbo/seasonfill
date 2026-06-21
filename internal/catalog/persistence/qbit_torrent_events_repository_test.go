@@ -11,13 +11,11 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestQbitTorrentEventsRepository_InsertStateChange(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -45,9 +43,8 @@ func TestQbitTorrentEventsRepository_InsertStateChange(t *testing.T) {
 }
 
 func TestQbitTorrentEventsRepository_InsertDeletedHasNilToGroup(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -71,9 +68,8 @@ func TestQbitTorrentEventsRepository_InsertDeletedHasNilToGroup(t *testing.T) {
 // exercises the pre-A-1 skip path. Migrated from application/gc in
 // story 421 (A-3 mini).
 func TestQbitTorrentEventsRepository_PruneOlderThan_MissingTable_Skips(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -93,9 +89,8 @@ func TestQbitTorrentEventsRepository_PruneOlderThan_MissingTable_Skips(t *testin
 // TestQbitTorrentEventsRepository_PruneOlderThan_DeletesOldRows
 // migrated from application/gc in story 421 (A-3 mini).
 func TestQbitTorrentEventsRepository_PruneOlderThan_DeletesOldRows(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

@@ -42,7 +42,6 @@ const (
 
 func enabledSettings() regrab.Settings {
 	return regrab.Settings{
-		InstanceID:             7,
 		InstanceName:           testInstance,
 		Enabled:                true,
 		URL:                    "http://qbit.local:8080",

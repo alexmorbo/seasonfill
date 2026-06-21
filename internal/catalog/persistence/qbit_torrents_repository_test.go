@@ -10,7 +10,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func mkEntry(hash, name string, group qbit.StateGroup) torrentsync.Entry {
@@ -26,9 +25,8 @@ func mkEntry(hash, name string, group qbit.StateGroup) torrentsync.Entry {
 }
 
 func TestQbitTorrentsRepository_Upsert(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -45,9 +43,8 @@ func TestQbitTorrentsRepository_Upsert(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_MarkAbsent(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -64,9 +61,8 @@ func TestQbitTorrentsRepository_MarkAbsent(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_BatchUpsertSingleTx(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -87,9 +83,8 @@ func TestQbitTorrentsRepository_BatchUpsertSingleTx(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_FindByHashes(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -116,9 +111,8 @@ func TestQbitTorrentsRepository_FindByHashes(t *testing.T) {
 }
 
 func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -137,9 +131,8 @@ func TestQbitTorrentsRepository_FindByHashes_EmptyInput(t *testing.T) {
 // it; the DoUpdate column list includes it so Upsert overwrites the
 // stored value on every refresh.
 func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -177,9 +170,8 @@ func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
 // across rows in the same transaction — the column is in the
 // BatchUpsert DoUpdate list, not just Upsert.
 func TestQbitTorrentsRepository_SeasonNumber_BatchUpsertSurvivesAcrossRows(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

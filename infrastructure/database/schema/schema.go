@@ -309,6 +309,20 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addGrabAudit(s, d)
 	}
 
+	// D-6 (story 467c) — qBit runtime tables: qbit_settings (per-instance
+	// Watchdog config), qbit_torrents (per-(instance, hash) snapshot),
+	// qbit_torrent_events (state-transition log, 180d retention), and
+	// torrent_series_map (qBit hash → Sonarr series_id Phase-2 fuzzy).
+	//
+	// All four FK to sonarr_instance.name with ON DELETE CASCADE so a
+	// single instance delete wipes its qBit runtime footprint atomically.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_QBIT_RUNTIME=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_QBIT_RUNTIME") == "" {
+		addQbitRuntime(s, d)
+	}
+
 	return s
 }
 
@@ -2878,6 +2892,205 @@ func buildOriginReleasesTable(d Dialect, sonarrInstance *atlasschema.Table) *atl
 		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, seriesID, seasonNumber)).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("origin_releases_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// D-6 (story 467c) — qBit runtime tables.
+
+// addQbitRuntime appends qbit_settings, qbit_torrents,
+// qbit_torrent_events, and torrent_series_map. Called from Schema(d)
+// after addGrabAudit. All four FK to sonarr_instance.name CASCADE so
+// a single sonarr_instance delete wipes the entire qBit runtime
+// footprint for that instance.
+//
+// PRD §5.4 §7.3 — qBit runtime + Phase-2 fuzzy matcher.
+func addQbitRuntime(s *atlasschema.Schema, d Dialect) {
+	sonarrInstance := mustTable(s, "sonarr_instance")
+	s.AddTables(buildQbitSettingsTable(d, sonarrInstance))
+	s.AddTables(buildQbitTorrentsTable(d, sonarrInstance))
+	s.AddTables(buildQbitTorrentEventsTable(d, sonarrInstance))
+	s.AddTables(buildTorrentSeriesMapTable(d, sonarrInstance))
+}
+
+// buildQbitSettingsTable returns the qbit_settings table — 13 cols,
+// instance_name TEXT PK, FK sonarr_instance.name CASCADE.
+//
+// Per-instance Watchdog config; password_encrypted carries the AES-GCM
+// ciphertext blob (BYTEA on Postgres, BLOB on SQLite).
+func buildQbitSettingsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	enabled := atlasschema.NewBoolColumn("enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	url := atlasschema.NewStringColumn("url", "text").SetNull(false)
+	username := atlasschema.NewNullStringColumn("username", "text")
+	passwordEncrypted := atlasschema.NewNullBinaryColumn("password_encrypted", "bytea")
+	category := atlasschema.NewStringColumn("category", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'sonarr'"})
+	pollIntervalMinutes := atlasschema.NewIntColumn("poll_interval_minutes", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "30"})
+	regrabCooldownHours := atlasschema.NewIntColumn("regrab_cooldown_hours", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "120"})
+	maxConsecutiveNoBetter := atlasschema.NewIntColumn("max_consecutive_no_better", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "3"})
+	customUnregisteredMsgs := jsonColumn(d, "custom_unregistered_msgs")
+	customUnregisteredMsgs.SetNull(false)
+	if customUnregisteredMsgs.Type != nil {
+		customUnregisteredMsgs.Type.Null = false
+	}
+	customUnregisteredMsgs.SetDefault(&atlasschema.Literal{V: "'[]'"})
+	qbitPublicURL := atlasschema.NewNullStringColumn("qbit_public_url", "text")
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+	updatedAt := timestampColumn(d, "updated_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("qbit_settings").
+		AddColumns(instanceName, enabled, url, username, passwordEncrypted,
+			category, pollIntervalMinutes, regrabCooldownHours,
+			maxConsecutiveNoBetter, customUnregisteredMsgs, qbitPublicURL,
+			createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("qbit_settings_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildQbitTorrentsTable returns the qbit_torrents table — 27 cols,
+// composite PK (instance_name, hash), FK sonarr_instance.name CASCADE.
+//
+// Per-(instance, hash) snapshot of the last known qBit state per PRD
+// §4.6 + §7.3. The present/deleted_at pair implements soft-delete:
+// torrents that disappear from qBit get present=false + deleted_at=now
+// but the row stays forever (history of "what we ever downloaded for
+// this series").
+func buildQbitTorrentsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	hash := atlasschema.NewStringColumn("hash", "text").SetNull(false)
+	infohashV2 := atlasschema.NewNullStringColumn("infohash_v2", "text")
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	category := atlasschema.NewNullStringColumn("category", "text")
+	tags := atlasschema.NewNullStringColumn("tags", "text")
+	trackerHost := atlasschema.NewNullStringColumn("tracker_host", "text")
+	savePath := atlasschema.NewNullStringColumn("save_path", "text")
+	contentPath := atlasschema.NewNullStringColumn("content_path", "text")
+	stateRaw := atlasschema.NewStringColumn("state_raw", "text").SetNull(false)
+	stateGroup := atlasschema.NewStringColumn("state_group", "text").SetNull(false)
+	sizeBytes := atlasschema.NewIntColumn("size_bytes", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	totalSize := atlasschema.NewIntColumn("total_size", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	downloaded := atlasschema.NewIntColumn("downloaded", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	uploaded := atlasschema.NewIntColumn("uploaded", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	ratio := atlasschema.NewFloatColumn("ratio", "double precision").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	popularity := atlasschema.NewFloatColumn("popularity", "double precision").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	timeActiveS := atlasschema.NewIntColumn("time_active_s", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	seedingTimeS := atlasschema.NewIntColumn("seeding_time_s", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	addedOn := timestampColumn(d, "added_on", false /*withDefault*/, false /*nullable*/)
+	completionOn := timestampColumn(d, "completion_on", false, false)
+	lastActivity := timestampColumn(d, "last_activity", false, false)
+	seasonNumber := atlasschema.NewNullIntColumn("season_number", "integer")
+	present := atlasschema.NewBoolColumn("present", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	deletedAt := timestampColumn(d, "deleted_at", false, false)
+	firstSeenAt := timestampColumn(d, "first_seen_at", true /*withDefault*/, true /*notNull*/)
+	updatedAt := timestampColumn(d, "updated_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("qbit_torrents").
+		AddColumns(instanceName, hash, infohashV2, name, category, tags,
+			trackerHost, savePath, contentPath, stateRaw, stateGroup,
+			sizeBytes, totalSize, downloaded, uploaded, ratio, popularity,
+			timeActiveS, seedingTimeS, addedOn, completionOn, lastActivity,
+			seasonNumber, present, deletedAt, firstSeenAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, hash)).
+		AddIndexes(
+			atlasschema.NewIndex("qbit_torrents_state_group_idx").
+				AddColumns(instanceName, stateGroup),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("qbit_torrents_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildQbitTorrentEventsTable returns the qbit_torrent_events table —
+// 7 cols, bigserial PK, FK sonarr_instance.name CASCADE.
+//
+// Append-only log of state_group transitions and synthetic
+// added/completed/deleted events. State_group grain (not state_raw) is
+// intentional — raw-state churn would dominate the table. Pruned by
+// the weekly GC sweep (180-day retention).
+func buildQbitTorrentEventsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	torrentHash := atlasschema.NewStringColumn("torrent_hash", "text").SetNull(false)
+	event := atlasschema.NewStringColumn("event", "text").SetNull(false)
+	fromGroup := atlasschema.NewNullStringColumn("from_group", "text")
+	toGroup := atlasschema.NewNullStringColumn("to_group", "text")
+	occurredAt := timestampColumn(d, "occurred_at", false /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("qbit_torrent_events").
+		AddColumns(id, instanceName, torrentHash, event, fromGroup, toGroup, occurredAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("qbit_torrent_events_occurred_at_idx").
+				AddColumns(occurredAt),
+			atlasschema.NewIndex("qbit_torrent_events_instance_hash_idx").
+				AddColumns(instanceName, torrentHash),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("qbit_torrent_events_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildTorrentSeriesMapTable returns the torrent_series_map table —
+// 6 cols, composite PK (instance_name, torrent_hash), FK
+// sonarr_instance.name CASCADE.
+//
+// Bridge from a qBit torrent hash to a Sonarr series_id (PRD §4.5,
+// §5.4 Phase-2 fuzzy matcher). Populated by webhook capture,
+// reconciler grab_records.torrent_hash lookup, and Sonarr /queue +
+// /history fallbacks. The first-source-to-win invariant is enforced
+// at the repository layer via OnConflict (touches only created_at).
+func buildTorrentSeriesMapTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	torrentHash := atlasschema.NewStringColumn("torrent_hash", "text").SetNull(false)
+	seriesID := atlasschema.NewIntColumn("series_id", "bigint").SetNull(false)
+	seasonNumber := atlasschema.NewNullIntColumn("season_number", "integer")
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("torrent_series_map").
+		AddColumns(instanceName, torrentHash, seriesID, seasonNumber, source, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, torrentHash)).
+		AddIndexes(
+			atlasschema.NewIndex("torrent_series_map_series_idx").
+				AddColumns(instanceName, seriesID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("torrent_series_map_instance_name_fkey").
 				AddColumns(instanceName).
 				SetRefTable(sonarrInstance).
 				AddRefColumns(parentRefCol(sonarrInstance)).

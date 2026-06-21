@@ -1002,6 +1002,33 @@ type MediaAssetModel struct {
 
 func (MediaAssetModel) TableName() string { return "media_assets" }
 
+// QbitSettingsModel — per-instance Watchdog configuration (PRD v4
+// §5.4, migration 000018). instance_name TEXT PK, FK→sonarr_instance
+// CASCADE. password_encrypted carries the AES-GCM ciphertext blob; the
+// repo layer never decrypts (cipher.Open happens in
+// NewSettingsFromRecord under the watchdog application layer).
+//
+// CustomUnregisteredMsgs is JSON (`jsonb` on Postgres, `text` on
+// SQLite) with a `'[]'` default so SELECTs always come back with a
+// well-formed array even when the operator never wrote a value.
+type QbitSettingsModel struct {
+	InstanceName           domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
+	Enabled                bool                `gorm:"column:enabled;not null;default:false"`
+	URL                    string              `gorm:"column:url;type:text;not null"`
+	Username               *string             `gorm:"column:username;type:text"`
+	PasswordEncrypted      []byte              `gorm:"column:password_encrypted"`
+	Category               string              `gorm:"column:category;type:text;not null;default:'sonarr'"`
+	PollIntervalMinutes    int                 `gorm:"column:poll_interval_minutes;not null;default:30"`
+	RegrabCooldownHours    int                 `gorm:"column:regrab_cooldown_hours;not null;default:120"`
+	MaxConsecutiveNoBetter int                 `gorm:"column:max_consecutive_no_better;not null;default:3"`
+	CustomUnregisteredMsgs datatypes.JSON      `gorm:"column:custom_unregistered_msgs;not null;default:'[]'"`
+	PublicURL              *string             `gorm:"column:qbit_public_url;type:text"`
+	CreatedAt              time.Time           `gorm:"column:created_at;not null"`
+	UpdatedAt              time.Time           `gorm:"column:updated_at;not null"`
+}
+
+func (QbitSettingsModel) TableName() string { return "qbit_settings" }
+
 // QbitTorrentModel — per-(instance_name, hash) snapshot of the last
 // known qBit state (PRD v4 §7.3, migration 000035). Story 219 (A-1)
 // adds the table; story 220 (A-2) adds the repository and the

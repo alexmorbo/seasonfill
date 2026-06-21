@@ -309,14 +309,17 @@ type DownloadLinkRepository interface {
 	ListByInstance(ctx context.Context, instance domain.InstanceName, source *grab.LinkSource, limit int) ([]grab.DownloadLink, error)
 }
 
-// QbitSettingsRecord is the transport shape for instance_qbit_settings.
+// QbitSettingsRecord is the transport shape for qbit_settings.
 // PasswordEncrypted carries the AES-GCM payload opaquely — the repo
 // neither encrypts nor decrypts; that responsibility lives in the 039d
 // HTTP handler. CustomUnregisteredMsgs is a free-form string slice that
 // the JSON column on the DB side accepts as a JSON array.
+//
+// D-6 (story 467c): the row keys on InstanceName (typed
+// domain.InstanceName) — the legacy uint InstanceID surrogate was
+// dropped when sonarr_instance moved to a TEXT name PK in D-1.
 type QbitSettingsRecord struct {
-	ID                     uint
-	InstanceID             uint
+	InstanceName           domain.InstanceName
 	Enabled                bool
 	URL                    string
 	Username               *string
@@ -335,13 +338,13 @@ type QbitSettingsRecord struct {
 }
 
 // QbitSettingsRepository persists the per-instance Watchdog configuration.
-// Upsert is keyed on InstanceID (one settings row per Sonarr instance,
-// enforced by a unique index). GetByInstance / DeleteByInstance look up
-// by the foreign instance id. ports.ErrNotFound on miss.
+// Upsert is keyed on InstanceName (one settings row per Sonarr instance,
+// enforced by the PK on qbit_settings.instance_name). GetByInstance /
+// DeleteByInstance look up by the typed name. ports.ErrNotFound on miss.
 type QbitSettingsRepository interface {
 	Upsert(ctx context.Context, rec QbitSettingsRecord) error
-	GetByInstance(ctx context.Context, instanceID uint) (QbitSettingsRecord, error)
-	DeleteByInstance(ctx context.Context, instanceID uint) error
+	GetByInstance(ctx context.Context, instance domain.InstanceName) (QbitSettingsRecord, error)
+	DeleteByInstance(ctx context.Context, instance domain.InstanceName) error
 	List(ctx context.Context) ([]QbitSettingsRecord, error)
 }
 

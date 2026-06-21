@@ -17,8 +17,11 @@ import (
 //
 // PasswordPlaintext is filled in by the regrab use case after a
 // successful Cipher.Open; the settings repository never sees plaintext.
+//
+// D-6 (story 467c): InstanceName is the canonical key — the legacy
+// uint InstanceID surrogate was retired alongside the QbitSettingsRecord
+// shape shift.
 type Settings struct {
-	InstanceID             uint
 	InstanceName           domain.InstanceName
 	Enabled                bool
 	URL                    string
@@ -43,14 +46,14 @@ type Settings struct {
 // raw cipher.Open error wrapped so the caller can log the failure
 // without dumping ciphertext bytes.
 //
-// The instance name is passed alongside the record because the
-// repository row only carries InstanceID; the regrab loop has the name
-// in hand (it cycled instances by name in step 1 of RunInstance) and
-// the projection's downstream consumers (slog, metrics labels) need
-// the human-readable name.
+// The instanceName argument is redundant with rec.InstanceName but is
+// retained for backwards compatibility with the legacy callers in the
+// fanout closure — they always pass the record's InstanceName verbatim,
+// and a single source-of-truth split would mean a wider refactor than
+// 467c scope. Prefer rec.InstanceName when only the projection is in
+// scope.
 func NewSettingsFromRecord(rec ports.QbitSettingsRecord, instanceName domain.InstanceName, cipher *crypto.Cipher) (Settings, error) {
 	out := Settings{
-		InstanceID:             rec.InstanceID,
 		InstanceName:           instanceName,
 		Enabled:                rec.Enabled,
 		URL:                    rec.URL,

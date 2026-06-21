@@ -15,9 +15,10 @@ import (
 // the SPA GrabDrawer "open in qBittorrent" link prefers when set,
 // falling back to URL when empty. Always emitted (even when empty)
 // so the frontend zod schema can rely on string-typed presence.
+//
+// D-6 (story 467c): the legacy surrogate `id` + `instance_id` uint
+// fields are gone — qbit_settings is keyed on instance_name only.
 type QbitSettingsDTO struct {
-	ID                     uint                `json:"id"                          example:"1"`
-	InstanceID             uint                `json:"instance_id"                 example:"7"`
 	InstanceName           domain.InstanceName `json:"instance_name"               example:"alpha"`
 	Enabled                bool                `json:"enabled"                     example:"true"`
 	URL                    string              `json:"url"                         example:"http://qbit.local:8080"`

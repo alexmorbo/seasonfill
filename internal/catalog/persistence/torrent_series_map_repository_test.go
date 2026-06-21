@@ -12,13 +12,11 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
-	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestTorrentSeriesMapRepository_UpsertNew(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -48,9 +46,8 @@ func TestTorrentSeriesMapRepository_UpsertNew(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_UpsertExisting_FirstSourceWins(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -91,9 +88,8 @@ func TestTorrentSeriesMapRepository_UpsertExisting_FirstSourceWins(t *testing.T)
 }
 
 func TestTorrentSeriesMapRepository_UpsertMissingSeriesID(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -112,9 +108,8 @@ func TestTorrentSeriesMapRepository_UpsertMissingSeriesID(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_UpsertMissingInstanceOrHash(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -128,9 +123,8 @@ func TestTorrentSeriesMapRepository_UpsertMissingInstanceOrHash(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_NullableSeasonNumber(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -160,9 +154,8 @@ func TestTorrentSeriesMapRepository_NullableSeasonNumber(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_CrossInstanceIsolation(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -188,9 +181,8 @@ func TestTorrentSeriesMapRepository_CrossInstanceIsolation(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_HashesForSeries(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -218,9 +210,8 @@ func TestTorrentSeriesMapRepository_HashesForSeries(t *testing.T) {
 }
 
 func TestTorrentSeriesMapRepository_HashesForSeries_Empty(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
@@ -235,9 +226,8 @@ func TestTorrentSeriesMapRepository_HashesForSeries_Empty(t *testing.T) {
 }
 
 func TestGrabRepository_FindSeriesByTorrentHashes(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
+	for _, backend := range qbitSettingsBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)

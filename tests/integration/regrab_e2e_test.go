@@ -62,7 +62,6 @@ const (
 )
 
 func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite — D2-revised-roadmap.md")
 	t.Parallel()
 	h := newRegrabHarness(t)
 
@@ -237,7 +236,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	// --- Seed qbit settings ---
 	now := time.Now().UTC()
 	require.NoError(t, qbitSettingsRepo.Upsert(context.Background(), ports.QbitSettingsRecord{
-		InstanceID:             instanceID,
+		InstanceName:           testInstanceName,
 		Enabled:                true,
 		URL:                    qbitSrv.URL,
 		Category:               testCategory,

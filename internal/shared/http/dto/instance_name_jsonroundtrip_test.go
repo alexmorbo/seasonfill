@@ -54,8 +54,6 @@ func TestInstanceName_JSONRoundTrip(t *testing.T) {
 		{
 			name: "qbit_settings_dto",
 			in: dto.QbitSettingsDTO{
-				ID:           1,
-				InstanceID:   7,
 				InstanceName: domain.InstanceName("homelab"),
 				URL:          "http://qbit.local:8080",
 			},

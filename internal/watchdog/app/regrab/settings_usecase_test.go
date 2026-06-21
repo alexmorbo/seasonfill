@@ -26,42 +26,39 @@ func newTestCipher(t *testing.T) *crypto.Cipher {
 	return c
 }
 
-// fakeSettingsRepo is the in-process repo. Keyed on InstanceID.
+// fakeSettingsRepo is the in-process repo. Keyed on InstanceName.
 type fakeSettingsRepo struct {
-	rows     map[uint]ports.QbitSettingsRecord
+	rows     map[domain.InstanceName]ports.QbitSettingsRecord
 	upsertEr error
 	getEr    error
 }
 
 func newFakeSettingsRepo() *fakeSettingsRepo {
-	return &fakeSettingsRepo{rows: map[uint]ports.QbitSettingsRecord{}}
+	return &fakeSettingsRepo{rows: map[domain.InstanceName]ports.QbitSettingsRecord{}}
 }
 
 func (f *fakeSettingsRepo) Upsert(_ context.Context, rec ports.QbitSettingsRecord) error {
 	if f.upsertEr != nil {
 		return f.upsertEr
 	}
-	if rec.ID == 0 {
-		rec.ID = uint(len(f.rows) + 1)
-	}
-	f.rows[rec.InstanceID] = rec
+	f.rows[rec.InstanceName] = rec
 	return nil
 }
-func (f *fakeSettingsRepo) GetByInstance(_ context.Context, id uint) (ports.QbitSettingsRecord, error) {
+func (f *fakeSettingsRepo) GetByInstance(_ context.Context, name domain.InstanceName) (ports.QbitSettingsRecord, error) {
 	if f.getEr != nil {
 		return ports.QbitSettingsRecord{}, f.getEr
 	}
-	r, ok := f.rows[id]
+	r, ok := f.rows[name]
 	if !ok {
 		return ports.QbitSettingsRecord{}, ports.ErrNotFound
 	}
 	return r, nil
 }
-func (f *fakeSettingsRepo) DeleteByInstance(_ context.Context, id uint) error {
-	if _, ok := f.rows[id]; !ok {
+func (f *fakeSettingsRepo) DeleteByInstance(_ context.Context, name domain.InstanceName) error {
+	if _, ok := f.rows[name]; !ok {
 		return ports.ErrNotFound
 	}
-	delete(f.rows, id)
+	delete(f.rows, name)
 	return nil
 }
 func (f *fakeSettingsRepo) List(_ context.Context) ([]ports.QbitSettingsRecord, error) {
@@ -159,7 +156,7 @@ func TestUseCase_Upsert_CreatesAnonRowWhenPasswordEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, view.PasswordSet)
 	assert.Empty(t, view.Username)
-	stored := repo.rows[7]
+	stored := repo.rows["alpha"]
 	assert.Nil(t, stored.PasswordEncrypted)
 	assert.Nil(t, stored.Username)
 }
@@ -174,7 +171,7 @@ func TestUseCase_Upsert_EncryptsPasswordOnCreate(t *testing.T) {
 	view, err := uc.Upsert(context.Background(), "alpha", validInput())
 	require.NoError(t, err)
 	assert.True(t, view.PasswordSet)
-	stored := repo.rows[7]
+	stored := repo.rows["alpha"]
 	require.NotEmpty(t, stored.PasswordEncrypted)
 	plaintext, err := uc.DecryptPassword(stored)
 	require.NoError(t, err)
@@ -190,7 +187,7 @@ func TestUseCase_Upsert_PreservesPasswordOnEmpty(t *testing.T) {
 
 	_, err := uc.Upsert(context.Background(), "alpha", validInput())
 	require.NoError(t, err)
-	originalBlob := append([]byte{}, repo.rows[7].PasswordEncrypted...)
+	originalBlob := append([]byte{}, repo.rows["alpha"].PasswordEncrypted...)
 
 	in := validInput()
 	in.Password = "" // dirty-bit: preserve
@@ -198,8 +195,8 @@ func TestUseCase_Upsert_PreservesPasswordOnEmpty(t *testing.T) {
 	_, err = uc.Upsert(context.Background(), "alpha", in)
 	require.NoError(t, err)
 
-	assert.Equal(t, originalBlob, repo.rows[7].PasswordEncrypted)
-	assert.Equal(t, "http://qbit2.local:8080", repo.rows[7].URL)
+	assert.Equal(t, originalBlob, repo.rows["alpha"].PasswordEncrypted)
+	assert.Equal(t, "http://qbit2.local:8080", repo.rows["alpha"].URL)
 }
 
 func TestUseCase_Upsert_ReplacesPasswordOnNonEmpty(t *testing.T) {
@@ -211,15 +208,15 @@ func TestUseCase_Upsert_ReplacesPasswordOnNonEmpty(t *testing.T) {
 
 	_, err := uc.Upsert(context.Background(), "alpha", validInput())
 	require.NoError(t, err)
-	originalBlob := append([]byte{}, repo.rows[7].PasswordEncrypted...)
+	originalBlob := append([]byte{}, repo.rows["alpha"].PasswordEncrypted...)
 
 	in := validInput()
 	in.Password = "newpass"
 	_, err = uc.Upsert(context.Background(), "alpha", in)
 	require.NoError(t, err)
 
-	assert.NotEqual(t, originalBlob, repo.rows[7].PasswordEncrypted)
-	plaintext, err := uc.DecryptPassword(repo.rows[7])
+	assert.NotEqual(t, originalBlob, repo.rows["alpha"].PasswordEncrypted)
+	plaintext, err := uc.DecryptPassword(repo.rows["alpha"])
 	require.NoError(t, err)
 	assert.Equal(t, "newpass", plaintext)
 }
@@ -457,7 +454,7 @@ func TestUseCase_Upsert_PublicURLRoundTrip(t *testing.T) {
 	view, err := uc.Upsert(context.Background(), "alpha", validInput())
 	require.NoError(t, err)
 	assert.Equal(t, "https://qbit.example.com", view.PublicURL)
-	assert.Equal(t, "https://qbit.example.com", repo.rows[7].PublicURL)
+	assert.Equal(t, "https://qbit.example.com", repo.rows["alpha"].PublicURL)
 
 	in := validInput()
 	in.Password = ""
@@ -478,14 +475,14 @@ func TestUseCase_Upsert_PublicURLClear(t *testing.T) {
 
 	_, err := uc.Upsert(context.Background(), "alpha", validInput())
 	require.NoError(t, err)
-	require.Equal(t, "https://qbit.example.com", repo.rows[7].PublicURL)
+	require.Equal(t, "https://qbit.example.com", repo.rows["alpha"].PublicURL)
 
 	in := validInput()
 	in.PublicURL = ""
 	view, err := uc.Upsert(context.Background(), "alpha", in)
 	require.NoError(t, err)
 	assert.Equal(t, "", view.PublicURL)
-	assert.Equal(t, "", repo.rows[7].PublicURL)
+	assert.Equal(t, "", repo.rows["alpha"].PublicURL)
 }
 
 // TestUseCase_Upsert_PublicURLTrimsWhitespace ensures stray whitespace

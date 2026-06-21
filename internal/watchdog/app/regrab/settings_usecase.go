@@ -52,9 +52,10 @@ func newValidationErr(field, code, msg string) *ValidationError {
 // handler renders. PasswordSet substitutes for the never-returned
 // plaintext. PasswordEncrypted is intentionally absent — the bytes
 // stay inside the use case and the repo.
+//
+// D-6 (story 467c): keyed on InstanceName (typed) — the legacy
+// uint InstanceID was retired when sonarr_instance moved to TEXT name PK.
 type QbitSettingsView struct {
-	ID                     uint
-	InstanceID             uint
 	InstanceName           domain.InstanceName
 	Enabled                bool
 	URL                    string
@@ -176,8 +177,7 @@ func (u *SettingsUseCase) WithClock(now func() time.Time) *SettingsUseCase {
 // (handler maps to QBIT_SETTINGS_NOT_FOUND). The two are
 // distinguished by which call returned the error.
 func (u *SettingsUseCase) GetByInstanceName(ctx context.Context, name string) (QbitSettingsView, error) {
-	inst, err := u.instances.GetByName(ctx, name, u.cipher)
-	if err != nil {
+	if _, err := u.instances.GetByName(ctx, name, u.cipher); err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			// Preserve the typed InstanceNotFoundError chain from the
 			// repo so middleware dispatch sees instance_not_found
@@ -190,7 +190,7 @@ func (u *SettingsUseCase) GetByInstanceName(ctx context.Context, name string) (Q
 		}
 		return QbitSettingsView{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}
-	rec, err := u.settings.GetByInstance(ctx, inst.ID)
+	rec, err := u.settings.GetByInstance(ctx, domain.InstanceName(name))
 	if err != nil {
 		return QbitSettingsView{}, err
 	}
@@ -207,8 +207,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 	if err := validate(in); err != nil {
 		return QbitSettingsView{}, err
 	}
-	inst, err := u.instances.GetByName(ctx, name, u.cipher)
-	if err != nil {
+	if _, err := u.instances.GetByName(ctx, name, u.cipher); err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			// Preserve typed chain — see GetByInstanceName comment.
 			return QbitSettingsView{}, errors.Join(
@@ -219,7 +218,8 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 		return QbitSettingsView{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}
 
-	existing, getErr := u.settings.GetByInstance(ctx, inst.ID)
+	instanceName := domain.InstanceName(name)
+	existing, getErr := u.settings.GetByInstance(ctx, instanceName)
 	hasExisting := getErr == nil
 	if getErr != nil && !errors.Is(getErr, ports.ErrNotFound) {
 		return QbitSettingsView{}, fmt.Errorf("read existing settings: %w", getErr)
@@ -268,7 +268,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 	now := u.now().UTC()
 
 	rec := ports.QbitSettingsRecord{
-		InstanceID:             inst.ID,
+		InstanceName:           instanceName,
 		Enabled:                in.Enabled,
 		URL:                    strings.TrimSpace(in.URL),
 		Username:               usernamePtr,
@@ -282,7 +282,6 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 		UpdatedAt:              now,
 	}
 	if hasExisting {
-		rec.ID = existing.ID
 		rec.CreatedAt = existing.CreatedAt
 	} else {
 		rec.CreatedAt = now
@@ -292,7 +291,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 		return QbitSettingsView{}, fmt.Errorf("upsert settings: %w", err)
 	}
 
-	stored, err := u.settings.GetByInstance(ctx, inst.ID)
+	stored, err := u.settings.GetByInstance(ctx, instanceName)
 	if err != nil {
 		return QbitSettingsView{}, fmt.Errorf("reload settings: %w", err)
 	}
@@ -302,8 +301,7 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 // Delete removes the settings row. ports.ErrNotFound flows through
 // when there is no row.
 func (u *SettingsUseCase) Delete(ctx context.Context, name string) error {
-	inst, err := u.instances.GetByName(ctx, name, u.cipher)
-	if err != nil {
+	if _, err := u.instances.GetByName(ctx, name, u.cipher); err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			// Preserve typed chain — see GetByInstanceName comment.
 			return errors.Join(
@@ -313,7 +311,7 @@ func (u *SettingsUseCase) Delete(ctx context.Context, name string) error {
 		}
 		return fmt.Errorf("resolve instance %q: %w", name, err)
 	}
-	if err := u.settings.DeleteByInstance(ctx, inst.ID); err != nil {
+	if err := u.settings.DeleteByInstance(ctx, domain.InstanceName(name)); err != nil {
 		return err
 	}
 	return nil
@@ -354,8 +352,6 @@ func recordToView(rec ports.QbitSettingsRecord, name string) QbitSettingsView {
 		msgs = []string{}
 	}
 	return QbitSettingsView{
-		ID:                     rec.ID,
-		InstanceID:             rec.InstanceID,
 		InstanceName:           domain.InstanceName(name),
 		Enabled:                rec.Enabled,
 		URL:                    rec.URL,
@@ -549,8 +545,7 @@ func boundInt(field, code string, v, min, max int) error {
 // use case. Reads the row, decrypts the password, and returns a
 // fully-resolved Settings projection.
 func (u *SettingsUseCase) Lookup(ctx context.Context, name domain.InstanceName) (Settings, error) {
-	inst, err := u.instances.GetByName(ctx, string(name), u.cipher)
-	if err != nil {
+	if _, err := u.instances.GetByName(ctx, string(name), u.cipher); err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			// Preserve typed chain — see GetByInstanceName comment.
 			return Settings{}, errors.Join(
@@ -560,7 +555,7 @@ func (u *SettingsUseCase) Lookup(ctx context.Context, name domain.InstanceName) 
 		}
 		return Settings{}, fmt.Errorf("resolve instance %q: %w", name, err)
 	}
-	rec, err := u.settings.GetByInstance(ctx, inst.ID)
+	rec, err := u.settings.GetByInstance(ctx, name)
 	if err != nil {
 		return Settings{}, err
 	}

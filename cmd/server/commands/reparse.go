@@ -2,26 +2,28 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	grabapp "github.com/alexmorbo/seasonfill/internal/grab/app"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/wiring"
 )
 
-// Reparse is the CLI entry point for `seasonfill grabs reparse`. D-5
-// (466b) restores the bedrock plumbing — open DB, run migrations,
-// resolve master key, build Sonarr instance list — so the command
-// boots without panicking on the D-2 stubs. The actual replay loop
-// (build Sonarr clients per instance, call grab.ReparseUseCase) is
-// owned by D-6; until then this prints `reparse: no grab usecase
-// yet — pending D-6 grab+watchdog rewrite` and exits 0 so operator
-// scripts don't break.
+// Reparse is the CLI entry point for `seasonfill grabs reparse`. D-6
+// (story 467c) wires the full replay loop: for every configured Sonarr
+// instance, build a live client and invoke
+// grab.ReparseUseCase.ReplayInstance against grab_records rows whose
+// parsed_at IS NULL. Failure-isolated per instance — a single Sonarr
+// outage logs WARN and the loop moves on to the next instance.
 func Reparse(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("reparse", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -68,12 +70,37 @@ func Reparse(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	// TODO(D-6): wire grab.ReparseUseCase per instance + invoke the
-	// replay loop. The grab bounded context is currently D-2-stubbed;
-	// the use case lands in D-6.
-	_ = errors.New
-	_, _ = fmt.Fprintf(os.Stdout,
-		"reparse: %d Sonarr instance(s) resolved — replay loop pending D-6 grab rewrite\n",
-		len(instances))
+	grabRepo := grabpersistence.NewGrabRepository(db)
+	totalProcessed := 0
+	for _, inst := range instances {
+		if inst.URL == "" || inst.APIKey == "" {
+			_, _ = fmt.Fprintf(os.Stderr,
+				"reparse: instance %q has no URL or APIKey — skipped\n", inst.Name)
+			continue
+		}
+		timeout := inst.Timeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		client := sonarr.New(domain.InstanceName(inst.Name), inst.URL, inst.APIKey, timeout, logger)
+		uc := grabapp.NewReparseUseCase(grabRepo, client, logger)
+		count, err := uc.ReplayInstance(ctx, domain.InstanceName(inst.Name))
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr,
+				"reparse: instance %q failed: %v\n", inst.Name, err)
+			continue
+		}
+		_, _ = fmt.Fprintf(os.Stdout,
+			"reparse: instance %q processed %d grab_records\n", inst.Name, count)
+		totalProcessed += count
+	}
+
+	if totalProcessed == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "reparse: no unparsed grabs found")
+	} else {
+		_, _ = fmt.Fprintf(os.Stdout,
+			"reparse: %d row(s) parsed across %d instance(s)\n",
+			totalProcessed, len(instances))
+	}
 	return nil
 }

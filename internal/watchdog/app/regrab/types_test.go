@@ -16,7 +16,7 @@ import (
 func TestNewSettingsFromRecord_AnonAuth(t *testing.T) {
 	t.Parallel()
 	rec := ports.QbitSettingsRecord{
-		InstanceID:             7,
+		InstanceName:           "alpha",
 		Enabled:                true,
 		URL:                    "http://qbit.local:8080",
 		Username:               nil,
@@ -49,7 +49,7 @@ func TestNewSettingsFromRecord_WithPassword(t *testing.T) {
 
 	user := "admin"
 	rec := ports.QbitSettingsRecord{
-		InstanceID:             7,
+		InstanceName:           "alpha",
 		URL:                    "http://qbit.local:8080",
 		Username:               &user,
 		PasswordEncrypted:      blob,
@@ -67,7 +67,7 @@ func TestNewSettingsFromRecord_WithPassword(t *testing.T) {
 func TestNewSettingsFromRecord_PasswordWithoutCipher(t *testing.T) {
 	t.Parallel()
 	rec := ports.QbitSettingsRecord{
-		InstanceID:        7,
+		InstanceName:      "alpha",
 		URL:               "http://qbit.local:8080",
 		PasswordEncrypted: []byte{0xff, 0xee},
 	}

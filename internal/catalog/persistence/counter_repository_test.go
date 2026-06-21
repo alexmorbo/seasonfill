@@ -20,7 +20,6 @@ import (
 var frozenNow = time.Date(2026, 6, 7, 15, 30, 0, 0, time.UTC)
 
 func TestCounterRepository_BucketCounters_7d_MixedStatuses(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -67,7 +66,6 @@ func TestCounterRepository_BucketCounters_7d_MixedStatuses(t *testing.T) {
 }
 
 func TestCounterRepository_BucketCounters_24h_HourRollup(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -102,7 +100,6 @@ func TestCounterRepository_BucketCounters_24h_HourRollup(t *testing.T) {
 }
 
 func TestCounterRepository_BucketCounters_InstanceIsolation(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -124,7 +121,6 @@ func TestCounterRepository_BucketCounters_InstanceIsolation(t *testing.T) {
 }
 
 func TestCounterRepository_BucketCounters_InvalidWindow(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -140,7 +136,6 @@ func TestCounterRepository_BucketCounters_InvalidWindow(t *testing.T) {
 }
 
 func TestCounterRepository_AvgGrabsLast7Days(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -175,7 +170,6 @@ func TestCounterRepository_AvgGrabsLast7Days(t *testing.T) {
 // Postgres index regression check is wanted, write a separate
 // `_Postgres` variant — don't try to wedge both into one body.
 func TestCounterRepository_ExplainUsesIndex_SQLite(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	// SQLite-only by design — use the first backend (always SQLite under
 	// AllBackends contract: SQLite is the default, postgres only adds on
@@ -195,10 +189,10 @@ func TestCounterRepository_ExplainUsesIndex_SQLite(t *testing.T) {
 	require.NoError(t, err)
 	found := false
 	for _, p := range plan {
-		if strings.Contains(p.Detail, "idx_grab_records_instance_created") {
+		if strings.Contains(p.Detail, "grab_records_inst_created_idx") {
 			found = true
 			break
 		}
 	}
-	assert.True(t, found, "expected idx_grab_records_instance_created in plan: %+v", plan)
+	assert.True(t, found, "expected grab_records_inst_created_idx in plan: %+v", plan)
 }

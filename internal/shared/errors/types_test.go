@@ -32,7 +32,13 @@ func newScanRunID() uuid.UUID { return uuid.New() }
 
 func newDecisionID() uuid.UUID { return uuid.New() }
 
-func newInstanceID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
+// newInstanceName mints a randomised domain.InstanceName for use in
+// typed error fixtures. D-1 moved the canonical instance identity to
+// TEXT name PK and the qBit-side errors now key on name, so the
+// previous uint helper (newInstanceID) is no longer used.
+func newInstanceName() domain.InstanceName {
+	return domain.InstanceName(fmt.Sprintf("inst-%d", rand.Int32N(1_000_000)+1))
+}
 
 func newWBTriple() (string, int64, int) {
 	return fmt.Sprintf("inst-%d", rand.Int32N(1_000)+1),
@@ -83,7 +89,7 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, false},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, false},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, false},
-		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, false},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: newInstanceName()}, false},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, false},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, false},
 		{"WatchdogBlacklistNotFoundError", wbErr(), false},
@@ -154,7 +160,7 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, "instance_not_found"},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, "grab_not_found"},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, "runtime_config_not_found"},
-		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, "qbit_settings_not_found"},
+		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceName: newInstanceName()}, "qbit_settings_not_found"},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, "decision_not_found"},
 		{"WatchdogBlacklistNotFoundError", wbErr(), "watchdog_blacklist_not_found"},
