@@ -37,12 +37,12 @@ func grabBackends(t *testing.T) []testhelpers.Backend {
 			Name: name,
 			NewDB: func(tb testing.TB) *gorm.DB {
 				db := newDB(tb)
-				seedSonarrInstance(tb, db, "main")
-				seedSonarrInstance(tb, db, "homelab")
-				seedSonarrInstance(tb, db, "4k")
-				seedSonarrInstance(tb, db, "alpha")
-				seedSonarrInstance(tb, db, "beta")
-				seedSonarrInstance(tb, db, "a")
+				for _, name := range []domain.InstanceName{
+					"main", "homelab", "4k", "alpha", "beta", "a",
+					"secondary", "ghost",
+				} {
+					seedSonarrInstance(tb, db, name)
+				}
 				return db
 			},
 		})

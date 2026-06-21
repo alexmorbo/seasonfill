@@ -1,5 +1,23 @@
 -- disable the enforcement of foreign-keys constraints
 PRAGMA foreign_keys = off;
+-- create "new_episode_grabs" table
+CREATE TABLE `new_episode_grabs` (
+  `grab_id` text NOT NULL,
+  `episode_id` integer NOT NULL,
+  `episode_number` integer NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  `updated_at` datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  PRIMARY KEY (`grab_id`, `episode_id`),
+  CONSTRAINT `episode_grabs_grab_id_fkey` FOREIGN KEY (`grab_id`) REFERENCES `grab_records` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+-- copy rows from old table "episode_grabs" to new temporary table "new_episode_grabs"
+INSERT INTO `new_episode_grabs` (`grab_id`, `episode_id`, `episode_number`, `created_at`, `updated_at`) SELECT `grab_id`, `episode_id`, `episode_number`, `created_at`, `updated_at` FROM `episode_grabs`;
+-- drop "episode_grabs" table after copying rows
+DROP TABLE `episode_grabs`;
+-- rename temporary table "new_episode_grabs" to "episode_grabs"
+ALTER TABLE `new_episode_grabs` RENAME TO `episode_grabs`;
+-- create index "episode_grabs_episode_idx" to table: "episode_grabs"
+CREATE INDEX `episode_grabs_episode_idx` ON `episode_grabs` (`episode_id`);
 -- create "new_grab_records" table
 CREATE TABLE `new_grab_records` (
   `id` text NOT NULL,

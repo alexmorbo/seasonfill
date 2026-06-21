@@ -14,3 +14,5 @@ DROP INDEX "cooldowns_expires_at_idx";
 DROP TABLE "cooldowns";
 -- reverse: modify "grab_records" table
 ALTER TABLE "grab_records" ADD CONSTRAINT "grab_records_scan_run_id_fkey" FOREIGN KEY ("scan_run_id") REFERENCES "scan_runs" ("id") ON UPDATE NO ACTION ON DELETE SET NULL;
+-- reverse: modify "episode_grabs" table
+ALTER TABLE "episode_grabs" ADD CONSTRAINT "episode_grabs_episode_id_fkey" FOREIGN KEY ("episode_id") REFERENCES "episodes" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;

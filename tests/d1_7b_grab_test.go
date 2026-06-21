@@ -163,17 +163,25 @@ func TestD1_7b_EpisodeGrabs_TableShape(t *testing.T) {
 	}
 }
 
-func TestD1_7b_EpisodeGrabs_DualCascade(t *testing.T) {
+// TestD1_7b_EpisodeGrabs_GrabCascade — 467a / D-6 dropped the
+// episode_grabs.episode_id FK to episodes(id) because the column
+// stores Sonarr's surrogate episode id (NOT our canonical episodes.id).
+// The remaining FK to grab_records(id) CASCADE is the load-bearing one
+// — when a grab is deleted, its episode_grabs projection rows vanish
+// with it.
+func TestD1_7b_EpisodeGrabs_GrabCascade(t *testing.T) {
 	t.Parallel()
 	s := schema.Schema(schema.DialectPostgres)
 	tbl := mustTable(t, s, "episode_grabs")
-	if len(tbl.ForeignKeys) != 2 {
-		t.Fatalf("episode_grabs FK count = %d, want 2", len(tbl.ForeignKeys))
+	if len(tbl.ForeignKeys) != 1 {
+		t.Fatalf("episode_grabs FK count = %d, want 1 (only grab_id FK after 467a)", len(tbl.ForeignKeys))
 	}
-	for _, fk := range tbl.ForeignKeys {
-		if fk.OnDelete != atlasschema.Cascade {
-			t.Errorf("episode_grabs FK %s OnDelete = %s, want CASCADE", fk.Symbol, fk.OnDelete)
-		}
+	fk := tbl.ForeignKeys[0]
+	if fk.Symbol != "episode_grabs_grab_id_fkey" {
+		t.Errorf("episode_grabs FK symbol = %s, want episode_grabs_grab_id_fkey", fk.Symbol)
+	}
+	if fk.OnDelete != atlasschema.Cascade {
+		t.Errorf("episode_grabs FK %s OnDelete = %s, want CASCADE", fk.Symbol, fk.OnDelete)
 	}
 }
 

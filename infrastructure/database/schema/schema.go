@@ -2479,14 +2479,29 @@ func buildGrabRecordsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Tabl
 }
 
 // buildEpisodeGrabsTable returns episode_grabs — 5 cols, composite PK
-// (grab_id, episode_id), dual CASCADE FKs. Reverse fan-out index on
-// (episode_id) for "all grabs covering episode Y".
+// (grab_id, episode_id). FK→grab_records(id) CASCADE on grab_id;
+// episode_id is the Sonarr-side surrogate id (NOT our canonical
+// episodes.id), so no FK to episodes — the column tracks Sonarr's
+// number; the catalog episodes table is the canon for TMDB joins.
+//
+// 467a / D-6 dropped the episode_id→episodes(id) FK that 000012 emitted
+// because the writer (OnGrab webhook) gets the Sonarr episode.id from
+// the upstream payload, not by joining against our episodes table.
+// In practice Sonarr ids and catalog ids drift apart, and enforcing the
+// FK would break the audit projection on cold-start (Sonarr episodes
+// not yet enriched).
+//
+// `episodes` is kept in the signature for the symmetric ordering
+// invariant the addGrab wirer depends on; the unused param suppresses
+// go vet via the explicit blank assignment.
 func buildEpisodeGrabsTable(d Dialect, grabRecords, episodes *atlasschema.Table) *atlasschema.Table {
 	grabID := atlasschema.NewStringColumn("grab_id", "text").SetNull(false)
 	episodeID := fkColumn(d, "episode_id", false /* not null */)
 	episodeNumber := atlasschema.NewIntColumn("episode_number", "integer").SetNull(false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	_ = episodes
 
 	return atlasschema.NewTable("episode_grabs").
 		AddColumns(grabID, episodeID, episodeNumber, createdAt, updatedAt).
@@ -2500,12 +2515,6 @@ func buildEpisodeGrabsTable(d Dialect, grabRecords, episodes *atlasschema.Table)
 				AddColumns(grabID).
 				SetRefTable(grabRecords).
 				AddRefColumns(parentRefCol(grabRecords)).
-				SetOnDelete(atlasschema.Cascade).
-				SetOnUpdate(atlasschema.NoAction),
-			atlasschema.NewForeignKey("episode_grabs_episode_id_fkey").
-				AddColumns(episodeID).
-				SetRefTable(episodes).
-				AddRefColumns(parentRefCol(episodes)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)

@@ -12,10 +12,23 @@ DROP TABLE `decisions`;
 DROP INDEX `cooldowns_expires_at_idx`;
 -- reverse: create "cooldowns" table
 DROP TABLE `cooldowns`;
--- reverse: modify "grab_records" table — restore grab_records_scan_run_id_fkey
--- (SQLite ALTER TABLE cannot add a constraint; rebuild the table to
--- re-attach the FK with the legacy 000015 shape.)
+-- reverse: drop episode_grabs_episode_id_fkey via SQLite table rebuild.
 PRAGMA foreign_keys = off;
+CREATE TABLE `old_episode_grabs` (
+  `grab_id` text NOT NULL,
+  `episode_id` integer NOT NULL,
+  `episode_number` integer NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  `updated_at` datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  PRIMARY KEY (`grab_id`, `episode_id`),
+  CONSTRAINT `episode_grabs_episode_id_fkey` FOREIGN KEY (`episode_id`) REFERENCES `episodes` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `episode_grabs_grab_id_fkey` FOREIGN KEY (`grab_id`) REFERENCES `grab_records` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+INSERT INTO `old_episode_grabs` SELECT * FROM `episode_grabs`;
+DROP TABLE `episode_grabs`;
+ALTER TABLE `old_episode_grabs` RENAME TO `episode_grabs`;
+CREATE INDEX `episode_grabs_episode_idx` ON `episode_grabs` (`episode_id`);
+-- reverse: drop grab_records_scan_run_id_fkey via SQLite table rebuild.
 CREATE TABLE `old_grab_records` (
   `id` text NOT NULL,
   `instance_name` text NOT NULL,

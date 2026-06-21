@@ -1,3 +1,5 @@
+-- modify "episode_grabs" table
+ALTER TABLE "episode_grabs" DROP CONSTRAINT "episode_grabs_episode_id_fkey";
 -- modify "grab_records" table
 ALTER TABLE "grab_records" DROP CONSTRAINT "grab_records_scan_run_id_fkey";
 -- create "cooldowns" table
