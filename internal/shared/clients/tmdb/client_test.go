@@ -7,12 +7,93 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 )
+
+// fakeStart is the virtual time the fake clock starts at in the
+// rewritten AdaptivePause tests. Far enough in the future that
+// arithmetic against UnixNano stays positive even after we Advance by
+// minutes.
+var fakeStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// recordingSleepClock wraps clock.Real() but rewrites Sleep to a no-op
+// that records the duration argument. Used by the per-attempt-backoff
+// tests (5xx retry, Retry-After honour, 429-fallback) that previously
+// did `c.sleep = func(...){...}` — those tests do not care about the
+// pause-window state, only that the requested wait was the expected
+// value.
+type recordingSleepClock struct {
+	clock.Clock
+	mu    sync.Mutex
+	waits []time.Duration
+	lastD time.Duration
+}
+
+func newRecordingSleepClock() *recordingSleepClock {
+	return &recordingSleepClock{Clock: clock.Real()}
+}
+
+func (r *recordingSleepClock) Sleep(_ context.Context, d time.Duration) error {
+	r.mu.Lock()
+	r.waits = append(r.waits, d)
+	r.lastD = d
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *recordingSleepClock) Last() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastD
+}
+
+func (r *recordingSleepClock) Waits() []time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]time.Duration, len(r.waits))
+	copy(out, r.waits)
+	return out
+}
+
+// mustNew constructs a Client with the real clock. Used by tests that
+// don't manipulate time.
+func mustNew(t *testing.T, base, tok string) *Client {
+	t.Helper()
+	c, err := New(Config{
+		BaseURL:    base,
+		Token:      tok,
+		Language:   "en-US",
+		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return c
+}
+
+// mustNewWithClock constructs a Client with an injected clock. The
+// AdaptivePause tests pass a *clock.Fake; the per-attempt-backoff
+// tests pass a *recordingSleepClock.
+func mustNewWithClock(t *testing.T, base, tok string, clk clock.Clock) *Client {
+	t.Helper()
+	c, err := New(Config{
+		BaseURL:    base,
+		Token:      tok,
+		Language:   "en-US",
+		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+		Clock:      clk,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return c
+}
 
 func TestClient_BearerAuth(t *testing.T) {
 	var seen string
@@ -45,9 +126,9 @@ func TestClient_RetryOn5xx(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-	c.sleep = func(ctx context.Context, d time.Duration) error { return nil } // fast-forward
 
 	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
 		t.Fatalf("GetTV: %v", err)
@@ -69,17 +150,15 @@ func TestClient_RetryAfterHonoured_Seconds(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":1}`))
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-
-	var waited time.Duration
-	c.sleep = func(ctx context.Context, d time.Duration) error { waited = d; return nil }
 
 	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
 		t.Fatalf("GetTV: %v", err)
 	}
-	if waited != 7*time.Second {
-		t.Fatalf("expected 7s Retry-After wait, got %v", waited)
+	if got := clk.Last(); got != 7*time.Second {
+		t.Fatalf("expected 7s Retry-After wait, got %v", got)
 	}
 }
 
@@ -90,13 +169,12 @@ func TestClient_RetryAfterHonoured_HTTPDate(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
 
-	var seen time.Duration
-	c.sleep = func(ctx context.Context, d time.Duration) error { seen = d; return nil }
-
 	_, _ = c.GetTV(context.Background(), 1, "") // ignore error — 3 attempts exhausted
+	seen := clk.Last()
 	if seen <= 0 || seen > 10*time.Second {
 		t.Fatalf("expected ~3s HTTP-date wait, got %v", seen)
 	}
@@ -107,16 +185,15 @@ func TestClient_429NoHeader_ExpoFallback(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-
-	var waits []time.Duration
-	c.sleep = func(ctx context.Context, d time.Duration) error { waits = append(waits, d); return nil }
 
 	_, err := c.GetTV(context.Background(), 1, "")
 	if err == nil {
 		t.Fatal("expected 429 error after exhaustion")
 	}
+	waits := clk.Waits()
 	if len(waits) != 2 { // 2 retries between 3 attempts
 		t.Fatalf("waits=%v", waits)
 	}
@@ -132,9 +209,9 @@ func TestClient_NotFound_Terminal(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-	c.sleep = func(ctx context.Context, d time.Duration) error { return nil }
 
 	_, err := c.GetTV(context.Background(), 1, "")
 	if !IsNotFound(err) {
@@ -243,20 +320,6 @@ func TestClient_LanguageInQuery(t *testing.T) {
 	}
 }
 
-func mustNew(t *testing.T, base, tok string) *Client {
-	t.Helper()
-	c, err := New(Config{
-		BaseURL:    base,
-		Token:      tok,
-		Language:   "en-US",
-		HTTPClient: &http.Client{Timeout: 5 * time.Second},
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	return c
-}
-
 func TestExpoBackoff(t *testing.T) {
 	cases := []struct {
 		attempt int
@@ -343,9 +406,9 @@ func TestClient_Metrics_RecordsRateLimited(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-	c.sleep = func(ctx context.Context, d time.Duration) error { return nil } // fast-forward
 
 	_, _ = c.GetTV(context.Background(), 1, "") // ignore err — 3 attempts exhausted
 
@@ -357,18 +420,30 @@ func TestClient_Metrics_RecordsRateLimited(t *testing.T) {
 	}
 }
 
-// 313 — A 429 response with Retry-After triggers a global pause of
-// the shared token bucket. A subsequent request from a different
-// "worker" (sequential here for determinism) blocks for the pause
-// window before being served. Uses a high RPS so the bucket itself
-// never throttles — the only thing that can block the second call
-// is the pause.
+// B-12-1 — A 429 response with Retry-After triggers a global pause of
+// the shared token bucket. A subsequent request must block until the
+// pause window expires. Driven by a *clock.Fake so the assertion is
+// exact (no scheduling-jitter window).
+//
+// Sequence:
+//  1. Goroutine 1 calls GetTV. Server replies 429 with Retry-After=1s.
+//     do() calls applyPause → bucket sets pauseDeadlineNanos = now+1s,
+//     spawns watchResume (which parks on a 1s timer).
+//     do() then calls clk.Sleep(ctx, 1s) for the per-attempt retry
+//     backoff (also a 1s waiter).
+//  2. Test thread BlockUntilWaiters(2) — both the per-attempt Sleep
+//     and the watchResume timer are parked.
+//  3. Advance(1s). Both waiters fire. Per-attempt retry proceeds,
+//     server returns 200, GetTV returns.
+//  4. watchResume sees deadline reached → clears pauseDeadlineNanos.
+//  5. Second GetTV call: limiter.Wait observes pauseDeadline==0 (or
+//     ==now), takes the token, hits server, returns 200 — no wait.
 func TestClient_AdaptivePause_BlocksOtherCallsOn429(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := hits.Add(1)
 		if n == 1 {
-			w.Header().Set("Retry-After", "1") // 1 second pause
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -376,48 +451,65 @@ func TestClient_AdaptivePause_BlocksOtherCallsOn429(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	fc := clock.NewFake(fakeStart)
 	c, err := New(Config{
 		BaseURL:    srv.URL,
 		Token:      "tk",
 		Language:   "en-US",
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 		RPS:        1000, // bucket never throttles in this test
+		Clock:      fc,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer c.Close()
-	// First call: hits 429, sleeps Retry-After, retries successfully.
-	// We don't fast-forward c.sleep because we want the real pause path
-	// to engage. With Retry-After=1s the whole test takes ~1s.
-	start := time.Now()
-	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
-		t.Fatalf("first GetTV: %v", err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.GetTV(context.Background(), 1, "")
+		done <- err
+	}()
+
+	// Per-attempt backoff sleep + watchResume's pause timer == 2 waiters.
+	fc.BlockUntilWaiters(2)
+	fc.Advance(time.Second)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("first GetTV: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first GetTV did not unblock within 2s wall after Advance")
 	}
-	elapsed := time.Since(start)
-	if elapsed < 900*time.Millisecond {
-		t.Fatalf("first call returned in %v — Retry-After=1s not honoured", elapsed)
-	}
-	// Bucket should be unpaused now. Second call must return immediately.
-	start = time.Now()
-	if _, err := c.GetTV(context.Background(), 2, ""); err != nil {
-		t.Fatalf("second GetTV: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
-		t.Fatalf("post-pause call took %v — bucket failed to resume", elapsed)
+
+	// Second call: bucket should be unpaused, returns without any
+	// Advance call. We use a separate goroutine + timeout to guard
+	// against accidental re-entry into the pause path.
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := c.GetTV(context.Background(), 2, "")
+		done2 <- err
+	}()
+	select {
+	case err := <-done2:
+		if err != nil {
+			t.Fatalf("second GetTV: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("post-pause call blocked — bucket failed to resume")
 	}
 }
 
-// 313 — A 429 WITHOUT a Retry-After header falls back to the
-// 10-second default. Verifies the pause-fallback path and that the
-// in-pause gauge flips. The pause-window MUST be the 10s fallback,
-// not the per-call expoBackoff (1s) — that would be a busy-loop risk.
+// B-12-1 — A 429 WITHOUT a Retry-After header falls back to the
+// 10-second default. The bucket's pause deadline MUST land at
+// EXACTLY fakeNow+10s — not the 1s expoBackoff per-call retryWait,
+// which would be a busy-loop risk.
 //
-// The test samples the bucket's pause deadline AS SOON AS the first
-// 429 has been processed (signalled by the server seeing one hit),
-// then cancels the request so we don't have to wait the full 10s
-// fallback window. The pause deadline is independent of the cancel —
-// it's already published on the bucket.
+// Driven by *clock.Fake so the deadline equality is bit-exact (no
+// "8s..12s window" — the legacy test had to widen the assert because
+// of wall-clock jitter).
 func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 	hit := make(chan struct{}, 4)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -429,12 +521,14 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	fc := clock.NewFake(fakeStart)
 	c, err := New(Config{
 		BaseURL:    srv.URL,
 		Token:      "tk",
 		Language:   "en-US",
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 		RPS:        1000,
+		Clock:      fc,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -443,45 +537,34 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	beforeNanos := time.Now().UnixNano()
 	go func() {
 		defer close(done)
 		_, _ = c.GetTV(ctx, 1, "")
 	}()
 
-	// Wait for the first 429 to land + pause to be applied.
+	// Wait for the first 429 to land on the server.
 	select {
 	case <-hit:
 	case <-time.After(2 * time.Second):
 		t.Fatal("server never received the 429 trigger request")
 	}
-	// Spin briefly until the bucket publishes the deadline (applyPause
-	// runs synchronously in do() after doOnce returns; this is a very
-	// short window).
-	var deadline int64
-	deadlineSet := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadlineSet) {
-		deadline = c.limiter.pauseDeadlineNanos.Load()
-		if deadline != 0 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+
+	// After the 429, do() runs applyPause → PauseUntil → spawns
+	// watchResume (timer on a 10s pause) → then per-attempt
+	// clk.Sleep(ctx, 1s expoBackoff). Both are waiters; deadline
+	// publication is synchronous in applyPause, so once we see 2
+	// waiters the pauseDeadlineNanos atomic is already published.
+	fc.BlockUntilWaiters(2)
+
+	deadline := c.limiter.pauseDeadlineNanos.Load()
 	if deadline == 0 {
 		t.Fatal("pause deadline never set after 429")
 	}
-
-	// Confirm the deadline reflects the 10s fallback (NOT the 1s
-	// expoBackoff that retryWait would carry). Some tens of ms may have
-	// elapsed between beforeNanos and the pause being applied — allow a
-	// generous window but reject anything <8s (which would indicate the
-	// retryWait-coupled regression).
-	expectedMinNanos := beforeNanos + int64(8*time.Second)
-	expectedMaxNanos := beforeNanos + int64(12*time.Second)
-	if deadline < expectedMinNanos || deadline > expectedMaxNanos {
-		t.Fatalf("pause deadline outside expected 10s fallback window: deadline=%d, expected [%d, %d] (delta_seconds_low=%v, delta_seconds_high=%v)",
-			deadline, expectedMinNanos, expectedMaxNanos,
-			time.Duration(deadline-beforeNanos), time.Duration(deadline-beforeNanos))
+	// EXACT assertion — no wall-clock jitter possible under fake clock.
+	wantDeadline := fakeStart.Add(defaultRetryAfterFallback).UnixNano()
+	if deadline != wantDeadline {
+		t.Fatalf("pause deadline = %d, want exactly %d (delta=%v)",
+			deadline, wantDeadline, time.Duration(deadline-wantDeadline))
 	}
 
 	// Confirm the in-pause gauge is reported via /metrics.
@@ -492,8 +575,8 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 		t.Fatalf("tmdb_rate_limit_in_pause gauge missing or wrong value:\n%s", body)
 	}
 
-	// Cancel the in-flight call (it's waiting on the bucket pause). The
-	// goroutine returns; we don't have to wait the full 10s fallback.
+	// Cancel the in-flight call so we don't have to wait the full
+	// fake-clock 10s window. The goroutine returns; we don't Advance.
 	cancel()
 	select {
 	case <-done:
@@ -502,31 +585,25 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 	}
 }
 
-// 313 — Compounding 429s during an active pause must NOT double-tick
-// the pauses_total counter. The invariant: when two goroutines hit
-// 429 NEARLY-SIMULTANEOUSLY (before the first pause window expires),
-// only ONE pause window is opened, not two.
+// B-12-1 — Compounding 429s during an active pause must NOT
+// double-tick the pauses_total counter. Two goroutines race into the
+// limiter simultaneously; the server replies 429 to both first calls
+// (well within the pause window). The bucket must open exactly one
+// pause window; the second 429 must extend-or-noop, not create a
+// fresh entry.
 //
-// We fire two concurrent goroutines. The server replies 429 to BOTH
-// first calls (well within the pause window). The bucket should open
-// exactly one pause window; the second 429 must extend-or-noop, not
-// create a fresh pause entry.
-//
-// A short Retry-After (200ms) keeps the test fast — long enough to
-// guarantee the second 429 lands before the pause expires, short
-// enough that the post-pause success retries finish quickly.
+// Driven by *clock.Fake so the "well within the pause window" claim
+// is deterministic — we Advance once past the pause boundary AFTER
+// both 429s have published, then let the post-pause 200s complete.
 func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := hits.Add(1)
-		// First two responses 429 (one per goroutine's first attempt).
-		// Subsequent responses 200 so the retries succeed and the
-		// goroutines exit cleanly.
 		if n <= 2 {
-			// 3s window — wide enough for both goroutines to land within it
-			// even under -race + CI runner load (was 1s, flaked on scheduling
-			// jitter: second goroutine's 429 arrived after the 1s window had
-			// already expired, creating delta=2 instead of delta=1).
+			// 3s window — the precise width only matters under fake
+			// clock as a positive number; the second 429 is guaranteed
+			// to land within it because we don't Advance until both
+			// goroutines are parked.
 			w.Header().Set("Retry-After", "3")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -535,12 +612,14 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	fc := clock.NewFake(fakeStart)
 	c, err := New(Config{
 		BaseURL:    srv.URL,
 		Token:      "tk",
 		Language:   "en-US",
 		HTTPClient: &http.Client{Timeout: 15 * time.Second},
 		RPS:        1000,
+		Clock:      fc,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -549,10 +628,6 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 
 	before := countersFromMetrics(t, "tmdb_rate_limit_pauses_total")
 
-	// Synchronise the two goroutines so they race into the limiter
-	// together. The bucket has 5 pre-filled tokens — both will pass
-	// Wait() with no delay, then both will hit the server within
-	// microseconds of each other.
 	start := make(chan struct{})
 	done := make(chan error, 2)
 	for i := range 2 {
@@ -565,25 +640,40 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}
 	close(start)
 
-	// Wait for both goroutines to complete. With Retry-After=3s + retry
-	// loop, each goroutine finishes in ~3-4s. Bound the test at 12s to
-	// absorb -race overhead on slow CI runners.
+	// Each goroutine after its 429 parks on: per-attempt Sleep (1
+	// waiter). The watchResume parks on a 3s timer (1 waiter, exactly
+	// ONCE — the second 429 extends but does not spawn a second
+	// watcher). So total waiters = 2 per-attempt-Sleep + 1
+	// watchResume = 3.
+	//
+	// We wait until both per-attempt sleeps are parked, which proves
+	// both 429s have been processed AND the second one observed the
+	// pause already in flight. The watchResume waiter may or may not
+	// already be parked depending on goroutine scheduling — we use
+	// >=2 plus a brief BlockUntilWaiters(3) which is satisfied as soon
+	// as both goroutines and the watcher are all parked.
+	fc.BlockUntilWaiters(3)
+
+	// Advance past the pause window. All three waiters fire:
+	//   - watchResume's 3s timer (since fakeStart+3s == deadline)
+	//   - per-attempt Sleep #1 (1s expoBackoff, fired earlier; we
+	//     Advance by 3s so it has woken)
+	//   - per-attempt Sleep #2 (same)
+	fc.Advance(3 * time.Second)
+
+	// Both goroutines retry; server returns 200. Wait for both.
 	for i := range 2 {
 		select {
 		case err := <-done:
 			if err != nil {
 				t.Fatalf("goroutine %d: %v", i, err)
 			}
-		case <-time.After(12 * time.Second):
-			t.Fatalf("goroutine %d did not complete in 12s", i)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("goroutine %d did not complete in 5s wall after Advance", i)
 		}
 	}
 
 	after := countersFromMetrics(t, "tmdb_rate_limit_pauses_total")
-
-	// Both 429s landed within the FIRST 3s pause window. Counter delta
-	// must be exactly 1 (not 2 — no compounding). hits should be 4: 2
-	// initial 429s + 2 post-pause 200s.
 	if delta := after - before; delta != 1 {
 		t.Fatalf("pauses_total delta = %d; want 1 (no compounding); server saw %d hits", delta, hits.Load())
 	}
@@ -592,16 +682,17 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}
 }
 
-// 313 — happy path: a 2xx response must NOT touch any pause metric or
-// state. Regression guard against accidentally entering the pause
-// branch on a non-429 outcome.
+// B-12-1 — happy path: a 2xx response must NOT touch any pause metric
+// or state. Driven by fake clock for symmetry with the other
+// AdaptivePause tests; logical behaviour is the original.
 func TestClient_AdaptivePause_HappyPathLeavesBucketUnpaused(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":1}`))
 	}))
 	t.Cleanup(srv.Close)
 
-	c := mustNew(t, srv.URL, "tk")
+	fc := clock.NewFake(fakeStart)
+	c := mustNewWithClock(t, srv.URL, "tk", fc)
 	defer c.Close()
 
 	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
@@ -700,9 +791,9 @@ func TestClient_Metrics_ExternalHTTPFamily_On429(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	t.Cleanup(srv.Close)
-	c := mustNew(t, srv.URL, "tk")
+	clk := newRecordingSleepClock()
+	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
-	c.sleep = func(ctx context.Context, d time.Duration) error { return nil }
 
 	_, _ = c.GetTV(context.Background(), 1399, "")
 

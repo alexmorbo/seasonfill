@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
@@ -103,8 +104,7 @@ type Client struct {
 	httpClient *http.Client
 	limiter    *tokenBucket
 	logger     *slog.Logger
-	clock      func() time.Time
-	sleep      func(ctx context.Context, d time.Duration) error
+	clk        clock.Clock
 }
 
 // Config holds the constructor arguments. BaseURL defaults to
@@ -117,6 +117,12 @@ type Client struct {
 //     token-bucket refill interval (1s / RPS).
 //   - Logger — used for tmdb.rate_limit.pause / resume INFO lines.
 //     Nil-OK; falls back to slog.Default().
+//
+// B-12-1:
+//   - Clock — injectable time source. Nil-OK; falls back to
+//     clock.Real() which is a 1:1 alias for time.Now / time.NewTimer /
+//     time.NewTicker / time.Sleep. Tests pass a *clock.Fake to drive
+//     the rate-limiter pause window deterministically.
 type Config struct {
 	BaseURL    string
 	Token      string
@@ -124,6 +130,7 @@ type Config struct {
 	HTTPClient *http.Client
 	RPS        float64
 	Logger     *slog.Logger
+	Clock      clock.Clock
 }
 
 // New constructs a Client. Returns an error when Token or HTTPClient
@@ -163,6 +170,10 @@ func New(cfg Config) (*Client, error) {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "tmdb")
 	}
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.Real()
+	}
 	// Story 351 — wrap the injected httpClient with the per-client
 	// metrics transport. We CLONE the *http.Client so the caller's
 	// shared pointer is left untouched (the media downloader uses the
@@ -182,10 +193,9 @@ func New(cfg Config) (*Client, error) {
 		token:      cfg.Token,
 		lang:       lang,
 		httpClient: clientWithMetrics,
-		limiter:    newTokenBucket(interval, rateLimitBurst),
+		limiter:    newTokenBucket(interval, rateLimitBurst, clk),
 		logger:     logger,
-		clock:      time.Now,
-		sleep:      ctxSleep,
+		clk:        clk,
 	}
 	// Story 313 — surface tmdb.rate_limit.resume INFO via the Client's
 	// logger. The bucket doesn't know about slog; we hand it a closure
@@ -221,11 +231,11 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 		// so the wait time now includes both bucket-empty AND
 		// pause-active waits — the operator's "limiter saturation"
 		// dashboard sees both as throughput cost.
-		waitStart := c.clock()
+		waitStart := c.clk.Now()
 		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, err
 		}
-		observability.ObserveTMDBLimiterWait(c.clock().Sub(waitStart).Seconds())
+		observability.ObserveTMDBLimiterWait(c.clk.Now().Sub(waitStart).Seconds())
 
 		body, retryWait, rawRetryAfter, err := c.doOnce(ctx, path, query)
 		if err == nil {
@@ -267,7 +277,7 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 		if retryWait == 0 || attempt == maxAttempts-1 {
 			return nil, err
 		}
-		if err := c.sleep(ctx, retryWait); err != nil {
+		if err := c.clk.Sleep(ctx, retryWait); err != nil {
 			return nil, err
 		}
 	}
@@ -283,7 +293,7 @@ func (c *Client) applyPause(ctx context.Context, dur time.Duration, path string,
 	if dur <= 0 {
 		return
 	}
-	until := c.clock().Add(dur)
+	until := c.clk.Now().Add(dur)
 	entered := c.limiter.PauseUntil(until)
 	if !entered {
 		// Already paused with a later or equal deadline — no new pause
@@ -352,7 +362,7 @@ func (c *Client) doOnce(ctx context.Context, path string, query url.Values) ([]b
 		// the RAW parsed Retry-After is returned separately so do()
 		// can size the global pause window without inheriting the
 		// expo-backoff fallback (which is per-goroutine, not fleet-wide).
-		raw := parseRetryAfter(resp.Header.Get("Retry-After"), c.clock())
+		raw := parseRetryAfter(resp.Header.Get("Retry-After"), c.clk.Now())
 		wait := raw
 		if wait <= 0 {
 			wait = expoBackoff(0)
@@ -426,22 +436,6 @@ func expoBackoff(attempt int) time.Duration {
 	return d
 }
 
-// ctxSleep blocks for d or until ctx cancels, whichever wins.
-// Injected on Client.sleep so tests can fast-forward.
-func ctxSleep(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
-}
-
 // tokenBucket is a fixed-rate refill bucket. Capacity == rps,
 // refill 1 token every 1/rps seconds. Wait blocks until a token
 // is available or ctx cancels.
@@ -475,6 +469,10 @@ type tokenBucket struct {
 	stop   chan struct{}
 	once   sync.Once
 
+	// B-12-1 — injectable time source. Production = clock.Real(); tests
+	// pass a *clock.Fake so the pause-window state machine is bit-exact.
+	clk clock.Clock
+
 	// Story 313 — global pause state.
 	// pauseDeadlineNanos: 0 = not paused; positive = UnixNano deadline.
 	pauseDeadlineNanos atomic.Int64
@@ -491,16 +489,20 @@ type tokenBucket struct {
 	onResume atomic.Pointer[func(durationSec float64)]
 }
 
-func newTokenBucket(interval time.Duration, capacity int) *tokenBucket {
+func newTokenBucket(interval time.Duration, capacity int, clk clock.Clock) *tokenBucket {
 	if capacity < 1 {
 		capacity = 1
 	}
 	if interval <= 0 {
 		interval = time.Second
 	}
+	if clk == nil {
+		clk = clock.Real()
+	}
 	tb := &tokenBucket{
 		tokens: make(chan struct{}, capacity),
 		stop:   make(chan struct{}),
+		clk:    clk,
 	}
 	// Pre-fill so the first `capacity` calls don't block.
 	for i := 0; i < capacity; i++ {
@@ -511,13 +513,13 @@ func newTokenBucket(interval time.Duration, capacity int) *tokenBucket {
 }
 
 func (tb *tokenBucket) refill(interval time.Duration) {
-	t := time.NewTicker(interval)
+	t := tb.clk.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-tb.stop:
 			return
-		case <-t.C:
+		case <-t.C():
 			select {
 			case tb.tokens <- struct{}{}:
 			default:
@@ -539,17 +541,17 @@ func (tb *tokenBucket) Wait(ctx context.Context) error {
 		if deadlineNanos == 0 {
 			break
 		}
-		now := time.Now().UnixNano()
+		now := tb.clk.Now().UnixNano()
 		if now >= deadlineNanos {
 			break
 		}
 		remaining := time.Duration(deadlineNanos - now)
-		t := time.NewTimer(remaining)
+		t := tb.clk.NewTimer(remaining)
 		select {
 		case <-ctx.Done():
 			t.Stop()
 			return ctx.Err()
-		case <-t.C:
+		case <-t.C():
 			// Re-loop: check whether the pause was extended.
 		}
 	}
@@ -575,7 +577,7 @@ func (tb *tokenBucket) PauseUntil(until time.Time) bool {
 		return false
 	}
 	newNanos := until.UnixNano()
-	if newNanos <= time.Now().UnixNano() {
+	if newNanos <= tb.clk.Now().UnixNano() {
 		return false
 	}
 	for {
@@ -594,7 +596,7 @@ func (tb *tokenBucket) PauseUntil(until time.Time) bool {
 			// spawn the resume watcher exactly once per window. The
 			// extend case (old > 0) does NOT spawn a new watcher —
 			// the existing one re-reads the deadline on wakeup.
-			tb.pauseStart.Store(time.Now().UnixNano())
+			tb.pauseStart.Store(tb.clk.Now().UnixNano())
 			gen := tb.pauseGen.Add(1)
 			observability.IncTMDBRateLimitPause()
 			observability.SetTMDBRateLimitInPause(true)
@@ -616,7 +618,7 @@ func (tb *tokenBucket) PauseUntil(until time.Time) bool {
 // each other's gauge writes. Story 313.
 func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
 	for {
-		now := time.Now()
+		now := tb.clk.Now()
 		// Re-sample deadline from the atomic to honour extends.
 		deadlineNanos := tb.pauseDeadlineNanos.Load()
 		if deadlineNanos == 0 {
@@ -626,12 +628,12 @@ func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
 		if !now.Before(deadline) {
 			break
 		}
-		t := time.NewTimer(deadline.Sub(now))
+		t := tb.clk.NewTimer(deadline.Sub(now))
 		select {
 		case <-tb.stop:
 			t.Stop()
 			return
-		case <-t.C:
+		case <-t.C():
 		}
 	}
 	// Only the latest pause-gen watcher clears state. A stale watcher
@@ -646,7 +648,7 @@ func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
 	observability.SetTMDBRateLimitInPause(false)
 	var elapsed float64
 	if start > 0 {
-		elapsed = time.Since(time.Unix(0, start)).Seconds()
+		elapsed = tb.clk.Now().Sub(time.Unix(0, start)).Seconds()
 		observability.AddTMDBRateLimitPauseSeconds(elapsed)
 	}
 	if hook := tb.onResume.Load(); hook != nil {
