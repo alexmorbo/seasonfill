@@ -24,8 +24,8 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 			if s == nil {
 				t.Fatalf("Schema(%q) returned nil", d)
 			}
-			if len(s.Tables) != 3 {
-				t.Fatalf("Schema(%q) tables = %d, want 3", d, len(s.Tables))
+			if len(s.Tables) != 5 {
+				t.Fatalf("Schema(%q) tables = %d, want 5", d, len(s.Tables))
 			}
 		})
 	}
@@ -55,8 +55,8 @@ func TestSchemaCoverage_LoadHonorsEnv(t *testing.T) {
 	if s == nil {
 		t.Fatal("Load() returned nil with ATLAS_DIALECT=sqlite")
 	}
-	if len(s.Tables) != 3 {
-		t.Fatalf("Load() tables = %d, want 3", len(s.Tables))
+	if len(s.Tables) != 5 {
+		t.Fatalf("Load() tables = %d, want 5", len(s.Tables))
 	}
 }
 

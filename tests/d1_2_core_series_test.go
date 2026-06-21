@@ -58,23 +58,24 @@ func TestD12_SchemaNameMatchesContract(t *testing.T) {
 }
 
 // TestD12_SchemaHasThreeCoreTables inverts the D-1-1 "no tables yet"
-// assertion: D-1-2 lands series/seasons/episodes. Adding a 4th core
-// table here must come from D-1-3+; bump this test then.
+// assertion: D-1-2 lands series/seasons/episodes. D-1-3a (story 456a)
+// appended series_texts/episode_texts, so the assertion loosened to
+// "the 3 core tables are PRESENT" rather than "the schema has exactly
+// 3 tables". The total-count contract for the current tip lives in
+// TestD13a_SchemaHasFiveTables in tests/d1_3a_i18n_texts_test.go.
 func TestD12_SchemaHasThreeCoreTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if len(s.Tables) != 3 {
-				t.Fatalf("table count = %d, want 3 (series, seasons, episodes)", len(s.Tables))
+			present := map[string]bool{}
+			for _, tbl := range s.Tables {
+				present[tbl.Name] = true
 			}
-			names := []string{s.Tables[0].Name, s.Tables[1].Name, s.Tables[2].Name}
-			sort.Strings(names)
-			want := []string{"episodes", "seasons", "series"}
-			for i := range names {
-				if names[i] != want[i] {
-					t.Errorf("tables[%d] = %q, want %q (sorted)", i, names[i], want[i])
+			for _, want := range []string{"series", "seasons", "episodes"} {
+				if !present[want] {
+					t.Errorf("core table %q missing from schema", want)
 				}
 			}
 		})

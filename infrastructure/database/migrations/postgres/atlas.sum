@@ -1,3 +1,5 @@
-h1:ntot4Xw8cR/ne+egwDKPPjaOXrhqOMb11tmL7kNSflY=
+h1:U9XL6jkWZ+I/gzwrwMFUo1TXVlUe3mz2dOT5TkDINZs=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
+000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
+000002_i18n_texts.up.sql h1:gv7VoFfOA8yO3kE0e2ijW84S3coH8yaGCW9/GO3Lreg=

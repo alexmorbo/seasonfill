@@ -8,8 +8,9 @@
 // Database Portability Contract and §D-1.
 //
 // Sub-stories 455..461 (D-1-2..D-1-8) populate this schema with the 14
-// target tables. D-1-2 (this commit) lands the first batch:
-// series, seasons, episodes.
+// target tables. D-1-2 (story 455) landed the core series batch:
+// series, seasons, episodes. D-1-3a (story 456a) appends the i18n texts
+// batch: series_texts, episode_texts.
 package schema
 
 import (
@@ -71,7 +72,10 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// D-1-2 (story 455) — core series tables.
 	addCoreSeries(s, d)
 
-	// D-1-3..D-1-7 (stories 456..460) append further batches here.
+	// D-1-3a (story 456a) — multi-language texts.
+	addI18nTexts(s, d)
+
+	// D-1-3b..D-1-7 (stories 456b..460) append further batches here.
 
 	return s
 }
@@ -291,6 +295,59 @@ func buildEpisodesTable(d Dialect, seriesTable, seasonsTable *atlasschema.Table)
 	return t
 }
 
+// addI18nTexts appends series_texts and episode_texts (per-parent
+// per-language text fan-out tables) to s. Called from Schema(d) after
+// addCoreSeries — episode_texts depends on the episodes table created
+// in D-1-2.
+//
+// PRD §4.3 — multi-language storage. Each (parent_id, language) row
+// holds the localized strings (title, overview, [tagline]). enriched_at
+// tracks when TMDB API was called for this language; updated_at tracks
+// when the row was last written (regardless of source).
+func addI18nTexts(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	episodes := mustTable(s, "episodes")
+	s.AddTables(
+		buildSeriesTextsTable(d, series),
+		buildEpisodeTextsTable(d, episodes),
+	)
+}
+
+// buildSeriesTextsTable returns the series_texts table:
+//
+//	PK (series_id, language)
+//	columns: title text NULL, overview text NULL, tagline text NULL,
+//	         enriched_at timestamptz NULL, updated_at timestamptz NOT NULL DEFAULT now()
+//	FK series_id → series(id) NO ACTION (canonical-to-canonical)
+func buildSeriesTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	return i18nTextTable(d, "series_texts", seriesTable, "series_id",
+		[]*atlasschema.Column{
+			atlasschema.NewNullStringColumn("title", "text"),
+			atlasschema.NewNullStringColumn("overview", "text"),
+			atlasschema.NewNullStringColumn("tagline", "text"),
+		},
+		nil,  // no extra indexes
+		true, // include enriched_at
+	)
+}
+
+// buildEpisodeTextsTable returns the episode_texts table:
+//
+//	PK (episode_id, language)
+//	columns: title text NULL, overview text NULL,
+//	         enriched_at timestamptz NULL, updated_at timestamptz NOT NULL DEFAULT now()
+//	FK episode_id → episodes(id) NO ACTION
+func buildEpisodeTextsTable(d Dialect, episodesTable *atlasschema.Table) *atlasschema.Table {
+	return i18nTextTable(d, "episode_texts", episodesTable, "episode_id",
+		[]*atlasschema.Column{
+			atlasschema.NewNullStringColumn("title", "text"),
+			atlasschema.NewNullStringColumn("overview", "text"),
+		},
+		nil,
+		true,
+	)
+}
+
 // ----------------------------------------------------------------------
 // Helpers — dialect-aware column / index constructors.
 // ----------------------------------------------------------------------
@@ -387,4 +444,84 @@ func attachPredicate(d Dialect, idx *atlasschema.Index, predicate string) {
 	case DialectSQLite:
 		idx.AddAttrs(&sqlite.IndexPredicate{P: predicate})
 	}
+}
+
+// i18nTextTable builds a per-parent per-language i18n table:
+//
+//	PK (parent_id, language)
+//	columns: extraCols + [enriched_at NULL] + updated_at NOT NULL DEFAULT now()
+//	FK parent_id → parentTable(id) NO ACTION  (parent PK column derived from
+//	parentTable.PrimaryKey.Parts[0].C for future-proof resolution).
+//
+// Caller passes parentTable's logical id column name (e.g., "series_id" or
+// "episode_id") to keep column names in scope with the table name.
+// The helper does NOT take a separate index on the language column alone
+// — fan-in lookups (`WHERE series_id = ?`) hit the PK; fan-out lookups
+// (`WHERE language = ?`) are rare and can add a follow-up index later if
+// measured slow.
+//
+// Used by D-1-3a (series_texts, episode_texts) and reserved for D-1-3b
+// (genres_i18n, networks_i18n, production_companies_i18n, keywords_i18n).
+func i18nTextTable(
+	d Dialect,
+	tableName string,
+	parentTable *atlasschema.Table,
+	parentIDColName string,
+	extraCols []*atlasschema.Column,
+	extraIndexes []*atlasschema.Index,
+	enrichedAt bool,
+) *atlasschema.Table {
+	parentID := fkColumn(d, parentIDColName, false /* not null */)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	cols := []*atlasschema.Column{parentID, language}
+	cols = append(cols, extraCols...)
+	if enrichedAt {
+		cols = append(cols, timestampColumn(d, "enriched_at", false, false))
+	}
+	cols = append(cols, updatedAt)
+
+	refCol := parentRefCol(parentTable)
+	t := atlasschema.NewTable(tableName).
+		AddColumns(cols...).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(parentID, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey(tableName + "_" + parentIDColName + "_fkey").
+				AddColumns(parentID).
+				SetRefTable(parentTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+	if len(extraIndexes) > 0 {
+		t.AddIndexes(extraIndexes...)
+	}
+	return t
+}
+
+// parentRefCol returns the FK reference column for a parent table.
+// Prefers PrimaryKey.Parts[0].C (future-proof against column-order
+// rearrangement on the parent table) and falls back to Columns[0] if the
+// PK was somehow not set — the fallback is a defensive guard, all
+// shipped builders set the PK explicitly.
+func parentRefCol(parentTable *atlasschema.Table) *atlasschema.Column {
+	if parentTable.PrimaryKey != nil && len(parentTable.PrimaryKey.Parts) > 0 {
+		return parentTable.PrimaryKey.Parts[0].C
+	}
+	return parentTable.Columns[0]
+}
+
+// mustTable looks up a previously-added table by name. Panics if
+// absent — used by appenders that depend on FK targets already being
+// installed in s. The panic is a programmer error indicator (Schema(d)
+// is a pure function, table order is deterministic), never a runtime
+// data condition.
+func mustTable(s *atlasschema.Schema, name string) *atlasschema.Table {
+	for _, t := range s.Tables {
+		if t.Name == name {
+			return t
+		}
+	}
+	panic(fmt.Sprintf("schema: table %q not found in schema (table-order bug)", name))
 }
