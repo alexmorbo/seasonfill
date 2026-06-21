@@ -17,6 +17,11 @@
 // people canon batch: people, person_credits, person_biographies.
 // D-1-4b (story 457b) appends the series extras batch: videos,
 // content_ratings, external_ids, series_recommendations.
+// D-1-5 (story 458) appends the per-instance projection batch
+// (series_cache, episode_states, season_stats) plus the
+// enrichment_errors side-table — these are the post-cutover greenfield
+// shapes, NOT the historical pre-cutover ones in
+// internal/shared/db/migrations/.
 package schema
 
 import (
@@ -118,7 +123,35 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addSeriesExtras(s, d)
 	}
 
-	// D-1-5..D-1-7 (stories 458..460) append further batches here.
+	// D-1-5 (story 458) — per-instance Sonarr projections (series_cache,
+	// episode_states, season_stats). Soft-deleted via deleted_at; readers
+	// filter `WHERE deleted_at IS NULL`. No FK on instance_name (cascade
+	// is app-managed in SonarrInstanceRepository.Delete). episode_states
+	// FK → episodes(id), series_cache FK → series(id), both NO ACTION
+	// (deletes are soft; a hard DELETE on canon should error rather than
+	// silently wipe per-instance projections).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_INSTANCE_PROJECTIONS=1
+	// generates earlier migrations without these three tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_INSTANCE_PROJECTIONS") == "" {
+		addInstanceProjections(s, d)
+	}
+
+	// D-1-5 (story 458) — enrichment_errors side-table. POLYMORPHIC: no
+	// FK on entity_id (matches external_ids choice from D-1-4b). Tracks
+	// per-attempt failures with exponential backoff schedule held in app
+	// code (PRD §4.4 nextAttemptAt). NOTE: PRD §D-1 line 4392 also
+	// mentions adding `series.enrichment_*_synced_at` columns in 000008
+	// — these were moved forward into 000001 during D-1-2 and are
+	// already shipped; do NOT re-add or duplicate them here.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_ENRICHMENT_TRACKING=1
+	// generates earlier migrations without this table.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_ENRICHMENT_TRACKING") == "" {
+		addEnrichmentTracking(s, d)
+	}
+
+	// D-1-6..D-1-7 (stories 459..460) append further batches here.
 
 	return s
 }
@@ -1071,4 +1104,254 @@ func mustTable(s *atlasschema.Schema, name string) *atlasschema.Table {
 		}
 	}
 	panic(fmt.Sprintf("schema: table %q not found in schema (table-order bug)", name))
+}
+
+// ----------------------------------------------------------------------
+// D-1-5 — instance projections + enrichment tracking.
+// ----------------------------------------------------------------------
+
+// addInstanceProjections appends series_cache, episode_states,
+// season_stats to s. Called from Schema(d). Looks up series + episodes
+// canon tables via mustTable — both are guaranteed present by the
+// table-order contract (D-1-2 lands them in addCoreSeries before any
+// D-1-5 appender runs). NOTE: season_stats does NOT FK to series_cache
+// — see story 458 §Investigation Notes for the rationale.
+func addInstanceProjections(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	episodes := mustTable(s, "episodes")
+	s.AddTables(
+		buildSeriesCacheTable(d, series),
+		buildEpisodeStatesTable(d, episodes),
+		buildSeasonStatsTable(d),
+	)
+}
+
+// buildSeriesCacheTable returns series_cache — per-instance projection
+// of one Sonarr series row, 11 cols, composite PK (instance_name,
+// sonarr_series_id). FK series_id → series(id) NO ACTION (canon deletes
+// are always soft; a hard DELETE on series should error rather than
+// silently wipe per-instance projections). Soft-deleted via deleted_at;
+// readers filter `WHERE deleted_at IS NULL`.
+//
+// Indexes:
+//   - series_cache_instance_active ON (instance_name) WHERE deleted_at IS NULL
+//     (hot read-path filter; reader fans by instance with soft-delete cut)
+//   - series_cache_series_id ON (series_id) (resolver "find all instance
+//     projections of this canon series" path; non-unique)
+//
+// DO NOT add an FK on instance_name — cascade is app-managed in
+// SonarrInstanceRepository.Delete (consistent across the schema). DO NOT
+// switch the series FK to CASCADE — the soft-delete contract requires
+// the FK to error on hard-deletes (forces ops to soft-delete first).
+func buildSeriesCacheTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	sonarrSeriesID := atlasschema.NewIntColumn("sonarr_series_id", "integer").SetNull(false)
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	titleSlug := atlasschema.NewStringColumn("title_slug", "text").SetNull(false)
+	monitored := atlasschema.NewBoolColumn("monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	missingCount := atlasschema.NewIntColumn("missing_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	episodeFileCount := atlasschema.NewIntColumn("episode_file_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	sizeOnDiskBytes := atlasschema.NewIntColumn("size_on_disk_bytes", "bigint")
+	if d == DialectSQLite {
+		sizeOnDiskBytes = atlasschema.NewIntColumn("size_on_disk_bytes", "integer")
+	}
+	sizeOnDiskBytes.SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	airedEpisodeCount := atlasschema.NewIntColumn("aired_episode_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	updatedAt := timestampColumn(d, "updated_at", false /* withDefault */, true /* notNull */)
+	deletedAt := timestampColumn(d, "deleted_at", false, false)
+
+	return atlasschema.NewTable("series_cache").
+		AddColumns(instanceName, sonarrSeriesID, seriesID, titleSlug,
+			monitored, missingCount, episodeFileCount, sizeOnDiskBytes,
+			airedEpisodeCount, updatedAt, deletedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, sonarrSeriesID)).
+		AddIndexes(
+			partialIndex(d, "series_cache_instance_active",
+				[]*atlasschema.Column{instanceName}, "deleted_at IS NULL"),
+			atlasschema.NewIndex("series_cache_series_id").
+				AddColumns(seriesID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("series_cache_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildEpisodeStatesTable returns episode_states — per-instance per-
+// episode file state, 13 cols, composite PK (instance_name, episode_id).
+// FK episode_id → episodes(id) NO ACTION (consistent with series_cache).
+// Soft-deleted via deleted_at; story 218 (E-2) SeriesDelete cascade
+// stamps this column.
+//
+// mediaInfo columns (video_codec, audio_codec, audio_channels,
+// release_group) are nullable — Sonarr's mediaInfo block is absent
+// until the episode file has been probed.
+//
+// Index episode_states_deleted_at ON (instance_name, deleted_at)
+// WHERE deleted_at IS NOT NULL — cascade-housekeeping path "find
+// rows to hard-purge later" (story 218 pattern). Inverse predicate
+// compared to series_cache: this one indexes the SOFT-DELETED rows.
+func buildEpisodeStatesTable(d Dialect, episodesTable *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	episodeID := fkColumn(d, "episode_id", false /* not null */)
+	monitored := atlasschema.NewBoolColumn("monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	hasFile := atlasschema.NewBoolColumn("has_file", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	episodeFileID := atlasschema.NewNullIntColumn("episode_file_id", "integer")
+	quality := atlasschema.NewNullStringColumn("quality", "text")
+	sizeBytes := atlasschema.NewNullIntColumn("size_bytes", "bigint")
+	if d == DialectSQLite {
+		sizeBytes = atlasschema.NewNullIntColumn("size_bytes", "integer")
+	}
+	videoCodec := atlasschema.NewNullStringColumn("video_codec", "text")
+	audioCodec := atlasschema.NewNullStringColumn("audio_codec", "text")
+	audioChannels := atlasschema.NewNullStringColumn("audio_channels", "text")
+	releaseGroup := atlasschema.NewNullStringColumn("release_group", "text")
+	updatedAt := timestampColumn(d, "updated_at", false, true)
+	deletedAt := timestampColumn(d, "deleted_at", false, false)
+
+	return atlasschema.NewTable("episode_states").
+		AddColumns(instanceName, episodeID, monitored, hasFile,
+			episodeFileID, quality, sizeBytes, videoCodec, audioCodec,
+			audioChannels, releaseGroup, updatedAt, deletedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, episodeID)).
+		AddIndexes(
+			partialIndex(d, "episode_states_deleted_at",
+				[]*atlasschema.Column{instanceName, deletedAt},
+				"deleted_at IS NOT NULL"),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("episode_states_episode_id_fkey").
+				AddColumns(episodeID).
+				SetRefTable(episodesTable).
+				AddRefColumns(parentRefCol(episodesTable)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildSeasonStatsTable returns season_stats — per-instance per-series
+// per-season Sonarr statistics projection, 11 cols, composite-3 PK
+// (instance_name, sonarr_series_id, season_number). NO FKs — the
+// (instance_name, sonarr_series_id) pair is a natural projection key
+// also held by series_cache, but DB-level coupling is deliberately
+// avoided (the SonarrSync cascade writes the two tables in two
+// statements that aren't in the same transaction at all times; an FK
+// would create a hard ordering constraint the existing code doesn't
+// honor consistently). Soft-deleted via deleted_at; the SeriesDelete
+// cascade (scan.CascadeSeriesDelete) stamps it alongside series_cache.
+//
+// Index season_stats_series ON (instance_name, sonarr_series_id)
+// WHERE deleted_at IS NULL — the composers fan series → seasons via
+// this prefix.
+func buildSeasonStatsTable(d Dialect) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	sonarrSeriesID := atlasschema.NewIntColumn("sonarr_series_id", "integer").SetNull(false)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	episodeCount := atlasschema.NewIntColumn("episode_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	episodeFileCount := atlasschema.NewIntColumn("episode_file_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	totalEpisodeCount := atlasschema.NewIntColumn("total_episode_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	airedEpisodeCount := atlasschema.NewIntColumn("aired_episode_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	monitored := atlasschema.NewBoolColumn("monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	sizeOnDiskBytes := atlasschema.NewIntColumn("size_on_disk_bytes", "bigint")
+	if d == DialectSQLite {
+		sizeOnDiskBytes = atlasschema.NewIntColumn("size_on_disk_bytes", "integer")
+	}
+	sizeOnDiskBytes.SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	updatedAt := timestampColumn(d, "updated_at", false, true)
+	deletedAt := timestampColumn(d, "deleted_at", false, false)
+
+	return atlasschema.NewTable("season_stats").
+		AddColumns(instanceName, sonarrSeriesID, seasonNumber,
+			episodeCount, episodeFileCount, totalEpisodeCount,
+			airedEpisodeCount, monitored, sizeOnDiskBytes,
+			updatedAt, deletedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, sonarrSeriesID, seasonNumber)).
+		AddIndexes(
+			partialIndex(d, "season_stats_series",
+				[]*atlasschema.Column{instanceName, sonarrSeriesID},
+				"deleted_at IS NULL"),
+		)
+}
+
+// addEnrichmentTracking appends enrichment_errors to s. Single-table
+// migration (000008). Called from Schema(d). The PRD §D-1 line 4392
+// also lists series.enrichment_*_synced_at columns under 000008 — those
+// were moved forward to 000001 during D-1-2 (story 455) and are NOT
+// re-added here; see the per-builder comment for rationale.
+func addEnrichmentTracking(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildEnrichmentErrorsTable(d))
+}
+
+// buildEnrichmentErrorsTable returns enrichment_errors — 9 cols, single
+// surrogate PK `id`, UNIQUE composite-3 (entity_type, entity_id,
+// source), 1 partial index on next_attempt_at WHERE NOT NULL.
+//
+// POLYMORPHIC: entity_id has NO FK (mirrors external_ids.entity_id
+// from D-1-4b). Domain (`series` | `season` | `episode` | `person`) is
+// enforced at the use-case layer via the enrichment.EntityType enum,
+// NOT by DB constraint. Sources (`tmdb` | `omdb` | `sonarr`) are
+// enforced by the enrichment.Source enum.
+//
+// The partial index on next_attempt_at speeds the worker's
+// "errors-ready-for-retry" scan: `WHERE next_attempt_at <= now()`
+// — covers only rows the worker is actually waiting on.
+//
+// Timestamps differ from the instance projections: first_seen_at and
+// last_seen_at both DEFAULT now() at insert (the row is created on
+// first failure and rewritten on each subsequent failure; the writer
+// always passes last_seen_at explicitly, but DEFAULT now() keeps
+// hand-written test inserts simple).
+func buildEnrichmentErrorsTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	entityType := atlasschema.NewStringColumn("entity_type", "text").SetNull(false)
+	entityID := atlasschema.NewIntColumn("entity_id", "bigint").SetNull(false)
+	if d == DialectSQLite {
+		entityID = atlasschema.NewIntColumn("entity_id", "integer").SetNull(false)
+	}
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	lastError := atlasschema.NewStringColumn("last_error", "text").SetNull(false)
+	attempts := atlasschema.NewIntColumn("attempts", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "1"})
+	firstSeenAt := timestampColumn(d, "first_seen_at", true /* withDefault */, true /* notNull */)
+	lastSeenAt := timestampColumn(d, "last_seen_at", true, true)
+	nextAttemptAt := timestampColumn(d, "next_attempt_at", false, false)
+
+	return atlasschema.NewTable("enrichment_errors").
+		AddColumns(id, entityType, entityID, source, lastError,
+			attempts, firstSeenAt, lastSeenAt, nextAttemptAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("enrichment_errors_entity_source").
+				AddColumns(entityType, entityID, source),
+			partialIndex(d, "enrichment_errors_next_attempt",
+				[]*atlasschema.Column{nextAttemptAt},
+				"next_attempt_at IS NOT NULL"),
+		)
 }

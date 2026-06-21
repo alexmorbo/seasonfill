@@ -15,17 +15,17 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/schema"
 )
 
-// TestD14b_SchemaHasTwentyFourTables — D-1-4a had 20; D-1-4b adds 4
-// (videos, content_ratings, external_ids, series_recommendations) → 24.
-func TestD14b_SchemaHasTwentyFourTables(t *testing.T) {
+// TestD14b_SchemaHasExtrasTables — D-1-4a had 20; D-1-4b added 4
+// (videos, content_ratings, external_ids, series_recommendations). The
+// total-count contract for the current tip lives in
+// TestD15_SchemaHasTwentyEightTables (tests/d1_5_instance_projections_test.go);
+// this test now only pins that the 4 D-1-4b tables remain present.
+func TestD14b_SchemaHasExtrasTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 24; got != want {
-				t.Fatalf("table count = %d, want %d", got, want)
-			}
 			present := map[string]bool{}
 			for _, tbl := range s.Tables {
 				present[tbl.Name] = true

@@ -1,4 +1,4 @@
-h1:ufBDeHIe8FdW4QB21dSwPcPyoBBowAw9/r0ZukaeUTI=
+h1:ahUD+v6yir9GVfSt7Rw46X8F/1gt+YhDPzzqrquGqmA=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -11,3 +11,7 @@ h1:ufBDeHIe8FdW4QB21dSwPcPyoBBowAw9/r0ZukaeUTI=
 000005_people.up.sql h1:3LVLfZg4KIrKfputz4ym1yckvizTheHrOamlZUsZpvg=
 000006_series_extras.down.sql h1:yXwf+74mrmQ1RUDoHQ9M+5xyoluhNzgwTYvVn5O/S9Q=
 000006_series_extras.up.sql h1:0WT4oao0WW93pv3xSESq8ddXBaxpcCP7mtWLxLK6DGY=
+000007_instance_projections.down.sql h1:SNQ8sP7uN0932eCobJi0UYMQxy+Q8yykDvQ1gtycXso=
+000007_instance_projections.up.sql h1:rxDQ5TY7aEbAShGauREDscRfEMSyW7eeM1L/rsJcb+Y=
+000008_enrichment_tracking.down.sql h1:ucHaNsgP+9+R1lEZrnI3c1B148JVxlYfMyNIlOPTRHU=
+000008_enrichment_tracking.up.sql h1:YmAHbC1rpx4UBZ9toCIjB+tZqkd3W1SKajvzeNYSF88=
