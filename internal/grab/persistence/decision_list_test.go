@@ -28,7 +28,6 @@ func seedDecision(t *testing.T, db *gorm.DB, scanRunID uuid.UUID, instance domai
 }
 
 func TestDecisionRepository_List_Empty(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -43,7 +42,6 @@ func TestDecisionRepository_List_Empty(t *testing.T) {
 }
 
 func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -78,7 +76,6 @@ func TestDecisionRepository_List_FirstAndSecondPage(t *testing.T) {
 }
 
 func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -107,7 +104,6 @@ func TestDecisionRepository_List_InstanceAndSeriesFilter(t *testing.T) {
 }
 
 func TestDecisionRepository_List_ScanRunIDFilter(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -132,7 +128,6 @@ func TestDecisionRepository_List_ScanRunIDFilter(t *testing.T) {
 }
 
 func TestDecisionRepository_List_OutcomeFilter(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -155,7 +150,6 @@ func TestDecisionRepository_List_OutcomeFilter(t *testing.T) {
 }
 
 func TestDecisionRepository_List_TimeRange(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -178,7 +172,6 @@ func TestDecisionRepository_List_TimeRange(t *testing.T) {
 }
 
 func TestDecisionRepository_List_LimitDefensive(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

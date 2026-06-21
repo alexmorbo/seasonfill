@@ -283,6 +283,32 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addWatchdog(s, d)
 	}
 
+	// D-6 (story 467a) — grab audit tables: decisions, cooldowns, and
+	// origin_releases. Re-introduced per ADR D2-revised-roadmap.md
+	// Open Question 1 Option A (operator-approved) — D-1 dropped the
+	// legacy tables on the assumption all three would be subsumed by
+	// the new grab/watchdog projections, but PRD §5.4 + the audit UI
+	// require them as first-class entities.
+	//
+	// - decisions: audit log of every grab decision the scan loop and
+	//   regrab use case produce. Powers /audit/decisions UI and acts as
+	//   the persistence half of the F-P2-2 intent system.
+	// - cooldowns: generic (scope, key) throttle store shared by grab
+	//   evaluation and watchdog regrab paths.
+	// - origin_releases: first-seen-GUID per (instance, series, season)
+	//   triple. Lets replay selection prefer the original indexer when
+	//   re-grabbing.
+	//
+	// All three FK to sonarr_instance.name CASCADE (cooldowns is the
+	// exception — keyed by encoded string, no instance column).
+	// decisions.scan_run_id FK→scan_runs SET NULL (matches grab_records).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_GRAB_AUDIT=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_GRAB_AUDIT") == "" {
+		addGrabAudit(s, d)
+	}
+
 	return s
 }
 
@@ -2369,7 +2395,7 @@ func buildGrabRecordsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Tabl
 	coverageCount := atlasschema.NewIntColumn("coverage_count", "integer").
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
 	status := atlasschema.NewStringColumn("status", "text").
-		SetNull(false).SetDefault(&atlasschema.Literal{V: "'pending'"})
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'grabbed'"})
 	errorMessage := atlasschema.NewNullStringColumn("error_message", "text")
 	scanRunID := atlasschema.NewNullStringColumn("scan_run_id", "text")
 	attempts := atlasschema.NewIntColumn("attempts", "integer").
@@ -2390,9 +2416,15 @@ func buildGrabRecordsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Tabl
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
+	// 467a / D-6: status values match internal/grab/domain/grab.go
+	// constants (Status.Grabbed / GrabFailed / Imported / ImportFailed).
+	// The 000012 migration was hot-fixed in 467a to align with the
+	// domain — the original enum ('pending','grabbed','imported',
+	// 'failed','cancelled') drifted from the domain and was never
+	// observed because the table sat empty until the D-6 unskip.
 	statusCheck := atlasschema.NewCheck().
 		SetName("grab_records_status_check").
-		SetExpr("status IN ('pending', 'grabbed', 'imported', 'failed', 'cancelled')")
+		SetExpr("status IN ('grabbed', 'grab_failed', 'imported', 'import_failed')")
 
 	tbl := atlasschema.NewTable("grab_records").
 		AddColumns(id, instanceName, seriesID, seriesTitle, seasonNumber,
@@ -2661,4 +2693,193 @@ func buildWatchdogBlacklistTable(d Dialect, sonarrInstance *atlasschema.Table) *
 	)
 
 	return tbl
+}
+
+// D-6 (story 467a) — grab audit tables.
+
+// addGrabAudit appends decisions, cooldowns, and origin_releases. Called
+// from Schema(d) after addWatchdog. Depends on sonarr_instance (FK CASCADE
+// for decisions + origin_releases) and on scan_runs (FK SET NULL for
+// decisions.scan_run_id when scan_runs is present in s).
+//
+// cooldowns has no FK — it is a generic (scope, key) store; the key is an
+// encoded string (e.g. "homelab:140:1") that the application layer
+// constructs from the (instance, series, season) triple.
+func addGrabAudit(s *atlasschema.Schema, d Dialect) {
+	sonarrInstance := mustTable(s, "sonarr_instance")
+
+	// scan_runs is optional — see buildDecisionsTable.
+	var scanRuns *atlasschema.Table
+	for _, t := range s.Tables {
+		if t.Name == "scan_runs" {
+			scanRuns = t
+			break
+		}
+	}
+
+	s.AddTables(buildCooldownsTable(d))
+	s.AddTables(buildDecisionsTable(d, sonarrInstance, scanRuns))
+	s.AddTables(buildOriginReleasesTable(d, sonarrInstance))
+}
+
+// jsonColumn returns a JSON column: `jsonb` on Postgres, `text` on
+// SQLite. Used by decisions.filtered_out / selected_data / intent. The
+// GORM datatypes.JSON model column handles the read/write transcode
+// across both backends. Always nullable (audit metadata may be absent).
+//
+// Postgres uses the typed schema.JSONType so atlas emits "jsonb" rather
+// than treating it as an unknown string type. SQLite falls through to a
+// plain text column — datatypes.JSON GORM serialises to a string there.
+func jsonColumn(d Dialect, name string) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewNullStringColumn(name, "text")
+	}
+	c := &atlasschema.Column{Name: name}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: true,
+	}
+	return c
+}
+
+// buildCooldownsTable returns the cooldowns table — 5 cols, composite
+// PK (scope, key), single secondary index on expires_at.
+//
+// No FK: cooldowns is a generic (scope, key) throttle store. Scope is a
+// short tag ("guid" | "series" | "grab" | ...) and key is an application-
+// encoded string (e.g. "homelab:140:1"). The repository layer encodes
+// the (instance, series, season) triple into the key text.
+func buildCooldownsTable(d Dialect) *atlasschema.Table {
+	scope := atlasschema.NewStringColumn("scope", "text").SetNull(false)
+	key := atlasschema.NewStringColumn("key", "text").SetNull(false)
+	expiresAt := timestampColumn(d, "expires_at", false /*withDefault*/, true /*notNull*/)
+	reason := atlasschema.NewNullStringColumn("reason", "text")
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("cooldowns").
+		AddColumns(scope, key, expiresAt, reason, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(scope, key)).
+		AddIndexes(
+			atlasschema.NewIndex("cooldowns_expires_at_idx").AddColumns(expiresAt),
+		)
+}
+
+// buildDecisionsTable returns the decisions table — 22 cols, text(36) PK,
+// FK sonarr_instance.name CASCADE, optional FK scan_runs.id SET NULL,
+// 3 indexes (DESC composite on created_at+id, instance composite on
+// instance_name+series_id+season_number, plain on scan_run_id).
+//
+// JSON columns (filtered_out, selected_data, intent) are jsonb on
+// Postgres and text on SQLite. The model layer uses datatypes.JSON so
+// the read/write transcode is identical on both backends.
+func buildDecisionsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Table) *atlasschema.Table {
+	id := atlasschema.NewStringColumn("id", "text").SetNull(false)
+	scanRunID := atlasschema.NewNullStringColumn("scan_run_id", "text")
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	seriesID := atlasschema.NewIntColumn("series_id", "bigint").SetNull(false)
+	seriesTitle := atlasschema.NewNullStringColumn("series_title", "text")
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	decision := atlasschema.NewStringColumn("decision", "text").SetNull(false)
+	reason := atlasschema.NewNullStringColumn("reason", "text")
+	missingCount := atlasschema.NewIntColumn("missing_count", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	existingCount := atlasschema.NewIntColumn("existing_count", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	releasesFound := atlasschema.NewIntColumn("releases_found", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	candidatesCount := atlasschema.NewIntColumn("candidates_count", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	filteredOut := jsonColumn(d, "filtered_out")
+	selectedGUID := atlasschema.NewNullStringColumn("selected_guid", "text")
+	selectedData := jsonColumn(d, "selected_data")
+	wouldGrab := atlasschema.NewBoolColumn("would_grab", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	errorDetail := atlasschema.NewNullStringColumn("error_detail", "text")
+	supersededByID := atlasschema.NewNullStringColumn("superseded_by_id", "text")
+	totalEpisodes := atlasschema.NewIntColumn("total_episodes", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	airedEpisodes := atlasschema.NewIntColumn("aired_episodes", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	existingEpisodes := atlasschema.NewIntColumn("existing_episodes", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	grabbedEpisodes := atlasschema.NewIntColumn("grabbed_episodes", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	intent := jsonColumn(d, "intent")
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	tbl := atlasschema.NewTable("decisions").
+		AddColumns(id, scanRunID, instanceName, seriesID, seriesTitle, seasonNumber,
+			decision, reason, missingCount, existingCount, releasesFound,
+			candidatesCount, filteredOut, selectedGUID, selectedData, wouldGrab,
+			errorDetail, supersededByID, totalEpisodes, airedEpisodes,
+			existingEpisodes, grabbedEpisodes, intent, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("decisions_created_at_id_idx").AddParts(
+				atlasschema.NewColumnPart(createdAt).SetDesc(true),
+				atlasschema.NewColumnPart(id).SetDesc(true),
+			),
+			atlasschema.NewIndex("decisions_instance_series_idx").
+				AddColumns(instanceName, seriesID, seasonNumber),
+			atlasschema.NewIndex("decisions_scan_run_idx").
+				AddColumns(scanRunID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("decisions_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+
+	// Optional scan_runs FK — declared only when the table is in s.
+	if scanRuns != nil {
+		tbl.AddForeignKeys(
+			atlasschema.NewForeignKey("decisions_scan_run_id_fkey").
+				AddColumns(scanRunID).
+				SetRefTable(scanRuns).
+				AddRefColumns(parentRefCol(scanRuns)).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+	}
+
+	return tbl
+}
+
+// buildOriginReleasesTable returns the origin_releases table — 10 cols,
+// composite PK (instance_name, series_id, season_number), FK
+// sonarr_instance.name CASCADE.
+//
+// Tracks the first-seen GUID per (instance, series, season) triple so the
+// replay selection can prefer the original indexer when re-grabbing.
+// No FK on series_id — Sonarr's id is not our canon (matches the
+// grab_records / watchdog_state pattern).
+func buildOriginReleasesTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	seriesID := atlasschema.NewIntColumn("series_id", "bigint").SetNull(false)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	guid := atlasschema.NewStringColumn("guid", "text").SetNull(false)
+	indexerID := atlasschema.NewIntColumn("indexer_id", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	indexerName := atlasschema.NewNullStringColumn("indexer_name", "text")
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	firstSeenAt := timestampColumn(d, "first_seen_at", true /*withDefault*/, true /*notNull*/)
+	lastSeenAt := timestampColumn(d, "last_seen_at", true /*withDefault*/, true /*notNull*/)
+	lastUsedAt := timestampColumn(d, "last_used_at", false /*withDefault*/, false /*nullable*/)
+
+	return atlasschema.NewTable("origin_releases").
+		AddColumns(instanceName, seriesID, seasonNumber, guid, indexerID,
+			indexerName, source, firstSeenAt, lastSeenAt, lastUsedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, seriesID, seasonNumber)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("origin_releases_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }

@@ -102,8 +102,9 @@ func TestD1_7b_GrabRecordsStatusCheck(t *testing.T) {
 	}
 }
 
-// TestD1_7b_GrabRecordsDefaultStatus — default 'pending' applies when
-// status column is omitted.
+// TestD1_7b_GrabRecordsDefaultStatus — default 'grabbed' applies when
+// status column is omitted. 467a / D-6 corrected the enum to match the
+// domain (was 'pending' under the legacy unobserved drift).
 func TestD1_7b_GrabRecordsDefaultStatus(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -128,7 +129,7 @@ func TestD1_7b_GrabRecordsDefaultStatus(t *testing.T) {
 			require.NoError(t, db.QueryRowContext(ctx,
 				"SELECT status FROM grab_records WHERE id = "+placeholder(b.name, 1),
 				grabID).Scan(&status))
-			require.Equal(t, "pending", status)
+			require.Equal(t, "grabbed", status)
 		})
 	}
 }

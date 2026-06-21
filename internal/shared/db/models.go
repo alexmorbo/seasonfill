@@ -161,6 +161,53 @@ type CooldownModel struct {
 
 func (CooldownModel) TableName() string { return "cooldowns" }
 
+// EpisodeGrabModel — D-6 (story 467a) per-episode-per-grab projection.
+// Populated by the OnGrab webhook + grab use case immediately after the
+// parent grab_records row lands. Composite PK (grab_id, episode_id) is
+// the natural key; idempotent ON CONFLICT (grab_id, episode_id) DO
+// UPDATE updated_at on re-delivery.
+//
+// FKs on the underlying table CASCADE on both sides — wiping the parent
+// grab_records row or the episode canon row clears every projection
+// row that referenced it.
+type EpisodeGrabModel struct {
+	GrabID        string `gorm:"primaryKey;column:grab_id;size:36"`
+	EpisodeID     int64  `gorm:"primaryKey;column:episode_id"`
+	EpisodeNumber int    `gorm:"column:episode_number"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (EpisodeGrabModel) TableName() string { return "episode_grabs" }
+
+// DownloadLinkModel — D-6 (story 467a) qBit-hash → series bridge.
+// PRD §5.4 Phase 1 row populated by the Sonarr webhook + arr-poll loop.
+// The qbit_hash column is the PK; one row per torrent hash regardless
+// of how many series may share the hash (rare but possible cross-
+// instance dedupe).
+//
+// ExternalEpisodeIDs is a JSON-encoded []int64 stored in a TEXT column
+// (matches the series_extras pattern; portable across SQLite + PG
+// without `serializer:json` because the caller already JSON-encodes
+// before write). NULL ExternalSeriesID/ExternalMovieID is rejected by
+// the CHECK constraint download_links_type_id_check; the writer must
+// emit one or the other consistently with InstanceType.
+type DownloadLinkModel struct {
+	QbitHash           string              `gorm:"primaryKey;column:qbit_hash;size:64"`
+	InstanceName       domain.InstanceName `gorm:"column:instance_name;size:128"`
+	InstanceType       string              `gorm:"column:instance_type;size:16"`
+	ExternalSeriesID   *int64              `gorm:"column:external_series_id"`
+	ExternalMovieID    *int64              `gorm:"column:external_movie_id"`
+	ExternalEpisodeIDs *string             `gorm:"column:external_episode_ids;type:text"`
+	GlobalSeriesID     *int64              `gorm:"column:global_series_id"`
+	DiscoveredAt       time.Time
+	Source             string `gorm:"column:source;size:32"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+func (DownloadLinkModel) TableName() string { return "download_links" }
+
 // UserModel — the greenfield D-5 rename of AdminUserModel. The `users`
 // table (000011_auth.up.sql) folds the legacy user_settings per-row
 // entries (preferred_language, avatar_mode) directly here because the

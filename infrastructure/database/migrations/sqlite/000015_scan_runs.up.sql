@@ -15,7 +15,7 @@ CREATE TABLE `new_grab_records` (
   `custom_format_score` integer NOT NULL DEFAULT 0,
   `quality` text NULL,
   `coverage_count` integer NOT NULL DEFAULT 0,
-  `status` text NOT NULL DEFAULT 'pending',
+  `status` text NOT NULL DEFAULT 'grabbed',
   `error_message` text NULL,
   `scan_run_id` text NULL,
   `attempts` integer NOT NULL DEFAULT 0,
@@ -37,7 +37,7 @@ CREATE TABLE `new_grab_records` (
   PRIMARY KEY (`id`),
   CONSTRAINT `grab_records_scan_run_id_fkey` FOREIGN KEY (`scan_run_id`) REFERENCES `scan_runs` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `grab_records_instance_name_fkey` FOREIGN KEY (`instance_name`) REFERENCES `sonarr_instance` (`name`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `grab_records_status_check` CHECK (status IN ('pending', 'grabbed', 'imported', 'failed', 'cancelled'))
+  CONSTRAINT `grab_records_status_check` CHECK (status IN ('grabbed', 'grab_failed', 'imported', 'import_failed'))
 );
 -- copy rows from old table "grab_records" to new temporary table "new_grab_records"
 INSERT INTO `new_grab_records` (`id`, `instance_name`, `series_id`, `series_title`, `season_number`, `release_guid`, `release_title`, `download_id`, `indexer_id`, `indexer_name`, `custom_format_score`, `quality`, `coverage_count`, `status`, `error_message`, `scan_run_id`, `attempts`, `torrent_hash`, `replay_of_id`, `size_bytes`, `parsed_codec`, `parsed_source`, `parsed_quality`, `parsed_resolution`, `parsed_hdr_flags`, `parsed_dub`, `parsed_languages`, `parsed_subs`, `parsed_release_group`, `parsed_at`, `created_at`, `updated_at`) SELECT `id`, `instance_name`, `series_id`, `series_title`, `season_number`, `release_guid`, `release_title`, `download_id`, `indexer_id`, `indexer_name`, `custom_format_score`, `quality`, `coverage_count`, `status`, `error_message`, `scan_run_id`, `attempts`, `torrent_hash`, `replay_of_id`, `size_bytes`, `parsed_codec`, `parsed_source`, `parsed_quality`, `parsed_resolution`, `parsed_hdr_flags`, `parsed_dub`, `parsed_languages`, `parsed_subs`, `parsed_release_group`, `parsed_at`, `created_at`, `updated_at` FROM `grab_records`;

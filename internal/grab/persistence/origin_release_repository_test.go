@@ -13,12 +13,12 @@ import (
 )
 
 func TestOriginRelease_Upsert_Get(t *testing.T) {
-	t.Skip("retired in D-3 (story 464c) — origin_releases table dropped; consumer rewrite owned by D-6")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
+			seedSonarrInstance(t, db, "main")
 			repo := NewOriginReleaseRepository(db)
 			ctx := context.Background()
 			now := time.Now().UTC().Truncate(time.Second)
@@ -39,12 +39,13 @@ func TestOriginRelease_Upsert_Get(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "g1", got.GUID)
 			assert.Equal(t, "our_grab", got.Source)
+			assert.Equal(t, "RT", got.IndexerName)
+			require.NotNil(t, got.LastUsedAt)
 		})
 	}
 }
 
 func TestOriginRelease_Get_NotFound(t *testing.T) {
-	t.Skip("retired in D-3 (story 464c) — origin_releases table dropped; consumer rewrite owned by D-6")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -58,13 +59,13 @@ func TestOriginRelease_Get_NotFound(t *testing.T) {
 	}
 }
 
-func TestOriginRelease_Upsert_Overwrites(t *testing.T) {
-	t.Skip("retired in D-3 (story 464c) — origin_releases table dropped; consumer rewrite owned by D-6")
+func TestOriginRelease_Upsert_TrackingLastSeen(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
+			seedSonarrInstance(t, db, "main")
 			repo := NewOriginReleaseRepository(db)
 			ctx := context.Background()
 			now := time.Now().UTC().Truncate(time.Second)
@@ -81,12 +82,15 @@ func TestOriginRelease_Upsert_Overwrites(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, ok)
 			assert.Equal(t, "second", got.GUID)
+			// last_seen_at advances after the second upsert.
+			assert.True(t, !got.LastSeenAt.Before(later) || got.LastSeenAt.Equal(later),
+				"last_seen_at must advance to the new write (got %s, want >= %s)",
+				got.LastSeenAt, later)
 		})
 	}
 }
 
 func TestOriginRelease_Upsert_ClosedDB_ReturnsError(t *testing.T) {
-	t.Skip("retired in D-3 (story 464c) — origin_releases table dropped; consumer rewrite owned by D-6")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

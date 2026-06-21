@@ -17,7 +17,6 @@ import (
 // Save → GetByID returns the same Intent shape, including empty slices
 // and the chosen_because enum.
 func TestDecisionRepository_SaveAndGet_RoundTripsIntent(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -55,7 +54,6 @@ func TestDecisionRepository_SaveAndGet_RoundTripsIntent(t *testing.T) {
 // guarantee. Pre-091a rows have NULL intent; the constructor never
 // sets it. Save → GetByID must keep Intent == nil.
 func TestDecisionRepository_SaveAndGet_NilIntentStaysNil(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -81,7 +79,6 @@ func TestDecisionRepository_SaveAndGet_NilIntentStaysNil(t *testing.T) {
 // used by the regrab use case to promote the watchdog placeholder
 // once the candidate's quality is in hand.
 func TestDecisionRepository_UpdateIntent(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -115,7 +112,6 @@ func TestDecisionRepository_UpdateIntent(t *testing.T) {
 // TestDecisionRepository_UpdateIntent_UnknownID — ports.ErrNotFound
 // when the target row doesn't exist.
 func TestDecisionRepository_UpdateIntent_UnknownID(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

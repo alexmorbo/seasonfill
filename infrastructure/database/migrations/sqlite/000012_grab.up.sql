@@ -13,7 +13,7 @@ CREATE TABLE `grab_records` (
   `custom_format_score` integer NOT NULL DEFAULT 0,
   `quality` text NULL,
   `coverage_count` integer NOT NULL DEFAULT 0,
-  `status` text NOT NULL DEFAULT 'pending',
+  `status` text NOT NULL DEFAULT 'grabbed',
   `error_message` text NULL,
   `scan_run_id` text NULL,
   `attempts` integer NOT NULL DEFAULT 0,
@@ -34,7 +34,7 @@ CREATE TABLE `grab_records` (
   `updated_at` datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   PRIMARY KEY (`id`),
   CONSTRAINT `grab_records_instance_name_fkey` FOREIGN KEY (`instance_name`) REFERENCES `sonarr_instance` (`name`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `grab_records_status_check` CHECK (status IN ('pending', 'grabbed', 'imported', 'failed', 'cancelled'))
+  CONSTRAINT `grab_records_status_check` CHECK (status IN ('grabbed', 'grab_failed', 'imported', 'import_failed'))
 );
 -- create index "grab_records_inst_series_idx" to table: "grab_records"
 CREATE INDEX `grab_records_inst_series_idx` ON `grab_records` (`instance_name`, `series_id`, `season_number`);

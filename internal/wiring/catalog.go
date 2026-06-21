@@ -206,7 +206,7 @@ type ScanBundle struct {
 	ScanRepo     *catalogpersistence.ScanRepository
 	GrabRepo     *grabpersistence.GrabRepository
 	CooldownRepo *watchdogpersistence.CooldownRepository
-	OriginRepo   *enrichpersistence.OriginReleaseRepository
+	OriginRepo   *grabpersistence.OriginReleaseRepository
 	DecisionRepo *grabpersistence.DecisionRepository
 	Txr          *catalogpersistence.GormTransactor
 }
@@ -261,7 +261,7 @@ func BuildScan(
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
+	originRepo := grabpersistence.NewOriginReleaseRepository(db)
 
 	txr := catalogpersistence.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)

@@ -19,7 +19,6 @@ import (
 // Decision. Three rows are seeded; only the two "imported" rows in the
 // target triple should count.
 func TestGrabRepository_CountImportedEpisodes(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -21,7 +21,6 @@ import (
 )
 
 func TestDecisionRepository_Save_NoSelected(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -52,7 +51,6 @@ func TestDecisionRepository_Save_NoSelected(t *testing.T) {
 }
 
 func TestDecisionRepository_Save_WithSelected(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -98,7 +96,6 @@ func TestDecisionRepository_Save_WithSelected(t *testing.T) {
 }
 
 func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -126,7 +123,6 @@ func TestDecisionRepository_Save_ClosedDB_ReturnsError(t *testing.T) {
 // UUID is truthy, so persisting it as text would re-introduce the
 // dead-link bug.
 func TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -165,7 +161,6 @@ func TestDecisionRepository_Save_NilScanRunID_PersistsAsNULL(t *testing.T) {
 // E-1: GetByID
 
 func TestDecisionRepository_GetByID_Found(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -195,7 +190,6 @@ func TestDecisionRepository_GetByID_Found(t *testing.T) {
 }
 
 func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -216,7 +210,6 @@ func TestDecisionRepository_GetByID_NotFound(t *testing.T) {
 }
 
 func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -250,7 +243,6 @@ func TestDecisionRepository_GetByID_MalformedRow(t *testing.T) {
 // E-2: UpdateSupersededBy
 
 func TestDecisionRepository_UpdateSupersededBy_Sets(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -280,7 +272,6 @@ func TestDecisionRepository_UpdateSupersededBy_Sets(t *testing.T) {
 }
 
 func TestDecisionRepository_UpdateSupersededBy_NotFound(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

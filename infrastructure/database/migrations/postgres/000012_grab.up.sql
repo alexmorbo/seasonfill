@@ -39,7 +39,7 @@ CREATE TABLE "grab_records" (
   "custom_format_score" integer NOT NULL DEFAULT 0,
   "quality" text NULL,
   "coverage_count" integer NOT NULL DEFAULT 0,
-  "status" text NOT NULL DEFAULT 'pending',
+  "status" text NOT NULL DEFAULT 'grabbed',
   "error_message" text NULL,
   "scan_run_id" text NULL,
   "attempts" integer NOT NULL DEFAULT 0,
@@ -60,7 +60,7 @@ CREATE TABLE "grab_records" (
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("id"),
   CONSTRAINT "grab_records_instance_name_fkey" FOREIGN KEY ("instance_name") REFERENCES "sonarr_instance" ("name") ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT "grab_records_status_check" CHECK (status = ANY (ARRAY['pending'::text, 'grabbed'::text, 'imported'::text, 'failed'::text, 'cancelled'::text]))
+  CONSTRAINT "grab_records_status_check" CHECK (status = ANY (ARRAY['grabbed'::text, 'grab_failed'::text, 'imported'::text, 'import_failed'::text]))
 );
 -- create index "grab_records_dedupe_lookup_idx" to table: "grab_records"
 CREATE INDEX "grab_records_dedupe_lookup_idx" ON "grab_records" ("instance_name", "series_id", "season_number", "release_guid");

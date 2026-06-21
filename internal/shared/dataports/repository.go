@@ -249,6 +249,66 @@ type OriginReleaseRepository interface {
 	Upsert(ctx context.Context, rec OriginRelease) error
 }
 
+// EpisodeGrabRepository persists the per-episode-per-grab projection. The
+// repository is co-owned by the grab use case (writes after grab_records
+// insert) and the catalog webhook (writes from the OnGrab payload's
+// episodes[] array).
+//
+// 467a / D-6: BatchUpsert is the single insertion path — both callers
+// route through it. ListByGrabID powers the /grabs/{id} detail handler;
+// ListByEpisodeID powers the future /episodes/{id}/grab-history endpoint.
+type EpisodeGrabRepository interface {
+	// BatchUpsert inserts (grab_id, episode_id, episode_number) triples
+	// atomically. ON CONFLICT (grab_id, episode_id) DO UPDATE updated_at
+	// — re-delivering the same webhook is a silent no-op timestamp bump.
+	// Empty refs returns nil with zero round-trips.
+	BatchUpsert(ctx context.Context, refs []grab.EpisodeRef) error
+
+	// ListByGrabID returns every episode pinned to one grab_records row,
+	// ordered by episode_number ASC. Empty result with no error if the
+	// grab has no episode fanout yet.
+	ListByGrabID(ctx context.Context, grabID string) ([]grab.EpisodeRef, error)
+
+	// ListByEpisodeID returns every grab that touched a specific episode,
+	// ordered by created_at DESC. Empty result with no error if no grab
+	// has referenced the episode.
+	ListByEpisodeID(ctx context.Context, episodeID domain.EpisodeID) ([]grab.EpisodeRef, error)
+}
+
+// DownloadLinkRepository persists the qBit-hash → series bridge. PRD §5.4
+// Phase 1 covers webhook + arr-poll only; the instance-backfill job lives
+// in N-5 scope.
+//
+// 467a / D-6: InsertOnly is the only write path used by Phase 1 — both
+// callers (webhook OnGrab, arr-poll loop) race to populate the same
+// qbit_hash row; the silent ON CONFLICT DO NOTHING dedupe lets either
+// path win without coordination.
+type DownloadLinkRepository interface {
+	// InsertOnly inserts a new download_links row. ON CONFLICT (qbit_hash)
+	// DO NOTHING — both webhook + arr-poll race to populate the same
+	// hash with equivalent payloads, so the silent dedupe is correct.
+	// Returns nil even on conflict.
+	InsertOnly(ctx context.Context, link grab.DownloadLink) error
+
+	// FindByHash resolves a single download_links row by qbit_hash. Used
+	// by the matcher Strategy 1 lookup. Returns ErrNotFound on miss; the
+	// caller falls back to fuzzy matching.
+	FindByHash(ctx context.Context, hash domain.QbitHash) (grab.DownloadLink, error)
+
+	// SetGlobalSeriesID stamps the canon series_id when enrichment
+	// hydrates the foreign series. UPDATE ... WHERE qbit_hash = ? AND
+	// global_series_id IS NULL (idempotent — never overwrites a value
+	// already set). Returns nil on miss; the row may have been swept
+	// while enrichment ran.
+	SetGlobalSeriesID(ctx context.Context, hash domain.QbitHash, seriesID domain.SeriesID) error
+
+	// ListByInstance returns the N most-recently-discovered download_links
+	// rows for instance, optionally filtered by source. Powers the future
+	// /queue UI and the Phase 1 audit listing. limit <= 0 / > MaxListLimit
+	// is clamped to MaxListLimit.
+	ListByInstance(ctx context.Context, instance domain.InstanceName, source *grab.LinkSource, limit int) ([]grab.DownloadLink, error)
+}
+
 // QbitSettingsRecord is the transport shape for instance_qbit_settings.
 // PasswordEncrypted carries the AES-GCM payload opaquely — the repo
 // neither encrypts nor decrypts; that responsibility lives in the 039d

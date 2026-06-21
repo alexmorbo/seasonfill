@@ -20,7 +20,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
-	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
@@ -113,7 +112,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 	scanRepo := catalogpersistence.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
+	originRepo := grabpersistence.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cdRepo, originRepo, sonarr.Classifier{}, log).
 		WithSleeper(func(_ context.Context, _ time.Duration) error { return nil })
@@ -248,7 +247,7 @@ func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
 	scanRepo := catalogpersistence.NewScanRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cdRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
+	originRepo := grabpersistence.NewOriginReleaseRepository(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cdRepo, originRepo, sonarr.Classifier{}, log).
 		WithSleeper(func(_ context.Context, _ time.Duration) error { return nil })
