@@ -14,17 +14,16 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/schema"
 )
 
-// TestD16a_SchemaHasTwentyNineTables — D-1-5 had 28; D-1-6a adds 1
-// (series_images) → 29.
-func TestD16a_SchemaHasTwentyNineTables(t *testing.T) {
+// TestD16a_SchemaHasSeriesImages — D-1-5 had 28; D-1-6a adds 1
+// (series_images). Tip-of-tree count contract lives in
+// TestD16b_SchemaHasThirtyFourTables (tests/d1_6b_admin_instance_test.go);
+// this test asserts series_images is PRESENT regardless of future batches.
+func TestD16a_SchemaHasSeriesImages(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 29; got != want {
-				t.Fatalf("table count = %d, want %d", got, want)
-			}
 			present := false
 			for _, tbl := range s.Tables {
 				if tbl.Name == "series_images" {

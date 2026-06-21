@@ -25,6 +25,13 @@
 // D-1-6a (story 459a) appends series_images — multi-language top-3
 // poster/backdrop/logo references with the mediaproxy asset_hash
 // column for future asset-store resolution (PRD §4.3).
+// D-1-6b (story 459b) appends the admin batch: sonarr_instance,
+// instance_secret, app_secret, external_service_config, and
+// external_service_quota_state. Encrypted secrets live in side-tables
+// (instance_secret, app_secret) keyed by name + surrogate id for FK
+// stability across rotation. sonarr_instance and instance_secret have a
+// dual FK pattern (back-ref token_secret_id SET NULL, forward-ref
+// instance_name CASCADE) documented in the builder comments.
 package schema
 
 import (
@@ -170,7 +177,19 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addSeriesImages(s, d)
 	}
 
-	// D-1-6b..D-1-7 (stories 459b..460) append further batches here.
+	// D-1-6b (story 459b) — admin tables: sonarr_instance,
+	// instance_secret, app_secret, external_service_config, and
+	// external_service_quota_state. 5 tables with a dual FK pattern
+	// between sonarr_instance and instance_secret (back-ref SET NULL,
+	// forward-ref CASCADE — see addAdmin doc).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_ADMIN=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_ADMIN") == "" {
+		addAdmin(s, d)
+	}
+
+	// D-1-7 (story 460) appends further batches here.
 
 	return s
 }
@@ -1458,5 +1477,284 @@ func buildSeriesImagesTable(d Dialect, seriesTable *atlasschema.Table) *atlassch
 				AddRefColumns(parentRefCol(seriesTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// ----------------------------------------------------------------------
+// D-1-6b — admin tables.
+// ----------------------------------------------------------------------
+
+// addAdmin appends the 5 admin tables to s. Called from Schema(d).
+//
+// FK cascade graph:
+//
+//	sonarr_instance.name (TEXT PK)
+//	  ←CASCADE←  instance_secret.instance_name
+//	             instance_secret (id BIGSERIAL PK; UNIQUE(instance_name, secret_name))
+//	               ←SET NULL←  sonarr_instance.token_secret_id (denormalized current-token pointer)
+//
+//	app_secret.id (BIGSERIAL PK)
+//	  ←SET NULL←  external_service_config.api_key_secret_id
+//	  ←SET NULL←  external_service_config.proxy_pass_secret_id
+//
+// The cyclic FK between sonarr_instance and instance_secret is handled
+// by building an instance_secret stub FIRST (without its instance_name
+// FK resolved), then sonarr_instance with the back-reference, then
+// post-wiring the instance_secret.instance_name FK to the now-existing
+// sonarr_instance table. Atlas v0.31.0 emits this as CREATE TABLE +
+// ALTER TABLE ADD CONSTRAINT in the generated SQL (PG); SQLite uses a
+// recreate-table workaround because ALTER TABLE ADD CONSTRAINT for FKs
+// is not supported.
+//
+// No FK on sonarr_instance ← series_cache.instance_name — app-managed
+// cascade (consistent with D-1-5 458 design).
+func addAdmin(s *atlasschema.Schema, d Dialect) {
+	instanceSecret := buildInstanceSecretTableStub(d)
+	sonarrInstance := buildSonarrInstanceTable(d, instanceSecret)
+	wireInstanceSecretFK(instanceSecret, sonarrInstance)
+
+	appSecret := buildAppSecretTable(d)
+	externalServiceConfig := buildExternalServiceConfigTable(d, appSecret)
+	externalServiceQuotaState := buildExternalServiceQuotaStateTable(d)
+
+	s.AddTables(
+		sonarrInstance,
+		instanceSecret,
+		appSecret,
+		externalServiceConfig,
+		externalServiceQuotaState,
+	)
+}
+
+// buildInstanceSecretTableStub builds the instance_secret table WITHOUT
+// the instance_name FK to sonarr_instance — that gets wired by
+// wireInstanceSecretFK after sonarr_instance exists. Two-step build is
+// needed because instance_secret.id is FK-referenced from
+// sonarr_instance.token_secret_id (cyclic dependency).
+//
+// Columns:
+//
+//	id              BIGSERIAL PK (stable FK target across rotation)
+//	instance_name   TEXT NOT NULL (FK wired in step 2)
+//	secret_name     TEXT NOT NULL ('token' | 'webhook_signing_key' | …)
+//	encrypted_value BYTEA NOT NULL (AES-GCM ciphertext: nonce|ct|tag)
+//	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// UNIQUE composite-2 on (instance_name, secret_name) — primary lookup
+// path (`SELECT … WHERE instance_name = ? AND secret_name = 'token'`).
+func buildInstanceSecretTableStub(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	secretName := atlasschema.NewStringColumn("secret_name", "text").SetNull(false)
+	encryptedValue := atlasschema.NewBinaryColumn("encrypted_value", "bytea").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("instance_secret").
+		AddColumns(id, instanceName, secretName, encryptedValue,
+			createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("instance_secret_lookup").
+				AddColumns(instanceName, secretName),
+		)
+}
+
+// wireInstanceSecretFK adds the instance_name → sonarr_instance.name
+// CASCADE FK on the instance_secret table AFTER both tables exist.
+// Mutates instanceSecret in place — relies on the Atlas table being a
+// builder-mutable struct in v0.31.0.
+func wireInstanceSecretFK(instanceSecret, sonarrInstance *atlasschema.Table) {
+	instanceNameCol := findCol(instanceSecret.Columns, "instance_name")
+	if instanceNameCol == nil {
+		panic("schema: instance_secret missing instance_name column (programmer error)")
+	}
+	instanceSecret.AddForeignKeys(
+		atlasschema.NewForeignKey("instance_secret_instance_name_fkey").
+			AddColumns(instanceNameCol).
+			SetRefTable(sonarrInstance).
+			AddRefColumns(parentRefCol(sonarrInstance)).
+			SetOnDelete(atlasschema.Cascade).
+			SetOnUpdate(atlasschema.NoAction),
+	)
+}
+
+// buildSonarrInstanceTable returns sonarr_instance — 10 cols, single PK
+// on TEXT `name` (natural key, operator-friendly). Forward-ref FK
+// token_secret_id → instance_secret.id ON DELETE SET NULL.
+//
+// Columns:
+//
+//	name              TEXT PK
+//	url               TEXT NOT NULL (Sonarr API base)
+//	public_url        TEXT NULL (browser deeplinks)
+//	mode              TEXT NOT NULL DEFAULT 'auto'
+//	token_secret_id   BIGINT NULL FK → instance_secret.id SET NULL
+//	health            TEXT NOT NULL DEFAULT 'unknown'
+//	last_check_at     TIMESTAMPTZ NULL
+//	transitions_count INTEGER NOT NULL DEFAULT 0
+//	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// Partial index sonarr_instance_unhealthy ON (last_check_at) WHERE
+// health <> 'healthy' — watchdog scan path "instances needing
+// recheck", covers only the small subset with non-healthy state.
+//
+// Brief vs PRD reconciliation: brief asks `name PK TEXT`; legacy used
+// surrogate `id BIGSERIAL`. Greenfield uses natural key for
+// operator-friendly cross-table queries (series_cache.instance_name TEXT
+// already correlates with this name).
+func buildSonarrInstanceTable(d Dialect, instanceSecretTable *atlasschema.Table) *atlasschema.Table {
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	url := atlasschema.NewStringColumn("url", "text").SetNull(false)
+	publicURL := atlasschema.NewNullStringColumn("public_url", "text")
+	mode := atlasschema.NewStringColumn("mode", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'auto'"})
+	tokenSecretID := fkColumn(d, "token_secret_id", true /* nullable */)
+	health := atlasschema.NewStringColumn("health", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'unknown'"})
+	lastCheckAt := timestampColumn(d, "last_check_at", false, false)
+	transitionsCount := atlasschema.NewIntColumn("transitions_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("sonarr_instance").
+		AddColumns(name, url, publicURL, mode, tokenSecretID, health,
+			lastCheckAt, transitionsCount, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(name)).
+		AddIndexes(
+			partialIndex(d, "sonarr_instance_unhealthy",
+				[]*atlasschema.Column{lastCheckAt},
+				"health <> 'healthy'"),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("sonarr_instance_token_secret_id_fkey").
+				AddColumns(tokenSecretID).
+				SetRefTable(instanceSecretTable).
+				AddRefColumns(parentRefCol(instanceSecretTable)).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildAppSecretTable returns app_secret — 5 cols, single PK `id`.
+// App-level (non-instance-specific) encrypted secrets keyed by name.
+//
+// Columns:
+//
+//	id              BIGSERIAL PK
+//	secret_name     TEXT NOT NULL UNIQUE ('tmdb_api_key' | 'omdb_api_key' | …)
+//	encrypted_value BYTEA NOT NULL (AES-GCM ciphertext)
+//	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// UNIQUE on secret_name — singleton-per-name semantics. The id
+// surrogate is for FK targeting from external_service_config (FK
+// targets BIGINT, not TEXT — keeps the join cheap).
+func buildAppSecretTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	secretName := atlasschema.NewStringColumn("secret_name", "text").SetNull(false)
+	encryptedValue := atlasschema.NewBinaryColumn("encrypted_value", "bytea").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("app_secret").
+		AddColumns(id, secretName, encryptedValue, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("app_secret_name").
+				AddColumns(secretName),
+		)
+}
+
+// buildExternalServiceConfigTable returns external_service_config —
+// 8 cols, single PK on TEXT `service_name`. 2 FKs to app_secret.id
+// (api key + proxy password) both SET NULL on delete.
+//
+// Columns:
+//
+//	service_name           TEXT PK ('tmdb' | 'omdb' | 'tvdb')
+//	api_key_secret_id      BIGINT NULL FK → app_secret.id SET NULL
+//	enabled                BOOLEAN NOT NULL DEFAULT FALSE
+//	proxy_url              TEXT NULL
+//	proxy_user             TEXT NULL
+//	proxy_pass_secret_id   BIGINT NULL FK → app_secret.id SET NULL
+//	last4                  TEXT NULL (masked UI display)
+//	updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// No created_at — singleton-per-service-name; updated_at suffices.
+func buildExternalServiceConfigTable(d Dialect, appSecretTable *atlasschema.Table) *atlasschema.Table {
+	serviceName := atlasschema.NewStringColumn("service_name", "text").SetNull(false)
+	apiKeySecretID := fkColumn(d, "api_key_secret_id", true /* nullable */)
+	enabled := atlasschema.NewBoolColumn("enabled", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	proxyURL := atlasschema.NewNullStringColumn("proxy_url", "text")
+	proxyUser := atlasschema.NewNullStringColumn("proxy_user", "text")
+	proxyPassSecretID := fkColumn(d, "proxy_pass_secret_id", true)
+	last4 := atlasschema.NewNullStringColumn("last4", "text")
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	refCol := parentRefCol(appSecretTable)
+	return atlasschema.NewTable("external_service_config").
+		AddColumns(serviceName, apiKeySecretID, enabled, proxyURL,
+			proxyUser, proxyPassSecretID, last4, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(serviceName)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("external_service_config_api_key_secret_id_fkey").
+				AddColumns(apiKeySecretID).
+				SetRefTable(appSecretTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("external_service_config_proxy_pass_secret_id_fkey").
+				AddColumns(proxyPassSecretID).
+				SetRefTable(appSecretTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildExternalServiceQuotaStateTable returns
+// external_service_quota_state — 6 cols, composite-2 PK (service_name,
+// window_start). Per-window rate-limit counter row (PRD §5.10 OMDb
+// adaptive rate limiter).
+//
+// Columns:
+//
+//	service_name    TEXT NOT NULL (composite PK part 1)
+//	window_start    TIMESTAMPTZ NOT NULL (composite PK part 2)
+//	requests_made   INTEGER NOT NULL DEFAULT 0
+//	requests_quota  INTEGER NOT NULL DEFAULT 0 (upstream cap; 0=unknown)
+//	exhausted_at    TIMESTAMPTZ NULL (stamped when made>=quota)
+//	updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// Index window_start (non-partial, non-unique) for the GC sweep
+// (`DELETE WHERE window_start < $cutoff`). Cheap.
+//
+// Brief vs legacy reconciliation: brief said DATE; legacy + PRD §5.10
+// uses TIMESTAMPTZ for sub-day windows. We use TIMESTAMPTZ.
+func buildExternalServiceQuotaStateTable(d Dialect) *atlasschema.Table {
+	serviceName := atlasschema.NewStringColumn("service_name", "text").SetNull(false)
+	windowStart := timestampColumn(d, "window_start", false /* withDefault */, true /* notNull */)
+	requestsMade := atlasschema.NewIntColumn("requests_made", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	requestsQuota := atlasschema.NewIntColumn("requests_quota", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	exhaustedAt := timestampColumn(d, "exhausted_at", false, false)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("external_service_quota_state").
+		AddColumns(serviceName, windowStart, requestsMade, requestsQuota,
+			exhaustedAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(serviceName, windowStart)).
+		AddIndexes(
+			atlasschema.NewIndex("external_service_quota_state_window").
+				AddColumns(windowStart),
 		)
 }
