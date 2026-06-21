@@ -33,6 +33,12 @@ func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
+			// Seed the FK targets so grabRepo.Create satisfies
+			// grab_records_instance_name_fkey + grab_records_scan_run_id_fkey
+			// on Postgres; without these the M-7 canary trips a 23503
+			// BEFORE the mid-tx forced failure and asserts the wrong cause.
+			seedSonarrInstance(t, db, "main")
+			scanRunID := seedScanRun(t, db, "main")
 
 			grabRepo := grabpersistence.NewGrabRepository(db)
 			cooldownRepo := &failingCooldownRepo{inner: watchdogpersistence.NewCooldownRepository(db)}
@@ -49,7 +55,7 @@ func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
 				IndexerID:    3,
 				IndexerName:  "RT",
 				Status:       grab.StatusGrabbed,
-				ScanRunID:    uuid.New(),
+				ScanRunID:    scanRunID,
 				Attempts:     1,
 				CreatedAt:    time.Now().UTC(),
 				UpdatedAt:    time.Now().UTC(),

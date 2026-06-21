@@ -96,8 +96,17 @@ var _ = domain.SeriesID(0)
 // internal/enrichment/persistence/grab_test_helpers_test.go verbatim
 // so counter_repository_test can build buckets without reaching into
 // the enrichment package.
+//
+// Seeds the parent sonarr_instance row + a parent scan_run row before
+// the grab insert so the grab_records_instance_name_fkey AND
+// grab_records_scan_run_id_fkey constraints are satisfied on Postgres
+// (SQLite without `PRAGMA foreign_keys=on` lets the orphan slip
+// through, but the production catalog tests target both backends per
+// D-0). The seeded scan_run id is returned via grab.Record.ScanRunID.
 func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, status grab.Status, createdAt time.Time) grab.Record {
 	t.Helper()
+	seedSonarrInstance(t, db, instance)
+	scanRunID := seedScanRun(t, db, instance)
 	rec := grab.Record{
 		ID:           uuid.New(),
 		InstanceName: instance,
@@ -109,11 +118,54 @@ func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID 
 		IndexerID:    3,
 		IndexerName:  "RT",
 		Status:       status,
-		ScanRunID:    uuid.New(),
+		ScanRunID:    scanRunID,
 		Attempts:     1,
 		CreatedAt:    createdAt,
 		UpdatedAt:    createdAt,
 	}
 	require.NoError(t, grabpersistence.NewGrabRepository(db).Create(context.Background(), rec))
 	return rec
+}
+
+// seedSonarrInstance is the idempotent FK-target helper for catalog
+// persistence tests that write to grab_records (and any other table
+// whose FK targets sonarr_instance.name). Uses ON CONFLICT DO NOTHING
+// so multiple callers within the same test don't trip the unique
+// constraint.
+//
+// Writes raw SQL against the D-1 sonarr_instance schema (10 columns
+// per 000010_admin.up.sql) rather than the legacy SonarrInstanceModel
+// which carries pre-D-1 columns no longer in the table. The SQL is
+// dialect-portable for SQLite + Postgres because both honor `ON
+// CONFLICT (name) DO NOTHING` and both auto-fill `created_at` /
+// `updated_at` from their DEFAULT clauses.
+func seedSonarrInstance(t *testing.T, db *gorm.DB, name domain.InstanceName) {
+	t.Helper()
+	const insertSQL = `INSERT INTO sonarr_instance (name, url, mode, health, transitions_count)
+	                   VALUES (?, ?, ?, ?, ?)
+	                   ON CONFLICT (name) DO NOTHING`
+	require.NoError(t,
+		db.Exec(insertSQL, string(name), "http://localhost", "auto", "unknown", 0).Error,
+	)
+}
+
+// seedScanRun inserts a minimal scan_runs row matching the D-4 schema
+// (story 465b migration 000015) so direct grab_records inserts can
+// satisfy grab_records_scan_run_id_fkey on Postgres. Returns the row's
+// uuid so the caller can pass it as grab.Record.ScanRunID.
+//
+// Writes raw SQL covering only the NOT NULL columns without DEFAULTs
+// (id, instance_name, trigger, started_at); the other 11 columns use
+// their migration DEFAULT clauses. Dialect-portable for SQLite +
+// Postgres — both accept positional placeholders + CURRENT_TIMESTAMP
+// vs now().
+func seedScanRun(t *testing.T, db *gorm.DB, instance domain.InstanceName) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	const insertSQL = `INSERT INTO scan_runs (id, instance_name, trigger, started_at)
+	                   VALUES (?, ?, ?, ?)`
+	require.NoError(t,
+		db.Exec(insertSQL, id.String(), string(instance), "test", time.Now().UTC()).Error,
+	)
+	return id
 }

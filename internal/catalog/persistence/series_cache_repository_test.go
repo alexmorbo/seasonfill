@@ -389,21 +389,26 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 			for i := 1; i <= 3; i++ {
 				require.NoError(t, repo.Upsert(ctx, sampleEntry("main", domain.SonarrSeriesID(i))))
 			}
+			// Seed the FK targets so the direct grab inserts below
+			// satisfy grab_records_instance_name_fkey AND
+			// grab_records_scan_run_id_fkey on Postgres.
+			seedSonarrInstance(t, db, "main")
+			scanRunID := seedScanRun(t, db, "main")
 
 			now := time.Now().UTC()
 			require.NoError(t, grabs.Create(ctx, grab.Record{
 				ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 1,
-				ScanRunID: uuid.New(), Status: grab.StatusImported,
+				ScanRunID: scanRunID, Status: grab.StatusImported,
 				CreatedAt: now.Add(-48 * time.Hour), UpdatedAt: now.Add(-48 * time.Hour),
 			}))
 			require.NoError(t, grabs.Create(ctx, grab.Record{
 				ID: uuid.New(), InstanceName: "main", SeriesID: 2, SeasonNumber: 1,
-				ScanRunID: uuid.New(), Status: grab.StatusImported,
+				ScanRunID: scanRunID, Status: grab.StatusImported,
 				CreatedAt: now.Add(-10 * 24 * time.Hour), UpdatedAt: now.Add(-10 * 24 * time.Hour),
 			}))
 			require.NoError(t, grabs.Create(ctx, grab.Record{
 				ID: uuid.New(), InstanceName: "main", SeriesID: 3, SeasonNumber: 1,
-				ScanRunID: uuid.New(), Status: grab.StatusGrabbed,
+				ScanRunID: scanRunID, Status: grab.StatusGrabbed,
 				CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour),
 			}))
 
@@ -684,16 +689,21 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			grabs := grabpersistence.NewGrabRepository(db)
 			ctx := context.Background()
+			// Seed the FK targets so the direct grab inserts below
+			// satisfy grab_records_instance_name_fkey AND
+			// grab_records_scan_run_id_fkey on Postgres.
+			seedSonarrInstance(t, db, "main")
+			scanRunID := seedScanRun(t, db, "main")
 
 			now := time.Now().UTC()
 			require.NoError(t, grabs.Create(ctx, grab.Record{
 				ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 3,
-				ScanRunID: uuid.New(), Status: grab.StatusImported,
+				ScanRunID: scanRunID, Status: grab.StatusImported,
 				CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour),
 			}))
 			require.NoError(t, grabs.Create(ctx, grab.Record{
 				ID: uuid.New(), InstanceName: "main", SeriesID: 1, SeasonNumber: 5,
-				ScanRunID: uuid.New(), Status: grab.StatusImported,
+				ScanRunID: scanRunID, Status: grab.StatusImported,
 				CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour),
 			}))
 
