@@ -318,8 +318,11 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// single instance delete wipes its qBit runtime footprint atomically.
 	//
 	// Dev-time split: setting ATLAS_SCHEMA_SKIP_QBIT_RUNTIME=1 generates
-	// earlier migrations without these tables.
-	if os.Getenv("ATLAS_SCHEMA_SKIP_QBIT_RUNTIME") == "" {
+	// earlier migrations without these tables. Skipping ADMIN auto-skips
+	// QBIT_RUNTIME because the FK target (sonarr_instance) would be
+	// missing — addQbitRuntime would panic in mustTable.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_QBIT_RUNTIME") == "" &&
+		os.Getenv("ATLAS_SCHEMA_SKIP_ADMIN") == "" {
 		addQbitRuntime(s, d)
 	}
 
