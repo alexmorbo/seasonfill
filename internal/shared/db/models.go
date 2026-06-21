@@ -437,16 +437,22 @@ type SeriesModel struct {
 	InProduction    bool           `gorm:"column:in_production;not null;default:false"`
 	// Network field REMOVED in E-1 (000033). Network membership lives
 	// in series_networks join, resolved via NetworksRepository.
-	PosterAsset   *string   `gorm:"column:poster_asset;type:text"`
-	BackdropAsset *string   `gorm:"column:backdrop_asset;type:text"`
-	TMDBRating    *float64  `gorm:"column:tmdb_rating"`
-	TMDBVotes     *int      `gorm:"column:tmdb_votes"`
-	IMDBRating    *float64  `gorm:"column:imdb_rating"`
-	IMDBVotes     *int      `gorm:"column:imdb_votes"`
-	OMDBRated     *string   `gorm:"column:omdb_rated;type:text"`
-	OMDBAwards    *string   `gorm:"column:omdb_awards;type:text"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	PosterAsset   *string  `gorm:"column:poster_asset;type:text"`
+	BackdropAsset *string  `gorm:"column:backdrop_asset;type:text"`
+	TMDBRating    *float64 `gorm:"column:tmdb_rating"`
+	TMDBVotes     *int     `gorm:"column:tmdb_votes"`
+	IMDBRating    *float64 `gorm:"column:imdb_rating"`
+	IMDBVotes     *int     `gorm:"column:imdb_votes"`
+	OMDBRated     *string  `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards    *string  `gorm:"column:omdb_awards;type:text"`
+	// EnrichmentTMDBSyncedAt / EnrichmentOMDBSyncedAt — D-3 enrichment
+	// freshness columns (migration 000001 §D-3). NULL = never
+	// enriched. Set by workers on success; replaces the legacy
+	// sync_log(source, outcome='ok') row TTL gate.
+	EnrichmentTMDBSyncedAt *time.Time `gorm:"column:enrichment_tmdb_synced_at"`
+	EnrichmentOMDBSyncedAt *time.Time `gorm:"column:enrichment_omdb_synced_at"`
+	CreatedAt              time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt              time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }

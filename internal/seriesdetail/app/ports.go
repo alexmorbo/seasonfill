@@ -9,6 +9,7 @@ package seriesdetail
 
 import (
 	"context"
+	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
@@ -178,10 +179,33 @@ type RecommendationsPort interface {
 }
 
 // SyncLogPort exposes the per-(entity, source) sync_log lookup the
-// degraded[] computation needs. The composer collects the four
-// TMDB/OMDb sources for the series in one go.
+// degraded[] computation needs. RETAINED during 464a so composer.go
+// keeps compiling; the production binding is *SyncLogStub which
+// panics at request time. 464b rewrites computeDegraded to use the
+// EnrichmentFreshnessPort below + a direct read of the canon row's
+// enrichment_*_synced_at columns, then deletes this interface.
+//
+// NOTE (464a → 464b): use EnrichmentFreshnessPort.
 type SyncLogPort interface {
 	GetLastSync(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.SyncLog, error)
+}
+
+// EnrichmentFreshnessPort exposes the per-(entity, source) freshness
+// view the composer's computeDegraded reads. SyncedAtFor surfaces the
+// canon row's enrichment_*_synced_at column (NULL = never enriched);
+// ErrorsFor returns the live enrichment_errors rows for the entity
+// across all sources (composer filters per-source). 464a defines the
+// port; 464b wires composer.go to it.
+type EnrichmentFreshnessPort interface {
+	// SyncedAtFor returns the last-success timestamp for
+	// (entity_type=series, entity_id, source). nil = never enriched.
+	// Reads series.enrichment_*_synced_at (column path).
+	SyncedAtFor(ctx context.Context, seriesID domain.SeriesID, source enrichment.Source) (*time.Time, error)
+	// ErrorsFor returns every live enrichment_errors row for
+	// (entity_type=series, entity_id) across all sources. Empty
+	// slice when no rows match (NOT ports.ErrNotFound — "no errors"
+	// is the happy path).
+	ErrorsFor(ctx context.Context, seriesID domain.SeriesID) ([]enrichment.EnrichmentError, error)
 }
 
 // SeriesCacheLookupPort resolves a series.id → list of

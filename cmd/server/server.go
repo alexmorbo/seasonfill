@@ -284,7 +284,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	contentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	externalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	recommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	syncLogRepo := enrichpersistence.NewSyncLogRepository(db)
+	// 464a: sync_log table is retired in D-1 — wire the panic stub so
+	// boot stays green while 464b rewrites the workers + composer to
+	// drop the legacy SyncLogRepo dependency. Per ADR D2-revised-roadmap
+	// Decision 1, this binary is not deployable until 464b lands.
+	syncLogRepo := enrichpersistence.NewSyncLogStub()
 	// Story 212 (C-3) — person enrichment + cold-start backfill.
 	personBiographiesRepo := enrichpersistence.NewPersonBiographiesRepository(db)
 	personCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)

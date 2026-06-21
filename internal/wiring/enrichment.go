@@ -909,7 +909,24 @@ func NewColdStartScannerAdapter(s *enrichpersistence.SeriesRepository) appenrich
 }
 
 func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error) {
-	return a.inner.ListMissingSyncLog(ctx, source, limit)
+	// 464a stub: the legacy port path stays on the cold_start.go
+	// consumer until 464b rewrites it to call ListMissingTMDBSync
+	// directly. For the only production source the loop passes
+	// ("tmdb_series"), redirect to the new column-on-canon query
+	// so a 464a deploy that triggers the cold-start loop doesn't
+	// panic. Any other source (none in current code) signals a
+	// caller bug — return empty (the loop treats empty as
+	// "nothing to backfill" and short-circuits).
+	if source == string(enrichment.SourceTMDBSeries) {
+		return a.inner.ListMissingTMDBSync(ctx, limit)
+	}
+	return nil, nil
+}
+
+// ListMissingTMDBSync — 464a addition for the 464b cold_start.go
+// rewrite. Forwards to the column-on-canon query.
+func (a coldStartScannerAdapter) ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error) {
+	return a.inner.ListMissingTMDBSync(ctx, limit)
 }
 
 // ListCanonImagesCorrupted — Story 319: forwards to the underlying

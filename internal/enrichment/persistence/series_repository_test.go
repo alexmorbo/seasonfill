@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
@@ -20,46 +19,24 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
-// upsertSyncLog inserts a sync_log row directly via gorm. Inlined here
-// to break the import cycle that would otherwise arise from importing
-// infrastructure/database/repositories.SyncLogRepository — that package
-// already imports this one for SeriesCacheRepository's dependency on
-// *persistence.SeriesRepository. Functional behavior matches the
-// production SyncLogRepository.Upsert codepath: same OnConflict
-// 3-column primary key, same DoUpdates set.
-func upsertSyncLog(t *testing.T, db *gorm.DB, entry enrichment.SyncLog) {
+// seedEnrichmentError inserts one enrichment_errors row directly via
+// gorm. Replaces the upsertSyncLog helper retired in 464a — the new
+// schema records failures here and successes on the canon row's
+// enrichment_*_synced_at column. Tests seed the canon column via
+// SeriesRepository.Upsert and call this helper for the error half.
+func seedEnrichmentError(t *testing.T, db *gorm.DB, entityType enrichment.EntityType, entityID int64, source enrichment.Source, attempts int) {
 	t.Helper()
-	if entry.Outcome == "" {
-		entry.Outcome = enrichment.OutcomePending
+	now := time.Now().UTC()
+	m := database.EnrichmentErrorModel{
+		EntityType:  string(entityType),
+		EntityID:    entityID,
+		Source:      string(source),
+		LastError:   "seeded for test",
+		Attempts:    attempts,
+		FirstSeenAt: now,
+		LastSeenAt:  now,
 	}
-	entry.UpdatedAt = time.Now().UTC()
-	m := database.SyncLogModel{
-		EntityType:    string(entry.EntityType),
-		EntityID:      entry.EntityID,
-		Source:        string(entry.Source),
-		SyncedAt:      entry.SyncedAt,
-		Outcome:       string(entry.Outcome),
-		ErrorDetail:   entry.ErrorDetail,
-		ETag:          entry.ETag,
-		Attempts:      entry.Attempts,
-		NextAttemptAt: entry.NextAttemptAt,
-		DurationMs:    entry.DurationMs,
-		UpdatedAt:     entry.UpdatedAt,
-	}
-	require.NoError(t, db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "entity_type"},
-			{Name: "entity_id"},
-			{Name: "source"},
-		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"synced_at", "outcome",
-			"error_detail", "etag",
-			"attempts", "next_attempt_at",
-			"duration_ms",
-			"updated_at",
-		}),
-	}).Create(&m).Error)
+	require.NoError(t, db.Create(&m).Error)
 }
 
 func sampleCanon(title string) series.Canon {
@@ -261,12 +238,12 @@ func TestSeriesRepository_PartialUnique(t *testing.T) {
 	}
 }
 
-// Story 212 — ListMissingSyncLog returns series whose sync_log row is
-// absent for the given source; series already journalled (any outcome)
-// are excluded. Validates the LEFT JOIN + IS NULL clause on both
-// dialects via the dual-backend dispatcher.
-func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
+// Story 212 + 464a — ListMissingTMDBSync returns series whose
+// enrichment_tmdb_synced_at IS NULL (never TMDB-enriched). Replaces
+// the legacy LEFT JOIN sync_log lookup with a direct column read.
+// Validates the IS NULL filter on both dialects via the dual-backend
+// dispatcher.
+func TestSeriesRepository_ListMissingTMDBSync(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -276,56 +253,52 @@ func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
 
 			ctx := context.Background()
 
-			// 3 series; the first two get a sync_log(tmdb_series) row, the
-			// third stays unjournalled.
+			now := time.Now().UTC()
+			synced := now.Add(-1 * time.Hour)
+
+			// 3 series: A + B have enrichment_tmdb_synced_at set; C is NULL.
 			a := sampleCanon("A")
 			a.TMDBID = ptrTMDBID(1001)
 			a.TVDBID = ptrTVDBID(2001)
+			a.EnrichmentTMDBSyncedAt = &synced
 			idA, err := repo.Upsert(ctx, a)
 			require.NoError(t, err)
 
 			b := sampleCanon("B")
 			b.TMDBID = ptrTMDBID(1002)
 			b.TVDBID = ptrTVDBID(2002)
+			b.EnrichmentTMDBSyncedAt = &synced
 			idB, err := repo.Upsert(ctx, b)
 			require.NoError(t, err)
 
 			c := sampleCanon("C")
 			c.TMDBID = ptrTMDBID(1003)
 			c.TVDBID = ptrTVDBID(2003)
+			c.EnrichmentTMDBSyncedAt = nil
 			idC, err := repo.Upsert(ctx, c)
 			require.NoError(t, err)
 
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(idA),
-				Source:     enrichment.SourceTMDBSeries,
-				Outcome:    enrichment.OutcomeOK,
-			})
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(idB),
-				Source:     enrichment.SourceTMDBSeries,
-				Outcome:    enrichment.OutcomeError,
-			})
-
-			ids, err := repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
+			ids, err := repo.ListMissingTMDBSync(ctx, 100)
 			require.NoError(t, err)
-			require.Len(t, ids, 1, "only series C should lack a sync_log row")
+			require.Len(t, ids, 1, "only series C should lack a TMDB sync timestamp")
 			assert.Equal(t, idC, ids[0])
+			assert.NotContains(t, ids, idA)
+			assert.NotContains(t, ids, idB)
 
-			// A sync_log row for an unrelated source must NOT mark the series
-			// as journalled for tmdb_series.
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(idC),
-				Source:     enrichment.SourceOMDb,
-				Outcome:    enrichment.OutcomeOK,
-			})
-			ids, err = repo.ListMissingSyncLog(ctx, "tmdb_series", 100)
+			// A non-NULL value of the OMDb column must NOT mark the series
+			// as TMDB-synced — the two columns are independent.
+			d := sampleCanon("D")
+			d.TMDBID = ptrTMDBID(1004)
+			d.TVDBID = ptrTVDBID(2004)
+			d.EnrichmentTMDBSyncedAt = nil
+			d.EnrichmentOMDBSyncedAt = &synced
+			idD, err := repo.Upsert(ctx, d)
 			require.NoError(t, err)
-			require.Len(t, ids, 1, "different-source rows must not cover the join")
-			assert.Equal(t, idC, ids[0])
+
+			ids, err = repo.ListMissingTMDBSync(ctx, 100)
+			require.NoError(t, err)
+			assert.Contains(t, ids, idC)
+			assert.Contains(t, ids, idD, "OMDb-only sync MUST NOT count as TMDB-sync presence")
 		})
 	}
 }
@@ -350,10 +323,11 @@ func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, ins
 }
 
 // TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath — Story 213
-// acceptance criterion: stub series (no series_cache reference) and
-// terminal not_found rows are NEVER returned by the daily-batch scan.
+// + 464a: stub series (no series_cache reference) and terminal
+// failure rows (enrichment_errors.attempts > 5) are NEVER returned by
+// the daily-batch scan. Replaces the legacy outcome='not_found'
+// filter with the new attempts-cap signal.
 func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -363,7 +337,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 
 			ctx := context.Background()
 
-			// 3 library series (each with a series_cache row).
+			// 3 library series (each with a series_cache row, no OMDb sync yet).
 			a := sampleCanon("A")
 			a.TMDBID = ptrTMDBID(2001)
 			a.IMDBID = ptrIMDBID("tt0000001")
@@ -392,19 +366,14 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 			_, err = repo.Upsert(ctx, stub)
 			require.NoError(t, err)
 
-			// 1 series with terminal not_found sync_log.
+			// 1 series with terminal failure (attempts > 5 = give up).
 			d := sampleCanon("D")
 			d.TMDBID = ptrTMDBID(2005)
 			d.IMDBID = ptrIMDBID("tt0000005")
 			idD, err := repo.Upsert(ctx, d)
 			require.NoError(t, err)
 			seedSeriesCacheRow(t, db, idD, "main", 5, false)
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(idD),
-				Source:     enrichment.SourceOMDb,
-				Outcome:    enrichment.OutcomeNotFound,
-			})
+			seedEnrichmentError(t, db, enrichment.EntityTypeSeries, int64(idD), enrichment.SourceOMDb, 6)
 
 			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
@@ -415,16 +384,16 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 			assert.True(t, got[idA], "library series A returned")
 			assert.True(t, got[idB], "library series B returned")
 			assert.True(t, got[idC], "library series C returned")
-			assert.False(t, got[idD], "terminal not_found excluded")
-			assert.Equal(t, 3, len(ids), "stub series excluded; not_found excluded")
+			assert.False(t, got[idD], "terminal failure (attempts>5) excluded")
+			assert.Equal(t, 3, len(ids), "stub series excluded; terminal failure excluded")
 		})
 	}
 }
 
 // TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered —
-// a series with outcome=ok + synced_at within TTL is excluded.
+// a series with enrichment_omdb_synced_at within TTL is excluded; an
+// older value (past TTL) is returned.
 func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -434,36 +403,29 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 
 			ctx := context.Background()
 
+			now := time.Now().UTC()
+			fresh := now.Add(-30 * time.Minute)
 			s := sampleCanon("Fresh")
 			s.TMDBID = ptrTMDBID(3001)
 			s.IMDBID = ptrIMDBID("tt0000010")
+			s.EnrichmentOMDBSyncedAt = &fresh
 			id, err := repo.Upsert(ctx, s)
 			require.NoError(t, err)
 			seedSeriesCacheRow(t, db, id, "main", 10, false)
-
-			now := time.Now().UTC()
-			fresh := now.Add(-30 * time.Minute)
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(id),
-				Source:     enrichment.SourceOMDb,
-				Outcome:    enrichment.OutcomeOK,
-				SyncedAt:   &fresh,
-			})
 
 			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
 			assert.NotContains(t, ids, id, "fresh sync (within TTL) excluded")
 
-			// Now mark synced_at as 25h ago (past TTL) → series returns.
+			// Now update enrichment_omdb_synced_at to 25h ago (past TTL).
+			// COALESCE on the new column means a NULL re-upsert would
+			// preserve the stale value, so we use a direct UPDATE here
+			// to confirm the WHERE comparison reads the stored cutoff.
 			stale := now.Add(-25 * time.Hour)
-			upsertSyncLog(t, db, enrichment.SyncLog{
-				EntityType: enrichment.EntityTypeSeries,
-				EntityID:   int64(id),
-				Source:     enrichment.SourceOMDb,
-				Outcome:    enrichment.OutcomeOK,
-				SyncedAt:   &stale,
-			})
+			require.NoError(t, db.Exec(
+				"UPDATE series SET enrichment_omdb_synced_at = ? WHERE id = ?",
+				stale, id).Error)
+
 			ids, err = repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
 			require.NoError(t, err)
 			assert.Contains(t, ids, id, "stale sync past TTL returned")
@@ -474,9 +436,8 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 // TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin —
 // directly verifies the SQL INNER JOIN excludes stubs at query level
 // (Critical Decision #2). A series with imdb_id but ZERO series_cache
-// rows is invisible to this query regardless of sync_log state.
+// rows is invisible to this query regardless of enrichment state.
 func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

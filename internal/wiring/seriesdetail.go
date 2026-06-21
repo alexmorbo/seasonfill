@@ -170,7 +170,11 @@ func BuildSeriesDetail(
 	sdContentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	sdExternalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	sdRecommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	sdSyncLogRepo := enrichpersistence.NewSyncLogRepository(db)
+	// 464a: panic-stub the legacy sync_log read surface so the composer
+	// + people use case keep compiling. 464b rewrites computeDegraded
+	// + people fetch path to read EnrichmentErrorsRepository + canon
+	// enrichment_*_synced_at directly, then deletes this binding.
+	sdSyncLogRepo := enrichpersistence.NewSyncLogStub()
 
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,

@@ -193,13 +193,41 @@ type RecommendationsRepoPort interface {
 	Set(ctx context.Context, seriesID domain.SeriesID, recommendedIDs []domain.SeriesID) error
 }
 
-// SyncLogRepo is the journal write surface — Upsert is single-row;
-// the dispatcher reads StaleScan + RetryDue on the cron path.
+// SyncLogRepo is the legacy journal write surface. RETAINED during the
+// 464a kernel-only cutover so workers + composer keep compiling against
+// the old interface; the production binding is *SyncLogStub which
+// panics at request time. 464b deletes this interface together with
+// the worker rewrites that drop the SyncLog dependency.
+//
+// NOTE (464a → 464b): use EnrichmentErrorRepo for failure tracking;
+// success is now stamped on the canonical entity row's
+// enrichment_*_synced_at column directly via repo.Series.Upsert.
 type SyncLogRepo interface {
 	Upsert(ctx context.Context, e enrichment.SyncLog) error
 	GetLastSync(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.SyncLog, error)
 	StaleScan(ctx context.Context, source enrichment.Source, cutoff time.Time, limit int) ([]enrichment.SyncLog, error)
 	RetryDue(ctx context.Context, source enrichment.Source, now time.Time, limit int) ([]enrichment.SyncLog, error)
+}
+
+// EnrichmentErrorRepo is the D-3 failure write surface. Replaces the
+// legacy SyncLogRepo for the error-tracking half of the journal; the
+// success half moves to direct canon-column writes via Series.Upsert.
+//
+// Lifecycle per (entity_type, entity_id, source):
+//   - First failure → RecordFailure inserts.
+//   - Subsequent failures → RecordFailure upserts (bumps attempts +
+//     last_seen_at + next_attempt_at; first_seen_at preserved).
+//   - Success → ClearOnSuccess removes the row.
+//   - Retry dispatcher → ListDueForRetry reads next_attempt_at <= now.
+//
+// 464a defines the port + ships the production EnrichmentErrorsRepository
+// implementation; 464b wires it into the workers + composer.
+type EnrichmentErrorRepo interface {
+	RecordFailure(ctx context.Context, e enrichment.EnrichmentError) error
+	ClearOnSuccess(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) error
+	GetForEntity(ctx context.Context, entityType enrichment.EntityType, entityID int64) ([]enrichment.EnrichmentError, error)
+	ListDueForRetry(ctx context.Context, source enrichment.Source, now time.Time, limit int) ([]enrichment.EnrichmentError, error)
+	GetByEntitySource(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.EnrichmentError, error)
 }
 
 // Transactor lifts the application/ports.Transactor surface into
@@ -282,7 +310,21 @@ type PersonCreditsPort interface {
 // given source". Production impl is a method on SeriesRepository
 // (Story 212 §8); tests pass a slice-backed fake.
 type ColdStartScanner interface {
+	// ListMissingSyncLog — legacy port method kept during 464a so
+	// cold_start.go (rewrite scope of 464b) keeps compiling. The
+	// production adapter forwards to ListMissingTMDBSync when
+	// source=="tmdb_series" and returns empty otherwise.
+	//
+	// NOTE (464a → 464b): use ListMissingTMDBSync; deleted in 464b
+	// alongside the cold_start.go rewrite.
 	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error)
+	// ListMissingTMDBSync — D-3 column-on-canon query for the
+	// cold-start backfill loop. Returns series.id rows whose
+	// enrichment_tmdb_synced_at IS NULL. The 464b cold_start.go
+	// rewrite calls this method directly; the deprecated
+	// ListMissingSyncLog above currently delegates here for the
+	// "tmdb_series" source.
+	ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error)
 	// ListCanonImagesCorrupted — Story 319: returns series.id rows
 	// where the canon is past stub phase but poster_asset or
 	// backdrop_asset is NULL, so the boot one-shot recovery sweep can

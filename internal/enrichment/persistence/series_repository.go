@@ -323,30 +323,25 @@ func (r *SeriesRepository) CountCanonImagesBreakdown(ctx context.Context) (int, 
 	return int(posterNull), int(backdropNull), nil
 }
 
-// ListMissingSyncLog returns series.id rows that have NO sync_log
-// row for (entity_type='series', source=<source>). LEFT JOIN +
-// IS NULL — selectivity is good on a typical library (300 rows) and
-// the (entity_type, entity_id, source) index covers the join. Limit
-// caps result-set size; cold-start callers pass 5000.
-//
-// Used by the application-layer cold-start backfill (Story 212).
-func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error) {
+// ListMissingTMDBSync returns series.id rows that have never been
+// TMDB-enriched (enrichment_tmdb_synced_at IS NULL). The cold-start
+// backfill loop (Story 212, rewritten in 464b) consumes this to enqueue
+// initial enrichment jobs. The column-on-canon path replaces the
+// pre-D-3 LEFT JOIN sync_log lookup — same selectivity, ~5× faster
+// (no join, direct WHERE on the column the worker stamps on success).
+func (r *SeriesRepository) ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Table("series AS s").
-		Select("s.id").
-		Joins(`LEFT JOIN sync_log sl
-		       ON sl.entity_type = 'series'
-		      AND sl.entity_id   = s.id
-		      AND sl.source      = ?`, source).
-		Where("sl.entity_id IS NULL").
+		Table("series").
+		Select("id").
+		Where("enrichment_tmdb_synced_at IS NULL").
 		Limit(limit).
-		Pluck("s.id", &ids).Error
+		Pluck("id", &ids).Error
 	if err != nil {
-		return nil, fmt.Errorf("list series missing sync_log(%s): %w", source, err)
+		return nil, fmt.Errorf("list series missing tmdb sync: %w", err)
 	}
 	return ids, nil
 }
@@ -355,17 +350,22 @@ func (r *SeriesRepository) ListMissingSyncLog(ctx context.Context, source string
 //   - have a non-NULL imdb_id, AND
 //   - have AT LEAST ONE live (not soft-deleted) series_cache reference
 //     (excludes recommendation stubs that never entered the library), AND
-//   - either have no sync_log(omdb) row OR the last sync_log row is
-//     older than `ttl` AND its outcome is NOT 'not_found' (terminal).
+//   - either have no enrichment_omdb_synced_at OR it's older than `ttl`, AND
+//   - do NOT have an outstanding enrichment_errors row with attempts > 5
+//     (PRD §5.5 retry-give-up — terminal failures stop refreshing).
 //
-// Used by the Story 213 OMDb daily batch (cron 04:30).
-// The series_cache INNER JOIN is the library filter — series_cache rows
-// land on Sonarr import / webhook; stub-only series (recommendation
-// tiles, anime hold-overs) NEVER have a series_cache reference. The
-// `series_cache.deleted_at IS NULL` guard preserves the soft-delete
-// contract: a series whose only instance reference was deleted no
-// longer "lives" in the library, so OMDb stops refreshing it
-// (matches the PRD §5.4 grain decision).
+// The terminal-failure filter previously read sync_log.outcome='not_found';
+// the new D-3 schema doesn't carry an outcome enum, so the equivalent
+// signal is "we've retried this >5 times — leave it alone". The
+// 5-attempt threshold matches the OMDb worker's max-retries constant.
+// Operator-driven refresh (POST /api/v1/series/{id}/refresh) clears
+// the row via ClearOnSuccess — same UX as before.
+//
+// Used by the Story 213 OMDb daily batch (cron 04:30). The
+// series_cache INNER JOIN is the library filter — series_cache rows
+// land on Sonarr import / webhook; stub-only series NEVER have a
+// series_cache reference. The `series_cache.deleted_at IS NULL` guard
+// preserves the soft-delete contract.
 //
 // `GROUP BY` on `s.id, s.imdb_id` dedups when a series has multiple
 // instance refs (typical: 1080p + 4K Sonarr). Postgres + sqlite
@@ -383,14 +383,15 @@ func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl tim
 		Joins(`INNER JOIN series_cache sc
 		       ON sc.series_id = s.id
 		      AND sc.deleted_at IS NULL`).
-		Joins(`LEFT JOIN sync_log sl
-		       ON sl.entity_type = 'series'
-		      AND sl.entity_id   = s.id
-		      AND sl.source      = ?`, string(enrichmentpkg.SourceOMDb)).
 		Where("s.imdb_id IS NOT NULL").
 		Where("s.imdb_id != ''").
-		Where("(sl.outcome IS NULL OR sl.outcome != ?)", string(enrichmentpkg.OutcomeNotFound)).
-		Where("(sl.synced_at IS NULL OR sl.synced_at < ?)", cutoff).
+		Where("(s.enrichment_omdb_synced_at IS NULL OR s.enrichment_omdb_synced_at < ?)", cutoff).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM enrichment_errors ee
+		     WHERE ee.entity_type = 'series'
+		       AND ee.entity_id = s.id
+		       AND ee.source = ?
+		       AND ee.attempts > 5)`, string(enrichmentpkg.SourceOMDb)).
 		Group("s.id, s.imdb_id").
 		Limit(limit).
 		Pluck("s.id", &ids).Error
@@ -540,101 +541,122 @@ func seriesUpsertAssignments() map[string]any {
 		"imdb_votes":        gorm.Expr("COALESCE(excluded.imdb_votes, series.imdb_votes)"),
 		"omdb_rated":        gorm.Expr("COALESCE(excluded.omdb_rated, series.omdb_rated)"),
 		"omdb_awards":       gorm.Expr("COALESCE(excluded.omdb_awards, series.omdb_awards)"),
-		"updated_at":        gorm.Expr("excluded.updated_at"),
+		// D-3 freshness columns — COALESCE so a Sonarr-driven canonOut
+		// (PRD §5.4) that carries nil does NOT blank a previously-set
+		// enrichment timestamp. Same protection as poster_asset /
+		// tmdb_rating above; without it every Sonarr re-scan would
+		// reset enrichment_*_synced_at to NULL and trigger a re-enrichment
+		// storm.
+		"enrichment_tmdb_synced_at": gorm.Expr("COALESCE(excluded.enrichment_tmdb_synced_at, series.enrichment_tmdb_synced_at)"),
+		"enrichment_omdb_synced_at": gorm.Expr("COALESCE(excluded.enrichment_omdb_synced_at, series.enrichment_omdb_synced_at)"),
+		"updated_at":                gorm.Expr("excluded.updated_at"),
 	}
 }
 
 func toCanon(m database.SeriesModel) series.Canon {
 	return series.Canon{
-		ID:               m.ID,
-		TMDBID:           m.TMDBID,
-		TVDBID:           m.TVDBID,
-		IMDBID:           m.IMDBID,
-		Hydration:        series.Hydration(m.Hydration),
-		Title:            m.Title,
-		OriginalTitle:    m.OriginalTitle,
-		Status:           m.Status,
-		FirstAirDate:     m.FirstAirDate,
-		LastAirDate:      m.LastAirDate,
-		NextAirDate:      m.NextAirDate,
-		Year:             m.Year,
-		RuntimeMinutes:   m.RuntimeMinutes,
-		Homepage:         m.Homepage,
-		OriginalLanguage: m.OriginalLanguage,
-		OriginCountry:    m.OriginCountry,
-		OriginCountries:  decodeOriginCountries(m.OriginCountries),
-		Popularity:       m.Popularity,
-		InProduction:     m.InProduction,
-		PosterAsset:      m.PosterAsset,
-		BackdropAsset:    m.BackdropAsset,
-		TMDBRating:       m.TMDBRating,
-		TMDBVotes:        m.TMDBVotes,
-		IMDBRating:       m.IMDBRating,
-		IMDBVotes:        m.IMDBVotes,
-		OMDBRated:        m.OMDBRated,
-		OMDBAwards:       m.OMDBAwards,
-		CreatedAt:        m.CreatedAt,
-		UpdatedAt:        m.UpdatedAt,
+		ID:                     m.ID,
+		TMDBID:                 m.TMDBID,
+		TVDBID:                 m.TVDBID,
+		IMDBID:                 m.IMDBID,
+		Hydration:              series.Hydration(m.Hydration),
+		Title:                  m.Title,
+		OriginalTitle:          m.OriginalTitle,
+		Status:                 m.Status,
+		FirstAirDate:           m.FirstAirDate,
+		LastAirDate:            m.LastAirDate,
+		NextAirDate:            m.NextAirDate,
+		Year:                   m.Year,
+		RuntimeMinutes:         m.RuntimeMinutes,
+		Homepage:               m.Homepage,
+		OriginalLanguage:       m.OriginalLanguage,
+		OriginCountry:          m.OriginCountry,
+		OriginCountries:        decodeOriginCountries(m.OriginCountries),
+		Popularity:             m.Popularity,
+		InProduction:           m.InProduction,
+		PosterAsset:            m.PosterAsset,
+		BackdropAsset:          m.BackdropAsset,
+		TMDBRating:             m.TMDBRating,
+		TMDBVotes:              m.TMDBVotes,
+		IMDBRating:             m.IMDBRating,
+		IMDBVotes:              m.IMDBVotes,
+		OMDBRated:              m.OMDBRated,
+		OMDBAwards:             m.OMDBAwards,
+		EnrichmentTMDBSyncedAt: m.EnrichmentTMDBSyncedAt,
+		EnrichmentOMDBSyncedAt: m.EnrichmentOMDBSyncedAt,
+		CreatedAt:              m.CreatedAt,
+		UpdatedAt:              m.UpdatedAt,
 	}
 }
 
 func fromCanon(c series.Canon) database.SeriesModel {
 	return database.SeriesModel{
-		ID:               c.ID,
-		TMDBID:           c.TMDBID,
-		TVDBID:           c.TVDBID,
-		IMDBID:           c.IMDBID,
-		Hydration:        string(c.Hydration),
-		Title:            c.Title,
-		OriginalTitle:    c.OriginalTitle,
-		Status:           c.Status,
-		FirstAirDate:     c.FirstAirDate,
-		LastAirDate:      c.LastAirDate,
-		NextAirDate:      c.NextAirDate,
-		Year:             c.Year,
-		RuntimeMinutes:   c.RuntimeMinutes,
-		Homepage:         c.Homepage,
-		OriginalLanguage: c.OriginalLanguage,
-		OriginCountry:    c.OriginCountry,
-		OriginCountries:  encodeOriginCountries(c.OriginCountries),
-		Popularity:       c.Popularity,
-		InProduction:     c.InProduction,
-		PosterAsset:      c.PosterAsset,
-		BackdropAsset:    c.BackdropAsset,
-		TMDBRating:       c.TMDBRating,
-		TMDBVotes:        c.TMDBVotes,
-		IMDBRating:       c.IMDBRating,
-		IMDBVotes:        c.IMDBVotes,
-		OMDBRated:        c.OMDBRated,
-		OMDBAwards:       c.OMDBAwards,
-		CreatedAt:        c.CreatedAt,
-		UpdatedAt:        c.UpdatedAt,
+		ID:                     c.ID,
+		TMDBID:                 c.TMDBID,
+		TVDBID:                 c.TVDBID,
+		IMDBID:                 c.IMDBID,
+		Hydration:              string(c.Hydration),
+		Title:                  c.Title,
+		OriginalTitle:          c.OriginalTitle,
+		Status:                 c.Status,
+		FirstAirDate:           c.FirstAirDate,
+		LastAirDate:            c.LastAirDate,
+		NextAirDate:            c.NextAirDate,
+		Year:                   c.Year,
+		RuntimeMinutes:         c.RuntimeMinutes,
+		Homepage:               c.Homepage,
+		OriginalLanguage:       c.OriginalLanguage,
+		OriginCountry:          c.OriginCountry,
+		OriginCountries:        encodeOriginCountries(c.OriginCountries),
+		Popularity:             c.Popularity,
+		InProduction:           c.InProduction,
+		PosterAsset:            c.PosterAsset,
+		BackdropAsset:          c.BackdropAsset,
+		TMDBRating:             c.TMDBRating,
+		TMDBVotes:              c.TMDBVotes,
+		IMDBRating:             c.IMDBRating,
+		IMDBVotes:              c.IMDBVotes,
+		OMDBRated:              c.OMDBRated,
+		OMDBAwards:             c.OMDBAwards,
+		EnrichmentTMDBSyncedAt: c.EnrichmentTMDBSyncedAt,
+		EnrichmentOMDBSyncedAt: c.EnrichmentOMDBSyncedAt,
+		CreatedAt:              c.CreatedAt,
+		UpdatedAt:              c.UpdatedAt,
 	}
 }
 
 // encodeOriginCountries marshals a string slice to a datatypes.JSON
-// (storage column origin_countries text). nil + empty slice both
-// roundtrip as NULL in the database — neither has display value and
-// distinguishing them is not worth the read-side branch.
+// (storage column origin_countries text NOT NULL DEFAULT '[]'). nil
+// + empty slice both serialize as the literal `[]` JSON document so
+// the NOT NULL column constraint holds whether the caller leaves the
+// field unset or pins it to an empty slice. The read-side
+// decodeOriginCountries treats `[]` as nil, preserving the previous
+// "no countries" sentinel.
 func encodeOriginCountries(s []string) datatypes.JSON {
 	if len(s) == 0 {
-		return nil
+		return datatypes.JSON("[]")
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
-		return nil
+		return datatypes.JSON("[]")
 	}
 	return datatypes.JSON(b)
 }
 
 // decodeOriginCountries unmarshals datatypes.JSON to a string slice.
-// Returns nil on empty / invalid JSON; never panics.
+// Returns nil on empty / invalid JSON; never panics. An empty array
+// (`[]`) round-trips to nil too — callers that wrote an empty slice
+// (or left the field unset) read back nil, matching the pre-D-3
+// "no countries" sentinel.
 func decodeOriginCountries(j datatypes.JSON) []string {
 	if len(j) == 0 {
 		return nil
 	}
 	var out []string
 	if err := json.Unmarshal(j, &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
 		return nil
 	}
 	return out

@@ -69,8 +69,17 @@ type Canon struct {
 	IMDBVotes     *int
 	OMDBRated     *string
 	OMDBAwards    *string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// EnrichmentTMDBSyncedAt is set by the TMDB series worker on a
+	// successful /tv/{id} fetch (PRD §D-3). NULL = never TMDB-enriched
+	// — replaces the legacy sync_log(tmdb_series, outcome='ok') TTL
+	// gate the worker used to read before D-3.
+	EnrichmentTMDBSyncedAt *time.Time
+	// EnrichmentOMDBSyncedAt is set by the OMDb worker on a successful
+	// /?i={imdb_id}&plot=short fetch. NULL = never OMDb-enriched —
+	// replaces the legacy sync_log(omdb, outcome='ok') TTL gate.
+	EnrichmentOMDBSyncedAt *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference

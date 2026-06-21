@@ -30,6 +30,21 @@ func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]
 	return nil, nil
 }
 
+// ListMissingTMDBSync — 464a: cold_start.go still calls the legacy
+// ListMissingSyncLog method during 464a, but the port now also requires
+// the new column-on-canon method. The fake stays on the legacy path
+// until 464b rewrites the loop; this returns the same payload so the
+// 464b switchover doesn't break the existing test coverage.
+func (f *fakeScanner) ListMissingTMDBSync(_ context.Context, _ int) ([]domain.SeriesID, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.pass.Add(1) == 1 {
+		return f.ids, nil
+	}
+	return nil, nil
+}
+
 // ListCanonImagesCorrupted — Story 319: cold_start_test cases never
 // touch the recovery path (it lives in the enrichment_wiring closure,
 // not in cold_start.go), so the fake returns an empty slice.
@@ -223,6 +238,22 @@ type countingScanner struct {
 }
 
 func (c *countingScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]domain.SeriesID, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.passes++
+	if c.err != nil {
+		return nil, c.err
+	}
+	if c.idsFn == nil {
+		return nil, nil
+	}
+	return c.idsFn(c.passes), nil
+}
+
+// ListMissingTMDBSync — 464a port addition. Mirrors the legacy method
+// so countingScanner's pass-counting behavior stays consistent under
+// 464b after cold_start.go switches to the new method.
+func (c *countingScanner) ListMissingTMDBSync(_ context.Context, _ int) ([]domain.SeriesID, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.passes++
