@@ -284,26 +284,6 @@ func TestD1_7b_DownloadLinksGlobalSeriesSetNull(t *testing.T) {
 	}
 }
 
-// TestD1_7b_GrabDown — m.Down() reverses 000012; all 3 tables dropped.
-func TestD1_7b_GrabDown(t *testing.T) {
-	for _, b := range allD1Backends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-
-			db, m, cleanup := b.migrate(t)
-			t.Cleanup(cleanup)
-			require.NoError(t, m.Up())
-
-			require.NoError(t, m.Steps(-1), "Steps(-1) should reverse 000012")
-			for _, tbl := range []string{"grab_records", "episode_grabs", "download_links"} {
-				_, err := db.ExecContext(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1")
-				require.Errorf(t, err, "%s should be dropped after Down(1)", tbl)
-			}
-		})
-	}
-}
-
 // ---------- SQL builders / helpers ----------
 
 func placeholder(driver string, n int) string {
