@@ -4887,10 +4887,6 @@ export type components = {
             readonly custom_unregistered_msgs?: readonly string[];
             /** @example true */
             readonly enabled?: boolean;
-            /** @example 1 */
-            readonly id?: number;
-            /** @example 7 */
-            readonly instance_id?: number;
             /** @example alpha */
             readonly instance_name?: string;
             /** @example 3 */

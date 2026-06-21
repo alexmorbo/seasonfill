@@ -1527,12 +1527,6 @@ components:
         enabled:
           example: true
           type: boolean
-        id:
-          example: 1
-          type: integer
-        instance_id:
-          example: 7
-          type: integer
         instance_name:
           example: alpha
           type: string
