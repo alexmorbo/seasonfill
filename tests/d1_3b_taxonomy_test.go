@@ -17,18 +17,19 @@ import (
 )
 
 // TestD13b_SchemaHasSeventeenTables — D-1-3a landed 5 (core + i18n);
-// D-1-3b appends 12 more (4 canon + 4 i18n + 4 joins) → 17 total. Bump
-// this in the next D-1-N batch.
+// D-1-3b appends 12 more (4 canon + 4 i18n + 4 joins) → 17 total at
+// 456b ship; D-1-4a (story 457a) appended 3 people-domain tables →
+// total grew to 20. Tip-of-tree count contract lives in
+// TestD14a_SchemaHasTwentyTables (d1_4a_people_test.go); this test now
+// loosens to a "12 D-1-3b tables PRESENT" assertion so it survives
+// future appends without per-story edits.
 func TestD13b_SchemaHasSeventeenTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 17; got != want {
-				t.Fatalf("table count = %d, want %d", got, want)
-			}
-			// Spot-check the 12 new tables are present.
+			// Spot-check the 12 D-1-3b tables are present.
 			present := map[string]bool{}
 			for _, tbl := range s.Tables {
 				present[tbl.Name] = true

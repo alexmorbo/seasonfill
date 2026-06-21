@@ -13,7 +13,8 @@
 // batch: series_texts, episode_texts. D-1-3b (story 456b) appends the
 // taxonomy + join batch: genres, networks, production_companies,
 // keywords + 4 i18n siblings + series_genres, series_networks,
-// series_companies, series_keywords.
+// series_companies, series_keywords. D-1-4a (story 457a) appends the
+// people canon batch: people, person_credits, person_biographies.
 package schema
 
 import (
@@ -93,7 +94,19 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addTaxonomyJoins(s, d)
 	}
 
-	// D-1-4..D-1-7 (stories 457..460) append further batches here.
+	// D-1-4a (story 457a) — canonical people + person_credits +
+	// person_biographies.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_PEOPLE=1 generates earlier
+	// migrations without people, so the follow-up
+	// `make migrations-diff NAME=people` produces 000005 cleanly. Production
+	// runtime never sets this var — production paths always materialize the
+	// full schema.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_PEOPLE") == "" {
+		addPeople(s, d)
+	}
+
+	// D-1-4b..D-1-7 (stories 457b..460) append further batches here.
 
 	return s
 }
@@ -560,6 +573,129 @@ func joinTable(
 				AddColumns(rightID).
 				SetRefTable(rightTable).
 				AddRefColumns(rightRef).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// addPeople appends the people canon dictionary + person_credits
+// (TMDB filmography materialization) + person_biographies (i18n bio
+// fan-out). Called from Schema(d) after addTaxonomyJoins.
+//
+// PRD §4.3 / §D-1 line 4389. Sourced from legacy migrations 000027 +
+// 000030 + 000038 (consolidated final shape — 000038 added 3 fields
+// to person_credits the mapper was silently dropping).
+//
+// FK cascade: person_biographies + person_credits use NoAction (canon-
+// to-canon). Operator never deletes person rows directly in practice;
+// if it ever happens, the children block on FK — that's the desired
+// safety net.
+func addPeople(s *atlasschema.Schema, d Dialect) {
+	people := buildPeopleTable(d)
+	s.AddTables(
+		people,
+		buildPersonCreditsTable(d, people),
+		// person_biographies — i18n shape (person_id, language) PK,
+		// single per-language `biography` text column. Reuses the
+		// D-1-3a i18nTextTable helper (no nameLookupIdx, no enriched_at).
+		i18nTextTable(d, "person_biographies", people, "person_id",
+			[]*atlasschema.Column{atlasschema.NewNullStringColumn("biography", "text")},
+			"", false),
+	)
+}
+
+// buildPeopleTable returns the canonical `people` table — 15 cols + 2
+// indexes (partial unique on tmdb_id; plain on imdb_id).
+//
+// Greenfield deviation from legacy 000027: gender is `integer` (was
+// smallint) — portable to SQLite without Atlas-side dialect mapping.
+// All other columns match legacy verbatim.
+//
+// Dedicated builder (NOT canonDictTable): people has 14 data columns
+// with a date type (birthday/deathday) and an imdb_id plain index — the
+// shape doesn't fit canonDictTable's thin contract.
+func buildPeopleTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	tmdbID := atlasschema.NewNullIntColumn("tmdb_id", "integer")
+	imdbID := atlasschema.NewNullStringColumn("imdb_id", "text")
+	hydration := atlasschema.NewStringColumn("hydration", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'stub'"})
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	originalName := atlasschema.NewNullStringColumn("original_name", "text")
+	gender := atlasschema.NewNullIntColumn("gender", "integer")
+	birthday := dateColumn(d, "birthday")
+	deathday := dateColumn(d, "deathday")
+	placeOfBirth := atlasschema.NewNullStringColumn("place_of_birth", "text")
+	knownForDept := atlasschema.NewNullStringColumn("known_for_department", "text")
+	popularity := atlasschema.NewNullFloatColumn("popularity", "double precision")
+	profileAsset := atlasschema.NewNullStringColumn("profile_asset", "text")
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("people").
+		AddColumns(
+			id, tmdbID, imdbID, hydration, name, originalName, gender,
+			birthday, deathday, placeOfBirth, knownForDept, popularity,
+			profileAsset, createdAt, updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialUniqueIndex(d, "people_tmdb_id",
+				[]*atlasschema.Column{tmdbID}, "tmdb_id IS NOT NULL"),
+			atlasschema.NewIndex("people_imdb_id").AddColumns(imdbID),
+		)
+}
+
+// buildPersonCreditsTable returns person_credits — 18 cols + 3 indexes
+// + FK person_id → people(id) NoAction. PRD §5.3 row "person_credits"
+// + legacy 000027/000030 + 000038 (department/original_title/tmdb_votes
+// addition).
+//
+// Greenfield deviation from legacy: department/original_title use `text`
+// (legacy used varchar(64)/varchar(255) — N/A on SQLite, redundant on
+// PG). See PRD §6.7 portability rule.
+func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	personID := fkColumn(d, "person_id", false)
+	tmdbCreditID := atlasschema.NewStringColumn("tmdb_credit_id", "text").SetNull(false)
+	mediaType := atlasschema.NewStringColumn("media_type", "text").SetNull(false)
+	tmdbMediaID := atlasschema.NewIntColumn("tmdb_media_id", "integer").SetNull(false)
+	title := atlasschema.NewStringColumn("title", "text").SetNull(false)
+	originalTitle := atlasschema.NewNullStringColumn("original_title", "text")
+	year := atlasschema.NewNullIntColumn("year", "integer")
+	characterName := atlasschema.NewNullStringColumn("character_name", "text")
+	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
+	department := atlasschema.NewNullStringColumn("department", "text")
+	job := atlasschema.NewNullStringColumn("job", "text")
+	posterPath := atlasschema.NewNullStringColumn("poster_path", "text")
+	voteAverage := atlasschema.NewNullFloatColumn("vote_average", "double precision")
+	tmdbVotes := atlasschema.NewNullIntColumn("tmdb_votes", "integer")
+	episodeCount := atlasschema.NewNullIntColumn("episode_count", "integer")
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("person_credits").
+		AddColumns(
+			id, personID, tmdbCreditID, mediaType, tmdbMediaID, title,
+			originalTitle, year, characterName, kind, department, job,
+			posterPath, voteAverage, tmdbVotes, episodeCount,
+			createdAt, updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("person_credits_credit").
+				AddColumns(personID, tmdbCreditID),
+			atlasschema.NewIndex("person_credits_media").
+				AddColumns(mediaType, tmdbMediaID),
+			atlasschema.NewIndex("person_credits_person").
+				AddColumns(personID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("person_credits_person_id_fkey").
+				AddColumns(personID).
+				SetRefTable(peopleTable).
+				AddRefColumns(parentRefCol(peopleTable)).
 				SetOnDelete(atlasschema.NoAction).
 				SetOnUpdate(atlasschema.NoAction),
 		)
