@@ -38,6 +38,12 @@
 // user_instance_tags (composite PK (user_id, instance_name); CASCADE
 // FKs to both parents). user_sessions is NOT in schema — auth is
 // stateless cookie HMAC + session_epoch in runtime_config.
+// D-1-7b (story 460b) appends the grab batch: grab_records (32 cols,
+// text(36) uuid PK; FK→sonarr_instance CASCADE + scan_runs SET NULL
+// deferred), episode_grabs (composite-PK link table, dual CASCADE), and
+// download_links (qbit_hash text(64) PK; dual-target sonarr/radarr via
+// CHECK; external_episode_ids TEXT JSON per §6.7; global_series_id
+// FK→series SET NULL).
 package schema
 
 import (
@@ -206,7 +212,23 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addAuth(s, d)
 	}
 
-	// D-1-7b (story 460b) appends grab tables here.
+	// D-1-7b (story 460b) — grab tables: grab_records (consolidated
+	// from legacy 000001+000005+000007+000012+000014+000016 into a
+	// single CREATE TABLE), episode_grabs (link table), download_links
+	// (qBit matcher cache per §5.4). FK to sonarr_instance CASCADE on
+	// grab_records + download_links; FK to series SET NULL on
+	// download_links.global_series_id; dual-CASCADE on episode_grabs
+	// (FK to grab_records + episodes). The scan_runs FK on
+	// grab_records.scan_run_id is OPTIONAL — declared only when the
+	// scan_runs table is already in s (it ships in a later D-1 batch).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_GRAB=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_GRAB") == "" {
+		addGrab(s, d)
+	}
+
+	// D-1-7c (story 460c) appends watchdog tables here.
 
 	return s
 }
@@ -1936,6 +1958,241 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 				SetRefTable(sonarrInstanceTable).
 				AddRefColumns(parentRefCol(sonarrInstanceTable)).
 				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// D-1-7b — grab tables.
+
+// addGrab appends the 3 grab tables to s. FK graph:
+//
+//	sonarr_instance.name ←CASCADE← grab_records.instance_name
+//	                     ←CASCADE← download_links.instance_name
+//	scan_runs.id         ←SETNULL← grab_records.scan_run_id (deferred until table lands)
+//	grab_records.id      ←CASCADE← episode_grabs.grab_id
+//	episodes.id          ←CASCADE← episode_grabs.episode_id
+//	series.id            ←SETNULL← download_links.global_series_id
+//
+// PRD reconciliations: instance keyed by text name (not bigint id);
+// external_episode_ids as TEXT JSON (SQLite has no array); grab_records.id
+// stays text(36) for uuid contract; episode_grabs is the link table.
+// Depends on sonarr_instance, episodes, series. scan_runs is OPTIONAL.
+func addGrab(s *atlasschema.Schema, d Dialect) {
+	sonarrInstance := mustTable(s, "sonarr_instance")
+	episodes := mustTable(s, "episodes")
+	series := mustTable(s, "series")
+
+	// scan_runs is optional — see buildGrabRecordsTable.
+	var scanRuns *atlasschema.Table
+	for _, t := range s.Tables {
+		if t.Name == "scan_runs" {
+			scanRuns = t
+			break
+		}
+	}
+
+	grabRecords := buildGrabRecordsTable(d, sonarrInstance, scanRuns)
+	s.AddTables(grabRecords)
+
+	episodeGrabs := buildEpisodeGrabsTable(d, grabRecords, episodes)
+	s.AddTables(episodeGrabs)
+
+	downloadLinks := buildDownloadLinksTable(d, sonarrInstance, series)
+	s.AddTables(downloadLinks)
+}
+
+// buildGrabRecordsTable returns grab_records — 32 cols, text(36) PK,
+// CHECK on status enum, 8 indexes incl. 1 partial for replay_of_id.
+// FKs: instance_name CASCADE, scan_run_id SET NULL (ONLY when scan_runs
+// is already in schema; column is NULL-able for watchdog replay rows).
+func buildGrabRecordsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Table) *atlasschema.Table {
+	id := atlasschema.NewStringColumn("id", "text").SetNull(false)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	seriesID := atlasschema.NewIntColumn("series_id", "bigint").SetNull(false)
+	seriesTitle := atlasschema.NewNullStringColumn("series_title", "text")
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	releaseGUID := atlasschema.NewNullStringColumn("release_guid", "text")
+	releaseTitle := atlasschema.NewNullStringColumn("release_title", "text")
+	downloadID := atlasschema.NewNullStringColumn("download_id", "text")
+	indexerID := atlasschema.NewNullIntColumn("indexer_id", "integer")
+	indexerName := atlasschema.NewNullStringColumn("indexer_name", "text")
+	customFormatScore := atlasschema.NewIntColumn("custom_format_score", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	quality := atlasschema.NewNullStringColumn("quality", "text")
+	coverageCount := atlasschema.NewIntColumn("coverage_count", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'pending'"})
+	errorMessage := atlasschema.NewNullStringColumn("error_message", "text")
+	scanRunID := atlasschema.NewNullStringColumn("scan_run_id", "text")
+	attempts := atlasschema.NewIntColumn("attempts", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	torrentHash := atlasschema.NewNullStringColumn("torrent_hash", "text")
+	replayOfID := atlasschema.NewNullStringColumn("replay_of_id", "text")
+	sizeBytes := atlasschema.NewNullIntColumn("size_bytes", "bigint")
+	parsedCodec := atlasschema.NewNullStringColumn("parsed_codec", "text")
+	parsedSource := atlasschema.NewNullStringColumn("parsed_source", "text")
+	parsedQuality := atlasschema.NewNullStringColumn("parsed_quality", "text")
+	parsedResolution := atlasschema.NewNullIntColumn("parsed_resolution", "integer")
+	parsedHDRFlags := atlasschema.NewNullStringColumn("parsed_hdr_flags", "text")
+	parsedDub := atlasschema.NewNullStringColumn("parsed_dub", "text")
+	parsedLanguages := atlasschema.NewNullStringColumn("parsed_languages", "text")
+	parsedSubs := atlasschema.NewNullStringColumn("parsed_subs", "text")
+	parsedReleaseGroup := atlasschema.NewNullStringColumn("parsed_release_group", "text")
+	parsedAt := timestampColumn(d, "parsed_at", false, false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	statusCheck := atlasschema.NewCheck().
+		SetName("grab_records_status_check").
+		SetExpr("status IN ('pending', 'grabbed', 'imported', 'failed', 'cancelled')")
+
+	tbl := atlasschema.NewTable("grab_records").
+		AddColumns(id, instanceName, seriesID, seriesTitle, seasonNumber,
+			releaseGUID, releaseTitle, downloadID,
+			indexerID, indexerName, customFormatScore, quality,
+			coverageCount, status, errorMessage, scanRunID, attempts,
+			torrentHash, replayOfID, sizeBytes,
+			parsedCodec, parsedSource, parsedQuality, parsedResolution,
+			parsedHDRFlags, parsedDub, parsedLanguages, parsedSubs,
+			parsedReleaseGroup, parsedAt,
+			createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("grab_records_inst_series_idx").
+				AddColumns(instanceName, seriesID, seasonNumber),
+			atlasschema.NewIndex("grab_records_dedupe_lookup_idx").
+				AddColumns(instanceName, seriesID, seasonNumber, releaseGUID),
+			atlasschema.NewIndex("grab_records_release_guid_idx").
+				AddColumns(releaseGUID),
+			atlasschema.NewIndex("grab_records_download_id_idx").
+				AddColumns(downloadID),
+			atlasschema.NewIndex("grab_records_scan_run_idx").
+				AddColumns(scanRunID),
+			atlasschema.NewIndex("grab_records_status_idx").
+				AddColumns(status),
+			atlasschema.NewIndex("grab_records_inst_created_idx").
+				AddColumns(instanceName, createdAt),
+			partialIndex(d, "grab_records_replay_of_idx",
+				[]*atlasschema.Column{replayOfID},
+				"replay_of_id IS NOT NULL"),
+		).
+		AddChecks(statusCheck).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("grab_records_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+
+	// Optional scan_runs FK — declared only when the table is in s.
+	if scanRuns != nil {
+		tbl.AddForeignKeys(
+			atlasschema.NewForeignKey("grab_records_scan_run_id_fkey").
+				AddColumns(scanRunID).
+				SetRefTable(scanRuns).
+				AddRefColumns(parentRefCol(scanRuns)).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+	}
+
+	return tbl
+}
+
+// buildEpisodeGrabsTable returns episode_grabs — 5 cols, composite PK
+// (grab_id, episode_id), dual CASCADE FKs. Reverse fan-out index on
+// (episode_id) for "all grabs covering episode Y".
+func buildEpisodeGrabsTable(d Dialect, grabRecords, episodes *atlasschema.Table) *atlasschema.Table {
+	grabID := atlasschema.NewStringColumn("grab_id", "text").SetNull(false)
+	episodeID := fkColumn(d, "episode_id", false /* not null */)
+	episodeNumber := atlasschema.NewIntColumn("episode_number", "integer").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("episode_grabs").
+		AddColumns(grabID, episodeID, episodeNumber, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(grabID, episodeID)).
+		AddIndexes(
+			atlasschema.NewIndex("episode_grabs_episode_idx").
+				AddColumns(episodeID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("episode_grabs_grab_id_fkey").
+				AddColumns(grabID).
+				SetRefTable(grabRecords).
+				AddRefColumns(parentRefCol(grabRecords)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("episode_grabs_episode_id_fkey").
+				AddColumns(episodeID).
+				SetRefTable(episodes).
+				AddRefColumns(parentRefCol(episodes)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildDownloadLinksTable returns download_links — qBit matcher cache
+// per PRD §5.4 line 5220. qbit_hash text(64) PK; 3 CHECKs enforcing
+// (sonarr+series_id) XOR (radarr+movie_id), source enum, and
+// instance_type enum. 3 indexes (global_series, instance+source,
+// instance+external_series). FKs: instance_name CASCADE,
+// global_series_id SET NULL (lets matcher re-resolve on next pass).
+func buildDownloadLinksTable(d Dialect, sonarrInstance, series *atlasschema.Table) *atlasschema.Table {
+	qbitHash := atlasschema.NewStringColumn("qbit_hash", "text").SetNull(false)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	instanceType := atlasschema.NewStringColumn("instance_type", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'sonarr'"})
+	externalSeriesID := atlasschema.NewNullIntColumn("external_series_id", "bigint")
+	externalMovieID := atlasschema.NewNullIntColumn("external_movie_id", "bigint")
+	externalEpisodeIDs := atlasschema.NewNullStringColumn("external_episode_ids", "text")
+	globalSeriesID := fkColumn(d, "global_series_id", true /* nullable */)
+	discoveredAt := timestampColumn(d, "discovered_at", true, true)
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	typeIDCheck := atlasschema.NewCheck().
+		SetName("download_links_type_id_check").
+		SetExpr("((instance_type = 'sonarr' AND external_series_id IS NOT NULL AND external_movie_id IS NULL) " +
+			"OR (instance_type = 'radarr' AND external_movie_id IS NOT NULL AND external_series_id IS NULL))")
+	sourceCheck := atlasschema.NewCheck().
+		SetName("download_links_source_check").
+		SetExpr("source IN ('webhook', 'arr-poll', 'instance-backfill')")
+	instanceTypeCheck := atlasschema.NewCheck().
+		SetName("download_links_instance_type_check").
+		SetExpr("instance_type IN ('sonarr', 'radarr')")
+
+	return atlasschema.NewTable("download_links").
+		AddColumns(qbitHash, instanceName, instanceType,
+			externalSeriesID, externalMovieID, externalEpisodeIDs,
+			globalSeriesID, discoveredAt, source,
+			createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(qbitHash)).
+		AddIndexes(
+			atlasschema.NewIndex("download_links_global_series_idx").
+				AddColumns(globalSeriesID),
+			atlasschema.NewIndex("download_links_instance_source_idx").
+				AddColumns(instanceName, source),
+			atlasschema.NewIndex("download_links_external_series_idx").
+				AddColumns(instanceName, externalSeriesID),
+		).
+		AddChecks(typeIDCheck, sourceCheck, instanceTypeCheck).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("download_links_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("download_links_global_series_id_fkey").
+				AddColumns(globalSeriesID).
+				SetRefTable(series).
+				AddRefColumns(parentRefCol(series)).
+				SetOnDelete(atlasschema.SetNull).
 				SetOnUpdate(atlasschema.NoAction),
 		)
 }
