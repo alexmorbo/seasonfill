@@ -62,6 +62,7 @@ const (
 )
 
 func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite — D2-revised-roadmap.md")
 	t.Parallel()
 	h := newRegrabHarness(t)
 

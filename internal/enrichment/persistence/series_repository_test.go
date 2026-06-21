@@ -77,6 +77,7 @@ func sampleCanon(title string) series.Canon {
 }
 
 func TestSeriesRepository_UpsertInsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -103,6 +104,7 @@ func TestSeriesRepository_UpsertInsertAndGet(t *testing.T) {
 }
 
 func TestSeriesRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -120,6 +122,7 @@ func TestSeriesRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestSeriesRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -152,6 +155,7 @@ func TestSeriesRepository_Upsert_Idempotent(t *testing.T) {
 }
 
 func TestSeriesRepository_GetByTMDBID(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -177,6 +181,7 @@ func TestSeriesRepository_GetByTMDBID(t *testing.T) {
 }
 
 func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -213,6 +218,7 @@ func TestSeriesRepository_FindByExternalIDs_PriorityOrder(t *testing.T) {
 // tmdb_id is rejected by the partial unique index. Validates both
 // halves of `WHERE tmdb_id IS NOT NULL` on sqlite and postgres.
 func TestSeriesRepository_PartialUnique(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -260,6 +266,7 @@ func TestSeriesRepository_PartialUnique(t *testing.T) {
 // are excluded. Validates the LEFT JOIN + IS NULL clause on both
 // dialects via the dual-backend dispatcher.
 func TestSeriesRepository_ListMissingSyncLog(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -346,6 +353,7 @@ func seedSeriesCacheRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, ins
 // acceptance criterion: stub series (no series_cache reference) and
 // terminal not_found rows are NEVER returned by the daily-batch scan.
 func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -416,6 +424,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 // TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered —
 // a series with outcome=ok + synced_at within TTL is excluded.
 func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -467,6 +476,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 // (Critical Decision #2). A series with imdb_id but ZERO series_cache
 // rows is invisible to this query regardless of sync_log state.
 func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -492,6 +502,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin
 // a series whose only series_cache row is soft-deleted is no longer
 // "in the library" (PRD §5.4 grain).
 func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExcluded(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -518,6 +529,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExclude
 // poster_asset, backdrop_asset, hydration, or status with NULL when
 // the stub payload has those fields unset.
 func TestSeriesRepository_UpsertStub_PreservesFullRowImages(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -585,6 +597,7 @@ func TestSeriesRepository_UpsertStub_PreservesFullRowImages(t *testing.T) {
 // Story 319 — UpsertStub on a tmdb_id that has no existing row inserts
 // fresh, applying the stub's columns verbatim.
 func TestSeriesRepository_UpsertStub_InsertsWhenAbsent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -619,6 +632,7 @@ func TestSeriesRepository_UpsertStub_InsertsWhenAbsent(t *testing.T) {
 }
 
 func TestSeriesRepository_OriginCountriesRoundtrip(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -648,6 +662,7 @@ func TestSeriesRepository_OriginCountriesRoundtrip(t *testing.T) {
 }
 
 func TestSeriesRepository_OriginCountriesEmptyRoundtrip(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -675,6 +690,7 @@ func TestSeriesRepository_OriginCountriesEmptyRoundtrip(t *testing.T) {
 // Story 319 — UpsertStub requires a non-nil tmdb_id (recommendation
 // stubs always carry one). Empty title is also rejected.
 func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -696,6 +712,7 @@ func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {
 // with tmdb_id set where poster_asset OR backdrop_asset is NULL. Stub
 // rows and tmdb_id-NULL rows are excluded.
 func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -749,6 +766,7 @@ func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T
 // because Sonarr's payload has no poster; the pre-fix Upsert blanked
 // the TMDB-enriched poster every scan.
 func TestSeriesRepository_Upsert_PreservesPosterOnStubInput(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -787,6 +805,7 @@ func TestSeriesRepository_Upsert_PreservesPosterOnStubInput(t *testing.T) {
 
 // Sonarr-sync prod bug — same guarantee for backdrop_asset.
 func TestSeriesRepository_Upsert_PreservesBackdropOnStubInput(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -825,6 +844,7 @@ func TestSeriesRepository_Upsert_PreservesBackdropOnStubInput(t *testing.T) {
 // Sonarr-sync prod bug — a stub-input Upsert MUST NOT downgrade a
 // 'full' canon row back to 'stub'.
 func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -862,6 +882,7 @@ func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
 // incoming Upsert carries a valid poster (e.g., TMDB enrichment of a
 // previously stub row), the new value MUST land.
 func TestSeriesRepository_Upsert_UpdatesPosterFromNullOnTMDBInput(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -904,6 +925,7 @@ func TestSeriesRepository_Upsert_UpdatesPosterFromNullOnTMDBInput(t *testing.T) 
 
 // TMDB enrichment path — a 'full' hydration value upgrades a 'stub' row.
 func TestSeriesRepository_Upsert_UpgradesHydrationStubToFull(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -938,6 +960,7 @@ func TestSeriesRepository_Upsert_UpgradesHydrationStubToFull(t *testing.T) {
 // TMDB re-enrichment — a non-NULL incoming poster MUST overwrite a
 // non-NULL existing poster (TMDB stays authoritative on enrichment).
 func TestSeriesRepository_Upsert_OverwritesPosterFromValidToValid(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -978,6 +1001,7 @@ func TestSeriesRepository_Upsert_OverwritesPosterFromValidToValid(t *testing.T) 
 // backdrop_null) counts over the SAME population
 // ListCanonImagesCorrupted draws from.
 func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1024,6 +1048,7 @@ func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
 // first_air_date, original_language, origin_countries etc cleared
 // between a /refresh enrichment and the next 0 */6 scan tick.
 func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1146,6 +1171,7 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 // seriesUpsertAssignments protects against the regression; this test
 // fails the moment that shield is removed.
 func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

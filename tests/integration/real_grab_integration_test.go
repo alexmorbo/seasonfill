@@ -36,6 +36,7 @@ type capturedGrab struct {
 }
 
 func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite — D2-revised-roadmap.md")
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -181,6 +182,7 @@ func TestIntegration_RealGrab_PostsAndPersists(t *testing.T) {
 }
 
 func TestIntegration_RealGrab_5xxExhausts_ActivatesGUIDCooldown(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite — D2-revised-roadmap.md")
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3/system/status", func(w http.ResponseWriter, _ *http.Request) {

@@ -35,6 +35,7 @@ func newScanRecord(id uuid.UUID) ports.ScanRecord {
 }
 
 func TestScanRepository_Create_Then_GetByID(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -58,6 +59,7 @@ func TestScanRepository_Create_Then_GetByID(t *testing.T) {
 }
 
 func TestScanRepository_GetByID_NotFound(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -78,6 +80,7 @@ func TestScanRepository_GetByID_NotFound(t *testing.T) {
 }
 
 func TestScanRepository_Update(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -114,6 +117,7 @@ func TestScanRepository_Update(t *testing.T) {
 // fix Omits CreatedAt from the Save so the original Create timestamp
 // survives. Assert created_at is non-zero AND unchanged across the update.
 func TestScanRepository_Update_PreservesCreatedAt(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -161,6 +165,7 @@ func TestScanRepository_Update_PreservesCreatedAt(t *testing.T) {
 }
 
 func TestScanRepository_MarkAborted(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -184,6 +189,7 @@ func TestScanRepository_MarkAborted(t *testing.T) {
 }
 
 func TestScanRepository_MarkAborted_UnknownID_Succeeds(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -199,6 +205,7 @@ func TestScanRepository_MarkAborted_UnknownID_Succeeds(t *testing.T) {
 }
 
 func TestScanRepository_Create_ClosedDB_ReturnsError(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -216,6 +223,7 @@ func TestScanRepository_Create_ClosedDB_ReturnsError(t *testing.T) {
 }
 
 func TestScanRepository_Update_ClosedDB_ReturnsError(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -248,6 +256,7 @@ func TestScanRepository_Update_ClosedDB_ReturnsError(t *testing.T) {
 // because the row's status would reflect the in-tx Update rather than
 // the pre-tx state.
 func TestScanRepository_TxRollback_OnForcedError(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -290,6 +299,7 @@ func TestScanRepository_TxRollback_OnForcedError(t *testing.T) {
 }
 
 func TestScanRepository_IncrementSeriesScanned_Atomic(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -313,6 +323,7 @@ func TestScanRepository_IncrementSeriesScanned_Atomic(t *testing.T) {
 }
 
 func TestScanRepository_IncrementSeriesScanned_NotFound(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

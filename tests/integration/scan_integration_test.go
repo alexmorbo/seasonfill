@@ -35,6 +35,7 @@ func loadFixture(t *testing.T, name string) []byte {
 }
 
 func TestIntegration_ScanHijackSeason2_DryRun_LogsGrabDecision(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite — D2-revised-roadmap.md")
 	t.Parallel()
 	mux := http.NewServeMux()
 

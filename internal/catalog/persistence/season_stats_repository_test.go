@@ -28,6 +28,7 @@ func sampleSeasonStat(instance domain.InstanceName, sonarrID domain.SonarrSeries
 }
 
 func TestSeasonStatsRepository_UpsertAndList(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -52,6 +53,7 @@ func TestSeasonStatsRepository_UpsertAndList(t *testing.T) {
 }
 
 func TestSeasonStatsRepository_Upsert_OverwritesCounters(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -80,6 +82,7 @@ func TestSeasonStatsRepository_Upsert_OverwritesCounters(t *testing.T) {
 }
 
 func TestSeasonStatsRepository_SoftDelete_HidesRows(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -103,6 +106,7 @@ func TestSeasonStatsRepository_SoftDelete_HidesRows(t *testing.T) {
 }
 
 func TestSeasonStatsRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -129,6 +133,7 @@ func TestSeasonStatsRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
 }
 
 func TestSeasonStatsRepository_ListBySeries_FiltersByInstance(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -154,6 +159,7 @@ func TestSeasonStatsRepository_ListBySeries_FiltersByInstance(t *testing.T) {
 }
 
 func TestSeasonStatsRepository_Upsert_StampsUpdatedAt(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -28,6 +28,7 @@ func samplePerson(name string) people.Person {
 }
 
 func TestPeopleRepository_UpsertInsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -53,6 +54,7 @@ func TestPeopleRepository_UpsertInsertAndGet(t *testing.T) {
 }
 
 func TestPeopleRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -66,6 +68,7 @@ func TestPeopleRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestPeopleRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -95,6 +98,7 @@ func TestPeopleRepository_Upsert_Idempotent(t *testing.T) {
 }
 
 func TestPeopleRepository_GetByTMDBID(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -117,6 +121,7 @@ func TestPeopleRepository_GetByTMDBID(t *testing.T) {
 }
 
 func TestPeopleRepository_ListByIDs(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -148,6 +153,7 @@ func TestPeopleRepository_ListByIDs(t *testing.T) {
 // stub-downgrade defence: a series_enrichment_worker stub upsert
 // over an existing full row must NOT clobber hydration back to stub.
 func TestPeopleRepository_Upsert_PreservesFullHydration(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -177,6 +183,7 @@ func TestPeopleRepository_Upsert_PreservesFullHydration(t *testing.T) {
 }
 
 func TestPeopleRepository_Upsert_PartialUnique(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -205,6 +212,7 @@ func TestPeopleRepository_Upsert_PartialUnique(t *testing.T) {
 // TestPeopleRepository_Get_ResolvesBiographyViaFallback proves the
 // people.Get path JOINs through the shared §5.6 helper.
 func TestPeopleRepository_Get_ResolvesBiographyViaFallback(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

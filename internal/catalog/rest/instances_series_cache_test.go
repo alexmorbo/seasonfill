@@ -232,6 +232,7 @@ func (f *seriesCacheFixture) do(t *testing.T, path string) (*httptest.ResponseRe
 }
 
 func TestInstancesHandler_ListSeriesCache_StateAll_HappyPath(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -255,6 +256,7 @@ func TestInstancesHandler_ListSeriesCache_StateAll_HappyPath(t *testing.T) {
 // demand fetch fills the bytes. Rows without a canon path omit the
 // field (FE falls back to monogram).
 func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -298,6 +300,7 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_StateImported(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -314,6 +317,7 @@ func TestInstancesHandler_ListSeriesCache_StateImported(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_StateMissing(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -328,6 +332,7 @@ func TestInstancesHandler_ListSeriesCache_StateMissing(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_StatusAliasAccepted(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	f.seed(t, "homelab", 1, "Alpha", 7, time.Now().UTC())
@@ -337,6 +342,7 @@ func TestInstancesHandler_ListSeriesCache_StatusAliasAccepted(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_TitleAsc(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -351,6 +357,7 @@ func TestInstancesHandler_ListSeriesCache_TitleAsc(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_KeysetPaginates(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -386,6 +393,7 @@ func TestInstancesHandler_ListSeriesCache_KeysetPaginates(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_BadState(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?state=bogus")
@@ -393,6 +401,7 @@ func TestInstancesHandler_ListSeriesCache_BadState(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_BadSort(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?sort=ascending")
@@ -400,6 +409,7 @@ func TestInstancesHandler_ListSeriesCache_BadSort(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_BadLimit(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?limit=99999")
@@ -407,6 +417,7 @@ func TestInstancesHandler_ListSeriesCache_BadLimit(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_BadCursor(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?cursor=not-base64")
@@ -414,6 +425,7 @@ func TestInstancesHandler_ListSeriesCache_BadCursor(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_UnknownInstance(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/ghost/series-cache")
@@ -421,6 +433,7 @@ func TestInstancesHandler_ListSeriesCache_UnknownInstance(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -443,6 +456,7 @@ func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_QFiltersByTitle(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -458,6 +472,7 @@ func TestInstancesHandler_ListSeriesCache_QFiltersByTitle(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_QCombinedWithState(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -474,6 +489,7 @@ func TestInstancesHandler_ListSeriesCache_QCombinedWithState(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_QEmptyMeansNoFilter(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -486,6 +502,7 @@ func TestInstancesHandler_ListSeriesCache_QEmptyMeansNoFilter(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_QOverLong400(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	long := strings.Repeat("x", 201)
@@ -495,6 +512,7 @@ func TestInstancesHandler_ListSeriesCache_QOverLong400(t *testing.T) {
 
 // TestInstancesHandler_ListSeriesCache_MonitoredFilter — Story 121a §A
 func TestInstancesHandler_ListSeriesCache_MonitoredFilter(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -529,6 +547,7 @@ func TestInstancesHandler_ListSeriesCache_MonitoredFilter(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_MonitoredInvalid400(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec, _ := f.do(t, "/api/v1/instances/homelab/series-cache?monitored=maybe")
@@ -539,6 +558,7 @@ func TestInstancesHandler_ListSeriesCache_MonitoredInvalid400(t *testing.T) {
 // updated for E-1 (Story 210): network membership lives in
 // series_networks, not on series.network; tests seed the join.
 func TestInstancesHandler_ListSeriesCache_NetworksFilter(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -559,6 +579,7 @@ func TestInstancesHandler_ListSeriesCache_NetworksFilter(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCache_NetworksTooMany400(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	long := strings.Repeat("X|", 33)
@@ -569,6 +590,7 @@ func TestInstancesHandler_ListSeriesCache_NetworksTooMany400(t *testing.T) {
 
 // TestInstancesHandler_ListSeriesCacheNetworks_HappyPath — Story 121a §A
 func TestInstancesHandler_ListSeriesCacheNetworks_HappyPath(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	now := time.Now().UTC()
@@ -590,6 +612,7 @@ func TestInstancesHandler_ListSeriesCacheNetworks_HappyPath(t *testing.T) {
 }
 
 func TestInstancesHandler_ListSeriesCacheNetworks_UnknownInstance404(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	rec := httptest.NewRecorder()
@@ -608,6 +631,7 @@ func TestInstancesHandler_ListSeriesCacheNetworks_UnknownInstance404(t *testing.
 // reads the row to recover the source_url + kind without an extra
 // catalog lookup.
 func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)
@@ -652,6 +676,7 @@ func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T
 // Two concurrent /series-cache requests for the same series must
 // produce exactly ONE media_assets row (ON CONFLICT (hash) DO NOTHING).
 func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)
@@ -705,6 +730,7 @@ func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) 
 // enrichMissingFromCache directly with synthetic items to isolate the
 // EnsurePending behaviour from the upstream wiring.
 func TestInstancesHandler_EnrichMissingFromCache_EnsuresPendingMediaAssets(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)

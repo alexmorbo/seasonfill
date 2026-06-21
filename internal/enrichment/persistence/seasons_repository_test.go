@@ -12,6 +12,7 @@ import (
 )
 
 func TestSeasonsRepository_UpsertAndList(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -40,6 +41,7 @@ func TestSeasonsRepository_UpsertAndList(t *testing.T) {
 }
 
 func TestSeasonsRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

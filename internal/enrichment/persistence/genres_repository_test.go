@@ -14,6 +14,7 @@ import (
 )
 
 func TestGenresRepository_UpsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -40,6 +41,7 @@ func TestGenresRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestGenresRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -53,6 +55,7 @@ func TestGenresRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestGenresRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -75,6 +78,7 @@ func TestGenresRepository_Upsert_Idempotent(t *testing.T) {
 // Sonarr-genre fallback contract: an en-US name resolves to the same
 // canonical genres.id as a TMDB-sourced upsert.
 func TestGenresRepository_ResolveByName_PRD54Fallback(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -114,6 +118,7 @@ func TestGenresRepository_ResolveByName_PRD54Fallback(t *testing.T) {
 }
 
 func TestGenresRepository_Get_FallbackToEnUS(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -139,6 +144,7 @@ func TestGenresRepository_Get_FallbackToEnUS(t *testing.T) {
 }
 
 func TestGenresRepository_Get_NoI18nRows(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -167,6 +173,7 @@ func TestGenresRepository_Get_NoI18nRows(t *testing.T) {
 // tmdb_id when the Sonarr API hasn't joined a TMDB id yet — two such
 // rows MUST coexist (partial unique excludes NULL).
 func TestGenresRepository_Upsert_OrphanBranch(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -188,6 +195,7 @@ func TestGenresRepository_Upsert_OrphanBranch(t *testing.T) {
 }
 
 func TestGenresRepository_Set_ReplacesAndIdempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

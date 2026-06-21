@@ -2,19 +2,10 @@ package persistence
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"time"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	database "github.com/alexmorbo/seasonfill/internal/shared/db"
-	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
-	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type QbitSettingsRepository struct {
@@ -25,152 +16,35 @@ func NewQbitSettingsRepository(db *gorm.DB) *QbitSettingsRepository {
 	return &QbitSettingsRepository{db: db}
 }
 
-// Upsert writes or replaces the per-instance settings row. The DB unique
-// index on instance_id is the conflict key. The repo serialises
-// CustomUnregisteredMsgs to a JSON array (empty slice → "[]") so the
-// column never holds NULL.
 func (r *QbitSettingsRepository) Upsert(ctx context.Context, rec ports.QbitSettingsRecord) error {
-	if rec.InstanceID == 0 {
-		return fmt.Errorf("upsert qbit settings: instance_id must be non-zero")
-	}
-	now := time.Now().UTC()
-	if rec.CreatedAt.IsZero() {
-		rec.CreatedAt = now
-	}
-	rec.UpdatedAt = now
-
-	msgs := rec.CustomUnregisteredMsgs
-	if msgs == nil {
-		msgs = []string{}
-	}
-	raw, err := json.Marshal(msgs)
-	if err != nil {
-		return fmt.Errorf("marshal custom_unregistered_msgs: %w", err)
-	}
-
-	model := database.InstanceQbitSettingsModel{
-		InstanceID:             rec.InstanceID,
-		Enabled:                rec.Enabled,
-		URL:                    rec.URL,
-		Username:               rec.Username,
-		PasswordEncrypted:      rec.PasswordEncrypted,
-		Category:               rec.Category,
-		PollIntervalMinutes:    rec.PollIntervalMinutes,
-		RegrabCooldownHours:    rec.RegrabCooldownHours,
-		MaxConsecutiveNoBetter: rec.MaxConsecutiveNoBetter,
-		CustomUnregisteredMsgs: datatypes.JSON(raw),
-		PublicURL:              publicURLPtr(rec.PublicURL),
-		CreatedAt:              rec.CreatedAt,
-		UpdatedAt:              rec.UpdatedAt,
-	}
-
-	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "instance_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"enabled", "url", "username", "password_encrypted",
-			"category", "poll_interval_minutes", "regrab_cooldown_hours",
-			"max_consecutive_no_better", "custom_unregistered_msgs",
-			"qbit_public_url",
-			"updated_at",
-		}),
-	}).Create(&model)
-	if res.Error != nil {
-		return fmt.Errorf("upsert qbit settings: %w", res.Error)
-	}
-	return nil
+	_ = ctx
+	_ = rec
+	panic("not implemented — pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 }
 
-// GetByInstance returns the settings row for the instance.
-// ports.ErrNotFound on miss.
 func (r *QbitSettingsRepository) GetByInstance(ctx context.Context, instanceID uint) (ports.QbitSettingsRecord, error) {
-	var m database.InstanceQbitSettingsModel
-	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
-		Where("instance_id = ?", instanceID).First(&m).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ports.QbitSettingsRecord{}, errors.Join(
-				&sharedErrors.QbitSettingsNotFoundError{InstanceID: instanceID},
-				ports.ErrNotFound,
-			)
-		}
-		return ports.QbitSettingsRecord{}, fmt.Errorf("get qbit settings: %w", err)
-	}
-	return toQbitSettingsRecord(m)
+	_ = ctx
+	_ = instanceID
+	panic("not implemented — pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 }
 
-// DeleteByInstance removes the row. ports.ErrNotFound on miss.
 func (r *QbitSettingsRepository) DeleteByInstance(ctx context.Context, instanceID uint) error {
-	res := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
-		Where("instance_id = ?", instanceID).
-		Delete(&database.InstanceQbitSettingsModel{})
-	if res.Error != nil {
-		return fmt.Errorf("delete qbit settings: %w", res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	_ = ctx
+	_ = instanceID
+	panic("not implemented — pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 }
 
-// List returns every settings row. Used by the regrab loop bootstrap
-// (039g) to seed its per-instance sub-loops.
+// List returns every settings row. D-2 boot-survival stub: called
+// synchronously by the OnApplied fanout closure when bus.Publish
+// runs at boot — a panic here is NOT recovered (not lifecycle.Go
+// wrapped) and would kill the process. Returning empty slice + nil
+// lets the fanout proceed; the watchdog regrab + torrentsync loops
+// see no qBit settings (no instances configured anyway given
+// InstanceRepository.List also returns empty during D-2..D-5).
+// Pending D-6 grab+watchdog rewrite.
 func (r *QbitSettingsRepository) List(ctx context.Context) ([]ports.QbitSettingsRecord, error) {
-	var models []database.InstanceQbitSettingsModel
-	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
-		Find(&models).Error; err != nil {
-		return nil, fmt.Errorf("list qbit settings: %w", err)
-	}
-	out := make([]ports.QbitSettingsRecord, 0, len(models))
-	for _, m := range models {
-		rec, err := toQbitSettingsRecord(m)
-		if err != nil {
-			return nil, fmt.Errorf("list qbit settings: %w", err)
-		}
-		out = append(out, rec)
-	}
-	return out, nil
-}
-
-func toQbitSettingsRecord(m database.InstanceQbitSettingsModel) (ports.QbitSettingsRecord, error) {
-	var msgs []string
-	if len(m.CustomUnregisteredMsgs) > 0 {
-		if err := json.Unmarshal(m.CustomUnregisteredMsgs, &msgs); err != nil {
-			return ports.QbitSettingsRecord{}, fmt.Errorf("unmarshal custom_unregistered_msgs: %w", err)
-		}
-	}
-	if msgs == nil {
-		msgs = []string{}
-	}
-	publicURL := ""
-	if m.PublicURL != nil {
-		publicURL = *m.PublicURL
-	}
-	return ports.QbitSettingsRecord{
-		ID:                     m.ID,
-		InstanceID:             m.InstanceID,
-		Enabled:                m.Enabled,
-		URL:                    m.URL,
-		Username:               m.Username,
-		PasswordEncrypted:      m.PasswordEncrypted,
-		Category:               m.Category,
-		PollIntervalMinutes:    m.PollIntervalMinutes,
-		RegrabCooldownHours:    m.RegrabCooldownHours,
-		MaxConsecutiveNoBetter: m.MaxConsecutiveNoBetter,
-		CustomUnregisteredMsgs: msgs,
-		PublicURL:              publicURL,
-		CreatedAt:              m.CreatedAt,
-		UpdatedAt:              m.UpdatedAt,
-	}, nil
-}
-
-// publicURLPtr normalises empty strings to nil so the DB column stores
-// NULL rather than the empty string. Trimming is the caller's job; this
-// is a pure marshalling helper.
-func publicURLPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
+	_ = ctx
+	return nil, nil
 }
 
 var _ ports.QbitSettingsRepository = (*QbitSettingsRepository)(nil)

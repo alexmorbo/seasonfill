@@ -28,7 +28,7 @@ func TestAllBackends_DefaultIsSQLiteOnly(t *testing.T) {
 	db := backends[0].NewDB(t)
 	require.NotNil(t, db)
 	assert.Equal(t, "sqlite", db.Name())
-	assert.True(t, db.Migrator().HasTable("scan_runs"),
+	assert.True(t, db.Migrator().HasTable("series"),
 		"sqlite backend must run all migrations")
 }
 
@@ -51,7 +51,7 @@ func TestAllBackends_PostgresEnabledAddsBackend(t *testing.T) {
 		t.Run(b.Name, func(t *testing.T) {
 			db := b.NewDB(t)
 			require.NotNil(t, db)
-			assert.True(t, db.Migrator().HasTable("scan_runs"),
+			assert.True(t, db.Migrator().HasTable("series"),
 				"%s backend must run all migrations", b.Name)
 		})
 	}
@@ -71,16 +71,16 @@ func TestAllBackends_IsolationAcrossCalls(t *testing.T) {
 	dbB := backends[0].NewDB(t)
 	require.NotSame(t, dbA, dbB, "each NewDB call must return a fresh handle")
 
-	// Writes to dbA do not bleed into dbB. We use scan_runs as the
+	// Writes to dbA do not bleed into dbB. We use series as the
 	// witness because every migrated DB has it and it's writable
 	// with no FK dependencies.
-	require.NoError(t, dbA.Exec(`INSERT INTO scan_runs
-		(id, instance_name, status, started_at, finished_at)
-		VALUES ('aaaa', 'main', 'completed', '2026-01-01 00:00:00', '2026-01-01 00:00:01')`).Error)
+	require.NoError(t, dbA.Exec(`INSERT INTO series
+		(title, hydration, origin_countries)
+		VALUES ('Test', 'stub', '[]')`).Error)
 
 	var countA, countB int64
-	require.NoError(t, dbA.Raw(`SELECT COUNT(*) FROM scan_runs`).Scan(&countA).Error)
-	require.NoError(t, dbB.Raw(`SELECT COUNT(*) FROM scan_runs`).Scan(&countB).Error)
+	require.NoError(t, dbA.Raw(`SELECT COUNT(*) FROM series`).Scan(&countA).Error)
+	require.NoError(t, dbB.Raw(`SELECT COUNT(*) FROM series`).Scan(&countB).Error)
 	assert.Equal(t, int64(1), countA)
 	assert.Equal(t, int64(0), countB, "second DB must not see writes to the first")
 }

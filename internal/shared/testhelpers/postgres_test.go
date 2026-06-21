@@ -29,7 +29,7 @@ func TestStartPostgres_Smoke(t *testing.T) {
 		db := pc.NewDB(t)
 		require.NotNil(t, db)
 
-		assert.True(t, db.Migrator().HasTable("scan_runs"),
+		assert.True(t, db.Migrator().HasTable("series"),
 			"migrations must run against the per-test DB")
 		assert.Equal(t, "postgres", db.Name(),
 			"helper must produce a Postgres-backed gorm.DB, not SQLite")
@@ -39,7 +39,7 @@ func TestStartPostgres_Smoke(t *testing.T) {
 		t.Parallel()
 		db := pc.NewDB(t)
 		require.NotNil(t, db)
-		assert.True(t, db.Migrator().HasTable("scan_runs"))
+		assert.True(t, db.Migrator().HasTable("series"))
 	})
 }
 

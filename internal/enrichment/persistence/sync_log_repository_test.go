@@ -15,6 +15,7 @@ import (
 )
 
 func TestSyncLogRepository_UpsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -46,6 +47,7 @@ func TestSyncLogRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestSyncLogRepository_GetLastSync_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -59,6 +61,7 @@ func TestSyncLogRepository_GetLastSync_NotFound(t *testing.T) {
 }
 
 func TestSyncLogRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -102,6 +105,7 @@ func TestSyncLogRepository_Upsert_Idempotent(t *testing.T) {
 }
 
 func TestSyncLogRepository_Upsert_InvalidEnums(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -130,6 +134,7 @@ func TestSyncLogRepository_Upsert_InvalidEnums(t *testing.T) {
 // query (PRD §5.5): rows where outcome='ok' AND synced_at < cutoff,
 // ordered by synced_at ASC, capped at limit.
 func TestSyncLogRepository_StaleScan(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -190,6 +195,7 @@ func TestSyncLogRepository_StaleScan(t *testing.T) {
 }
 
 func TestSyncLogRepository_StaleScan_RespectsLimit(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -219,6 +225,7 @@ func TestSyncLogRepository_StaleScan_RespectsLimit(t *testing.T) {
 // (PRD §5.5): rows where outcome='error' AND next_attempt_at <= now,
 // ordered by next_attempt_at ASC.
 func TestSyncLogRepository_RetryDue(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

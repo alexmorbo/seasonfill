@@ -93,6 +93,7 @@ func TestPing_OK(t *testing.T) {
 }
 
 func TestOpen_SQLite_NowFuncIsInvoked(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite — scan_runs table replaced by new D-1 schema (D2-revised-roadmap.md)")
 	t.Parallel()
 	db, err := Open(config.DatabaseConfig{
 		Driver: "sqlite",

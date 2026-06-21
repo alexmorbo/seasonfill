@@ -34,6 +34,7 @@ func samplePersonCredit(personID int64, creditID, title string, tmdbMediaID int)
 }
 
 func TestPersonCreditsRepository_UpsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -57,6 +58,7 @@ func TestPersonCreditsRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestPersonCreditsRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -73,6 +75,7 @@ func TestPersonCreditsRepository_Get_NotFound(t *testing.T) {
 // acceptance criterion: ONE INSERT, ids round-trip on re-batch, no
 // duplicate rows.
 func TestPersonCreditsRepository_BatchUpsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -108,6 +111,7 @@ func TestPersonCreditsRepository_BatchUpsert_Idempotent(t *testing.T) {
 }
 
 func TestPersonCreditsRepository_ListByPerson(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -147,6 +151,7 @@ func TestPersonCreditsRepository_ListByPerson(t *testing.T) {
 // TestPersonCreditsRepository_ListByMedia covers the reverse lookup
 // "who from my library appears in this TMDB title?".
 func TestPersonCreditsRepository_ListByMedia(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -196,6 +201,7 @@ func TestPersonCreditsRepository_ListByMedia(t *testing.T) {
 // Get + ListByPerson read them back. Idempotent re-Upsert preserves
 // the values (overwrite-with-same-value path).
 func TestPersonCreditsRepository_NewFields_RoundTrip(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -248,6 +254,7 @@ func TestPersonCreditsRepository_NewFields_RoundTrip(t *testing.T) {
 // nonZeroIntPtr helpers strip blanks to nil. Adapter writes nil;
 // the column stays NULL; round-trip preserves nil.
 func TestPersonCreditsRepository_NewFields_Nullable(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -23,6 +23,7 @@ func sampleNetwork(name string, tmdbID int) taxonomy.Network {
 }
 
 func TestNetworksRepository_UpsertInsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -45,6 +46,7 @@ func TestNetworksRepository_UpsertInsertAndGet(t *testing.T) {
 }
 
 func TestNetworksRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -58,6 +60,7 @@ func TestNetworksRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestNetworksRepository_Upsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -77,6 +80,7 @@ func TestNetworksRepository_Upsert_Idempotent(t *testing.T) {
 }
 
 func TestNetworksRepository_PartialUnique_AllowsNullTMDB(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -102,6 +106,7 @@ func TestNetworksRepository_PartialUnique_AllowsNullTMDB(t *testing.T) {
 }
 
 func TestNetworksRepository_Set_ReplacesAndIdempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 )
 
 func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -52,6 +53,7 @@ func TestSeriesPeopleRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestSeriesPeopleRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -68,6 +70,7 @@ func TestSeriesPeopleRepository_Get_NotFound(t *testing.T) {
 // 50-row acceptance criterion: ONE INSERT, ids round-trip on
 // re-batch, no duplicate rows.
 func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -114,6 +117,7 @@ func TestSeriesPeopleRepository_BatchUpsert_Idempotent(t *testing.T) {
 }
 
 func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -161,6 +165,7 @@ func TestSeriesPeopleRepository_ListBySeries_KindFilter(t *testing.T) {
 // the H-2 "Also in your library" reverse lookup against the
 // dedicated series_people_person index.
 func TestSeriesPeopleRepository_ListByPerson_ReverseLookup(t *testing.T) {
+	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

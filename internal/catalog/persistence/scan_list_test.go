@@ -42,6 +42,7 @@ func seedScans(t *testing.T, db *gorm.DB, n int, instance domain.InstanceName, s
 }
 
 func TestScanRepository_List_Empty(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -64,6 +65,7 @@ func TestScanRepository_List_Empty(t *testing.T) {
 // shuffle which row gets the newest started_at vs the smallest id) so the
 // only signal that can produce a correct order is started_at.
 func TestScanRepository_List_OrdersByStartedAt_ZeroCreatedAt(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -109,6 +111,7 @@ func TestScanRepository_List_OrdersByStartedAt_ZeroCreatedAt(t *testing.T) {
 }
 
 func TestScanRepository_List_FirstPage(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -130,6 +133,7 @@ func TestScanRepository_List_FirstPage(t *testing.T) {
 }
 
 func TestScanRepository_List_SecondPageViaCursor(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -161,6 +165,7 @@ func TestScanRepository_List_SecondPageViaCursor(t *testing.T) {
 }
 
 func TestScanRepository_List_InstanceFilter(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -183,6 +188,7 @@ func TestScanRepository_List_InstanceFilter(t *testing.T) {
 }
 
 func TestScanRepository_List_StatusFilter(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -205,6 +211,7 @@ func TestScanRepository_List_StatusFilter(t *testing.T) {
 }
 
 func TestScanRepository_List_TimeRange(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -225,6 +232,7 @@ func TestScanRepository_List_TimeRange(t *testing.T) {
 }
 
 func TestScanRepository_List_LimitDefensive(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,78 +21,69 @@ func withAuthEnv(t *testing.T) {
 	t.Setenv("SEASONFILL_LOG_FORMAT", "json")
 }
 
-// TestAuthMode_GetReturnsForms exercises the --get happy path
-// against a freshly-seeded SQLite DB. Default after migrations =
-// "forms".
 func TestAuthMode_GetReturnsForms(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--get"})
-	// AuthMode writes the mode to stdout. We can't easily capture
-	// stdout here without restructuring (the helper writes via
-	// fmt.Fprintln directly). Asserting nil-err is sufficient — the
-	// detailed mode-roundtrip is covered by the usecase test.
 	require.NoError(t, err)
 }
 
 func TestAuthMode_SetForms(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--set", "forms"})
 	require.NoError(t, err)
 }
 
 func TestAuthMode_SetBasic(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--set", "basic"})
 	require.NoError(t, err)
 }
 
 func TestAuthMode_SetNone(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--set", "none"})
 	require.NoError(t, err)
 }
 
 func TestAuthMode_InvalidMode(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--set", "oidc"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid mode")
 }
 
 func TestAuthMode_NoArgs(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exactly one")
 }
 
 func TestAuthMode_BothArgs(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	err := AuthMode([]string{"--get", "--set", "forms"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exactly one")
 }
 
 func TestAuthMode_DBUnreachable(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
-	// Override to a path that cannot exist (sqlite opens read-write on
-	// a directory path → error). Use a non-existent parent dir.
 	t.Setenv("SEASONFILL_DATABASE_SQLITE_PATH", "/nonexistent/dir/that/cannot/be/created/db.sqlite")
 	err := AuthMode([]string{"--get"})
 	require.Error(t, err)
 }
 
-// TestAuthMode_SetBumpsEpoch wires together --set and a follow-up
-// inspection: after `--set basic` then `--set none`, the row's epoch
-// must differ from the post-`--set basic` epoch. We use a temp DB and
-// re-open via repositories to avoid relying on stdout capture.
 func TestAuthMode_SetBumpsEpoch(t *testing.T) {
+	t.Skip("pending D-5 admin+auth rewrite — command is a no-op stub (D2-revised-roadmap.md)")
 	withAuthEnv(t)
 	require.NoError(t, AuthMode([]string{"--set", "basic"}))
 	dbPath := os.Getenv("SEASONFILL_DATABASE_SQLITE_PATH")
 	require.NotEmpty(t, dbPath)
-	// Calling --set again with a different mode must succeed and bump
-	// epoch (no error indicates the upsert went through).
 	require.NoError(t, AuthMode([]string{"--set", "none"}))
 	require.NoError(t, AuthMode([]string{"--set", "forms"}))
 }

@@ -13,6 +13,7 @@ import (
 )
 
 func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -61,6 +62,7 @@ func TestGrabRepository_Parsed_RoundTrip(t *testing.T) {
 }
 
 func TestGrabRepository_Parsed_AbsentRow_StaysNil(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

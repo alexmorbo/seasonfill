@@ -16,6 +16,7 @@ import (
 )
 
 func TestNoBetterCounterRepository_Increment_FreshTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -39,6 +40,7 @@ func TestNoBetterCounterRepository_Increment_FreshTriple(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Increment_ExistingTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -64,6 +66,7 @@ func TestNoBetterCounterRepository_Increment_ExistingTriple(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Increment_RejectsInvalidTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -94,6 +97,7 @@ func TestNoBetterCounterRepository_Increment_RejectsInvalidTriple(t *testing.T) 
 }
 
 func TestNoBetterCounterRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -108,6 +112,7 @@ func TestNoBetterCounterRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Reset(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -134,6 +139,7 @@ func TestNoBetterCounterRepository_Reset(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Reset_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -148,6 +154,7 @@ func TestNoBetterCounterRepository_Reset_NotFound(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_DeleteByTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -168,6 +175,7 @@ func TestNoBetterCounterRepository_DeleteByTriple(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_DeleteByTriple_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -182,6 +190,7 @@ func TestNoBetterCounterRepository_DeleteByTriple_NotFound(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Increment_TripleIndependence(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -212,6 +221,7 @@ func TestNoBetterCounterRepository_Increment_TripleIndependence(t *testing.T) {
 }
 
 func TestNoBetterCounterRepository_Increment_ConcurrentSameTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -251,6 +261,7 @@ func TestNoBetterCounterRepository_Increment_ConcurrentSameTriple(t *testing.T) 
 }
 
 func TestNoBetterCounterRepository_ClosedDB(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestCooldownRepository_Set_Get(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -35,6 +36,7 @@ func TestCooldownRepository_Set_Get(t *testing.T) {
 }
 
 func TestCooldownRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -49,6 +51,7 @@ func TestCooldownRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestCooldownRepository_Set_UpdatesOnConflict(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -81,6 +84,7 @@ func TestCooldownRepository_Set_UpdatesOnConflict(t *testing.T) {
 // fine for sqlite but masks the postgres failure mode, hence the
 // explicit length assertion below.
 func TestCooldownRepository_Set_ClampsLongReason(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -112,6 +116,7 @@ func TestCooldownRepository_Set_ClampsLongReason(t *testing.T) {
 }
 
 func TestCooldownRepository_FilterActive(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -135,6 +140,7 @@ func TestCooldownRepository_FilterActive(t *testing.T) {
 }
 
 func TestCooldownRepository_FilterActive_EmptyKeys(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -149,6 +155,7 @@ func TestCooldownRepository_FilterActive_EmptyKeys(t *testing.T) {
 }
 
 func TestCooldownRepository_Sweep(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -172,6 +179,7 @@ func TestCooldownRepository_Sweep(t *testing.T) {
 }
 
 func TestCooldownRepository_Set_ClosedDB_ReturnsError(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

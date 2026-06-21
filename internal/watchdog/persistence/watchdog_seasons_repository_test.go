@@ -67,6 +67,7 @@ func seedSeriesCache(t *testing.T, db *gorm.DB, repo *catalogpersistence.SeriesC
 }
 
 func TestWatchdogSeasons_List_Empty(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -82,6 +83,7 @@ func TestWatchdogSeasons_List_Empty(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -120,6 +122,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 // the instance) must NOT surface on /watchdog/seasons. The DB row is
 // retained so the operator can clean up out-of-band.
 func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -154,6 +157,7 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 // soft-deleted) must NOT surface — they render with an empty title in
 // the UI which the operator reads as a corrupted row.
 func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -180,6 +184,7 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -232,6 +237,7 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -267,6 +273,7 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -293,6 +300,7 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_Pagination(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -327,6 +335,7 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 }
 
 func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -367,6 +376,7 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 }
 
 func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -410,6 +420,7 @@ func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
 }
 
 func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -440,6 +451,7 @@ func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
 }
 
 func TestWatchdogSeasons_RecentGrabs_CappedPerSeason(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

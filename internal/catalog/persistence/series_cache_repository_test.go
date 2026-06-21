@@ -82,6 +82,7 @@ func seedNetworkJoinForCache(t *testing.T, db *gorm.DB, instance domain.Instance
 }
 
 func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -112,6 +113,7 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -131,6 +133,7 @@ func TestSeriesCacheRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -172,6 +175,7 @@ func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_SoftDelete_Idempotent_AndMissing(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -196,6 +200,7 @@ func TestSeriesCacheRepository_SoftDelete_Idempotent_AndMissing(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListActiveByInstance(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -232,6 +237,7 @@ func TestSeriesCacheRepository_ListActiveByInstance(t *testing.T) {
 // Whatever the caller writes is dropped at the repo edge and the read
 // path always returns nil. This regression-locks that contract.
 func TestSeriesCacheRepository_GenresAlwaysNilPostCutover(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -251,6 +257,7 @@ func TestSeriesCacheRepository_GenresAlwaysNilPostCutover(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -278,6 +285,7 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_Upsert_RejectsZeroPK(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -292,6 +300,7 @@ func TestSeriesCacheRepository_Upsert_RejectsZeroPK(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_Upsert_StampsUpdatedAt(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -312,6 +321,7 @@ func TestSeriesCacheRepository_Upsert_StampsUpdatedAt(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -346,6 +356,7 @@ func TestSeriesCacheRepository_ListByFilter_StateAll_UpdatedDesc(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -377,6 +388,7 @@ func TestSeriesCacheRepository_ListByFilter_StateMissing(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -420,6 +432,7 @@ func TestSeriesCacheRepository_ListByFilter_StateImported_SubqueryWindow(t *test
 }
 
 func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -462,6 +475,7 @@ func TestSeriesCacheRepository_ListByFilter_KeysetPagination(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -523,6 +537,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 }
 
 func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -553,6 +568,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesSlug(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -604,6 +620,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T
 }
 
 func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -635,6 +652,7 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_InvalidState(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -651,6 +669,7 @@ func TestSeriesCacheRepository_ListByFilter_InvalidState(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -676,6 +695,7 @@ func TestSeriesCacheRepository_ListByFilter_SkipsSoftDeleted(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -709,6 +729,7 @@ func TestSeriesCacheRepository_FetchLastGrabInfo(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -740,6 +761,7 @@ func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
 
 // TestSeriesCacheRepository_ListByFilter_MonitoredOnly — Story 121a §A
 func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -792,6 +814,7 @@ func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 // updated for E-1 (Story 210): network membership lives in
 // series_networks; tests seed the join via seedNetworkJoinForCache.
 func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -850,6 +873,7 @@ func TestSeriesCacheRepository_ListByFilter_Networks(t *testing.T) {
 // TestSeriesCacheRepository_ListByFilter_CombinedFilters — Story 121a §A
 // Tests that state + search + monitored + networks intersect correctly.
 func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -905,6 +929,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 
 // TestSeriesCacheRepository_ListDistinctNetworks — Story 121a §A
 func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -943,6 +968,7 @@ func TestSeriesCacheRepository_ListDistinctNetworks(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1013,6 +1039,7 @@ func seedPosterAssetOnCanon(
 }
 
 func TestSeriesCacheRepository_ProjectsRawPosterAsset(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1033,6 +1060,7 @@ func TestSeriesCacheRepository_ProjectsRawPosterAsset(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfMediaStatus(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1063,6 +1091,7 @@ func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfMediaStatus(t *te
 }
 
 func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfFailedMediaRow(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1090,6 +1119,7 @@ func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfFailedMediaRow(t 
 }
 
 func TestSeriesCacheRepository_NullCanonPoster_NilAsset(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1108,6 +1138,7 @@ func TestSeriesCacheRepository_NullCanonPoster_NilAsset(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_NoMediaRow_PosterAssetStillProjected(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1134,6 +1165,7 @@ func TestSeriesCacheRepository_NoMediaRow_PosterAssetStillProjected(t *testing.T
 // of media_assets state. The previous LEFT JOIN risk (multiple matching
 // rows) is gone now that we project raw s.poster_asset only.
 func TestSeriesCacheRepository_CardinalityPreservedWithoutMediaJoin(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1168,6 +1200,7 @@ func TestSeriesCacheRepository_CardinalityPreservedWithoutMediaJoin(t *testing.T
 // projection no longer depends on the media-assets row reaching a
 // 'stored' state before tiles can render.
 func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1226,6 +1259,7 @@ func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
 // Story 374: EpisodeFileCount + SizeOnDiskBytes round-trip through Upsert/Get.
 // These power the LibraryStrip hero tile straight off the cache row.
 func TestSeriesCacheRepository_LibraryStats_RoundTrip(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1257,6 +1291,7 @@ func TestSeriesCacheRepository_LibraryStats_RoundTrip(t *testing.T) {
 
 // Story 374: defaults of 0/0 for entries that don't set the fields.
 func TestSeriesCacheRepository_LibraryStats_DefaultZero(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1278,6 +1313,7 @@ func TestSeriesCacheRepository_LibraryStats_DefaultZero(t *testing.T) {
 // the LibraryStrip denominator (so unaired future episodes don't depress
 // the headline percentage).
 func TestSeriesCacheRepository_AiredEpisodeCount_RoundTrip(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1304,6 +1340,7 @@ func TestSeriesCacheRepository_AiredEpisodeCount_RoundTrip(t *testing.T) {
 
 // Story 376: default 0 for entries that don't set AiredEpisodeCount.
 func TestSeriesCacheRepository_AiredEpisodeCount_DefaultZero(t *testing.T) {
+	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

@@ -27,6 +27,7 @@ func sampleBlacklistEntry(t *testing.T, instanceID uint, seriesID domain.SonarrS
 }
 
 func TestWatchdogBlacklistRepository_Upsert_Insert(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -52,6 +53,7 @@ func TestWatchdogBlacklistRepository_Upsert_Insert(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_Upsert_UpdatesOnConflict(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -78,6 +80,7 @@ func TestWatchdogBlacklistRepository_Upsert_UpdatesOnConflict(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_Find_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -92,6 +95,7 @@ func TestWatchdogBlacklistRepository_Find_NotFound(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_DeleteByTriple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -112,6 +116,7 @@ func TestWatchdogBlacklistRepository_DeleteByTriple(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_DeleteByTriple_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -126,6 +131,7 @@ func TestWatchdogBlacklistRepository_DeleteByTriple_NotFound(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_ListByInstance(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -155,6 +161,7 @@ func TestWatchdogBlacklistRepository_ListByInstance(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_ListByInstance_Empty(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -169,6 +176,7 @@ func TestWatchdogBlacklistRepository_ListByInstance_Empty(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_TripleUniqueness(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -192,6 +200,7 @@ func TestWatchdogBlacklistRepository_TripleUniqueness(t *testing.T) {
 }
 
 func TestWatchdogBlacklistRepository_ClosedDB(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

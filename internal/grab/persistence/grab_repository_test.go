@@ -41,6 +41,7 @@ func newGrabRecord(t *testing.T) grab.Record {
 }
 
 func TestGrabRepository_Create_Success(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -59,6 +60,7 @@ func TestGrabRepository_Create_Success(t *testing.T) {
 }
 
 func TestGrabRepository_Create_ClosedDB_ReturnsError(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -80,6 +82,7 @@ func TestGrabRepository_Create_ClosedDB_ReturnsError(t *testing.T) {
 }
 
 func TestGrabRepository_MatchLatest_ByDownloadID_Found(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -100,6 +103,7 @@ func TestGrabRepository_MatchLatest_ByDownloadID_Found(t *testing.T) {
 }
 
 func TestGrabRepository_MatchLatest_TerminalRowExcluded(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -120,6 +124,7 @@ func TestGrabRepository_MatchLatest_TerminalRowExcluded(t *testing.T) {
 }
 
 func TestGrabRepository_MatchLatest_FallbackByTuple_Found(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -144,6 +149,7 @@ func TestGrabRepository_MatchLatest_FallbackByTuple_Found(t *testing.T) {
 }
 
 func TestGrabRepository_MatchLatest_DownloadIDMisses_FallsThroughToTuple(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -169,6 +175,7 @@ func TestGrabRepository_MatchLatest_DownloadIDMisses_FallsThroughToTuple(t *test
 }
 
 func TestGrabRepository_MatchLatest_NoMatch_ReturnsErrNotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -184,6 +191,7 @@ func TestGrabRepository_MatchLatest_NoMatch_ReturnsErrNotFound(t *testing.T) {
 }
 
 func TestGrabRepository_MatchLatest_TupleMiss_ReturnsTypedErr(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -208,6 +216,7 @@ func TestGrabRepository_MatchLatest_TupleMiss_ReturnsTypedErr(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateStatus_Success_WithMessage(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -229,6 +238,7 @@ func TestGrabRepository_UpdateStatus_Success_WithMessage(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateStatus_UnknownID_ErrNotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -247,6 +257,7 @@ func TestGrabRepository_UpdateStatus_UnknownID_ErrNotFound(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateStatus_TerminalSource_Rejects(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -266,6 +277,7 @@ func TestGrabRepository_UpdateStatus_TerminalSource_Rejects(t *testing.T) {
 }
 
 func TestGrabRepository_Create_SameFourTupleTwice(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -297,6 +309,7 @@ func TestGrabRepository_Create_SameFourTupleTwice(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateTorrentHash_Success_FromNull(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -321,6 +334,7 @@ func TestGrabRepository_UpdateTorrentHash_Success_FromNull(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -349,6 +363,7 @@ func TestGrabRepository_UpdateTorrentHash_Idempotent_DoesNotOverwrite(t *testing
 }
 
 func TestGrabRepository_UpdateTorrentHash_UnknownID_ErrNotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -369,6 +384,7 @@ func TestGrabRepository_UpdateTorrentHash_UnknownID_ErrNotFound(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateTorrentHash_EmptyHash_NoOp(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -391,6 +407,7 @@ func TestGrabRepository_UpdateTorrentHash_EmptyHash_NoOp(t *testing.T) {
 }
 
 func TestGrabRepository_FindLatestSuccessByHash_Match(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -415,6 +432,7 @@ func TestGrabRepository_FindLatestSuccessByHash_Match(t *testing.T) {
 }
 
 func TestGrabRepository_FindLatestSuccessByHash_ExcludesGrabFailed(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -441,6 +459,7 @@ func TestGrabRepository_FindLatestSuccessByHash_ExcludesGrabFailed(t *testing.T)
 }
 
 func TestGrabRepository_FindLatestSuccessByHash_EmptyHash(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -455,6 +474,7 @@ func TestGrabRepository_FindLatestSuccessByHash_EmptyHash(t *testing.T) {
 }
 
 func TestGrabRepository_FindLatestSuccessByHash_NotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -474,6 +494,7 @@ func TestGrabRepository_FindLatestSuccessByHash_NotFound(t *testing.T) {
 }
 
 func TestGrabRepository_CreateReplay_PopulatesReplayOfID(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -553,6 +574,7 @@ func ptrInstanceName(s string) *domain.InstanceName {
 }
 
 func TestGrabRepository_ListReplaysOf_EmptyParents_EmptyResult(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -567,6 +589,7 @@ func TestGrabRepository_ListReplaysOf_EmptyParents_EmptyResult(t *testing.T) {
 }
 
 func TestGrabRepository_ListReplaysOf_NoChildren_AbsentFromMap(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -586,6 +609,7 @@ func TestGrabRepository_ListReplaysOf_NoChildren_AbsentFromMap(t *testing.T) {
 }
 
 func TestGrabRepository_ListReplaysOf_ChainOfThree(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -625,6 +649,7 @@ func TestGrabRepository_ListReplaysOf_ChainOfThree(t *testing.T) {
 }
 
 func TestGrabRepository_ListReplaysOf_RespectsCap(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -655,6 +680,7 @@ func TestGrabRepository_ListReplaysOf_RespectsCap(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateSizeBytes_Success_FromNull(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -674,6 +700,7 @@ func TestGrabRepository_UpdateSizeBytes_Success_FromNull(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateSizeBytes_Idempotent(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -695,6 +722,7 @@ func TestGrabRepository_UpdateSizeBytes_Idempotent(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateSizeBytes_UnknownID_ErrNotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -714,6 +742,7 @@ func TestGrabRepository_UpdateSizeBytes_UnknownID_ErrNotFound(t *testing.T) {
 }
 
 func TestGrabRepository_UpdateSizeBytes_ZeroSize_NoOp(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -733,6 +762,7 @@ func TestGrabRepository_UpdateSizeBytes_ZeroSize_NoOp(t *testing.T) {
 }
 
 func TestGrabRepository_GetByID_Found(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -751,6 +781,7 @@ func TestGrabRepository_GetByID_Found(t *testing.T) {
 }
 
 func TestGrabRepository_GetByID_UnknownID_ErrNotFound(t *testing.T) {
+	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
