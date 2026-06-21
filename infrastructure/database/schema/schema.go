@@ -220,6 +220,21 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addAuth(s, d)
 	}
 
+	// D-5 (story 466b) — app_config singleton + sonarr_instance_settings.
+	// app_config replaces the legacy runtime_config flat-bag (CHECK
+	// id=1 singleton); sonarr_instance_settings carries the ~27
+	// per-instance behavioral knobs (timeouts, tags, search/ranking/
+	// limits/cooldown/retry/health_check, webhook overrides,
+	// parse_on_grab, scan_skip_handled_seasons). Together they restore
+	// the PRD §10 Settings UI contract on the new schema. Both rows
+	// land via migration 000016.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_APP_CONFIG=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_APP_CONFIG") == "" {
+		addAppConfig(s, d)
+	}
+
 	// D-4 (story 465b) — scan_runs table. MUST be added BEFORE
 	// addGrab(s, d) so the conditional grab_records.scan_run_id FK
 	// declared in buildGrabRecordsTable (schema.go:2118-2128) picks
@@ -1999,6 +2014,219 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 				AddColumns(instanceName).
 				SetRefTable(sonarrInstanceTable).
 				AddRefColumns(parentRefCol(sonarrInstanceTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// ----------------------------------------------------------------------
+// D-5 (story 466b) — app_config + sonarr_instance_settings.
+// ----------------------------------------------------------------------
+
+// addAppConfig appends app_config + sonarr_instance_settings to s.
+// Called from Schema(d) immediately after addAuth.
+//
+//	app_config (id BIGINT PK CHECK id=1) — flat-bag singleton holding
+//	  all DB-stored runtime config (cron/scan/dry_run/auth/oidc/guid_rewrites/
+//	  api_key_auto_generated/timezone). All encrypted secrets
+//	  (api_key_probe, oidc_client_secret) live in app_secret keyed by
+//	  secret_name — this row carries no BYTEA columns.
+//
+//	sonarr_instance_settings (instance_name TEXT PK, FK CASCADE →
+//	  sonarr_instance.name) — per-instance behavioral knobs that the
+//	  D-1 slim sonarr_instance shape dropped. 1:1 with sonarr_instance;
+//	  CASCADE drops the settings row with its parent.
+//
+// Depends on sonarr_instance from addAdmin — Schema(d) runs addAdmin
+// before addAppConfig, so the FK target is guaranteed to exist.
+func addAppConfig(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildAppConfigTable(d))
+
+	sonarrInstance := mustTable(s, "sonarr_instance")
+	s.AddTables(buildSonarrInstanceSettingsTable(d, sonarrInstance))
+}
+
+// buildAppConfigTable returns app_config — 27 cols, single PK on
+// `id` BIGINT with CHECK id=1 (singleton enforcement). The CHECK
+// constraint maps to both dialects natively (Postgres + SQLite
+// support table-level CHECK at CREATE TABLE).
+func buildAppConfigTable(d Dialect) *atlasschema.Table {
+	// id is a plain BIGINT (no BIGSERIAL — operator never inserts a
+	// second row; CHECK id=1 enforces). On SQLite use integer.
+	idType := "bigint"
+	if d == DialectSQLite {
+		idType = "integer"
+	}
+	id := atlasschema.NewIntColumn("id", idType).
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "1"})
+
+	cronEnabled := atlasschema.NewBoolColumn("cron_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	cronSchedule := atlasschema.NewStringColumn("cron_schedule", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'0 */6 * * *'"})
+	cronOnStart := atlasschema.NewBoolColumn("cron_on_start", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	cronJitterSeconds := atlasschema.NewIntColumn("cron_jitter_seconds", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "60"})
+	scanShutdownGraceSec := atlasschema.NewIntColumn("scan_shutdown_grace_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "60"})
+	scanCooldownSweepSec := atlasschema.NewIntColumn("scan_cooldown_sweep_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "900"})
+	dryRun := atlasschema.NewBoolColumn("dry_run", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	globalRPM := atlasschema.NewIntColumn("global_rpm", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "30"})
+	globalBurst := atlasschema.NewIntColumn("global_burst", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "10"})
+	authSessionTTLSec := atlasschema.NewIntColumn("auth_session_ttl_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "43200"})
+	authSecureCookie := atlasschema.NewBoolColumn("auth_secure_cookie", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	authTrustedProxies := atlasschema.NewStringColumn("auth_trusted_proxies", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
+	authMode := atlasschema.NewStringColumn("auth_mode", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'forms'"})
+	authLocalBypass := atlasschema.NewBoolColumn("auth_local_bypass", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	authLocalNetworks := atlasschema.NewStringColumn("auth_local_networks", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
+	authSessionEpoch := atlasschema.NewIntColumn("auth_session_epoch", "bigint").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	oidcIssuer := atlasschema.NewStringColumn("oidc_issuer", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	oidcClientID := atlasschema.NewStringColumn("oidc_client_id", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	oidcRedirectURL := atlasschema.NewStringColumn("oidc_redirect_url", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	oidcScopes := atlasschema.NewStringColumn("oidc_scopes", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
+	oidcUsernameClaim := atlasschema.NewStringColumn("oidc_username_claim", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	oidcAllowedGroups := atlasschema.NewStringColumn("oidc_allowed_groups", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
+	oidcGroupsClaim := atlasschema.NewStringColumn("oidc_groups_claim", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'groups'"})
+	guidRewrites := atlasschema.NewStringColumn("guid_rewrites", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
+	apiKeyAutoGenerated := atlasschema.NewBoolColumn("api_key_auto_generated", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	timezone := atlasschema.NewNullStringColumn("timezone", "text")
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	singletonCheck := atlasschema.NewCheck().
+		SetName("app_config_singleton").
+		SetExpr("id = 1")
+
+	return atlasschema.NewTable("app_config").
+		AddColumns(
+			id,
+			cronEnabled, cronSchedule, cronOnStart, cronJitterSeconds,
+			scanShutdownGraceSec, scanCooldownSweepSec,
+			dryRun,
+			globalRPM, globalBurst,
+			authSessionTTLSec, authSecureCookie, authTrustedProxies,
+			authMode, authLocalBypass, authLocalNetworks, authSessionEpoch,
+			oidcIssuer, oidcClientID, oidcRedirectURL, oidcScopes,
+			oidcUsernameClaim, oidcAllowedGroups, oidcGroupsClaim,
+			guidRewrites,
+			apiKeyAutoGenerated, timezone,
+			createdAt, updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddChecks(singletonCheck)
+}
+
+// buildSonarrInstanceSettingsTable returns sonarr_instance_settings —
+// 30 cols, single PK on TEXT `instance_name` (1:1 with sonarr_instance).
+// FK CASCADE on instance_name so DELETE FROM sonarr_instance drops the
+// sibling row.
+func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	timeoutSeconds := atlasschema.NewIntColumn("timeout_seconds", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "10"})
+	searchTimeoutSeconds := atlasschema.NewIntColumn("search_timeout_seconds", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "60"})
+	dryRun := atlasschema.NewNullBoolColumn("dry_run", "boolean")
+	tagsMode := atlasschema.NewStringColumn("tags_mode", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'any'"})
+	tagsInclude := atlasschema.NewStringColumn("tags_include", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	tagsExclude := atlasschema.NewStringColumn("tags_exclude", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	searchRequireAllAired := atlasschema.NewBoolColumn("search_require_all_aired", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	searchSkipSpecials := atlasschema.NewBoolColumn("search_skip_specials", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	searchSkipAnime := atlasschema.NewBoolColumn("search_skip_anime", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	searchMinCustomFormatScore := atlasschema.NewIntColumn("search_min_custom_format_score", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	rankingIndexerPriorityEnabled := atlasschema.NewBoolColumn("ranking_indexer_priority_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	rankingOriginBonus := atlasschema.NewFloatColumn("ranking_origin_bonus", "double precision").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	limitsScanMaxSeries := atlasschema.NewIntColumn("limits_scan_max_series", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	limitsMaxGrabsPerScan := atlasschema.NewIntColumn("limits_max_grabs_per_scan", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	rateLimitRPM := atlasschema.NewIntColumn("rate_limit_rpm", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "30"})
+	rateLimitBurst := atlasschema.NewIntColumn("rate_limit_burst", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "10"})
+	cooldownMode := atlasschema.NewStringColumn("cooldown_mode", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	cooldownSeriesAfterGrabSec := atlasschema.NewIntColumn("cooldown_series_after_grab_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	cooldownGUIDFailedGrabSec := atlasschema.NewIntColumn("cooldown_guid_failed_grab_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	cooldownGUIDFailedImportSec := atlasschema.NewIntColumn("cooldown_guid_failed_import_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryMaxAttempts := atlasschema.NewIntColumn("retry_max_attempts", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryInitialBackoffSec := atlasschema.NewIntColumn("retry_initial_backoff_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryMaxBackoffSec := atlasschema.NewIntColumn("retry_max_backoff_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	healthcheckRecheckAuthSec := atlasschema.NewIntColumn("healthcheck_recheck_auth_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	healthcheckRecheckNetSec := atlasschema.NewIntColumn("healthcheck_recheck_net_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	publicURL := atlasschema.NewNullStringColumn("public_url", "text")
+	webhookInstallEnabled := atlasschema.NewBoolColumn("webhook_install_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	webhookURLOverride := atlasschema.NewNullStringColumn("webhook_url_override", "text")
+	parseOnGrabEnabled := atlasschema.NewBoolColumn("parse_on_grab_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	scanSkipHandledSeasons := atlasschema.NewBoolColumn("scan_skip_handled_seasons", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("sonarr_instance_settings").
+		AddColumns(
+			instanceName,
+			timeoutSeconds, searchTimeoutSeconds, dryRun,
+			tagsMode, tagsInclude, tagsExclude,
+			searchRequireAllAired, searchSkipSpecials, searchSkipAnime,
+			searchMinCustomFormatScore,
+			rankingIndexerPriorityEnabled, rankingOriginBonus,
+			limitsScanMaxSeries, limitsMaxGrabsPerScan,
+			rateLimitRPM, rateLimitBurst,
+			cooldownMode, cooldownSeriesAfterGrabSec,
+			cooldownGUIDFailedGrabSec, cooldownGUIDFailedImportSec,
+			retryMaxAttempts, retryInitialBackoffSec, retryMaxBackoffSec,
+			healthcheckRecheckAuthSec, healthcheckRecheckNetSec,
+			publicURL, webhookInstallEnabled, webhookURLOverride,
+			parseOnGrabEnabled, scanSkipHandledSeasons,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("sonarr_instance_settings_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)

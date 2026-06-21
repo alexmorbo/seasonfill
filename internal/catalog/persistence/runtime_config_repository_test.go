@@ -10,13 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
 func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -35,7 +36,6 @@ func TestRuntimeConfigRepository_GetNotFound(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -63,6 +63,7 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 					SessionTTL:     24 * time.Hour,
 					SecureCookie:   true,
 					TrustedProxies: []string{"10.0.0.1", "10.0.0.2"},
+					Mode:           runtime.AuthModeForms,
 				},
 			}
 
@@ -83,7 +84,6 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_SaveAPIKey_Fresh(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -106,7 +106,6 @@ func TestRuntimeConfigRepository_SaveAPIKey_Fresh(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_SaveAPIKey_Existing(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -131,7 +130,6 @@ func TestRuntimeConfigRepository_SaveAPIKey_Existing(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_Upsert_StaleIUS_Rejects(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -157,7 +155,6 @@ func TestRuntimeConfigRepository_Upsert_StaleIUS_Rejects(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_Upsert_FreshIUS_Writes(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -182,7 +179,6 @@ func TestRuntimeConfigRepository_Upsert_FreshIUS_Writes(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_Upsert_NoIUS_LWW(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -203,7 +199,6 @@ func TestRuntimeConfigRepository_Upsert_NoIUS_LWW(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -221,7 +216,6 @@ func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -248,7 +242,6 @@ func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -269,7 +262,6 @@ func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -295,7 +287,6 @@ func TestRuntimeConfigRepository_LocalNetworksFallback(t *testing.T) {
 // --- OIDC round-trip tests ---
 
 func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -313,6 +304,7 @@ func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
 				Scopes:        []string{"openid", "profile", "email"},
 				UsernameClaim: "preferred_username",
 				AllowedGroups: []string{"admins", "editors"},
+				GroupsClaim:   "groups",
 			}
 
 			require.NoError(t, repo.Upsert(ctx, snap, nil))
@@ -330,7 +322,6 @@ func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_OIDCFields_DefaultsWhenAbsent(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -364,7 +355,6 @@ func TestRuntimeConfigRepository_OIDCFields_DefaultsWhenAbsent(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_OIDCScopes_OrderPreserved(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -387,7 +377,6 @@ func TestRuntimeConfigRepository_OIDCScopes_OrderPreserved(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_OIDCAllowedGroups_OrderPreserved(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -412,7 +401,6 @@ func TestRuntimeConfigRepository_OIDCAllowedGroups_OrderPreserved(t *testing.T) 
 // --- 107: guid_rewrites round-trip ---------------------------------------
 
 func TestRuntimeConfigRepository_GUIDRewrites_PreservesOrder(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -439,7 +427,6 @@ func TestRuntimeConfigRepository_GUIDRewrites_PreservesOrder(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_GUIDRewrites_EmptyOnFreshRow(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -460,7 +447,6 @@ func TestRuntimeConfigRepository_GUIDRewrites_EmptyOnFreshRow(t *testing.T) {
 }
 
 func TestRuntimeConfigRepository_GUIDRewrites_NilSnapshotPersistsEmptyArray(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -483,7 +469,6 @@ func TestRuntimeConfigRepository_GUIDRewrites_NilSnapshotPersistsEmptyArray(t *t
 }
 
 func TestRuntimeConfigRepository_GUIDRewrites_SaveAPIKeyBootstrap(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -499,6 +484,120 @@ func TestRuntimeConfigRepository_GUIDRewrites_SaveAPIKeyBootstrap(t *testing.T) 
 			require.NoError(t, err)
 			assert.NotNil(t, row.GUIDRewrites)
 			assert.Empty(t, row.GUIDRewrites)
+		})
+	}
+}
+
+// --- D-5 (466b) NEW tests ---
+
+// TestRuntimeConfigRepository_AppConfig_SingletonGuard proves the DB
+// rejects any insert with id != 1 (Postgres CHECK + SQLite CHECK both
+// honor it).
+func TestRuntimeConfigRepository_AppConfig_SingletonGuard(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			// Seed a valid id=1 row.
+			repo := NewRuntimeConfigRepository(db, nil)
+			require.NoError(t, repo.Upsert(context.Background(), runtime.Defaults(), nil))
+
+			// Attempt to insert id=2 — CHECK constraint must reject.
+			bad := database.AppConfigModel{
+				ID:                 2,
+				CronSchedule:       "0 0 * * *",
+				AuthTrustedProxies: "[]",
+				AuthLocalNetworks:  "[]",
+				AuthMode:           "forms",
+				OIDCScopes:         "[]",
+				OIDCAllowedGroups:  "[]",
+				OIDCGroupsClaim:    "groups",
+				GUIDRewrites:       "[]",
+				CreatedAt:          time.Now().UTC(),
+				UpdatedAt:          time.Now().UTC(),
+			}
+			err := db.Create(&bad).Error
+			require.Error(t, err, "CHECK id=1 must reject id=2")
+		})
+	}
+}
+
+// TestRuntimeConfigRepository_OIDCSecret_RoundTrip_AppSecretTable
+// proves the OIDC client secret lands in app_secret(secret_name='oidc_client_secret'),
+// NOT in app_config.
+func TestRuntimeConfigRepository_OIDCSecret_RoundTrip_AppSecretTable(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			cipher, err := crypto.New("test-master-key-for-oidc-secret")
+			require.NoError(t, err)
+			repo := NewRuntimeConfigRepository(db, cipher)
+			ctx := context.Background()
+
+			// Seed app_config first so the singleton row exists.
+			require.NoError(t, repo.Upsert(ctx, runtime.Defaults(), nil))
+
+			require.NoError(t, repo.UpsertOIDCSecret(ctx, "super-secret-oidc"))
+
+			// Inspect the storage: should be an app_secret row with secret_name='oidc_client_secret'.
+			var stored database.AppSecretModel
+			require.NoError(t, db.Where("secret_name = ?", "oidc_client_secret").
+				Take(&stored).Error)
+			assert.NotEmpty(t, stored.EncryptedValue)
+
+			plaintext, err := repo.DecryptOIDCSecret(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, "super-secret-oidc", plaintext)
+		})
+	}
+}
+
+func TestRuntimeConfigRepository_APIKey_RoundTrip_AppSecretTable(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			ct := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+			require.NoError(t, repo.SaveAPIKey(ctx, ct, true))
+
+			var stored database.AppSecretModel
+			require.NoError(t, db.Where("secret_name = ?", "api_key_probe").
+				Take(&stored).Error)
+			assert.Equal(t, ct, stored.EncryptedValue)
+
+			row, err := repo.Get(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, ct, row.APIKeyCiphertext)
+			assert.True(t, row.APIKeyAutoGenerated)
+		})
+	}
+}
+
+// TestRuntimeConfigRepository_Get_NoAppSecret_ReturnsNilCiphertext
+// confirms that a present app_config row with no companion app_secret
+// rows lands a nil ciphertext on the row, not an error.
+func TestRuntimeConfigRepository_Get_NoAppSecret_ReturnsNilCiphertext(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			require.NoError(t, repo.Upsert(ctx, runtime.Defaults(), nil))
+
+			row, err := repo.Get(ctx)
+			require.NoError(t, err)
+			assert.Nil(t, row.APIKeyCiphertext)
+			assert.Nil(t, row.OIDCClientSecretCiphertext)
 		})
 	}
 }

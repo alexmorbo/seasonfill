@@ -362,18 +362,23 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	// Resolve instance_id once — we need it for the sibling joins. A
-	// missing sonarr_instance row is fine; the seasons surface with
-	// nil pointer fields for the (instance_id-keyed) tables.
+	// D-5 (story 466b): sonarr_instance.id is gone — name is now PK.
+	// The watchdog sibling tables (regrab_no_better_counter,
+	// watchdog_blacklist) still reference an integer surrogate via
+	// their own InstanceID column; their migration to instance_name TEXT
+	// is owned by D-6. Until then, leave instanceID=0 — the
+	// (instance_id, series_id, season_number) sibling lookups below
+	// simply return empty and the pointer fields stay nil. All
+	// watchdog tests gate on t.Skip("pending D-6 …") so the live
+	// query path is intentionally cold.
 	var inst database.SonarrInstanceModel
 	instanceID := uint(0)
 	if err := db.Where("name = ?", instance).First(&inst).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("lookup sonarr_instance: %w", err)
 		}
-	} else {
-		instanceID = inst.ID
 	}
+	_ = inst
 
 	// Origin rows for this series.
 	var origins []database.OriginReleaseModel

@@ -24,7 +24,6 @@ import (
 )
 
 func TestSonarrInstanceRepository_CreateAndGet(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -52,7 +51,7 @@ func TestSonarrInstanceRepository_CreateAndGet(t *testing.T) {
 
 			id, err := repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
-			assert.Greater(t, id, uint(0))
+			assert.Greater(t, id, uint(0), "Create returns new instance_secret.id")
 
 			retrieved, err := repo.GetByName(ctx, "main", cipher)
 			require.NoError(t, err)
@@ -65,7 +64,6 @@ func TestSonarrInstanceRepository_CreateAndGet(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_GetNotFound(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -89,7 +87,6 @@ func TestSonarrInstanceRepository_GetNotFound(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesAPIKey(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -109,16 +106,14 @@ func TestSonarrInstanceRepository_UpdatePreservesAPIKey(t *testing.T) {
 				Timeout: 10 * time.Second,
 			}
 
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
-			// Update without changing API key (empty string)
-			inst.ID = id
+			// Update without changing API key (empty string + preserveSecret)
 			inst.APIKey = ""
 			inst.Mode = "manual"
 			require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, true, nil))
 
-			// Verify the mode changed but API key was preserved
 			retrieved, err := repo.GetByName(ctx, "test", cipher)
 			require.NoError(t, err)
 			assert.Equal(t, "manual", retrieved.Mode)
@@ -128,7 +123,6 @@ func TestSonarrInstanceRepository_UpdatePreservesAPIKey(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_DeleteCascades(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -160,12 +154,23 @@ func TestSonarrInstanceRepository_DeleteCascades(t *testing.T) {
 			require.True(t, errors.As(err, &typed),
 				"post-Delete GetByName must expose typed InstanceNotFoundError via errors.As")
 			assert.Equal(t, domain.InstanceName("todelete"), typed.Name)
+
+			// Settings + secret cascade via FK CASCADE on
+			// sonarr_instance.name. Confirm both rows are gone.
+			var settingsCount int64
+			require.NoError(t, db.Model(&database.SonarrInstanceSettingsModel{}).
+				Where("instance_name = ?", "todelete").Count(&settingsCount).Error)
+			assert.Equal(t, int64(0), settingsCount, "settings row must cascade-drop")
+
+			var secretCount int64
+			require.NoError(t, db.Model(&database.InstanceSecretModel{}).
+				Where("instance_name = ?", "todelete").Count(&secretCount).Error)
+			assert.Equal(t, int64(0), secretCount, "secret row must cascade-drop")
 		})
 	}
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -190,11 +195,10 @@ func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
 				},
 				Ranking: runtime.RankingSnapshot{IndexerPriorityEnabled: true},
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			// Now flip every bool to false and update.
-			inst.ID = id
 			inst.APIKey = ""
 			inst.Search.RequireAllAired = false
 			inst.Search.SkipSpecials = false
@@ -213,7 +217,6 @@ func TestSonarrInstanceRepository_UpdatePreservesBoolFalse(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesInt0(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -243,11 +246,10 @@ func TestSonarrInstanceRepository_UpdatePreservesInt0(t *testing.T) {
 					MaxBackoff:     30 * time.Second,
 				},
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			// Zero every numeric field and update.
-			inst.ID = id
 			inst.APIKey = ""
 			inst.RateLimit.RPM = 0
 			inst.RateLimit.Burst = 0
@@ -274,7 +276,6 @@ func TestSonarrInstanceRepository_UpdatePreservesInt0(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_UpdatePreservesStringEmpty(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -298,11 +299,10 @@ func TestSonarrInstanceRepository_UpdatePreservesStringEmpty(t *testing.T) {
 				},
 				Cooldown: runtime.CooldownSnapshot{Mode: "smart"},
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			// Empty the string fields and update.
-			inst.ID = id
 			inst.APIKey = ""
 			inst.Tags.Mode = ""
 			inst.Cooldown.Mode = ""
@@ -317,7 +317,6 @@ func TestSonarrInstanceRepository_UpdatePreservesStringEmpty(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -329,9 +328,8 @@ func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T)
 			cipher, err := crypto.New("test-master-key-12345")
 			require.NoError(t, err)
 
-			// Build a snapshot for an ID that does not exist.
+			// Build a snapshot for a name that does not exist.
 			inst := runtime.InstanceSnapshot{
-				ID:      9999,
 				Name:    "ghost",
 				URL:     "http://x",
 				Mode:    "auto",
@@ -349,7 +347,6 @@ func TestSonarrInstanceRepository_UpdateMissingRow_ReturnsNotFound(t *testing.T)
 }
 
 func TestSonarrInstanceRepository_Update_StaleIUS_Rejects(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -365,17 +362,16 @@ func TestSonarrInstanceRepository_Update_StaleIUS_Rejects(t *testing.T) {
 				Name: "ius", URL: "http://x", APIKey: "k", Mode: "auto",
 				Timeout: 10 * time.Second,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			// Read the stored timestamp, then pretend the client snapshot
-			// was taken one second before. That makes the stored row strictly
-			// newer than the header → precondition fail.
+			// was taken one second before. That makes the stored row
+			// strictly newer than the header → precondition fail.
 			stored, err := repo.GetUpdatedAt(ctx, "ius")
 			require.NoError(t, err)
 			staleHeader := stored.Add(-1 * time.Second)
 
-			inst.ID = id
 			inst.APIKey = ""
 			inst.Mode = "manual"
 			err = repo.UpdateWithOptions(ctx, inst, cipher, true, &staleHeader)
@@ -390,7 +386,6 @@ func TestSonarrInstanceRepository_Update_StaleIUS_Rejects(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_Update_FreshIUS_Writes(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -406,7 +401,7 @@ func TestSonarrInstanceRepository_Update_FreshIUS_Writes(t *testing.T) {
 				Name: "ius2", URL: "http://x", APIKey: "k", Mode: "auto",
 				Timeout: 10 * time.Second,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			stored, err := repo.GetUpdatedAt(ctx, "ius2")
@@ -414,7 +409,6 @@ func TestSonarrInstanceRepository_Update_FreshIUS_Writes(t *testing.T) {
 			// Header equal to stored (second-truncated) → accepted.
 			fresh := stored.Truncate(time.Second)
 
-			inst.ID = id
 			inst.APIKey = ""
 			inst.Mode = "manual"
 			err = repo.UpdateWithOptions(ctx, inst, cipher, true, &fresh)
@@ -428,7 +422,6 @@ func TestSonarrInstanceRepository_Update_FreshIUS_Writes(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_Create_TimestampsMatch(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -444,17 +437,17 @@ func TestSonarrInstanceRepository_Create_TimestampsMatch(t *testing.T) {
 				Name: "ts", URL: "http://x", APIKey: "secret", Mode: "auto",
 				Timeout: 10 * time.Second,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			// Read parent updated_at + secret updated_at. With a single
 			// time.Now() inside the tx they must match exactly.
 			var parent database.SonarrInstanceModel
-			require.NoError(t, db.Select("created_at", "updated_at").
-				Where("id = ?", id).First(&parent).Error)
+			require.NoError(t, db.Select("name", "created_at", "updated_at").
+				Where("name = ?", "ts").First(&parent).Error)
 			var secret database.InstanceSecretModel
 			require.NoError(t, db.Select("created_at", "updated_at").
-				Where("instance_id = ? AND secret_name = ?", id, "api_key").
+				Where("instance_name = ? AND secret_name = ?", "ts", "token").
 				First(&secret).Error)
 			assert.True(t, parent.CreatedAt.Equal(secret.CreatedAt),
 				"parent and secret CreatedAt must match (single time.Now() in tx)")
@@ -465,7 +458,6 @@ func TestSonarrInstanceRepository_Create_TimestampsMatch(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_Update_NotFound(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -478,7 +470,7 @@ func TestSonarrInstanceRepository_Update_NotFound(t *testing.T) {
 			require.NoError(t, err)
 
 			inst := runtime.InstanceSnapshot{
-				ID: 9999, Name: "ghost", URL: "http://x", Mode: "auto",
+				Name: "ghost", URL: "http://x", Mode: "auto",
 				Timeout: 10 * time.Second,
 			}
 			now := time.Now().UTC()
@@ -495,7 +487,6 @@ func TestSonarrInstanceRepository_Update_NotFound(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_GetUpdatedAt_NotFound(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -516,17 +507,11 @@ func TestSonarrInstanceRepository_GetUpdatedAt_NotFound(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			// SQLite `:memory:` testhelpers.NewDB already pins
-			// SetMaxOpenConns(1) so both goroutines share the same DB
-			// instance. Postgres handles concurrent connections natively,
-			// so no extra pool tweak is needed here.
-
 			repo := NewSonarrInstanceRepository(db)
 			ctx := context.Background()
 
@@ -537,7 +522,7 @@ func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
 				Name: "race", URL: "http://x", APIKey: "k", Mode: "auto",
 				Timeout: 10 * time.Second,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			stored, err := repo.GetUpdatedAt(ctx, "race")
@@ -553,7 +538,6 @@ func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
 				go func(idx int) {
 					defer wg.Done()
 					snap := inst
-					snap.ID = id
 					snap.APIKey = ""
 					snap.Mode = "manual"
 					results[idx] = repo.UpdateWithOptions(ctx, snap, cipher, true, &header)
@@ -578,7 +562,7 @@ func TestSonarrInstanceRepository_Update_ConcurrentIUS(t *testing.T) {
 	}
 }
 
-// --- 028h-2: N+1 elimination tests ---
+// --- N+1 elimination tests ---
 
 // queryCounter installs a GORM "after query" callback that increments
 // `*counter` on every executed SELECT statement. Returns a cleanup
@@ -617,7 +601,6 @@ func seedInstances(t *testing.T, repo *SonarrInstanceRepository, c *crypto.Ciphe
 }
 
 func TestList_NoNPlusOne_TwoInstances(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -637,15 +620,15 @@ func TestList_NoNPlusOne_TwoInstances(t *testing.T) {
 			out, err := repo.List(context.Background(), cipher)
 			require.NoError(t, err)
 			assert.Len(t, out, 2)
-			assert.Equal(t, int64(2), atomic.LoadInt64(count),
-				"List must issue EXACTLY 2 SELECT queries for any N (got %d for N=2)",
+			// D-5 (466b) List = 3 SELECTs: parent + settings + secrets.
+			assert.Equal(t, int64(3), atomic.LoadInt64(count),
+				"List must issue EXACTLY 3 SELECT queries for any N (got %d for N=2)",
 				atomic.LoadInt64(count))
 		})
 	}
 }
 
 func TestList_NoNPlusOne_TenInstances(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -663,16 +646,15 @@ func TestList_NoNPlusOne_TenInstances(t *testing.T) {
 			out, err := repo.List(context.Background(), cipher)
 			require.NoError(t, err)
 			assert.Len(t, out, 10)
-			// EXACT 2 — anything higher means the N+1 regressed.
-			assert.Equal(t, int64(2), atomic.LoadInt64(count),
-				"List must issue EXACTLY 2 SELECT queries for any N (got %d for N=10)",
+			// EXACT 3 — anything higher means the N+1 regressed.
+			assert.Equal(t, int64(3), atomic.LoadInt64(count),
+				"List must issue EXACTLY 3 SELECT queries for any N (got %d for N=10)",
 				atomic.LoadInt64(count))
 		})
 	}
 }
 
 func TestList_PreservesAPIKeyDecryption(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -702,7 +684,6 @@ func TestList_PreservesAPIKeyDecryption(t *testing.T) {
 }
 
 func TestList_HandlesMissingSecret(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -712,19 +693,17 @@ func TestList_HandlesMissingSecret(t *testing.T) {
 			cipher, err := crypto.New("test-master-key-12345")
 			require.NoError(t, err)
 
-			// Create one instance WITH a secret, one without.
+			// Create one instance WITH a secret.
 			_, err = repo.Create(context.Background(), runtime.InstanceSnapshot{
 				Name: "has-key", URL: "http://x", APIKey: "k", Mode: "auto", Timeout: 10 * time.Second,
 			}, cipher)
 			require.NoError(t, err)
 
-			// Insert an instance row directly via GORM bypassing repo.Create
-			// so no secret row is written.
-			naked := database.SonarrInstanceModel{
-				Name: "no-key", URL: "http://x", Mode: "auto", TimeoutSeconds: 10,
-				CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
-			}
-			require.NoError(t, db.Create(&naked).Error)
+			// Create another instance WITHOUT a secret (empty APIKey).
+			_, err = repo.Create(context.Background(), runtime.InstanceSnapshot{
+				Name: "no-key", URL: "http://x", APIKey: "", Mode: "auto", Timeout: 10 * time.Second,
+			}, cipher)
+			require.NoError(t, err)
 
 			out, err := repo.List(context.Background(), cipher)
 			require.NoError(t, err)
@@ -744,7 +723,6 @@ func TestList_HandlesMissingSecret(t *testing.T) {
 // --- 041a: Phase 11 instance fields round-trip ---
 
 func TestSonarrInstanceRepository_PublicURL_RoundTrip(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -762,9 +740,8 @@ func TestSonarrInstanceRepository_PublicURL_RoundTrip(t *testing.T) {
 				Timeout:   10 * time.Second,
 				PublicURL: &public,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
-			assert.Greater(t, id, uint(0))
 
 			got, err := repo.GetByName(ctx, "pub", cipher)
 			require.NoError(t, err)
@@ -775,7 +752,6 @@ func TestSonarrInstanceRepository_PublicURL_RoundTrip(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_PublicURL_NilByDefault(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -802,7 +778,6 @@ func TestSonarrInstanceRepository_PublicURL_NilByDefault(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_WebhookInstallEnabled_RoundTrip(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -819,7 +794,7 @@ func TestSonarrInstanceRepository_WebhookInstallEnabled_RoundTrip(t *testing.T) 
 				Timeout:               10 * time.Second,
 				WebhookInstallEnabled: true,
 			}
-			id, err := repo.Create(ctx, inst, cipher)
+			_, err = repo.Create(ctx, inst, cipher)
 			require.NoError(t, err)
 
 			got, err := repo.GetByName(ctx, "wh", cipher)
@@ -827,7 +802,6 @@ func TestSonarrInstanceRepository_WebhookInstallEnabled_RoundTrip(t *testing.T) 
 			assert.True(t, got.WebhookInstallEnabled)
 
 			// Flip to false via an Update and re-read.
-			inst.ID = id
 			inst.APIKey = ""
 			inst.WebhookInstallEnabled = false
 			require.NoError(t, repo.UpdateWithOptions(ctx, inst, cipher, true, nil))
@@ -841,7 +815,6 @@ func TestSonarrInstanceRepository_WebhookInstallEnabled_RoundTrip(t *testing.T) 
 }
 
 func TestSonarrInstanceRepository_WebhookURLOverride_RoundTrip(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -871,14 +844,13 @@ func TestSonarrInstanceRepository_WebhookURLOverride_RoundTrip(t *testing.T) {
 }
 
 func TestSonarrInstanceRepository_Delete_PurgesSeriesCache(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			instRepo := NewSonarrInstanceRepository(db)
-			cacheRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db)) //nolint:staticcheck // SA4006 false positive — used below in skipped test path
+			cacheRepo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
 			ctx := context.Background()
 
 			cipher, err := crypto.New("test-master-key-12345")
@@ -909,6 +881,116 @@ func TestSonarrInstanceRepository_Delete_PurgesSeriesCache(t *testing.T) {
 			got, err := cacheRepo.ListActiveByInstance(ctx, "main")
 			require.NoError(t, err)
 			assert.Empty(t, got)
+		})
+	}
+}
+
+// --- D-5 (466b) NEW tests ---
+
+// TestSonarrInstanceRepository_Settings_RoundTrip proves every
+// behavioral knob round-trips through the settings sibling row.
+func TestSonarrInstanceRepository_Settings_RoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSonarrInstanceRepository(db)
+			ctx := context.Background()
+
+			cipher, err := crypto.New("test-master-key-12345")
+			require.NoError(t, err)
+
+			inst := runtime.InstanceSnapshot{
+				Name: "settings", URL: "http://x", APIKey: "k", Mode: "auto",
+				Timeout:       10 * time.Second,
+				SearchTimeout: 90 * time.Second,
+				Search:        runtime.SearchSnapshot{MinCustomFormatScore: 7},
+				Ranking:       runtime.RankingSnapshot{OriginBonus: 1.5},
+				RateLimit:     runtime.RateLimitSnapshot{RPM: 20, Burst: 5},
+			}
+			_, err = repo.Create(ctx, inst, cipher)
+			require.NoError(t, err)
+
+			// Inspect the sibling row directly.
+			var settings database.SonarrInstanceSettingsModel
+			require.NoError(t, db.Where("instance_name = ?", "settings").
+				Take(&settings).Error)
+			assert.Equal(t, 10, settings.TimeoutSeconds)
+			assert.Equal(t, 90, settings.SearchTimeoutSeconds)
+			assert.Equal(t, 7, settings.SearchMinCustomFormatScore)
+			assert.InDelta(t, 1.5, settings.RankingOriginBonus, 0.0001)
+			assert.Equal(t, 20, settings.RateLimitRPM)
+		})
+	}
+}
+
+// TestSonarrInstanceRepository_CyclicFK_CreateWiresTokenSecret proves
+// the 4-step transaction wires sonarr_instance.token_secret_id back
+// to the freshly-created instance_secret.id row.
+func TestSonarrInstanceRepository_CyclicFK_CreateWiresTokenSecret(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSonarrInstanceRepository(db)
+			ctx := context.Background()
+
+			cipher, err := crypto.New("test-master-key-12345")
+			require.NoError(t, err)
+
+			inst := runtime.InstanceSnapshot{
+				Name: "cyclic", URL: "http://x", APIKey: "k", Mode: "auto",
+				Timeout: 10 * time.Second,
+			}
+			id, err := repo.Create(ctx, inst, cipher)
+			require.NoError(t, err)
+			assert.Greater(t, id, uint(0))
+
+			var parent database.SonarrInstanceModel
+			require.NoError(t, db.Where("name = ?", "cyclic").First(&parent).Error)
+			require.NotNil(t, parent.TokenSecretID, "Create must wire token_secret_id")
+			assert.Equal(t, id, *parent.TokenSecretID)
+		})
+	}
+}
+
+// TestSonarrInstanceRepository_Delete_CascadesSettings double-checks
+// the FK cascade by inspecting the settings table directly after a
+// Delete. Complements the secret-cascade assertion in
+// TestSonarrInstanceRepository_DeleteCascades.
+func TestSonarrInstanceRepository_Delete_CascadesSettings(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSonarrInstanceRepository(db)
+			ctx := context.Background()
+
+			cipher, err := crypto.New("test-master-key-12345")
+			require.NoError(t, err)
+
+			inst := runtime.InstanceSnapshot{
+				Name: "cascade", URL: "http://x", APIKey: "k", Mode: "auto",
+				Timeout: 10 * time.Second,
+			}
+			_, err = repo.Create(ctx, inst, cipher)
+			require.NoError(t, err)
+
+			// Confirm settings row exists pre-delete.
+			var preCount int64
+			require.NoError(t, db.Model(&database.SonarrInstanceSettingsModel{}).
+				Where("instance_name = ?", "cascade").Count(&preCount).Error)
+			require.Equal(t, int64(1), preCount)
+
+			require.NoError(t, repo.Delete(ctx, "cascade"))
+
+			var postCount int64
+			require.NoError(t, db.Model(&database.SonarrInstanceSettingsModel{}).
+				Where("instance_name = ?", "cascade").Count(&postCount).Error)
+			assert.Equal(t, int64(0), postCount, "settings row must cascade-drop with parent")
 		})
 	}
 }

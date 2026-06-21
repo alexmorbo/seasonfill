@@ -216,6 +216,7 @@ func d1IndexOf(s, sub string) int {
 //
 // Names are the same on both backends — the SQLite list is identical.
 var d1AcceptanceTablesPostgres = []string{
+	"app_config",
 	"app_secret",
 	"content_ratings",
 	"download_links",
@@ -253,6 +254,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"series_recommendations",
 	"series_texts",
 	"sonarr_instance",
+	"sonarr_instance_settings",
 	"user_instance_tags",
 	"users",
 	"videos",

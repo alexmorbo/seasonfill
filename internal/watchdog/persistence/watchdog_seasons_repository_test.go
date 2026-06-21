@@ -34,7 +34,12 @@ func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
 		UpdatedAt: time.Now().UTC(),
 	}
 	require.NoError(t, db.Create(&m).Error)
-	return m.ID
+	// D-5 (466b) — sonarr_instance.id surrogate is gone (name is PK).
+	// Callers expecting an integer instance id are D-6-skipped; return
+	// 0 as a sentinel so compilation passes while the migration to
+	// (instance_name TEXT) for the watchdog sibling tables is owned by
+	// the D-6 grab+watchdog rewrite.
+	return 0
 }
 
 func seedOrigin(t *testing.T, db *gorm.DB, repo *enrichpersistence.OriginReleaseRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, indexer string, now time.Time) {

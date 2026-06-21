@@ -13,7 +13,6 @@ import (
 )
 
 func TestRun_BootstrapSmoke(t *testing.T) {
-	t.Skip("pending D-5 admin+auth rewrite — boot path exercises broken stubs (D2-revised-roadmap.md)")
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
 

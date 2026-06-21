@@ -17,7 +17,8 @@ import (
 
 // TestSchemaCoverage_BothDialects walks Schema(d) for every shipped
 // dialect. Touches every builder + helper transitively. Total table
-// count is 42 after D-4 story 465b: 41 prior (D-1-7c) + 1 scan_runs.
+// count is 44 after D-5 story 466b: 42 prior (D-4) + 2 (app_config +
+// sonarr_instance_settings).
 func TestSchemaCoverage_BothDialects(t *testing.T) {
 	t.Parallel()
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
@@ -27,8 +28,8 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 			if s == nil {
 				t.Fatalf("Schema(%q) returned nil", d)
 			}
-			if len(s.Tables) != 42 {
-				t.Fatalf("Schema(%q) tables = %d, want 42", d, len(s.Tables))
+			if len(s.Tables) != 44 {
+				t.Fatalf("Schema(%q) tables = %d, want 44", d, len(s.Tables))
 			}
 		})
 	}
@@ -41,8 +42,8 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 func TestSchemaCoverage_TaxonomySkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 38 {
-		t.Fatalf("Schema(postgres) with skip flag tables = %d, want 38 (42 - 4 joins)", len(s.Tables))
+	if len(s.Tables) != 40 {
+		t.Fatalf("Schema(postgres) with skip flag tables = %d, want 40 (44 - 4 joins)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -60,8 +61,8 @@ func TestSchemaCoverage_TaxonomySkipFlag(t *testing.T) {
 func TestSchemaCoverage_PeopleSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_PEOPLE", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 39 {
-		t.Fatalf("Schema(postgres) with skip people tables = %d, want 39 (42 - 3 people)", len(s.Tables))
+	if len(s.Tables) != 41 {
+		t.Fatalf("Schema(postgres) with skip people tables = %d, want 41 (44 - 3 people)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -80,8 +81,8 @@ func TestSchemaCoverage_PeopleSkipFlag(t *testing.T) {
 func TestSchemaCoverage_SeriesExtrasSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SERIES_EXTRAS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 38 {
-		t.Fatalf("Schema(postgres) with skip series_extras tables = %d, want 38 (42 - 4 extras)", len(s.Tables))
+	if len(s.Tables) != 40 {
+		t.Fatalf("Schema(postgres) with skip series_extras tables = %d, want 40 (44 - 4 extras)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -115,8 +116,8 @@ func TestSchemaCoverage_LoadHonorsEnv(t *testing.T) {
 	if s == nil {
 		t.Fatal("Load() returned nil with ATLAS_DIALECT=sqlite")
 	}
-	if len(s.Tables) != 42 {
-		t.Fatalf("Load() tables = %d, want 42", len(s.Tables))
+	if len(s.Tables) != 44 {
+		t.Fatalf("Load() tables = %d, want 44", len(s.Tables))
 	}
 }
 
@@ -174,8 +175,8 @@ func TestSchemaCoverage_MustTablePanic(t *testing.T) {
 func TestSchemaCoverage_InstanceProjectionsSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_INSTANCE_PROJECTIONS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 39 {
-		t.Fatalf("Schema(postgres) with skip projections tables = %d, want 39 (42 - 3 projections)", len(s.Tables))
+	if len(s.Tables) != 41 {
+		t.Fatalf("Schema(postgres) with skip projections tables = %d, want 41 (44 - 3 projections)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -193,8 +194,8 @@ func TestSchemaCoverage_InstanceProjectionsSkipFlag(t *testing.T) {
 func TestSchemaCoverage_EnrichmentTrackingSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_ENRICHMENT_TRACKING", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 41 {
-		t.Fatalf("Schema(postgres) with skip enrichment tables = %d, want 41 (42 - 1 enrichment_errors)", len(s.Tables))
+	if len(s.Tables) != 43 {
+		t.Fatalf("Schema(postgres) with skip enrichment tables = %d, want 43 (44 - 1 enrichment_errors)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		if tbl.Name == "enrichment_errors" {
@@ -211,8 +212,8 @@ func TestSchemaCoverage_EnrichmentTrackingSkipFlag(t *testing.T) {
 func TestSchemaCoverage_SeriesImagesSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SERIES_IMAGES", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 41 {
-		t.Fatalf("Schema(postgres) with skip series_images tables = %d, want 41 (42 - 1 series_images)", len(s.Tables))
+	if len(s.Tables) != 43 {
+		t.Fatalf("Schema(postgres) with skip series_images tables = %d, want 43 (44 - 1 series_images)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		if tbl.Name == "series_images" {
@@ -235,11 +236,16 @@ func TestSchemaCoverage_SeriesImagesSkipFlag(t *testing.T) {
 func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_ADMIN", "1")
 	t.Setenv("ATLAS_SCHEMA_SKIP_AUTH", "1")
+	t.Setenv("ATLAS_SCHEMA_SKIP_APP_CONFIG", "1")
 	t.Setenv("ATLAS_SCHEMA_SKIP_GRAB", "1")
 	t.Setenv("ATLAS_SCHEMA_SKIP_WATCHDOG", "1")
 	s := Schema(DialectPostgres)
+	// 44 - 5 admin - 2 auth - 2 app_config - 3 grab - 2 watchdog = 30.
+	// addAppConfig depends on sonarr_instance (FK target from
+	// sonarr_instance_settings) so ATLAS_SCHEMA_SKIP_ADMIN implies it
+	// must also be skipped.
 	if len(s.Tables) != 30 {
-		t.Fatalf("Schema(postgres) with skip admin+auth+grab+watchdog tables = %d, want 30 (42 - 5 admin - 2 auth - 3 grab - 2 watchdog)", len(s.Tables))
+		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog tables = %d, want 30 (44 - 5 admin - 2 auth - 2 app_config - 3 grab - 2 watchdog)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -257,8 +263,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_AUTH", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 40 {
-		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 40 (42 - 2 auth)", len(s.Tables))
+	if len(s.Tables) != 42 {
+		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 42 (44 - 2 auth)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -275,8 +281,8 @@ func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 func TestSchemaCoverage_GrabSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_GRAB", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 39 {
-		t.Fatalf("Schema(postgres) with skip grab tables = %d, want 39 (42 - 3 grab)", len(s.Tables))
+	if len(s.Tables) != 41 {
+		t.Fatalf("Schema(postgres) with skip grab tables = %d, want 41 (44 - 3 grab)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -295,8 +301,8 @@ func TestSchemaCoverage_WatchdogSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_WATCHDOG", "1")
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		s := Schema(d)
-		if len(s.Tables) != 40 {
-			t.Fatalf("with skip set: Schema(%q) tables = %d, want 40", d, len(s.Tables))
+		if len(s.Tables) != 42 {
+			t.Fatalf("with skip set: Schema(%q) tables = %d, want 42", d, len(s.Tables))
 		}
 		for _, tbl := range s.Tables {
 			if tbl.Name == "watchdog_state" || tbl.Name == "watchdog_blacklist" {
@@ -317,8 +323,8 @@ func TestSchemaCoverage_ScanRunsSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SCAN_RUNS", "1")
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		s := Schema(d)
-		if len(s.Tables) != 41 {
-			t.Fatalf("with skip set: Schema(%q) tables = %d, want 41 (42 - 1 scan_runs)", d, len(s.Tables))
+		if len(s.Tables) != 43 {
+			t.Fatalf("with skip set: Schema(%q) tables = %d, want 43 (44 - 1 scan_runs)", d, len(s.Tables))
 		}
 		for _, tbl := range s.Tables {
 			if tbl.Name == "scan_runs" {
