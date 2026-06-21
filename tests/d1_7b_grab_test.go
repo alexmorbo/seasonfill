@@ -260,9 +260,11 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// then to 42 after D-4 story 465b added scan_runs, then to 44
 			// after D-5 story 466b added app_config + sonarr_instance_settings,
 			// then to 47 after D-6 story 467a re-added the grab audit trio
-			// (decisions, cooldowns, origin_releases).
-			if len(s.Tables) != 47 {
-				t.Errorf("Schema(%s) tables = %d, want 47 (after D-6 grab_audit)", d, len(s.Tables))
+			// (decisions, cooldowns, origin_releases), then to 51 after
+			// D-6 story 467c added qbit_settings + qbit_torrents +
+			// qbit_torrent_events + torrent_series_map.
+			if len(s.Tables) != 51 {
+				t.Errorf("Schema(%s) tables = %d, want 51 (after D-6 qbit_runtime)", d, len(s.Tables))
 			}
 		})
 	}
