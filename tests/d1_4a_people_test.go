@@ -14,18 +14,18 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/schema"
 )
 
-// TestD14a_SchemaHasTwentyTables — D-1-3b had 17; D-1-4a adds 3
-// (people, person_credits, person_biographies) → 20.
+// TestD14a_SchemaHasTwentyTables — at 457a ship the schema had 20 tables;
+// D-1-4b (story 457b) appended 4 series-extras tables → total grew to 24.
+// Tip-of-tree count contract lives in TestD14b_SchemaHasTwentyFourTables
+// (d1_4b_series_extras_test.go); this test now loosens to a "3 D-1-4a
+// people-domain tables PRESENT" assertion so it survives future appends
+// without churning on every batch.
 func TestD14a_SchemaHasTwentyTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 20; got != want {
-				t.Fatalf("table count = %d, want %d", got, want)
-			}
-			// Spot-check the 3 new tables are present.
 			present := map[string]bool{}
 			for _, tbl := range s.Tables {
 				present[tbl.Name] = true

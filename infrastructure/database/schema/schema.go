@@ -15,6 +15,8 @@
 // keywords + 4 i18n siblings + series_genres, series_networks,
 // series_companies, series_keywords. D-1-4a (story 457a) appends the
 // people canon batch: people, person_credits, person_biographies.
+// D-1-4b (story 457b) appends the series extras batch: videos,
+// content_ratings, external_ids, series_recommendations.
 package schema
 
 import (
@@ -106,7 +108,17 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addPeople(s, d)
 	}
 
-	// D-1-4b..D-1-7 (stories 457b..460) append further batches here.
+	// D-1-4b (story 457b) — videos, content_ratings, external_ids,
+	// series_recommendations. Same dev-time split pattern.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_SERIES_EXTRAS=1 generates
+	// earlier migrations without the series extras tables. Production
+	// runtime never sets this var.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_SERIES_EXTRAS") == "" {
+		addSeriesExtras(s, d)
+	}
+
+	// D-1-5..D-1-7 (stories 458..460) append further batches here.
 
 	return s
 }
@@ -697,6 +709,162 @@ func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlassc
 				SetRefTable(peopleTable).
 				AddRefColumns(parentRefCol(peopleTable)).
 				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// addSeriesExtras appends the 4 series-extras tables (videos,
+// content_ratings, external_ids, series_recommendations). Called from
+// Schema(d) after addPeople.
+//
+// PRD §4.3 / §D-1 line 4390. Sourced from legacy migrations 000029.
+//
+// FK direction:
+//   - videos / content_ratings / series_recommendations.{series_id,
+//     recommended_series_id} → series(id) ON DELETE CASCADE (per-series
+//     extensions, dead without parent).
+//   - external_ids has NO FK on entity_id (polymorphic — entity_type
+//     discriminates). This is a deliberate schema choice; do NOT add an
+//     FK by reflex.
+func addSeriesExtras(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	s.AddTables(
+		buildVideosTable(d, series),
+		buildContentRatingsTable(d, series),
+		buildExternalIDsTable(d), // polymorphic, no FK
+		buildSeriesRecommendationsTable(d, series),
+	)
+}
+
+// buildVideosTable returns the videos table — 12 cols + 2 indexes
+// (partial unique on tmdb_video_id; composite series/type/official).
+// FK series_id → series(id) ON DELETE CASCADE.
+func buildVideosTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	seriesID := fkColumn(d, "series_id", false)
+	tmdbVideoID := atlasschema.NewNullStringColumn("tmdb_video_id", "text")
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	site := atlasschema.NewNullStringColumn("site", "text")
+	key := atlasschema.NewNullStringColumn("key", "text")
+	typeCol := atlasschema.NewNullStringColumn("type", "text")
+	official := atlasschema.NewBoolColumn("official", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	language := atlasschema.NewNullStringColumn("language", "text")
+	publishedAt := timestampColumn(d, "published_at", false, false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("videos").
+		AddColumns(id, seriesID, tmdbVideoID, name, site, key, typeCol,
+			official, language, publishedAt, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialUniqueIndex(d, "videos_tmdb_id",
+				[]*atlasschema.Column{tmdbVideoID}, "tmdb_video_id IS NOT NULL"),
+			atlasschema.NewIndex("videos_series_type").
+				AddColumns(seriesID, typeCol, official),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("videos_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildContentRatingsTable returns content_ratings — 4 cols, composite
+// PK (series_id, country_code), FK series_id → series(id) CASCADE.
+//
+// Thin composite-PK child WITHOUT a separate `id` column — natural key
+// is the (series_id, country_code) pair. First table with this shape in
+// the schema (i18n tables also use composite PK but add nullable text
+// cols + enriched_at).
+func buildContentRatingsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false)
+	countryCode := atlasschema.NewStringColumn("country_code", "text").SetNull(false)
+	rating := atlasschema.NewStringColumn("rating", "text").SetNull(false)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("content_ratings").
+		AddColumns(seriesID, countryCode, rating, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, countryCode)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("content_ratings_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildExternalIDsTable returns external_ids — 5 cols, composite-3 PK
+// (entity_type, entity_id, provider). POLYMORPHIC: entity_id has NO FK
+// constraint. PRD §5.3 documents this. entity_type domain (series|
+// person|episode) is enforced at the domain layer via the
+// enrichment.EntityType enum, NOT by DB constraint — keeps the table
+// schema-portable to future entity types without migration.
+//
+// Index external_ids_provider_value on (provider, value) — reverse
+// lookup "find anything matching imdb=tt1234567".
+//
+// DO NOT add an FK on entity_id by reflex — the absence is intentional.
+func buildExternalIDsTable(d Dialect) *atlasschema.Table {
+	entityType := atlasschema.NewStringColumn("entity_type", "text").SetNull(false)
+	entityID := atlasschema.NewIntColumn("entity_id", "bigint").SetNull(false)
+	provider := atlasschema.NewStringColumn("provider", "text").SetNull(false)
+	value := atlasschema.NewStringColumn("value", "text").SetNull(false)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("external_ids").
+		AddColumns(entityType, entityID, provider, value, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(entityType, entityID, provider)).
+		AddIndexes(
+			atlasschema.NewIndex("external_ids_provider_value").
+				AddColumns(provider, value),
+		)
+}
+
+// buildSeriesRecommendationsTable returns series_recommendations — 4
+// cols, composite PK (series_id, recommended_series_id), 2 FKs (BOTH
+// CASCADE — self-joining table, dead if either side is wiped).
+//
+// PRD §4.3 / §D-1 line 4390. Legacy 000029 shape; PRD §5.1.3 mentioned
+// `kind` + `refreshed_at` as forward-looking additions — deliberately
+// NOT in greenfield (single position-ordered list per series_id;
+// composers consume the 4-col shape successfully).
+//
+// DO NOT re-add kind/refreshed_at by reflex; if a future story needs
+// them it's a column addition (000015+).
+func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false)
+	recommendedID := fkColumn(d, "recommended_series_id", false)
+	position := atlasschema.NewNullIntColumn("position", "integer")
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	refCol := parentRefCol(seriesTable)
+	return atlasschema.NewTable("series_recommendations").
+		AddColumns(seriesID, recommendedID, position, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, recommendedID)).
+		AddIndexes(
+			atlasschema.NewIndex("series_recommendations_position").
+				AddColumns(seriesID, position),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("series_recommendations_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("series_recommendations_recommended_series_id_fkey").
+				AddColumns(recommendedID).
+				SetRefTable(seriesTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
 }
