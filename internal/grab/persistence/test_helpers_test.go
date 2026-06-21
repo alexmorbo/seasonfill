@@ -40,6 +40,9 @@ func grabBackends(t *testing.T) []testhelpers.Backend {
 				seedSonarrInstance(tb, db, "main")
 				seedSonarrInstance(tb, db, "homelab")
 				seedSonarrInstance(tb, db, "4k")
+				seedSonarrInstance(tb, db, "alpha")
+				seedSonarrInstance(tb, db, "beta")
+				seedSonarrInstance(tb, db, "a")
 				return db
 			},
 		})
