@@ -28,7 +28,7 @@ import (
 
 func loadFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	path := filepath.Join("..", "..", "infrastructure", "sonarr", "fixtures", name)
+	path := filepath.Join("..", "..", "internal", "shared", "clients", "sonarr", "fixtures", name)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return data
