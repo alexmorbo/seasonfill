@@ -778,12 +778,16 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 	profileAsset := atlasschema.NewNullStringColumn("profile_asset", "text")
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
+	// D-3 (story 464b) — per-person TMDB enrichment freshness column.
+	// NULL = never enriched. Set by PersonWorker on success; replaces
+	// the legacy sync_log(tmdb_person, outcome='ok') row TTL gate.
+	enrichmentSyncedAt := timestampColumn(d, "enrichment_synced_at", false, false)
 
 	return atlasschema.NewTable("people").
 		AddColumns(
 			id, tmdbID, imdbID, hydration, name, originalName, gender,
 			birthday, deathday, placeOfBirth, knownForDept, popularity,
-			profileAsset, createdAt, updatedAt,
+			profileAsset, enrichmentSyncedAt, createdAt, updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
 		AddIndexes(

@@ -12,7 +12,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
-	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -53,15 +52,6 @@ type SeriesByTMDBLookup interface {
 // row is a stub / recommendation, not a library credit.
 type SeriesCacheLookup interface {
 	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
-}
-
-// SyncLogLookup retrieves the latest sync_log row for
-// (entity_type, entity_id, source). The composer reads the
-// (person, tmdb_person) row for the "Source: TMDB · updated N
-// days ago" microcopy AND for the degraded[] rule-1/rule-2
-// evaluation.
-type SyncLogLookup interface {
-	GetLastSync(ctx context.Context, entityType domenrich.EntityType, entityID int64, source domenrich.Source) (domenrich.SyncLog, error)
 }
 
 // PersonEnqueuer is the write seam for stub-on-demand. The H-2

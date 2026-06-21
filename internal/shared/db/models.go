@@ -447,8 +447,9 @@ type SeriesModel struct {
 	OMDBAwards    *string  `gorm:"column:omdb_awards;type:text"`
 	// EnrichmentTMDBSyncedAt / EnrichmentOMDBSyncedAt — D-3 enrichment
 	// freshness columns (migration 000001 §D-3). NULL = never
-	// enriched. Set by workers on success; replaces the legacy
-	// sync_log(source, outcome='ok') row TTL gate.
+	// enriched. Set by workers on success; canonical replacement for
+	// the legacy per-source hydration journal — workers stamp the
+	// column directly on success, no separate row write.
 	EnrichmentTMDBSyncedAt *time.Time `gorm:"column:enrichment_tmdb_synced_at"`
 	EnrichmentOMDBSyncedAt *time.Time `gorm:"column:enrichment_omdb_synced_at"`
 	CreatedAt              time.Time  `gorm:"column:created_at;not null"`
@@ -595,8 +596,13 @@ type PeopleModel struct {
 	KnownForDepartment *string        `gorm:"column:known_for_department;type:text"`
 	Popularity         *float64       `gorm:"column:popularity"`
 	ProfileAsset       *string        `gorm:"column:profile_asset;type:text"`
-	CreatedAt          time.Time      `gorm:"column:created_at;not null"`
-	UpdatedAt          time.Time      `gorm:"column:updated_at;not null"`
+	// EnrichmentSyncedAt — D-3 (migration 000014) per-person TMDB
+	// enrichment freshness column. NULL = never enriched. Set by
+	// PersonWorker on success; replaces the legacy sync_log(tmdb_person,
+	// outcome='ok') row TTL gate.
+	EnrichmentSyncedAt *time.Time `gorm:"column:enrichment_synced_at"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (PeopleModel) TableName() string { return "people" }
@@ -874,28 +880,6 @@ type PersonCreditModel struct {
 }
 
 func (PersonCreditModel) TableName() string { return "person_credits" }
-
-// SyncLogModel — per-(entity, source) hydration journal row (PRD §5.5,
-// §7.1, migration 000031). PK (entity_type, entity_id, source) —
-// natural key, exactly one row per (canon entity, source). Workers
-// write one row per fetch attempt; the composer reads Outcome +
-// SyncedAt to decide degraded[]; the dispatcher reads NextAttemptAt +
-// Attempts for retry scheduling.
-type SyncLogModel struct {
-	EntityType    string     `gorm:"primaryKey;column:entity_type;type:text"`
-	EntityID      int64      `gorm:"primaryKey;column:entity_id"`
-	Source        string     `gorm:"primaryKey;column:source;type:text"`
-	SyncedAt      *time.Time `gorm:"column:synced_at"`
-	Outcome       string     `gorm:"column:outcome;type:text;not null;default:'pending'"`
-	ErrorDetail   *string    `gorm:"column:error_detail;type:text"`
-	ETag          *string    `gorm:"column:etag;type:text"`
-	Attempts      int        `gorm:"column:attempts;not null;default:0"`
-	NextAttemptAt *time.Time `gorm:"column:next_attempt_at"`
-	DurationMs    *int       `gorm:"column:duration_ms"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
-}
-
-func (SyncLogModel) TableName() string { return "sync_log" }
 
 // MediaAssetModel is the persistent row for the media_assets table
 // (migration 000024, PRD v4 §6). One row per stored object — the

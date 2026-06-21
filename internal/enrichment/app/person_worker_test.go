@@ -19,10 +19,11 @@ import (
 // --- fakes ----------------------------------------------------------
 
 type fakePeopleWrite struct {
-	person    people.Person
-	getErr    error
-	upserts   []people.Person
-	upsertErr error
+	person     people.Person
+	getErr     error
+	upserts    []people.Person
+	upsertErr  error
+	markSynced []int64
 }
 
 func (f *fakePeopleWrite) Get(_ context.Context, id int64, _ string) (people.Person, error) {
@@ -40,6 +41,16 @@ func (f *fakePeopleWrite) Upsert(_ context.Context, p people.Person) (int64, err
 	}
 	f.upserts = append(f.upserts, p)
 	return p.ID, nil
+}
+
+// MarkSynced — 464b: records the (id, now) tuple so tests can assert
+// the canon stamp ran exactly once on a happy path.
+func (f *fakePeopleWrite) MarkSynced(_ context.Context, id int64, now time.Time) error {
+	f.markSynced = append(f.markSynced, id)
+	// Mirror the in-memory canon so subsequent Get calls see the stamp.
+	t := now
+	f.person.EnrichmentSyncedAt = &t
+	return nil
 }
 
 type fakeBiographies struct {
@@ -82,27 +93,36 @@ func (f *fakePersonExternalIDs) Upsert(_ context.Context, _ enrichment.EntityTyp
 	return nil
 }
 
-type fakePersonSyncLog struct {
-	last    enrichment.SyncLog
-	lastErr error
-	upserts []enrichment.SyncLog
+// fakePersonErrorRepo — person-side EnrichmentErrorRepo fake.
+type fakePersonErrorRepo struct {
+	preexist *enrichment.EnrichmentError
+	failures []enrichment.EnrichmentError
+	cleared  []clearedKey
 }
 
-func (f *fakePersonSyncLog) Upsert(_ context.Context, e enrichment.SyncLog) error {
-	f.upserts = append(f.upserts, e)
+func (f *fakePersonErrorRepo) RecordFailure(_ context.Context, e enrichment.EnrichmentError) error {
+	f.failures = append(f.failures, e)
 	return nil
 }
 
-func (f *fakePersonSyncLog) GetLastSync(_ context.Context, _ enrichment.EntityType, _ int64, _ enrichment.Source) (enrichment.SyncLog, error) {
-	return f.last, f.lastErr
+func (f *fakePersonErrorRepo) ClearOnSuccess(_ context.Context, et enrichment.EntityType, id int64, src enrichment.Source) error {
+	f.cleared = append(f.cleared, clearedKey{EntityType: et, EntityID: id, Source: src})
+	return nil
 }
 
-func (f *fakePersonSyncLog) StaleScan(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.SyncLog, error) {
+func (f *fakePersonErrorRepo) GetForEntity(_ context.Context, _ enrichment.EntityType, _ int64) ([]enrichment.EnrichmentError, error) {
 	return nil, nil
 }
 
-func (f *fakePersonSyncLog) RetryDue(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.SyncLog, error) {
+func (f *fakePersonErrorRepo) ListDueForRetry(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.EnrichmentError, error) {
 	return nil, nil
+}
+
+func (f *fakePersonErrorRepo) GetByEntitySource(_ context.Context, et enrichment.EntityType, id int64, src enrichment.Source) (enrichment.EnrichmentError, error) {
+	if f.preexist != nil && f.preexist.EntityType == et && f.preexist.EntityID == id && f.preexist.Source == src {
+		return *f.preexist, nil
+	}
+	return enrichment.EnrichmentError{}, ports.ErrNotFound
 }
 
 type fakeTxr struct{}
@@ -142,12 +162,12 @@ func tmdbIDPtr(v int) *domain.TMDBID {
 }
 
 type personWorkerFakes struct {
-	people      *fakePeopleWrite
-	biographies *fakeBiographies
-	credits     *fakeCredits
-	externalIDs *fakePersonExternalIDs
-	syncLog     *fakePersonSyncLog
-	tmdb        *fakeTMDBPerson
+	people           *fakePeopleWrite
+	biographies      *fakeBiographies
+	credits          *fakeCredits
+	externalIDs      *fakePersonExternalIDs
+	enrichmentErrors *fakePersonErrorRepo
+	tmdb             *fakeTMDBPerson
 }
 
 func newPersonWorkerForTest(t *testing.T, mut func(*PersonWorkerDeps)) (*PersonWorker, *personWorkerFakes) {
@@ -160,10 +180,10 @@ func newPersonWorkerForTest(t *testing.T, mut func(*PersonWorkerDeps)) (*PersonW
 				Name:      "stub",
 			},
 		},
-		biographies: &fakeBiographies{},
-		credits:     &fakeCredits{},
-		externalIDs: &fakePersonExternalIDs{},
-		syncLog:     &fakePersonSyncLog{},
+		biographies:      &fakeBiographies{},
+		credits:          &fakeCredits{},
+		externalIDs:      &fakePersonExternalIDs{},
+		enrichmentErrors: &fakePersonErrorRepo{},
 		tmdb: &fakeTMDBPerson{person: &tmdb.PersonResponse{
 			ID:        99,
 			Name:      "Pedro Pascal",
@@ -183,7 +203,7 @@ func newPersonWorkerForTest(t *testing.T, mut func(*PersonWorkerDeps)) (*PersonW
 		PersonBiographies: f.biographies,
 		PersonCredits:     f.credits,
 		ExternalIDs:       f.externalIDs,
-		SyncLog:           f.syncLog,
+		EnrichmentErrors:  f.enrichmentErrors,
 		Logger:            quietLogger(),
 		Clock:             func() time.Time { return time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC) },
 	}
@@ -224,9 +244,10 @@ func TestPersonWorker_StubToFull_HappyPath(t *testing.T) {
 	assert.True(t, providers["imdb"])
 	assert.True(t, providers["homepage"])
 
-	require.Len(t, f.syncLog.upserts, 1, "single sync_log row")
-	assert.Equal(t, enrichment.OutcomeOK, f.syncLog.upserts[0].Outcome)
-	assert.Equal(t, 0, f.syncLog.upserts[0].Attempts)
+	require.Len(t, f.people.markSynced, 1, "single MarkSynced call")
+	assert.Equal(t, int64(42), f.people.markSynced[0])
+	assert.Empty(t, f.enrichmentErrors.failures)
+	require.NotEmpty(t, f.enrichmentErrors.cleared, "ClearOnSuccess must fire on happy path")
 }
 
 func TestPersonWorker_Idempotency_FreshFullSkips(t *testing.T) {
@@ -234,17 +255,15 @@ func TestPersonWorker_Idempotency_FreshFullSkips(t *testing.T) {
 	now := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
 	syncedAt := now.Add(-1 * time.Hour)
 	w, f := newPersonWorkerForTest(t, nil)
-	// Re-seed the people fake to return hydration=full.
+	// Re-seed the people fake to return hydration=full + synced 1h ago.
 	f.people.person.Hydration = people.HydrationFull
-	f.syncLog.last = enrichment.SyncLog{
-		Outcome:  enrichment.OutcomeOK,
-		SyncedAt: &syncedAt,
-	}
+	f.people.person.EnrichmentSyncedAt = &syncedAt
 	require.NoError(t, w.Handle(context.Background(), 42))
 
 	assert.Zero(t, f.tmdb.calls, "no TMDB calls on fresh full")
 	assert.Empty(t, f.credits.batches, "no credits written")
-	assert.Empty(t, f.syncLog.upserts, "no sync_log Upsert")
+	assert.Empty(t, f.people.markSynced, "no MarkSynced on fresh-skip")
+	_ = now
 }
 
 func TestPersonWorker_BatchCredits_ChunksAt500(t *testing.T) {
@@ -270,8 +289,8 @@ func TestPersonWorker_TMDB404_TerminalNotFound(t *testing.T) {
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Empty(t, f.credits.batches)
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeNotFound, f.syncLog.upserts[0].Outcome)
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts)
 }
 
 func TestPersonWorker_TxFailure_NoHalfWrites(t *testing.T) {
@@ -282,8 +301,10 @@ func TestPersonWorker_TxFailure_NoHalfWrites(t *testing.T) {
 	// which the worker observes and journals as outcome=error.
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Empty(t, f.credits.batches)
-	require.NotEmpty(t, f.syncLog.upserts)
-	assert.Equal(t, enrichment.OutcomeError, f.syncLog.upserts[len(f.syncLog.upserts)-1].Outcome)
+	require.NotEmpty(t, f.enrichmentErrors.failures)
+	last := f.enrichmentErrors.failures[len(f.enrichmentErrors.failures)-1]
+	assert.Equal(t, enrichment.SourceTMDBPerson, last.Source)
+	require.NotNil(t, last.NextAttemptAt, "retryable error must have NextAttemptAt set")
 }
 
 func TestPersonWorker_PersonMissing_ReturnsNoOp(t *testing.T) {
@@ -294,7 +315,7 @@ func TestPersonWorker_PersonMissing_ReturnsNoOp(t *testing.T) {
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.tmdb.calls)
 	assert.Empty(t, f.credits.batches)
-	assert.Empty(t, f.syncLog.upserts)
+	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
 func TestPersonWorker_NoTMDBID_TerminalNotFound(t *testing.T) {
@@ -304,8 +325,8 @@ func TestPersonWorker_NoTMDBID_TerminalNotFound(t *testing.T) {
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.tmdb.calls)
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeNotFound, f.syncLog.upserts[0].Outcome)
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts)
 }
 
 func TestPersonWorker_RejectsMissingDeps(t *testing.T) {

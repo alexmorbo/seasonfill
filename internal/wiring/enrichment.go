@@ -110,7 +110,7 @@ type EnrichmentBundle struct {
 	Dispatcher *appenrich.DispatcherImpl
 	Nightly    func(context.Context)
 	// ColdStart (212) runs the one-shot series backfill — series
-	// rows that lack a sync_log(tmdb_series) entry are enqueued at
+	// rows whose enrichment_tmdb_synced_at is NULL are enqueued at
 	// PriorityCold. nil when enrichment is disabled.
 	ColdStart func(context.Context)
 	// 213 additions: nil when OMDb disabled / unconfigured.
@@ -328,28 +328,28 @@ func BuildEnrichment(
 	// via a thin atomic.Pointer indirection (one extra load per call —
 	// negligible vs the network round-trip).
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
-		TMDB:            tmdbHolder,
-		Tx:              tx,
-		Language:        tmdb.DefaultLanguage,
-		Series:          repos.Series,
-		SeriesTexts:     repos.SeriesTexts,
-		Seasons:         repos.Seasons,
-		Episodes:        repos.Episodes,
-		EpisodeTexts:    repos.EpisodeTexts,
-		People:          repos.People,
-		SeriesPeople:    repos.SeriesPeople,
-		Genres:          repos.Genres,
-		Keywords:        repos.Keywords,
-		Networks:        repos.Networks,
-		Companies:       repos.Companies,
-		Videos:          repos.Videos,
-		ContentRatings:  repos.ContentRatings,
-		ExternalIDs:     repos.ExternalIDs,
-		Recommendations: repos.Recommendations,
-		SyncLog:         repos.SyncLog,
-		MediaPrewarmer:  mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
-		Dispatcher:      holder,
-		Logger:          enrichmentLog,
+		TMDB:             tmdbHolder,
+		Tx:               tx,
+		Language:         tmdb.DefaultLanguage,
+		Series:           repos.Series,
+		SeriesTexts:      repos.SeriesTexts,
+		Seasons:          repos.Seasons,
+		Episodes:         repos.Episodes,
+		EpisodeTexts:     repos.EpisodeTexts,
+		People:           repos.People,
+		SeriesPeople:     repos.SeriesPeople,
+		Genres:           repos.Genres,
+		Keywords:         repos.Keywords,
+		Networks:         repos.Networks,
+		Companies:        repos.Companies,
+		Videos:           repos.Videos,
+		ContentRatings:   repos.ContentRatings,
+		ExternalIDs:      repos.ExternalIDs,
+		Recommendations:  repos.Recommendations,
+		EnrichmentErrors: repos.EnrichmentErrors,
+		MediaPrewarmer:   mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
+		Dispatcher:       holder,
+		Logger:           enrichmentLog,
 	})
 	if err != nil {
 		return nil, err
@@ -372,7 +372,7 @@ func BuildEnrichment(
 		PersonBiographies: repos.PersonBiographies,
 		PersonCredits:     repos.PersonCredits,
 		ExternalIDs:       repos.ExternalIDs,
-		SyncLog:           repos.SyncLog,
+		EnrichmentErrors:  repos.EnrichmentErrors,
 		Logger:            enrichmentLog,
 	})
 	if err != nil {
@@ -403,12 +403,12 @@ func BuildEnrichment(
 		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
 	}
 	omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
-		Client:  omdbHolder.Get,
-		Budget:  omdbBudget,
-		Tx:      tx,
-		Series:  repos.Series,
-		SyncLog: repos.SyncLog,
-		Logger:  omdbLog,
+		Client:           omdbHolder.Get,
+		Budget:           omdbBudget,
+		Tx:               tx,
+		Series:           repos.Series,
+		EnrichmentErrors: repos.EnrichmentErrors,
+		Logger:           omdbLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new omdb worker: %w", err)
@@ -485,45 +485,49 @@ func BuildEnrichment(
 
 	nightly := func(ctx context.Context) {
 		now := time.Now().UTC()
-		// Series sweep: cutoff is now - 2 × continuing-series TTL
-		// (24h). Ended-series rows with 30d TTL are still selected
-		// since they're already older.
-		seriesCutoff := now.Add(-2 * 24 * time.Hour)
-		seriesStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBSeries, seriesCutoff, 100)
+		// Series sweep: cutoff is 2 × continuing-series TTL (24h).
+		// Stale-rows are series whose canon enrichment_tmdb_synced_at
+		// is NULL or older than the cutoff; retry-rows are
+		// enrichment_errors entries with next_attempt_at <= now.
+		seriesStaleTTL := 2 * 24 * time.Hour
+		seriesStale, err := repos.SeriesStaleScan.ListStaleForTMDB(ctx, seriesStaleTTL, 100)
 		if err != nil {
 			enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
 				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
 		}
-		seriesRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBSeries, now, 100)
+		seriesRetries, err := repos.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBSeries, now, 100)
 		if err != nil {
 			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
 				slog.String("source", string(enrichment.SourceTMDBSeries)),
 				slog.String("error", err.Error()))
 		}
-		for _, e := range seriesStale {
-			dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
+		for _, id := range seriesStale {
+			dispatcher.Enqueue(appenrich.EntitySeries, int64(id), appenrich.PriorityCold)
 		}
 		for _, e := range seriesRetries {
 			dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
 		}
 
 		// 212: person sweep — 30d person TTL → cutoff = now - 60d.
-		personCutoff := now.Add(-60 * 24 * time.Hour)
-		personStale, err := repos.SyncLog.StaleScan(ctx, enrichment.SourceTMDBPerson, personCutoff, 200)
-		if err != nil {
-			enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
-				slog.String("source", string(enrichment.SourceTMDBPerson)),
-				slog.String("error", err.Error()))
+		personStaleTTL := 60 * 24 * time.Hour
+		var personStale []int64
+		if repos.PeopleStaleScan != nil {
+			personStale, err = repos.PeopleStaleScan.ListStaleForTMDB(ctx, personStaleTTL, 200)
+			if err != nil {
+				enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+					slog.String("source", string(enrichment.SourceTMDBPerson)),
+					slog.String("error", err.Error()))
+			}
 		}
-		personRetries, err := repos.SyncLog.RetryDue(ctx, enrichment.SourceTMDBPerson, now, 200)
+		personRetries, err := repos.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBPerson, now, 200)
 		if err != nil {
 			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
 				slog.String("source", string(enrichment.SourceTMDBPerson)),
 				slog.String("error", err.Error()))
 		}
-		for _, e := range personStale {
-			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
+		for _, id := range personStale {
+			dispatcher.Enqueue(appenrich.EntityPerson, id, appenrich.PriorityCold)
 		}
 		for _, e := range personRetries {
 			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
@@ -663,11 +667,24 @@ type EnrichmentRepoBundle struct {
 	ContentRatings  appenrich.ContentRatingsRepoPort
 	ExternalIDs     appenrich.ExternalIDsRepoPort
 	Recommendations appenrich.RecommendationsRepoPort
-	SyncLog         appenrich.SyncLogRepo
+	// EnrichmentErrors — D-3 failure write surface (RecordFailure /
+	// ClearOnSuccess / ListDueForRetry / GetForEntity /
+	// GetByEntitySource). Used by all three workers + the composer's
+	// freshness adapter.
+	EnrichmentErrors appenrich.EnrichmentErrorRepo
 	// 212 additions:
 	PersonBiographies appenrich.PersonBiographiesPort
 	PersonCredits     appenrich.PersonCreditsPort
 	ColdStartScanner  appenrich.ColdStartScanner
+	// SeriesStaleScan — D-3 (464b): nightly TMDB-stale series scan.
+	// Production impl wraps *SeriesRepository.ListStaleForTMDB. Required
+	// when enrichment is wired (workers + composer need it).
+	SeriesStaleScan SeriesStaleScanner
+	// PeopleStaleScan — D-3 (464b): nightly TMDB-stale people scan.
+	// Production impl wraps *PeopleRepository.ListStaleForTMDB. Nil-OK
+	// — when nil the dispatcher loop skips the person staleness sweep
+	// (retry-due rows still fire).
+	PeopleStaleScan PeopleStaleScanner
 	// 213: ListLibraryWithIMDBStale source for the OMDb daily batch.
 	// Production impl wraps *SeriesRepository. Nil-OK — when nil the
 	// OMDb daily-batch closure logs and short-circuits.
@@ -680,6 +697,20 @@ type EnrichmentRepoBundle struct {
 	// 214 (F-1): blob store handle constructed in main.go. Nil-OK —
 	// when nil the pre-warm pipeline stays off.
 	MediaStore mediastore.Store
+}
+
+// SeriesStaleScanner is the application-layer surface for the nightly
+// "series whose TMDB enrichment is stale" query. Production impl wraps
+// *SeriesRepository.ListStaleForTMDB.
+type SeriesStaleScanner interface {
+	ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]domain.SeriesID, error)
+}
+
+// PeopleStaleScanner is the application-layer surface for the nightly
+// "person whose TMDB enrichment is stale" query. Production impl wraps
+// *PeopleRepository.ListStaleForTMDB.
+type PeopleStaleScanner interface {
+	ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]int64, error)
 }
 
 // OMDbBatchScanner is the application-layer surface for the
@@ -908,23 +939,8 @@ func NewColdStartScannerAdapter(s *enrichpersistence.SeriesRepository) appenrich
 	return coldStartScannerAdapter{inner: s}
 }
 
-func (a coldStartScannerAdapter) ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error) {
-	// 464a stub: the legacy port path stays on the cold_start.go
-	// consumer until 464b rewrites it to call ListMissingTMDBSync
-	// directly. For the only production source the loop passes
-	// ("tmdb_series"), redirect to the new column-on-canon query
-	// so a 464a deploy that triggers the cold-start loop doesn't
-	// panic. Any other source (none in current code) signals a
-	// caller bug — return empty (the loop treats empty as
-	// "nothing to backfill" and short-circuits).
-	if source == string(enrichment.SourceTMDBSeries) {
-		return a.inner.ListMissingTMDBSync(ctx, limit)
-	}
-	return nil, nil
-}
-
-// ListMissingTMDBSync — 464a addition for the 464b cold_start.go
-// rewrite. Forwards to the column-on-canon query.
+// ListMissingTMDBSync — D-3 column-on-canon query for the cold-start
+// backfill loop. Forwards to the underlying repository.
 func (a coldStartScannerAdapter) ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	return a.inner.ListMissingTMDBSync(ctx, limit)
 }
@@ -964,4 +980,35 @@ func (a mediaPrewarmerAdapter) Enqueue(ctx context.Context, reqs []appenrich.Med
 		})
 	}
 	a.eq.Enqueue(ctx, out)
+}
+
+// seriesStaleScanAdapter wraps *SeriesRepository to satisfy
+// SeriesStaleScanner. Out-of-application boundary; no application
+// imports of infrastructure/database.
+type seriesStaleScanAdapter struct {
+	inner *enrichpersistence.SeriesRepository
+}
+
+// NewSeriesStaleScanAdapter returns the wrapper for main.go's wiring.
+func NewSeriesStaleScanAdapter(s *enrichpersistence.SeriesRepository) SeriesStaleScanner {
+	return seriesStaleScanAdapter{inner: s}
+}
+
+func (a seriesStaleScanAdapter) ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]domain.SeriesID, error) {
+	return a.inner.ListStaleForTMDB(ctx, ttl, limit)
+}
+
+// peopleStaleScanAdapter wraps *PeopleRepository to satisfy
+// PeopleStaleScanner.
+type peopleStaleScanAdapter struct {
+	inner *enrichpersistence.PeopleRepository
+}
+
+// NewPeopleStaleScanAdapter returns the wrapper for main.go's wiring.
+func NewPeopleStaleScanAdapter(p *enrichpersistence.PeopleRepository) PeopleStaleScanner {
+	return peopleStaleScanAdapter{inner: p}
+}
+
+func (a peopleStaleScanAdapter) ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
+	return a.inner.ListStaleForTMDB(ctx, ttl, limit)
 }

@@ -23,8 +23,8 @@ const fallbackLanguage = "en-US"
 // pickLanguageFallback applies the §5.6 fallback: prefer the requested
 // `lang`, else fall back to en-US, else return the first row by
 // language ascending. Returns ports.ErrNotFound when no row matches
-// either the requested language or the fallback (sync_log degraded
-// path picks that up later).
+// either the requested language or the fallback (the composer's
+// degraded path picks that up later).
 //
 // Implemented as a single SELECT — both pg and sqlite treat
 // `CASE WHEN language = ? THEN 1 ELSE 0 END DESC, language ASC` as a

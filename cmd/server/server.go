@@ -284,11 +284,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	contentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	externalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	recommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	// 464a: sync_log table is retired in D-1 — wire the panic stub so
-	// boot stays green while 464b rewrites the workers + composer to
-	// drop the legacy SyncLogRepo dependency. Per ADR D2-revised-roadmap
-	// Decision 1, this binary is not deployable until 464b lands.
-	syncLogRepo := enrichpersistence.NewSyncLogStub()
+	// 464b: D-3 failure tracking — workers + composer share one
+	// EnrichmentErrorsRepository instance. Success is now stamped
+	// directly on the canon row via Series.MarkTMDBSynced /
+	// MarkOMDBSynced (people side: People.MarkSynced).
+	enrichmentErrorsRepo := enrichpersistence.NewEnrichmentErrorsRepository(db)
 	// Story 212 (C-3) — person enrichment + cold-start backfill.
 	personBiographiesRepo := enrichpersistence.NewPersonBiographiesRepository(db)
 	personCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
@@ -312,10 +312,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		ContentRatings:    wiring.ContentRatingsRepoAdapter{Inner: contentRatingsRepo},
 		ExternalIDs:       wiring.ExternalIDsRepoAdapter{Inner: externalIDsRepo},
 		Recommendations:   recommendationsRepo,
-		SyncLog:           syncLogRepo,
+		EnrichmentErrors:  enrichmentErrorsRepo,
 		PersonBiographies: personBiographiesRepo,
 		PersonCredits:     wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},
 		ColdStartScanner:  coldStartScanner,
+		SeriesStaleScan:   wiring.NewSeriesStaleScanAdapter(seriesRepo),
+		PeopleStaleScan:   wiring.NewPeopleStaleScanAdapter(peopleRepo),
 		LibraryWithIMDB:   wiring.NewOMDbBatchScannerAdapter(seriesRepo),
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,

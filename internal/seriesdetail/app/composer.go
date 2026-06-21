@@ -160,7 +160,7 @@ type Deps struct {
 	ContentRatings  ContentRatingsPort
 	ExternalIDs     ExternalIDsPort
 	Recommendations RecommendationsPort
-	SyncLog         SyncLogPort
+	Freshness       EnrichmentFreshnessPort
 	SonarrFor       func(instanceName domain.InstanceName) (SonarrQueueLister, bool)
 	Logger          *slog.Logger
 	Now             func() time.Time
@@ -337,9 +337,9 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	// d.QueueRecords is populated; nil-safe + never fails.
 	d.InProgress = pickInProgress(d)
 
-	// Degraded computation: walk sync_log for the four enrichment
-	// sources, then call enrichment.Degraded with the branch-failure
-	// flags from the tracker.
+	// Degraded computation: read canon.enrichment_*_synced_at +
+	// enrichment_errors per-source, then call enrichment.Degraded with
+	// the branch-failure flags from the tracker.
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
 	d.SyncedAt = c.d.Now()
 
@@ -692,37 +692,72 @@ func (c *Composer) loadSonarrQueue(ctx context.Context, d *Detail) error {
 }
 
 // computeDegraded — single source of truth for the degraded[] list.
-// Reads sync_log for the four canon sources, applies §5.6 rules
-// via enrichment.Degraded, then ORs in the branch-failure flags
-// from the tracker.
+// Reads canon.enrichment_*_synced_at + enrichment_errors per source via
+// the EnrichmentFreshnessPort, applies §5.6 rules via
+// enrichment.Degraded, then ORs in the branch-failure flags from the
+// tracker.
 func (c *Composer) computeDegraded(ctx context.Context, seriesID domain.SeriesID, canon series.Canon, br *branchTracker) ([]enrichment.Source, error) {
-	in := enrichment.DegradedInput{
-		Logs:            map[enrichment.Source]*enrichment.SyncLog{},
-		TTLs:            map[enrichment.Source]time.Duration{},
-		SonarrReachable: !br.failed(enrichment.SourceSonarr),
-		QbitReachable:   true, // qBit branch is placeholder; assume reachable.
-	}
 	sources := []enrichment.Source{
 		enrichment.SourceTMDBSeries,
 		enrichment.SourceTMDBSeason,
 		enrichment.SourceTMDBPerson,
 		enrichment.SourceOMDb,
 	}
-	kind := classifyKind(canon)
-	for _, s := range sources {
-		log, err := c.d.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), s)
-		switch {
-		case err == nil:
-			row := log
-			in.Logs[s] = &row
-		case errors.Is(err, ports.ErrNotFound):
-			in.Logs[s] = nil
-		default:
-			c.d.Logger.WarnContext(ctx, "sync_log_lookup_failed",
-				slog.String("source", string(s)),
+	// Single read of every error row for the series — populate Errors map.
+	errorBySource := map[enrichment.Source]*enrichment.EnrichmentError{}
+	if c.d.Freshness != nil {
+		errs, err := c.d.Freshness.ErrorsFor(ctx, seriesID)
+		if err != nil {
+			c.d.Logger.WarnContext(ctx, "enrichment_errors_lookup_failed",
+				slog.String("domain", "enrichment"),
 				slog.Int64("series_id", int64(seriesID)),
 				slog.String("error", err.Error()))
-			in.Logs[s] = nil
+		} else {
+			now := c.d.Now()
+			for i := range errs {
+				e := errs[i]
+				if !e.IsLive(48*time.Hour, now) {
+					continue
+				}
+				errorBySource[e.Source] = &e
+			}
+		}
+	}
+	in := enrichment.DegradedInput{
+		SyncedAt:        map[enrichment.Source]*time.Time{},
+		Errors:          errorBySource,
+		TTLs:            map[enrichment.Source]time.Duration{},
+		SonarrReachable: !br.failed(enrichment.SourceSonarr),
+		QbitReachable:   true, // qBit branch is placeholder; assume reachable.
+	}
+	kind := classifyKind(canon)
+	for _, s := range sources {
+		switch s {
+		case enrichment.SourceTMDBSeries:
+			in.SyncedAt[s] = canon.EnrichmentTMDBSyncedAt
+		case enrichment.SourceOMDb:
+			in.SyncedAt[s] = canon.EnrichmentOMDBSyncedAt
+		default:
+			// tmdb_season / tmdb_person — no canon column. Read via the
+			// adapter; nil result means "no per-entity column tracked
+			// yet" which Degraded treats as rule-1 (never synced) — the
+			// desired behaviour until those columns land in a future
+			// schema iteration.
+			if c.d.Freshness != nil {
+				t, err := c.d.Freshness.SyncedAtFor(ctx, seriesID, s)
+				if err != nil {
+					c.d.Logger.WarnContext(ctx, "freshness_lookup_failed",
+						slog.String("domain", "enrichment"),
+						slog.String("source", string(s)),
+						slog.Int64("series_id", int64(seriesID)),
+						slog.String("error", err.Error()))
+					in.SyncedAt[s] = nil
+				} else {
+					in.SyncedAt[s] = t
+				}
+			} else {
+				in.SyncedAt[s] = nil
+			}
 		}
 		in.TTLs[s] = enrichment.TTL(s, kindFor(s, kind))
 	}

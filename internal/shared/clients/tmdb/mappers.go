@@ -484,7 +484,7 @@ func personCreditFromMovie(c PersonMovieCredit, kind people.SeriesCreditKind) pe
 
 // MapFindResponseToTMDBID picks the first tv_results[*].id. Returns
 // (0, false) on empty — caller treats as "no tvdb→tmdb mapping",
-// the worker writes sync_log with outcome=not_found.
+// the worker records an enrichment_errors row with attempts=terminalAttempts.
 func MapFindResponseToTMDBID(f *FindResponse) (int64, bool) {
 	if f == nil || len(f.TVResults) == 0 {
 		return 0, false

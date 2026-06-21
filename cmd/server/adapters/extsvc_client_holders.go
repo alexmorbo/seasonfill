@@ -70,7 +70,7 @@ func (h *OMDbClientHolder) Set(c *infraomdb.Client) *infraomdb.Client {
 //
 // Nil-load semantics: when the holder is empty (TMDB disabled at runtime
 // after an operator flip) every method returns ErrTMDBClientNotReady so
-// the worker journals sync_log.outcome=error with a retry-due. The
+// the worker records an enrichment_errors row with a retry-due. The
 // dispatcher's loop logs the error and continues serving.
 type TMDBClientHolder struct {
 	inner atomic.Pointer[tmdb.Client]

@@ -13,32 +13,20 @@ const (
 )
 
 // DegradedInput carries everything the Degraded calculator needs for
-// one entity-page render. The shape carries both the legacy `Logs`
-// map (preserved during 464a for composer compile-green) AND the new
-// `SyncedAt` + `Errors` maps that 464b's composer rewrite will
-// populate exclusively. The Degraded() body branches on which fields
-// the caller filled — both shapes coexist until 464b drops `Logs`.
+// one entity-page render. The shape is column-on-canon + per-source
+// errors: SyncedAt maps Source → last-success timestamp (read from
+// canon enrichment_*_synced_at columns); Errors maps Source → current
+// outstanding enrichment_errors row (nil = no live error / cleared
+// on success).
 type DegradedInput struct {
-	// Logs maps Source → latest SyncLog row (nil pointer allowed:
-	// "this source has been queried for sync_log but no row exists
-	// — never synced").
-	//
-	// NOTE (464a → 464b): 464b will delete this field together with
-	// the SyncLog struct. The 464a composer keeps writing it because
-	// the SyncLogStub panics at request time — no production composer
-	// call actually populates Logs after 464a deploys (the stub
-	// raises before the map write), but the dead branch keeps the
-	// composer compile-green.
-	Logs map[Source]*SyncLog
 	// SyncedAt maps Source → last successful enrichment timestamp
 	// (nil = never enriched). Reads canon series.enrichment_*_synced_at
-	// columns directly. 464a composer rewrite leaves this nil — only
-	// 464b populates it.
+	// columns directly (and people.enrichment_synced_at for the
+	// tmdb_person source).
 	SyncedAt map[Source]*time.Time
 	// Errors maps Source → current outstanding error row (nil = no
 	// live error / cleared on success). Reads enrichment_errors rows
-	// filtered by IsLive window. 464a composer rewrite leaves this
-	// nil — only 464b populates it.
+	// filtered by IsLive window.
 	Errors map[Source]*EnrichmentError
 	// TTLs maps Source → TTL value (caller pre-computed via
 	// TTL(source, kind)). Sources without a TTL entry are checked
@@ -68,7 +56,7 @@ func IsStale(syncedAt *time.Time, ttl time.Duration, now time.Time) bool {
 }
 
 // Degraded computes the degraded-sources list for one entity per PRD
-// v4 §5.6. Rules (same as pre-464a, only the input shape changed):
+// v4 §5.6. Rules:
 //
 //  1. Source has no sync record → degraded.
 //  2. Source has a live error row → degraded.
@@ -76,11 +64,9 @@ func IsStale(syncedAt *time.Time, ttl time.Duration, now time.Time) bool {
 //  4. SonarrReachable=false → SourceSonarr appended.
 //  5. QbitReachable=false → SourceQbit appended.
 //
-// The calculator reads from `SyncedAt`+`Errors` first (the 464b
-// canonical shape); on empty input it falls back to the legacy `Logs`
-// map for compile-green coverage of the 464a composer path. A source
-// declared in EITHER shape is "relevant"; sources declared in neither
-// are silently skipped (caller did not ask about them).
+// A source is "relevant" only if the caller declared it via the
+// SyncedAt or Errors map; sources declared in neither are silently
+// skipped (caller did not ask about them).
 //
 // Output ordering is deterministic (UI surface stability): TMDB
 // series, TMDB season, TMDB person, OMDb, Sonarr, qBit. Each source
@@ -103,10 +89,10 @@ func Degraded(in DegradedInput, now time.Time) []Source {
 		case SourceQbit:
 			degraded = !in.QbitReachable
 		default:
-			degraded = sourceDegraded(in, src, now)
 			if !sourceRelevant(in, src) {
 				continue
 			}
+			degraded = sourceDegraded(in, src, now)
 		}
 		if degraded && !seen[src] {
 			seen[src] = true
@@ -117,7 +103,7 @@ func Degraded(in DegradedInput, now time.Time) []Source {
 }
 
 // sourceRelevant reports whether the caller declared `src` as
-// relevant by including it in any of the input maps.
+// relevant by including it in either of the input maps.
 func sourceRelevant(in DegradedInput, src Source) bool {
 	if _, ok := in.SyncedAt[src]; ok {
 		return true
@@ -125,49 +111,22 @@ func sourceRelevant(in DegradedInput, src Source) bool {
 	if _, ok := in.Errors[src]; ok {
 		return true
 	}
-	if _, ok := in.Logs[src]; ok {
-		return true
-	}
 	return false
 }
 
-// sourceDegraded applies rules 1-3 to one source. New-shape inputs
-// (SyncedAt/Errors) win over the legacy Logs map when both are
-// populated — 464a composer writes Logs only, so the legacy branch
-// activates; 464b's composer writes SyncedAt/Errors so this branch
-// activates.
+// sourceDegraded applies rules 1-3 to one source.
 func sourceDegraded(in DegradedInput, src Source, now time.Time) bool {
-	syncedAt, syncedAtPresent := in.SyncedAt[src]
-	errEntry, errPresent := in.Errors[src]
-	if syncedAtPresent || errPresent {
-		// New shape: rule 1 (no sync), rule 2 (live error), rule 3 (stale).
-		if syncedAt == nil {
-			return true
-		}
-		if errEntry != nil {
-			return true
-		}
-		ttl := in.TTLs[src]
-		return IsStale(syncedAt, ttl, now)
+	syncedAt := in.SyncedAt[src]
+	errEntry := in.Errors[src]
+	// Rule 1 — never enriched.
+	if syncedAt == nil {
+		return true
 	}
-	// Legacy Logs path — preserved for 464a composer compile-green.
-	entry, present := in.Logs[src]
-	if !present {
-		return false
+	// Rule 2 — live error row.
+	if errEntry != nil {
+		return true
 	}
-	if entry == nil {
-		return true // rule 1
-	}
-	if entry.Outcome == OutcomeError {
-		return true // rule 2
-	}
+	// Rule 3 — staleness.
 	ttl := in.TTLs[src]
-	return isStaleSyncLog(*entry, ttl, now) // rule 3
-}
-
-// isStaleSyncLog mirrors the pre-464a IsStale on a SyncLog struct.
-// Kept private as a transitional helper while the legacy Logs path
-// stays compile-callable; deleted in 464b.
-func isStaleSyncLog(entry SyncLog, ttl time.Duration, now time.Time) bool {
-	return IsStale(entry.SyncedAt, ttl, now)
+	return IsStale(syncedAt, ttl, now)
 }

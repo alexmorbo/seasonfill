@@ -39,8 +39,8 @@ type TMDBClient interface {
 	GetPerson(ctx context.Context, id int64, language string) (*tmdb.PersonResponse, error)
 
 	// FindByTVDB resolves a tvdb_id to a TMDB id via /find. Returns
-	// nil on empty result; the worker treats nil as
-	// sync_log.outcome=not_found.
+	// nil on empty result; the worker treats nil as a terminal
+	// not-found (records an enrichment_errors row with attempts=99).
 	FindByTVDB(ctx context.Context, tvdbID domain.TVDBID) (*tmdb.FindResponse, error)
 }
 
@@ -119,6 +119,11 @@ type SeriesRepo interface {
 	// path so a stub upsert cannot blank a 'full' canon row's
 	// poster_asset / backdrop_asset / hydration.
 	UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error)
+	// MarkTMDBSynced / MarkOMDBSynced — D-3 (464b): post-success
+	// freshness stamps. Workers call these AFTER the multi-repo upsert
+	// tx commits, alongside EnrichmentErrors.ClearOnSuccess.
+	MarkTMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	MarkOMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 }
 
 type SeriesTextsRepo interface {
@@ -193,25 +198,10 @@ type RecommendationsRepoPort interface {
 	Set(ctx context.Context, seriesID domain.SeriesID, recommendedIDs []domain.SeriesID) error
 }
 
-// SyncLogRepo is the legacy journal write surface. RETAINED during the
-// 464a kernel-only cutover so workers + composer keep compiling against
-// the old interface; the production binding is *SyncLogStub which
-// panics at request time. 464b deletes this interface together with
-// the worker rewrites that drop the SyncLog dependency.
-//
-// NOTE (464a → 464b): use EnrichmentErrorRepo for failure tracking;
-// success is now stamped on the canonical entity row's
-// enrichment_*_synced_at column directly via repo.Series.Upsert.
-type SyncLogRepo interface {
-	Upsert(ctx context.Context, e enrichment.SyncLog) error
-	GetLastSync(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.SyncLog, error)
-	StaleScan(ctx context.Context, source enrichment.Source, cutoff time.Time, limit int) ([]enrichment.SyncLog, error)
-	RetryDue(ctx context.Context, source enrichment.Source, now time.Time, limit int) ([]enrichment.SyncLog, error)
-}
-
-// EnrichmentErrorRepo is the D-3 failure write surface. Replaces the
-// legacy SyncLogRepo for the error-tracking half of the journal; the
-// success half moves to direct canon-column writes via Series.Upsert.
+// EnrichmentErrorRepo is the D-3 failure write surface. The error-tracking
+// half of what used to be the sync_log journal; the success half moves
+// to direct canon-column writes via Series.MarkTMDBSynced / MarkOMDBSynced
+// (people side: People.MarkSynced).
 //
 // Lifecycle per (entity_type, entity_id, source):
 //   - First failure → RecordFailure inserts.
@@ -289,6 +279,10 @@ type VideoRow struct {
 type PeopleWritePort interface {
 	Get(ctx context.Context, id int64, language string) (people.Person, error)
 	Upsert(ctx context.Context, p people.Person) (int64, error)
+	// MarkSynced — D-3 (464b): stamps people.enrichment_synced_at on
+	// successful TMDB person hydration. Called by PersonWorker after
+	// the multi-repo upsert tx commits.
+	MarkSynced(ctx context.Context, id int64, now time.Time) error
 }
 
 // PersonBiographiesPort persists localised biography rows. The
@@ -306,24 +300,13 @@ type PersonCreditsPort interface {
 }
 
 // ColdStartScanner is the application-layer port for the canonical
-// series query "give me ids of series WITHOUT a sync_log row for the
-// given source". Production impl is a method on SeriesRepository
-// (Story 212 §8); tests pass a slice-backed fake.
+// series-id queries the boot-time backfill + recovery loops consume.
+// Production impl is *SeriesRepository (via wiring adapter); tests pass
+// a slice-backed fake.
 type ColdStartScanner interface {
-	// ListMissingSyncLog — legacy port method kept during 464a so
-	// cold_start.go (rewrite scope of 464b) keeps compiling. The
-	// production adapter forwards to ListMissingTMDBSync when
-	// source=="tmdb_series" and returns empty otherwise.
-	//
-	// NOTE (464a → 464b): use ListMissingTMDBSync; deleted in 464b
-	// alongside the cold_start.go rewrite.
-	ListMissingSyncLog(ctx context.Context, source string, limit int) ([]domain.SeriesID, error)
 	// ListMissingTMDBSync — D-3 column-on-canon query for the
 	// cold-start backfill loop. Returns series.id rows whose
-	// enrichment_tmdb_synced_at IS NULL. The 464b cold_start.go
-	// rewrite calls this method directly; the deprecated
-	// ListMissingSyncLog above currently delegates here for the
-	// "tmdb_series" source.
+	// enrichment_tmdb_synced_at IS NULL (never enriched).
 	ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error)
 	// ListCanonImagesCorrupted — Story 319: returns series.id rows
 	// where the canon is past stub phase but poster_asset or

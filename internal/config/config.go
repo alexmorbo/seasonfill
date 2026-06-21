@@ -82,7 +82,7 @@ type Bootstrap struct {
 type EnrichmentConfig struct {
 	// ColdStartResweepInterval governs how often the cold-start
 	// backfill goroutine re-queries the canonical series table for
-	// rows still missing a sync_log(tmdb_series) entry. Production
+	// rows whose enrichment_tmdb_synced_at is NULL. Production
 	// default is 60s — fast enough to clear a stranded backlog
 	// within minutes after a queue-full drop, cheap enough that the
 	// single PK-indexed LEFT JOIN does not move the DB needle.

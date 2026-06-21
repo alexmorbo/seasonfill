@@ -178,18 +178,6 @@ type RecommendationsPort interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]domain.SeriesID, error)
 }
 
-// SyncLogPort exposes the per-(entity, source) sync_log lookup the
-// degraded[] computation needs. RETAINED during 464a so composer.go
-// keeps compiling; the production binding is *SyncLogStub which
-// panics at request time. 464b rewrites computeDegraded to use the
-// EnrichmentFreshnessPort below + a direct read of the canon row's
-// enrichment_*_synced_at columns, then deletes this interface.
-//
-// NOTE (464a → 464b): use EnrichmentFreshnessPort.
-type SyncLogPort interface {
-	GetLastSync(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.SyncLog, error)
-}
-
 // EnrichmentFreshnessPort exposes the per-(entity, source) freshness
 // view the composer's computeDegraded reads. SyncedAtFor surfaces the
 // canon row's enrichment_*_synced_at column (NULL = never enriched);

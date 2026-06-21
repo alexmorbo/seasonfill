@@ -170,11 +170,12 @@ func BuildSeriesDetail(
 	sdContentRatingsRepo := enrichpersistence.NewContentRatingsRepository(db)
 	sdExternalIDsRepo := enrichpersistence.NewExternalIDsRepository(db)
 	sdRecommendationsRepo := enrichpersistence.NewRecommendationsRepository(db)
-	// 464a: panic-stub the legacy sync_log read surface so the composer
-	// + people use case keep compiling. 464b rewrites computeDegraded
-	// + people fetch path to read EnrichmentErrorsRepository + canon
-	// enrichment_*_synced_at directly, then deletes this binding.
-	sdSyncLogRepo := enrichpersistence.NewSyncLogStub()
+	// 464b: real EnrichmentFreshnessPort backed by the live
+	// EnrichmentErrorsRepository + canon series.enrichment_*_synced_at
+	// columns. Replaces the legacy SyncLogStub the composer used to read
+	// from during the 464a kernel cutover.
+	sdEnrichmentErrorsRepo := enrichpersistence.NewEnrichmentErrorsRepository(db)
+	sdFreshness := seriesdetail.NewEnrichmentFreshnessAdapter(sdSeriesRepo, sdEnrichmentErrorsRepo)
 
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
@@ -196,7 +197,7 @@ func BuildSeriesDetail(
 		ContentRatings:    sdContentRatingsRepo,
 		ExternalIDs:       sdExternalIDsRepo,
 		Recommendations:   sdRecommendationsRepo,
-		SyncLog:           sdSyncLogRepo,
+		Freshness:         sdFreshness,
 		SonarrFor: func(name domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			h := holder.Load()
 			if h == nil {
@@ -252,7 +253,6 @@ func BuildSeriesDetail(
 		PersonCredits: adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
 		SeriesByTMDB:  sdSeriesRepo,
 		SeriesCache:   sdSeriesCacheRepo,
-		SyncLog:       sdSyncLogRepo,
 		Enqueuer:      peopleEnqueuerHolder,
 		MediaResolver: mediaResolver,
 		// F-4b-8: people UC composes person-detail responses under the

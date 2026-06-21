@@ -159,7 +159,7 @@ func (g *OMDbBudgetGuard) Reserve() bool {
 	n, err := g.counter.Increment(ctx, OMDbServiceName, w)
 	if err != nil {
 		// DB transient — degrade open. The next Reserve will retry;
-		// the auth_failed sync_log entry is the upstream-enforced
+		// the auth_failed enrichment_errors entry is the upstream-enforced
 		// failsafe.
 		g.logger.WarnContext(ctx, "enrichment.omdb.budget.increment_failed",
 			slog.String("error", err.Error()))

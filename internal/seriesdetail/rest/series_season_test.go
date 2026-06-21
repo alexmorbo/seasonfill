@@ -76,7 +76,7 @@ func newSeasonComposer() *seriesdetail.Composer {
 		ContentRatings:    emptyRatings{},
 		ExternalIDs:       emptyExtIDs{},
 		Recommendations:   emptyRecs{},
-		SyncLog:           emptySyncLog{},
+		Freshness:         emptyFreshness{},
 		SonarrFor: func(_ domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			return fakeSonarrQ2{}, true
 		},

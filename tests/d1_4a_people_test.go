@@ -39,14 +39,17 @@ func TestD14a_SchemaHasTwentyTables(t *testing.T) {
 	}
 }
 
-// TestD14a_PeopleColumnCount — people has 15 cols (id + 12 data + created_at + updated_at).
+// TestD14a_PeopleColumnCount — people has 16 cols (id + 12 data +
+// enrichment_synced_at + created_at + updated_at). The 16th column
+// `enrichment_synced_at` was added in migration 000014 (story 464b)
+// to replace the legacy sync_log(tmdb_person, outcome='ok') TTL gate.
 func TestD14a_PeopleColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "people")
-			if got, want := len(tbl.Columns), 15; got != want {
+			if got, want := len(tbl.Columns), 16; got != want {
 				t.Errorf("people col count = %d, want %d", got, want)
 			}
 		})

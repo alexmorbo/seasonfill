@@ -46,10 +46,13 @@ func (s SortKey) IsValid() bool {
 // The handler maps it onto dto.PersonDetailResponse without
 // touching the database again.
 type PersonDetail struct {
-	Person         dompeople.Person
-	Biography      string
-	BioLanguage    string
-	Sync           *domenrich.SyncLog
+	Person      dompeople.Person
+	Biography   string
+	BioLanguage string
+	// SyncedAt is the last successful TMDB person enrichment timestamp
+	// read from person.EnrichmentSyncedAt. nil = never enriched, which
+	// the H-2 rule 1 surfaces as degraded[SourceTMDBPerson].
+	SyncedAt       *time.Time
 	LibraryCredits []LibraryCredit
 	OtherCredits   []OtherCredit
 	Degraded       []domenrich.Source
@@ -93,7 +96,6 @@ type Deps struct {
 	PersonCredits PersonCreditsReader
 	SeriesByTMDB  SeriesByTMDBLookup
 	SeriesCache   SeriesCacheLookup
-	SyncLog       SyncLogLookup
 	Enqueuer      PersonEnqueuer
 	MediaResolver MediaResolver
 	Logger        *slog.Logger
@@ -161,22 +163,11 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		Person:      person,
 		Biography:   person.Biography,
 		BioLanguage: person.BiographyLanguage,
-	}
-
-	syncLog, sErr := uc.d.SyncLog.GetLastSync(ctx,
-		domenrich.EntityTypePerson, person.ID, domenrich.SourceTMDBPerson)
-	switch {
-	case sErr == nil:
-		row := syncLog
-		out.Sync = &row
-	case errors.Is(sErr, ports.ErrNotFound):
-		// Expected for cold persons. Leave Sync nil; degraded will
-		// fire rule 1 when this surfaces below.
-	default:
-		uc.d.Logger.WarnContext(ctx, "person_sync_log_lookup_failed",
-			slog.Int("tmdb_person_id", int(tmdbID)),
-			slog.Int64("person_id", person.ID),
-			slog.String("error", sErr.Error()))
+		// SyncedAt comes straight from the canon row's
+		// people.enrichment_synced_at column (D-3 migration 000014).
+		// nil for cold persons; rule 1 in computeDegraded surfaces it
+		// as degraded[SourceTMDBPerson] below.
+		SyncedAt: person.EnrichmentSyncedAt,
 	}
 
 	credits, cErr := uc.d.PersonCredits.ListByPerson(ctx, person.ID)
@@ -228,7 +219,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w185", "poster_w185")
 	}
 
-	degraded := uc.computeDegraded(person, out.Sync)
+	degraded := uc.computeDegraded(person)
 	out.Degraded = degraded
 	if person.Hydration == dompeople.HydrationStub {
 		if uc.d.Enqueuer != nil {
@@ -346,17 +337,20 @@ func sortLibraryCredits(libs []LibraryCredit, sk SortKey) {
 
 // computeDegraded walks the H-2 degraded rules for the
 // tmdb_person source only:
-//  1. No sync_log row → degraded.
-//  2. sync_log.outcome == error → degraded.
-//  3. Stub hydration → degraded.
-func (uc *UseCase) computeDegraded(p dompeople.Person, log *domenrich.SyncLog) []domenrich.Source {
+//  1. Stub hydration → degraded.
+//  2. person.EnrichmentSyncedAt nil → degraded (never enriched).
+//
+// The pre-D-3 "outcome=error → degraded" branch is dropped here because
+// the H-2 use case doesn't pull enrichment_errors rows (the legacy
+// SyncLogLookup port is retired); the live-error surface is in the
+// composer's degraded[] path, not on /api/v1/people/:tmdbId. If
+// per-person error rendering is required later, plumb
+// EnrichmentErrorRepo through the H-2 deps.
+func (uc *UseCase) computeDegraded(p dompeople.Person) []domenrich.Source {
 	if p.Hydration == dompeople.HydrationStub {
 		return []domenrich.Source{domenrich.SourceTMDBPerson}
 	}
-	if log == nil {
-		return []domenrich.Source{domenrich.SourceTMDBPerson}
-	}
-	if log.Outcome == domenrich.OutcomeError {
+	if p.EnrichmentSyncedAt == nil {
 		return []domenrich.Source{domenrich.SourceTMDBPerson}
 	}
 	return nil

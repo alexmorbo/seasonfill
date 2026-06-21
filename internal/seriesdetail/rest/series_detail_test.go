@@ -185,10 +185,19 @@ func (emptyRecs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]domain.Se
 	return nil, nil
 }
 
-type emptySyncLog struct{}
+// emptyFreshness — 464b: a freshness adapter that returns "no
+// synced_at, no error rows" for every entity. Composer treats both
+// nil maps as rule-1 ("never synced") for any source the caller
+// declares via SyncedAt — handler tests don't drive the degraded[]
+// path here, so the empty input is the cleanest seed.
+type emptyFreshness struct{}
 
-func (emptySyncLog) GetLastSync(_ context.Context, _ enrichment.EntityType, _ int64, _ enrichment.Source) (enrichment.SyncLog, error) {
-	return enrichment.SyncLog{}, ports.ErrNotFound
+func (emptyFreshness) SyncedAtFor(_ context.Context, _ domain.SeriesID, _ enrichment.Source) (*time.Time, error) {
+	return nil, nil
+}
+
+func (emptyFreshness) ErrorsFor(_ context.Context, _ domain.SeriesID) ([]enrichment.EnrichmentError, error) {
+	return nil, nil
 }
 
 func i64p(v int64) *domain.SeriesID { sid := domain.SeriesID(v); return &sid }
@@ -213,7 +222,7 @@ func newComposerForHandlerTest(canon series.Canon, cacheEntries map[string]serie
 		ContentRatings:    emptyRatings{},
 		ExternalIDs:       emptyExtIDs{},
 		Recommendations:   emptyRecs{},
-		SyncLog:           emptySyncLog{},
+		Freshness:         emptyFreshness{},
 		SonarrFor: func(_ domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
 			return fakeSonarrQ{}, true
 		},

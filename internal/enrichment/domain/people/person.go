@@ -72,6 +72,10 @@ type Person struct {
 	KnownForDepartment *string
 	Popularity         *float64
 	ProfileAsset       *string
+	// EnrichmentSyncedAt is set by the TMDB person worker on a successful
+	// hydration (PRD §5.5 + D-3 migration 000014). nil = never enriched.
+	// Replaces the legacy sync_log(tmdb_person, outcome='ok') row TTL gate.
+	EnrichmentSyncedAt *time.Time
 	// Biography is the resolved biography prose returned by
 	// PeopleRepository.Get — read-only on Person. May be empty if no
 	// row exists in person_biographies for any language.

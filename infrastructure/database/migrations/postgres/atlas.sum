@@ -1,4 +1,4 @@
-h1:t1qTQT7jtdBCFIJAXn1uE7VrV92FSQYE/us90BqJj3M=
+h1:SV/FUh9g24hLlXReeL2qDYzmWh1+ci8L6wcxq6Il05Y=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -25,3 +25,5 @@ h1:t1qTQT7jtdBCFIJAXn1uE7VrV92FSQYE/us90BqJj3M=
 000012_grab.up.sql h1:h98tCC9sZjxda4+uQjeEpGOAj3Ugo5qaGPAv4rFPylE=
 000013_watchdog.down.sql h1:2676uO/iZvo6MlGaTJhhqqlQ60OrmQjqZR9u1iYQwH0=
 000013_watchdog.up.sql h1:fRz16USkLBKF/SiDUK1uIoNgAYUp50NuddygZpHj9SQ=
+000014_people_enrichment.down.sql h1:/JAei7s8e71dTU7J48jy05U5uWrw7t0IQ1lXZp7QlT4=
+000014_people_enrichment.up.sql h1:SqUhEkUUCQVF47FSvSD3x3ugQwcKNSzs5ktj89wsyz4=

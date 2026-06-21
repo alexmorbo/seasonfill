@@ -23,26 +23,26 @@ import (
 // dependency surfaces as a nil-deref in the constructor's
 // validate step, NOT inside the hot path under load.
 type SeriesWorkerDeps struct {
-	TMDB            TMDBClient
-	Tx              Transactor
-	Language        string // "en-US" — only language Story 211 writes; ru lands in C-5
-	Series          SeriesRepo
-	SeriesTexts     SeriesTextsRepo
-	Seasons         SeasonsRepo
-	Episodes        EpisodesRepo
-	EpisodeTexts    EpisodeTextsRepo
-	People          PeopleRepo
-	SeriesPeople    SeriesPeopleRepo
-	Genres          GenresRepo
-	Keywords        KeywordsRepo
-	Networks        NetworksRepo
-	Companies       CompaniesRepo
-	Videos          VideosRepoPort
-	ContentRatings  ContentRatingsRepoPort
-	ExternalIDs     ExternalIDsRepoPort
-	Recommendations RecommendationsRepoPort
-	SyncLog         SyncLogRepo
-	MediaPrewarmer  MediaPrewarmer // nil OK — F-1 not yet shipped
+	TMDB             TMDBClient
+	Tx               Transactor
+	Language         string // "en-US" — only language Story 211 writes; ru lands in C-5
+	Series           SeriesRepo
+	SeriesTexts      SeriesTextsRepo
+	Seasons          SeasonsRepo
+	Episodes         EpisodesRepo
+	EpisodeTexts     EpisodeTextsRepo
+	People           PeopleRepo
+	SeriesPeople     SeriesPeopleRepo
+	Genres           GenresRepo
+	Keywords         KeywordsRepo
+	Networks         NetworksRepo
+	Companies        CompaniesRepo
+	Videos           VideosRepoPort
+	ContentRatings   ContentRatingsRepoPort
+	ExternalIDs      ExternalIDsRepoPort
+	Recommendations  RecommendationsRepoPort
+	EnrichmentErrors EnrichmentErrorRepo
+	MediaPrewarmer   MediaPrewarmer // nil OK — F-1 not yet shipped
 	// Dispatcher (212): post-tx enqueue seam for the person worker.
 	// nil OK — keeps the existing test fixtures green; production
 	// wiring passes the shared *DispatcherImpl.
@@ -73,7 +73,7 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 		deps.Networks == nil || deps.Companies == nil ||
 		deps.Videos == nil || deps.ContentRatings == nil ||
 		deps.ExternalIDs == nil || deps.Recommendations == nil ||
-		deps.SyncLog == nil {
+		deps.EnrichmentErrors == nil {
 		return nil, errors.New("enrichment.series_worker: every repository port is required")
 	}
 	if deps.Language == "" {
@@ -120,41 +120,51 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 		return nil
 	}
 
-	// 2. Staleness short-circuit: ok + IsStale=false ⇒ skip.
-	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries)
-	if err != nil && !errors.Is(err, ports.ErrNotFound) {
-		log.WarnContext(ctx, "enrichment.series.handle.sync_log_read_failed",
-			slog.String("error", err.Error()))
-	}
-	if last.Outcome == enrichment.OutcomeOK && last.SyncedAt != nil {
+	// 2. Staleness short-circuit — read canon.EnrichmentTMDBSyncedAt
+	//    directly. nil = never enriched (proceed); within TTL = skip.
+	if canon.EnrichmentTMDBSyncedAt != nil {
 		ttl := enrichment.TTL(enrichment.SourceTMDBSeries, classifyKind(canon))
-		if ttl > 0 && w.deps.Clock().Sub(*last.SyncedAt) < ttl {
+		if ttl > 0 && w.deps.Clock().Sub(*canon.EnrichmentTMDBSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.series.handle.fresh_skip",
-				slog.String("outcome", string(last.Outcome)),
-				slog.Time("synced_at", *last.SyncedAt),
+				slog.String("domain", "enrichment"),
+				slog.Time("synced_at", *canon.EnrichmentTMDBSyncedAt),
 			)
 			return nil
 		}
 	}
 
+	// Load any current error row (for attempts counter on retry path).
+	prevAttempts := 0
+	if errRow, errErr := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
+		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries); errErr == nil {
+		prevAttempts = errRow.Attempts
+	} else if !errors.Is(errErr, ports.ErrNotFound) {
+		log.WarnContext(ctx, "enrichment.series.handle.error_row_read_failed",
+			slog.String("error", errErr.Error()))
+	}
+
 	// 3. Fetch TV payload + active seasons.
 	tv, err := w.deps.TMDB.GetTV(ctx, int64(*canon.TMDBID), w.deps.Language)
 	if err != nil {
-		return w.handleTMDBError(ctx, seriesID, "GetTV", err, last.Attempts, start)
+		return w.handleTMDBError(ctx, seriesID, "GetTV", err, prevAttempts, start)
 	}
 
 	// 4. Fetch each active season — PRD §5.5 "первый проход качает
 	//    все сезоны". On first hydration we hit every season; on
 	//    subsequent refreshes only "active" seasons. The classifier
-	//    runs on the freshly-fetched TV row.
+	//    runs on the freshly-fetched TV row. The "first hydration" gate
+	//    is whether the canon row already carries a TMDB synced_at:
+	//    nil → first pass, fetch everything; non-nil → refresh, skip
+	//    closed seasons.
+	firstHydration := canon.EnrichmentTMDBSyncedAt == nil
 	seasonResponses := make(map[int]*tmdb.SeasonResponse, len(tv.Seasons))
 	for _, s := range tv.Seasons {
-		if !seasonNeedsFetch(s, last) {
+		if !seasonNeedsFetch(s, firstHydration) {
 			continue
 		}
 		sr, err := w.deps.TMDB.GetSeason(ctx, int64(*canon.TMDBID), s.SeasonNumber, w.deps.Language)
 		if err != nil {
-			return w.handleTMDBError(ctx, seriesID, fmt.Sprintf("GetSeason(%d)", s.SeasonNumber), err, last.Attempts, start)
+			return w.handleTMDBError(ctx, seriesID, fmt.Sprintf("GetSeason(%d)", s.SeasonNumber), err, prevAttempts, start)
 		}
 		seasonResponses[s.SeasonNumber] = sr
 	}
@@ -174,10 +184,10 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 		return nil
 	})
 	if err != nil {
-		return w.handleTMDBError(ctx, seriesID, "tx", err, last.Attempts, start)
+		return w.handleTMDBError(ctx, seriesID, "tx", err, prevAttempts, start)
 	}
 
-	// 7. Journal success.
+	// 7. Journal success — stamp canon column + clear any pending error row.
 	now := w.deps.Clock()
 	dur := int(now.Sub(start).Milliseconds())
 	w.journalOK(ctx, seriesID, now, dur)
@@ -196,7 +206,7 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 	}
 
 	log.InfoContext(ctx, "enrichment.series.handle.ok",
-		slog.String("outcome", string(enrichment.OutcomeOK)),
+		slog.String("domain", "enrichment"),
 		slog.Int("seasons_fetched", len(seasonResponses)),
 		slog.Int("persons_enqueued", len(enqueueRows)),
 		slog.Int("duration_ms", dur),
@@ -254,14 +264,13 @@ func classifyKind(c series.Canon) enrichment.Kind {
 	return enrichment.KindSeriesEnded
 }
 
-// seasonNeedsFetch — first hydration (last is zero) ⇒ fetch ALL
-// seasons; refresh ⇒ fetch ONLY active seasons (latest season +
+// seasonNeedsFetch — first hydration (firstHydration=true) ⇒ fetch
+// ALL seasons; refresh ⇒ fetch ONLY active seasons (latest season +
 // any with unaired episodes). Story 211 ships the simple heuristic
 // "fetch all on first sync, fetch latest on refresh"; finer
-// granularity lands when we have per-season sync_log rows (D-? in
-// the PRD roadmap).
-func seasonNeedsFetch(s tmdb.TVSeasonStub, last enrichment.SyncLog) bool {
-	if last.Outcome != enrichment.OutcomeOK {
+// per-season granularity is post-D-7 polish.
+func seasonNeedsFetch(s tmdb.TVSeasonStub, firstHydration bool) bool {
+	if firstHydration {
 		return true
 	}
 	// On refresh: skip season 0 (specials, mostly static) and
@@ -749,14 +758,24 @@ func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.Seri
 
 // ---- error handling + journal helpers ------------------------------
 
-// handleTMDBError journals outcome=error (with backoff) for retryable
-// failures OR outcome=not_found for TMDB 404. Returns nil — the
-// dispatcher only cares about success/failure for slog; the
-// journalled outcome drives the retry sweep.
+// terminalAttempts is the attempts sentinel for "no retries" failures
+// (TMDB 404, no tmdb_id on canon). Mirrors the legacy
+// sync_log.outcome=not_found semantics — the row exists so the
+// dispatcher can surface degraded[], but ListDueForRetry won't pick it
+// up because attempts > 5 trips the terminal-failure filter.
+const terminalAttempts = 99
+
+// handleTMDBError records an enrichment_errors row for a TMDB failure.
+// TMDB 404 lands as attempts=terminalAttempts (no NextAttemptAt → no
+// retry); other errors land as previousAttempts+1 with NextAttemptAt
+// set via the existing backoff. Returns nil — the dispatcher only
+// cares about success/failure for slog; the journalled row drives the
+// retry sweep.
 func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.SeriesID, op string, err error, previousAttempts int, start time.Time) error {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
+		slog.String("domain", "enrichment"),
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceTMDBSeries)),
@@ -765,52 +784,18 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.Seri
 
 	var apiErr *tmdb.APIError
 	if errors.As(err, &apiErr) && apiErr.Status == 404 {
-		// Terminal — not_found.
-		ed := err.Error()
-		entry := enrichment.SyncLog{
-			EntityType:  enrichment.EntityTypeSeries,
-			EntityID:    int64(seriesID),
-			Source:      enrichment.SourceTMDBSeries,
-			SyncedAt:    nil,
-			Outcome:     enrichment.OutcomeNotFound,
-			ErrorDetail: &ed,
-			Attempts:    previousAttempts + 1,
-			DurationMs:  &durMs,
-		}
-		if jerr := w.deps.SyncLog.Upsert(ctx, entry); jerr != nil {
-			log.WarnContext(ctx, "enrichment.series.handle.journal_failed",
-				slog.String("outcome", "not_found"),
-				slog.String("error", jerr.Error()))
-		}
+		w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, err, terminalAttempts, nil, log)
 		log.InfoContext(ctx, "enrichment.series.handle.not_found",
-			slog.String("outcome", string(enrichment.OutcomeNotFound)),
 			slog.Int("duration_ms", durMs),
 		)
 		return nil
 	}
 
-	// Retryable — journal outcome=error + NextAttemptAt.
+	// Retryable — record + backoff.
 	attempts := previousAttempts + 1
 	next := enrichment.NextAttemptAt(attempts, now)
-	ed := err.Error()
-	entry := enrichment.SyncLog{
-		EntityType:    enrichment.EntityTypeSeries,
-		EntityID:      int64(seriesID),
-		Source:        enrichment.SourceTMDBSeries,
-		SyncedAt:      nil,
-		Outcome:       enrichment.OutcomeError,
-		ErrorDetail:   &ed,
-		Attempts:      attempts,
-		NextAttemptAt: &next,
-		DurationMs:    &durMs,
-	}
-	if jerr := w.deps.SyncLog.Upsert(ctx, entry); jerr != nil {
-		log.WarnContext(ctx, "enrichment.series.handle.journal_failed",
-			slog.String("outcome", "error"),
-			slog.String("error", jerr.Error()))
-	}
+	w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, err, attempts, &next, log)
 	log.WarnContext(ctx, "enrichment.series.handle.failed",
-		slog.String("outcome", string(enrichment.OutcomeError)),
 		slog.Int("attempts", attempts),
 		slog.Time("next_attempt_at", next),
 		slog.Int("duration_ms", durMs),
@@ -819,41 +804,76 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.Seri
 	return nil
 }
 
-func (w *SeriesWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time, durMs int) {
-	entry := enrichment.SyncLog{
-		EntityType: enrichment.EntityTypeSeries,
-		EntityID:   int64(seriesID),
-		Source:     enrichment.SourceTMDBSeries,
-		SyncedAt:   &now,
-		Outcome:    enrichment.OutcomeOK,
-		Attempts:   0, // reset on success per PRD §5.5
-		DurationMs: &durMs,
+// recordEnrichmentError writes a single enrichment_errors row keyed by
+// (series, source). The row is the durable failure ledger — the
+// composer reads via EnrichmentFreshnessPort.ErrorsFor for degraded[]
+// computation, the dispatcher reads via ListDueForRetry for retry
+// scheduling. Failures are logged at WARN — a write miss is annoying
+// but not fatal (the next worker attempt re-upserts the row).
+func (w *SeriesWorker) recordEnrichmentError(
+	ctx context.Context,
+	seriesID domain.SeriesID,
+	source enrichment.Source,
+	cause error,
+	attempts int,
+	nextAttemptAt *time.Time,
+	log *slog.Logger,
+) {
+	now := w.deps.Clock()
+	rec := enrichment.EnrichmentError{
+		EntityType:    enrichment.EntityTypeSeries,
+		EntityID:      int64(seriesID),
+		Source:        source,
+		LastError:     cause.Error(),
+		Attempts:      attempts,
+		LastSeenAt:    now,
+		NextAttemptAt: nextAttemptAt,
 	}
-	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
-		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.journal_ok_failed",
-			slog.Int64("entity_id", int64(seriesID)),
+	if err := w.deps.EnrichmentErrors.RecordFailure(ctx, rec); err != nil {
+		log.WarnContext(ctx, "enrichment.series.handle.record_failure_failed",
 			slog.String("error", err.Error()))
 	}
 }
 
-func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.SeriesID, msg string, start time.Time) {
-	now := w.deps.Clock()
-	durMs := int(now.Sub(start).Milliseconds())
-	ed := msg
-	entry := enrichment.SyncLog{
-		EntityType:  enrichment.EntityTypeSeries,
-		EntityID:    int64(seriesID),
-		Source:      enrichment.SourceTMDBSeries,
-		Outcome:     enrichment.OutcomeNotFound,
-		ErrorDetail: &ed,
-		Attempts:    1,
-		DurationMs:  &durMs,
-	}
-	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
-		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.journal_nf_failed",
+// journalOK stamps series.enrichment_tmdb_synced_at = now and clears
+// any outstanding enrichment_errors row for (series, tmdb_series).
+// Both writes fail silently with a WARN log — the next worker tick
+// will retry, and the canon row's UPDATE is the source of truth for
+// freshness (clear-on-success is best-effort).
+func (w *SeriesWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time, durMs int) {
+	if err := w.deps.Series.MarkTMDBSynced(ctx, seriesID, now); err != nil {
+		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.mark_synced_failed",
+			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
+	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
+		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries); err != nil {
+		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.clear_error_failed",
+			slog.String("domain", "enrichment"),
+			slog.Int64("entity_id", int64(seriesID)),
+			slog.String("error", err.Error()))
+	}
+	_ = durMs // surfaced on the caller's ok log line
+}
+
+// journalNotFound records a terminal-attempts error row when canon has
+// no tmdb_id (or the bare-Find path returned nil). Marks the row
+// non-retryable via attempts=terminalAttempts, no NextAttemptAt.
+func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.SeriesID, msg string, start time.Time) {
+	now := w.deps.Clock()
+	durMs := int(now.Sub(start).Milliseconds())
+	log := w.deps.Logger.With(
+		slog.String("domain", "enrichment"),
+		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
+		slog.Int64("entity_id", int64(seriesID)),
+		slog.String("source", string(enrichment.SourceTMDBSeries)),
+	)
+	w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, errors.New(msg), terminalAttempts, nil, log)
+	log.InfoContext(ctx, "enrichment.series.handle.not_found",
+		slog.String("reason", msg),
+		slog.Int("duration_ms", durMs),
+	)
 }
 
 // ---- mapping helpers (private) -------------------------------------

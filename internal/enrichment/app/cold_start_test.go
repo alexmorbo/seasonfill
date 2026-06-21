@@ -20,21 +20,9 @@ type fakeScanner struct {
 	err  error
 }
 
-func (f *fakeScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]domain.SeriesID, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	if f.pass.Add(1) == 1 {
-		return f.ids, nil
-	}
-	return nil, nil
-}
-
-// ListMissingTMDBSync — 464a: cold_start.go still calls the legacy
-// ListMissingSyncLog method during 464a, but the port now also requires
-// the new column-on-canon method. The fake stays on the legacy path
-// until 464b rewrites the loop; this returns the same payload so the
-// 464b switchover doesn't break the existing test coverage.
+// ListMissingTMDBSync — 464b column-on-canon query. Returns the seeded
+// ids on the first pass and an empty slice thereafter so idempotency
+// regression assertions stay deterministic.
 func (f *fakeScanner) ListMissingTMDBSync(_ context.Context, _ int) ([]domain.SeriesID, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -229,7 +217,7 @@ func TestBackfillSeries_LegacyRecordingDispatcher_StillWorks(t *testing.T) {
 // ----- Story 318 — periodic re-sweep ----------------------------------
 
 // countingScanner returns a deterministic id list on each pass and
-// records how many times ListMissingSyncLog was called.
+// records how many times ListMissingTMDBSync was called.
 type countingScanner struct {
 	mu     sync.Mutex
 	idsFn  func(pass int) []domain.SeriesID
@@ -237,22 +225,8 @@ type countingScanner struct {
 	err    error
 }
 
-func (c *countingScanner) ListMissingSyncLog(_ context.Context, _ string, _ int) ([]domain.SeriesID, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.passes++
-	if c.err != nil {
-		return nil, c.err
-	}
-	if c.idsFn == nil {
-		return nil, nil
-	}
-	return c.idsFn(c.passes), nil
-}
-
-// ListMissingTMDBSync — 464a port addition. Mirrors the legacy method
-// so countingScanner's pass-counting behavior stays consistent under
-// 464b after cold_start.go switches to the new method.
+// ListMissingTMDBSync — 464b column-on-canon query consumed by the
+// cold-start loop.
 func (c *countingScanner) ListMissingTMDBSync(_ context.Context, _ int) ([]domain.SeriesID, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -48,27 +48,61 @@ func (f *fakeOMDbSeries) UpsertStub(ctx context.Context, c series.Canon) (domain
 	return f.Upsert(ctx, c)
 }
 
-type fakeOMDbSyncLog struct {
-	last    enrichment.SyncLog
-	lastErr error
-	upserts []enrichment.SyncLog
-}
-
-func (f *fakeOMDbSyncLog) Upsert(_ context.Context, e enrichment.SyncLog) error {
-	f.upserts = append(f.upserts, e)
+// MarkTMDBSynced — 464b: no-op for OMDb tests (the OMDb worker only
+// calls MarkOMDBSynced; this method is on the shared port).
+func (f *fakeOMDbSeries) MarkTMDBSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
 	return nil
 }
 
-func (f *fakeOMDbSyncLog) GetLastSync(_ context.Context, _ enrichment.EntityType, _ int64, _ enrichment.Source) (enrichment.SyncLog, error) {
-	return f.last, f.lastErr
+// MarkOMDBSynced — 464b: stamps the canon row's EnrichmentOMDBSyncedAt
+// from the OMDb worker's success path.
+func (f *fakeOMDbSeries) MarkOMDBSynced(_ context.Context, id domain.SeriesID, now time.Time) error {
+	c := f.canon
+	c.ID = id
+	t := now
+	c.EnrichmentOMDBSyncedAt = &t
+	f.canon = c
+	return nil
 }
 
-func (f *fakeOMDbSyncLog) StaleScan(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.SyncLog, error) {
+// fakeOMDbErrorRepo is the OMDb-side EnrichmentErrorRepo fake.
+// preexist seeds GetByEntitySource to exercise the retry-bump and
+// terminal-skip paths.
+type fakeOMDbErrorRepo struct {
+	preexist   *enrichment.EnrichmentError
+	getErr     error
+	failures   []enrichment.EnrichmentError
+	cleared    []clearedKey
+	clearedRun int
+}
+
+func (f *fakeOMDbErrorRepo) RecordFailure(_ context.Context, e enrichment.EnrichmentError) error {
+	f.failures = append(f.failures, e)
+	return nil
+}
+
+func (f *fakeOMDbErrorRepo) ClearOnSuccess(_ context.Context, et enrichment.EntityType, id int64, src enrichment.Source) error {
+	f.cleared = append(f.cleared, clearedKey{EntityType: et, EntityID: id, Source: src})
+	f.clearedRun++
+	return nil
+}
+
+func (f *fakeOMDbErrorRepo) GetForEntity(_ context.Context, _ enrichment.EntityType, _ int64) ([]enrichment.EnrichmentError, error) {
 	return nil, nil
 }
 
-func (f *fakeOMDbSyncLog) RetryDue(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.SyncLog, error) {
+func (f *fakeOMDbErrorRepo) ListDueForRetry(_ context.Context, _ enrichment.Source, _ time.Time, _ int) ([]enrichment.EnrichmentError, error) {
 	return nil, nil
+}
+
+func (f *fakeOMDbErrorRepo) GetByEntitySource(_ context.Context, et enrichment.EntityType, id int64, src enrichment.Source) (enrichment.EnrichmentError, error) {
+	if f.getErr != nil {
+		return enrichment.EnrichmentError{}, f.getErr
+	}
+	if f.preexist != nil && f.preexist.EntityType == et && f.preexist.EntityID == id && f.preexist.Source == src {
+		return *f.preexist, nil
+	}
+	return enrichment.EnrichmentError{}, ports.ErrNotFound
 }
 
 type fakeOMDbClient struct {
@@ -96,10 +130,10 @@ func (f *fakeOMDbBudget) Reserve() bool {
 func (f *fakeOMDbBudget) Remaining() int { return f.remaining }
 
 type omdbWorkerFakes struct {
-	series  *fakeOMDbSeries
-	syncLog *fakeOMDbSyncLog
-	client  *fakeOMDbClient
-	budget  *fakeOMDbBudget
+	series           *fakeOMDbSeries
+	enrichmentErrors *fakeOMDbErrorRepo
+	client           *fakeOMDbClient
+	budget           *fakeOMDbBudget
 }
 
 func imdbPtr(s string) *domain.IMDBID { v := domain.IMDBID(s); return &v }
@@ -112,7 +146,7 @@ func newOMDbWorkerForTest(t *testing.T, mut func(*OMDbWorkerDeps)) (*OMDbWorker,
 			Hydration: series.HydrationFull,
 			IMDBID:    imdbPtr("tt0903747"),
 		}},
-		syncLog: &fakeOMDbSyncLog{},
+		enrichmentErrors: &fakeOMDbErrorRepo{},
 		client: &fakeOMDbClient{resp: &omdb.Response{
 			IMDBRating:   "9.5",
 			IMDBVotes:    "2,034,123",
@@ -123,13 +157,13 @@ func newOMDbWorkerForTest(t *testing.T, mut func(*OMDbWorkerDeps)) (*OMDbWorker,
 		budget: &fakeOMDbBudget{allow: true, remaining: 899},
 	}
 	deps := OMDbWorkerDeps{
-		Client:  func() OMDbClient { return f.client },
-		Budget:  f.budget,
-		Tx:      fakeTxr{},
-		Series:  f.series,
-		SyncLog: f.syncLog,
-		Logger:  quietLogger(),
-		Clock:   func() time.Time { return time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC) },
+		Client:           func() OMDbClient { return f.client },
+		Budget:           f.budget,
+		Tx:               fakeTxr{},
+		Series:           f.series,
+		EnrichmentErrors: f.enrichmentErrors,
+		Logger:           quietLogger(),
+		Clock:            func() time.Time { return time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC) },
 	}
 	if mut != nil {
 		mut(&deps)
@@ -175,10 +209,10 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 	assert.Equal(t, "Ended", *upserted.Status)
 	assert.Equal(t, "Breaking Bad", upserted.Title)
 
-	// Sync log written with outcome=ok.
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeOK, f.syncLog.upserts[0].Outcome)
-	assert.Equal(t, 0, f.syncLog.upserts[0].Attempts)
+	// Canon column stamped + no failure row recorded + ClearOnSuccess fired.
+	require.NotNil(t, f.series.canon.EnrichmentOMDBSyncedAt, "canon enrichment_omdb_synced_at must be stamped on success")
+	assert.Empty(t, f.enrichmentErrors.failures)
+	assert.Equal(t, 1, f.enrichmentErrors.clearedRun, "ClearOnSuccess MUST fire on success")
 }
 
 func TestOMDbWorker_NoIMDBID_TerminalNotFound(t *testing.T) {
@@ -189,8 +223,8 @@ func TestOMDbWorker_NoIMDBID_TerminalNotFound(t *testing.T) {
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.client.calls, "no OMDb call without imdb_id")
 	assert.Zero(t, f.budget.reserves, "no budget reservation")
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeNotFound, f.syncLog.upserts[0].Outcome)
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts, "no imdb_id ⇒ terminal not_found")
 }
 
 func TestOMDbWorker_BudgetExhausted_NoCallNoJournal(t *testing.T) {
@@ -198,11 +232,10 @@ func TestOMDbWorker_BudgetExhausted_NoCallNoJournal(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.budget.allow = false
 	f.budget.remaining = 0
-	f.syncLog.lastErr = ports.ErrNotFound
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.client.calls, "no upstream call when budget exhausted")
-	assert.Empty(t, f.syncLog.upserts, "no sync_log write when budget exhausted")
+	assert.Empty(t, f.enrichmentErrors.failures, "no failure row when budget exhausted")
 	assert.Empty(t, f.series.upserts, "no series upsert when budget exhausted")
 }
 
@@ -213,9 +246,9 @@ func TestOMDbWorker_NotFoundSentinel_JournalsTerminal(t *testing.T) {
 	f.client.resp = nil
 
 	require.NoError(t, w.Handle(context.Background(), 42))
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeNotFound, f.syncLog.upserts[0].Outcome)
-	assert.Nil(t, f.syncLog.upserts[0].NextAttemptAt)
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts)
+	assert.Nil(t, f.enrichmentErrors.failures[0].NextAttemptAt)
 	assert.Empty(t, f.series.upserts)
 }
 
@@ -226,10 +259,8 @@ func TestOMDbWorker_InvalidKey_JournalsAuthFailed(t *testing.T) {
 	f.client.resp = nil
 
 	require.NoError(t, w.Handle(context.Background(), 42))
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeError, f.syncLog.upserts[0].Outcome)
-	require.NotNil(t, f.syncLog.upserts[0].ErrorDetail)
-	assert.Contains(t, *f.syncLog.upserts[0].ErrorDetail, "invalid api key")
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Contains(t, f.enrichmentErrors.failures[0].LastError, "invalid api key")
 }
 
 func TestOMDbWorker_DailyLimit_JournalsAuthFailed(t *testing.T) {
@@ -239,10 +270,8 @@ func TestOMDbWorker_DailyLimit_JournalsAuthFailed(t *testing.T) {
 	f.client.resp = nil
 
 	require.NoError(t, w.Handle(context.Background(), 42))
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeError, f.syncLog.upserts[0].Outcome)
-	require.NotNil(t, f.syncLog.upserts[0].ErrorDetail)
-	assert.Contains(t, *f.syncLog.upserts[0].ErrorDetail, "daily limit")
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Contains(t, f.enrichmentErrors.failures[0].LastError, "daily limit")
 }
 
 func TestOMDbWorker_GenericError_BackoffSet(t *testing.T) {
@@ -250,13 +279,17 @@ func TestOMDbWorker_GenericError_BackoffSet(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.client.err = &omdb.APIError{Status: 500, Body: "boom"}
 	f.client.resp = nil
-	f.syncLog.last = enrichment.SyncLog{Attempts: 1}
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   42,
+		Source:     enrichment.SourceOMDb,
+		Attempts:   1,
+	}
 
 	require.NoError(t, w.Handle(context.Background(), 42))
-	require.Len(t, f.syncLog.upserts, 1)
-	assert.Equal(t, enrichment.OutcomeError, f.syncLog.upserts[0].Outcome)
-	assert.Equal(t, 2, f.syncLog.upserts[0].Attempts)
-	require.NotNil(t, f.syncLog.upserts[0].NextAttemptAt)
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, 2, f.enrichmentErrors.failures[0].Attempts)
+	require.NotNil(t, f.enrichmentErrors.failures[0].NextAttemptAt)
 }
 
 func TestOMDbWorker_FreshSkip_TTLNotExpired(t *testing.T) {
@@ -264,25 +297,29 @@ func TestOMDbWorker_FreshSkip_TTLNotExpired(t *testing.T) {
 	now := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
 	syncedAt := now.Add(-1 * time.Hour)
 	w, f := newOMDbWorkerForTest(t, nil)
-	f.syncLog.last = enrichment.SyncLog{
-		Outcome:  enrichment.OutcomeOK,
-		SyncedAt: &syncedAt,
-	}
+	f.series.canon.EnrichmentOMDBSyncedAt = &syncedAt
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.client.calls)
 	assert.Zero(t, f.budget.reserves)
-	assert.Empty(t, f.syncLog.upserts)
+	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
 func TestOMDbWorker_TerminalNotFoundEntry_SkipsManualEnqueue(t *testing.T) {
 	t.Parallel()
 	w, f := newOMDbWorkerForTest(t, nil)
-	f.syncLog.last = enrichment.SyncLog{Outcome: enrichment.OutcomeNotFound}
+	// Pre-seed a terminalAttempts error row — should short-circuit
+	// before the budget guard fires.
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   42,
+		Source:     enrichment.SourceOMDb,
+		Attempts:   terminalAttempts,
+	}
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.client.calls)
-	assert.Empty(t, f.syncLog.upserts)
+	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
 func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
@@ -380,7 +417,7 @@ func TestOMDbWorker_LoadSeriesNotFound_NoCallsNoJournal(t *testing.T) {
 
 	require.NoError(t, w.Handle(context.Background(), 999))
 	assert.Zero(t, f.client.calls)
-	assert.Empty(t, f.syncLog.upserts)
+	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
 // TestOMDbWorker_LoadSeriesErrorOther_Propagates verifies non-ErrNotFound

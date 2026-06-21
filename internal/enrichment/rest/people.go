@@ -94,7 +94,7 @@ func toPersonDetailResponse(d *apppeople.PersonDetail) dto.PersonDetailResponse 
 		Person:         mapPersonInfo(d.Person),
 		Biography:      d.Biography,
 		BioLanguage:    d.BioLanguage,
-		Sync:           mapSyncInfo(d.Sync),
+		Sync:           mapSyncInfo(d.SyncedAt),
 		LibraryCredits: make([]dto.LibraryCreditEntry, 0, len(d.LibraryCredits)),
 		OtherCredits:   make([]dto.OtherCreditEntry, 0, len(d.OtherCredits)),
 		Degraded:       sourceStringSlice(d.Degraded),
@@ -123,13 +123,18 @@ func mapPersonInfo(p dompeople.Person) dto.PersonInfo {
 	}
 }
 
-func mapSyncInfo(log *domenrich.SyncLog) *dto.SyncInfo {
-	if log == nil || log.SyncedAt == nil {
+// mapSyncInfo projects the canon people.enrichment_synced_at timestamp
+// onto the wire SyncInfo DTO. The source is fixed to tmdb_person
+// because the H-2 use case only tracks the TMDB person hydration
+// timestamp; other sources don't appear on the /api/v1/people/:tmdbId
+// surface.
+func mapSyncInfo(syncedAt *time.Time) *dto.SyncInfo {
+	if syncedAt == nil {
 		return nil
 	}
 	return &dto.SyncInfo{
-		Source:   string(log.Source),
-		SyncedAt: log.SyncedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		Source:   string(domenrich.SourceTMDBPerson),
+		SyncedAt: syncedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 

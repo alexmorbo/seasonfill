@@ -323,6 +323,89 @@ func (r *SeriesRepository) CountCanonImagesBreakdown(ctx context.Context) (int, 
 	return int(posterNull), int(backdropNull), nil
 }
 
+// MarkTMDBSynced stamps series.enrichment_tmdb_synced_at = now for one row.
+// Single-column UPDATE — no other columns are touched, so a concurrent
+// upsert that COALESCEs enrichment_tmdb_synced_at preserves the value we
+// just wrote (and vice versa). SeriesWorker calls this after a successful
+// hydration tx; ClearOnSuccess on enrichment_errors fires alongside.
+//
+// Idempotent on the column: re-bumping a fresh row just refreshes the
+// timestamp. The caller passes the desired wall time so tests +
+// production share the same clock seam.
+func (r *SeriesRepository) MarkTMDBSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series tmdb synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"enrichment_tmdb_synced_at": now.UTC(),
+			"updated_at":                now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series tmdb synced: %w", err)
+	}
+	return nil
+}
+
+// MarkOMDBSynced stamps series.enrichment_omdb_synced_at = now. Same
+// shape as MarkTMDBSynced — see comment there.
+func (r *SeriesRepository) MarkOMDBSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series omdb synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"enrichment_omdb_synced_at": now.UTC(),
+			"updated_at":                now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series omdb synced: %w", err)
+	}
+	return nil
+}
+
+// ListStaleForTMDB returns series ids whose enrichment_tmdb_synced_at is
+// NULL or older than now-ttl, capped at `limit` rows ordered by id ASC.
+// Like ListLibraryWithIMDBStale but for TMDB source: requires a tmdb_id,
+// has at least one live series_cache reference (library scope), and
+// excludes series with > 5 enrichment_errors attempts (terminal retry
+// give-up). Used by the D-3 dispatcher loop for the nightly TMDB sweep.
+//
+// `GROUP BY` on `s.id, s.tmdb_id` dedups when a series has multiple
+// instance refs (1080p + 4K Sonarr is the typical case).
+func (r *SeriesRepository) ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]domain.SeriesID, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	cutoff := time.Now().UTC().Add(-ttl)
+	var ids []domain.SeriesID
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series AS s").
+		Select("s.id").
+		Joins(`INNER JOIN series_cache sc
+		       ON sc.series_id = s.id
+		      AND sc.deleted_at IS NULL`).
+		Where("s.tmdb_id IS NOT NULL").
+		Where("(s.enrichment_tmdb_synced_at IS NULL OR s.enrichment_tmdb_synced_at < ?)", cutoff).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM enrichment_errors ee
+		     WHERE ee.entity_type = 'series'
+		       AND ee.entity_id = s.id
+		       AND ee.source = ?
+		       AND ee.attempts > 5)`, string(enrichmentpkg.SourceTMDBSeries)).
+		Group("s.id, s.tmdb_id").
+		Limit(limit).
+		Pluck("s.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series stale for tmdb: %w", err)
+	}
+	return ids, nil
+}
+
 // ListMissingTMDBSync returns series.id rows that have never been
 // TMDB-enriched (enrichment_tmdb_synced_at IS NULL). The cold-start
 // backfill loop (Story 212, rewritten in 464b) consumes this to enqueue

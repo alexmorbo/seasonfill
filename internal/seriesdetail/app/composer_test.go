@@ -244,15 +244,28 @@ func (f *fakeRecommendations) ListBySeries(_ context.Context, _ domain.SeriesID)
 	return f.ids, nil
 }
 
-type fakeSyncLog struct {
-	rows map[string]enrichment.SyncLog // key = source
+// fakeFreshness implements EnrichmentFreshnessPort for composer tests.
+// syncedBySource maps Source → last-success timestamp (the production
+// adapter reads canon.enrichment_*_synced_at for tmdb_series + omdb;
+// for tmdb_season / tmdb_person the canon row doesn't carry a column
+// so the adapter returns nil — but the test fake lets a test pretend
+// either case to exercise rule 1 / rule 3 branches).
+//
+// errors lets a test return live error rows keyed by source.
+type fakeFreshness struct {
+	syncedBySource map[enrichment.Source]*time.Time
+	errors         []enrichment.EnrichmentError
 }
 
-func (f *fakeSyncLog) GetLastSync(_ context.Context, _ enrichment.EntityType, _ int64, src enrichment.Source) (enrichment.SyncLog, error) {
-	if l, ok := f.rows[string(src)]; ok {
-		return l, nil
+func (f *fakeFreshness) SyncedAtFor(_ context.Context, _ domain.SeriesID, src enrichment.Source) (*time.Time, error) {
+	if t, ok := f.syncedBySource[src]; ok {
+		return t, nil
 	}
-	return enrichment.SyncLog{}, ports.ErrNotFound
+	return nil, nil
+}
+
+func (f *fakeFreshness) ErrorsFor(_ context.Context, _ domain.SeriesID) ([]enrichment.EnrichmentError, error) {
+	return f.errors, nil
 }
 
 type fakeSonarrQueueLister struct {
@@ -321,7 +334,7 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 		ContentRatings:    &fakeContentRatings{},
 		ExternalIDs:       &fakeExternalIDs{},
 		Recommendations:   &fakeRecommendations{},
-		SyncLog:           &fakeSyncLog{rows: map[string]enrichment.SyncLog{}},
+		Freshness:         &fakeFreshness{syncedBySource: map[enrichment.Source]*time.Time{}},
 		SonarrFor: func(_ domain.InstanceName) (SonarrQueueLister, bool) {
 			return fakeSonarrQueueLister{payload: sonarr.QueuePayload{}}, true
 		},
@@ -334,15 +347,21 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 // --- tests ---
 
 func TestComposer_Get_HappyPath(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	// All four enrichment sources fresh.
+	deps, _, canon := baseDeps(t)
+	// All four enrichment sources fresh — TMDB series + OMDb stamped on
+	// the canon row; tmdb_season + tmdb_person stubbed via the freshness
+	// adapter.
 	now := time.Now().UTC()
-	deps.SyncLog = &fakeSyncLog{rows: map[string]enrichment.SyncLog{
-		"tmdb_series": {SyncedAt: &now, Outcome: enrichment.OutcomeOK},
-		"tmdb_season": {SyncedAt: &now, Outcome: enrichment.OutcomeOK},
-		"tmdb_person": {SyncedAt: &now, Outcome: enrichment.OutcomeOK},
-		"omdb":        {SyncedAt: &now, Outcome: enrichment.OutcomeOK},
-	}}
+	row := canon.rows[42]
+	row.EnrichmentTMDBSyncedAt = &now
+	row.EnrichmentOMDBSyncedAt = &now
+	canon.rows[42] = row
+	deps.Freshness = &fakeFreshness{
+		syncedBySource: map[enrichment.Source]*time.Time{
+			enrichment.SourceTMDBSeason: &now,
+			enrichment.SourceTMDBPerson: &now,
+		},
+	}
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -353,7 +372,9 @@ func TestComposer_Get_HappyPath(t *testing.T) {
 
 func TestComposer_Get_ColdSeries_DegradedAllTMDB(t *testing.T) {
 	deps, _, _ := baseDeps(t)
-	// SyncLog has no rows for any source → all four degraded.
+	// Canon has no enrichment_*_synced_at columns set and freshness
+	// adapter returns nil for tmdb_season/tmdb_person → all four sources
+	// trip rule 1 (never synced) in the degraded[] computation.
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)

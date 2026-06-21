@@ -5,7 +5,7 @@ import "fmt"
 // APIError is the catch-all typed error for non-2xx HTTP responses
 // AND for unknown envelope error strings (Status=0). The worker
 // switches on *APIError vs the three sentinel errors to decide
-// the sync_log outcome.
+// the enrichment_errors write (retryable backoff vs terminal-attempts).
 type APIError struct {
 	Status int
 	Body   string

@@ -10,7 +10,7 @@
 //	internal/enrichment/
 //	  domain/
 //	    enrichment/   — Source enum, TTL math, merge_policy (18 rules),
-//	                    backoff, degraded state, hydration, sync_log
+//	                    backoff, degraded state, hydration, enrichment_error
 //	    people/       — Person + Credit value-type aggregates
 //	    taxonomy/     — Genre + Network + Company + Keyword value types
 //	  app/

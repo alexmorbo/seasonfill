@@ -18,7 +18,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
-	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -84,18 +83,6 @@ func (f peopleHandlerFakeSeriesCache) ListBySeriesID(_ context.Context, seriesID
 	return f.rows[seriesID], nil
 }
 
-type peopleHandlerFakeSyncLog struct {
-	row domenrich.SyncLog
-	err error
-}
-
-func (f peopleHandlerFakeSyncLog) GetLastSync(_ context.Context, _ domenrich.EntityType, _ int64, _ domenrich.Source) (domenrich.SyncLog, error) {
-	if f.err != nil {
-		return domenrich.SyncLog{}, f.err
-	}
-	return f.row, nil
-}
-
 type peopleHandlerFakeEnqueuer struct {
 	calls int
 }
@@ -156,8 +143,7 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 				42: {{InstanceName: "alpha", SonarrSeriesID: 7777}},
 			},
 		},
-		SyncLog: peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
-		Logger:  handlerTestLogger(),
+		Logger: handlerTestLogger(),
 	})
 }
 
@@ -222,7 +208,6 @@ func TestPeopleHandler_Get_404_UnknownPerson(t *testing.T) {
 		PersonCredits: peopleHandlerFakeCredits{},
 		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{},
 		SeriesCache:   peopleHandlerFakeSeriesCache{},
-		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
 		Logger:        handlerTestLogger(),
 	})
 	h := buildHandler(uc)
@@ -248,7 +233,6 @@ func TestPeopleHandler_Get_500_OnNonNotFoundError(t *testing.T) {
 		PersonCredits: peopleHandlerFakeCredits{},
 		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{},
 		SeriesCache:   peopleHandlerFakeSeriesCache{},
-		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
 		Logger:        handlerTestLogger(),
 	})
 	h := buildHandler(uc)
@@ -275,7 +259,6 @@ func TestPeopleHandler_Get_StubPersonReturns200WithDegraded(t *testing.T) {
 		PersonCredits: peopleHandlerFakeCredits{},
 		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{},
 		SeriesCache:   peopleHandlerFakeSeriesCache{},
-		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
 		Enqueuer:      enq,
 		Logger:        handlerTestLogger(),
 	})
@@ -319,8 +302,7 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 				43: {{InstanceName: "alpha"}},
 			},
 		},
-		SyncLog: peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
-		Logger:  handlerTestLogger(),
+		Logger: handlerTestLogger(),
 	})
 	h := buildHandler(uc)
 	r := gin.New()
@@ -450,7 +432,6 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 		SeriesCache: peopleHandlerFakeSeriesCache{
 			rows: map[domain.SeriesID][]series.CacheEntry{42: {{InstanceName: "homelab", SonarrSeriesID: 369}}},
 		},
-		SyncLog:       peopleHandlerFakeSyncLog{err: ports.ErrNotFound},
 		MediaResolver: resolver,
 		Logger:        handlerTestLogger(),
 	})

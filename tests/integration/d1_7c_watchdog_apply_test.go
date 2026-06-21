@@ -233,9 +233,11 @@ func TestD1_7c_WatchdogState_NullableColumns(t *testing.T) {
 	}
 }
 
-// TestD1_7c_WatchdogMigrationDown — apply 000001..000013, then
-// m.Steps(-1) to roll back 000013; SELECT 1 from both tables errors
-// (tables gone); Up() reapplies cleanly.
+// TestD1_7c_WatchdogMigrationDown — apply 000001..000014, then
+// m.Steps(-2) to roll back BOTH 000014 (people_enrichment, added by
+// 464b) and 000013 (watchdog); SELECT 1 from the watchdog tables errors
+// (tables gone); Up() reapplies cleanly. The -2 step count covers the
+// migration on top of 000013 added during the D-3 cutover.
 func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -246,13 +248,13 @@ func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 			t.Cleanup(cleanup)
 			require.NoError(t, m.Up())
 
-			require.NoError(t, m.Steps(-1), "Steps(-1) should reverse 000013")
+			require.NoError(t, m.Steps(-2), "Steps(-2) should reverse 000014 + 000013")
 			for _, tbl := range []string{"watchdog_state", "watchdog_blacklist"} {
 				_, err := db.ExecContext(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1")
-				require.Errorf(t, err, "%s should be dropped after Down(1)", tbl)
+				require.Errorf(t, err, "%s should be dropped after Down(2)", tbl)
 			}
 
-			require.NoError(t, m.Up(), "Up() should reapply 000013 cleanly")
+			require.NoError(t, m.Up(), "Up() should reapply 000013 + 000014 cleanly")
 			for _, tbl := range []string{"watchdog_state", "watchdog_blacklist"} {
 				_, err := db.ExecContext(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1")
 				require.NoErrorf(t, err, "%s should exist after re-Up", tbl)

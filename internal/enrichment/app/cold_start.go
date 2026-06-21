@@ -1,13 +1,13 @@
 // Package enrichment — Story 212 cold-start backfill +
 // Story 318 periodic re-sweep.
 //
-// BackfillSeries scans `series` rows that lack a sync_log(tmdb_series)
-// row and enqueues them at PriorityCold. Person backfill happens
+// BackfillSeries scans `series` rows whose enrichment_tmdb_synced_at IS
+// NULL and enqueues them at PriorityCold. Person backfill happens
 // organically — every successful series enrichment upserts person
 // stubs and enqueues them (series_worker integration).
 //
-// Idempotency: after the first pass every series acquires a sync_log
-// row (outcome ∈ {ok, error, not_found}). Subsequent passes' LEFT JOIN
+// Idempotency: after the first successful enrichment pass every series'
+// enrichment_tmdb_synced_at is non-NULL. Subsequent passes' WHERE filter
 // returns zero (or only newly-added) rows. The function is therefore
 // safe to call from a recovery script, repeated restarts, OR a
 // periodic ticker (Story 318 — the production path now calls
@@ -94,7 +94,7 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 		log = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	observability.IncEnrichmentColdStartResweep()
-	ids, err := scanner.ListMissingSyncLog(ctx, "tmdb_series", sweepLimit)
+	ids, err := scanner.ListMissingTMDBSync(ctx, sweepLimit)
 	if err != nil {
 		return fmt.Errorf("cold-start scan: %w", err)
 	}

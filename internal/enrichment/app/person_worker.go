@@ -1,12 +1,13 @@
 // Package enrichment — Story 212 person worker.
 //
 // PersonWorker is the EntityKindPerson handler. Workflow per PRD §5.5:
-//   1. Read person row + last sync_log(tmdb_person).
-//   2. Skip if outcome=ok AND IsStale=false AND hydration=full.
+//   1. Read person row.
+//   2. Skip if hydration=full AND person.EnrichmentSyncedAt is within TTL.
 //   3. tmdbClient.GetPerson → MapPersonToDomain → person + credits.
 //   4. ONE tx: upsert people (full) + person_biographies (en-US) +
 //      person_credits (batch) + external_ids (imdb / homepage / socials).
-//   5. Journal sync_log (outcome=ok, attempts=0).
+//   5. Stamp people.enrichment_synced_at via MarkSynced + clear any
+//      outstanding enrichment_errors row.
 //
 // Shared *tmdb.Client invariant: this file does NOT import the TMDB
 // client constructor; the wiring layer threads the same instance held
@@ -38,7 +39,7 @@ type PersonWorkerDeps struct {
 	PersonBiographies PersonBiographiesPort
 	PersonCredits     PersonCreditsPort
 	ExternalIDs       ExternalIDsRepoPort
-	SyncLog           SyncLogRepo
+	EnrichmentErrors  EnrichmentErrorRepo
 	Logger            *slog.Logger
 	Clock             func() time.Time
 }
@@ -66,7 +67,7 @@ func NewPersonWorker(deps PersonWorkerDeps) (*PersonWorker, error) {
 	}
 	if deps.People == nil || deps.PersonBiographies == nil ||
 		deps.PersonCredits == nil || deps.ExternalIDs == nil ||
-		deps.SyncLog == nil {
+		deps.EnrichmentErrors == nil {
 		return nil, errors.New("enrichment.person_worker: every repository port is required")
 	}
 	if deps.Language == "" {
@@ -107,28 +108,35 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 	}
 	tmdbPersonID := int64(*person.TMDBID)
 
-	// 2. Staleness short-circuit: ok + full + IsStale=false ⇒ skip.
-	last, err := w.deps.SyncLog.GetLastSync(ctx, enrichment.EntityTypePerson, personID, enrichment.SourceTMDBPerson)
-	if err != nil && !errors.Is(err, ports.ErrNotFound) {
-		log.WarnContext(ctx, "enrichment.person.handle.sync_log_read_failed",
-			slog.String("error", err.Error()))
-	}
-	if last.Outcome == enrichment.OutcomeOK && last.SyncedAt != nil &&
-		person.Hydration == people.HydrationFull {
+	// 2. Staleness short-circuit — read person.EnrichmentSyncedAt
+	//    directly. Requires hydration=full (a stub row is always
+	//    "stale" from the worker's POV — the dispatcher enqueues
+	//    stubs explicitly, but a fresh-skip on stub would be wrong).
+	if person.Hydration == people.HydrationFull && person.EnrichmentSyncedAt != nil {
 		ttl := enrichment.TTL(enrichment.SourceTMDBPerson, enrichment.KindPerson)
-		if ttl > 0 && w.deps.Clock().Sub(*last.SyncedAt) < ttl {
+		if ttl > 0 && w.deps.Clock().Sub(*person.EnrichmentSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.person.handle.fresh_skip",
-				slog.String("outcome", string(last.Outcome)),
-				slog.Time("synced_at", *last.SyncedAt),
+				slog.String("domain", "enrichment"),
+				slog.Time("synced_at", *person.EnrichmentSyncedAt),
 			)
 			return nil
 		}
 	}
 
+	// Load any current error row (for attempts counter on retry path).
+	prevAttempts := 0
+	if errRow, errErr := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
+		enrichment.EntityTypePerson, personID, enrichment.SourceTMDBPerson); errErr == nil {
+		prevAttempts = errRow.Attempts
+	} else if !errors.Is(errErr, ports.ErrNotFound) {
+		log.WarnContext(ctx, "enrichment.person.handle.error_row_read_failed",
+			slog.String("error", errErr.Error()))
+	}
+
 	// 3. Fetch /person/{id} (single round-trip, append_to_response).
 	resp, err := w.deps.TMDB.GetPerson(ctx, tmdbPersonID, w.deps.Language)
 	if err != nil {
-		return w.handleTMDBError(ctx, personID, "GetPerson", err, last.Attempts, start)
+		return w.handleTMDBError(ctx, personID, "GetPerson", err, prevAttempts, start)
 	}
 
 	// 4. Map outside the tx — pure CPU, no I/O.
@@ -142,18 +150,18 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 		return w.applyAll(txCtx, personID, mapped, bio, credits, xids)
 	})
 	if err != nil {
-		return w.handleTMDBError(ctx, personID, "tx", err, last.Attempts, start)
+		return w.handleTMDBError(ctx, personID, "tx", err, prevAttempts, start)
 	}
 
-	// 6. Journal success.
+	// 6. Journal success — stamp canon column + clear any pending error row.
 	now := w.deps.Clock()
 	dur := int(now.Sub(start).Milliseconds())
-	w.journalOK(ctx, personID, now, dur)
+	w.journalOK(ctx, personID, now)
 
 	log.InfoContext(ctx, "enrichment.person.handle.ok",
+		slog.String("domain", "enrichment"),
 		slog.Int64("tmdb_person_id", tmdbPersonID),
 		slog.Int("tmdb_credit_count", len(credits)),
-		slog.String("outcome", string(enrichment.OutcomeOK)),
 		slog.Int("duration_ms", dur),
 	)
 	return nil
@@ -294,10 +302,14 @@ func personBiographyRow(personID int64, language, text string) people.PersonBiog
 
 // ---- error handling + journal helpers ------------------------------
 
+// handleTMDBError records an enrichment_errors row for a TMDB person
+// fetch failure. TMDB 404 → terminalAttempts (no retry); other errors
+// → previousAttempts+1 with NextAttemptAt backoff.
 func (w *PersonWorker) handleTMDBError(ctx context.Context, personID int64, op string, err error, previousAttempts int, start time.Time) error {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
+		slog.String("domain", "enrichment"),
 		slog.String("entity_type", string(enrichment.EntityTypePerson)),
 		slog.Int64("entity_id", personID),
 		slog.String("source", string(enrichment.SourceTMDBPerson)),
@@ -306,23 +318,8 @@ func (w *PersonWorker) handleTMDBError(ctx context.Context, personID int64, op s
 
 	var apiErr *tmdb.APIError
 	if errors.As(err, &apiErr) && apiErr.Status == 404 {
-		ed := err.Error()
-		entry := enrichment.SyncLog{
-			EntityType:  enrichment.EntityTypePerson,
-			EntityID:    personID,
-			Source:      enrichment.SourceTMDBPerson,
-			Outcome:     enrichment.OutcomeNotFound,
-			ErrorDetail: &ed,
-			Attempts:    previousAttempts + 1,
-			DurationMs:  &durMs,
-		}
-		if jerr := w.deps.SyncLog.Upsert(ctx, entry); jerr != nil {
-			log.WarnContext(ctx, "enrichment.person.handle.journal_failed",
-				slog.String("outcome", "not_found"),
-				slog.String("error", jerr.Error()))
-		}
+		w.recordPersonError(ctx, personID, err, terminalAttempts, nil, log)
 		log.InfoContext(ctx, "enrichment.person.handle.not_found",
-			slog.String("outcome", string(enrichment.OutcomeNotFound)),
 			slog.Int("duration_ms", durMs),
 		)
 		return nil
@@ -330,24 +327,8 @@ func (w *PersonWorker) handleTMDBError(ctx context.Context, personID int64, op s
 
 	attempts := previousAttempts + 1
 	next := enrichment.NextAttemptAt(attempts, now)
-	ed := err.Error()
-	entry := enrichment.SyncLog{
-		EntityType:    enrichment.EntityTypePerson,
-		EntityID:      personID,
-		Source:        enrichment.SourceTMDBPerson,
-		Outcome:       enrichment.OutcomeError,
-		ErrorDetail:   &ed,
-		Attempts:      attempts,
-		NextAttemptAt: &next,
-		DurationMs:    &durMs,
-	}
-	if jerr := w.deps.SyncLog.Upsert(ctx, entry); jerr != nil {
-		log.WarnContext(ctx, "enrichment.person.handle.journal_failed",
-			slog.String("outcome", "error"),
-			slog.String("error", jerr.Error()))
-	}
+	w.recordPersonError(ctx, personID, err, attempts, &next, log)
 	log.WarnContext(ctx, "enrichment.person.handle.failed",
-		slog.String("outcome", string(enrichment.OutcomeError)),
 		slog.Int("attempts", attempts),
 		slog.Time("next_attempt_at", next),
 		slog.Int("duration_ms", durMs),
@@ -356,18 +337,44 @@ func (w *PersonWorker) handleTMDBError(ctx context.Context, personID int64, op s
 	return nil
 }
 
-func (w *PersonWorker) journalOK(ctx context.Context, personID int64, now time.Time, durMs int) {
-	entry := enrichment.SyncLog{
-		EntityType: enrichment.EntityTypePerson,
-		EntityID:   personID,
-		Source:     enrichment.SourceTMDBPerson,
-		SyncedAt:   &now,
-		Outcome:    enrichment.OutcomeOK,
-		Attempts:   0,
-		DurationMs: &durMs,
+// recordPersonError writes the (person, tmdb_person) enrichment_errors row.
+func (w *PersonWorker) recordPersonError(
+	ctx context.Context,
+	personID int64,
+	cause error,
+	attempts int,
+	nextAttemptAt *time.Time,
+	log *slog.Logger,
+) {
+	now := w.deps.Clock()
+	rec := enrichment.EnrichmentError{
+		EntityType:    enrichment.EntityTypePerson,
+		EntityID:      personID,
+		Source:        enrichment.SourceTMDBPerson,
+		LastError:     cause.Error(),
+		Attempts:      attempts,
+		LastSeenAt:    now,
+		NextAttemptAt: nextAttemptAt,
 	}
-	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
-		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.journal_ok_failed",
+	if err := w.deps.EnrichmentErrors.RecordFailure(ctx, rec); err != nil {
+		log.WarnContext(ctx, "enrichment.person.handle.record_failure_failed",
+			slog.String("error", err.Error()))
+	}
+}
+
+// journalOK stamps people.enrichment_synced_at = now and clears any
+// outstanding enrichment_errors row for (person, tmdb_person).
+func (w *PersonWorker) journalOK(ctx context.Context, personID int64, now time.Time) {
+	if err := w.deps.People.MarkSynced(ctx, personID, now); err != nil {
+		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.mark_synced_failed",
+			slog.String("domain", "enrichment"),
+			slog.Int64("entity_id", personID),
+			slog.String("error", err.Error()))
+	}
+	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
+		enrichment.EntityTypePerson, personID, enrichment.SourceTMDBPerson); err != nil {
+		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.clear_error_failed",
+			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", personID),
 			slog.String("error", err.Error()))
 	}
@@ -376,19 +383,15 @@ func (w *PersonWorker) journalOK(ctx context.Context, personID int64, now time.T
 func (w *PersonWorker) journalNotFound(ctx context.Context, personID int64, msg string, start time.Time) {
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
-	ed := msg
-	entry := enrichment.SyncLog{
-		EntityType:  enrichment.EntityTypePerson,
-		EntityID:    personID,
-		Source:      enrichment.SourceTMDBPerson,
-		Outcome:     enrichment.OutcomeNotFound,
-		ErrorDetail: &ed,
-		Attempts:    1,
-		DurationMs:  &durMs,
-	}
-	if err := w.deps.SyncLog.Upsert(ctx, entry); err != nil {
-		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.journal_nf_failed",
-			slog.Int64("entity_id", personID),
-			slog.String("error", err.Error()))
-	}
+	log := w.deps.Logger.With(
+		slog.String("domain", "enrichment"),
+		slog.String("entity_type", string(enrichment.EntityTypePerson)),
+		slog.Int64("entity_id", personID),
+		slog.String("source", string(enrichment.SourceTMDBPerson)),
+	)
+	w.recordPersonError(ctx, personID, errors.New(msg), terminalAttempts, nil, log)
+	log.InfoContext(ctx, "enrichment.person.handle.not_found",
+		slog.String("reason", msg),
+		slog.Int("duration_ms", durMs),
+	)
 }

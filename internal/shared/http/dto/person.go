@@ -20,9 +20,9 @@ type PersonDetailResponse struct {
 	// frontend can render an `EN` chip when fallback fired.
 	Biography   string `json:"biography,omitempty"`
 	BioLanguage string `json:"bio_language,omitempty" example:"en-US"`
-	// Sync is the per-source hydration timestamp drawn from
-	// sync_log(entity_type=person, source=tmdb_person). Omitted
-	// when no row exists — `degraded[]` then carries
+	// Sync is the TMDB-person hydration timestamp drawn from
+	// people.enrichment_synced_at (D-3 migration 000014). Omitted
+	// when the column is NULL — `degraded[]` then carries
 	// `"tmdb_person"`.
 	Sync *SyncInfo `json:"sync,omitempty"`
 	// LibraryCredits is the JOIN of person_credits × canon series

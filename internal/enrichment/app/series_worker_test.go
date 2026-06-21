@@ -128,6 +128,29 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (domain.Ser
 	return c.ID, nil
 }
 
+// MarkTMDBSynced stamps the canon row's enrichment_tmdb_synced_at —
+// 464b. Mirrors production single-column UPDATE semantics.
+func (f *fakeSeriesRepo) MarkTMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkTMDBSynced")
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.EnrichmentTMDBSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
+// MarkOMDBSynced — 464b counterpart for the OMDb worker path.
+func (f *fakeSeriesRepo) MarkOMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkOMDBSynced")
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.EnrichmentOMDBSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
 // UpsertStub mirrors the production COALESCE semantics: existing
 // non-NULL columns win over the stub's value. An existing 'full' row
 // keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.
@@ -435,114 +458,140 @@ func (f *fakeRecommendationsRepo) Set(ctx context.Context, seriesID domain.Serie
 	return nil
 }
 
-type fakeSyncLogRepo struct {
-	mu      sync.Mutex
-	entries []enrichment.SyncLog
-	last    *enrichment.SyncLog
+// fakeEnrichmentErrorRepo records RecordFailure / ClearOnSuccess calls
+// for the series worker tests. GetByEntitySource lets a test pre-seed
+// a previous-attempts counter to exercise the retry-bump path.
+type fakeEnrichmentErrorRepo struct {
+	mu       sync.Mutex
+	failures []enrichment.EnrichmentError
+	cleared  []clearedKey
+	preexist *enrichment.EnrichmentError // seeded by tests for retry path
+	getErr   error                       // seeded by tests for branch coverage
 }
 
-func (f *fakeSyncLogRepo) Upsert(ctx context.Context, e enrichment.SyncLog) error {
+type clearedKey struct {
+	EntityType enrichment.EntityType
+	EntityID   int64
+	Source     enrichment.Source
+}
+
+func (f *fakeEnrichmentErrorRepo) RecordFailure(ctx context.Context, e enrichment.EnrichmentError) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.entries = append(f.entries, e)
+	f.failures = append(f.failures, e)
 	return nil
 }
 
-func (f *fakeSyncLogRepo) GetLastSync(ctx context.Context, entityType enrichment.EntityType, entityID int64, source enrichment.Source) (enrichment.SyncLog, error) {
+func (f *fakeEnrichmentErrorRepo) ClearOnSuccess(ctx context.Context, et enrichment.EntityType, id int64, src enrichment.Source) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.last != nil {
-		return *f.last, nil
-	}
-	return enrichment.SyncLog{}, ports.ErrNotFound
+	f.cleared = append(f.cleared, clearedKey{EntityType: et, EntityID: id, Source: src})
+	return nil
 }
 
-func (f *fakeSyncLogRepo) StaleScan(ctx context.Context, source enrichment.Source, cutoff time.Time, limit int) ([]enrichment.SyncLog, error) {
+func (f *fakeEnrichmentErrorRepo) GetForEntity(ctx context.Context, et enrichment.EntityType, id int64) ([]enrichment.EnrichmentError, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.preexist != nil && f.preexist.EntityType == et && f.preexist.EntityID == id {
+		return []enrichment.EnrichmentError{*f.preexist}, nil
+	}
 	return nil, nil
 }
 
-func (f *fakeSyncLogRepo) RetryDue(ctx context.Context, source enrichment.Source, now time.Time, limit int) ([]enrichment.SyncLog, error) {
+func (f *fakeEnrichmentErrorRepo) ListDueForRetry(ctx context.Context, src enrichment.Source, now time.Time, limit int) ([]enrichment.EnrichmentError, error) {
 	return nil, nil
 }
 
-func (f *fakeSyncLogRepo) lastEntry() enrichment.SyncLog {
+func (f *fakeEnrichmentErrorRepo) GetByEntitySource(ctx context.Context, et enrichment.EntityType, id int64, src enrichment.Source) (enrichment.EnrichmentError, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.entries) == 0 {
-		return enrichment.SyncLog{}
+	if f.getErr != nil {
+		return enrichment.EnrichmentError{}, f.getErr
 	}
-	return f.entries[len(f.entries)-1]
+	if f.preexist != nil && f.preexist.EntityType == et && f.preexist.EntityID == id && f.preexist.Source == src {
+		return *f.preexist, nil
+	}
+	return enrichment.EnrichmentError{}, ports.ErrNotFound
+}
+
+func (f *fakeEnrichmentErrorRepo) lastFailure() enrichment.EnrichmentError {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.failures) == 0 {
+		return enrichment.EnrichmentError{}
+	}
+	return f.failures[len(f.failures)-1]
 }
 
 // ---- harness -------------------------------------------------------
 
 type workerFixture struct {
-	worker          *SeriesWorker
-	tmdb            *fakeTMDB
-	rec             *callRecord
-	series          *fakeSeriesRepo
-	seriesTexts     *fakeSeriesTextsRepo
-	seasons         *fakeSeasonsRepo
-	episodes        *fakeEpisodesRepo
-	episodeTexts    *fakeEpisodeTextsRepo
-	people          *fakePeopleRepo
-	seriesPeople    *fakeSeriesPeopleRepo
-	genres          *fakeGenresRepo
-	keywords        *fakeKeywordsRepo
-	networks        *fakeNetworksRepo
-	companies       *fakeCompaniesRepo
-	videos          *fakeVideosRepo
-	contentRatings  *fakeContentRatingsRepo
-	externalIDs     *fakeExternalIDsRepo
-	recommendations *fakeRecommendationsRepo
-	syncLog         *fakeSyncLogRepo
+	worker           *SeriesWorker
+	tmdb             *fakeTMDB
+	rec              *callRecord
+	series           *fakeSeriesRepo
+	seriesTexts      *fakeSeriesTextsRepo
+	seasons          *fakeSeasonsRepo
+	episodes         *fakeEpisodesRepo
+	episodeTexts     *fakeEpisodeTextsRepo
+	people           *fakePeopleRepo
+	seriesPeople     *fakeSeriesPeopleRepo
+	genres           *fakeGenresRepo
+	keywords         *fakeKeywordsRepo
+	networks         *fakeNetworksRepo
+	companies        *fakeCompaniesRepo
+	videos           *fakeVideosRepo
+	contentRatings   *fakeContentRatingsRepo
+	externalIDs      *fakeExternalIDsRepo
+	recommendations  *fakeRecommendationsRepo
+	enrichmentErrors *fakeEnrichmentErrorRepo
 }
 
 func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmdb.SeasonResponse) *workerFixture {
 	t.Helper()
 	rec := &callRecord{}
 	f := &workerFixture{
-		tmdb:            &fakeTMDB{tv: tv, seasons: seasonResp},
-		rec:             rec,
-		series:          newFakeSeriesRepo(rec),
-		seriesTexts:     &fakeSeriesTextsRepo{rec: rec},
-		seasons:         newFakeSeasonsRepo(rec),
-		episodes:        newFakeEpisodesRepo(rec),
-		episodeTexts:    &fakeEpisodeTextsRepo{rec: rec},
-		people:          newFakePeopleRepo(rec),
-		seriesPeople:    &fakeSeriesPeopleRepo{rec: rec},
-		genres:          newFakeGenresRepo(rec),
-		keywords:        newFakeKeywordsRepo(rec),
-		networks:        &fakeNetworksRepo{rec: rec},
-		companies:       &fakeCompaniesRepo{rec: rec},
-		videos:          &fakeVideosRepo{rec: rec},
-		contentRatings:  &fakeContentRatingsRepo{rec: rec},
-		externalIDs:     &fakeExternalIDsRepo{rec: rec},
-		recommendations: &fakeRecommendationsRepo{rec: rec},
-		syncLog:         &fakeSyncLogRepo{},
+		tmdb:             &fakeTMDB{tv: tv, seasons: seasonResp},
+		rec:              rec,
+		series:           newFakeSeriesRepo(rec),
+		seriesTexts:      &fakeSeriesTextsRepo{rec: rec},
+		seasons:          newFakeSeasonsRepo(rec),
+		episodes:         newFakeEpisodesRepo(rec),
+		episodeTexts:     &fakeEpisodeTextsRepo{rec: rec},
+		people:           newFakePeopleRepo(rec),
+		seriesPeople:     &fakeSeriesPeopleRepo{rec: rec},
+		genres:           newFakeGenresRepo(rec),
+		keywords:         newFakeKeywordsRepo(rec),
+		networks:         &fakeNetworksRepo{rec: rec},
+		companies:        &fakeCompaniesRepo{rec: rec},
+		videos:           &fakeVideosRepo{rec: rec},
+		contentRatings:   &fakeContentRatingsRepo{rec: rec},
+		externalIDs:      &fakeExternalIDsRepo{rec: rec},
+		recommendations:  &fakeRecommendationsRepo{rec: rec},
+		enrichmentErrors: &fakeEnrichmentErrorRepo{},
 	}
 	w, err := NewSeriesWorker(SeriesWorkerDeps{
-		TMDB:            f.tmdb,
-		Tx:              syncTransactor{},
-		Language:        "en-US",
-		Series:          f.series,
-		SeriesTexts:     f.seriesTexts,
-		Seasons:         f.seasons,
-		Episodes:        f.episodes,
-		EpisodeTexts:    f.episodeTexts,
-		People:          f.people,
-		SeriesPeople:    f.seriesPeople,
-		Genres:          f.genres,
-		Keywords:        f.keywords,
-		Networks:        f.networks,
-		Companies:       f.companies,
-		Videos:          f.videos,
-		ContentRatings:  f.contentRatings,
-		ExternalIDs:     f.externalIDs,
-		Recommendations: f.recommendations,
-		SyncLog:         f.syncLog,
-		Logger:          quietLogger(),
-		Clock:           func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) },
+		TMDB:             f.tmdb,
+		Tx:               syncTransactor{},
+		Language:         "en-US",
+		Series:           f.series,
+		SeriesTexts:      f.seriesTexts,
+		Seasons:          f.seasons,
+		Episodes:         f.episodes,
+		EpisodeTexts:     f.episodeTexts,
+		People:           f.people,
+		SeriesPeople:     f.seriesPeople,
+		Genres:           f.genres,
+		Keywords:         f.keywords,
+		Networks:         f.networks,
+		Companies:        f.companies,
+		Videos:           f.videos,
+		ContentRatings:   f.contentRatings,
+		ExternalIDs:      f.externalIDs,
+		Recommendations:  f.recommendations,
+		EnrichmentErrors: f.enrichmentErrors,
+		Logger:           quietLogger(),
+		Clock:            func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) },
 	})
 	require.NoError(t, err)
 	f.worker = w
@@ -651,10 +700,13 @@ func TestSeriesWorker_HappyPath_AllRepoesWritten(t *testing.T) {
 		assert.Contains(t, calls, e, "expected call %q recorded", e)
 	}
 
-	// Verify sync_log was journalled with outcome=ok.
-	last := f.syncLog.lastEntry()
-	assert.Equal(t, enrichment.OutcomeOK, last.Outcome)
-	assert.Equal(t, 0, last.Attempts, "attempts reset to 0 on success per PRD §5.5")
+	// Verify canon column was stamped + no failure row recorded.
+	persisted := f.series.rows[1]
+	require.NotNil(t, persisted.EnrichmentTMDBSyncedAt, "canon enrichment_tmdb_synced_at must be stamped on success")
+	assert.Empty(t, f.enrichmentErrors.failures, "no enrichment_errors row on happy path")
+	require.NotEmpty(t, f.enrichmentErrors.cleared, "ClearOnSuccess MUST fire on happy path")
+	assert.Equal(t, enrichment.EntityTypeSeries, f.enrichmentErrors.cleared[0].EntityType)
+	assert.Equal(t, enrichment.SourceTMDBSeries, f.enrichmentErrors.cleared[0].Source)
 
 	// Verify SeriesPeople rows got non-zero PersonID (LATENT RISK fix).
 	require.NotEmpty(t, f.seriesPeople.rows, "series_people should be written")
@@ -676,8 +728,8 @@ func TestSeriesWorker_TMDB5xxDuringSeasonFetch_NoHalfWrites(t *testing.T) {
 	calls := f.rec.list()
 	// Series.Upsert MUST NOT have been called (no half-writes).
 	assert.NotContains(t, calls, "Series.Upsert", "no DB writes after TMDB 5xx mid-fetch")
-	last := f.syncLog.lastEntry()
-	assert.Equal(t, enrichment.OutcomeError, last.Outcome)
+	last := f.enrichmentErrors.lastFailure()
+	assert.Equal(t, enrichment.SourceTMDBSeries, last.Source)
 	assert.Equal(t, 1, last.Attempts)
 	require.NotNil(t, last.NextAttemptAt)
 }
@@ -691,9 +743,10 @@ func TestSeriesWorker_TMDB404_TerminalNotFound(t *testing.T) {
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
 
-	last := f.syncLog.lastEntry()
-	assert.Equal(t, enrichment.OutcomeNotFound, last.Outcome)
-	assert.Nil(t, last.NextAttemptAt, "not_found is terminal — no retry scheduled")
+	last := f.enrichmentErrors.lastFailure()
+	assert.Equal(t, enrichment.SourceTMDBSeries, last.Source)
+	assert.Equal(t, terminalAttempts, last.Attempts, "TMDB 404 ⇒ terminalAttempts (no retry)")
+	assert.Nil(t, last.NextAttemptAt, "terminal failure has no NextAttemptAt")
 }
 
 func TestSeriesWorker_FreshSkip_TTLNotExpired(t *testing.T) {
@@ -702,16 +755,41 @@ func TestSeriesWorker_FreshSkip_TTLNotExpired(t *testing.T) {
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
 	tmdbID := domain.TMDBID(42)
 	f.seedCanon(1, &tmdbID)
-	// Last sync 1h ago — TTL for continuing series is 24h.
+	// Pre-seed the canon row with EnrichmentTMDBSyncedAt 1h ago — TTL for
+	// continuing series is 24h, so the worker must short-circuit.
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	syncedAt := now.Add(-1 * time.Hour)
-	f.syncLog.last = &enrichment.SyncLog{Outcome: enrichment.OutcomeOK, SyncedAt: &syncedAt}
+	row := f.series.rows[1]
+	row.EnrichmentTMDBSyncedAt = &syncedAt
+	f.series.rows[1] = row
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
 
 	calls := f.rec.list()
 	assert.Empty(t, calls, "fresh TTL ⇒ no work")
 	assert.Equal(t, 0, f.tmdb.getTVHit, "no TMDB call on fresh skip")
+}
+
+// TestSeriesWorker_StalenessGate_PrefersCanonColumn — 464b regression:
+// the worker MUST read the canon row's EnrichmentTMDBSyncedAt column
+// (not the legacy SyncLog row) to decide skip-vs-fetch. Seeding the
+// column with a fresh timestamp must produce a no-op even if no
+// enrichment_errors row exists.
+func TestSeriesWorker_StalenessGate_PrefersCanonColumn(t *testing.T) {
+	t.Parallel()
+	f := newWorkerFixture(t, minimalTV(), map[int]*tmdb.SeasonResponse{1: minimalSeason()})
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	syncedAt := now.Add(-15 * time.Minute) // well within continuing-series TTL
+	row := f.series.rows[1]
+	row.EnrichmentTMDBSyncedAt = &syncedAt
+	f.series.rows[1] = row
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+	assert.Zero(t, f.tmdb.getTVHit, "canon staleness gate must short-circuit before TMDB")
+	assert.Empty(t, f.rec.list(), "no DB writes on fresh-skip")
+	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
 func TestSeriesWorker_NoTMDBID_TerminalNotFound(t *testing.T) {
@@ -721,8 +799,9 @@ func TestSeriesWorker_NoTMDBID_TerminalNotFound(t *testing.T) {
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
 
-	last := f.syncLog.lastEntry()
-	assert.Equal(t, enrichment.OutcomeNotFound, last.Outcome)
+	last := f.enrichmentErrors.lastFailure()
+	assert.Equal(t, enrichment.SourceTMDBSeries, last.Source)
+	assert.Equal(t, terminalAttempts, last.Attempts, "no tmdb_id ⇒ terminal not_found")
 	assert.Equal(t, 0, f.tmdb.getTVHit, "no TMDB call when no tmdb_id")
 }
 
@@ -735,17 +814,48 @@ func TestSeriesWorker_BackoffIncrements(t *testing.T) {
 
 	// First failure.
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
-	first := f.syncLog.lastEntry()
+	first := f.enrichmentErrors.lastFailure()
 	require.Equal(t, 1, first.Attempts)
 
-	// Second failure — install previous attempt count.
-	f.syncLog.last = &enrichment.SyncLog{Outcome: enrichment.OutcomeError, Attempts: 1}
+	// Second failure — install previous attempt count via preexist.
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   1,
+		Source:     enrichment.SourceTMDBSeries,
+		Attempts:   1,
+	}
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
-	second := f.syncLog.lastEntry()
+	second := f.enrichmentErrors.lastFailure()
 	assert.Equal(t, 2, second.Attempts, "attempts increments across failures")
 	require.NotNil(t, second.NextAttemptAt)
 	require.NotNil(t, first.NextAttemptAt)
 	assert.True(t, second.NextAttemptAt.After(*first.NextAttemptAt) || second.NextAttemptAt.Equal(*first.NextAttemptAt))
+}
+
+// TestSeriesWorker_ClearError_OnHappyPath — 464b: on a successful TMDB
+// pass the worker MUST call EnrichmentErrors.ClearOnSuccess so a
+// previous failure row is removed.
+func TestSeriesWorker_ClearError_OnHappyPath(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+	// Pre-seed a failure row.
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType: enrichment.EntityTypeSeries,
+		EntityID:   1,
+		Source:     enrichment.SourceTMDBSeries,
+		Attempts:   2,
+		LastError:  "previous boom",
+	}
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+	require.NotEmpty(t, f.enrichmentErrors.cleared)
+	assert.Equal(t, enrichment.EntityTypeSeries, f.enrichmentErrors.cleared[0].EntityType)
+	assert.Equal(t, int64(1), f.enrichmentErrors.cleared[0].EntityID)
+	assert.Equal(t, enrichment.SourceTMDBSeries, f.enrichmentErrors.cleared[0].Source)
 }
 
 func TestSeriesWorker_DeterministicWriteOrder(t *testing.T) {

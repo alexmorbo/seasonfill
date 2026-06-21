@@ -92,18 +92,6 @@ func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID domain.Seri
 	return f.rows[seriesID], nil
 }
 
-type fakeSyncLog struct {
-	row domenrich.SyncLog
-	err error
-}
-
-func (f *fakeSyncLog) GetLastSync(_ context.Context, _ domenrich.EntityType, _ int64, _ domenrich.Source) (domenrich.SyncLog, error) {
-	if f.err != nil {
-		return domenrich.SyncLog{}, f.err
-	}
-	return f.row, nil
-}
-
 type fakeEnqueuer struct {
 	calls []enqueuedCall
 }
@@ -175,13 +163,15 @@ func mkCredit(id int64, tmdbMediaID int64, mediaType, title string, kind dompeop
 //     Strange Way of Life (movie, never in library, 0ep)
 func happyFixture(t *testing.T) Deps {
 	t.Helper()
+	syncedAt := time.Date(2026, 6, 10, 3, 14, 0, 0, time.UTC)
 	person := dompeople.Person{
-		ID:                1,
-		TMDBID:            new(domain.TMDBID(4495)),
-		Hydration:         dompeople.HydrationFull,
-		Name:              "Pedro Pascal",
-		Biography:         "Chilean-American actor...",
-		BiographyLanguage: "en-US",
+		ID:                 1,
+		TMDBID:             new(domain.TMDBID(4495)),
+		Hydration:          dompeople.HydrationFull,
+		Name:               "Pedro Pascal",
+		Biography:          "Chilean-American actor...",
+		BiographyLanguage:  "en-US",
+		EnrichmentSyncedAt: &syncedAt,
 	}
 
 	louLast := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -196,8 +186,6 @@ func happyFixture(t *testing.T) Deps {
 		mkCredit(3, 300, "tv", "Narcos", dompeople.SeriesCreditCast, new("Javier Peña"), new(4)),
 		mkCredit(4, 400, "movie", "Strange Way of Life", dompeople.SeriesCreditCast, new("Silva"), nil),
 	}
-
-	syncedAt := time.Date(2026, 6, 10, 3, 14, 0, 0, time.UTC)
 
 	return Deps{
 		People: &fakePeopleReader{
@@ -215,15 +203,6 @@ func happyFixture(t *testing.T) Deps {
 			rows: map[domain.SeriesID][]series.CacheEntry{
 				42: {mkCacheRow("alpha", 42)},
 				43: {mkCacheRow("alpha", 43), mkCacheRow("4k", 43)},
-			},
-		},
-		SyncLog: &fakeSyncLog{
-			row: domenrich.SyncLog{
-				EntityType: domenrich.EntityTypePerson,
-				EntityID:   1,
-				Source:     domenrich.SourceTMDBPerson,
-				SyncedAt:   &syncedAt,
-				Outcome:    domenrich.OutcomeOK,
 			},
 		},
 		Enqueuer: &fakeEnqueuer{},
@@ -245,8 +224,7 @@ func TestUseCase_HappyPath_SortRecent(t *testing.T) {
 	// other = Narcos + movie
 	assert.Len(t, out.OtherCredits, 2)
 	assert.Empty(t, out.Degraded)
-	require.NotNil(t, out.Sync)
-	assert.Equal(t, domenrich.SourceTMDBPerson, out.Sync.Source)
+	require.NotNil(t, out.SyncedAt, "SyncedAt populated from person.EnrichmentSyncedAt")
 	assert.Equal(t, "en-US", out.BioLanguage)
 	assert.Equal(t, "Chilean-American actor...", out.Biography)
 	// recent: LoU 2026 first, then GoT 2019
@@ -338,31 +316,16 @@ func TestUseCase_BioFallback(t *testing.T) {
 func TestUseCase_SyncLineMissing(t *testing.T) {
 	t.Parallel()
 	deps := happyFixture(t)
-	deps.SyncLog = &fakeSyncLog{err: ports.ErrNotFound}
+	// Wipe the seeded EnrichmentSyncedAt — cold person ⇒ rule 1 degrades.
+	pr := deps.People.(*fakePeopleReader)
+	p := pr.byID[1]
+	p.EnrichmentSyncedAt = nil
+	pr.byID[1] = p
+	pr.byTMDB[4495] = p
 	uc := NewUseCase(deps)
 	out, err := uc.Get(context.Background(), 4495, "", "")
 	require.NoError(t, err)
-	assert.Nil(t, out.Sync)
-	assert.Contains(t, out.Degraded, domenrich.SourceTMDBPerson)
-}
-
-func TestUseCase_SyncErrorOutcomeDegrades(t *testing.T) {
-	t.Parallel()
-	deps := happyFixture(t)
-	syncedAt := time.Date(2026, 6, 10, 3, 14, 0, 0, time.UTC)
-	deps.SyncLog = &fakeSyncLog{
-		row: domenrich.SyncLog{
-			EntityType: domenrich.EntityTypePerson,
-			EntityID:   1,
-			Source:     domenrich.SourceTMDBPerson,
-			SyncedAt:   &syncedAt,
-			Outcome:    domenrich.OutcomeError,
-		},
-	}
-	uc := NewUseCase(deps)
-	out, err := uc.Get(context.Background(), 4495, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, out.Sync)
+	assert.Nil(t, out.SyncedAt)
 	assert.Contains(t, out.Degraded, domenrich.SourceTMDBPerson)
 }
 

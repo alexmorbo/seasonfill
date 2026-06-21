@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	enrichmentpkg "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
@@ -198,6 +199,16 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 // peopleUpdateCols lists the columns updated on a conflict. id /
 // created_at are excluded so the row's identity and insertion
 // timestamp survive the upsert path.
+//
+// NOTE — enrichment_synced_at is intentionally NOT in this list. The
+// general Upsert path must NOT touch the per-person enrichment
+// freshness column: only PersonWorker.MarkSynced is allowed to bump
+// it (the post-tx success stamp). A stub-upsert from series_worker's
+// credit fan-out, or an IMDB-only orphan write, would otherwise blank
+// the column and trigger an unbounded re-enrichment loop on the next
+// dispatcher tick. Matches the COALESCE protection on the series
+// canon's enrichment_*_synced_at columns (series_repository.go
+// seriesUpsertAssignments).
 func peopleUpdateCols() []string {
 	return []string{
 		"tmdb_id", "imdb_id",
@@ -207,6 +218,67 @@ func peopleUpdateCols() []string {
 		"popularity", "profile_asset",
 		"updated_at",
 	}
+}
+
+// MarkSynced stamps people.enrichment_synced_at = now for one person row.
+// Single-column UPDATE — no other columns are touched, so a concurrent
+// upsert that COALESCEs enrichment_synced_at preserves the value we just
+// wrote (and vice versa). PersonWorker calls this after a successful
+// hydration tx; ClearOnSuccess on enrichment_errors fires in parallel.
+//
+// Idempotent on the column: re-bumping a fresh row is a no-op semantically
+// (just refreshes the timestamp). The caller passes the desired wall
+// time so tests + production share the same clock seam.
+func (r *PeopleRepository) MarkSynced(ctx context.Context, personID int64, now time.Time) error {
+	if personID == 0 {
+		return fmt.Errorf("mark person synced: person_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("people").
+		Where("id = ?", personID).
+		Updates(map[string]any{
+			"enrichment_synced_at": now.UTC(),
+			"updated_at":           now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark person synced: %w", err)
+	}
+	return nil
+}
+
+// ListStaleForTMDB returns person ids whose enrichment_synced_at is
+// NULL or older than now-ttl, capped at `limit` rows ordered by id ASC.
+// Excludes persons with > 5 enrichment_errors attempts (terminal
+// retry-give-up, matches series-side ListLibraryWithIMDBStale shape).
+//
+// Used by the D-3 dispatcher loop in BuildEnrichment to enqueue
+// person refresh jobs. Selectivity is good on a typical library
+// (~3000 person rows; most are fresh within 30d so the WHERE filter
+// narrows to a few hundred stale rows at most).
+func (r *PeopleRepository) ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	cutoff := time.Now().UTC().Add(-ttl)
+	var ids []int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("people AS p").
+		Select("p.id").
+		Where("p.tmdb_id IS NOT NULL").
+		Where("(p.enrichment_synced_at IS NULL OR p.enrichment_synced_at < ?)", cutoff).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM enrichment_errors ee
+		     WHERE ee.entity_type = 'person'
+		       AND ee.entity_id = p.id
+		       AND ee.source = ?
+		       AND ee.attempts > 5)`, string(enrichmentpkg.SourceTMDBPerson)).
+		Order("p.id ASC").
+		Limit(limit).
+		Pluck("p.id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("list people stale for tmdb: %w", err)
+	}
+	return ids, nil
 }
 
 func toPerson(m database.PeopleModel) people.Person {
@@ -224,6 +296,7 @@ func toPerson(m database.PeopleModel) people.Person {
 		KnownForDepartment: m.KnownForDepartment,
 		Popularity:         m.Popularity,
 		ProfileAsset:       m.ProfileAsset,
+		EnrichmentSyncedAt: m.EnrichmentSyncedAt,
 		CreatedAt:          m.CreatedAt,
 		UpdatedAt:          m.UpdatedAt,
 	}
@@ -244,6 +317,7 @@ func fromPerson(p people.Person) database.PeopleModel {
 		KnownForDepartment: p.KnownForDepartment,
 		Popularity:         p.Popularity,
 		ProfileAsset:       p.ProfileAsset,
+		EnrichmentSyncedAt: p.EnrichmentSyncedAt,
 		CreatedAt:          p.CreatedAt,
 		UpdatedAt:          p.UpdatedAt,
 	}

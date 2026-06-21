@@ -36,9 +36,9 @@ const defaultTimeout = 10 * time.Second
 
 // Sentinel errors. Workers use errors.Is to classify outcomes.
 //
-//	ErrNotFound    → sync_log.outcome=not_found (terminal)
-//	ErrInvalidKey  → sync_log.outcome=auth_failed (operator action req'd)
-//	ErrDailyLimit  → sync_log.outcome=auth_failed (degraded surface
+//	ErrNotFound    → enrichment_errors.attempts=terminalAttempts (no retry)
+//	ErrInvalidKey  → enrichment_errors retryable + auth_failed log (operator action req'd)
+//	ErrDailyLimit  → enrichment_errors retryable + auth_failed log (degraded surface
 //	                 picks this up; the budget guard usually prevents
 //	                 reaching upstream once the in-process counter
 //	                 hits zero, but a process restart resets the

@@ -100,10 +100,10 @@ func TestNewOMDbBudgetGuardDB_NegativeInitialUsesDefault(t *testing.T) {
 func TestNewOMDbWorker_NilClientReturnsError(t *testing.T) {
 	t.Parallel()
 	_, err := NewOMDbWorker(OMDbWorkerDeps{
-		Budget:  &fakeOMDbBudget{allow: true},
-		Tx:      fakeTxr{},
-		Series:  &fakeOMDbSeries{},
-		SyncLog: &fakeOMDbSyncLog{},
+		Budget:           &fakeOMDbBudget{allow: true},
+		Tx:               fakeTxr{},
+		Series:           &fakeOMDbSeries{},
+		EnrichmentErrors: &fakeOMDbErrorRepo{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Client")
@@ -112,10 +112,10 @@ func TestNewOMDbWorker_NilClientReturnsError(t *testing.T) {
 func TestNewOMDbWorker_NilBudgetReturnsError(t *testing.T) {
 	t.Parallel()
 	_, err := NewOMDbWorker(OMDbWorkerDeps{
-		Client:  func() OMDbClient { return nil },
-		Tx:      fakeTxr{},
-		Series:  &fakeOMDbSeries{},
-		SyncLog: &fakeOMDbSyncLog{},
+		Client:           func() OMDbClient { return nil },
+		Tx:               fakeTxr{},
+		Series:           &fakeOMDbSeries{},
+		EnrichmentErrors: &fakeOMDbErrorRepo{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Budget")
@@ -124,10 +124,10 @@ func TestNewOMDbWorker_NilBudgetReturnsError(t *testing.T) {
 func TestNewOMDbWorker_NilTxReturnsError(t *testing.T) {
 	t.Parallel()
 	_, err := NewOMDbWorker(OMDbWorkerDeps{
-		Client:  func() OMDbClient { return nil },
-		Budget:  &fakeOMDbBudget{allow: true},
-		Series:  &fakeOMDbSeries{},
-		SyncLog: &fakeOMDbSyncLog{},
+		Client:           func() OMDbClient { return nil },
+		Budget:           &fakeOMDbBudget{allow: true},
+		Series:           &fakeOMDbSeries{},
+		EnrichmentErrors: &fakeOMDbErrorRepo{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Transactor")
@@ -136,16 +136,16 @@ func TestNewOMDbWorker_NilTxReturnsError(t *testing.T) {
 func TestNewOMDbWorker_NilSeriesReturnsError(t *testing.T) {
 	t.Parallel()
 	_, err := NewOMDbWorker(OMDbWorkerDeps{
-		Client:  func() OMDbClient { return nil },
-		Budget:  &fakeOMDbBudget{allow: true},
-		Tx:      fakeTxr{},
-		SyncLog: &fakeOMDbSyncLog{},
+		Client:           func() OMDbClient { return nil },
+		Budget:           &fakeOMDbBudget{allow: true},
+		Tx:               fakeTxr{},
+		EnrichmentErrors: &fakeOMDbErrorRepo{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repository")
 }
 
-func TestNewOMDbWorker_NilSyncLogReturnsError(t *testing.T) {
+func TestNewOMDbWorker_NilEnrichmentErrorsReturnsError(t *testing.T) {
 	t.Parallel()
 	_, err := NewOMDbWorker(OMDbWorkerDeps{
 		Client: func() OMDbClient { return nil },
@@ -160,11 +160,11 @@ func TestNewOMDbWorker_NilSyncLogReturnsError(t *testing.T) {
 func TestNewOMDbWorker_NilLoggerAndClockDefault(t *testing.T) {
 	t.Parallel()
 	w, err := NewOMDbWorker(OMDbWorkerDeps{
-		Client:  func() OMDbClient { return nil },
-		Budget:  &fakeOMDbBudget{allow: true},
-		Tx:      fakeTxr{},
-		Series:  &fakeOMDbSeries{},
-		SyncLog: &fakeOMDbSyncLog{},
+		Client:           func() OMDbClient { return nil },
+		Budget:           &fakeOMDbBudget{allow: true},
+		Tx:               fakeTxr{},
+		Series:           &fakeOMDbSeries{},
+		EnrichmentErrors: &fakeOMDbErrorRepo{},
 		// Logger and Clock intentionally nil — should default.
 	})
 	require.NoError(t, err)

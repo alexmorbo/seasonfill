@@ -23,8 +23,8 @@ func (e *APIError) Error() string {
 }
 
 // IsNotFound reports whether the error indicates the requested
-// entity does not exist. C-2 maps this to sync_log.outcome=not_found
-// (PRD §5.5 backoff section — terminal until manual refresh).
+// entity does not exist. C-2 records an enrichment_errors row with
+// attempts=terminalAttempts (no retry) until a manual refresh clears it.
 func IsNotFound(err error) bool {
 	if err == nil {
 		return false
