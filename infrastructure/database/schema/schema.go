@@ -22,6 +22,9 @@
 // enrichment_errors side-table — these are the post-cutover greenfield
 // shapes, NOT the historical pre-cutover ones in
 // internal/shared/db/migrations/.
+// D-1-6a (story 459a) appends series_images — multi-language top-3
+// poster/backdrop/logo references with the mediaproxy asset_hash
+// column for future asset-store resolution (PRD §4.3).
 package schema
 
 import (
@@ -151,7 +154,23 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addEnrichmentTracking(s, d)
 	}
 
-	// D-1-6..D-1-7 (stories 459..460) append further batches here.
+	// D-1-6a (story 459a) — series_images. Multi-language top-3
+	// poster/backdrop/logo references with TMDB ranking signals
+	// (vote_average, vote_count) and mediaproxy asset_hash for future
+	// resolution from TMDB path → object-store hash. FK CASCADE on
+	// series — images are derived enrichment data, dead on canon
+	// drop. Language="" is the language-neutral equivalence class
+	// (typical for backdrops without overlay text); NULL is NOT used
+	// because it would break the UNIQUE composite-4 constraint (NULL
+	// is not equal to NULL in SQL).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_SERIES_IMAGES=1
+	// generates earlier migrations without this table.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_SERIES_IMAGES") == "" {
+		addSeriesImages(s, d)
+	}
+
+	// D-1-6b..D-1-7 (stories 459b..460) append further batches here.
 
 	return s
 }
@@ -1353,5 +1372,91 @@ func buildEnrichmentErrorsTable(d Dialect) *atlasschema.Table {
 			partialIndex(d, "enrichment_errors_next_attempt",
 				[]*atlasschema.Column{nextAttemptAt},
 				"next_attempt_at IS NOT NULL"),
+		)
+}
+
+// ----------------------------------------------------------------------
+// D-1-6a — multi-language images.
+// ----------------------------------------------------------------------
+
+// addSeriesImages appends series_images to s. Called from Schema(d).
+// Looks up the series canon table via mustTable — guaranteed present
+// by the table-order contract (D-1-2 lands it in addCoreSeries before
+// any D-1-6a appender runs).
+func addSeriesImages(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	s.AddTables(buildSeriesImagesTable(d, series))
+}
+
+// buildSeriesImagesTable returns series_images — multi-language top-3
+// poster/backdrop/logo references, 13 cols, single PK `id`. FK CASCADE
+// to series (derived enrichment data — dies with the canon row).
+//
+// Schema highlights:
+//   - language is BCP-47 (e.g., "en-US", "ru-RU") OR "" for language-
+//     neutral. NULL is NOT used — would break the UNIQUE composite
+//     constraint (NULL != NULL).
+//   - kind ∈ {'poster', 'backdrop', 'logo'} (domain-enforced, NOT a
+//     CHECK constraint — consistent with the rest of the schema's
+//     "validate at use-case layer" pattern).
+//   - asset_hash NULL pre-resolution; populated by mediaproxy when
+//     the TMDB path is fetched + stored. Future D-2/D-3 GC paths key
+//     off non-NULL asset_hash to count active asset refs.
+//   - iso_lang holds TMDB's raw iso_639_1 ("en", "ru", NULL) — distinct
+//     from the BCP-47 `language` column. Composer maps iso_lang →
+//     language during upsert (e.g., iso_lang="en" + region="US" →
+//     language="en-US").
+//   - vote_count tie-breaks rows with identical vote_average.
+//   - position 0=best, 1=second, 2=third. The DB enforces uniqueness
+//     on (series_id, language, kind, position); the app enforces top-3
+//     cardinality at write time (rows with position=3 are technically
+//     allowed by the DB but readers ignore them; producers MUST cap).
+//
+// Indexes:
+//   - series_images_series_lang_kind_position UNIQUE composite-4 — the
+//     producer's idempotency key (upsert ON CONFLICT lands here).
+//   - series_images_series_kind_position — non-unique composite-3 hot
+//     composer read path: "top-3 posters for series 42, all languages".
+//
+// FK CASCADE on series mirrors videos/content_ratings/
+// series_recommendations from D-1-4b. DO NOT switch to NO ACTION by
+// reflex — derived enrichment tables follow the CASCADE-on-canon-drop
+// idiom (vs. instance projections D-1-5 which are NO ACTION because
+// per-instance state outlives canon soft-deletes).
+func buildSeriesImagesTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
+	tmdbPath := atlasschema.NewStringColumn("tmdb_path", "text").SetNull(false)
+	assetHash := atlasschema.NewNullStringColumn("asset_hash", "text")
+	isoLang := atlasschema.NewNullStringColumn("iso_lang", "text")
+	voteAverage := atlasschema.NewNullFloatColumn("vote_average", "double precision")
+	voteCount := atlasschema.NewNullIntColumn("vote_count", "integer")
+	width := atlasschema.NewNullIntColumn("width", "integer")
+	height := atlasschema.NewNullIntColumn("height", "integer")
+	position := atlasschema.NewIntColumn("position", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("series_images").
+		AddColumns(id, seriesID, language, kind, tmdbPath, assetHash,
+			isoLang, voteAverage, voteCount, width, height, position,
+			updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("series_images_series_lang_kind_position").
+				AddColumns(seriesID, language, kind, position),
+			atlasschema.NewIndex("series_images_series_kind_position").
+				AddColumns(seriesID, kind, position),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("series_images_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
 		)
 }

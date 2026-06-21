@@ -14,17 +14,17 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/schema"
 )
 
-// TestD15_SchemaHasTwentyEightTables — D-1-4b had 24; D-1-5 adds 4
-// (series_cache, episode_states, season_stats, enrichment_errors) → 28.
-func TestD15_SchemaHasTwentyEightTables(t *testing.T) {
+// TestD15_InstanceProjectionsPresent asserts the 3 D-1-5 per-instance
+// projection tables are present in the schema. The total-count contract
+// has moved forward to TestD16a_SchemaHasTwentyNineTables in
+// tests/d1_6a_series_images_test.go — this test only checks PRESENCE so
+// it doesn't need a rewrite each time D-1 grows.
+func TestD15_InstanceProjectionsPresent(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 28; got != want {
-				t.Fatalf("table count = %d, want %d", got, want)
-			}
 			present := map[string]bool{}
 			for _, tbl := range s.Tables {
 				present[tbl.Name] = true

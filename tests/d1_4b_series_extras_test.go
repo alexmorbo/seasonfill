@@ -18,7 +18,7 @@ import (
 // TestD14b_SchemaHasExtrasTables — D-1-4a had 20; D-1-4b added 4
 // (videos, content_ratings, external_ids, series_recommendations). The
 // total-count contract for the current tip lives in
-// TestD15_SchemaHasTwentyEightTables (tests/d1_5_instance_projections_test.go);
+// TestD16a_SchemaHasTwentyNineTables (tests/d1_6a_series_images_test.go);
 // this test now only pins that the 4 D-1-4b tables remain present.
 func TestD14b_SchemaHasExtrasTables(t *testing.T) {
 	t.Parallel()
