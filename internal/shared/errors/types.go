@@ -54,7 +54,6 @@ func IsRetriable(err error) bool {
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError
-		appSetNF      *AppSettingsNotFoundError
 		qbitSetNF     *QbitSettingsNotFoundError
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
@@ -100,8 +99,6 @@ func IsRetriable(err error) bool {
 		return grabNF.Retriable()
 	case errors.As(err, &runtimeNF):
 		return runtimeNF.Retriable()
-	case errors.As(err, &appSetNF):
-		return appSetNF.Retriable()
 	case errors.As(err, &qbitSetNF):
 		return qbitSetNF.Retriable()
 	case errors.As(err, &scanRunNF):
@@ -146,7 +143,6 @@ func ErrorCode(err error) string {
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError
-		appSetNF      *AppSettingsNotFoundError
 		qbitSetNF     *QbitSettingsNotFoundError
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
@@ -192,8 +188,6 @@ func ErrorCode(err error) string {
 		return grabNF.Code()
 	case errors.As(err, &runtimeNF):
 		return runtimeNF.Code()
-	case errors.As(err, &appSetNF):
-		return appSetNF.Code()
 	case errors.As(err, &qbitSetNF):
 		return qbitSetNF.Code()
 	case errors.As(err, &scanRunNF):

@@ -1,10 +1,14 @@
 // Package externalservices owns the runtime config + HTTP client
 // factory for the three enrichment sources (TMDB, OMDb, TVDB). The
-// data model is one row per service in external_service_settings
-// (AES-GCM encrypted secrets). The factory turns a decrypted Settings
-// into a fully wired *http.Client that the future Phase C/D clients
-// will consume via constructor injection — there is no
-// package-global state, no init().
+// data model after D-5 (466c) is one row per service in
+// external_service_config + two app_secret rows per service
+// (api_key + proxy_pass, both AES-GCM encrypted BYTEA, referenced
+// via nullable FK ids). Proxy URL + proxy user are plaintext
+// columns (PRD §10.4 threat-model review — a proxy URL without
+// creds is not a secret). The factory turns a decrypted Settings
+// into a fully wired *http.Client that the Phase C/D clients
+// consume via constructor injection — there is no package-global
+// state, no init().
 package externalservices
 
 import (
@@ -61,6 +65,13 @@ const (
 // optional pointer fields are nil when the source column is NULL or
 // the env override didn't supply a value. The factory consumes this
 // shape; the repo produces it via Decrypt.
+//
+// D-5 (466c) — LastTestAt/LastTestOutcome/LastTestMessage are NO
+// LONGER persisted in the DB (the legacy `last_test_*` columns were
+// dropped per ADR Decision B). The application use case keeps the
+// last test result in a sync.Map for the pod lifetime; the fields
+// stay on this struct so the use case's `mask()` projection and the
+// reload subscriber's plaintext hand-off do not change shape.
 type Settings struct {
 	Service         Service
 	Enabled         bool
@@ -226,11 +237,21 @@ func proxyHost(raw string) string {
 	return rest
 }
 
-// Repository persists external_service_settings rows. Plaintext never
-// crosses this boundary — callers hand in Settings; the repo encrypts
-// the four *_enc fields with cipher.Seal before write and decrypts
-// them on read. cipher is required (Settings without a cipher would
-// store plaintext, which would defeat the threat model).
+// Repository persists external_service_config rows + their two
+// app_secret FK-referenced secrets (api_key, proxy_pass). Plaintext
+// never crosses this boundary — callers hand in Settings; the repo
+// encrypts the two secret fields with cipher.Seal before write and
+// decrypts them on read. cipher is required (a nil cipher would
+// store plaintext, defeating the threat model).
+//
+// D-5 (466c) — column shape changed: secrets live in app_secret
+// (id BIGSERIAL PK, secret_name TEXT UNIQUE) keyed by the
+// "${service}_api_key" / "${service}_proxy_pass" convention;
+// external_service_config holds nullable FK ids alongside plaintext
+// proxy_url + proxy_user. The last_test_* observability columns
+// were dropped per ADR Decision B; MarkTest is now a no-op (the
+// use case tracks last-test state in a sync.Map for the pod
+// lifetime).
 type Repository struct {
 	db     *gorm.DB
 	cipher *crypto.Cipher
@@ -240,38 +261,96 @@ func NewRepository(db *gorm.DB, cipher *crypto.Cipher) *Repository {
 	return &Repository{db: db, cipher: cipher}
 }
 
-// Get returns the row for svc, or ports.ErrNotFound when no row
-// exists. Decryption errors are wrapped — the caller is expected to
-// treat a decryption failure as a fatal config error (master key was
-// rotated without a re-write).
+// secretNameAPIKey + secretNameProxyPass derive the canonical
+// app_secret.secret_name keys per service. Centralised here so the
+// Get / List / Upsert paths all agree on the convention.
+func secretNameAPIKey(svc Service) string    { return string(svc) + "_api_key" }
+func secretNameProxyPass(svc Service) string { return string(svc) + "_proxy_pass" }
+
+// Get returns the row for svc, or ports.ErrNotFound when no
+// external_service_config row exists. Decryption errors are wrapped
+// — the caller treats them as a fatal config error (master key was
+// rotated without a re-encrypt).
 func (r *Repository) Get(ctx context.Context, svc Service) (Settings, error) {
 	if !svc.Valid() {
 		return Settings{}, ErrInvalidService
 	}
-	var m database.ExternalServiceSettingsModel
-	err := r.db.WithContext(ctx).Where("service = ?", string(svc)).First(&m).Error
+	var m database.ExternalServiceConfigModel
+	err := r.db.WithContext(ctx).
+		Where("service_name = ?", string(svc)).
+		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Settings{}, ports.ErrNotFound
 		}
-		return Settings{}, fmt.Errorf("get external service %s: %w", svc, err)
+		return Settings{}, fmt.Errorf("get external_service_config %s: %w", svc, err)
 	}
-	return r.decrypt(m)
+	out := Settings{
+		Service: svc,
+		Enabled: m.Enabled,
+	}
+	if m.ProxyURL != nil {
+		out.ProxyURL = *m.ProxyURL
+	}
+	if m.ProxyUser != nil {
+		out.ProxyUsername = *m.ProxyUser
+	}
+	if m.Last4 != nil {
+		out.APIKeyLast4 = *m.Last4
+	}
+	if m.APIKeySecretID != nil {
+		plain, err := r.decryptSecret(ctx, *m.APIKeySecretID)
+		if err != nil {
+			return Settings{}, fmt.Errorf("decrypt api_key %s: %w", svc, err)
+		}
+		out.APIKey = plain
+	}
+	if m.ProxyPassSecretID != nil {
+		plain, err := r.decryptSecret(ctx, *m.ProxyPassSecretID)
+		if err != nil {
+			return Settings{}, fmt.Errorf("decrypt proxy_pass %s: %w", svc, err)
+		}
+		out.ProxyPassword = plain
+	}
+	return out, nil
 }
 
-// List returns every row in the table in AllServices order. Missing
-// services are returned as a zero-value Settings with the Service
-// field populated, so callers can render the UI list without a second
-// trip.
+// List returns every row in AllServices order. Missing services land
+// as zero-value Settings with the Service field populated so the UI
+// list endpoint renders all three. The implementation batches secret
+// reads (one SELECT * FROM external_service_config + one SELECT * FROM
+// app_secret WHERE secret_name IN (...)), eliminating the N+1 join.
 func (r *Repository) List(ctx context.Context) ([]Settings, error) {
-	var models []database.ExternalServiceSettingsModel
+	var models []database.ExternalServiceConfigModel
 	if err := r.db.WithContext(ctx).Find(&models).Error; err != nil {
-		return nil, fmt.Errorf("list external services: %w", err)
+		return nil, fmt.Errorf("list external_service_config: %w", err)
 	}
-	byService := make(map[Service]database.ExternalServiceSettingsModel, len(models))
+	byService := make(map[Service]database.ExternalServiceConfigModel, len(models))
+	wantSecretIDs := make([]uint, 0, 2*len(models))
 	for _, m := range models {
-		byService[Service(m.Service)] = m
+		byService[Service(m.ServiceName)] = m
+		if m.APIKeySecretID != nil {
+			wantSecretIDs = append(wantSecretIDs, *m.APIKeySecretID)
+		}
+		if m.ProxyPassSecretID != nil {
+			wantSecretIDs = append(wantSecretIDs, *m.ProxyPassSecretID)
+		}
 	}
+
+	// Batch-fetch every needed secret row in a single round-trip.
+	secretsByID := make(map[uint][]byte, len(wantSecretIDs))
+	if len(wantSecretIDs) > 0 {
+		var secrets []database.AppSecretModel
+		if err := r.db.WithContext(ctx).
+			Where("id IN ?", wantSecretIDs).
+			Find(&secrets).Error; err != nil {
+			return nil, fmt.Errorf("list app_secret: %w", err)
+		}
+		for _, s := range secrets {
+			secretsByID[s.ID] = s.EncryptedValue
+		}
+	}
+
 	out := make([]Settings, 0, len(AllServices))
 	for _, svc := range AllServices {
 		m, ok := byService[svc]
@@ -279,159 +358,183 @@ func (r *Repository) List(ctx context.Context) ([]Settings, error) {
 			out = append(out, Settings{Service: svc})
 			continue
 		}
-		s, err := r.decrypt(m)
-		if err != nil {
-			return nil, fmt.Errorf("list external services: %w", err)
+		s := Settings{
+			Service: svc,
+			Enabled: m.Enabled,
+		}
+		if m.ProxyURL != nil {
+			s.ProxyURL = *m.ProxyURL
+		}
+		if m.ProxyUser != nil {
+			s.ProxyUsername = *m.ProxyUser
+		}
+		if m.Last4 != nil {
+			s.APIKeyLast4 = *m.Last4
+		}
+		if m.APIKeySecretID != nil {
+			ct, ok := secretsByID[*m.APIKeySecretID]
+			if ok && len(ct) > 0 {
+				plain, err := r.cipher.Open(ct)
+				if err != nil {
+					return nil, fmt.Errorf("decrypt api_key %s: %w", svc, err)
+				}
+				s.APIKey = string(plain)
+			}
+		}
+		if m.ProxyPassSecretID != nil {
+			ct, ok := secretsByID[*m.ProxyPassSecretID]
+			if ok && len(ct) > 0 {
+				plain, err := r.cipher.Open(ct)
+				if err != nil {
+					return nil, fmt.Errorf("decrypt proxy_pass %s: %w", svc, err)
+				}
+				s.ProxyPassword = string(plain)
+			}
 		}
 		out = append(out, s)
 	}
 	return out, nil
 }
 
-// Upsert writes s to the DB. The four secret fields are encrypted in
-// place. created_at is preserved on update via Clauses(DoUpdates).
+// Upsert writes s in a single transaction that touches up to 2
+// app_secret rows (api_key + proxy_pass) plus 1 external_service_config
+// row. Empty plaintext deletes the matching app_secret row and leaves
+// the FK NULL — operator clearing the value through the UI lands the
+// same state as a fresh row.
 func (r *Repository) Upsert(ctx context.Context, s Settings) error {
 	if !s.Service.Valid() {
 		return ErrInvalidService
 	}
-	apiKeyEnc, err := r.sealOptional(s.APIKey)
-	if err != nil {
-		return fmt.Errorf("encrypt api_key: %w", err)
-	}
-	proxyURLEnc, err := r.sealOptional(s.ProxyURL)
-	if err != nil {
-		return fmt.Errorf("encrypt proxy_url: %w", err)
-	}
-	proxyUserEnc, err := r.sealOptional(s.ProxyUsername)
-	if err != nil {
-		return fmt.Errorf("encrypt proxy_username: %w", err)
-	}
-	proxyPassEnc, err := r.sealOptional(s.ProxyPassword)
-	if err != nil {
-		return fmt.Errorf("encrypt proxy_password: %w", err)
-	}
-	now := time.Now().UTC()
-	var last4Ptr *string
-	if s.APIKeyLast4 != "" {
-		v := s.APIKeyLast4
-		last4Ptr = &v
-	}
-	var outcomePtr, msgPtr *string
-	if s.LastTestOutcome != "" {
-		o := string(s.LastTestOutcome)
-		outcomePtr = &o
-	}
-	if s.LastTestMessage != "" {
-		m := s.LastTestMessage
-		msgPtr = &m
-	}
-	model := database.ExternalServiceSettingsModel{
-		Service:          string(s.Service),
-		Enabled:          s.Enabled,
-		APIKeyEnc:        apiKeyEnc,
-		APIKeyLast4:      last4Ptr,
-		ProxyURLEnc:      proxyURLEnc,
-		ProxyUsernameEnc: proxyUserEnc,
-		ProxyPasswordEnc: proxyPassEnc,
-		LastTestAt:       s.LastTestAt,
-		LastTestOutcome:  outcomePtr,
-		LastTestMessage:  msgPtr,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
-	res := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "service"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"enabled", "api_key_enc", "api_key_last4",
-			"proxy_url_enc", "proxy_username_enc", "proxy_password_enc",
-			"last_test_at", "last_test_outcome", "last_test_message",
-			"updated_at",
-		}),
-	}).Create(&model)
-	if res.Error != nil {
-		return fmt.Errorf("upsert external service %s: %w", s.Service, res.Error)
-	}
-	return nil
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		apiKeyID, err := r.upsertSecret(tx, secretNameAPIKey(s.Service), s.APIKey)
+		if err != nil {
+			return fmt.Errorf("upsert api_key secret %s: %w", s.Service, err)
+		}
+		proxyPassID, err := r.upsertSecret(tx, secretNameProxyPass(s.Service), s.ProxyPassword)
+		if err != nil {
+			return fmt.Errorf("upsert proxy_pass secret %s: %w", s.Service, err)
+		}
+
+		var last4Ptr *string
+		if s.APIKeyLast4 != "" {
+			v := s.APIKeyLast4
+			last4Ptr = &v
+		}
+		var proxyURLPtr, proxyUserPtr *string
+		if s.ProxyURL != "" {
+			v := s.ProxyURL
+			proxyURLPtr = &v
+		}
+		if s.ProxyUsername != "" {
+			v := s.ProxyUsername
+			proxyUserPtr = &v
+		}
+		m := database.ExternalServiceConfigModel{
+			ServiceName:       string(s.Service),
+			APIKeySecretID:    apiKeyID,
+			Enabled:           s.Enabled,
+			ProxyURL:          proxyURLPtr,
+			ProxyUser:         proxyUserPtr,
+			ProxyPassSecretID: proxyPassID,
+			Last4:             last4Ptr,
+			UpdatedAt:         time.Now().UTC(),
+		}
+		// Always emit every mutable column to DoUpdates so an empty
+		// plaintext (cleared secret) lands NULL on the FK columns +
+		// drops the last4 cosmetic suffix.
+		res := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "service_name"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"api_key_secret_id", "enabled", "proxy_url",
+				"proxy_user", "proxy_pass_secret_id", "last4",
+				"updated_at",
+			}),
+		}).Create(&m)
+		if res.Error != nil {
+			return fmt.Errorf("upsert external_service_config %s: %w", s.Service, res.Error)
+		}
+		return nil
+	})
 }
 
-// MarkTest persists the outcome of a Test() run without touching the
-// secret/proxy columns. Used by the /test endpoint to avoid round-
-// tripping plaintext through Upsert.
-func (r *Repository) MarkTest(ctx context.Context, svc Service, at time.Time, outcome Outcome, message string) error {
+// MarkTest is a no-op under the D-5 schema — the last_test_*
+// observability columns were dropped per ADR Decision B. Returns
+// nil unconditionally; the use case tracks the last test outcome
+// in-process for the pod lifetime via its own sync.Map.
+func (r *Repository) MarkTest(ctx context.Context, svc Service, _ time.Time, _ Outcome, _ string) error {
+	_ = ctx
 	if !svc.Valid() {
 		return ErrInvalidService
 	}
-	updates := map[string]any{
-		"last_test_at":      at.UTC(),
-		"last_test_outcome": string(outcome),
-		"last_test_message": message,
-		"updated_at":        time.Now().UTC(),
-	}
-	res := r.db.WithContext(ctx).
-		Model(&database.ExternalServiceSettingsModel{}).
-		Where("service = ?", string(svc)).
-		Updates(updates)
-	if res.Error != nil {
-		return fmt.Errorf("mark test %s: %w", svc, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return ports.ErrNotFound
-	}
 	return nil
 }
 
-func (r *Repository) sealOptional(plaintext string) ([]byte, error) {
-	if plaintext == "" {
-		return nil, nil
+// decryptSecret loads + Opens a single app_secret row by id. Used by
+// Get; List batches the same logic inline to avoid N+1.
+func (r *Repository) decryptSecret(ctx context.Context, id uint) (string, error) {
+	var s database.AppSecretModel
+	if err := r.db.WithContext(ctx).
+		Where("id = ?", id).
+		First(&s).Error; err != nil {
+		return "", err
 	}
-	return r.cipher.Seal([]byte(plaintext))
-}
-
-func (r *Repository) openOptional(ct []byte) (string, error) {
-	if len(ct) == 0 {
+	if len(s.EncryptedValue) == 0 {
 		return "", nil
 	}
-	b, err := r.cipher.Open(ct)
+	b, err := r.cipher.Open(s.EncryptedValue)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
 }
 
-func (r *Repository) decrypt(m database.ExternalServiceSettingsModel) (Settings, error) {
-	apiKey, err := r.openOptional(m.APIKeyEnc)
+// upsertSecret writes (or deletes) the app_secret row for secretName.
+// Empty plaintext → row deleted; nil FK id returned (caller sets the
+// config column to NULL). Non-empty plaintext → upserted; id returned.
+//
+// Uses Find→Save/Create instead of clause.OnConflict because the
+// unique key here is `secret_name`, not the surrogate PK — and
+// ON CONFLICT on a non-PK unique target requires post-create re-read
+// on SQLite to surface m.ID. The Find→Save/Create path is portable
+// across both backends and produces the same end state.
+func (r *Repository) upsertSecret(tx *gorm.DB, secretName, plaintext string) (*uint, error) {
+	if plaintext == "" {
+		// Operator cleared the value — delete the row so the FK lands NULL.
+		if err := tx.Where("secret_name = ?", secretName).
+			Delete(&database.AppSecretModel{}).Error; err != nil {
+			return nil, fmt.Errorf("delete app_secret %s: %w", secretName, err)
+		}
+		return nil, nil
+	}
+	ct, err := r.cipher.Seal([]byte(plaintext))
 	if err != nil {
-		return Settings{}, fmt.Errorf("decrypt api_key: %w", err)
+		return nil, fmt.Errorf("seal app_secret %s: %w", secretName, err)
 	}
-	proxyURL, err := r.openOptional(m.ProxyURLEnc)
-	if err != nil {
-		return Settings{}, fmt.Errorf("decrypt proxy_url: %w", err)
+	now := time.Now().UTC()
+	var existing database.AppSecretModel
+	err = tx.Where("secret_name = ?", secretName).First(&existing).Error
+	switch {
+	case err == nil:
+		existing.EncryptedValue = ct
+		existing.UpdatedAt = now
+		if err := tx.Save(&existing).Error; err != nil {
+			return nil, fmt.Errorf("save app_secret %s: %w", secretName, err)
+		}
+		id := existing.ID
+		return &id, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		row := database.AppSecretModel{
+			SecretName:     secretName,
+			EncryptedValue: ct,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return nil, fmt.Errorf("create app_secret %s: %w", secretName, err)
+		}
+		id := row.ID
+		return &id, nil
+	default:
+		return nil, fmt.Errorf("lookup app_secret %s: %w", secretName, err)
 	}
-	proxyUser, err := r.openOptional(m.ProxyUsernameEnc)
-	if err != nil {
-		return Settings{}, fmt.Errorf("decrypt proxy_username: %w", err)
-	}
-	proxyPass, err := r.openOptional(m.ProxyPasswordEnc)
-	if err != nil {
-		return Settings{}, fmt.Errorf("decrypt proxy_password: %w", err)
-	}
-	s := Settings{
-		Service:       Service(m.Service),
-		Enabled:       m.Enabled,
-		APIKey:        apiKey,
-		ProxyURL:      proxyURL,
-		ProxyUsername: proxyUser,
-		ProxyPassword: proxyPass,
-		LastTestAt:    m.LastTestAt,
-	}
-	if m.APIKeyLast4 != nil {
-		s.APIKeyLast4 = *m.APIKeyLast4
-	}
-	if m.LastTestOutcome != nil {
-		s.LastTestOutcome = Outcome(*m.LastTestOutcome)
-	}
-	if m.LastTestMessage != nil {
-		s.LastTestMessage = *m.LastTestMessage
-	}
-	return s, nil
 }

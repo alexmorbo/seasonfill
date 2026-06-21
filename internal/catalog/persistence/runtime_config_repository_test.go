@@ -601,3 +601,103 @@ func TestRuntimeConfigRepository_Get_NoAppSecret_ReturnsNilCiphertext(t *testing
 		})
 	}
 }
+
+// TestRuntimeConfigRepository_GetTimezone_NoRow covers the D-5 466c
+// re-home of the operator timezone onto app_config.timezone:
+// before any row exists, GetTimezone surfaces ports.ErrNotFound so
+// the tz resolver can fall back to env / UTC during bootstrap.
+func TestRuntimeConfigRepository_GetTimezone_NoRow(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			tz, err := repo.GetTimezone(ctx)
+			require.ErrorIs(t, err, ports.ErrNotFound)
+			assert.Empty(t, tz)
+		})
+	}
+}
+
+// TestRuntimeConfigRepository_GetTimezone_NullColumn covers the
+// "row exists, column is NULL" path — no override set; empty string
+// + nil error so the resolver falls back without a warning log.
+func TestRuntimeConfigRepository_GetTimezone_NullColumn(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			require.NoError(t, repo.Upsert(ctx, runtime.Defaults(), nil))
+
+			tz, err := repo.GetTimezone(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, tz, "fresh app_config row leaves timezone NULL")
+		})
+	}
+}
+
+// TestRuntimeConfigRepository_SetTimezone_RoundTrip covers the
+// happy path: set, get, change, get, clear, get.
+func TestRuntimeConfigRepository_SetTimezone_RoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			require.NoError(t, repo.Upsert(ctx, runtime.Defaults(), nil))
+
+			require.NoError(t, repo.SetTimezone(ctx, "Europe/Moscow"))
+			got, err := repo.GetTimezone(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, "Europe/Moscow", got)
+
+			require.NoError(t, repo.SetTimezone(ctx, "America/New_York"))
+			got, err = repo.GetTimezone(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, "America/New_York", got)
+
+			require.NoError(t, repo.SetTimezone(ctx, ""))
+			got, err = repo.GetTimezone(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, got, "empty name clears the override to NULL")
+		})
+	}
+}
+
+// TestRuntimeConfigRepository_SetTimezone_SeedsRowOnFirstCall confirms
+// that calling SetTimezone before any other Upsert seeds a defaults-
+// filled app_config row so the value persists without a follow-up
+// runtime_config PUT.
+func TestRuntimeConfigRepository_SetTimezone_SeedsRowOnFirstCall(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRuntimeConfigRepository(db, nil)
+			ctx := context.Background()
+
+			require.NoError(t, repo.SetTimezone(ctx, "Asia/Tokyo"))
+
+			got, err := repo.GetTimezone(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, "Asia/Tokyo", got)
+
+			// And the rest of the row is populated with defaults so the
+			// runtime_config GET handler does not 404.
+			row, err := repo.Get(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, runtime.Defaults().Cron.Schedule, row.Cron.Schedule)
+		})
+	}
+}

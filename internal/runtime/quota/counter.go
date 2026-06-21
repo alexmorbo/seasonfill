@@ -4,9 +4,9 @@
 // QuotaCounter is the substitution seam between external-service
 // clients (OMDb today, potentially TMDB / SimKL / Trakt later) and a
 // durable counter store. The production impl lives in
-// infrastructure/database/repositories/quota_counter_repository.go
-// (DB-backed via GORM upsert). The InMemoryCounter is the test
-// double / single-process fallback.
+// internal/admin/persistence/quota_counter_repository.go (DB-backed
+// via GORM upsert). The InMemoryCounter is the test double /
+// single-process fallback.
 //
 // Concurrency: every method must be safe for concurrent callers
 // across goroutines.
@@ -45,6 +45,17 @@ type QuotaCounter interface {
 	// by the daily GC sweeper to keep the table tiny. Returns the
 	// number of rows deleted for observability.
 	Reset(ctx context.Context, before time.Time) (int64, error)
+
+	// SetQuota stamps the upstream-known cap for the (service,
+	// window) row (e.g. OMDb's X-Quota-Limit). No-op when the
+	// row does not yet exist (Increment is always called first
+	// by the guard); InMemoryCounter mirrors that semantic.
+	SetQuota(ctx context.Context, service string, window time.Time, quota int) error
+
+	// MarkExhausted stamps the boundary-cross timestamp for the
+	// (service, window) row. Idempotent — second call no-ops on
+	// existing non-NULL exhausted_at; InMemoryCounter mirrors.
+	MarkExhausted(ctx context.Context, service string, window time.Time) error
 }
 
 // InMemoryCounter is the test double + single-process fallback. Safe
@@ -55,13 +66,23 @@ type QuotaCounter interface {
 // because the map is nil.
 type InMemoryCounter struct {
 	mu    sync.Mutex
-	rows  map[inMemoryKey]int
+	rows  map[inMemoryKey]*inMemoryValue
 	clock func() time.Time
 }
 
 type inMemoryKey struct {
 	service string
 	window  time.Time
+}
+
+// inMemoryValue mirrors the DB row's three quota-state columns: count
+// (requests_made), cap (requests_quota), exhaustedAt. D-5 (466c) lifted
+// this from a bare int to a small struct so SetQuota + MarkExhausted
+// have somewhere to store state in the in-process fallback path.
+type inMemoryValue struct {
+	count       int
+	cap         int
+	exhaustedAt *time.Time
 }
 
 // NewInMemoryCounter constructs an empty in-memory counter. The
@@ -73,7 +94,7 @@ func NewInMemoryCounter(clock func() time.Time) *InMemoryCounter {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &InMemoryCounter{
-		rows:  make(map[inMemoryKey]int),
+		rows:  make(map[inMemoryKey]*inMemoryValue),
 		clock: clock,
 	}
 }
@@ -83,8 +104,13 @@ func (c *InMemoryCounter) Increment(_ context.Context, service string, window ti
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	k := inMemoryKey{service: service, window: window.UTC()}
-	c.rows[k]++
-	return c.rows[k], nil
+	v, ok := c.rows[k]
+	if !ok {
+		v = &inMemoryValue{}
+		c.rows[k] = v
+	}
+	v.count++
+	return v.count, nil
 }
 
 // Get returns the current count for (service, window). 0 when the
@@ -92,7 +118,10 @@ func (c *InMemoryCounter) Increment(_ context.Context, service string, window ti
 func (c *InMemoryCounter) Get(_ context.Context, service string, window time.Time) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.rows[inMemoryKey{service: service, window: window.UTC()}], nil
+	if v, ok := c.rows[inMemoryKey{service: service, window: window.UTC()}]; ok {
+		return v.count, nil
+	}
+	return 0, nil
 }
 
 // Reset deletes every row whose window is strictly older than
@@ -109,4 +138,52 @@ func (c *InMemoryCounter) Reset(_ context.Context, before time.Time) (int64, err
 		}
 	}
 	return deleted, nil
+}
+
+// SetQuota stamps the upstream cap. No-op when the row is absent
+// (mirrors the DB UPDATE WHERE rowcount=0 semantic).
+func (c *InMemoryCounter) SetQuota(_ context.Context, service string, window time.Time, quotaCap int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v, ok := c.rows[inMemoryKey{service: service, window: window.UTC()}]; ok {
+		v.cap = quotaCap
+	}
+	return nil
+}
+
+// MarkExhausted stamps exhaustedAt to clock() on the first call;
+// subsequent calls are no-ops (preserves the original boundary cross).
+// No-op when the row is absent.
+func (c *InMemoryCounter) MarkExhausted(_ context.Context, service string, window time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v, ok := c.rows[inMemoryKey{service: service, window: window.UTC()}]; ok {
+		if v.exhaustedAt == nil {
+			now := c.clock()
+			v.exhaustedAt = &now
+		}
+	}
+	return nil
+}
+
+// QuotaCapForTest is a test-only inspector returning the cap recorded
+// by SetQuota. Returns 0 when no row exists.
+func (c *InMemoryCounter) QuotaCapForTest(service string, window time.Time) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v, ok := c.rows[inMemoryKey{service: service, window: window.UTC()}]; ok {
+		return v.cap
+	}
+	return 0
+}
+
+// ExhaustedAtForTest is a test-only inspector returning the boundary
+// cross timestamp recorded by MarkExhausted, or nil when not set.
+func (c *InMemoryCounter) ExhaustedAtForTest(service string, window time.Time) *time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v, ok := c.rows[inMemoryKey{service: service, window: window.UTC()}]; ok {
+		return v.exhaustedAt
+	}
+	return nil
 }

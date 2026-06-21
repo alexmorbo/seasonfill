@@ -71,6 +71,10 @@ func (f *fakeRuntimeRepo) DecryptOIDCSecret(_ context.Context) (string, error) {
 	return "", nil
 }
 
+func (f *fakeRuntimeRepo) GetTimezone(_ context.Context) (string, error) { return "", nil }
+
+func (f *fakeRuntimeRepo) SetTimezone(_ context.Context, _ string) error { return nil }
+
 type fakeInstanceRepo struct{}
 
 func (fakeInstanceRepo) List(_ context.Context, _ *crypto.Cipher) ([]runtime.InstanceSnapshot, error) {
@@ -415,6 +419,10 @@ func (staleOnIUSRepo) UpsertOIDCSecret(_ context.Context, _ string) error {
 func (staleOnIUSRepo) DecryptOIDCSecret(_ context.Context) (string, error) {
 	return "", nil
 }
+
+func (staleOnIUSRepo) GetTimezone(_ context.Context) (string, error) { return "", nil }
+
+func (staleOnIUSRepo) SetTimezone(_ context.Context, _ string) error { return nil }
 
 // --- 107: guid_rewrites validation + round-trip --------------------------
 

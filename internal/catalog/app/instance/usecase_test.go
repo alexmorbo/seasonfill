@@ -135,6 +135,8 @@ func (f *fakeRuntimeRepo) Upsert(_ context.Context, _ runtime.Snapshot, _ *time.
 func (f *fakeRuntimeRepo) SaveAPIKey(_ context.Context, _ []byte, _ bool) error { return nil }
 func (f *fakeRuntimeRepo) UpsertOIDCSecret(_ context.Context, _ string) error   { return nil }
 func (f *fakeRuntimeRepo) DecryptOIDCSecret(_ context.Context) (string, error)  { return "", nil }
+func (f *fakeRuntimeRepo) GetTimezone(_ context.Context) (string, error)        { return "", nil }
+func (f *fakeRuntimeRepo) SetTimezone(_ context.Context, _ string) error        { return nil }
 
 func setup(t *testing.T) (*UseCase, *fakeInstanceRepo, *runtime.Bus, <-chan runtime.Snapshot) {
 	t.Helper()

@@ -117,5 +117,63 @@ func TestInMemoryCounter_ConcurrentIncrement_NoLost(t *testing.T) {
 	assert.Equal(t, goroutines*tries, n, "no lost updates under contention")
 }
 
+// TestInMemoryCounter_SetQuota_StampsCap covers the D-5 port extension
+// (466c). SetQuota after Increment stamps the cap; the test inspector
+// surfaces it.
+func TestInMemoryCounter_SetQuota_StampsCap(t *testing.T) {
+	t.Parallel()
+	c := NewInMemoryCounter(nil)
+	w := time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
+
+	_, err := c.Increment(context.Background(), "omdb", w)
+	require.NoError(t, err)
+	require.NoError(t, c.SetQuota(context.Background(), "omdb", w, 1000))
+
+	assert.Equal(t, 1000, c.QuotaCapForTest("omdb", w))
+}
+
+// TestInMemoryCounter_SetQuota_NoopWhenRowAbsent — Increment must run
+// first; calling SetQuota on a missing row is a no-op (mirrors the DB
+// UPDATE WHERE rowcount=0 semantic).
+func TestInMemoryCounter_SetQuota_NoopWhenRowAbsent(t *testing.T) {
+	t.Parallel()
+	c := NewInMemoryCounter(nil)
+	w := time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
+
+	require.NoError(t, c.SetQuota(context.Background(), "omdb", w, 1000))
+	assert.Equal(t, 0, c.QuotaCapForTest("omdb", w),
+		"SetQuota on absent row leaves cap=0")
+}
+
+// TestInMemoryCounter_MarkExhausted_Idempotent — first call stamps,
+// second call no-ops; the original timestamp is preserved.
+func TestInMemoryCounter_MarkExhausted_Idempotent(t *testing.T) {
+	t.Parallel()
+	tick := 0
+	stamps := []time.Time{
+		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 21, 12, 5, 0, 0, time.UTC),
+	}
+	c := NewInMemoryCounter(func() time.Time {
+		t := stamps[tick]
+		tick++
+		return t
+	})
+	w := time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
+
+	_, err := c.Increment(context.Background(), "omdb", w)
+	require.NoError(t, err)
+	require.NoError(t, c.MarkExhausted(context.Background(), "omdb", w))
+	first := c.ExhaustedAtForTest("omdb", w)
+	require.NotNil(t, first)
+	assert.Equal(t, stamps[0], *first)
+
+	// Second call advances the clock but must NOT overwrite.
+	require.NoError(t, c.MarkExhausted(context.Background(), "omdb", w))
+	second := c.ExhaustedAtForTest("omdb", w)
+	require.NotNil(t, second)
+	assert.Equal(t, stamps[0], *second, "second MarkExhausted must not overwrite the first stamp")
+}
+
 // Compile-time assertion that InMemoryCounter satisfies the port.
 var _ QuotaCounter = (*InMemoryCounter)(nil)

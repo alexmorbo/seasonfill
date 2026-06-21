@@ -71,7 +71,6 @@ type PersistenceBundle struct {
 	MasterKey       string
 	RuntimeRepo     *catalogpersistence.RuntimeConfigRepository
 	InstanceRepo    *catalogpersistence.SonarrInstanceRepository
-	AppSettingsRepo *adminpersistence.AppSettingsRepository
 	QuotaCounter    *adminpersistence.QuotaCounterRepository
 	TZResolver      *tz.Resolver
 	TimezoneHandler *adminrest.TimezoneHandler
@@ -120,15 +119,14 @@ func BuildPersistence(
 	}
 	runtimeRepo := catalogpersistence.NewRuntimeConfigRepository(db, cipher)
 
-	// Story 301: app-level settings (id=1) — currently only the
-	// operator-selected timezone. Built early so the scheduler
-	// factory and the HTTP handler share the same Resolver. The
-	// store is the GORM-backed app_settings repo; the v36 seed
-	// guarantees a singleton row exists.
-	appSettingsRepo := adminpersistence.NewAppSettingsRepository(db)
-	// F-4b-8: tz resolver loads the operator timezone at boot —
-	// configuration-resolution records belong to the "boot" slot.
-	tzResolver := tz.New(bgCtx, appSettingsRepo, sharedports.DomainLogger(log, "boot"))
+	// Story 466c (D-5): the operator-selected timezone now lives in
+	// app_config.timezone (folded from the legacy app_settings
+	// singleton by 466b). The tz resolver consumes the typed Store
+	// interface that runtimeRepo satisfies via GetTimezone/SetTimezone
+	// — same shape as the retired AppSettingsRepository, but reading
+	// from the new column. Built early so the scheduler factory and
+	// the HTTP handler share the same Resolver.
+	tzResolver := tz.New(bgCtx, runtimeRepo, sharedports.DomainLogger(log, "boot"))
 	log.Info("timezone resolver",
 		slog.String("name", tzResolver.Name()),
 		slog.String("source", string(tzResolver.Source())))
@@ -147,7 +145,6 @@ func BuildPersistence(
 		MasterKey:       masterKey,
 		RuntimeRepo:     runtimeRepo,
 		InstanceRepo:    instanceRepo,
-		AppSettingsRepo: appSettingsRepo,
 		QuotaCounter:    quotaCounter,
 		TZResolver:      tzResolver,
 		TimezoneHandler: timezoneHandler,

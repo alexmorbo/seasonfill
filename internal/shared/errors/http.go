@@ -36,7 +36,6 @@ func StatusCode(err error) int {
 		instanceNF    *InstanceNotFoundError
 		grabNF        *GrabNotFoundError
 		runtimeNF     *RuntimeConfigNotFoundError
-		appSetNF      *AppSettingsNotFoundError
 		qbitSetNF     *QbitSettingsNotFoundError
 		scanRunNF     *ScanRunNotFoundError
 		decisionNF    *DecisionNotFoundError
@@ -63,8 +62,6 @@ func StatusCode(err error) int {
 	case errors.As(err, &grabNF):
 		return http.StatusNotFound
 	case errors.As(err, &runtimeNF):
-		return http.StatusNotFound
-	case errors.As(err, &appSetNF):
 		return http.StatusNotFound
 	case errors.As(err, &qbitSetNF):
 		return http.StatusNotFound

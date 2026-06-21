@@ -25,7 +25,7 @@ import (
 // template :memory: DB, run all migrations once, snapshot the
 // resulting schema as a flat slice of CREATE statements
 // (sqlite_master), and also snapshot any seed rows migrations
-// inserted (e.g. the singleton app_settings row from 000036). Cache
+// inserted (singleton seed rows if any). Cache
 // both under sync.Once. Every subsequent newSQLiteDB call opens a
 // fresh :memory: GORM instance, replays the cached DDL in a single
 // batch, then replays the seed rows — no migrate library overhead,

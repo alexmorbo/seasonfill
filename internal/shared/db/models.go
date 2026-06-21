@@ -247,28 +247,26 @@ type AppConfigModel struct {
 
 func (AppConfigModel) TableName() string { return "app_config" }
 
-// AppSettingsModel — singleton (id=1) row holding cross-cutting
-// app-level settings. Today: only timezone. Future: locale,
-// theme. Kept separate from RuntimeConfigModel so the watchdog +
-// reload-bus surface there stays untouched.
-type AppSettingsModel struct {
-	ID        uint    `gorm:"primaryKey;default:1"`
-	Timezone  *string `gorm:"size:64"` // NULL = use env / UTC fallback
-	UpdatedAt time.Time
-}
-
-func (AppSettingsModel) TableName() string { return "app_settings" }
-
 // QuotaStateModel — generic external-service rate-limit counter state.
 // One row per (service_name, window_start) pair; rows are upserted on
 // every Increment via clause.OnConflict. GC sweep deletes rows where
 // window_start < (now - retention). See internal/runtime/quota for the
 // window-derivation helpers and the port contract.
+//
+// D-5 (466c) — column rename + 2 NEW columns aligning with PRD §5.10
+// adaptive rate limiter:
+//   - count -> requests_made (legacy `count` is a SQL reserved word)
+//   - requests_quota INTEGER NOT NULL DEFAULT 0 — upstream-known cap
+//     (0 = unknown); OMDb sets 1000 when X-Quota-Limit lands.
+//   - exhausted_at TIMESTAMPTZ NULL — stamped on first request that
+//     observed requests_made >= requests_quota (boundary cross).
 type QuotaStateModel struct {
-	ServiceName string    `gorm:"primaryKey;size:64;column:service_name"`
-	WindowStart time.Time `gorm:"primaryKey;column:window_start"`
-	Count       int       `gorm:"not null;default:0;column:count"`
-	UpdatedAt   time.Time `gorm:"column:updated_at"`
+	ServiceName   string     `gorm:"primaryKey;size:64;column:service_name"`
+	WindowStart   time.Time  `gorm:"primaryKey;column:window_start"`
+	RequestsMade  int        `gorm:"not null;default:0;column:requests_made"`
+	RequestsQuota int        `gorm:"not null;default:0;column:requests_quota"`
+	ExhaustedAt   *time.Time `gorm:"column:exhausted_at"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at"`
 }
 
 func (QuotaStateModel) TableName() string { return "external_service_quota_state" }
@@ -443,28 +441,26 @@ type SeriesCacheModel struct {
 
 func (SeriesCacheModel) TableName() string { return "series_cache" }
 
-// ExternalServiceSettingsModel is the runtime config row for one
-// enrichment service (tmdb|omdb|tvdb). All *_enc columns are AES-GCM
-// ciphertext produced by internal/runtime/crypto.Cipher.Seal; the
-// repo treats them as opaque bytes. api_key_last4 is the last 4
-// characters of plaintext, captured before encryption for the masked
-// UI display so list-calls don't need to decrypt.
-type ExternalServiceSettingsModel struct {
-	Service          string  `gorm:"primaryKey;type:text"`
-	Enabled          bool    `gorm:"not null;default:false"`
-	APIKeyEnc        []byte  `gorm:"column:api_key_enc"`
-	APIKeyLast4      *string `gorm:"column:api_key_last4;type:text"`
-	ProxyURLEnc      []byte  `gorm:"column:proxy_url_enc"`
-	ProxyUsernameEnc []byte  `gorm:"column:proxy_username_enc"`
-	ProxyPasswordEnc []byte  `gorm:"column:proxy_password_enc"`
-	LastTestAt       *time.Time
-	LastTestOutcome  *string `gorm:"type:text"`
-	LastTestMessage  *string `gorm:"type:text"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+// ExternalServiceConfigModel — D-5 successor to the legacy
+// ExternalServiceSettingsModel. The 4 *_enc BYTEA columns split out:
+// api_key + proxy_pass move to app_secret (encrypted, BYTEA, FK refs
+// here); proxy_url + proxy_user become plaintext columns (a proxy URL
+// without creds is not a secret per PRD §10.4 threat-model review).
+// last_test_* columns dropped per ADR (D-5 §466c Decision B); the
+// in-process use case keeps the last test result in a sync.Map for
+// the pod lifetime.
+type ExternalServiceConfigModel struct {
+	ServiceName       string  `gorm:"primaryKey;column:service_name;type:text"`
+	APIKeySecretID    *uint   `gorm:"column:api_key_secret_id"`
+	Enabled           bool    `gorm:"column:enabled;not null;default:false"`
+	ProxyURL          *string `gorm:"column:proxy_url;type:text"`
+	ProxyUser         *string `gorm:"column:proxy_user;type:text"`
+	ProxyPassSecretID *uint   `gorm:"column:proxy_pass_secret_id"`
+	Last4             *string `gorm:"column:last4;type:text"`
+	UpdatedAt         time.Time
 }
 
-func (ExternalServiceSettingsModel) TableName() string { return "external_service_settings" }
+func (ExternalServiceConfigModel) TableName() string { return "external_service_config" }
 
 // SeriesModel — canonical local entity (PRD §5, migration 000026).
 // One row per real series; tmdb_id has a partial unique index where

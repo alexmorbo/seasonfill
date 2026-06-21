@@ -13,16 +13,6 @@ func (e *RuntimeConfigNotFoundError) Code() string { return "runtime_config_not_
 
 func (e *RuntimeConfigNotFoundError) Retriable() bool { return false }
 
-// AppSettingsNotFoundError signals the singleton app_settings row is
-// missing. Maps to HTTP 404.
-type AppSettingsNotFoundError struct{}
-
-func (e *AppSettingsNotFoundError) Error() string { return "app settings not found" }
-
-func (e *AppSettingsNotFoundError) Code() string { return "app_settings_not_found" }
-
-func (e *AppSettingsNotFoundError) Retriable() bool { return false }
-
 // QbitSettingsNotFoundError signals a missing qbit_settings row for the
 // given instance. Maps to HTTP 404. The repository looks rows up by
 // numeric InstanceID (foreign key to sonarr_instances.id), not by the

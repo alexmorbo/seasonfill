@@ -120,6 +120,20 @@ func (f *fakeQuotaCounter) Reset(_ context.Context, _ time.Time) (int64, error) 
 	return 0, f.resetErr
 }
 
+// SetQuota satisfies the D-5 466c port extension. The guard does not
+// call SetQuota today (the cap is set from app code, not upstream
+// headers), so the no-op preserves test semantics.
+func (f *fakeQuotaCounter) SetQuota(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
+}
+
+// MarkExhausted satisfies the D-5 466c port extension. The guard
+// does not call MarkExhausted today, so the no-op preserves test
+// semantics.
+func (f *fakeQuotaCounter) MarkExhausted(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
 func TestBudgetDB_Reserve_StartsWithFullCap(t *testing.T) {
 	t.Parallel()
 	c := newFakeQuotaCounter()

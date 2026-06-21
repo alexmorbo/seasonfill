@@ -29,7 +29,7 @@ type Snapshot struct {
 }
 
 // ExternalServicesSnapshot mirrors the three rows of
-// external_service_settings as a flat struct so downstream clients
+// external_service_config as a flat struct so downstream clients
 // can pull by field. The zero value is the correct default (every
 // service disabled, no proxy).
 type ExternalServicesSnapshot struct {

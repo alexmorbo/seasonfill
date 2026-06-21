@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
@@ -17,13 +18,30 @@ import (
 // helper that the reload subscriber consumes. envLookup is injected
 // for testability; production wires os.Getenv. publisher is optional —
 // nil disables the post-Upsert republish (used by tests).
+//
+// D-5 (466c) — testResults caches the last Test() outcome per service
+// for the pod lifetime. The legacy last_test_* DB columns were dropped
+// per ADR Decision B; this sync.Map fills the operator-facing UI gap
+// without a follow-up migration. Pod restart clears the cache; the
+// operator clicks Test again. Keyed by infra.Service; value is
+// testResult.
 type UseCase struct {
-	repo      Repository
-	envLookup infra.EnvLookup
-	tester    Tester
-	publisher Publisher
-	logger    *slog.Logger
-	now       func() time.Time
+	repo        Repository
+	envLookup   infra.EnvLookup
+	tester      Tester
+	publisher   Publisher
+	logger      *slog.Logger
+	now         func() time.Time
+	testResults sync.Map // map[infra.Service]testResult
+}
+
+// testResult is the per-pod-lifetime view of the last Test() outcome
+// for one service. Replaces the legacy `last_test_*` columns on
+// external_service_settings (dropped in D-5 schema).
+type testResult struct {
+	At      time.Time
+	Outcome infra.Outcome
+	Message string
 }
 
 // Tester is the proxy-aware HTTP probe; injectable for tests.
@@ -67,6 +85,8 @@ type MaskedView struct {
 
 // List returns the merged (env > DB) masked view for every service.
 // Missing rows surface as zero-value MaskedView with Service set.
+// D-5 (466c) — Test outcomes are now sourced from the in-process
+// testResults cache rather than the dropped last_test_* columns.
 func (uc *UseCase) List(ctx context.Context) ([]MaskedView, error) {
 	dbRows, err := uc.repo.List(ctx)
 	if err != nil {
@@ -79,7 +99,7 @@ func (uc *UseCase) List(ctx context.Context) ([]MaskedView, error) {
 	out := make([]MaskedView, 0, len(infra.AllServices))
 	for _, svc := range infra.AllServices {
 		merged := infra.Merge(svc, dbBySvc[svc], uc.envLookup)
-		out = append(out, mask(merged))
+		out = append(out, uc.maskWithTestResult(svc, merged))
 	}
 	return out, nil
 }
@@ -94,7 +114,24 @@ func (uc *UseCase) Get(ctx context.Context, svc infra.Service) (MaskedView, erro
 		return MaskedView{}, err
 	}
 	merged := infra.Merge(svc, db, uc.envLookup)
-	return mask(merged), nil
+	return uc.maskWithTestResult(svc, merged), nil
+}
+
+// maskWithTestResult derives the wire MaskedView and folds in the
+// in-process Test() outcome cache. Used by List + Get; Upsert returns
+// a fresh masked view via the bare mask() helper because the test
+// result is unchanged by a config write.
+func (uc *UseCase) maskWithTestResult(svc infra.Service, merged infra.Settings) MaskedView {
+	view := mask(merged)
+	if cached, ok := uc.testResults.Load(svc); ok {
+		if tr, ok := cached.(testResult); ok {
+			at := tr.At
+			view.LastTestAt = &at
+			view.LastTestOutcome = tr.Outcome
+			view.LastTestMessage = tr.Message
+		}
+	}
+	return view
 }
 
 // UpsertInput is the application-level write shape. Pointer fields
@@ -190,9 +227,21 @@ func (uc *UseCase) Test(ctx context.Context, svc infra.Service) (TestResult, err
 		slog.String("proxy_scheme", schemeOf(merged.ProxyURL)),
 		slog.Int64("duration_ms", latency.Milliseconds()),
 	)
+	// D-5 (466c) — cache the latest verdict in-process. The repo's
+	// MarkTest is a no-op under the new schema; the sync.Map fills
+	// the gap so List + Get surface the outcome until the pod restarts.
+	// rowExists is preserved so explicit empty-state UI still shows
+	// "never tested" for a fresh-install service the operator has not
+	// configured yet.
+	uc.testResults.Store(svc, testResult{
+		At:      uc.now(),
+		Outcome: outcome,
+		Message: message,
+	})
 	if rowExists {
-		// Persistence uses the parent ctx — even when tctx has expired
-		// from the upstream call we still want the verdict row written.
+		// Persistence uses the parent ctx; under D-5 this is a no-op
+		// returning nil — kept for port symmetry. If a future story
+		// re-introduces durable last_test_*, no behaviour change here.
 		if err := uc.repo.MarkTest(ctx, svc, uc.now(), outcome, message); err != nil {
 			uc.logger.ErrorContext(ctx, "external_services.test.persist_failed",
 				slog.String("service", string(svc)), slog.Any("err", err))

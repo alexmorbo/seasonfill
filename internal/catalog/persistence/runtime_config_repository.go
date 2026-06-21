@@ -410,4 +410,88 @@ func writeAppSecret(db *gorm.DB, name string, value []byte, now time.Time) error
 	}
 }
 
+// GetTimezone returns the operator-selected IANA timezone name from
+// the singleton app_config.timezone column. Empty string + nil error
+// when the column is NULL (no override; tz resolver falls back to env
+// / UTC). Returns ports.ErrNotFound only when the app_config row
+// itself is missing (pre-bootstrap state). D-5 / 466c re-homed this
+// off the legacy app_settings table.
+func (r *RuntimeConfigRepository) GetTimezone(ctx context.Context) (string, error) {
+	var m database.AppConfigModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("timezone").
+		Where("id = ?", appConfigID).
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ports.ErrNotFound
+		}
+		return "", fmt.Errorf("get timezone: %w", err)
+	}
+	if m.Timezone == nil {
+		return "", nil
+	}
+	return *m.Timezone, nil
+}
+
+// SetTimezone writes name into app_config.timezone. Empty name clears
+// the override (SQL NULL). Seeds a defaults-filled row on first call
+// so the operator can persist a timezone before the rest of the
+// runtime_config singleton is written by the HTTP PUT path.
+func (r *RuntimeConfigRepository) SetTimezone(ctx context.Context, name string) error {
+	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		var tzPtr *string
+		if name != "" {
+			n := name
+			tzPtr = &n
+		}
+
+		var existing database.AppConfigModel
+		err := tx.Where("id = ?", appConfigID).First(&existing).Error
+		switch {
+		case err == nil:
+			existing.Timezone = tzPtr
+			existing.UpdatedAt = now
+			return tx.Save(&existing).Error
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			def := runtime.Defaults()
+			proxiesJSON, _ := json.Marshal(def.Auth.TrustedProxies)
+			networksJSON, _ := json.Marshal(def.Auth.LocalNetworks)
+			row := database.AppConfigModel{
+				ID:                   appConfigID,
+				CreatedAt:            now,
+				UpdatedAt:            now,
+				Timezone:             tzPtr,
+				CronEnabled:          def.Cron.Enabled,
+				CronSchedule:         def.Cron.Schedule,
+				CronJitterSeconds:    int(def.Cron.Jitter / time.Second),
+				ScanShutdownGraceSec: int(def.Scan.ShutdownGrace / time.Second),
+				ScanCooldownSweepSec: int(def.Scan.CooldownSweep / time.Second),
+				DryRun:               def.DryRun,
+				GlobalRPM:            def.GlobalRateLimit.RPM,
+				GlobalBurst:          def.GlobalRateLimit.Burst,
+				AuthSessionTTLSec:    int(def.Auth.SessionTTL / time.Second),
+				AuthSecureCookie:     def.Auth.SecureCookie,
+				AuthTrustedProxies:   string(proxiesJSON),
+				AuthMode:             def.Auth.Mode,
+				AuthLocalBypass:      def.Auth.LocalBypass,
+				AuthLocalNetworks:    string(networksJSON),
+				AuthSessionEpoch:     def.Auth.SessionEpoch,
+				OIDCIssuer:           def.Auth.OIDC.Issuer,
+				OIDCClientID:         def.Auth.OIDC.ClientID,
+				OIDCRedirectURL:      def.Auth.OIDC.RedirectURL,
+				OIDCScopes:           string(mustJSON(def.Auth.OIDC.Scopes)),
+				OIDCUsernameClaim:    def.Auth.OIDC.UsernameClaim,
+				OIDCAllowedGroups:    string(mustJSON(def.Auth.OIDC.AllowedGroups)),
+				OIDCGroupsClaim:      "groups",
+				GUIDRewrites:         "[]",
+			}
+			return tx.Create(&row).Error
+		default:
+			return fmt.Errorf("set timezone: %w", err)
+		}
+	})
+}
+
 var _ ports.RuntimeConfigRepository = (*RuntimeConfigRepository)(nil)

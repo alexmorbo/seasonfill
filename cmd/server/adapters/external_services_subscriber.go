@@ -12,7 +12,7 @@ import (
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// ExternalServicesSubscriber re-decrypts the three external_service_settings
+// ExternalServicesSubscriber re-decrypts the three external_service_config
 // rows on every bus publish and exposes the merged (env > DB) plaintext
 // settings via Get(). Phase C/D clients will subscribe by calling Get()
 // each time they construct a fresh *http.Client — there is no

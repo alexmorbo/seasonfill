@@ -41,8 +41,8 @@ import (
 //     these into the admin context. Until then, internal/admin/ MAY
 //     import application/ports/{...}.
 //   - internal/shared/db — TEMP tolerance for the shared GORM
-//     model types (AdminUserModel, AppSettingsModel, QuotaStateModel)
-//     that the admin persistence repos still reference. The repos
+//     model types (UserModel, QuotaStateModel) that the admin
+//     persistence repos still reference. The repos
 //     themselves were moved into internal/admin/persistence by story
 //     429; story 449 (model split) will relocate the model structs
 //     into per-context packages and drop this carve-out.

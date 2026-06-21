@@ -44,10 +44,10 @@ import (
 //     the catch-all ExternalServicesRepository port surface defined
 //     in application/ports. Will relocate when story 449 splits the
 //     ports catalog into per-context homes.
-//   - internal/shared/db — externalservices.Settings UseCase
-//     reads/writes the external_services + quota_state GORM model
-//     types (ExternalServicesModel, QuotaStateModel). Same model-
-//     split deferral as above.
+//   - internal/shared/db — externalservices.Repository reads/writes
+//     the external_service_config + app_secret + quota_state GORM
+//     model types (ExternalServiceConfigModel, AppSecretModel,
+//     QuotaStateModel). Same model-split deferral as above.
 //
 // internal/shared/http/edge/ (the HTTP composition root that wires the
 // 37-arg NewServer) is intentionally excluded from this scan — it is

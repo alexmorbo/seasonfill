@@ -39,7 +39,6 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"InstanceNotFoundError", &sharedErrors.InstanceNotFoundError{Name: "ghost"}, http.StatusNotFound},
 		{"GrabNotFoundError", &sharedErrors.GrabNotFoundError{ID: newGrabID()}, http.StatusNotFound},
 		{"RuntimeConfigNotFoundError", &sharedErrors.RuntimeConfigNotFoundError{}, http.StatusNotFound},
-		{"AppSettingsNotFoundError", &sharedErrors.AppSettingsNotFoundError{}, http.StatusNotFound},
 		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, http.StatusNotFound},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, http.StatusNotFound},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, http.StatusNotFound},

@@ -62,10 +62,9 @@ import (
 //     lookup), externalservices test_runner (instance config), and
 //     shared error sentinels. Relocate when their respective vertical
 //     slices land.
-//   - internal/shared/db — externalservices.Settings UseCase
-//     reads/writes the external_services + quota_state GORM model
-//     types (ExternalServicesModel, QuotaStateModel). Same model-
-//     split deferral as A-1-9.
+//   - internal/shared/db — externalservices use case + persistence
+//     read/write the external_service_config + app_secret + quota_state
+//     GORM model types. Same model-split deferral as A-1-9.
 //   - interface/http/dto, interface/http/middleware — wire DTO
 //     contract + ErrorResponseMiddleware consumed by every rest
 //     slice (story 438 A-1-12). Same carve-out as the other internal/

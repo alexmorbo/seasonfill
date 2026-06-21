@@ -51,6 +51,14 @@ func (m *mockRuntimeConfigRepository) DecryptOIDCSecret(_ context.Context) (stri
 	return "", nil
 }
 
+func (m *mockRuntimeConfigRepository) GetTimezone(_ context.Context) (string, error) {
+	return "", nil
+}
+
+func (m *mockRuntimeConfigRepository) SetTimezone(_ context.Context, _ string) error {
+	return nil
+}
+
 func TestResolveAPIKey_ProvidedKeyValidatesProbe(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

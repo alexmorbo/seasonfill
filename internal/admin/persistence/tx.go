@@ -14,11 +14,11 @@ import (
 // non-admin transactor, and vice versa.
 //
 // The admin context currently has no transactional flows of its own —
-// admin_user / app_settings / quota_counter mutations are all single-
-// statement upserts. The plumbing is kept for symmetry with the
-// non-admin repos and so future cross-method admin flows (e.g. an
-// atomic "rotate OIDC client secret + invalidate sessions" sequence)
-// have a take-up path without re-introducing this scaffolding.
+// user / quota_counter mutations are all single-statement upserts.
+// The plumbing is kept for symmetry with the non-admin repos and so
+// future cross-method admin flows (e.g. an atomic "rotate OIDC client
+// secret + invalidate sessions" sequence) have a take-up path without
+// re-introducing this scaffolding.
 type txKey struct{}
 
 // WithTx returns a context carrying the tx-scoped DB handle. Currently

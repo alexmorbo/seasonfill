@@ -31,8 +31,10 @@ const (
 	SourceDefault Source = "default" // env unset / invalid; fell back to UTC
 )
 
-// Store is the persistence surface the resolver needs. Concretely
-// implemented by AppSettingsRepository.
+// Store is the persistence surface the resolver needs. After D-5
+// (466c) the concrete impl is catalog.RuntimeConfigRepository, which
+// satisfies the interface via GetTimezone/SetTimezone against
+// app_config.timezone. The legacy app_settings table is gone.
 type Store interface {
 	GetTimezone(ctx context.Context) (string, error)
 	SetTimezone(ctx context.Context, name string) error
