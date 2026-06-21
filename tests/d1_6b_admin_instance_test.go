@@ -16,13 +16,14 @@ import (
 // TestD16b_SchemaHasThirtyFourTables — D-1-6a had 29; D-1-6b adds 5
 // (sonarr_instance, instance_secret, app_secret,
 // external_service_config, external_service_quota_state) → 34.
+// D-1-7a adds 2 more (users, user_instance_tags) → 36.
 func TestD16b_SchemaHasThirtyFourTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 34; got != want {
+			if got, want := len(s.Tables), 36; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}

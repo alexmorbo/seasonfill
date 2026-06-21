@@ -32,6 +32,12 @@
 // stability across rotation. sonarr_instance and instance_secret have a
 // dual FK pattern (back-ref token_secret_id SET NULL, forward-ref
 // instance_name CASCADE) documented in the builder comments.
+// D-1-7a (story 460a) appends the auth batch: users (with embedded
+// preferred_language + avatar_mode + role columns; user_settings is
+// NOT a separate table — collapsed for 1:1 cardinality) and
+// user_instance_tags (composite PK (user_id, instance_name); CASCADE
+// FKs to both parents). user_sessions is NOT in schema — auth is
+// stateless cookie HMAC + session_epoch in runtime_config.
 package schema
 
 import (
@@ -189,7 +195,18 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addAdmin(s, d)
 	}
 
-	// D-1-7 (story 460) appends further batches here.
+	// D-1-7a (story 460a) — auth tables: users (with role/avatar_mode
+	// CHECK constraints + embedded user_settings columns), and
+	// user_instance_tags (composite PK + 2 CASCADE FKs). See addAuth
+	// doc for the user_settings collapse decision.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_AUTH=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addAuth(s, d)
+	}
+
+	// D-1-7b (story 460b) appends grab tables here.
 
 	return s
 }
@@ -1756,5 +1773,169 @@ func buildExternalServiceQuotaStateTable(d Dialect) *atlasschema.Table {
 		AddIndexes(
 			atlasschema.NewIndex("external_service_quota_state_window").
 				AddColumns(windowStart),
+		)
+}
+
+// ----------------------------------------------------------------------
+// D-1-7a — auth tables.
+// ----------------------------------------------------------------------
+
+// addAuth appends the 2 auth tables to s. Called from Schema(d).
+//
+// FK cascade graph:
+//
+//	users.id (BIGSERIAL PK)
+//	  ←CASCADE←  user_instance_tags.user_id
+//
+//	sonarr_instance.name (TEXT PK, shipped by addAdmin)
+//	  ←CASCADE←  user_instance_tags.instance_name
+//
+// PRD-vs-reality reconciliations (full notes in story 460a):
+//
+//  1. user_settings is NOT a separate table — preferred_language and
+//     avatar_mode are folded into users (1:1 cardinality, no per-context
+//     override). PRD §D-1 line 4395 lists user_settings; PRD §4.5
+//     doesn't define its shape. Collapsing is correct greenfield.
+//
+//  2. user_sessions is NOT in schema — auth is stateless cookie HMAC
+//     signed against runtime_config.auth_session_epoch. Sessions are
+//     not row-tracked.
+//
+//  3. users.role exists per NG-1 future RBAC. App treats every user as
+//     admin until NG-1 ships role enforcement. CHECK ('admin','user')
+//     keeps the enum closed.
+//
+// Depends on sonarr_instance from addAdmin — Schema(d) runs addAdmin
+// immediately before addAuth, so the table is guaranteed to exist.
+func addAuth(s *atlasschema.Schema, d Dialect) {
+	users := buildUsersTable(d)
+	s.AddTables(users)
+
+	sonarrInstance := mustTable(s, "sonarr_instance")
+	userInstanceTags := buildUserInstanceTagsTable(d, users, sonarrInstance)
+	s.AddTables(userInstanceTags)
+}
+
+// buildUsersTable returns users — 11 cols, single PK on BIGSERIAL id.
+// Embeds preferred_language + avatar_mode columns (user_settings
+// collapsed for 1:1 cardinality — see addAuth doc).
+//
+// Columns:
+//
+//	id                  BIGSERIAL PK
+//	username            TEXT NOT NULL (UNIQUE)
+//	email               TEXT NULL
+//	password_hash       TEXT NULL (NULL = OIDC-only user)
+//	oidc_subject        TEXT NULL (partial UNIQUE; nullable for forms users)
+//	role                TEXT NOT NULL DEFAULT 'admin' CHECK IN ('admin','user')
+//	avatar_mode         TEXT NOT NULL DEFAULT 'auto' CHECK IN ('auto','monogram','gravatar')
+//	preferred_language  TEXT NULL ('en-US' | 'ru-RU' | NULL = server default)
+//	created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+//	updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+//	last_login_at       TIMESTAMPTZ NULL (stamped on successful auth)
+//
+// Indexes:
+//
+//	users_username_uniq          UNIQUE on (username) — login lookup
+//	users_oidc_subject_uniq      UNIQUE on (oidc_subject) PARTIAL WHERE oidc_subject IS NOT NULL
+//	                              (matches legacy 000003 pattern; lets many NULL rows coexist)
+//
+// CHECK constraints:
+//
+//	users_role_check        role IN ('admin', 'user')
+//	users_avatar_mode_check avatar_mode IN ('auto', 'monogram', 'gravatar')
+//
+// Brief-vs-PRD: user_settings (PRD §D-1 line 4395) collapsed into this
+// table — preferred_language + avatar_mode are 1:1 with user, no
+// per-context override exists in app code.
+func buildUsersTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	username := atlasschema.NewStringColumn("username", "text").SetNull(false)
+	email := atlasschema.NewNullStringColumn("email", "text")
+	passwordHash := atlasschema.NewNullStringColumn("password_hash", "text")
+	oidcSubject := atlasschema.NewNullStringColumn("oidc_subject", "text")
+	role := atlasschema.NewStringColumn("role", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'admin'"})
+	avatarMode := atlasschema.NewStringColumn("avatar_mode", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'auto'"})
+	preferredLanguage := atlasschema.NewNullStringColumn("preferred_language", "text")
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+	lastLoginAt := timestampColumn(d, "last_login_at", false, false)
+
+	roleCheck := atlasschema.NewCheck().
+		SetName("users_role_check").
+		SetExpr("role IN ('admin', 'user')")
+	avatarModeCheck := atlasschema.NewCheck().
+		SetName("users_avatar_mode_check").
+		SetExpr("avatar_mode IN ('auto', 'monogram', 'gravatar')")
+
+	return atlasschema.NewTable("users").
+		AddColumns(id, username, email, passwordHash, oidcSubject,
+			role, avatarMode, preferredLanguage,
+			createdAt, updatedAt, lastLoginAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("users_username_uniq").
+				AddColumns(username),
+			partialUniqueIndex(d, "users_oidc_subject_uniq",
+				[]*atlasschema.Column{oidcSubject},
+				"oidc_subject IS NOT NULL"),
+		).
+		AddChecks(roleCheck, avatarModeCheck)
+}
+
+// buildUserInstanceTagsTable returns user_instance_tags — 6 cols,
+// composite PK (user_id, instance_name), 2 FKs CASCADE.
+//
+// Columns:
+//
+//	user_id          BIGINT NOT NULL  FK→users.id CASCADE
+//	instance_name    TEXT NOT NULL    FK→sonarr_instance.name CASCADE
+//	sonarr_tag_id    INTEGER NOT NULL (Sonarr-side numeric tag id)
+//	sonarr_tag_label TEXT NOT NULL    ('sf-alice' — Sonarr-visible label)
+//	created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+//	updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+//
+// PRIMARY KEY (user_id, instance_name) — natural composite identity.
+//
+// UNIQUE composite-2 on (instance_name, sonarr_tag_label) — prevents
+// two users claiming the same Sonarr label on one instance. PK doesn't
+// cover this; standalone index needed.
+//
+// No standalone index on instance_name alone — fan-out "list all
+// users tagging on instance X" is a rare admin path; PK won't help
+// because instance_name is the SECOND PK column. Skipped per
+// over-indexing avoidance; add in D-2 if it materializes.
+func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atlasschema.Table) *atlasschema.Table {
+	userID := fkColumn(d, "user_id", false /* not nullable */)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	sonarrTagID := atlasschema.NewIntColumn("sonarr_tag_id", "integer").SetNull(false)
+	sonarrTagLabel := atlasschema.NewStringColumn("sonarr_tag_label", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("user_instance_tags").
+		AddColumns(userID, instanceName, sonarrTagID, sonarrTagLabel, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, instanceName)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("user_instance_tags_label").
+				AddColumns(instanceName, sonarrTagLabel),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("user_instance_tags_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("user_instance_tags_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstanceTable).
+				AddRefColumns(parentRefCol(sonarrInstanceTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
 		)
 }
