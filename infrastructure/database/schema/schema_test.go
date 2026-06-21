@@ -11,8 +11,6 @@ package schema
 import (
 	"os"
 	"testing"
-
-	atlasschema "ariga.io/atlas/sql/schema"
 )
 
 // TestSchemaCoverage_BothDialects walks Schema(d) for every shipped
@@ -433,11 +431,13 @@ func TestSchema_ScanRuns_Shape(t *testing.T) {
 	}
 }
 
-// TestSchema_GrabRecords_ScanRunFKEmitted verifies that adding
-// scan_runs trips the buildGrabRecordsTable conditional FK declaration
-// at schema.go:2118-2128. Pre-story-465b the FK was deferred; this
-// test guards against regression.
-func TestSchema_GrabRecords_ScanRunFKEmitted(t *testing.T) {
+// TestSchema_GrabRecords_ScanRunFKDropped — 467a / D-6 dropped the
+// grab_records_scan_run_id_fkey FK to scan_runs(id) for the same
+// reasoning that keeps decisions.scan_run_id unconstrained: scan_run_id
+// is best-effort audit metadata; the rows outlive individual scan runs
+// and watchdog replay rows legitimately reference no parent scan_run.
+// This test guards against accidentally re-adding the FK.
+func TestSchema_GrabRecords_ScanRunFKDropped(t *testing.T) {
 	t.Parallel()
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		t.Run(string(d), func(t *testing.T) {
@@ -445,23 +445,10 @@ func TestSchema_GrabRecords_ScanRunFKEmitted(t *testing.T) {
 			s := Schema(d)
 			grab := mustTable(s, "grab_records")
 
-			var found bool
 			for _, fk := range grab.ForeignKeys {
 				if fk.Symbol == "grab_records_scan_run_id_fkey" {
-					found = true
-					if fk.RefTable == nil || fk.RefTable.Name != "scan_runs" {
-						t.Errorf("FK %q references %v, want scan_runs",
-							fk.Symbol, fk.RefTable)
-					}
-					if fk.OnDelete != atlasschema.SetNull {
-						t.Errorf("FK %q ON DELETE = %v, want SetNull",
-							fk.Symbol, fk.OnDelete)
-					}
-					break
+					t.Errorf("grab_records_scan_run_id_fkey FK MUST NOT be emitted on %q after 467a / D-6 drop", d)
 				}
-			}
-			if !found {
-				t.Errorf("grab_records_scan_run_id_fkey FK NOT emitted on %q; addScanRuns must run before addGrab", d)
 			}
 		})
 	}

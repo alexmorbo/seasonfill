@@ -2466,17 +2466,14 @@ func buildGrabRecordsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Tabl
 				SetOnUpdate(atlasschema.NoAction),
 		)
 
-	// Optional scan_runs FK — declared only when the table is in s.
-	if scanRuns != nil {
-		tbl.AddForeignKeys(
-			atlasschema.NewForeignKey("grab_records_scan_run_id_fkey").
-				AddColumns(scanRunID).
-				SetRefTable(scanRuns).
-				AddRefColumns(parentRefCol(scanRuns)).
-				SetOnDelete(atlasschema.SetNull).
-				SetOnUpdate(atlasschema.NoAction),
-		)
-	}
+	// scan_run_id is best-effort audit metadata — no FK to scan_runs.
+	// 467a / D-6 dropped the original grab_records_scan_run_id_fkey
+	// (added in 000015 / D-4) for the same reason decisions.scan_run_id
+	// stays unconstrained — the audit log outlives individual scan runs,
+	// and a watchdog replay row legitimately has no parent scan_run.
+	// scanRuns is kept in the signature for the symmetric ordering
+	// invariant the wirer depends on; the unused param suppresses vet.
+	_ = scanRuns
 
 	return tbl
 }
@@ -2834,17 +2831,13 @@ func buildDecisionsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Table)
 				SetOnUpdate(atlasschema.NoAction),
 		)
 
-	// Optional scan_runs FK — declared only when the table is in s.
-	if scanRuns != nil {
-		tbl.AddForeignKeys(
-			atlasschema.NewForeignKey("decisions_scan_run_id_fkey").
-				AddColumns(scanRunID).
-				SetRefTable(scanRuns).
-				AddRefColumns(parentRefCol(scanRuns)).
-				SetOnDelete(atlasschema.SetNull).
-				SetOnUpdate(atlasschema.NoAction),
-		)
-	}
+	// scan_run_id is best-effort audit metadata — no FK to scan_runs.
+	// The decisions audit log outlives individual scan runs and rows
+	// where ScanRunID matches no current scan_runs row (deleted scans,
+	// watchdog replay rows with no parent) are valid and expected. The
+	// 121b §B contract already persists uuid.Nil as SQL NULL for the
+	// no-parent case. _ = scanRuns is the explicit parameter use.
+	_ = scanRuns
 
 	return tbl
 }

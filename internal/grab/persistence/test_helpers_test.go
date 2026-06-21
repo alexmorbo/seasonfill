@@ -11,12 +11,21 @@ import (
 )
 
 // grabBackends wraps testhelpers.AllBackends and pre-seeds the canonical
-// `main` sonarr_instance row in every DB it returns. The grab + decision
-// + origin_releases tables all FK→sonarr_instance(name) CASCADE; SQLite
-// without `PRAGMA foreign_keys=on` lets orphan inserts slip through, but
-// Postgres rejects them with constraint code 23503. Pre-seeding "main"
-// (the value every grab/decision test fixture uses) makes the test
-// matrix backend-portable per the D-0 quality bar.
+// FK targets every grab/decision test fixture references:
+//
+//   - sonarr_instance rows for "main", "homelab", and "4k" (the
+//     instance_name values fixtures hard-code).
+//   - A scan_runs row whose id is the all-zeros UUID. Decision tests
+//     emit a `uuid.New()` ScanRunID by default; the
+//     decisions_scan_run_id_fkey constraint (SET NULL on delete) makes
+//     a random non-existing uuid an FK violation on Postgres. The
+//     fixtures don't observe the scan_run row contents — they just need
+//     a valid parent — so a single seeded uuid covers the matrix.
+//
+// SQLite without `PRAGMA foreign_keys=on` lets orphan inserts slip
+// through, but the D-0 quality bar requires the Postgres backend to
+// pass too. Pre-seeding the parent rows keeps both branches green
+// without touching every existing test body.
 func grabBackends(t *testing.T) []testhelpers.Backend {
 	t.Helper()
 	src := testhelpers.AllBackends(t)
@@ -28,10 +37,6 @@ func grabBackends(t *testing.T) []testhelpers.Backend {
 			Name: name,
 			NewDB: func(tb testing.TB) *gorm.DB {
 				db := newDB(tb)
-				// Seed the canonical instance names every grab / decision
-				// / origin_releases test fixture uses (`main`, `homelab`,
-				// `4k`). FK CASCADE on delete is preserved; the OnConflict
-				// DO NOTHING in seedSonarrInstance keeps repeats safe.
 				seedSonarrInstance(tb, db, "main")
 				seedSonarrInstance(tb, db, "homelab")
 				seedSonarrInstance(tb, db, "4k")

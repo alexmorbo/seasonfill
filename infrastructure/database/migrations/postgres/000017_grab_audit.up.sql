@@ -1,3 +1,5 @@
+-- modify "grab_records" table
+ALTER TABLE "grab_records" DROP CONSTRAINT "grab_records_scan_run_id_fkey";
 -- create "cooldowns" table
 CREATE TABLE "cooldowns" (
   "scope" text NOT NULL,
@@ -36,8 +38,7 @@ CREATE TABLE "decisions" (
   "intent" jsonb NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("id"),
-  CONSTRAINT "decisions_instance_name_fkey" FOREIGN KEY ("instance_name") REFERENCES "sonarr_instance" ("name") ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT "decisions_scan_run_id_fkey" FOREIGN KEY ("scan_run_id") REFERENCES "scan_runs" ("id") ON UPDATE NO ACTION ON DELETE SET NULL
+  CONSTRAINT "decisions_instance_name_fkey" FOREIGN KEY ("instance_name") REFERENCES "sonarr_instance" ("name") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- create index "decisions_created_at_id_idx" to table: "decisions"
 CREATE INDEX "decisions_created_at_id_idx" ON "decisions" ("created_at" DESC, "id" DESC);
