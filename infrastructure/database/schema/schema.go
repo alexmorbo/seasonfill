@@ -10,12 +10,16 @@
 // Sub-stories 455..461 (D-1-2..D-1-8) populate this schema with the 14
 // target tables. D-1-2 (story 455) landed the core series batch:
 // series, seasons, episodes. D-1-3a (story 456a) appends the i18n texts
-// batch: series_texts, episode_texts.
+// batch: series_texts, episode_texts. D-1-3b (story 456b) appends the
+// taxonomy + join batch: genres, networks, production_companies,
+// keywords + 4 i18n siblings + series_genres, series_networks,
+// series_companies, series_keywords.
 package schema
 
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"ariga.io/atlas/sql/postgres"
 	atlasschema "ariga.io/atlas/sql/schema"
@@ -75,7 +79,21 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// D-1-3a (story 456a) — multi-language texts.
 	addI18nTexts(s, d)
 
-	// D-1-3b..D-1-7 (stories 456b..460) append further batches here.
+	// D-1-3b (story 456b) — canonical taxonomy dictionaries + i18n siblings.
+	addTaxonomy(s, d)
+
+	// D-1-3b (story 456b) — series ↔ taxonomy join tables.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS=1 generates
+	// the 000003_taxonomy migration without the join tables, so the
+	// follow-up `make migrations-diff NAME=taxonomy_joins` produces the
+	// 000004 migration with ONLY the join tables. Production runtime never
+	// sets this var — production paths always materialize the full schema.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS") == "" {
+		addTaxonomyJoins(s, d)
+	}
+
+	// D-1-4..D-1-7 (stories 457..460) append further batches here.
 
 	return s
 }
@@ -326,7 +344,7 @@ func buildSeriesTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlassche
 			atlasschema.NewNullStringColumn("overview", "text"),
 			atlasschema.NewNullStringColumn("tagline", "text"),
 		},
-		nil,  // no extra indexes
+		"",   // no (language, name) lookup index
 		true, // include enriched_at
 	)
 }
@@ -343,9 +361,208 @@ func buildEpisodeTextsTable(d Dialect, episodesTable *atlasschema.Table) *atlass
 			atlasschema.NewNullStringColumn("title", "text"),
 			atlasschema.NewNullStringColumn("overview", "text"),
 		},
-		nil,
+		"",
 		true,
 	)
+}
+
+// addTaxonomy appends the 4 canonical taxonomy dictionaries (genres,
+// networks, production_companies, keywords) and their 4 per-language
+// i18n sibling tables to s. Called from Schema(d) after addI18nTexts.
+//
+// PRD §4.3 / §D-1 line 4387. Canonical tables hold the language-neutral
+// shape (id + tmdb_id + optional canonical columns + timestamps). i18n
+// siblings hold the localized name/description per language. The
+// (language, name) lookup index on each i18n sibling supports the PRD
+// §5.4 Sonarr-genre fallback path ("resolve 'Drama' + 'en-US' → genre id").
+func addTaxonomy(s *atlasschema.Schema, d Dialect) {
+	genres := buildGenresTable(d)
+	networks := buildNetworksTable(d)
+	companies := buildProductionCompaniesTable(d)
+	keywords := buildKeywordsTable(d)
+	s.AddTables(
+		genres,
+		networks,
+		companies,
+		keywords,
+		i18nTextTable(d, "genres_i18n", genres, "genre_id",
+			[]*atlasschema.Column{
+				atlasschema.NewStringColumn("name", "text").SetNull(false),
+			},
+			"genres_i18n_name", // (language, name) lookup
+			false,              // no enriched_at on taxonomy i18n
+		),
+		i18nTextTable(d, "networks_i18n", networks, "network_id",
+			[]*atlasschema.Column{
+				atlasschema.NewStringColumn("name", "text").SetNull(false),
+				atlasschema.NewNullStringColumn("description", "text"),
+			},
+			"networks_i18n_name",
+			false,
+		),
+		i18nTextTable(d, "production_companies_i18n", companies, "company_id",
+			[]*atlasschema.Column{
+				atlasschema.NewStringColumn("name", "text").SetNull(false),
+				atlasschema.NewNullStringColumn("description", "text"),
+			},
+			"production_companies_i18n_name",
+			false,
+		),
+		i18nTextTable(d, "keywords_i18n", keywords, "keyword_id",
+			[]*atlasschema.Column{
+				atlasschema.NewStringColumn("name", "text").SetNull(false),
+			},
+			"keywords_i18n_name",
+			false,
+		),
+	)
+}
+
+// addTaxonomyJoins appends the 4 series ↔ taxonomy join tables. Called
+// from Schema(d) after addTaxonomy.
+//
+// FK direction (see Investigation Notes / PRD §D-1 line 4408):
+//   - series-side FK ON DELETE CASCADE (a join row has no meaning when
+//     its series is gone — joins are projections, not canonical data)
+//   - taxonomy-side FK ON DELETE NO ACTION (prevent dropping a genre
+//     while series still reference it)
+//
+// series_keywords omits the position column (keywords are unordered per
+// legacy 000028 line 92); the other 3 joins keep position INTEGER NULL
+// to preserve TMDB display order.
+func addTaxonomyJoins(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	genres := mustTable(s, "genres")
+	networks := mustTable(s, "networks")
+	companies := mustTable(s, "production_companies")
+	keywords := mustTable(s, "keywords")
+	s.AddTables(
+		joinTable(d, "series_genres", "series_id", series, "genre_id", genres, true /* position */),
+		joinTable(d, "series_networks", "series_id", series, "network_id", networks, true),
+		joinTable(d, "series_companies", "series_id", series, "company_id", companies, true),
+		joinTable(d, "series_keywords", "series_id", series, "keyword_id", keywords, false /* no position */),
+	)
+}
+
+// buildGenresTable returns the canonical genres table (id + tmdb_id +
+// timestamps; 4 cols). Localized names live in the genres_i18n sibling.
+func buildGenresTable(d Dialect) *atlasschema.Table {
+	return canonDictTable(d, "genres", nil)
+}
+
+// buildKeywordsTable returns the canonical keywords table (4 cols).
+// Localized names live in the keywords_i18n sibling.
+func buildKeywordsTable(d Dialect) *atlasschema.Table {
+	return canonDictTable(d, "keywords", nil)
+}
+
+// buildNetworksTable returns the canonical networks table (7 cols:
+// + name + logo_asset + origin_country on top of the canonDictTable
+// shape). Localized name + description live in networks_i18n.
+func buildNetworksTable(d Dialect) *atlasschema.Table {
+	return canonDictTable(d, "networks", []*atlasschema.Column{
+		atlasschema.NewStringColumn("name", "text").SetNull(false),
+		atlasschema.NewNullStringColumn("logo_asset", "text"),
+		atlasschema.NewNullStringColumn("origin_country", "text"),
+	})
+}
+
+// buildProductionCompaniesTable returns the canonical
+// production_companies table (same shape as networks; 7 cols).
+// Localized name + description live in production_companies_i18n.
+func buildProductionCompaniesTable(d Dialect) *atlasschema.Table {
+	return canonDictTable(d, "production_companies", []*atlasschema.Column{
+		atlasschema.NewStringColumn("name", "text").SetNull(false),
+		atlasschema.NewNullStringColumn("logo_asset", "text"),
+		atlasschema.NewNullStringColumn("origin_country", "text"),
+	})
+}
+
+// canonDictTable builds a "canonical dictionary" table:
+//
+//	id PK + tmdb_id NULL + extraCols + created_at + updated_at
+//	plus a UNIQUE partial index on tmdb_id WHERE tmdb_id IS NOT NULL,
+//	named "<name>_tmdb_id".
+//
+// The partial-unique on tmdb_id allows multiple rows with NULL tmdb_id
+// (e.g., manually-seeded fallbacks) while still enforcing one row per
+// TMDB id for rows the worker resolves from TMDB.
+//
+// Reused 4× by genres / keywords (no extraCols) and networks /
+// production_companies (3 extraCols: name, logo_asset, origin_country).
+func canonDictTable(d Dialect, name string, extraCols []*atlasschema.Column) *atlasschema.Table {
+	id := pkColumn(d)
+	tmdbID := atlasschema.NewNullIntColumn("tmdb_id", "integer")
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	cols := []*atlasschema.Column{id, tmdbID}
+	cols = append(cols, extraCols...)
+	cols = append(cols, createdAt, updatedAt)
+
+	return atlasschema.NewTable(name).
+		AddColumns(cols...).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(partialUniqueIndex(d, name+"_tmdb_id",
+			[]*atlasschema.Column{tmdbID}, "tmdb_id IS NOT NULL"))
+}
+
+// joinTable builds a series ↔ taxonomy join table:
+//
+//	PK (leftColName, rightColName)
+//	columns: leftColName, rightColName, [position integer NULL]
+//	FK left → leftTable(id)  ON DELETE CASCADE  (series-side)
+//	FK right → rightTable(id) ON DELETE NO ACTION (taxonomy-side)
+//	Reverse-lookup index on right column, named
+//	"<name>_<TrimSuffix(rightColName, "_id")>" — e.g.,
+//	"series_genres_genre" for series_genres.genre_id.
+//
+// withPosition=true adds the `position` column (used for genres,
+// networks, companies); false omits it (used for keywords per legacy
+// 000028 line 92). The index is added BEFORE the FKs so the emitted
+// SQL puts CREATE INDEX right after CREATE TABLE — matches Atlas's
+// canonical ordering and keeps the generated diff deterministic.
+func joinTable(
+	d Dialect,
+	name string,
+	leftColName string,
+	leftTable *atlasschema.Table,
+	rightColName string,
+	rightTable *atlasschema.Table,
+	withPosition bool,
+) *atlasschema.Table {
+	leftID := fkColumn(d, leftColName, false /* not null */)
+	rightID := fkColumn(d, rightColName, false)
+
+	cols := []*atlasschema.Column{leftID, rightID}
+	if withPosition {
+		cols = append(cols, atlasschema.NewNullIntColumn("position", "integer"))
+	}
+
+	leftRef := parentRefCol(leftTable)
+	rightRef := parentRefCol(rightTable)
+	indexName := name + "_" + strings.TrimSuffix(rightColName, "_id")
+
+	return atlasschema.NewTable(name).
+		AddColumns(cols...).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(leftID, rightID)).
+		AddIndexes(
+			atlasschema.NewIndex(indexName).AddColumns(rightID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey(name+"_"+leftColName+"_fkey").
+				AddColumns(leftID).
+				SetRefTable(leftTable).
+				AddRefColumns(leftRef).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey(name+"_"+rightColName+"_fkey").
+				AddColumns(rightID).
+				SetRefTable(rightTable).
+				AddRefColumns(rightRef).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }
 
 // ----------------------------------------------------------------------
@@ -460,15 +677,23 @@ func attachPredicate(d Dialect, idx *atlasschema.Index, predicate string) {
 // (`WHERE language = ?`) are rare and can add a follow-up index later if
 // measured slow.
 //
-// Used by D-1-3a (series_texts, episode_texts) and reserved for D-1-3b
-// (genres_i18n, networks_i18n, production_companies_i18n, keywords_i18n).
+// nameLookupIdx (when non-empty) adds an index on (language, name)
+// — used by D-1-3b taxonomy i18n siblings for the PRD §5.4 Sonarr-genre
+// fallback ("resolve 'Drama' + 'en-US' → genres.id"). The "name" column
+// is resolved by-name from extraCols; the helper panics if it's missing
+// (programmer error — the caller asked for the index but didn't put
+// "name" in extraCols).
+//
+// Used by D-1-3a (series_texts, episode_texts; nameLookupIdx="") and
+// D-1-3b (genres_i18n, networks_i18n, production_companies_i18n,
+// keywords_i18n; nameLookupIdx=<sibling>_name).
 func i18nTextTable(
 	d Dialect,
 	tableName string,
 	parentTable *atlasschema.Table,
 	parentIDColName string,
 	extraCols []*atlasschema.Column,
-	extraIndexes []*atlasschema.Index,
+	nameLookupIdx string,
 	enrichedAt bool,
 ) *atlasschema.Table {
 	parentID := fkColumn(d, parentIDColName, false /* not null */)
@@ -494,10 +719,28 @@ func i18nTextTable(
 				SetOnDelete(atlasschema.NoAction).
 				SetOnUpdate(atlasschema.NoAction),
 		)
-	if len(extraIndexes) > 0 {
-		t.AddIndexes(extraIndexes...)
+	if nameLookupIdx != "" {
+		nameCol := findCol(extraCols, "name")
+		if nameCol == nil {
+			panic(fmt.Sprintf("schema: i18nTextTable %q asked for nameLookupIdx but extraCols has no 'name' column", tableName))
+		}
+		t.AddIndexes(
+			atlasschema.NewIndex(nameLookupIdx).AddColumns(language, nameCol),
+		)
 	}
 	return t
+}
+
+// findCol returns the column with the given name from cols, or nil if
+// absent. Used by i18nTextTable to late-bind the (language, name)
+// lookup index without forcing the caller to pre-build the index.
+func findCol(cols []*atlasschema.Column, name string) *atlasschema.Column {
+	for _, c := range cols {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 // parentRefCol returns the FK reference column for a parent table.

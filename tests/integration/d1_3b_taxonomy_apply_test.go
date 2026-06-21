@@ -1,0 +1,209 @@
+//go:build integration
+
+// D-1-3b (story 456b) — verifies 000001..000004 apply cleanly on both
+// backends, exercises taxonomy + i18n + join table inserts, validates
+// composite PK enforcement, FK enforcement (orphan rejection), and the
+// asymmetric FK behaviour on join tables (series-side CASCADE,
+// taxonomy-side NO ACTION). Uses the shared d1_helpers extracted in D-1-3a.
+package integration
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+)
+
+// TestD13b_TaxonomyMigrationRoundTrip applies 000001..000004 in order,
+// drives the new taxonomy + join tables through the expected positive
+// and adversarial paths, then rolls back via Down. Runs against both
+// SQLite (default) and Postgres (opt-in via SEASONFILL_TEST_POSTGRES_ENABLE).
+func TestD13b_TaxonomyMigrationRoundTrip(t *testing.T) {
+	for _, b := range allD1Backends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+
+			db, m, cleanup := b.migrate(t)
+			t.Cleanup(cleanup)
+
+			// UP — applies 000001 (core series) + 000002 (i18n texts) +
+			// 000003 (taxonomy) + 000004 (taxonomy_joins) in sequence.
+			require.NoError(t, m.Up())
+
+			// Seed: insert a genre row.
+			var genreID int64
+			row := db.QueryRowContext(ctx, insertGenreSQL(b.name), 18 /* TMDB Drama */)
+			require.NoError(t, row.Scan(&genreID))
+			require.Greater(t, genreID, int64(0))
+
+			// i18n happy path: insert (genre_id, "en-US", "Drama").
+			_, err := db.ExecContext(ctx, i18nInsertSQL(b.name, "genres_i18n", "genre_id"),
+				genreID, "en-US", "Drama")
+			require.NoError(t, err, "genres_i18n insert should succeed")
+
+			// Composite PK violation: duplicate (genre_id, language).
+			_, err = db.ExecContext(ctx, i18nInsertSQL(b.name, "genres_i18n", "genre_id"),
+				genreID, "en-US", "DUPE")
+			require.Error(t, err, "duplicate (genre_id, language) should fail PK")
+
+			// Different language is fine.
+			_, err = db.ExecContext(ctx, i18nInsertSQL(b.name, "genres_i18n", "genre_id"),
+				genreID, "ru-RU", "Драма")
+			require.NoError(t, err, "second language should succeed")
+
+			// FK violation: orphan genres_i18n.
+			_, err = db.ExecContext(ctx, i18nInsertSQL(b.name, "genres_i18n", "genre_id"),
+				999999, "en-US", "Orphan")
+			require.Error(t, err, "orphan genres_i18n should fail FK")
+
+			// Seed a series so we can link.
+			seriesTitle := "d1-3b-" + uuid.NewString()
+			seriesID := insertSeriesAndScanID(t, ctx, db, b.name, seriesTitle)
+
+			// Happy: link series → genre.
+			_, err = db.ExecContext(ctx, joinInsertSQL(b.name, "series_genres", "series_id", "genre_id", true),
+				seriesID, genreID, 0)
+			require.NoError(t, err, "series_genres insert should succeed")
+
+			// FK violation: orphan join row (no parent series).
+			_, err = db.ExecContext(ctx, joinInsertSQL(b.name, "series_genres", "series_id", "genre_id", true),
+				999999, genreID, 0)
+			require.Error(t, err, "orphan series_genres should fail FK")
+
+			// Cascade: DELETE series → series_genres row(s) for that
+			// series go with it (series-side ON DELETE CASCADE).
+			_, err = db.ExecContext(ctx, deleteByIDSQL(b.name, "series"), seriesID)
+			require.NoError(t, err)
+			var cnt int
+			row = db.QueryRowContext(ctx, countSeriesGenresSQL(b.name), seriesID)
+			require.NoError(t, row.Scan(&cnt))
+			require.Equal(t, 0, cnt, "cascade should have removed series_genres rows")
+
+			// No-cascade on taxonomy side: re-add a series + link, then
+			// DELETE the referenced genre — should fail (NO ACTION).
+			seriesTitle2 := "d1-3b-" + uuid.NewString()
+			seriesID2 := insertSeriesAndScanID(t, ctx, db, b.name, seriesTitle2)
+			_, err = db.ExecContext(ctx, joinInsertSQL(b.name, "series_genres", "series_id", "genre_id", true),
+				seriesID2, genreID, 1)
+			require.NoError(t, err)
+			_, err = db.ExecContext(ctx, deleteByIDSQL(b.name, "genres"), genreID)
+			require.Error(t, err, "DELETE genres with existing FK should fail (NO ACTION)")
+
+			// series_keywords has NO position column — verify the 2-arg
+			// insert shape works.
+			var keywordID int64
+			row = db.QueryRowContext(ctx, insertKeywordSQL(b.name), 999 /* TMDB stub */)
+			require.NoError(t, row.Scan(&keywordID))
+			_, err = db.ExecContext(ctx, joinInsertSQL(b.name, "series_keywords", "series_id", "keyword_id", false),
+				seriesID2, keywordID)
+			require.NoError(t, err, "series_keywords insert (no position) should succeed")
+
+			// DOWN — rolls back 000004 then 000003 then 000002 then 000001.
+			require.NoError(t, m.Down())
+			_, err = db.ExecContext(ctx, "SELECT 1 FROM series_genres LIMIT 1")
+			require.Error(t, err, "series_genres should be dropped after Down")
+			_, err = db.ExecContext(ctx, "SELECT 1 FROM genres LIMIT 1")
+			require.Error(t, err, "genres should be dropped after Down")
+		})
+	}
+}
+
+// insertSeriesAndScanID inserts a series row with the given title and
+// returns its autogenerated id, portably across drivers (PG via
+// RETURNING, SQLite via LastInsertId).
+func insertSeriesAndScanID(t *testing.T, ctx context.Context, db *sql.DB, driver, title string) int64 {
+	t.Helper()
+	var id int64
+	switch driver {
+	case "postgres":
+		row := db.QueryRowContext(ctx, insertSeriesSQL(driver)+" RETURNING id",
+			title, "stub", false, "[]")
+		require.NoError(t, row.Scan(&id))
+	case "sqlite":
+		res, err := db.ExecContext(ctx, insertSeriesSQL(driver),
+			title, "stub", false, "[]")
+		require.NoError(t, err)
+		id, err = res.LastInsertId()
+		require.NoError(t, err)
+	default:
+		t.Fatalf("unknown driver %q", driver)
+	}
+	require.Greater(t, id, int64(0))
+	return id
+}
+
+// SQL builders.
+
+func insertGenreSQL(driver string) string {
+	switch driver {
+	case "postgres":
+		return `INSERT INTO genres (tmdb_id, created_at, updated_at) VALUES ($1, now(), now()) RETURNING id`
+	case "sqlite":
+		return `INSERT INTO genres (tmdb_id, created_at, updated_at) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id`
+	}
+	panic("unknown driver " + driver)
+}
+
+func insertKeywordSQL(driver string) string {
+	switch driver {
+	case "postgres":
+		return `INSERT INTO keywords (tmdb_id, created_at, updated_at) VALUES ($1, now(), now()) RETURNING id`
+	case "sqlite":
+		return `INSERT INTO keywords (tmdb_id, created_at, updated_at) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id`
+	}
+	panic("unknown driver " + driver)
+}
+
+func i18nInsertSQL(driver, table, parentCol string) string {
+	switch driver {
+	case "postgres":
+		return `INSERT INTO ` + table + ` (` + parentCol + `, language, name, updated_at) VALUES ($1, $2, $3, now())`
+	case "sqlite":
+		return `INSERT INTO ` + table + ` (` + parentCol + `, language, name, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
+	}
+	panic("unknown driver " + driver)
+}
+
+func joinInsertSQL(driver, table, leftCol, rightCol string, withPosition bool) string {
+	cols := leftCol + ", " + rightCol
+	if withPosition {
+		cols += ", position"
+	}
+	switch driver {
+	case "postgres":
+		if withPosition {
+			return `INSERT INTO ` + table + ` (` + cols + `) VALUES ($1, $2, $3)`
+		}
+		return `INSERT INTO ` + table + ` (` + cols + `) VALUES ($1, $2)`
+	case "sqlite":
+		if withPosition {
+			return `INSERT INTO ` + table + ` (` + cols + `) VALUES (?, ?, ?)`
+		}
+		return `INSERT INTO ` + table + ` (` + cols + `) VALUES (?, ?)`
+	}
+	panic("unknown driver " + driver)
+}
+
+func deleteByIDSQL(driver, table string) string {
+	switch driver {
+	case "postgres":
+		return `DELETE FROM ` + table + ` WHERE id = $1`
+	case "sqlite":
+		return `DELETE FROM ` + table + ` WHERE id = ?`
+	}
+	panic("unknown driver " + driver)
+}
+
+func countSeriesGenresSQL(driver string) string {
+	switch driver {
+	case "postgres":
+		return `SELECT COUNT(*) FROM series_genres WHERE series_id = $1`
+	case "sqlite":
+		return `SELECT COUNT(*) FROM series_genres WHERE series_id = ?`
+	}
+	panic("unknown driver " + driver)
+}

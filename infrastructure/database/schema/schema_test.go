@@ -14,7 +14,9 @@ import (
 )
 
 // TestSchemaCoverage_BothDialects walks Schema(d) for every shipped
-// dialect. Touches every builder + helper transitively.
+// dialect. Touches every builder + helper transitively. Total table
+// count is 17 after D-1-3b: 3 core + 2 i18n + 4 canon + 4 taxonomy_i18n
+// + 4 joins.
 func TestSchemaCoverage_BothDialects(t *testing.T) {
 	t.Parallel()
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
@@ -24,10 +26,28 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 			if s == nil {
 				t.Fatalf("Schema(%q) returned nil", d)
 			}
-			if len(s.Tables) != 5 {
-				t.Fatalf("Schema(%q) tables = %d, want 5", d, len(s.Tables))
+			if len(s.Tables) != 17 {
+				t.Fatalf("Schema(%q) tables = %d, want 17", d, len(s.Tables))
 			}
 		})
+	}
+}
+
+// TestSchemaCoverage_TaxonomySkipFlag covers the ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS
+// env branch in Schema(d). When set, the 4 join tables are skipped (used
+// at dev-time to split the 000003_taxonomy migration from 000004_taxonomy_joins);
+// when unset, all 17 tables are present (the prod path).
+func TestSchemaCoverage_TaxonomySkipFlag(t *testing.T) {
+	t.Setenv("ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS", "1")
+	s := Schema(DialectPostgres)
+	if len(s.Tables) != 13 {
+		t.Fatalf("Schema(postgres) with skip flag tables = %d, want 13 (17 - 4 joins)", len(s.Tables))
+	}
+	for _, tbl := range s.Tables {
+		switch tbl.Name {
+		case "series_genres", "series_networks", "series_companies", "series_keywords":
+			t.Errorf("join table %q should be skipped when ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS is set", tbl.Name)
+		}
 	}
 }
 
@@ -55,8 +75,8 @@ func TestSchemaCoverage_LoadHonorsEnv(t *testing.T) {
 	if s == nil {
 		t.Fatal("Load() returned nil with ATLAS_DIALECT=sqlite")
 	}
-	if len(s.Tables) != 5 {
-		t.Fatalf("Load() tables = %d, want 5", len(s.Tables))
+	if len(s.Tables) != 17 {
+		t.Fatalf("Load() tables = %d, want 17", len(s.Tables))
 	}
 }
 
@@ -70,4 +90,37 @@ func TestSchemaCoverage_UnknownDialectPanics(t *testing.T) {
 		}
 	}()
 	_ = Schema("mariadb")
+}
+
+// TestSchemaCoverage_I18nNameLookupMissingNamePanic — i18nTextTable
+// panics when the caller asks for a (language, name) lookup index but
+// extraCols has no "name" column. Programmer error; we want the panic
+// to fire loud rather than emit a broken index.
+func TestSchemaCoverage_I18nNameLookupMissingNamePanic(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("i18nTextTable with nameLookupIdx and no name col did not panic")
+		}
+	}()
+	// Build a stub parent table with a PK so parentRefCol succeeds.
+	parent := buildGenresTable(DialectPostgres)
+	_ = i18nTextTable(DialectPostgres, "stub_i18n", parent, "genre_id",
+		nil, // no extraCols → no "name"
+		"stub_lookup",
+		false,
+	)
+}
+
+// TestSchemaCoverage_MustTablePanic — mustTable panics when the named
+// table is absent (programmer error — wrong appender order).
+func TestSchemaCoverage_MustTablePanic(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("mustTable on missing name did not panic")
+		}
+	}()
+	s := Schema(DialectPostgres)
+	_ = mustTable(s, "nonexistent_table_name")
 }

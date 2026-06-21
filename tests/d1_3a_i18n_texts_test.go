@@ -12,27 +12,23 @@ import (
 	"github.com/alexmorbo/seasonfill/infrastructure/database/schema"
 )
 
-// TestD13a_SchemaHasFiveTables — D-1-2 landed 3; D-1-3a adds 2 more
-// (series_texts, episode_texts). This is the current-tip total-count
-// contract; bump as further D-1-N batches append tables.
-func TestD13a_SchemaHasFiveTables(t *testing.T) {
+// TestD13a_SchemaIncludesI18nTexts — D-1-2 landed 3; D-1-3a adds 2 more
+// (series_texts, episode_texts). After D-1-3b the schema grows further,
+// so this test now asserts presence (not exact count); the total-count
+// contract lives in TestD13b_SchemaHasSeventeenTables.
+func TestD13a_SchemaIncludesI18nTexts(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if len(s.Tables) != 5 {
-				t.Fatalf("table count = %d, want 5 (series, seasons, episodes, series_texts, episode_texts)", len(s.Tables))
+			present := map[string]bool{}
+			for _, tbl := range s.Tables {
+				present[tbl.Name] = true
 			}
-			names := make([]string, len(s.Tables))
-			for i, tbl := range s.Tables {
-				names[i] = tbl.Name
-			}
-			sort.Strings(names)
-			want := []string{"episode_texts", "episodes", "seasons", "series", "series_texts"}
-			for i := range names {
-				if names[i] != want[i] {
-					t.Errorf("tables[%d] = %q, want %q", i, names[i], want[i])
+			for _, want := range []string{"series", "seasons", "episodes", "series_texts", "episode_texts"} {
+				if !present[want] {
+					t.Errorf("table %q missing from schema", want)
 				}
 			}
 		})
