@@ -18,9 +18,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
+	atlasschema "ariga.io/atlas/sql/schema"
 	"github.com/golang-migrate/migrate/v4"
 	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/file"
@@ -202,6 +204,173 @@ func d1IndexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// d1AcceptanceTablesPostgres is the canonical Postgres-side table inventory
+// asserted by TestD1_Acceptance_TableInventory. Sourced from
+// schema.Schema(Postgres) on 2026-06-21 (story 461 / D-1-8). 41 tables
+// in total: 14 PRD §4 "top-level" canon tables + 27 child/projection/i18n
+// siblings. schema_migrations (golang-migrate tracker) is excluded; it
+// is not part of the seasonfill domain.
+//
+// Names are the same on both backends — the SQLite list is identical.
+var d1AcceptanceTablesPostgres = []string{
+	"app_secret",
+	"content_ratings",
+	"download_links",
+	"enrichment_errors",
+	"episode_grabs",
+	"episode_states",
+	"episode_texts",
+	"episodes",
+	"external_ids",
+	"external_service_config",
+	"external_service_quota_state",
+	"genres",
+	"genres_i18n",
+	"grab_records",
+	"instance_secret",
+	"keywords",
+	"keywords_i18n",
+	"networks",
+	"networks_i18n",
+	"people",
+	"person_biographies",
+	"person_credits",
+	"production_companies",
+	"production_companies_i18n",
+	"season_stats",
+	"seasons",
+	"series",
+	"series_cache",
+	"series_companies",
+	"series_genres",
+	"series_images",
+	"series_keywords",
+	"series_networks",
+	"series_recommendations",
+	"series_texts",
+	"sonarr_instance",
+	"user_instance_tags",
+	"users",
+	"videos",
+	"watchdog_blacklist",
+	"watchdog_state",
+}
+
+// liveTableNames returns the set of D-1 tables visible in the live DB
+// after a full Up. Excludes the golang-migrate tracker
+// (schema_migrations) and SQLite internal tables. Sorted ascending so
+// the caller can directly ElementsMatch against d1AcceptanceTablesPostgres.
+func liveTableNames(t testing.TB, ctx context.Context, db *sql.DB, dialect string) []string {
+	t.Helper()
+	var q string
+	switch dialect {
+	case "postgres":
+		q = `SELECT table_name FROM information_schema.tables
+		     WHERE table_schema = 'public' AND table_name <> 'schema_migrations'
+		     AND table_type = 'BASE TABLE'`
+	case "sqlite":
+		q = `SELECT name FROM sqlite_master
+		     WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_migrations'`
+	default:
+		t.Fatalf("liveTableNames: unknown dialect %q", dialect)
+	}
+	rows, err := db.QueryContext(ctx, q)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	out := []string{}
+	for rows.Next() {
+		var n string
+		require.NoError(t, rows.Scan(&n))
+		out = append(out, n)
+	}
+	require.NoError(t, rows.Err())
+	sort.Strings(out)
+	return out
+}
+
+// liveColumnNames returns the sorted list of column names for `table`
+// on the live DB. Postgres uses information_schema; SQLite uses the
+// PRAGMA table_info virtual table.
+func liveColumnNames(t testing.TB, ctx context.Context, db *sql.DB, dialect, table string) []string {
+	t.Helper()
+	out := []string{}
+	switch dialect {
+	case "postgres":
+		rows, err := db.QueryContext(ctx,
+			`SELECT column_name FROM information_schema.columns
+			 WHERE table_schema = 'public' AND table_name = $1`, table)
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var n string
+			require.NoError(t, rows.Scan(&n))
+			out = append(out, n)
+		}
+		require.NoError(t, rows.Err())
+	case "sqlite":
+		// PRAGMA table_info is a virtual table; identifier interpolation
+		// is unavoidable (sqlite refuses parameter binding here). Table
+		// names come from the canonical schema, not user input.
+		rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info("%s")`, table))
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var (
+				cid     int
+				name    string
+				ctype   string
+				notnull int
+				dflt    sql.NullString
+				pk      int
+			)
+			require.NoError(t, rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk))
+			out = append(out, name)
+		}
+		require.NoError(t, rows.Err())
+	default:
+		t.Fatalf("liveColumnNames: unknown dialect %q", dialect)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// indexDefinition returns the dialect-native definition string for
+// indexName. Postgres returns `pg_indexes.indexdef` (full CREATE INDEX);
+// SQLite returns `sqlite_master.sql`. The caller asserts substrings (no
+// strict equality — atlas may reorder column lists or normalize the
+// predicate).
+func indexDefinition(t testing.TB, ctx context.Context, db *sql.DB, dialect, indexName string) string {
+	t.Helper()
+	switch dialect {
+	case "postgres":
+		var def string
+		err := db.QueryRowContext(ctx,
+			`SELECT indexdef FROM pg_indexes WHERE indexname = $1`, indexName).Scan(&def)
+		require.NoErrorf(t, err, "pg_indexes lookup for %q", indexName)
+		return def
+	case "sqlite":
+		var def sql.NullString
+		err := db.QueryRowContext(ctx,
+			`SELECT sql FROM sqlite_master WHERE type='index' AND name = ?`, indexName).Scan(&def)
+		require.NoErrorf(t, err, "sqlite_master lookup for %q", indexName)
+		require.True(t, def.Valid, "index %q has no recorded sql in sqlite_master", indexName)
+		return def.String
+	}
+	t.Fatalf("indexDefinition: unknown dialect %q", dialect)
+	return ""
+}
+
+// columnNamesFromTable returns the sorted column names declared on tbl
+// by the schema package. Used to cross-check against liveColumnNames.
+func columnNamesFromTable(tbl *atlasschema.Table) []string {
+	out := make([]string, 0, len(tbl.Columns))
+	for _, c := range tbl.Columns {
+		out = append(out, c.Name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // insertSeriesSQL returns a parametric INSERT for the series table

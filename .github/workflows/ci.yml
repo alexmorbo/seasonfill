@@ -197,6 +197,57 @@ jobs:
           path: coverage-deep.out
           if-no-files-found: ignore
 
+  migrations-diff-check:
+    name: D-1 acceptance — atlas diff/lint gate
+    # Story 461 (D-1-8) — final D-1 acceptance gate.
+    # Proves that schema.go is fully expressed by the 13 committed
+    # migrations on both Postgres and SQLite. The job runs:
+    #   1. `atlas migrate lint --latest 13` per dialect
+    #   2. `make migrations-diff-check` (idempotency probe)
+    # Independent of unit/integration jobs — no needs:[] dependency so a
+    # broken schema fails fast without waiting for the long test matrix.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: atlas
+          POSTGRES_DB: atlas_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlas -d atlas_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Install atlas CLI
+        run: make atlas-install
+
+      - name: atlas migrate lint (postgres, all 13)
+        env:
+          SEASONFILL_DATABASE_DSN: postgres://atlas:atlas@localhost:5432/atlas_dev?sslmode=disable
+        run: atlas migrate lint --env postgres --latest 13
+
+      - name: atlas migrate lint (sqlite, all 13)
+        run: atlas migrate lint --env sqlite --latest 13
+
+      - name: migrations-diff-check (both dialects)
+        env:
+          SEASONFILL_DATABASE_DSN: postgres://atlas:atlas@localhost:5432/atlas_dev?sslmode=disable
+        run: make migrations-diff-check
+
   vuln:
     name: Vuln Scan
     if: github.event_name != 'schedule'

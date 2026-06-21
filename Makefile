@@ -1,4 +1,4 @@
-.PHONY: build test test-race test-coverage test-integration test-integration-sqlite test-integration-postgres test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help atlas-install migrations-diff migrations-lint migrations-apply-dev
+.PHONY: build test test-race test-coverage test-integration test-integration-sqlite test-integration-postgres test-integration-e2e test-all test-lint-rule lint vuln vuln-go vuln-web run clean tidy docker-build openapi openapi-check web-install web-dev web-build web-test web-lint web-image web-image-run help atlas-install migrations-diff migrations-lint migrations-diff-check migrations-apply-dev
 
 BINARY := seasonfill
 PKG    := github.com/alexmorbo/seasonfill
@@ -203,12 +203,41 @@ migrations-diff: ## Generate migration diff for both dialects (require NAME=)
 	atlas migrate hash --env postgres
 	atlas migrate hash --env sqlite
 
-# Lint the last migration of each dialect — catches destructive ops,
+# Lint all 13 D-1 migrations of each dialect — catches destructive ops,
 # missing down, integrity hash drift, backwards-incompatible changes.
-migrations-lint: ## Lint last migration on both dialects
+# Bumped from --latest 1 to --latest 13 in story 461 (D-1-8) as part of
+# the acceptance gate: every D-1 migration is re-linted on every CI run.
+migrations-lint: ## Lint all 13 D-1 migrations on both dialects
 	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
-	atlas migrate lint --env postgres --latest 1
-	atlas migrate lint --env sqlite --latest 1
+	atlas migrate lint --env postgres --latest 13
+	atlas migrate lint --env sqlite --latest 13
+
+# migrations-diff-check is the D-1-8 acceptance gate: it proves that the
+# 13 committed migrations fully express schema.go on BOTH dialects. The
+# probe runs `atlas migrate diff acceptance_probe --env <dialect>` and
+# asserts atlas DID NOT emit a *_acceptance_probe.{up,down}.sql. If atlas
+# emits any probe file, the schema has drifted from the migration tree —
+# the target prints the offending SQL, cleans up, and exits non-zero.
+#
+# Atlas needs SEASONFILL_DATABASE_DSN for the postgres env block when
+# using docker:// dev-DB (it spawns one ephemeral); for sqlite, atlas
+# uses the in-memory dev-DB declared in atlas.hcl. CI sets the env in
+# the .github/workflows/ci.yml job before invoking this target.
+migrations-diff-check: ## D-1-8 gate — schema is fully expressed by 13 migrations on both dialects
+	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
+	@set -e; for dialect in postgres sqlite; do \
+	  echo ">>> diff probe ($$dialect)"; \
+	  atlas migrate diff acceptance_probe --env $$dialect; \
+	  PROBE=$$(ls infrastructure/database/migrations/$$dialect/*_acceptance_probe.up.sql 2>/dev/null || true); \
+	  if [ -n "$$PROBE" ]; then \
+	    echo "FAIL: atlas detected schema drift on $$dialect:"; \
+	    cat "$$PROBE"; \
+	    rm -f "$$PROBE" "$${PROBE%.up.sql}.down.sql"; \
+	    atlas migrate hash --env $$dialect >/dev/null 2>&1 || true; \
+	    exit 1; \
+	  fi; \
+	done
+	@echo "OK: schema fully expressed in 13 migrations on both dialects"
 
 # Apply migrations to a local dev DB via atlas (dev convenience —
 # production uses golang-migrate). Reads SEASONFILL_DATABASE_DRIVER to

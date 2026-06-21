@@ -27,8 +27,13 @@ To add a new migration:
    integrity hash drift.
 5. Commit both the schema.go change AND the generated SQL together.
 
-D-1-1 ships this directory empty; subsequent sub-stories (D-1-2..D-1-7)
-land the 14 target migrations.
+D-1 ships 13 generated migrations (000001..000013). The PRD §D-1
+originally proposed a 14th migration for cross-table indexes; Atlas
+codegen inlines indexes per-table, so the 14th file would be empty (and
+would fail `atlas migrate lint`). The CI job `migrations-diff-check`
+proves the schema is fully expressed in 13 migrations on both dialects
+— see story 461 (D-1-8) for the acceptance gate and the
+`tests/integration/d1_acceptance_*` regression surface.
 
 ## SQLite-specific notes
 

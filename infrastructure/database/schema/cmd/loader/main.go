@@ -48,6 +48,25 @@ func main() {
 	d := schema.Dialect(dialect)
 	target := schema.Schema(d)
 
+	// SEASONFILL_DROP_INDEX is a dev/test-only hook used by the D-1-8
+	// atlas-diff regression test (tests/integration/d1_acceptance_diff_test.go).
+	// When set, the loader removes every index whose name equals the env
+	// value from every table in the target schema BEFORE emitting DDL.
+	// Atlas then sees the index as "missing" and includes a DROP INDEX in
+	// the generated diff, proving the diff path detects drift. Production
+	// loader invocations leave this env unset.
+	if dropIdx := os.Getenv("SEASONFILL_DROP_INDEX"); dropIdx != "" {
+		for _, tbl := range target.Tables {
+			kept := tbl.Indexes[:0]
+			for _, ix := range tbl.Indexes {
+				if ix.Name != dropIdx {
+					kept = append(kept, ix)
+				}
+			}
+			tbl.Indexes = kept
+		}
+	}
+
 	plan, err := emitDDL(d, target)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "loader: emit DDL: %v\n", err)
