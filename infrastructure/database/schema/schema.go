@@ -220,6 +220,21 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addAuth(s, d)
 	}
 
+	// D-4 (story 465b) — scan_runs table. MUST be added BEFORE
+	// addGrab(s, d) so the conditional grab_records.scan_run_id FK
+	// declared in buildGrabRecordsTable (schema.go:2118-2128) picks
+	// up the table. scan_runs is the durable record of scan loop
+	// activations per §5.4 + PRD §D-4 acceptance: ScanRepository
+	// writes status=running on Create and transitions to
+	// completed/aborted on Update.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_SCAN_RUNS=1 generates
+	// earlier migrations without this table. Production runtime never
+	// sets this var.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_SCAN_RUNS") == "" {
+		addScanRuns(s, d)
+	}
+
 	// D-1-7b (story 460b) — grab tables: grab_records (consolidated
 	// from legacy 000001+000005+000007+000012+000014+000016 into a
 	// single CREATE TABLE), episode_grabs (link table), download_links
@@ -227,8 +242,7 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// grab_records + download_links; FK to series SET NULL on
 	// download_links.global_series_id; dual-CASCADE on episode_grabs
 	// (FK to grab_records + episodes). The scan_runs FK on
-	// grab_records.scan_run_id is OPTIONAL — declared only when the
-	// scan_runs table is already in s (it ships in a later D-1 batch).
+	// grab_records.scan_run_id activates because addScanRuns ran above.
 	//
 	// Dev-time split: setting ATLAS_SCHEMA_SKIP_GRAB=1 generates
 	// earlier migrations without these tables.
@@ -1992,11 +2006,86 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 
 // D-1-7b — grab tables.
 
+// addScanRuns appends scan_runs to s. Story 465b (D-4 catalog rewrite).
+//
+// PK text(36) uuid (matches grab_records.id pattern); no FK on
+// instance_name (instance keyed by text name; scan_runs survive instance
+// rename — soft by design, mirrors grab_records ownership). Three
+// secondary indexes: (created_at, id) + (started_at, id) for keyset
+// pagination from ScanRepository.List + plain index on instance_name
+// for the per-instance filter.
+//
+// Position: MUST be called BEFORE addGrab so the conditional
+// grab_records.scan_run_id FK in buildGrabRecordsTable activates.
+func addScanRuns(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildScanRunsTable(d))
+}
+
+// buildScanRunsTable returns scan_runs — 15 cols, text(36) PK, 3
+// secondary indexes. Schema matches the GORM model
+// internal/shared/db/models.go:ScanRunModel — keep them in lockstep
+// when modifying.
+func buildScanRunsTable(d Dialect) *atlasschema.Table {
+	id := atlasschema.NewStringColumn("id", "text").SetNull(false)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	trigger := atlasschema.NewStringColumn("trigger", "text").SetNull(false)
+	startedAt := timestampColumn(d, "started_at", false /*withDefault*/, true /*notNull*/)
+	finishedAt := timestampColumn(d, "finished_at", false /*withDefault*/, false /*nullable*/)
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'running'"})
+	seriesScanned := atlasschema.NewIntColumn("series_scanned", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	candidatesFound := atlasschema.NewIntColumn("candidates_found", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	grabsPerformed := atlasschema.NewIntColumn("grabs_performed", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	grabsFailed := atlasschema.NewIntColumn("grabs_failed", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	errorsCount := atlasschema.NewIntColumn("errors_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	errorMessage := atlasschema.NewStringColumn("error_message", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "''"})
+	dryRun := atlasschema.NewBoolColumn("dry_run", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+	updatedAt := timestampColumn(d, "updated_at", true /*withDefault*/, true /*notNull*/)
+
+	tbl := atlasschema.NewTable("scan_runs").
+		AddColumns(id, instanceName, trigger, startedAt, finishedAt,
+			status, seriesScanned, candidatesFound, grabsPerformed,
+			grabsFailed, errorsCount, errorMessage, dryRun,
+			createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id))
+
+	// Composite indexes for keyset pagination
+	// (catalog/persistence/scan_repository.go List orders by
+	// started_at + id; legacy UI paths key on created_at + id).
+	// Plain index on instance_name covers per-instance List filter.
+	tbl.AddIndexes(
+		atlasschema.NewIndex("idx_scan_runs_created_at_id").
+			AddColumns(createdAt, id),
+		atlasschema.NewIndex("idx_scan_runs_started_at_id").
+			AddColumns(startedAt, id),
+		atlasschema.NewIndex("idx_scan_runs_instance_name").
+			AddColumns(instanceName),
+	)
+
+	return tbl
+}
+
 // addGrab appends the 3 grab tables to s. FK graph:
 //
 //	sonarr_instance.name ←CASCADE← grab_records.instance_name
 //	                     ←CASCADE← download_links.instance_name
-//	scan_runs.id         ←SETNULL← grab_records.scan_run_id (deferred until table lands)
+//	scan_runs.id         ←SETNULL← grab_records.scan_run_id (active once scan_runs lands)
 //	grab_records.id      ←CASCADE← episode_grabs.grab_id
 //	episodes.id          ←CASCADE← episode_grabs.episode_id
 //	series.id            ←SETNULL← download_links.global_series_id
@@ -2004,7 +2093,9 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 // PRD reconciliations: instance keyed by text name (not bigint id);
 // external_episode_ids as TEXT JSON (SQLite has no array); grab_records.id
 // stays text(36) for uuid contract; episode_grabs is the link table.
-// Depends on sonarr_instance, episodes, series. scan_runs is OPTIONAL.
+// Depends on sonarr_instance, episodes, series. scan_runs is REQUIRED
+// in prod paths (D-4 story 465b); only ATLAS_SCHEMA_SKIP_SCAN_RUNS dev
+// flag makes it optional.
 func addGrab(s *atlasschema.Schema, d Dialect) {
 	sonarrInstance := mustTable(s, "sonarr_instance")
 	episodes := mustTable(s, "episodes")

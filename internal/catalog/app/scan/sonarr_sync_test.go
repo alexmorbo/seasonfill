@@ -70,7 +70,6 @@ func (f *syncFixture) countTable(t *testing.T, table string) int {
 // the same show converge on ONE canon row, ONE set of join rows, but
 // TWO cache rows.
 func TestSyncSeriesFromSonarr_TwoInstances_DedupCanon(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	cases := []struct {
 		name         string
@@ -125,7 +124,6 @@ func TestSyncSeriesFromSonarr_TwoInstances_DedupCanon(t *testing.T) {
 // TestSyncSeriesFromSonarr_OrphanCreation — Sonarr payload with only
 // tvdbId (no tmdb) creates a stub canon row with tmdb_id=NULL.
 func TestSyncSeriesFromSonarr_OrphanCreation(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -145,7 +143,6 @@ func TestSyncSeriesFromSonarr_OrphanCreation(t *testing.T) {
 // TestSyncSeriesFromSonarr_NetworkResolution_CreatesOnMiss — sync of
 // a never-seen network creates the networks row and join.
 func TestSyncSeriesFromSonarr_NetworkResolution_CreatesOnMiss(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -166,7 +163,6 @@ func TestSyncSeriesFromSonarr_NetworkResolution_CreatesOnMiss(t *testing.T) {
 // TestSyncSeriesFromSonarr_GenreResolution_CreatesI18n — sync with
 // genres against an empty dictionary creates genres + genres_i18n rows.
 func TestSyncSeriesFromSonarr_GenreResolution_CreatesI18n(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -182,7 +178,6 @@ func TestSyncSeriesFromSonarr_GenreResolution_CreatesI18n(t *testing.T) {
 // instances; assert one canonical episode row per (season, episode),
 // two episode_states rows per episode.
 func TestSyncSeriesFromSonarr_EpisodesPerInstance(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -224,7 +219,6 @@ func TestSyncSeriesFromSonarr_EpisodesPerInstance(t *testing.T) {
 // short-circuits cleanly (canon + cache rows present, no episode-side
 // writes).
 func TestSyncSeriesFromSonarr_EmptyEpisodes(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -240,7 +234,6 @@ func TestSyncSeriesFromSonarr_EmptyEpisodes(t *testing.T) {
 // TestSyncSeriesFromSonarr_Idempotent — re-running the same sync
 // against an unchanged payload is a no-op modulo updated_at.
 func TestSyncSeriesFromSonarr_Idempotent(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -261,7 +254,6 @@ func TestSyncSeriesFromSonarr_Idempotent(t *testing.T) {
 // metadata (codecs, channels, release group) propagates from the payload
 // into episode_states.
 func TestSyncEpisodes_PopulatesMediaMeta(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -325,7 +317,6 @@ func TestSyncEpisodes_PopulatesMediaMeta(t *testing.T) {
 // One Upsert per Sonarr season; counters come straight from
 // p.Seasons[].Statistics.
 func TestSyncSeriesFromSonarr_WritesSeasonStats(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()
@@ -376,7 +367,6 @@ func TestSyncSeriesFromSonarr_WritesSeasonStats(t *testing.T) {
 // the "aired-but-not-on-disk" delta the handler will clamp into
 // MissingCount. Aired=10, on disk=8 → expected missing=2.
 func TestSyncSeriesFromSonarr_SeasonStats_PartialPack(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	f := newSyncFixture(t)
 	ctx := context.Background()

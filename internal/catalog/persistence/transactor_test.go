@@ -28,7 +28,6 @@ var errForcedMidTx = errors.New("forced mid-transaction failure")
 // rolls back. On SQLite this test would also fail because the grab row would
 // survive even though Transaction returned an error.
 func TestGormTransactor_Rollback_OnMiddleWriteFailure(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

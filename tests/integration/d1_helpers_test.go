@@ -208,8 +208,9 @@ func d1IndexOf(s, sub string) int {
 
 // d1AcceptanceTablesPostgres is the canonical Postgres-side table inventory
 // asserted by TestD1_Acceptance_TableInventory. Sourced from
-// schema.Schema(Postgres) on 2026-06-21 (story 461 / D-1-8). 41 tables
-// in total: 14 PRD §4 "top-level" canon tables + 27 child/projection/i18n
+// schema.Schema(Postgres) on 2026-06-21 (story 461 / D-1-8); extended
+// in D-4 story 465b (scan_runs migration 000015). 42 tables in total:
+// 14 PRD §4 "top-level" canon tables + 28 child/projection/i18n
 // siblings. schema_migrations (golang-migrate tracker) is excluded; it
 // is not part of the seasonfill domain.
 //
@@ -239,6 +240,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"person_credits",
 	"production_companies",
 	"production_companies_i18n",
+	"scan_runs",
 	"season_stats",
 	"seasons",
 	"series",

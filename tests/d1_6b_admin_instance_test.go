@@ -19,14 +19,14 @@ import (
 // D-1-7a adds 2 more (users, user_instance_tags) → 36. D-1-7b adds
 // 3 more (grab_records, episode_grabs, download_links) → 39. D-1-7c
 // (story 460c) adds 2 watchdog tables (watchdog_state,
-// watchdog_blacklist) → 41.
+// watchdog_blacklist) → 41. D-4 story 465b adds scan_runs → 42.
 func TestD16b_SchemaHasThirtyFourTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 41; got != want {
+			if got, want := len(s.Tables), 42; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}

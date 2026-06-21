@@ -242,9 +242,10 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
 			// Total table count bumped from 39 (post D-1-7b) to 41 after
-			// D-1-7c (story 460c) added watchdog_state + watchdog_blacklist.
-			if len(s.Tables) != 41 {
-				t.Errorf("Schema(%s) tables = %d, want 41 (after D-1-7c)", d, len(s.Tables))
+			// D-1-7c (story 460c) added watchdog_state + watchdog_blacklist,
+			// then to 42 after D-4 story 465b added scan_runs.
+			if len(s.Tables) != 42 {
+				t.Errorf("Schema(%s) tables = %d, want 42 (after D-4 scan_runs)", d, len(s.Tables))
 			}
 		})
 	}

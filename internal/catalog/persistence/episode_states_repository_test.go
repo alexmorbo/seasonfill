@@ -15,7 +15,6 @@ import (
 )
 
 func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -54,7 +53,6 @@ func TestEpisodeStatesRepository_UpsertAndGet(t *testing.T) {
 }
 
 func TestEpisodeStatesRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -73,7 +71,6 @@ func TestEpisodeStatesRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestEpisodeStatesRepository_Upsert_Idempotent_PerInstance(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -109,7 +106,6 @@ func TestEpisodeStatesRepository_Upsert_Idempotent_PerInstance(t *testing.T) {
 }
 
 func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -141,7 +137,6 @@ func TestEpisodeStatesRepository_ListBySeries(t *testing.T) {
 // SoftDeleteBySeries cascade (story 218) left rows hidden forever
 // because the DO UPDATE SET did not include deleted_at.
 func TestEpisodeStatesRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -202,7 +197,6 @@ func TestEpisodeStatesRepository_Upsert_ResurrectsSoftDeleted(t *testing.T) {
 }
 
 func TestEpisodeStatesRepository_MediaMeta_RoundTrip(t *testing.T) {
-	t.Skip("pending D-4 catalog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

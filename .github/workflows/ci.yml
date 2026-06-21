@@ -207,9 +207,11 @@ jobs:
   migrations-diff-check:
     name: D-1 acceptance — atlas diff/lint gate
     # Story 461 (D-1-8) — final D-1 acceptance gate.
-    # Proves that schema.go is fully expressed by the 13 committed
+    # Proves that schema.go is fully expressed by all committed
     # migrations on both Postgres and SQLite. The job runs:
-    #   1. `atlas migrate lint --latest 13` per dialect
+    #   1. `atlas migrate lint --latest 15` per dialect (D-4 story 465b
+    #      bumped from 13 to 15 — 000014 enrichment_synced_at + 000015
+    #      scan_runs)
     #   2. `make migrations-diff-check` (idempotency probe)
     # Independent of unit/integration jobs — no needs:[] dependency so a
     # broken schema fails fast without waiting for the long test matrix.
@@ -242,13 +244,13 @@ jobs:
       - name: Install atlas CLI
         run: make atlas-install
 
-      - name: atlas migrate lint (postgres, all 13)
+      - name: atlas migrate lint (postgres, all 15)
         env:
           SEASONFILL_DATABASE_DSN: postgres://atlas:atlas@localhost:5432/atlas_dev?sslmode=disable
-        run: atlas migrate lint --env postgres --latest 13
+        run: atlas migrate lint --env postgres --latest 15
 
-      - name: atlas migrate lint (sqlite, all 13)
-        run: atlas migrate lint --env sqlite --latest 13
+      - name: atlas migrate lint (sqlite, all 15)
+        run: atlas migrate lint --env sqlite --latest 15
 
       - name: migrations-diff-check (both dialects)
         env:
