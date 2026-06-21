@@ -44,6 +44,14 @@
 // download_links (qbit_hash text(64) PK; dual-target sonarr/radarr via
 // CHECK; external_episode_ids TEXT JSON per §6.7; global_series_id
 // FK→series SET NULL).
+// D-1-7c (story 460c) appends the watchdog batch: watchdog_state
+// (per-instance per-(series,season) regrab tracking, replaces legacy
+// regrab_no_better_counter; composite PK on instance_name +
+// sonarr_series_id + season_number; cooldown_until + last_error
+// add observability the legacy schema implied via logs only) and
+// watchdog_blacklist (per-instance per-(series,season) escalation
+// parking; composite PK; release_title NULL-able audit metadata;
+// ttl_until NULL = manual unblock only per v1 behaviour).
 package schema
 
 import (
@@ -228,7 +236,23 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addGrab(s, d)
 	}
 
-	// D-1-7c (story 460c) appends watchdog tables here.
+	// D-1-7c (story 460c) — watchdog tables: watchdog_state (per-instance
+	// per-(series,season) cooldown/regrab tracking — replaces legacy
+	// regrab_no_better_counter) and watchdog_blacklist (per-instance
+	// per-(series,season) escalation parking — replaces legacy
+	// watchdog_blacklist).
+	//
+	// Both tables key on composite PK (instance_name, sonarr_series_id,
+	// season_number); both have a single FK to sonarr_instance.name with
+	// ON DELETE CASCADE. No FK to series_cache.sonarr_series_id (matches
+	// grab_records pattern — Sonarr's id is not our canon; cold-start
+	// race avoidance per buildGrabRecordsTable doc).
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_WATCHDOG=1 generates
+	// earlier migrations without these tables.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_WATCHDOG") == "" {
+		addWatchdog(s, d)
+	}
 
 	return s
 }
@@ -2195,4 +2219,123 @@ func buildDownloadLinksTable(d Dialect, sonarrInstance, series *atlasschema.Tabl
 				SetOnDelete(atlasschema.SetNull).
 				SetOnUpdate(atlasschema.NoAction),
 		)
+}
+
+// D-1-7c — watchdog tables.
+
+// addWatchdog appends the 2 watchdog tables to s. FK graph:
+//
+//	sonarr_instance.name ←CASCADE← watchdog_state.instance_name
+//	                     ←CASCADE← watchdog_blacklist.instance_name
+//
+// PRD reconciliations: instance keyed by text name (not bigint id);
+// season included in composite PK (replaces legacy
+// regrab_no_better_counter triple); no surrogate id (composite PK
+// suffices); no FK on sonarr_series_id (Sonarr's id, not our canon).
+// Depends on sonarr_instance.
+func addWatchdog(s *atlasschema.Schema, d Dialect) {
+	sonarrInstance := mustTable(s, "sonarr_instance")
+
+	watchdogState := buildWatchdogStateTable(d, sonarrInstance)
+	s.AddTables(watchdogState)
+
+	watchdogBlacklist := buildWatchdogBlacklistTable(d, sonarrInstance)
+	s.AddTables(watchdogBlacklist)
+}
+
+// buildWatchdogStateTable returns watchdog_state — 8 cols, composite
+// PK on (instance_name, sonarr_series_id, season_number),
+// 1 FK CASCADE to sonarr_instance(name), 2 secondary indexes
+// (1 plain on instance_name, 1 partial on cooldown_until WHERE NOT NULL).
+//
+// Replaces legacy regrab_no_better_counter — same semantics but with
+// season as part of the key (was a UNIQUE-on-triple separately keyed
+// by surrogate id) and bonus columns: cooldown_until (was implicit in
+// loop scheduler), last_error (was implicit in logs only).
+func buildWatchdogStateTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	sonarrSeriesID := atlasschema.NewIntColumn("sonarr_series_id", "bigint").SetNull(false)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	attemptCount := atlasschema.NewIntColumn("attempt_count", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	lastAttemptAt := timestampColumn(d, "last_attempt_at", false /*withDefault*/, true /*notNull*/)
+	cooldownUntil := timestampColumn(d, "cooldown_until", false /*withDefault*/, false /*nullable*/)
+	lastError := atlasschema.NewNullStringColumn("last_error", "text")
+	updatedAt := timestampColumn(d, "updated_at", true /*withDefault*/, true /*notNull*/)
+
+	tbl := atlasschema.NewTable("watchdog_state").
+		AddColumns(instanceName, sonarrSeriesID, seasonNumber, attemptCount,
+			lastAttemptAt, cooldownUntil, lastError, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, sonarrSeriesID, seasonNumber))
+
+	// Plain index on instance_name — covers FK + list-by-instance UI query.
+	tbl.AddIndexes(
+		atlasschema.NewIndex("watchdog_state_instance_name_idx").
+			AddColumns(instanceName),
+	)
+
+	// Partial index on cooldown_until WHERE NOT NULL — supports
+	// "cooldowns expiring soon" sweep. Postgres emits the predicate
+	// natively; SQLite Atlas driver also accepts it via its own
+	// IndexPredicate attr.
+	tbl.AddIndexes(partialIndex(d, "watchdog_state_cooldown_until_idx",
+		[]*atlasschema.Column{cooldownUntil},
+		"cooldown_until IS NOT NULL"))
+
+	// FK to sonarr_instance.name CASCADE.
+	tbl.AddForeignKeys(
+		atlasschema.NewForeignKey("watchdog_state_instance_name_fkey").
+			AddColumns(instanceName).
+			SetRefTable(sonarrInstance).
+			AddRefColumns(parentRefCol(sonarrInstance)).
+			SetOnDelete(atlasschema.Cascade).
+			SetOnUpdate(atlasschema.NoAction),
+	)
+
+	return tbl
+}
+
+// buildWatchdogBlacklistTable returns watchdog_blacklist — 8 cols,
+// composite PK on (instance_name, sonarr_series_id, season_number),
+// 1 FK CASCADE to sonarr_instance(name), 1 partial index on ttl_until.
+//
+// Replaces legacy watchdog_blacklist — same semantics but composite PK
+// (was surrogate id + UNIQUE), no `consecutive_no_better` link to
+// regrab_no_better_counter (the live `consecutive` audit column is
+// kept), and release_title is added as NULL-able audit metadata.
+func buildWatchdogBlacklistTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	sonarrSeriesID := atlasschema.NewIntColumn("sonarr_series_id", "bigint").SetNull(false)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	releaseTitle := atlasschema.NewNullStringColumn("release_title", "text")
+	reason := atlasschema.NewStringColumn("reason", "text").SetNull(false)
+	consecutive := atlasschema.NewIntColumn("consecutive", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	blacklistedAt := timestampColumn(d, "blacklisted_at", true /*withDefault*/, true /*notNull*/)
+	ttlUntil := timestampColumn(d, "ttl_until", false /*withDefault*/, false /*nullable*/)
+
+	tbl := atlasschema.NewTable("watchdog_blacklist").
+		AddColumns(instanceName, sonarrSeriesID, seasonNumber, releaseTitle, reason,
+			consecutive, blacklistedAt, ttlUntil).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, sonarrSeriesID, seasonNumber))
+
+	// Partial index on ttl_until WHERE NOT NULL — supports future v2
+	// auto-unblock sweep.
+	tbl.AddIndexes(partialIndex(d, "watchdog_blacklist_ttl_until_idx",
+		[]*atlasschema.Column{ttlUntil},
+		"ttl_until IS NOT NULL"))
+
+	// FK to sonarr_instance.name CASCADE.
+	tbl.AddForeignKeys(
+		atlasschema.NewForeignKey("watchdog_blacklist_instance_name_fkey").
+			AddColumns(instanceName).
+			SetRefTable(sonarrInstance).
+			AddRefColumns(parentRefCol(sonarrInstance)).
+			SetOnDelete(atlasschema.Cascade).
+			SetOnUpdate(atlasschema.NoAction),
+	)
+
+	return tbl
 }
