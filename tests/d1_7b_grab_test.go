@@ -33,7 +33,13 @@ func TestD1_7b_GrabRecords_StatusCheck(t *testing.T) {
 	t.Parallel()
 	s := schema.Schema(schema.DialectPostgres)
 	tbl := mustTable(t, s, "grab_records")
-	want := "status IN ('pending', 'grabbed', 'imported', 'failed', 'cancelled')"
+	// 467a / D-6 corrected the enum to match the grab domain
+	// constants (StatusGrabbed / StatusGrabFailed / StatusImported /
+	// StatusImportFailed). The pre-D-6 enum
+	// ('pending','grabbed','imported','failed','cancelled') drifted
+	// from the domain and was never observed because the table sat
+	// empty until the D-6 unskip.
+	want := "status IN ('grabbed', 'grab_failed', 'imported', 'import_failed')"
 	var got string
 	for _, a := range tbl.Attrs {
 		if chk, ok := a.(*atlasschema.Check); ok && chk.Name == "grab_records_status_check" {
@@ -244,9 +250,11 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// Total table count bumped from 39 (post D-1-7b) to 41 after
 			// D-1-7c (story 460c) added watchdog_state + watchdog_blacklist,
 			// then to 42 after D-4 story 465b added scan_runs, then to 44
-			// after D-5 story 466b added app_config + sonarr_instance_settings.
-			if len(s.Tables) != 44 {
-				t.Errorf("Schema(%s) tables = %d, want 44 (after D-5 app_config)", d, len(s.Tables))
+			// after D-5 story 466b added app_config + sonarr_instance_settings,
+			// then to 47 after D-6 story 467a re-added the grab audit trio
+			// (decisions, cooldowns, origin_releases).
+			if len(s.Tables) != 47 {
+				t.Errorf("Schema(%s) tables = %d, want 47 (after D-6 grab_audit)", d, len(s.Tables))
 			}
 		})
 	}

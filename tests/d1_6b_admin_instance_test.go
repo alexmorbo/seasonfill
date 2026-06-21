@@ -21,13 +21,15 @@ import (
 // (story 460c) adds 2 watchdog tables (watchdog_state,
 // watchdog_blacklist) → 41. D-4 story 465b adds scan_runs → 42.
 // D-5 story 466b adds app_config + sonarr_instance_settings → 44.
+// D-6 story 467a re-adds the grab audit trio (decisions, cooldowns,
+// origin_releases) → 47.
 func TestD16b_SchemaHasThirtyFourTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 44; got != want {
+			if got, want := len(s.Tables), 47; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}
