@@ -43,9 +43,10 @@ type rollupGrabCounter interface {
 }
 
 // rollupBlacklistCounter is the narrowed slice of
-// WatchdogBlacklistRepository the handler needs.
+// WatchdogBlacklistRepository the handler needs. D-1 / 467b: keyed on
+// instance_name (composite PK shift), not the legacy surrogate id.
 type rollupBlacklistCounter interface {
-	CountByInstance(ctx context.Context, id uint) (int, error)
+	CountByInstance(ctx context.Context, instance domain.InstanceName) (int, error)
 }
 
 // QbitProbe is the on-demand qBT reachability check. Implementations
@@ -269,7 +270,7 @@ func (h *WatchdogRollupHandler) All(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.WatchdogRollupList{Items: rows})
 }
 
-func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, instanceID uint) (dto.WatchdogRollup, error) {
+func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, _ uint) (dto.WatchdogRollup, error) {
 	instName := domain.InstanceName(name)
 	row := dto.WatchdogRollup{InstanceName: instName}
 	sett, err := h.settings.Lookup(ctx, instName)
@@ -302,7 +303,7 @@ func (h *WatchdogRollupHandler) buildOne(ctx context.Context, name string, insta
 		return e
 	})
 	cg.Go(func() error {
-		v, e := h.blacklist.CountByInstance(cctx, instanceID)
+		v, e := h.blacklist.CountByInstance(cctx, instName)
 		if e == nil {
 			blist = v
 		}

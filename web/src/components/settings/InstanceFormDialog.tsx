@@ -18,7 +18,11 @@ import {
   type InstanceUpdateRequest,
   type InstanceDetail,
 } from '@/lib/instances-mutations';
-import { DtoInstanceCooldownMode, DtoInstanceTagsMode } from '@/api/schema';
+import {
+  DtoInstanceCooldownMode,
+  DtoInstanceCreateRequestMode,
+  DtoInstanceTagsMode,
+} from '@/api/schema';
 import {
   useQbitSettings,
   type QbitSettingsDTO,
@@ -246,7 +250,7 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
   const base: Omit<InstanceCreateRequest, 'api_key'> = {
     name: v.name,
     url: v.url,
-    mode: v.mode,
+    mode: v.mode as DtoInstanceCreateRequestMode,
     timeout_sec: v.timeout_sec,
     search_timeout_sec: v.search_timeout_sec,
     webhook_install_enabled: v.webhook_install_enabled,
@@ -431,7 +435,7 @@ export function InstanceFormDialog({
       instanceBody = {
         ...wire,
         ...(userTypedKey ? { api_key: values.api_key.trim() } : {}),
-      } as InstanceUpdateRequest;
+      } as unknown as InstanceUpdateRequest;
     } else {
       instanceBody = { ...wire, api_key: values.api_key.trim() } as InstanceCreateRequest;
     }

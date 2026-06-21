@@ -246,7 +246,7 @@ func NewServer(
 		guarded.GET("/instances/:name/watchdog/rollups", watchdogRollupHandler.One)
 		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)
 		guarded.GET("/instances/:name/watchdog/blacklist", watchdogBlacklistHandler.List)
-		guarded.DELETE("/instances/:name/watchdog/blacklist/:id", watchdogBlacklistHandler.Delete)
+		guarded.DELETE("/instances/:name/watchdog/blacklist/:series/:season", watchdogBlacklistHandler.Delete)
 		if watchdogSeasonsHandler != nil {
 			guarded.GET("/watchdog/seasons", watchdogSeasonsHandler.List)
 			guarded.GET("/watchdog/series/:instance/:id", watchdogSeasonsHandler.Series)

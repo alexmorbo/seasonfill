@@ -18,12 +18,10 @@ import (
 // WatchdogSeasonRow is the read-only join projection driving the
 // `/watchdog/seasons` aggregate page. Every field is populated for the
 // origin_releases row that produced it; the optional pointer fields
-// (Cooldown / NoBetter / Blacklist) are filled in by the repository
-// from sibling tables. Lives in the infrastructure layer because it
-// only ever leaves the repo through the handler-side mapper that
-// translates it into dto.WatchdogSeason.
+// (Cooldown / WatchdogState / Blacklist) are filled in by the repository
+// from sibling tables. D-1 / 467b: replaced legacy NoBetterCounter
+// pointer with WatchdogState (which folds NoBetterCounter semantics).
 type WatchdogSeasonRow struct {
-	InstanceID        uint
 	InstanceName      domain.InstanceName
 	SeriesID          domain.SonarrSeriesID
 	SeasonNumber      int
@@ -38,9 +36,9 @@ type WatchdogSeasonRow struct {
 	OriginLastSeenAt  time.Time
 	OriginLastUsedAt  *time.Time
 
-	Cooldown        *cooldown.Cooldown
-	NoBetterCounter *regrab.NoBetterCounter
-	Blacklist       *regrab.BlacklistEntry
+	Cooldown      *cooldown.Cooldown
+	WatchdogState *regrab.WatchdogState
+	Blacklist     *regrab.BlacklistEntry
 }
 
 // WatchdogSeasonsFilter is the optional filter set the
@@ -77,9 +75,9 @@ func NewWatchdogSeasonsRepository(db *gorm.DB) *WatchdogSeasonsRepository {
 // ListSeasons returns the requested page of WatchdogSeasonRow rows. The
 // primary driver is `origin_releases` — every row there is a
 // (instance, series, season) triple the watchdog has touched. The
-// sibling tables (series_cache, cooldowns, regrab_no_better_counter,
-// watchdog_blacklist) are LEFT JOIN-style enrichment so a row with
-// only an origin row still appears in the result.
+// sibling tables (series_cache, cooldowns, watchdog_state,
+// watchdog_blacklist) are batch enrichment so a row with only an
+// origin row still appears in the result.
 //
 // limit must be > 0. The handler caps it at 500; the repository does
 // not enforce that ceiling. The returned slice has at most `limit`
@@ -104,21 +102,12 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		Monitored    *bool                 `gorm:"column:monitored"`
 		MissingCount *int                  `gorm:"column:missing_count"`
 		LastAiredAt  *time.Time            `gorm:"column:last_aired_at"`
-		InstanceDBID *uint                 `gorm:"column:instance_id"`
 	}
 
-	// origin_releases is append-only and is never cleaned up when an
-	// instance is renamed/removed or a series is deleted from Sonarr.
-	// Two INNER JOINs are the load-bearing filter:
+	// origin_releases is append-only. Two INNER JOINs filter ghosts:
 	//   * sonarr_instance — drops rows whose instance_name no longer
-	//     matches a configured instance (e.g. an old "Sonarr" default
-	//     left behind after the operator renamed the instance).
-	//   * series_cache    — drops rows for series that no longer exist
-	//     in Sonarr (the cache row is gone or soft-deleted), which
-	//     would otherwise render with an empty title in the UI.
-	// origin_releases data is retained for forensics; the API just
-	// hides the ghosts. See watchdog_seasons_repository_test.go
-	// (Orphan_*) for the regression cases.
+	//     matches a configured instance.
+	//   * series_cache    — drops rows for series with no cache row.
 	q := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("origin_releases o").
 		Select(`o.instance_name AS instance_name,
@@ -132,8 +121,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 			s.title AS title,
 			sc.monitored AS monitored,
 			sc.missing_count AS missing_count,
-			s.last_air_date AS last_aired_at,
-			si.id AS instance_id`).
+			s.last_air_date AS last_aired_at`).
 		Joins("JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id AND sc.deleted_at IS NULL").
 		Joins("JOIN series s ON s.id = sc.series_id AND s.title <> ''").
 		Joins("JOIN sonarr_instance si ON si.name = o.instance_name")
@@ -191,9 +179,6 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		if j.MissingCount != nil {
 			row.MissingAiredCount = *j.MissingCount
 		}
-		if j.InstanceDBID != nil {
-			row.InstanceID = *j.InstanceDBID
-		}
 		out = append(out, row)
 	}
 
@@ -201,12 +186,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		return nil, nil, fmt.Errorf("enrich watchdog seasons: %w", err)
 	}
 
-	// Apply the cooldown_only / blacklisted_only post-filters. We do
-	// them in Go because the page boundary is the origin_releases join,
-	// not the sibling tables — moving these to SQL would mean either
-	// an INNER JOIN (loses the source-of-truth shape) or correlated
-	// subqueries (worse plan on SQLite). The page size is capped at
-	// 500 so the constant factor is small.
+	// Apply the cooldown_only / blacklisted_only post-filters in Go.
 	if f.CooldownOnly || f.BlacklistedOnly {
 		filtered := out[:0]
 		for _, row := range out {
@@ -219,18 +199,15 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 			filtered = append(filtered, row)
 		}
 		out = filtered
-		// The post-filter can drop rows in the page; the next_cursor
-		// the SQL produced still points at the last UNFILTERED row,
-		// which is the correct keyset for the next fetch.
 	}
 
 	return out, next, nil
 }
 
-// enrichSiblings fills the Cooldown / NoBetterCounter / Blacklist
-// pointer fields on every row in rows. Performs at most three batch
-// SELECTs against the sibling tables — one per table — and is a no-op
-// when rows is empty.
+// enrichSiblings fills the Cooldown / WatchdogState / Blacklist pointer
+// fields on every row in rows. Performs at most three batch SELECTs
+// against the sibling tables — one per table — and is a no-op when
+// rows is empty.
 func (r *WatchdogSeasonsRepository) enrichSiblings(ctx context.Context, rows []WatchdogSeasonRow, now time.Time) error {
 	if len(rows) == 0 {
 		return nil
@@ -267,79 +244,54 @@ func (r *WatchdogSeasonsRepository) enrichSiblings(ctx context.Context, rows []W
 		rows[idx].Cooldown = &cd
 	}
 
-	// no_better_counter + watchdog_blacklist both key on
-	// (instance_id, series_id, season_number). Pull the per-row
-	// (instance_id, series_id, season_number) triples and run one
-	// IN-clause query per table. We pre-filter rows whose
-	// InstanceID resolved to zero — those have no joined
-	// sonarr_instance row (the instance was deleted) and the
-	// sibling tables can't carry data for them.
+	// watchdog_state + watchdog_blacklist both key on (instance_name,
+	// sonarr_series_id, season_number). Pull the per-row triple set
+	// and run one IN-clause query per table.
 	type triple struct {
-		instanceID uint
-		seriesID   domain.SonarrSeriesID
-		season     int
+		instance domain.InstanceName
+		seriesID domain.SonarrSeriesID
+		season   int
 	}
 	tripleIdx := make(map[triple]int, len(rows))
-	instanceIDs := make(map[uint]struct{})
+	instances := make(map[domain.InstanceName]struct{})
 	for i, row := range rows {
-		if row.InstanceID == 0 {
-			continue
-		}
-		tripleIdx[triple{row.InstanceID, row.SeriesID, row.SeasonNumber}] = i
-		instanceIDs[row.InstanceID] = struct{}{}
+		tripleIdx[triple{row.InstanceName, row.SeriesID, row.SeasonNumber}] = i
+		instances[row.InstanceName] = struct{}{}
 	}
 	if len(tripleIdx) == 0 {
 		return nil
 	}
-	idList := make([]uint, 0, len(instanceIDs))
-	for id := range instanceIDs {
-		idList = append(idList, id)
+	instList := make([]domain.InstanceName, 0, len(instances))
+	for n := range instances {
+		instList = append(instList, n)
 	}
 
-	var nbModels []NoBetterCounterModel
-	if err := db.Where("instance_id IN ?", idList).
-		Find(&nbModels).Error; err != nil {
-		return fmt.Errorf("load no_better counters: %w", err)
+	var stateModels []database.WatchdogStateModel
+	if err := db.Where("instance_name IN ?", instList).
+		Find(&stateModels).Error; err != nil {
+		return fmt.Errorf("load watchdog_state: %w", err)
 	}
-	for _, m := range nbModels {
-		idx, ok := tripleIdx[triple{m.InstanceID, m.SeriesID, m.SeasonNumber}]
+	for _, m := range stateModels {
+		idx, ok := tripleIdx[triple{m.InstanceName, m.SonarrSeriesID, m.SeasonNumber}]
 		if !ok {
 			continue
 		}
-		nb := regrab.NoBetterCounter{
-			ID:           m.ID,
-			InstanceID:   m.InstanceID,
-			SeriesID:     m.SeriesID,
-			SeasonNumber: m.SeasonNumber,
-			Consecutive:  m.Consecutive,
-			LastSeenAt:   m.LastSeenAt,
-			CreatedAt:    m.CreatedAt,
-			UpdatedAt:    m.UpdatedAt,
-		}
-		rows[idx].NoBetterCounter = &nb
+		ws := toWatchdogState(m)
+		rows[idx].WatchdogState = &ws
 	}
 
 	var blModels []database.WatchdogBlacklistModel
-	if err := db.Where("instance_id IN ?", idList).
-		Where("expires_at IS NULL OR expires_at > ?", now).
+	if err := db.Where("instance_name IN ?", instList).
+		Where("ttl_until IS NULL OR ttl_until > ?", now).
 		Find(&blModels).Error; err != nil {
 		return fmt.Errorf("load blacklist: %w", err)
 	}
 	for _, m := range blModels {
-		idx, ok := tripleIdx[triple{m.InstanceID, m.SeriesID, m.SeasonNumber}]
+		idx, ok := tripleIdx[triple{m.InstanceName, m.SonarrSeriesID, m.SeasonNumber}]
 		if !ok {
 			continue
 		}
-		bl := regrab.BlacklistEntry{
-			ID:           m.ID,
-			InstanceID:   m.InstanceID,
-			SeriesID:     m.SeriesID,
-			SeasonNumber: m.SeasonNumber,
-			Reason:       regrab.Reason(m.Reason),
-			Consecutive:  m.Consecutive,
-			CreatedAt:    m.CreatedAt,
-			ExpiresAt:    m.ExpiresAt,
-		}
+		bl := toBlacklistEntry(m)
 		rows[idx].Blacklist = &bl
 	}
 
@@ -362,24 +314,6 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	// D-5 (story 466b): sonarr_instance.id is gone — name is now PK.
-	// The watchdog sibling tables (regrab_no_better_counter,
-	// watchdog_blacklist) still reference an integer surrogate via
-	// their own InstanceID column; their migration to instance_name TEXT
-	// is owned by D-6. Until then, leave instanceID=0 — the
-	// (instance_id, series_id, season_number) sibling lookups below
-	// simply return empty and the pointer fields stay nil. All
-	// watchdog tests gate on t.Skip("pending D-6 …") so the live
-	// query path is intentionally cold.
-	var inst database.SonarrInstanceModel
-	instanceID := uint(0)
-	if err := db.Where("name = ?", instance).First(&inst).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("lookup sonarr_instance: %w", err)
-		}
-	}
-	_ = inst
-
 	// Origin rows for this series.
 	var origins []database.OriginReleaseModel
 	if err := db.Where("instance_name = ? AND series_id = ?", instance, seriesID).
@@ -388,8 +322,6 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 	}
 
 	// Distinct season numbers we've ever decided on for this series.
-	// SeriesCache holds per-series fields only — we need the season
-	// numbers to surface from decisions for completeness.
 	type seasonRow struct {
 		SeasonNumber int `gorm:"column:season_number"`
 	}
@@ -401,10 +333,7 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 		return nil, fmt.Errorf("load decision seasons: %w", err)
 	}
 
-	// Series cache + canon row — supplies title / monitored / aired
-	// metadata. Post B-1b cutover title and last_air_date come from
-	// canon via JOIN. Empty-title means INNER-JOIN miss (no canon row
-	// resolved — treated like a missing series_cache row).
+	// Series cache + canon row — title / monitored / aired metadata.
 	var sc struct {
 		Title        string     `gorm:"column:title"`
 		Monitored    bool       `gorm:"column:monitored"`
@@ -431,7 +360,6 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 	seasonSet := make(map[int]WatchdogSeasonRow, len(origins)+len(decisionSeasons))
 	for _, o := range origins {
 		row := WatchdogSeasonRow{
-			InstanceID:        instanceID,
 			InstanceName:      instance,
 			SeriesID:          seriesID,
 			SeasonNumber:      o.SeasonNumber,
@@ -448,17 +376,12 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 			continue
 		}
 		seasonSet[ds.SeasonNumber] = WatchdogSeasonRow{
-			InstanceID:   instanceID,
 			InstanceName: instance,
 			SeriesID:     seriesID,
 			SeasonNumber: ds.SeasonNumber,
 		}
 	}
 
-	// Project series_cache fields onto every row (same series, same
-	// values). missing_count + last_aired_at are series-scoped per the
-	// schema; surfacing them on every season row matches the existing
-	// SPA contract.
 	for k, row := range seasonSet {
 		if scFound {
 			row.SeriesTitle = sc.Title
@@ -492,11 +415,6 @@ func (r *WatchdogSeasonsRepository) SeasonStatsFromDecisions(
 ) (map[int]WatchdogSeasonStats, error) {
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	// Strategy: pull the latest decision per (instance, series_id,
-	// season_number) via a window-free pattern that works on both
-	// SQLite and Postgres. We select the most recent row per season
-	// by sorting and de-duping in Go — cheap because seasons-per-series
-	// is small.
 	var rows []struct {
 		SeasonNumber     int       `gorm:"column:season_number"`
 		AiredEpisodes    int       `gorm:"column:aired_episodes"`
@@ -525,8 +443,7 @@ func (r *WatchdogSeasonsRepository) SeasonStatsFromDecisions(
 
 // WatchdogSeasonStats — repository-side projection of the
 // `decisions.aired_episodes` + `decisions.existing_episodes` pair for
-// one season. The handler maps it into dto.WatchdogSeriesSeasonStats
-// (where MissingAiredCount = max(0, AiredEpisodes - ExistingEpisodes)).
+// one season.
 type WatchdogSeasonStats struct {
 	AiredEpisodes    int
 	ExistingEpisodes int
@@ -545,9 +462,6 @@ type RecentDecisionRow struct {
 
 // RecentGrabRow is the read-only projection driving the per-season
 // recent_grabs trailer. Capped at 20 most-recent-first by the repo.
-// TorrentHash is the qBit infohash from grab_records.torrent_hash and is
-// nil for rows created before Phase 10 (the column was added in 039c
-// without backfill).
 type RecentGrabRow struct {
 	ID           string
 	ReleaseTitle string

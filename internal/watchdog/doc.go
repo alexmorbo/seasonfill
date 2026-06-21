@@ -34,14 +34,14 @@
 //	    cooldown_repository.go         — GORM repo for the cooldowns
 //	                                     table; satisfies the
 //	                                     CooldownRepository port.
-//	    no_better_counter_repository.go — GORM repo for the
-//	                                     regrab_no_better_counter
-//	                                     table (NoBetterCounterModel
-//	                                     is exported because the
-//	                                     watchdog_seasons_repository
-//	                                     in the catalog repo bundle
-//	                                     still reads the same table
-//	                                     for its aggregate view).
+//	    watchdog_state_repository.go   — GORM repo for the D-1
+//	                                     watchdog_state table
+//	                                     (composite PK on
+//	                                     instance_name, sonarr_series_id,
+//	                                     season_number). Replaces
+//	                                     legacy NoBetterCounter; the
+//	                                     attempt counter is
+//	                                     watchdog_state.attempt_count.
 //	  rest/
 //	    watchdog_blacklist.go + cursor — list / delete on the
 //	                                     blacklist table.
@@ -93,12 +93,10 @@
 //     only value-object consumer; allowList carve-out continues to
 //     mark cooldown as a cross-context type even after its move
 //     under watchdog).
-//   - infrastructure/database/repositories/watchdog_seasons_repository
-//     → watchdog/persistence.NoBetterCounterModel for the aggregate
-//     read-side join (catalog-side seasons repo stays in the legacy
-//     tree until a later story; the model type is exported so the
-//     model travels with its primary owner without forcing the
-//     seasons-repo move now).
+//   - watchdog/persistence/watchdog_seasons_repository.go reads the
+//     D-1 watchdog_state + watchdog_blacklist tables (composite PK
+//     on instance_name, sonarr_series_id, season_number) for its
+//     aggregate read-side join.
 //
 // Story origin:
 //   - 039+    — Phase 10 Watchdog parent (D-T1..D-T7 plan)

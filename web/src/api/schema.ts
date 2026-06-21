@@ -2654,7 +2654,7 @@ export type paths = {
         };
         /**
          * List Watchdog blacklist entries for an instance
-         * @description Keyset-paginated by (created_at DESC, id DESC).
+         * @description Keyset-paginated by (blacklisted_at DESC, series_id DESC, season_number DESC).
          */
         readonly get: {
             readonly parameters: {
@@ -2710,7 +2710,7 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/instances/{name}/watchdog/blacklist/{id}": {
+    readonly "/instances/{name}/watchdog/blacklist/{series}/{season}": {
         readonly parameters: {
             readonly query?: never;
             readonly header?: never;
@@ -2728,8 +2728,10 @@ export type paths = {
                 readonly path: {
                     /** @description Instance name */
                     readonly name: string;
-                    /** @description Blacklist row id */
-                    readonly id: number;
+                    /** @description Sonarr series id */
+                    readonly series: number;
+                    /** @description Season number */
+                    readonly season: number;
                 };
                 readonly cookie?: never;
             };
@@ -4057,13 +4059,13 @@ export type components = {
             readonly total_episodes?: number;
         };
         /**
-         * @description Intent surfaces the "why this grab" payload from the Decision
-         *     row that produced this grab (091a / F-P2-2). The audit handler
-         *     resolves the Decision lazily by (scan_run_id, instance, series,
-         *     season) at read time and copies the Intent here so GrabDrawer
-         *     can render "Почему этот грабе" without a second round-trip.
-         *     nil when no matching Decision was found OR the Decision itself
-         *     carried no intent (pre-091a rows, error decisions).
+         * @description Intent — the F-P2-2 "why this grab" capture (091a). nil for
+         *     pre-091a rows AND for any decision path that couldn't infer a
+         *     reason (synthetic skip rows, error rows). Frontend GrabDrawer
+         *     renders a localised label for chosen_because and the raw
+         *     chosen_reason_detail string underneath. Always present as a
+         *     JSON key on the wire (null vs object), per omitempty/pointer
+         *     semantics, so the SPA can branch on `null` directly.
          */
         readonly "dto.DecisionIntent": {
             /**
@@ -4443,10 +4445,13 @@ export type components = {
             readonly dry_run?: boolean;
             readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
             readonly limits?: components["schemas"]["dto.InstanceLimits"];
-            /** @example auto */
-            readonly mode?: string;
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly mode?: DtoInstanceCreateRequestMode;
             /** @example alpha */
-            readonly name?: string;
+            readonly name: string;
             /**
              * @description ParseOnGrabEnabled — pointer so omitted is distinguishable from
              *     explicit false. Omitted/null defaults to true.
@@ -4479,7 +4484,7 @@ export type components = {
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
             /** @example http://sonarr:8989 */
-            readonly url?: string;
+            readonly url: string;
             /**
              * @description WebhookInstallEnabled — pointer so omitted is distinguishable
              *     from explicit `false`. Omitted/null defaults to true (matches the
@@ -4615,10 +4620,13 @@ export type components = {
             readonly dry_run?: boolean;
             readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
             readonly limits?: components["schemas"]["dto.InstanceLimits"];
-            /** @example auto */
-            readonly mode?: string;
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly mode?: DtoInstanceUpdateRequestMode;
             /** @example alpha */
-            readonly name?: string;
+            readonly name: string;
             /**
              * @description ParseOnGrabEnabled — pointer so omitted is distinguishable from
              *     explicit false. Omitted/null defaults to true.
@@ -4651,7 +4659,7 @@ export type components = {
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
             /** @example http://sonarr:8989 */
-            readonly url?: string;
+            readonly url: string;
             /**
              * @description WebhookInstallEnabled — pointer so omitted is distinguishable
              *     from explicit `false`. Omitted/null defaults to true (matches the
@@ -4903,7 +4911,7 @@ export type components = {
         };
         readonly "dto.QbitSettingsUpsertRequest": {
             /** @example sonarr */
-            readonly category?: string;
+            readonly category: string;
             readonly custom_unregistered_msgs?: readonly string[];
             /** @example true */
             readonly enabled?: boolean;
@@ -4912,13 +4920,13 @@ export type components = {
             /** @example hunter2 */
             readonly password?: string;
             /** @example 30 */
-            readonly poll_interval_minutes?: number;
+            readonly poll_interval_minutes: number;
             /** @example https://qbit.example.com */
             readonly qbit_public_url?: string;
             /** @example 120 */
             readonly regrab_cooldown_hours?: number;
             /** @example http://qbit.local:8080 */
-            readonly url?: string;
+            readonly url: string;
             /** @example admin */
             readonly username?: string;
         };
@@ -5589,9 +5597,9 @@ export type components = {
             readonly username?: string;
         };
         /**
-         * @description Sync is the per-source hydration timestamp drawn from
-         *     sync_log(entity_type=person, source=tmdb_person). Omitted
-         *     when no row exists — `degraded[]` then carries
+         * @description Sync is the TMDB-person hydration timestamp drawn from
+         *     people.enrichment_synced_at (D-3 migration 000014). Omitted
+         *     when the column is NULL — `degraded[]` then carries
          *     `"tmdb_person"`.
          */
         readonly "dto.SyncInfo": {
@@ -5769,13 +5777,11 @@ export type components = {
             /** @example 3 */
             readonly consecutive?: number;
             readonly created_at?: string;
-            readonly expires_at?: string;
-            /** @example 42 */
-            readonly id?: number;
             /** @example homelab */
             readonly instance_name?: string;
             /** @example consecutive_no_better */
             readonly reason?: string;
+            readonly release_title?: string;
             /** @example 3 */
             readonly season_number?: number;
             /** @example 122 */
@@ -5787,6 +5793,7 @@ export type components = {
              * @enum {string}
              */
             readonly source?: DtoWatchdogBlacklistItemSource;
+            readonly ttl_until?: string;
         };
         readonly "dto.WatchdogBlacklistList": {
             readonly items?: readonly components["schemas"]["dto.WatchdogBlacklistItem"][];
@@ -5845,9 +5852,9 @@ export type components = {
             readonly series_title?: string;
         };
         readonly "dto.WatchdogSeasonBlacklist": {
-            readonly expires_at?: string;
             /** @example consecutive_no_better */
             readonly reason?: string;
+            readonly ttl_until?: string;
         };
         readonly "dto.WatchdogSeasonCooldown": {
             readonly expires_at?: string;
@@ -6092,6 +6099,10 @@ export enum DtoInstanceCountersDTOWindow {
     Value7d = "7d",
     Value30d = "30d"
 }
+export enum DtoInstanceCreateRequestMode {
+    auto = "auto",
+    manual = "manual"
+}
 export enum DtoInstanceDetailMode {
     auto = "auto",
     manual = "manual"
@@ -6100,6 +6111,10 @@ export enum DtoInstanceTagsMode {
     include = "include",
     exclude = "exclude",
     off = "off"
+}
+export enum DtoInstanceUpdateRequestMode {
+    auto = "auto",
+    manual = "manual"
 }
 export enum DtoReadyStatusStatus {
     ok = "ok",

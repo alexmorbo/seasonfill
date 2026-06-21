@@ -6,33 +6,42 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// encodeBlacklistCursor packs (created_at, id) into an opaque base64
-// string. Format: base64("<unixNano>:<id>"). Matches the keyset
-// predicate in WatchdogBlacklistRepository.ListByInstanceWithLimit.
-func encodeBlacklistCursor(at time.Time, id uint) string {
-	raw := strconv.FormatInt(at.UnixNano(), 10) + ":" + strconv.FormatUint(uint64(id), 10)
+// encodeBlacklistCursor packs (blacklisted_at, series_id, season) into
+// an opaque base64 string. Format: base64("<unixNano>:<series>:<season>").
+// Matches the keyset predicate in
+// WatchdogBlacklistRepository.ListByInstanceWithLimit.
+func encodeBlacklistCursor(at time.Time, seriesID domain.SonarrSeriesID, season int) string {
+	raw := strconv.FormatInt(at.UnixNano(), 10) + ":" +
+		strconv.FormatInt(int64(seriesID), 10) + ":" +
+		strconv.Itoa(season)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
 // decodeBlacklistCursor reverses encodeBlacklistCursor.
-func decodeBlacklistCursor(s string) (time.Time, uint, error) {
+func decodeBlacklistCursor(s string) (time.Time, domain.SonarrSeriesID, int, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		return time.Time{}, 0, err
+		return time.Time{}, 0, 0, err
 	}
-	parts := strings.SplitN(string(raw), ":", 2)
-	if len(parts) != 2 {
-		return time.Time{}, 0, errors.New("invalid cursor payload")
+	parts := strings.Split(string(raw), ":")
+	if len(parts) != 3 {
+		return time.Time{}, 0, 0, errors.New("invalid cursor payload")
 	}
 	ns, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return time.Time{}, 0, err
+		return time.Time{}, 0, 0, err
 	}
-	id, err := strconv.ParseUint(parts[1], 10, 64)
+	sid, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return time.Time{}, 0, err
+		return time.Time{}, 0, 0, err
 	}
-	return time.Unix(0, ns).UTC(), uint(id), nil
+	season, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return time.Time{}, 0, 0, err
+	}
+	return time.Unix(0, ns).UTC(), domain.SonarrSeriesID(sid), season, nil
 }

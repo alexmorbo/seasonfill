@@ -777,7 +777,6 @@ type WatchdogRollupList struct {
 // future operator-driven blacklist UI. The column is derived at read
 // time so the wire shape can stabilise before the migration ships.
 type WatchdogBlacklistItem struct {
-	ID           uint                  `json:"id"            example:"42"`
 	InstanceName domain.InstanceName   `json:"instance_name" example:"homelab"`
 	SeriesID     domain.SonarrSeriesID `json:"series_id"     example:"122"`
 	SeriesTitle  string                `json:"series_title"  example:"Severance"`
@@ -785,8 +784,9 @@ type WatchdogBlacklistItem struct {
 	Reason       string                `json:"reason"        example:"consecutive_no_better"`
 	Source       string                `json:"source"        example:"auto" enums:"auto,manual"`
 	Consecutive  int                   `json:"consecutive"   example:"3"`
+	ReleaseTitle *string               `json:"release_title,omitempty"`
 	CreatedAt    time.Time             `json:"created_at"`
-	ExpiresAt    *time.Time            `json:"expires_at,omitempty"`
+	TTLUntil     *time.Time            `json:"ttl_until,omitempty"`
 }
 
 // WatchdogBlacklistList — body of GET /api/v1/instances/:name/watchdog/blacklist.
@@ -832,8 +832,8 @@ type WatchdogSeasonNoBetter struct {
 // ExpiresAt is nil for v1 (manual unblock only) but kept as pointer so
 // a future auto-unblock policy doesn't break the wire shape.
 type WatchdogSeasonBlacklist struct {
-	Reason    string     `json:"reason"     example:"consecutive_no_better"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Reason   string     `json:"reason"     example:"consecutive_no_better"`
+	TTLUntil *time.Time `json:"ttl_until,omitempty"`
 }
 
 // WatchdogSeason is one row of GET /api/v1/watchdog/seasons. All

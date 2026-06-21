@@ -34,7 +34,21 @@ func newDecisionID() uuid.UUID { return uuid.New() }
 
 func newInstanceID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
 
-func newWBID() uint { return uint(rand.Uint32N(1_000_000) + 1) }
+func newWBTriple() (string, int64, int) {
+	return fmt.Sprintf("inst-%d", rand.Int32N(1_000)+1),
+		int64(rand.Int32N(1_000_000)) + 1,
+		int(rand.Int32N(20))
+}
+
+// wbErr returns a fresh randomised WatchdogBlacklistNotFoundError —
+// helper used by the type tests so each table row gets a distinct
+// triple per the D-0 no-shared-id rule.
+func wbErr() *sharedErrors.WatchdogBlacklistNotFoundError {
+	inst, sid, season := newWBTriple()
+	return &sharedErrors.WatchdogBlacklistNotFoundError{
+		Instance: inst, SeriesID: sid, Season: season,
+	}
+}
 
 func newGrabID() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
@@ -72,7 +86,7 @@ func TestIsRetriable_PerType(t *testing.T) {
 		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, false},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, false},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, false},
-		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, false},
+		{"WatchdogBlacklistNotFoundError", wbErr(), false},
 		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, false},
 	}
 
@@ -143,7 +157,7 @@ func TestErrorCode_PerType(t *testing.T) {
 		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, "qbit_settings_not_found"},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, "scan_run_not_found"},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, "decision_not_found"},
-		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, "watchdog_blacklist_not_found"},
+		{"WatchdogBlacklistNotFoundError", wbErr(), "watchdog_blacklist_not_found"},
 		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, "media_asset_not_found"},
 	}
 

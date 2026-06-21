@@ -180,7 +180,7 @@ func makeUC(t *testing.T, ctrl *gomock.Controller) (
 	*mocks.MockGrabRepository,
 	*mocks.MockCooldownRepository,
 	*mocks.MockWatchdogBlacklistRepository,
-	*mocks.MockNoBetterCounterRepository,
+	*mocks.MockWatchdogStateRepository,
 	*mocks.MockEvaluateExecutor,
 	*mocks.MockGrabExecutor,
 	*mocks.MockMetrics,
@@ -195,7 +195,7 @@ func makeUC(t *testing.T, ctrl *gomock.Controller) (
 	grabs := mocks.NewMockGrabRepository(ctrl)
 	cooldowns := mocks.NewMockCooldownRepository(ctrl)
 	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
-	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	cnt := mocks.NewMockWatchdogStateRepository(ctrl)
 	ev := mocks.NewMockEvaluateExecutor(ctrl)
 	gx := mocks.NewMockGrabExecutor(ctrl)
 	mt := mocks.NewMockMetrics(ctrl)
@@ -351,8 +351,8 @@ func TestRunInstance_Blacklisted_Skips(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(
-		domainregrab.BlacklistEntry{InstanceID: s.InstanceID}, nil)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(
+		domainregrab.BlacklistEntry{InstanceName: testInstance}, nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "skip_blacklist")
 	mt.EXPECT().IncPollResult(testInstance, "ok")
 
@@ -386,7 +386,7 @@ func TestRunInstance_EvaluateGrab_HappyPath(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	// Evaluator returns OutcomeGrab.
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(successDecision(), nil)
@@ -400,7 +400,7 @@ func TestRunInstance_EvaluateGrab_HappyPath(t *testing.T) {
 	// Audit stamp.
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
 	// Counter reset on success.
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	// Cooldown activate.
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
@@ -433,19 +433,19 @@ func TestRunInstance_NothingBetter_IncrementsCounterAndMaybeBlacklists(t *testin
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
 	// Counter increment crosses the threshold → blacklist + reset.
 	threshold := s.MaxConsecutiveNoBetter
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{
-			InstanceID:   s.InstanceID,
-			SeriesID:     testSeries,
-			SeasonNumber: testSeason,
-			Consecutive:  threshold,
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{
+			InstanceName:   testInstance,
+			SonarrSeriesID: testSeries,
+			SeasonNumber:   testSeason,
+			AttemptCount:   threshold,
 		}, nil)
 	bl.EXPECT().Upsert(gomock.Any(), gomock.Any()).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -484,10 +484,10 @@ func TestRunInstance_DualTorrentSameTriple_EvaluatesOnce(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), hashB).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, gomock.Any()).Times(2)
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil).Times(1)
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{Consecutive: 1}, nil).Times(1)
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{AttemptCount: 1}, nil).Times(1)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better").Times(1)
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -519,7 +519,7 @@ func TestRunInstance_EvaluateError_CountsErrorActivatesCooldown(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(decision.Decision{}, errors.New("sonarr 503"))
 	mt.EXPECT().IncRegrabResult(testInstance, "error")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
@@ -573,7 +573,7 @@ func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
 	grabs := mocks.NewMockGrabRepository(ctrl)
 	cooldowns := mocks.NewMockCooldownRepository(ctrl)
 	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
-	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	cnt := mocks.NewMockWatchdogStateRepository(ctrl)
 	ev := mocks.NewMockEvaluateExecutor(ctrl)
 	gx := mocks.NewMockGrabExecutor(ctrl)
 	mt := mocks.NewMockMetrics(ctrl)
@@ -606,7 +606,7 @@ func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(successDecision(), nil)
 	newID := uuid.New()
 	gx.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(appgrab.Output{
@@ -615,7 +615,7 @@ func TestRunInstance_DebugInstrumentation_EmitsKeysAtCheckpoints(t *testing.T) {
 		Attempts: 1,
 	})
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -709,7 +709,7 @@ func TestRunInstance_ReplayByGUID_Success(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	// Replay path persists a synthetic decision row — capture it.
 	var saved decision.Decision
@@ -729,7 +729,7 @@ func TestRunInstance_ReplayByGUID_Success(t *testing.T) {
 		Attempts: 1,
 	})
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -796,13 +796,13 @@ func TestRunInstance_ReplayByGUID_ReleaseGone_FallsThroughToEvaluator(t *testing
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	// Evaluator runs (fall-through). Return nothing-better → counter
 	// path + cooldown set.
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{AttemptCount: 1}, nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -844,7 +844,7 @@ func TestRunInstance_ReplayByGUID_TransientError_SurfacesAsError(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	// Evaluator MUST NOT be called.
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
@@ -890,10 +890,10 @@ func TestRunInstance_ReplayByGUID_NoGUID_SkipsReplayPath(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{AttemptCount: 1}, nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -935,10 +935,10 @@ func TestRunInstance_ReplayByGUID_NoIndexerID_SkipsReplayPath(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{AttemptCount: 1}, nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -991,7 +991,7 @@ func TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
 	newID := uuid.New()
@@ -1000,7 +1000,7 @@ func TestRunInstance_ReplayByGUID_WarmsCacheBeforeForceGrab(t *testing.T) {
 		Attempts: 1,
 	})
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -1053,7 +1053,7 @@ func TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
 	newID := uuid.New()
@@ -1062,7 +1062,7 @@ func TestRunInstance_ReplayByGUID_WarmFails_ContinuesToForceGrab(t *testing.T) {
 		Attempts: 1,
 	})
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -1114,12 +1114,12 @@ func TestRunInstance_ReplayByGUID_WarmedButForceGrabReleaseGone(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	// Evaluator runs as fall-through and returns nothing-better.
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nothingBetterDecision(), nil)
-	cnt.EXPECT().Increment(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(
-		domainregrab.NoBetterCounter{Consecutive: 1}, nil)
+	cnt.EXPECT().Increment(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(
+		domainregrab.WatchdogState{AttemptCount: 1}, nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "nothing_better")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -1173,7 +1173,7 @@ func TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	var saved decision.Decision
 	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d decision.Decision) error {
@@ -1191,7 +1191,7 @@ func TestRunInstance_ReplayByGUID_AlreadyAdded_TreatedAsGrabbed(t *testing.T) {
 		Attempts: 1,
 	})
 	grabs.EXPECT().SetReplayOfID(gomock.Any(), newID, orig.ID).Return(nil)
-	cnt.EXPECT().Reset(gomock.Any(), s.InstanceID, testSeries, testSeason, gomock.Any()).Return(nil)
+	cnt.EXPECT().Reset(gomock.Any(), testInstance, testSeries, testSeason, gomock.Any()).Return(nil)
 	mt.EXPECT().IncRegrabResult(testInstance, "grabbed")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
 	mt.EXPECT().IncPollResult(testInstance, "ok")
@@ -1234,7 +1234,7 @@ func TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision(t *testing.T) {
 	grabs := mocks.NewMockGrabRepository(ctrl)
 	cooldowns := mocks.NewMockCooldownRepository(ctrl)
 	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
-	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	cnt := mocks.NewMockWatchdogStateRepository(ctrl)
 	ev := mocks.NewMockEvaluateExecutor(ctrl)
 	gx := mocks.NewMockGrabExecutor(ctrl)
 	mt := mocks.NewMockMetrics(ctrl)
@@ -1269,7 +1269,7 @@ func TestRunInstance_ReplayByGUID_OtherError_WritesErrorDecision(t *testing.T) {
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 
 	var saved decision.Decision
 	decisionsRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d decision.Decision) error {
@@ -1329,7 +1329,7 @@ func TestRunInstance_ReplayByGUID_OtherError_DecisionRepoNil_LegacyLogPath(t *te
 	grabs := mocks.NewMockGrabRepository(ctrl)
 	cooldowns := mocks.NewMockCooldownRepository(ctrl)
 	bl := mocks.NewMockWatchdogBlacklistRepository(ctrl)
-	cnt := mocks.NewMockNoBetterCounterRepository(ctrl)
+	cnt := mocks.NewMockWatchdogStateRepository(ctrl)
 	ev := mocks.NewMockEvaluateExecutor(ctrl)
 	gx := mocks.NewMockGrabExecutor(ctrl)
 	mt := mocks.NewMockMetrics(ctrl)
@@ -1359,7 +1359,7 @@ func TestRunInstance_ReplayByGUID_OtherError_DecisionRepoNil_LegacyLogPath(t *te
 	det.EXPECT().Detect(gomock.Any(), testHash).Return(unregisteredVerdict(), nil)
 	mt.EXPECT().IncUnregistered(testInstance, "tracker.example.com")
 	cooldowns.EXPECT().Get(gomock.Any(), cooldown.ScopeRegrabRetry, gomock.Any()).Return(cooldown.Cooldown{}, false, nil)
-	bl.EXPECT().Find(gomock.Any(), s.InstanceID, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
+	bl.EXPECT().Find(gomock.Any(), testInstance, testSeries, testSeason).Return(domainregrab.BlacklistEntry{}, ports.ErrNotFound)
 	ev.EXPECT().Execute(gomock.Any(), gomock.Any()).Times(0)
 	mt.EXPECT().IncRegrabResult(testInstance, "error")
 	cooldowns.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)

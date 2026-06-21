@@ -24,25 +24,19 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/regrab"
 )
 
-func seedInstance(t *testing.T, db *gorm.DB, name string) uint {
+func seedInstance(t *testing.T, db *gorm.DB, name domain.InstanceName) {
 	t.Helper()
 	m := database.SonarrInstanceModel{
-		Name:      name,
-		URL:       "http://" + name,
+		Name:      string(name),
+		URL:       "http://" + string(name),
 		Mode:      "managed",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
 	require.NoError(t, db.Create(&m).Error)
-	// D-5 (466b) — sonarr_instance.id surrogate is gone (name is PK).
-	// Callers expecting an integer instance id are D-6-skipped; return
-	// 0 as a sentinel so compilation passes while the migration to
-	// (instance_name TEXT) for the watchdog sibling tables is owned by
-	// the D-6 grab+watchdog rewrite.
-	return 0
 }
 
-func seedOrigin(t *testing.T, db *gorm.DB, repo *grabpersistence.OriginReleaseRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, indexer string, now time.Time) {
+func seedOrigin(t *testing.T, _ *gorm.DB, repo *grabpersistence.OriginReleaseRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, indexer string, now time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), ports.OriginRelease{
 		InstanceName: instance,
@@ -57,7 +51,7 @@ func seedOrigin(t *testing.T, db *gorm.DB, repo *grabpersistence.OriginReleaseRe
 	}))
 }
 
-func seedSeriesCache(t *testing.T, db *gorm.DB, repo *catalogpersistence.SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
+func seedSeriesCache(t *testing.T, _ *gorm.DB, repo *catalogpersistence.SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   instance,
@@ -72,7 +66,6 @@ func seedSeriesCache(t *testing.T, db *gorm.DB, repo *catalogpersistence.SeriesC
 }
 
 func TestWatchdogSeasons_List_Empty(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -88,7 +81,6 @@ func TestWatchdogSeasons_List_Empty(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -116,18 +108,13 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 			assert.Equal(t, "Friends", row.SeriesTitle)
 			assert.False(t, row.Monitored)
 			assert.Nil(t, row.Cooldown, "no cooldown row")
-			assert.Nil(t, row.NoBetterCounter, "no no_better row")
+			assert.Nil(t, row.WatchdogState, "no watchdog_state row")
 			assert.Nil(t, row.Blacklist, "no blacklist row")
 		})
 	}
 }
 
-// Regression: origin_releases rows whose instance_name no longer
-// matches any configured sonarr_instance (operator renamed/removed
-// the instance) must NOT surface on /watchdog/seasons. The DB row is
-// retained so the operator can clean up out-of-band.
 func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -137,14 +124,11 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 			scRepo := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 			now := time.Now().UTC().Truncate(time.Second)
 
-			// Configured instance + its series + its origin row.
 			seedInstance(t, db, "homelab")
 			seedSeriesCache(t, db, scRepo, "homelab", 369, "FROM", true, 0, now)
 			seedOrigin(t, db, originRepo, "homelab", 369, 4, "Prowlarr", now)
 
-			// Orphan origin row pointing at a phantom instance ("Sonarr"); the
-			// series_cache has the same series_id under "homelab" but NOT
-			// under "Sonarr" — exactly the production shape we hit.
+			// Orphan origin row pointing at a phantom instance ("Sonarr").
 			seedOrigin(t, db, originRepo, "Sonarr", 369, 4, "Prowlarr", now)
 
 			repo := NewWatchdogSeasonsRepository(db)
@@ -157,12 +141,7 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 	}
 }
 
-// Regression: origin_releases rows whose series_cache row is missing
-// (series deleted from Sonarr, cache row never written or
-// soft-deleted) must NOT surface — they render with an empty title in
-// the UI which the operator reads as a corrupted row.
 func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -176,7 +155,6 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 			seedSeriesCache(t, db, scRepo, "homelab", 100, "The Boroughs", true, 0, now)
 			seedOrigin(t, db, originRepo, "homelab", 100, 1, "Prowlarr", now)
 
-			// series_id=999 has no series_cache row at all.
 			seedOrigin(t, db, originRepo, "homelab", 999, 1, "Prowlarr", now)
 
 			repo := NewWatchdogSeasonsRepository(db)
@@ -189,7 +167,6 @@ func TestWatchdogSeasons_List_HidesRowsForMissingSeriesCache(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -198,11 +175,11 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 			originRepo := grabpersistence.NewOriginReleaseRepository(db)
 			scRepo := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
 			cdRepo := NewCooldownRepository(db)
-			nbRepo := NewNoBetterCounterRepository(db)
+			stateRepo := NewWatchdogStateRepository(db)
 			blRepo := NewWatchdogBlacklistRepository(db)
 			now := time.Now().UTC().Truncate(time.Second)
 
-			instID := seedInstance(t, db, "homelab")
+			seedInstance(t, db, "homelab")
 			seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 			seedSeriesCache(t, db, scRepo, "homelab", 169, "Friends", true, 0, now)
 
@@ -215,12 +192,12 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 				CreatedAt: now,
 			}))
 
-			// no-better counter
-			_, err := nbRepo.Increment(context.Background(), instID, 169, 2, now)
+			// watchdog_state row (folds the legacy no-better counter)
+			_, err := stateRepo.Increment(context.Background(), "homelab", 169, 2, now)
 			require.NoError(t, err)
 
 			// blacklist row
-			bentry, err := regrab.NewBlacklistEntry(instID, 169, 2, 3, regrab.ReasonConsecutiveNoBetter, now)
+			bentry, err := regrab.NewBlacklistEntry("homelab", 169, 2, 3, regrab.ReasonConsecutiveNoBetter, now)
 			require.NoError(t, err)
 			require.NoError(t, blRepo.Upsert(context.Background(), bentry))
 
@@ -233,8 +210,8 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 			assert.True(t, row.Monitored)
 			require.NotNil(t, row.Cooldown)
 			assert.Equal(t, "series_after_grab", row.Cooldown.Reason)
-			require.NotNil(t, row.NoBetterCounter)
-			assert.Equal(t, 1, row.NoBetterCounter.Consecutive)
+			require.NotNil(t, row.WatchdogState)
+			assert.Equal(t, 1, row.WatchdogState.AttemptCount)
 			require.NotNil(t, row.Blacklist)
 			assert.Equal(t, regrab.ReasonConsecutiveNoBetter, row.Blacklist.Reason)
 		})
@@ -242,7 +219,6 @@ func TestWatchdogSeasons_List_FullHierarchy(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -259,7 +235,6 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 			seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 			seedOrigin(t, db, originRepo, "homelab", 200, 1, "Prowlarr", now)
 
-			// Only series 200 has a cooldown.
 			require.NoError(t, cdRepo.Set(context.Background(), cooldown.Cooldown{
 				Scope:     cooldown.ScopeSeries,
 				Key:       cooldown.SeriesKey("homelab", 200, 1),
@@ -278,7 +253,6 @@ func TestWatchdogSeasons_List_CooldownOnly_FiltersOut(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -305,7 +279,6 @@ func TestWatchdogSeasons_List_InstanceFilter(t *testing.T) {
 }
 
 func TestWatchdogSeasons_List_Pagination(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -340,7 +313,6 @@ func TestWatchdogSeasons_List_Pagination(t *testing.T) {
 }
 
 func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -355,7 +327,6 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 			seedSeriesCache(t, db, scRepo, "homelab", 169, "Friends", true, 1, now)
 			seedOrigin(t, db, originRepo, "homelab", 169, 2, "Prowlarr", now)
 
-			// Season 1 has a decision but no origin row.
 			d := decision.Decision{
 				ID: uuid.New(), ScanRunID: uuid.New(),
 				InstanceName: "homelab", SeriesID: 169, SeasonNumber: 1,
@@ -370,10 +341,8 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 			require.Len(t, rows, 2)
 			assert.Equal(t, 1, rows[0].SeasonNumber)
 			assert.Equal(t, 2, rows[1].SeasonNumber)
-			// Both seasons share series_cache title/monitored.
 			assert.Equal(t, "Friends", rows[0].SeriesTitle)
 			assert.Equal(t, "Friends", rows[1].SeriesTitle)
-			// Only season 2 has an origin.
 			assert.Empty(t, rows[0].OriginGUID)
 			assert.NotEmpty(t, rows[1].OriginGUID)
 		})
@@ -381,19 +350,18 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 }
 
 func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			decRepo := grabpersistence.NewDecisionRepository(db)
+			seedInstance(t, db, "homelab")
 
 			scanID := uuid.New()
 			older := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 			newer := time.Now().UTC().Truncate(time.Second)
 
-			// Older decision: aired=10, existing=5.
 			d1 := decision.Decision{
 				ID: uuid.New(), ScanRunID: scanID,
 				InstanceName: "homelab", SeriesID: 169, SeasonNumber: 2,
@@ -403,7 +371,6 @@ func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
 			}
 			require.NoError(t, decRepo.Save(context.Background(), d1))
 
-			// Newer decision: aired=10, existing=10.
 			d2 := decision.Decision{
 				ID: uuid.New(), ScanRunID: scanID,
 				InstanceName: "homelab", SeriesID: 169, SeasonNumber: 2,
@@ -425,13 +392,13 @@ func TestWatchdogSeasons_SeasonStatsFromDecisions_Latest(t *testing.T) {
 }
 
 func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			decRepo := grabpersistence.NewDecisionRepository(db)
+			seedInstance(t, db, "homelab")
 			scanID := uuid.New()
 			base := time.Now().UTC().Truncate(time.Second)
 
@@ -449,20 +416,19 @@ func TestWatchdogSeasons_RecentDecisions_CappedPerSeason(t *testing.T) {
 			got, err := repo.RecentDecisionsBySeason(context.Background(), "homelab", 169, 3)
 			require.NoError(t, err)
 			require.Len(t, got[2], 3, "cap honoured per season")
-			// Most recent first.
 			assert.True(t, got[2][0].CreatedAt.After(got[2][1].CreatedAt))
 		})
 	}
 }
 
 func TestWatchdogSeasons_RecentGrabs_CappedPerSeason(t *testing.T) {
-	t.Skip("pending D-6 grab+watchdog rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			grabRepo := grabpersistence.NewGrabRepository(db)
+			seedInstance(t, db, "homelab")
 			base := time.Now().UTC().Truncate(time.Second)
 
 			for i := range 4 {

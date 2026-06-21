@@ -42,7 +42,7 @@ func TestStatusCode_AllTypes(t *testing.T) {
 		{"QbitSettingsNotFoundError", &sharedErrors.QbitSettingsNotFoundError{InstanceID: newInstanceID()}, http.StatusNotFound},
 		{"ScanRunNotFoundError", &sharedErrors.ScanRunNotFoundError{ID: newScanRunID()}, http.StatusNotFound},
 		{"DecisionNotFoundError", &sharedErrors.DecisionNotFoundError{ID: newDecisionID()}, http.StatusNotFound},
-		{"WatchdogBlacklistNotFoundError", &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}, http.StatusNotFound},
+		{"WatchdogBlacklistNotFoundError", wbErr(), http.StatusNotFound},
 		{"MediaAssetNotFoundError", &sharedErrors.MediaAssetNotFoundError{Kind: "hash", Key: "deadbeef"}, http.StatusNotFound},
 	}
 
@@ -85,7 +85,7 @@ func TestStatusCode_Untyped(t *testing.T) {
 func TestStatusCode_WatchdogBlacklistNF_NestedWrap(t *testing.T) {
 	t.Parallel()
 
-	inner := &sharedErrors.WatchdogBlacklistNotFoundError{ID: newWBID()}
+	inner := wbErr()
 	wrapped := fmt.Errorf("delete: %w", inner)
 
 	assert.Equal(t, http.StatusNotFound, sharedErrors.StatusCode(wrapped))

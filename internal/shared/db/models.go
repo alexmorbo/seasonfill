@@ -414,47 +414,39 @@ func (AppSecretModel) TableName() string { return "app_secret" }
 
 func NewScanID() string { return uuid.New().String() }
 
-// InstanceQbitSettingsModel is the per-instance Watchdog configuration row.
-// One row per Sonarr instance enforced by the unique index on instance_id.
-// PasswordEncrypted is opaque AES-GCM ciphertext (nonce|ciphertext|tag)
-// produced by the 039d HTTP handler with the `-aes-gcm-v1` HKDF subkey;
-// the repo treats it as bytes.
-type InstanceQbitSettingsModel struct {
-	ID                     uint   `gorm:"primaryKey"`
-	InstanceID             uint   `gorm:"uniqueIndex:idx_instance_qbit_settings_instance_id"`
-	Enabled                bool   `gorm:"not null;default:false"`
-	URL                    string `gorm:"type:text;not null"`
-	Username               *string
-	PasswordEncrypted      []byte         `gorm:"column:password_encrypted"`
-	Category               string         `gorm:"type:text;not null;default:'sonarr'"`
-	PollIntervalMinutes    int            `gorm:"not null;default:30"`
-	RegrabCooldownHours    int            `gorm:"not null;default:120"`
-	MaxConsecutiveNoBetter int            `gorm:"not null;default:3"`
-	CustomUnregisteredMsgs datatypes.JSON `gorm:"not null"`
-	// PublicURL is the optional browser-reachable qBittorrent web UI URL
-	// (082, F-P2-1). NULL = SPA falls back to URL. Backend never consumes
-	// this field — it is a passthrough for the frontend GrabDrawer deep
-	// link.
-	PublicURL *string `gorm:"column:qbit_public_url;type:text"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+// WatchdogStateModel — composite PK (instance_name, sonarr_series_id,
+// season_number). Replaces legacy regrab_no_better_counter table.
+// attempt_count is the consecutive counter; cooldown_until is the
+// loop scheduler source-of-truth (was implicit before D-1).
+// last_error is the most recent failure detail (was logs-only).
+type WatchdogStateModel struct {
+	InstanceName   domain.InstanceName   `gorm:"primaryKey;column:instance_name;type:text"`
+	SonarrSeriesID domain.SonarrSeriesID `gorm:"primaryKey;column:sonarr_series_id"`
+	SeasonNumber   int                   `gorm:"primaryKey;column:season_number"`
+	AttemptCount   int                   `gorm:"column:attempt_count;not null;default:0"`
+	LastAttemptAt  time.Time             `gorm:"column:last_attempt_at;not null"`
+	CooldownUntil  *time.Time            `gorm:"column:cooldown_until"`
+	LastError      *string               `gorm:"column:last_error;type:text"`
+	UpdatedAt      time.Time             `gorm:"column:updated_at;not null"`
 }
 
-func (InstanceQbitSettingsModel) TableName() string { return "instance_qbit_settings" }
+func (WatchdogStateModel) TableName() string { return "watchdog_state" }
 
 // WatchdogBlacklistModel parks (instance, series, season) triples that
-// exhausted the consecutive-no-better budget or whose parent qBit is
-// persistently unreachable. ExpiresAt is *time.Time because v1 always
-// writes NULL (manual unblock only per parent 039 §Out of scope).
+// exhausted the attempt budget or whose parent qBit is persistently
+// unreachable. D-1 / 467b: composite PK on (instance_name,
+// sonarr_series_id, season_number) — no surrogate id. TTLUntil is
+// *time.Time because v1 always writes NULL (manual unblock only per
+// parent 039 §Out of scope).
 type WatchdogBlacklistModel struct {
-	ID           uint                  `gorm:"primaryKey"`
-	InstanceID   uint                  `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:1;index:idx_watchdog_blacklist_instance_id"`
-	SeriesID     domain.SonarrSeriesID `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:2"`
-	SeasonNumber int                   `gorm:"uniqueIndex:idx_watchdog_blacklist_triple,priority:3"`
-	Reason       string                `gorm:"type:text;not null"`
-	Consecutive  int                   `gorm:"not null"`
-	CreatedAt    time.Time
-	ExpiresAt    *time.Time
+	InstanceName   domain.InstanceName   `gorm:"primaryKey;column:instance_name;type:text"`
+	SonarrSeriesID domain.SonarrSeriesID `gorm:"primaryKey;column:sonarr_series_id"`
+	SeasonNumber   int                   `gorm:"primaryKey;column:season_number"`
+	ReleaseTitle   *string               `gorm:"column:release_title;type:text"`
+	Reason         string                `gorm:"column:reason;type:text;not null"`
+	Consecutive    int                   `gorm:"column:consecutive;not null;default:0"`
+	BlacklistedAt  time.Time             `gorm:"column:blacklisted_at;not null"`
+	TTLUntil       *time.Time            `gorm:"column:ttl_until"`
 }
 
 func (WatchdogBlacklistModel) TableName() string { return "watchdog_blacklist" }

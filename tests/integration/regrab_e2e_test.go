@@ -22,7 +22,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
-	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	domaingrab "github.com/alexmorbo/seasonfill/internal/grab/domain"
@@ -32,6 +31,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 	infraregrab "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure/regrab"
@@ -47,18 +47,18 @@ type regrabHarness struct {
 	grabRepo    ports.GrabRepository
 	originalID  uuid.UUID
 	instanceID  uint
-	seriesID    int
+	seriesID    domain.SonarrSeriesID
 	season      int
 	hash        string
 	sonarrPOSTs *atomic.Int32
 }
 
 const (
-	testInstanceName = "alpha"
-	testSeriesID     = 122
-	testSeason       = 2
-	testCategory     = "tv-sonarr"
-	testHash         = "deadbeefcafebabefeedfacedeadbeefcafebabe"
+	testInstanceName domain.InstanceName   = "alpha"
+	testSeriesID     domain.SonarrSeriesID = 122
+	testSeason                             = 2
+	testCategory                           = "tv-sonarr"
+	testHash                               = "deadbeefcafebabefeedfacedeadbeefcafebabe"
 )
 
 func TestRegrab_E2E_FullCycle_GrabsThenCooldownBlocks(t *testing.T) {
@@ -208,15 +208,15 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	decisionRepo := grabpersistence.NewDecisionRepository(db)
 	grabRepo := grabpersistence.NewGrabRepository(db)
 	cooldownRepo := watchdogpersistence.NewCooldownRepository(db)
-	originRepo := enrichpersistence.NewOriginReleaseRepository(db)
+	originRepo := grabpersistence.NewOriginReleaseRepository(db)
 	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
-	counterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
+	watchdogStateRepo := watchdogpersistence.NewWatchdogStateRepository(db)
 
 	_ = scanRepo // referenced by use cases that need a scan id source
 
 	// --- Seed instance ---
 	instanceSnap := runtime.InstanceSnapshot{
-		Name: testInstanceName, URL: sonarrSrv.URL, APIKey: "test-api-key",
+		Name: string(testInstanceName), URL: sonarrSrv.URL, APIKey: "test-api-key",
 		Timeout: 5 * time.Second, SearchTimeout: 5 * time.Second,
 		Search: runtime.SearchSnapshot{RequireAllAired: false, SkipSpecials: true},
 		Retry: runtime.RetrySnapshot{
@@ -250,7 +250,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 
 	// --- Seed original grab_records row (the one Watchdog will find by hash) ---
 	originalID := uuid.New()
-	hashLower := strings.ToLower(testHash)
+	hashLower := domain.QbitHash(strings.ToLower(testHash))
 	originalGrab := domaingrab.Record{
 		ID:           originalID,
 		ScanRunID:    uuid.New(),
@@ -273,7 +273,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	sonarrClient := sonarr.NewWithOptions(testInstanceName, sonarrSrv.URL,
 		"test-api-key", 5*time.Second, nil, slog.Default())
 	instanceMap := map[string]scan.Instance{
-		testInstanceName: {Config: instanceSnap, Client: sonarrClient},
+		string(testInstanceName): {Config: instanceSnap, Client: sonarrClient},
 	}
 
 	// --- Use case wiring ---
@@ -287,7 +287,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 		fixedInstanceRegistry{m: instanceMap},
 		infraregrab.QbitClientFactoryFunc{},
 		infraregrab.DetectorFactoryFunc{},
-		grabRepo, cooldownRepo, blacklistRepo, counterRepo,
+		grabRepo, cooldownRepo, blacklistRepo, watchdogStateRepo,
 		evaluator, grabUC,
 		slog.Default(),
 	)
@@ -300,7 +300,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 		instanceID:  instanceID,
 		seriesID:    testSeriesID,
 		season:      testSeason,
-		hash:        hashLower,
+		hash:        string(hashLower),
 		sonarrPOSTs: &sonarrPOSTs,
 	}
 }
@@ -316,7 +316,7 @@ func checkReplayPointer(t *testing.T, h *regrabHarness) {
 		Instance:     &instanceName,
 		SeriesID:     &seriesID,
 		SeasonNumber: &season,
-	}, ports.Pagination{Limit: 1000})
+	}, ports.Pagination{Limit: 1000}) //nolint:staticcheck
 	require.NoError(t, err, "expected to fetch grab records")
 	require.Greater(t, len(allRecords), 1, "expected at least two records")
 

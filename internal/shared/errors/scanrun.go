@@ -38,14 +38,18 @@ func (e *DecisionNotFoundError) Code() string { return "decision_not_found" }
 
 func (e *DecisionNotFoundError) Retriable() bool { return false }
 
-// WatchdogBlacklistNotFoundError signals a missing regrab_blacklist row
-// by primary key. Maps to HTTP 404 (DELETE endpoint).
+// WatchdogBlacklistNotFoundError signals a missing watchdog_blacklist
+// row. D-1 / 467b: composite PK on (instance_name, sonarr_series_id,
+// season_number). Maps to HTTP 404 (DELETE endpoint).
 type WatchdogBlacklistNotFoundError struct {
-	ID uint
+	Instance string
+	SeriesID int64
+	Season   int
 }
 
 func (e *WatchdogBlacklistNotFoundError) Error() string {
-	return fmt.Sprintf("watchdog_blacklist %d not found", e.ID)
+	return fmt.Sprintf("watchdog_blacklist (%s, %d, %d) not found",
+		e.Instance, e.SeriesID, e.Season)
 }
 
 func (e *WatchdogBlacklistNotFoundError) Code() string { return "watchdog_blacklist_not_found" }

@@ -288,13 +288,13 @@ components:
       type: object
     dto.DecisionIntent:
       description: |-
-        Intent surfaces the "why this grab" payload from the Decision
-        row that produced this grab (091a / F-P2-2). The audit handler
-        resolves the Decision lazily by (scan_run_id, instance, series,
-        season) at read time and copies the Intent here so GrabDrawer
-        can render "Почему этот грабе" without a second round-trip.
-        nil when no matching Decision was found OR the Decision itself
-        carried no intent (pre-091a rows, error decisions).
+        Intent — the F-P2-2 "why this grab" capture (091a). nil for
+        pre-091a rows AND for any decision path that couldn't infer a
+        reason (synthetic skip rows, error rows). Frontend GrabDrawer
+        renders a localised label for chosen_because and the raw
+        chosen_reason_detail string underneath. Always present as a
+        JSON key on the wire (null vs object), per omitempty/pointer
+        semantics, so the SPA can branch on `null` directly.
       properties:
         chosen_because:
           enum:
@@ -852,10 +852,15 @@ components:
         limits:
           $ref: '#/components/schemas/dto.InstanceLimits'
         mode:
+          enum:
+          - auto
+          - manual
           example: auto
           type: string
         name:
           example: alpha
+          maxLength: 64
+          minLength: 1
           type: string
         parse_on_grab_enabled:
           description: |-
@@ -874,8 +879,12 @@ components:
         ranking:
           $ref: '#/components/schemas/dto.InstanceRanking'
         rate_limit_burst:
+          maximum: 10000
+          minimum: 0
           type: integer
         rate_limit_rpm:
+          maximum: 10000
+          minimum: 0
           type: integer
         retry:
           $ref: '#/components/schemas/dto.InstanceRetry'
@@ -891,10 +900,14 @@ components:
         search:
           $ref: '#/components/schemas/dto.InstanceSearch'
         search_timeout_sec:
+          maximum: 3600
+          minimum: 0
           type: integer
         tags:
           $ref: '#/components/schemas/dto.InstanceTags'
         timeout_sec:
+          maximum: 3600
+          minimum: 0
           type: integer
         url:
           example: http://sonarr:8989
@@ -914,6 +927,9 @@ components:
             runtime config. Empty-string rejected as for PublicURL.
           example: https://seasonfill.example.com
           type: string
+      required:
+      - name
+      - url
       type: object
     dto.InstanceDetail:
       properties:
@@ -1100,10 +1116,15 @@ components:
         limits:
           $ref: '#/components/schemas/dto.InstanceLimits'
         mode:
+          enum:
+          - auto
+          - manual
           example: auto
           type: string
         name:
           example: alpha
+          maxLength: 64
+          minLength: 1
           type: string
         parse_on_grab_enabled:
           description: |-
@@ -1122,8 +1143,12 @@ components:
         ranking:
           $ref: '#/components/schemas/dto.InstanceRanking'
         rate_limit_burst:
+          maximum: 10000
+          minimum: 0
           type: integer
         rate_limit_rpm:
+          maximum: 10000
+          minimum: 0
           type: integer
         retry:
           $ref: '#/components/schemas/dto.InstanceRetry'
@@ -1139,10 +1164,14 @@ components:
         search:
           $ref: '#/components/schemas/dto.InstanceSearch'
         search_timeout_sec:
+          maximum: 3600
+          minimum: 0
           type: integer
         tags:
           $ref: '#/components/schemas/dto.InstanceTags'
         timeout_sec:
+          maximum: 3600
+          minimum: 0
           type: integer
         url:
           example: http://sonarr:8989
@@ -1162,6 +1191,9 @@ components:
             runtime config. Empty-string rejected as for PublicURL.
           example: https://seasonfill.example.com
           type: string
+      required:
+      - name
+      - url
       type: object
     dto.LibraryCreditEntry:
       properties:
@@ -1532,6 +1564,8 @@ components:
       properties:
         category:
           example: sonarr
+          maxLength: 64
+          minLength: 1
           type: string
         custom_unregistered_msgs:
           items:
@@ -1543,18 +1577,23 @@ components:
           type: boolean
         max_consecutive_no_better:
           example: 3
+          maximum: 100
+          minimum: 0
           type: integer
         password:
           example: hunter2
           type: string
         poll_interval_minutes:
           example: 30
+          maximum: 1440
           type: integer
         qbit_public_url:
           example: https://qbit.example.com
           type: string
         regrab_cooldown_hours:
           example: 120
+          maximum: 8760
+          minimum: 0
           type: integer
         url:
           example: http://qbit.local:8080
@@ -1562,6 +1601,10 @@ components:
         username:
           example: admin
           type: string
+      required:
+      - category
+      - poll_interval_minutes
+      - url
       type: object
     dto.RatingScore:
       description: |-
@@ -2485,9 +2528,9 @@ components:
       type: object
     dto.SyncInfo:
       description: |-
-        Sync is the per-source hydration timestamp drawn from
-        sync_log(entity_type=person, source=tmdb_person). Omitted
-        when no row exists — `degraded[]` then carries
+        Sync is the TMDB-person hydration timestamp drawn from
+        people.enrichment_synced_at (D-3 migration 000014). Omitted
+        when the column is NULL — `degraded[]` then carries
         `"tmdb_person"`.
       properties:
         source:
@@ -2703,16 +2746,13 @@ components:
           type: integer
         created_at:
           type: string
-        expires_at:
-          type: string
-        id:
-          example: 42
-          type: integer
         instance_name:
           example: homelab
           type: string
         reason:
           example: consecutive_no_better
+          type: string
+        release_title:
           type: string
         season_number:
           example: 3
@@ -2728,6 +2768,8 @@ components:
           - auto
           - manual
           example: auto
+          type: string
+        ttl_until:
           type: string
       type: object
     dto.WatchdogBlacklistList:
@@ -2827,10 +2869,10 @@ components:
       type: object
     dto.WatchdogSeasonBlacklist:
       properties:
-        expires_at:
-          type: string
         reason:
           example: consecutive_no_better
+          type: string
+        ttl_until:
           type: string
       type: object
     dto.WatchdogSeasonCooldown:
@@ -4889,7 +4931,8 @@ paths:
       - instances
   /instances/{name}/watchdog/blacklist:
     get:
-      description: Keyset-paginated by (created_at DESC, id DESC).
+      description: Keyset-paginated by (blacklisted_at DESC, series_id DESC, season_number
+        DESC).
       parameters:
       - description: Instance name
         in: path
@@ -4932,7 +4975,7 @@ paths:
       summary: List Watchdog blacklist entries for an instance
       tags:
       - watchdog
-  /instances/{name}/watchdog/blacklist/{id}:
+  /instances/{name}/watchdog/blacklist/{series}/{season}:
     delete:
       parameters:
       - description: Instance name
@@ -4941,9 +4984,15 @@ paths:
         required: true
         schema:
           type: string
-      - description: Blacklist row id
+      - description: Sonarr series id
         in: path
-        name: id
+        name: series
+        required: true
+        schema:
+          type: integer
+      - description: Season number
+        in: path
+        name: season
         required: true
         schema:
           type: integer

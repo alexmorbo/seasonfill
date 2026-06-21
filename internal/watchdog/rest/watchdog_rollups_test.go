@@ -73,10 +73,10 @@ func absDuration(d time.Duration) time.Duration {
 	return d
 }
 
-type stubBlacklistCount map[uint]int
+type stubBlacklistCount map[domain.InstanceName]int
 
-func (s stubBlacklistCount) CountByInstance(_ context.Context, id uint) (int, error) {
-	return s[id], nil
+func (s stubBlacklistCount) CountByInstance(_ context.Context, instance domain.InstanceName) (int, error) {
+	return s[instance], nil
 }
 
 type stubLister []string
@@ -125,7 +125,7 @@ func TestWatchdogRollupHandler_OneReturnsPopulatedRow(t *testing.T) {
 		24 * time.Hour:     1,
 		7 * 24 * time.Hour: 5,
 	}
-	blist[1] = 3
+	blist["homelab"] = 3
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/instances/homelab/watchdog/rollups", nil)
 	w := httptest.NewRecorder()

@@ -100,7 +100,7 @@ type UseCase struct {
 	grabs       ports.GrabRepository
 	cooldowns   ports.CooldownRepository
 	blacklist   ports.WatchdogBlacklistRepository
-	counter     ports.NoBetterCounterRepository
+	wstate      ports.WatchdogStateRepository
 	// decisions is the optional DecisionRepository used to refine
 	// the watchdog Intent payload post-Execute (091a / F-P2-2). When
 	// nil, the placeholder ChosenBecauseWatchdogBetterOther sticks
@@ -140,7 +140,7 @@ func NewUseCase(
 	grabs ports.GrabRepository,
 	cooldowns ports.CooldownRepository,
 	blacklist ports.WatchdogBlacklistRepository,
-	counter ports.NoBetterCounterRepository,
+	state ports.WatchdogStateRepository,
 	evaluator EvaluateExecutor,
 	grabExec GrabExecutor,
 	logger *slog.Logger,
@@ -156,7 +156,7 @@ func NewUseCase(
 		grabs:                         grabs,
 		cooldowns:                     cooldowns,
 		blacklist:                     blacklist,
-		counter:                       counter,
+		wstate:                        state,
 		evaluate:                      evaluator,
 		grabExec:                      grabExec,
 		metrics:                       nullMetrics{},
@@ -422,7 +422,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 			slog.Int("season", origGrab.SeasonNumber))
 
 		// Step 7 — blacklist gate.
-		if _, err := u.blacklist.Find(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber); err == nil {
+		if _, err := u.blacklist.Find(ctx, instanceName, origGrab.SeriesID, origGrab.SeasonNumber); err == nil {
 			u.logger.DebugContext(ctx, "regrab_blacklist_skipped",
 				slog.String("instance", string(instanceName)),
 				slog.Int("series_id", int(origGrab.SeriesID)),
@@ -490,23 +490,23 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 				res.RegrabbedCount++
 				u.metrics.IncRegrabResult(instanceName, string(OutcomeGrabbed))
 				// Step 10a — reset counter on success.
-				if rstErr := u.counter.Reset(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt); rstErr != nil && !errors.Is(rstErr, ports.ErrNotFound) {
+				if rstErr := u.wstate.Reset(ctx, instanceName, origGrab.SeriesID, origGrab.SeasonNumber, startedAt); rstErr != nil && !errors.Is(rstErr, ports.ErrNotFound) {
 					u.logger.WarnContext(ctx, "regrab_counter_reset_failed",
 						slog.String("instance", string(instanceName)),
 						slog.String("error", rstErr.Error()))
 				}
 			}
 		case OutcomeNothingBetter, OutcomeFilterDropped:
-			// Step 10b — increment counter, maybe escalate to blacklist.
-			counter, incErr := u.counter.Increment(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
+			// Step 10b — increment attempt counter, maybe escalate to blacklist.
+			ws, incErr := u.wstate.Increment(ctx, instanceName, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
 			if incErr != nil {
 				u.logger.WarnContext(ctx, "regrab_counter_increment_failed",
 					slog.String("instance", string(instanceName)),
 					slog.String("error", incErr.Error()))
-			} else if counter.HasReachedThreshold(sett.MaxConsecutiveNoBetter) {
+			} else if ws.HasReachedThreshold(sett.MaxConsecutiveNoBetter) {
 				entry, blErr := domainregrab.NewBlacklistEntry(
-					sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber,
-					counter.Consecutive, domainregrab.ReasonConsecutiveNoBetter,
+					instanceName, origGrab.SeriesID, origGrab.SeasonNumber,
+					ws.AttemptCount, domainregrab.ReasonConsecutiveNoBetter,
 					startedAt)
 				if blErr != nil {
 					u.logger.WarnContext(ctx, "regrab_blacklist_construct_failed",
@@ -521,12 +521,12 @@ func (u *UseCase) RunInstance(ctx context.Context, instanceName domain.InstanceN
 						SeriesID:     origGrab.SeriesID,
 						SeasonNumber: origGrab.SeasonNumber,
 					})
-					_ = u.counter.Reset(ctx, sett.InstanceID, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
+					_ = u.wstate.Reset(ctx, instanceName, origGrab.SeriesID, origGrab.SeasonNumber, startedAt)
 					u.logger.InfoContext(ctx, "regrab_blacklisted",
 						slog.String("instance", string(instanceName)),
 						slog.Int("series_id", int(origGrab.SeriesID)),
 						slog.Int("season", origGrab.SeasonNumber),
-						slog.Int("consecutive", counter.Consecutive))
+						slog.Int("consecutive", ws.AttemptCount))
 				}
 			}
 			if outcome == OutcomeNothingBetter {

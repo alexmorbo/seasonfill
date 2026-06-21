@@ -107,17 +107,16 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 		Scope: cooldown.ScopeSeries, Key: cooldown.SeriesKey("homelab", 169, 2),
 		ExpiresAt: expires, Reason: "series_after_grab", CreatedAt: now,
 	}
-	nb := domainregrab.NoBetterCounter{
-		ID: 1, InstanceID: 1, SeriesID: 169, SeasonNumber: 2,
-		Consecutive: 1, LastSeenAt: now, CreatedAt: now, UpdatedAt: now,
+	ws := domainregrab.WatchdogState{
+		InstanceName: "homelab", SonarrSeriesID: 169, SeasonNumber: 2,
+		AttemptCount: 1, LastAttemptAt: now, UpdatedAt: now,
 	}
 	bl := domainregrab.BlacklistEntry{
-		ID: 1, InstanceID: 1, SeriesID: 169, SeasonNumber: 2,
+		InstanceName: "homelab", SeriesID: 169, SeasonNumber: 2,
 		Reason: domainregrab.ReasonConsecutiveNoBetter, Consecutive: 3, CreatedAt: now,
 	}
 	lastAired := now.Add(-24 * time.Hour)
 	row := watchdogpersistence.WatchdogSeasonRow{
-		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
 		SeasonNumber:      2,
@@ -131,7 +130,7 @@ func TestWatchdogSeasons_List_FullRow(t *testing.T) {
 		OriginLastSeenAt:  now,
 		OriginLastUsedAt:  &now,
 		Cooldown:          &cd,
-		NoBetterCounter:   &nb,
+		WatchdogState:     &ws,
 		Blacklist:         &bl,
 	}
 	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{row}}
@@ -232,7 +231,6 @@ func TestWatchdogSeasons_Series_Aggregates(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	row := watchdogpersistence.WatchdogSeasonRow{
-		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
 		SeriesTitle:       "Friends",
@@ -298,7 +296,6 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Present(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	hash := domain.QbitHash("a1b2c3d4e5f60718293a4b5c6d7e8f9001122334")
 	row := watchdogpersistence.WatchdogSeasonRow{
-		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
 		SeriesTitle:       "Friends",
@@ -338,7 +335,6 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	row := watchdogpersistence.WatchdogSeasonRow{
-		InstanceID:        1,
 		InstanceName:      "homelab",
 		SeriesID:          169,
 		SeriesTitle:       "Friends",

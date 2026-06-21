@@ -38,7 +38,7 @@ func (r Reason) IsValid() bool {
 
 // Validation sentinels — caller wraps with %w when adding context.
 var (
-	ErrInvalidInstance    = errors.New("regrab: instance_id must be positive")
+	ErrInvalidInstance    = errors.New("regrab: instance_name must be non-empty")
 	ErrInvalidSeries      = errors.New("regrab: series_id must be positive")
 	ErrInvalidSeason      = errors.New("regrab: season_number must be non-negative")
 	ErrInvalidReason      = errors.New("regrab: unknown reason")
@@ -46,27 +46,28 @@ var (
 )
 
 // BlacklistEntry is the persisted shape of one watchdog_blacklist row.
-// ExpiresAt is *time.Time because v1 always writes NULL (manual unblock
-// only); the column is in place as a schema hook for a future
-// auto-unblock policy.
+// D-1 / 467b: composite PK on (instance_name, sonarr_series_id, season_number).
+// The surrogate ID is gone — operations key on the triple. TTLUntil is
+// *time.Time because v1 always writes NULL (manual unblock only); the
+// column is in place as a schema hook for a future auto-unblock policy.
 type BlacklistEntry struct {
-	ID           uint
-	InstanceID   uint
+	InstanceName domain.InstanceName
 	SeriesID     domain.SonarrSeriesID
 	SeasonNumber int
+	ReleaseTitle *string
 	Reason       Reason
 	Consecutive  int
 	CreatedAt    time.Time
-	ExpiresAt    *time.Time
+	TTLUntil     *time.Time
 }
 
 // NewBlacklistEntry constructs a validated entry with CreatedAt = now
-// and ExpiresAt = nil (manual unblock per v1). Returns a typed
+// and TTLUntil = nil (manual unblock per v1). Returns a typed
 // validation error on any invalid input — the caller wraps with %w
 // when surfacing in a higher layer.
-func NewBlacklistEntry(instanceID uint, seriesID domain.SonarrSeriesID, season, consecutive int, reason Reason, now time.Time) (BlacklistEntry, error) {
-	if instanceID == 0 {
-		return BlacklistEntry{}, fmt.Errorf("%w: got %d", ErrInvalidInstance, instanceID)
+func NewBlacklistEntry(instance domain.InstanceName, seriesID domain.SonarrSeriesID, season, consecutive int, reason Reason, now time.Time) (BlacklistEntry, error) {
+	if instance == "" {
+		return BlacklistEntry{}, fmt.Errorf("%w: got %q", ErrInvalidInstance, instance)
 	}
 	if seriesID <= 0 {
 		return BlacklistEntry{}, fmt.Errorf("%w: got %d", ErrInvalidSeries, seriesID)
@@ -81,12 +82,12 @@ func NewBlacklistEntry(instanceID uint, seriesID domain.SonarrSeriesID, season, 
 		return BlacklistEntry{}, fmt.Errorf("%w: got %d", ErrInvalidConsecutive, consecutive)
 	}
 	return BlacklistEntry{
-		InstanceID:   instanceID,
+		InstanceName: instance,
 		SeriesID:     seriesID,
 		SeasonNumber: season,
 		Reason:       reason,
 		Consecutive:  consecutive,
 		CreatedAt:    now.UTC(),
-		ExpiresAt:    nil,
+		TTLUntil:     nil,
 	}, nil
 }

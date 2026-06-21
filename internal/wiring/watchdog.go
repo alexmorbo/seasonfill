@@ -112,7 +112,7 @@ type RegrabBundle struct {
 	QbitSettingsUC           *regrab.SettingsUseCase
 	QbitSettingsHandler      *handlers.QbitSettingsHandler
 	BlacklistRepo            *watchdogpersistence.WatchdogBlacklistRepository
-	NoBetterCounterRepo      *watchdogpersistence.NoBetterCounterRepository
+	WatchdogStateRepo        *watchdogpersistence.WatchdogStateRepository
 	RegrabUC                 *regrab.UseCase
 	RegrabLoop               *loops.RegrabLoop
 	WatchdogRollupHandler    *watchdogrest.WatchdogRollupHandler
@@ -182,13 +182,13 @@ func BuildRegrab(
 	// case (Lookup), instance registry (Get), qBit + detector factories,
 	// grab / cooldown / blacklist / counter repos, evaluator + grab UC.
 	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
-	noBetterCounterRepo := watchdogpersistence.NewNoBetterCounterRepository(db)
+	watchdogStateRepo := watchdogpersistence.NewWatchdogStateRepository(db)
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
 		sonarrBundle.InstanceRegistry,
 		infraregrab.QbitClientFactoryFunc{},
 		infraregrab.DetectorFactoryFunc{},
-		scanBundle.GrabRepo, scanBundle.CooldownRepo, blacklistRepo, noBetterCounterRepo,
+		scanBundle.GrabRepo, scanBundle.CooldownRepo, blacklistRepo, watchdogStateRepo,
 		scanBundle.Evaluator, scanBundle.GrabUC,
 		watchdogLog,
 	).WithMetrics(observability.WatchdogMetricsAdapter{}).
@@ -283,7 +283,7 @@ func BuildRegrab(
 		QbitSettingsUC:           qbitSettingsUC,
 		QbitSettingsHandler:      qbitSettingsHandler,
 		BlacklistRepo:            blacklistRepo,
-		NoBetterCounterRepo:      noBetterCounterRepo,
+		WatchdogStateRepo:        watchdogStateRepo,
 		RegrabUC:                 regrabUC,
 		RegrabLoop:               regrabLoop,
 		WatchdogRollupHandler:    watchdogRollupHandler,

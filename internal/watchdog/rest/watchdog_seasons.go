@@ -230,7 +230,7 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 			SeasonNumber:    row.SeasonNumber,
 			Origin:          originDTO(row),
 			Cooldown:        cooldownDTO(row),
-			NoBetterCounter: noBetterDTO(row, noBetterMax),
+			NoBetterCounter: stateDTO(row, noBetterMax),
 			Blacklist:       blacklistDTO(row),
 			RecentDecisions: toRecentDecisionDTOs(decisionsBySeason[row.SeasonNumber]),
 			RecentGrabs:     toRecentGrabDTOs(seasonGrabs),
@@ -263,7 +263,7 @@ func (h *WatchdogSeasonsHandler) toSeasonDTO(ctx context.Context, row watchdogpe
 		Monitored:         row.Monitored,
 		Origin:            originDTO(row),
 		Cooldown:          cooldownDTO(row),
-		NoBetterCounter:   noBetterDTO(row, h.noBetterMaxFor(ctx, row.InstanceName)),
+		NoBetterCounter:   stateDTO(row, h.noBetterMaxFor(ctx, row.InstanceName)),
 		Blacklist:         blacklistDTO(row),
 		MissingAiredCount: row.MissingAiredCount,
 		LastAiredAt:       row.LastAiredAt,
@@ -316,14 +316,17 @@ func cooldownDTO(row watchdogpersistence.WatchdogSeasonRow) *dto.WatchdogSeasonC
 	}
 }
 
-func noBetterDTO(row watchdogpersistence.WatchdogSeasonRow, max int) *dto.WatchdogSeasonNoBetter {
-	if row.NoBetterCounter == nil {
+// stateDTO maps the watchdog_state row into the wire-level no_better_counter
+// projection. D-1 / 467b: WatchdogState.AttemptCount replaces legacy
+// NoBetterCounter.Consecutive; WatchdogState.LastAttemptAt replaces LastSeenAt.
+func stateDTO(row watchdogpersistence.WatchdogSeasonRow, max int) *dto.WatchdogSeasonNoBetter {
+	if row.WatchdogState == nil {
 		return nil
 	}
 	return &dto.WatchdogSeasonNoBetter{
-		Consecutive: row.NoBetterCounter.Consecutive,
+		Consecutive: row.WatchdogState.AttemptCount,
 		Max:         max,
-		LastSeenAt:  row.NoBetterCounter.LastSeenAt,
+		LastSeenAt:  row.WatchdogState.LastAttemptAt,
 	}
 }
 
@@ -332,8 +335,8 @@ func blacklistDTO(row watchdogpersistence.WatchdogSeasonRow) *dto.WatchdogSeason
 		return nil
 	}
 	return &dto.WatchdogSeasonBlacklist{
-		Reason:    string(row.Blacklist.Reason),
-		ExpiresAt: row.Blacklist.ExpiresAt,
+		Reason:   string(row.Blacklist.Reason),
+		TTLUntil: row.Blacklist.TTLUntil,
 	}
 }
 

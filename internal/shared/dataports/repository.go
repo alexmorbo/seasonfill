@@ -345,81 +345,100 @@ type QbitSettingsRepository interface {
 	List(ctx context.Context) ([]QbitSettingsRecord, error)
 }
 
-// WatchdogBlacklistFilter narrows ListByInstance reads when needed. For
-// 039a only InstanceID is supported; the regrab use case (039f) extends
-// this shape as it grows new query needs.
+// WatchdogBlacklistFilter narrows ListByInstance reads when needed.
 type WatchdogBlacklistFilter struct {
-	InstanceID uint
+	InstanceName domain.InstanceName
 }
 
 // WatchdogBlacklistRepository persists the parked (instance, series,
-// season) triples. Upsert is keyed on the triple unique index; a repeat
-// Upsert on the same triple overwrites the prior Consecutive counter
-// and CreatedAt (the latest detection cycle's bookkeeping wins).
+// season) triples. D-1 / 467b: composite PK on (instance_name,
+// sonarr_series_id, season_number) — no surrogate id. Upsert is keyed
+// on the triple; a repeat Upsert on the same triple overwrites the
+// prior Consecutive counter, Reason, BlacklistedAt, TTLUntil and
+// ReleaseTitle (the latest detection cycle's bookkeeping wins).
 type WatchdogBlacklistRepository interface {
 	// Find returns the row matching (instance, series, season) exactly.
 	// ports.ErrNotFound on miss.
-	Find(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.BlacklistEntry, error)
+	Find(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) (regrab.BlacklistEntry, error)
 
 	// Upsert writes the row keyed on (instance, series, season). On
-	// conflict, Consecutive / Reason / CreatedAt / ExpiresAt are
-	// replaced with the supplied values.
+	// conflict, Reason / Consecutive / BlacklistedAt / TTLUntil /
+	// ReleaseTitle are replaced with the supplied values.
 	Upsert(ctx context.Context, entry regrab.BlacklistEntry) error
 
 	// DeleteByTriple removes the parked row. ports.ErrNotFound on miss.
-	DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error
+	// Replaces legacy DeleteByID — composite PK lookup directly.
+	DeleteByTriple(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) error
 
 	// ListByInstance returns every parked row for the instance. Used by
 	// the metrics gauge `seasonfill_watchdog_blacklist_size{instance}`.
-	ListByInstance(ctx context.Context, instanceID uint) ([]regrab.BlacklistEntry, error)
+	ListByInstance(ctx context.Context, instance domain.InstanceName) ([]regrab.BlacklistEntry, error)
 
-	// CountByInstance — current row count for instanceID. Zero on no rows.
-	CountByInstance(ctx context.Context, instanceID uint) (int, error)
+	// CountByInstance — current row count for instance. Zero on no rows.
+	CountByInstance(ctx context.Context, instance domain.InstanceName) (int, error)
 
-	// DeleteByID removes the row matching the (instanceID, id) pair.
-	// instanceID is part of the predicate so a caller cannot delete a
-	// blacklist row that belongs to a different instance even when they
-	// know its primary key — defence-in-depth for the HTTP DELETE handler.
-	// Returns ports.ErrNotFound when no row matches.
-	DeleteByID(ctx context.Context, instanceID uint, id uint) error
-
-	// ListByInstanceWithLimit returns rows for instanceID ordered by
-	// (created_at DESC, id DESC), capped at limit. Used by the HTTP
-	// blacklist list handler. afterCreatedAt + afterID together form the
-	// keyset cursor — both zero values mean "first page". When the
+	// ListByInstanceWithLimit returns rows for instance ordered by
+	// (blacklisted_at DESC, sonarr_series_id DESC, season_number DESC),
+	// capped at limit. Used by the HTTP blacklist list handler.
+	// afterBlacklistedAt + afterSeriesID + afterSeason together form
+	// the keyset cursor — zero values mean "first page". When the
 	// returned slice has len == limit, the caller may issue a follow-up
-	// call with the last row's CreatedAt/ID to fetch the next page.
-	ListByInstanceWithLimit(ctx context.Context, instanceID uint, limit int, afterCreatedAt time.Time, afterID uint) ([]regrab.BlacklistEntry, error)
+	// call with the last row's keyset to fetch the next page.
+	ListByInstanceWithLimit(
+		ctx context.Context,
+		instance domain.InstanceName,
+		limit int,
+		afterBlacklistedAt time.Time,
+		afterSeriesID domain.SonarrSeriesID,
+		afterSeason int,
+	) ([]regrab.BlacklistEntry, error)
 }
 
-// NoBetterCounterRepository persists the live consecutive-no-better
-// counters per (instance, series, season). The regrab use case uses
-// Get → (if not found) Insert → Increment cycle per detection, and
-// Reset when the counter is escalated to the blacklist.
+// WatchdogStateRepository persists the live (instance, series, season)
+// regrab tracking row. D-1 / 467b: replaces the legacy
+// NoBetterCounterRepository — attempt_count is the consecutive counter;
+// cooldown_until + last_error are new D-1 columns (was implicit in loop
+// scheduler + logs only).
 //
 // Increment is atomic against concurrent regrab loops: the repository
 // implementation MUST use an UPSERT (INSERT … ON CONFLICT DO UPDATE)
 // so two parallel polls on the same triple cannot both stamp
-// consecutive=1 — the second wins and observes consecutive=2.
-type NoBetterCounterRepository interface {
-	// Get returns the counter for the triple. ports.ErrNotFound on miss
-	// — the use case treats that as "fresh triple, insert" via
+// attempt_count=1 — the second wins and observes attempt_count=2.
+type WatchdogStateRepository interface {
+	// Get returns the state row for the triple. ports.ErrNotFound on
+	// miss — the use case treats that as "fresh triple, insert" via
 	// Increment(now=current).
-	Get(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) (regrab.NoBetterCounter, error)
+	Get(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) (regrab.WatchdogState, error)
 
-	// Increment atomically bumps consecutive by 1 (or inserts a row
-	// with consecutive=1 on first contact). Returns the post-increment
-	// counter so the use case can decide whether to escalate.
-	Increment(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) (regrab.NoBetterCounter, error)
+	// Increment atomically bumps attempt_count by 1 (or inserts a row
+	// with attempt_count=1 on first contact). Returns the post-update
+	// row so the use case can decide whether to escalate.
+	Increment(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, now time.Time) (regrab.WatchdogState, error)
 
-	// Reset zeros consecutive on the row. ports.ErrNotFound when no
-	// row exists — the use case treats that as a non-error path
-	// because "nothing to reset" is fine after a fresh insert.
-	Reset(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int, now time.Time) error
+	// Reset zeros attempt_count on the row. ports.ErrNotFound when no
+	// row exists — caller treats that as a non-error path.
+	Reset(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, now time.Time) error
+
+	// SetCooldownUntil writes the cooldown_until stamp on the row.
+	// ports.ErrNotFound when no row exists (caller must Increment first).
+	SetCooldownUntil(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, until time.Time) error
+
+	// SetLastError writes the last_error column on the row.
+	// ports.ErrNotFound when no row exists.
+	SetLastError(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int, errMsg string) error
 
 	// DeleteByTriple removes the row entirely (used when an instance's
-	// settings are deleted via 039d Delete). ports.ErrNotFound on miss.
-	DeleteByTriple(ctx context.Context, instanceID uint, seriesID domain.SonarrSeriesID, season int) error
+	// settings are deleted). ports.ErrNotFound on miss.
+	DeleteByTriple(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, season int) error
+
+	// ListByInstance returns every state row for the instance, ordered
+	// by updated_at DESC. Powers the /watchdog/state UI rollup.
+	ListByInstance(ctx context.Context, instance domain.InstanceName) ([]regrab.WatchdogState, error)
+
+	// ListCooldownsDue returns rows whose cooldown_until <= now (only
+	// non-NULL cooldowns are considered), ordered by cooldown_until ASC.
+	// Powers the regrab loop scheduler.
+	ListCooldownsDue(ctx context.Context, instance domain.InstanceName, now time.Time) ([]regrab.WatchdogState, error)
 }
 
 // SeriesCacheRepository persists the per-instance Sonarr series cache
