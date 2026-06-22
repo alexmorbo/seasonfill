@@ -927,6 +927,40 @@ func TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK(t *testing.T) {
 	}
 }
 
+// TestValidate_OIDC_FormsMode_PartialOIDC_NoError reproduces the live
+// prod symptom that triggered B-33 (story 481): mode=forms with an env
+// OIDC_CLIENT_SECRET override and otherwise-empty issuer/client_id used
+// to fail validation with OIDC_PARTIAL_CONFIG, blocking ALL runtime
+// config saves on /settings. The fix routes mode!=oidc straight through.
+func TestValidate_OIDC_FormsMode_PartialOIDC_NoError(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	uc.WithClientSecretEnv("env-injected-secret")
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeForms
+	in.Auth.OIDC = OIDCInput{
+		// Issuer/ClientID empty (DB cleared), redirect_url empty.
+		// Env override makes secretResolved=true under the old rule.
+		Scopes: []string{"openid"},
+	}
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err, "mode=forms with env-only OIDC secret must save")
+}
+
+// TestValidate_OIDC_FormsMode_FullOIDC_NoError confirms that the inverse
+// — fully-configured OIDC subtree while mode=forms — also passes. The
+// values persist for a future mode switch but do not block the save.
+func TestValidate_OIDC_FormsMode_FullOIDC_NoError(t *testing.T) {
+	t.Parallel()
+	uc, _, _ := setup(t)
+	uc.WithClientSecretEnv("env-injected-secret")
+	in := validInput()
+	in.Auth.Mode = runtime.AuthModeForms
+	in.Auth.OIDC = validOIDCInput()
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err, "mode=forms with full OIDC pre-fill must save")
+}
+
 // TestValidate_OIDC_ParallelMode tests the tri-state validation for non-oidc modes.
 func TestValidate_OIDC_ParallelMode(t *testing.T) {
 	t.Parallel()
@@ -951,12 +985,11 @@ func TestValidate_OIDC_ParallelMode(t *testing.T) {
 			},
 		},
 		{
-			name: "mode=forms, issuer set but client_id blank → OIDC_PARTIAL_CONFIG",
+			name: "mode=forms, issuer set but client_id blank → OK (B-33: no all-or-nothing under non-OIDC)",
 			mode: "forms", envSecret: "env-s",
 			oidc: OIDCInput{
 				Issuer: "https://kc.example.com", Scopes: []string{"openid"},
 			},
-			wantErr: "OIDC_PARTIAL_CONFIG",
 		},
 		{
 			name: "mode=oidc, redirect_url blank, env secret → OK (auto-derive)",

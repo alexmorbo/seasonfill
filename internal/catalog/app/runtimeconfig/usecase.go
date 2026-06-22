@@ -519,6 +519,15 @@ func validateLocalNetworks(list []string) ([]string, error) {
 }
 
 func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) error {
+	// When auth_mode is not OIDC, the OIDC subtree is informational only:
+	// operators may pre-fill values before flipping the mode, or leave
+	// leftover values after switching away. The all-or-nothing check is
+	// reserved for mode=oidc, where partial config really would break
+	// the OIDC login flow. See B-33 (story 481).
+	if mode != runtime.AuthModeOIDC {
+		return nil
+	}
+
 	hasEnv := env != ""
 	hasIncoming := in.ClientSecret != nil && *in.ClientSecret != ""
 	clearing := in.ClientSecret != nil && *in.ClientSecret == ""
@@ -527,38 +536,25 @@ func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) err
 
 	hasIssuer := strings.TrimSpace(in.Issuer) != ""
 	hasClientID := strings.TrimSpace(in.ClientID) != ""
-	hasRedirect := strings.TrimSpace(in.RedirectURL) != ""
 
-	if mode == runtime.AuthModeOIDC {
-		if !hasIssuer {
-			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
-				"issuer is required when auth_mode=oidc")
-		}
-		if !strings.HasPrefix(in.Issuer, "https://") && !strings.HasPrefix(in.Issuer, "http://") {
-			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
-				"issuer must be a valid URL")
-		}
-		if !hasClientID {
-			return newValidationErr("auth.oidc.client_id", "INVALID_OIDC_CLIENT_ID",
-				"client_id is required when auth_mode=oidc")
-		}
-		if !secretResolved {
-			return newValidationErr("auth.oidc.client_secret", "OIDC_CLIENT_SECRET_MISSING",
-				"OIDC client_secret missing (set OIDC_CLIENT_SECRET env or configure in UI)")
-		}
-		// redirect_url intentionally optional — Start derives it.
-	} else {
-		anyPresent := hasIssuer || hasClientID || hasRedirect || secretResolved
-		allPresent := hasIssuer && hasClientID && secretResolved
-		if anyPresent && !allPresent {
-			return newValidationErr("auth.oidc", "OIDC_PARTIAL_CONFIG",
-				"complete OIDC config (issuer, client_id, client_secret) or clear all fields")
-		}
-		if hasIssuer && !strings.HasPrefix(in.Issuer, "https://") && !strings.HasPrefix(in.Issuer, "http://") {
-			return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
-				"issuer must be a valid URL")
-		}
+	if !hasIssuer {
+		return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
+			"issuer is required when auth_mode=oidc")
 	}
+	if !strings.HasPrefix(in.Issuer, "https://") && !strings.HasPrefix(in.Issuer, "http://") {
+		return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
+			"issuer must be a valid URL")
+	}
+	if !hasClientID {
+		return newValidationErr("auth.oidc.client_id", "INVALID_OIDC_CLIENT_ID",
+			"client_id is required when auth_mode=oidc")
+	}
+	if !secretResolved {
+		return newValidationErr("auth.oidc.client_secret", "OIDC_CLIENT_SECRET_MISSING",
+			"OIDC client_secret missing (set OIDC_CLIENT_SECRET env or configure in UI)")
+	}
+	// redirect_url intentionally optional — Start derives it.
+
 	if len(in.Scopes) > 0 {
 		hasOpenID := false
 		for _, s := range in.Scopes {
