@@ -9,16 +9,26 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { SUPPORTED_LANGS } from '@/i18n';
+import { useLanguage } from '@/hooks/useLanguage';
 
 const LABELS: Record<string, string> = {
   en: 'English',
   ru: 'Русский',
 };
 
+// LanguageSwitcher — header dropdown. N-7c wires it to useLanguage's
+// dual-write so a choice persists via PATCH /api/v1/me/settings, not
+// just local i18n state. useLanguage handles the optimistic cache
+// update + i18n switch + localStorage + rollback-on-error sequence.
+//
+// Falls back to i18n.resolvedLanguage if /me hasn't resolved yet
+// (e.g. very first render before the hook lands). This is by design:
+// the switcher should always show *something* sensible.
 export function LanguageSwitcher() {
-  const { i18n, t } = useTranslation();
-  const current = (SUPPORTED_LANGS as readonly string[]).includes(i18n.resolvedLanguage ?? '')
-    ? (i18n.resolvedLanguage as string)
+  const { t } = useTranslation();
+  const language = useLanguage();
+  const current = (SUPPORTED_LANGS as readonly string[]).includes(language.current)
+    ? language.current
     : 'en';
 
   return (
@@ -37,7 +47,8 @@ export function LanguageSwitcher() {
         <DropdownMenuRadioGroup
           value={current}
           onValueChange={(v) => {
-            void i18n.changeLanguage(v);
+            if (!v) return;
+            void language.setLanguage(v);
           }}
         >
           {SUPPORTED_LANGS.map((code) => (

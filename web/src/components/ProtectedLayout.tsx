@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
@@ -9,15 +9,17 @@ import { NewScanModal } from "./NewScanModal"
 import { AutoGenPasswordBanner } from "./AutoGenPasswordBanner"
 import { useCmdK } from "@/lib/use-cmdk"
 import { InstanceFilterProvider } from "@/lib/instance-filter-context"
+import { useMe } from "@/hooks/useMe"
 
 function hasNewParam(search: string): boolean {
   return new URLSearchParams(search).get("new") === "1"
 }
 
 export function ProtectedLayout() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
+  const me = useMe()
   // Lazy init: if first render lands on ?new=1 we open the modal immediately.
   const [scanModalOpen, setScanModalOpen] = useState<boolean>(() =>
     hasNewParam(location.search),
@@ -36,6 +38,23 @@ export function ProtectedLayout() {
       { replace: true },
     )
   }, [location.pathname, location.search, navigate])
+
+  // Cold-start i18n hydration: on first /me resolve, if the server's
+  // preferred_language differs from the active i18n locale, switch.
+  // Guarded by a ref so we only fire once per mount (a future PATCH
+  // shouldn't keep flipping the UI). Story 487 (N-7c).
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    if (hydratedRef.current) return
+    const pref = me.data?.preferred_language
+    if (!pref) return
+    if (i18n.resolvedLanguage === pref) {
+      hydratedRef.current = true
+      return
+    }
+    hydratedRef.current = true
+    void i18n.changeLanguage(pref)
+  }, [me.data?.preferred_language, i18n])
 
   return (
     <InstanceFilterProvider>
