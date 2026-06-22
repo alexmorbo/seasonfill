@@ -226,6 +226,17 @@ func (il *instanceLoop) run(ctx context.Context) {
 	}
 	defer timer.Stop()
 
+	// First tick is immediate so a freshly-enabled qBit instance
+	// (operator just saved Settings → qBittorrent OR toggled
+	// enabled=true) doesn't wait PollInterval (5-30 min typical)
+	// before the first watchdog pass. Restart recovery has already
+	// populated persistent state (cooldown table + grab_audit) by
+	// the time run is called, so this iterate is idempotent —
+	// repeated grabs for the same series/season are absorbed by the
+	// cooldown table. Mirrors torrentsync.Loop.Run line 118.
+	// Story 477 (B-30).
+	il.iterate(ctx)
+
 	armed := false
 	for {
 		d := time.Duration(il.intervalNS.Load())

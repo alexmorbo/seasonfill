@@ -167,6 +167,47 @@ func TestRegrabLoop_SwapStopsRemovedInstance(t *testing.T) {
 	waitWG(t, &bgWG, 2*time.Second)
 }
 
+// TestRegrabLoop_SpawnFiresFirstIterationImmediately covers Story 477
+// (B-30): a freshly-spawned per-instance loop must call RunInstance
+// once before waiting on the configured PollInterval. We pick a 1h
+// PollInterval deliberately — without the immediate-tick fix, this
+// test would block ~1 hour waiting for the first timer.C fire and
+// time out. With the fix, RunInstance is observable within ~500ms
+// (typical: a few µs after SwapSettings publishes).
+//
+// Mirrors the rationale of torrentsync.Loop.Run line 118.
+func TestRegrabLoop_SpawnFiresFirstIterationImmediately(t *testing.T) {
+	t.Parallel()
+	r := newFakeRunner()
+	var bgWG sync.WaitGroup
+	loop := NewRegrabLoop(r, newFakeMetrics(), &bgWG, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	loop.Start(ctx)
+
+	// PollInterval deliberately long (1 hour). Without the fix, the
+	// first iterate would not fire until t+1h. With the fix, the
+	// first iterate fires within milliseconds of SwapSettings.
+	loop.SwapSettings(map[string]regrab.Settings{
+		"alpha": {InstanceName: "alpha", Enabled: true, PollInterval: time.Hour},
+	})
+
+	require.Eventually(t, func() bool { return r.count("alpha") >= 1 },
+		time.Second, 5*time.Millisecond,
+		"first iterate must fire immediately after spawn (≤1s); waited a full second")
+
+	// Sanity: second iteration must NOT fire under the 1h interval —
+	// assert the count stays at exactly 1 after a 200ms settle window.
+	// This catches a bug where the fix accidentally double-iterates.
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, 1, r.count("alpha"),
+		"second iterate must wait PollInterval (1h); got extra fires within 200ms settle window")
+
+	cancel()
+	waitWG(t, &bgWG, 2*time.Second)
+}
+
 func TestRegrabLoop_SwapRetunesInterval(t *testing.T) {
 	t.Parallel()
 	r := newFakeRunner()
