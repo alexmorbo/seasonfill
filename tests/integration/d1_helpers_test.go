@@ -210,11 +210,11 @@ func d1IndexOf(s, sub string) int {
 // asserted by TestD1_Acceptance_TableInventory. Sourced from
 // schema.Schema(Postgres) on 2026-06-21 (story 461 / D-1-8); extended
 // in D-4 story 465b (scan_runs migration 000015), then D-6 story 467a
-// (decisions / cooldowns / origin_releases), and D-6 story 467c
+// (decisions / cooldowns / origin_releases), D-6 story 467c
 // (qbit_settings / qbit_torrents / qbit_torrent_events /
-// torrent_series_map). 51 tables in total — schema_migrations
-// (golang-migrate tracker) is excluded; it is not part of the
-// seasonfill domain.
+// torrent_series_map), and D-7 story 468c (media_assets migration
+// 000019). 52 tables in total — schema_migrations (golang-migrate
+// tracker) is excluded; it is not part of the seasonfill domain.
 //
 // Names are the same on both backends — the SQLite list is identical.
 var d1AcceptanceTablesPostgres = []string{
@@ -238,6 +238,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"instance_secret",
 	"keywords",
 	"keywords_i18n",
+	"media_assets",
 	"networks",
 	"networks_i18n",
 	"origin_releases",

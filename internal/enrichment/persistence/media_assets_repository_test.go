@@ -18,7 +18,6 @@ import (
 const sampleHash = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
 
 func TestMediaAssetsRepository_Upsert_EmptyHash(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -32,7 +31,6 @@ func TestMediaAssetsRepository_Upsert_EmptyHash(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_PendingThenStored(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -71,7 +69,6 @@ func TestMediaAssetsRepository_PendingThenStored(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_Get_NotFound(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -90,7 +87,6 @@ func TestMediaAssetsRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_GetByUpstreamURL(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -122,7 +118,6 @@ func TestMediaAssetsRepository_GetByUpstreamURL(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_TouchLastAccess(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -147,7 +142,6 @@ func TestMediaAssetsRepository_TouchLastAccess(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_Upsert_Idempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -172,7 +166,6 @@ func TestMediaAssetsRepository_Upsert_Idempotent(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_HashForSourceURL_Stored(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -195,7 +188,6 @@ func TestMediaAssetsRepository_HashForSourceURL_Stored(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_HashForSourceURL_PendingMisses(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -217,7 +209,6 @@ func TestMediaAssetsRepository_HashForSourceURL_PendingMisses(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_HashForSourceURL_FailedMisses(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -239,7 +230,6 @@ func TestMediaAssetsRepository_HashForSourceURL_FailedMisses(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_HashForSourceURL_Empty(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -253,7 +243,6 @@ func TestMediaAssetsRepository_HashForSourceURL_Empty(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_HashForSourceURL_Unknown(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -272,7 +261,6 @@ func TestMediaAssetsRepository_HashForSourceURL_Unknown(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_EnsurePending_InsertsNewRow(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -295,7 +283,6 @@ func TestMediaAssetsRepository_EnsurePending_InsertsNewRow(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_EnsurePending_IsIdempotent(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -325,7 +312,6 @@ func TestMediaAssetsRepository_EnsurePending_IsIdempotent(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_EnsurePending_PreservesFailedStatus(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -347,7 +333,6 @@ func TestMediaAssetsRepository_EnsurePending_PreservesFailedStatus(t *testing.T)
 }
 
 func TestMediaAssetsRepository_EnsurePending_RejectsEmptyArgs(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -362,7 +347,6 @@ func TestMediaAssetsRepository_EnsurePending_RejectsEmptyArgs(t *testing.T) {
 }
 
 func TestMediaAssetsRepository_GetSourceURLByHash(t *testing.T) {
-	t.Skip("pending D-3 enrichment rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {

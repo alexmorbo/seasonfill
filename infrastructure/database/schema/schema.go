@@ -197,6 +197,19 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addSeriesImages(s, d)
 	}
 
+	// D-7 (story 468c) — media_assets restoration. Re-introduced per
+	// ADR D2-revised-roadmap.md "Background — media_assets owned by D-7
+	// mediaproxy contract restoration". Content-addressed image cache
+	// index with no FK to canon — decoupled by design so GC sweep
+	// (E-2 future) can prune cold assets independently of canon liveness.
+	//
+	// Dev-time split: setting ATLAS_SCHEMA_SKIP_MEDIA_ASSETS=1 generates
+	// earlier migrations without this table. Production runtime never
+	// sets this var.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_MEDIA_ASSETS") == "" {
+		addMediaAssets(s, d)
+	}
+
 	// D-1-6b (story 459b) — admin tables: sonarr_instance,
 	// instance_secret, app_secret, external_service_config, and
 	// external_service_quota_state. 5 tables with a dual FK pattern
@@ -1616,6 +1629,76 @@ func buildSeriesImagesTable(d Dialect, seriesTable *atlasschema.Table) *atlassch
 				AddRefColumns(parentRefCol(seriesTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// ----------------------------------------------------------------------
+// D-7 (story 468c) — media_assets restoration.
+// ----------------------------------------------------------------------
+
+// addMediaAssets appends media_assets to s. Called from Schema(d).
+// D-7 restoration of the table that was dropped in D-1 per ADR
+// D2-revised-roadmap.md "media_assets owned by D-7 mediaproxy contract".
+//
+// Decoupled from canon entities — content-addressed by hash, no FK.
+// GC sweep (E-2 future story) keys off (status, last_access_at).
+func addMediaAssets(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildMediaAssetsTable(d))
+}
+
+// buildMediaAssetsTable returns media_assets — content-addressed image
+// cache index. PK on hash (sha256 of source_url, lowercase hex).
+// Status lifecycle: pending → (stored | failed). No FK — image bytes
+// are content-addressed and outlive canon row deletes by design.
+//
+// Schema mirrors internal/shared/db/MediaAssetModel (the GORM struct
+// kept since D-1 even though the table was dropped). Columns:
+//   - hash TEXT PK; sha256(source_url) lowercase hex. The on-disk path
+//     in the object store is derived from hash too (see
+//     internal/mediaproxy/infrastructure/key.go::KeyFromHash).
+//   - source_url TEXT NOT NULL UNIQUE — the upstream TMDB URL the asset
+//     was fetched from. UNIQUE because duplicate URLs map to the same
+//     hash by definition; the index also serves the EnsurePending dedup
+//     path + HashForSourceURL secondary lookup.
+//   - kind TEXT NOT NULL (e.g., poster_w342, backdrop_w1280) — TMDB
+//     image size descriptor; informational, not enforced by CHECK.
+//   - status TEXT NOT NULL DEFAULT 'pending'; domain-enforced ∈
+//     {pending, stored, failed} per media.Status state machine.
+//   - content_type TEXT NULL — populated when status transitions to
+//     stored (Content-Type recorded by the downloader).
+//   - size_bytes BIGINT NULL — populated when status transitions to
+//     stored.
+//   - fetched_at TIMESTAMPTZ NULL — stamped on stored / failed
+//     transition (the downloader's outcome timestamp).
+//   - last_access_at TIMESTAMPTZ NULL — touched by the GET
+//     /api/v1/media/:hash handler; powers GC liveness sweep (E-2).
+//   - created_at TIMESTAMPTZ NOT NULL DEFAULT now().
+//
+// Indexes:
+//   - PK on hash (Get(hash) hot path).
+//   - UNIQUE idx_media_assets_source_url — the EnsurePending dedup key
+//   - HashForSourceURL secondary lookup.
+//   - idx_media_assets_status — ListPending sweep + future E-2 GC scope.
+func buildMediaAssetsTable(d Dialect) *atlasschema.Table {
+	hash := atlasschema.NewStringColumn("hash", "text").SetNull(false)
+	sourceURL := atlasschema.NewStringColumn("source_url", "text").SetNull(false)
+	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'pending'"})
+	contentType := atlasschema.NewNullStringColumn("content_type", "text")
+	sizeBytes := atlasschema.NewNullIntColumn("size_bytes", "bigint")
+	fetchedAt := timestampColumn(d, "fetched_at", false /* withDefault */, false /* notNull */)
+	lastAccessAt := timestampColumn(d, "last_access_at", false /* withDefault */, false /* notNull */)
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("media_assets").
+		AddColumns(hash, sourceURL, kind, status, contentType, sizeBytes,
+			fetchedAt, lastAccessAt, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(hash)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("idx_media_assets_source_url").AddColumns(sourceURL),
+			atlasschema.NewIndex("idx_media_assets_status").AddColumns(status),
 		)
 }
 

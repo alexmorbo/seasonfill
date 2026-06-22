@@ -608,7 +608,6 @@ func TestInstancesHandler_ListSeriesCacheNetworks_UnknownInstance404(t *testing.
 // reads the row to recover the source_url + kind without an extra
 // catalog lookup.
 func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T) {
-	t.Skip("media_assets dropped per D-1 ADR (decisions/D1-cutover.md, decisions/D2-revised-roadmap.md); test asserts pending row in a dropped table — re-enable when mediaproxy contract is restored on the new schema")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)
@@ -653,7 +652,6 @@ func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T
 // Two concurrent /series-cache requests for the same series must
 // produce exactly ONE media_assets row (ON CONFLICT (hash) DO NOTHING).
 func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) {
-	t.Skip("media_assets dropped per D-1 ADR (decisions/D1-cutover.md, decisions/D2-revised-roadmap.md); test asserts ON CONFLICT race on a dropped table — re-enable when mediaproxy contract is restored on the new schema")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)
@@ -707,7 +705,6 @@ func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) 
 // enrichMissingFromCache directly with synthetic items to isolate the
 // EnsurePending behaviour from the upstream wiring.
 func TestInstancesHandler_EnrichMissingFromCache_EnsuresPendingMediaAssets(t *testing.T) {
-	t.Skip("media_assets dropped per D-1 ADR (decisions/D1-cutover.md, decisions/D2-revised-roadmap.md); test asserts pending row in a dropped table — re-enable when mediaproxy contract is restored on the new schema")
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")
 	mediaRepo := f.withMediaPending(t)

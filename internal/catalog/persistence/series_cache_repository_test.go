@@ -1043,7 +1043,6 @@ func TestSeriesCacheRepository_ProjectsRawPosterAsset(t *testing.T) {
 }
 
 func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfMediaStatus(t *testing.T) {
-	t.Skip("media_assets dropped per D-1 ADR (decisions/D1-cutover.md, decisions/D2-revised-roadmap.md); test seeds a dropped table — re-enable when mediaproxy contract is restored on the new schema")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -1074,7 +1073,6 @@ func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfMediaStatus(t *te
 }
 
 func TestSeriesCacheRepository_ProjectsPosterAsset_RegardlessOfFailedMediaRow(t *testing.T) {
-	t.Skip("media_assets dropped per D-1 ADR (decisions/D1-cutover.md, decisions/D2-revised-roadmap.md); test seeds a dropped table — re-enable when mediaproxy contract is restored on the new schema")
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
