@@ -143,3 +143,16 @@ chart-rendered `<release>-env` name.
 {{- end -}}
 {{- end }}
 
+{{/*
+Backend component label — appended to the backend Service's
+`metadata.labels` (NOT to its `spec.selector`, which would require
+a pod-label change and break Deployment selector immutability).
+The ServiceMonitor's `spec.selector.matchLabels` includes this key
+so vmagent scrapes the backend Service exclusively, never the web
+Service (which carries `component: web` via webSelectorLabels).
+Added under B-21 (story 472) to fix nginx /metrics buffer overflow.
+*/}}
+{{- define "seasonfill.backendComponentLabel" -}}
+app.kubernetes.io/component: backend
+{{- end }}
+

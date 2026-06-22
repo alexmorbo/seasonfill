@@ -101,6 +101,15 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # Backend /metrics emits the full Prometheus body — Go runtime +
+        # HTTP histograms + seasonfill_* gauges. Response headers exceed
+        # nginx default proxy_buffer_size (8k) → "upstream sent too big
+        # header" 502s. Sized for current payload (~12k headers) with
+        # 30% headroom; 4 buffers stream the body without disk spill.
+        # See B-21 (story 472).
+        proxy_buffer_size 16k;
+        proxy_buffers 4 16k;
+        proxy_busy_buffers_size 16k;
         # /metrics is auth'd at the backend per 021 §C1 (only /healthz,
         # /readyz are fully public; /metrics is public-but-auth'd via
         # config — see config.example.yaml).

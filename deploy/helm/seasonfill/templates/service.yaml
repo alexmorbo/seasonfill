@@ -4,6 +4,7 @@ metadata:
   name: {{ include "seasonfill.fullname" . }}
   labels:
     {{- include "seasonfill.labels" . | nindent 4 }}
+    {{- include "seasonfill.backendComponentLabel" . | nindent 4 }}
     {{- with .Values.service.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
