@@ -49,6 +49,7 @@ export const en = {
     lostRetrying: 'Connection lost — retrying…',
   },
   health: {
+    bootstrapping: 'Checking connection…',
     available: 'Available',
     selfThrottled: 'Throttled',
     unavailableAuth: 'Unavailable (auth)',

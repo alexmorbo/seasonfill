@@ -75,6 +75,31 @@ describe('<InstanceCompactRow />', () => {
     });
   });
 
+  it('renders spinner pill + neutral row (no red border) when health is Bootstrapping', () => {
+    renderWithProviders(
+      <InstanceCompactRow
+        instance={{
+          name: 'fresh',
+          mode: 'auto',
+          health: 'Bootstrapping',
+          last_check_at: new Date().toISOString(),
+          transitions_count: 0,
+          url: 'http://sonarr-fresh:80',
+        } as never}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('row-health-spinner-fresh')).toBeInTheDocument();
+    const pill = screen.getByTestId('row-health-fresh');
+    expect(pill.textContent).toMatch(/Checking connection|Проверяем подключение/);
+    const row = screen.getByTestId('instance-row-fresh');
+    expect(row.className).not.toMatch(/border-l-status-danger/);
+    expect(row.className).not.toMatch(/border-l-status-warning/);
+    expect(screen.queryByTestId('row-error-fresh')).toBeNull();
+  });
+
   it('hides flips chip and error line when healthy', () => {
     renderWithProviders(
       <InstanceCompactRow

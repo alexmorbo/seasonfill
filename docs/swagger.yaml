@@ -772,6 +772,7 @@ components:
       properties:
         health:
           enum:
+          - Bootstrapping
           - Available
           - SelfThrottled
           - UnavailableAuth
@@ -1274,6 +1275,93 @@ components:
           type: string
         username:
           example: admin
+          type: string
+      type: object
+    dto.MeChangePasswordRequest:
+      properties:
+        current_password:
+          example: hunter22
+          type: string
+        new_password:
+          example: NewSecretLongEnough
+          type: string
+      type: object
+    dto.MePasswordUnavailableResponse:
+      properties:
+        error:
+          example: password_change_unavailable
+          type: string
+        manage_url:
+          example: https://keycloak.example.com/realms/homelab/account
+          type: string
+        reason:
+          enum:
+          - managed_by_idp
+          - managed_by_basic_auth
+          - auth_disabled
+          example: managed_by_idp
+          type: string
+      type: object
+    dto.MeResponse:
+      properties:
+        auth_mode:
+          enum:
+          - forms
+          - basic
+          - none
+          - oidc
+          example: forms
+          type: string
+        avatar_hash:
+          example: 0bc83cb571cd1c50ba6f3e8a78ef1346
+          type: string
+        avatar_mode:
+          enum:
+          - auto
+          - monogram
+          - gravatar
+          example: auto
+          type: string
+        avatar_resolved_mode:
+          enum:
+          - gravatar
+          - monogram
+          example: gravatar
+          type: string
+        email:
+          example: admin@example.com
+          type: string
+        id:
+          example: 1
+          type: integer
+        idp_profile_url:
+          example: https://keycloak.example.com/realms/homelab/account
+          type: string
+        last_login_at:
+          type: string
+        oidc_subject:
+          example: abc-123
+          type: string
+        preferred_language:
+          example: ru
+          type: string
+        role:
+          enum:
+          - admin
+          - user
+          example: admin
+          type: string
+        username:
+          example: admin
+          type: string
+      type: object
+    dto.MeSettingsPatchRequest:
+      properties:
+        avatar_mode:
+          example: gravatar
+          type: string
+        preferred_language:
+          example: ru
           type: string
       type: object
     dto.MissingSeasonStat:
@@ -5175,6 +5263,103 @@ paths:
       summary: Probe a Sonarr instance for reachability/auth
       tags:
       - instances
+  /me:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MeResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Current user profile + auth context + avatar fields
+      tags:
+      - auth
+  /me/change-password:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.MeChangePasswordRequest'
+        description: Current + new password
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "405":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MePasswordUnavailableResponse'
+          description: Method Not Allowed
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Too Many Requests
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Change the current user's password (forms mode only)
+      tags:
+      - auth
+  /me/settings:
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.MeSettingsPatchRequest'
+        description: Partial settings patch
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MeResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Patch the current user's settings (avatar_mode + preferred_language)
+      tags:
+      - auth
   /media/{hash}:
     get:
       description: |-

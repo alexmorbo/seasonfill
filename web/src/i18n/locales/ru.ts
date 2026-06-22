@@ -51,6 +51,7 @@ export const ru: Translations = {
     lostRetrying: 'Связь потеряна — пытаемся переподключиться…',
   },
   health: {
+    bootstrapping: 'Проверяем подключение…',
     available: 'Доступен',
     selfThrottled: 'Замедление',
     unavailableAuth: 'Недоступен (авторизация)',

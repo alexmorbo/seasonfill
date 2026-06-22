@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Pencil, RefreshCw, MoreHorizontal, WifiOff } from 'lucide-react';
+import { Pencil, RefreshCw, MoreHorizontal, WifiOff, Loader2 } from 'lucide-react';
 import type { Instance } from '@/lib/instances';
 import { useInstanceCounters } from '@/lib/counters';
 import { Card } from '@/components/ui/card';
@@ -30,7 +30,11 @@ export function InstanceCompactRow({
   const name = instance.name ?? '';
   const c7 = useInstanceCounters(name, '7d');
   const kind = healthKind(instance.health);
-  const degraded = kind !== 'success';
+  // Story 488 (B-14): Bootstrapping renders neutral pill + spinner,
+  // and must NOT trigger the red degraded row tint — the operator
+  // hasn't seen a real failure yet.
+  const bootstrapping = instance.health === 'Bootstrapping';
+  const degraded = kind !== 'success' && !bootstrapping;
   // Self-throttled wears an amber accent — the backend is reachable,
   // the operator just sees rate-limiter slowdown — so the row tints
   // warning, not danger.
@@ -64,7 +68,15 @@ export function InstanceCompactRow({
             )}
             data-testid={`row-health-${name}`}
           >
-            <span className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(instance.health)])} />
+            {instance.health === 'Bootstrapping' ? (
+              <Loader2
+                className="w-3 h-3 animate-spin text-tx-faint"
+                aria-hidden="true"
+                data-testid={`row-health-spinner-${name}`}
+              />
+            ) : (
+              <span className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(instance.health)])} />
+            )}
             {t(healthLabelKey(instance.health))} · {relativeTime(instance.last_check_at)}
           </span>
           <Badge variant="solid" mono>{instance.mode ?? 'auto'}</Badge>

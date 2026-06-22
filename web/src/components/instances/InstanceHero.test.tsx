@@ -195,6 +195,30 @@ describe('<InstanceHero />', () => {
     expect(errorEl.className).toMatch(/text-status-warning/);
   });
 
+  it('renders spinner pill + neutral kind + "Checking connection…" label when health is Bootstrapping', async () => {
+    const bootstrapping = {
+      name: 'homelab',
+      mode: 'auto',
+      health: 'Bootstrapping',
+      last_check_at: new Date().toISOString(),
+      transitions_count: 0,
+      url: 'http://sonarr:80',
+    } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={bootstrapping}
+        onEdit={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('hero-health-spinner-homelab')).toBeInTheDocument();
+    const pill = screen.getByTestId('hero-health-homelab');
+    expect(pill.textContent).toMatch(/Checking connection|Проверяем подключение/);
+    // Bootstrapping is neutral, not danger — operator must NOT see a red accent.
+    const card = screen.getByTestId('instance-hero-homelab');
+    expect(card.className).not.toMatch(/border-l-status-danger/);
+    expect(card.className).not.toMatch(/border-l-status-warning/);
+  });
+
   it('"Sonarr" button is hidden when url is schemeless and no public_url', async () => {
     const bare = {
       ...(inst as object),

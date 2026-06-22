@@ -50,6 +50,11 @@ export function statusLabelKey(s?: string): string {
 
 export function healthKind(h?: string): BadgeKind {
   switch (h) {
+    case 'Bootstrapping':
+      // Story 488 (B-14): a fresh instance before the first preflight
+      // completes. Neutral pill — operator sees the spinner overlay
+      // instead of a colored dot.
+      return 'neutral';
     case 'Available':
       return 'success';
     case 'SelfThrottled':
@@ -68,6 +73,8 @@ export function healthKind(h?: string): BadgeKind {
 
 export function healthLabelKey(h?: string): string {
   switch (h) {
+    case 'Bootstrapping':
+      return 'health.bootstrapping';
     case 'Available':
       return 'health.available';
     case 'SelfThrottled':

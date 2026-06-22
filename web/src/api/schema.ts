@@ -3038,6 +3038,185 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/me": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Current user profile + auth context + avatar fields */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/me/change-password": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Change the current user's password (forms mode only) */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Current + new password */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.MeChangePasswordRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Method Not Allowed */
+                readonly 405: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MePasswordUnavailableResponse"];
+                    };
+                };
+                /** @description Too Many Requests */
+                readonly 429: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/me/settings": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /** Patch the current user's settings (avatar_mode + preferred_language) */
+        readonly patch: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Partial settings patch */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": components["schemas"]["dto.MeSettingsPatchRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MeResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly trace?: never;
+    };
     readonly "/media/{hash}": {
         readonly parameters: {
             readonly query?: never;
@@ -4731,6 +4910,66 @@ export type components = {
             /** @example admin */
             readonly username?: string;
         };
+        readonly "dto.MeChangePasswordRequest": {
+            /** @example hunter22 */
+            readonly current_password?: string;
+            /** @example NewSecretLongEnough */
+            readonly new_password?: string;
+        };
+        readonly "dto.MePasswordUnavailableResponse": {
+            /** @example password_change_unavailable */
+            readonly error?: string;
+            /** @example https://keycloak.example.com/realms/homelab/account */
+            readonly manage_url?: string;
+            /**
+             * @example managed_by_idp
+             * @enum {string}
+             */
+            readonly reason?: DtoMePasswordUnavailableResponseReason;
+        };
+        readonly "dto.MeResponse": {
+            /**
+             * @example forms
+             * @enum {string}
+             */
+            readonly auth_mode?: DtoMeResponseAuth_mode;
+            /** @example 0bc83cb571cd1c50ba6f3e8a78ef1346 */
+            readonly avatar_hash?: string;
+            /**
+             * @example auto
+             * @enum {string}
+             */
+            readonly avatar_mode?: DtoMeResponseAvatar_mode;
+            /**
+             * @example gravatar
+             * @enum {string}
+             */
+            readonly avatar_resolved_mode?: DtoMeResponseAvatar_resolved_mode;
+            /** @example admin@example.com */
+            readonly email?: string;
+            /** @example 1 */
+            readonly id?: number;
+            /** @example https://keycloak.example.com/realms/homelab/account */
+            readonly idp_profile_url?: string;
+            readonly last_login_at?: string;
+            /** @example abc-123 */
+            readonly oidc_subject?: string;
+            /** @example ru */
+            readonly preferred_language?: string;
+            /**
+             * @example admin
+             * @enum {string}
+             */
+            readonly role?: DtoMeResponseRole;
+            /** @example admin */
+            readonly username?: string;
+        };
+        readonly "dto.MeSettingsPatchRequest": {
+            /** @example gravatar */
+            readonly avatar_mode?: string;
+            /** @example ru */
+            readonly preferred_language?: string;
+        };
         readonly "dto.MissingSeasonStat": {
             readonly aired_episode_count?: number;
             readonly episodes?: readonly components["schemas"]["dto.SeasonEpisodePresence"][];
@@ -6076,6 +6315,7 @@ export enum DtoGrabStatus {
     expired = "expired"
 }
 export enum DtoInstanceHealth {
+    Bootstrapping = "Bootstrapping",
     Available = "Available",
     SelfThrottled = "SelfThrottled",
     UnavailableAuth = "UnavailableAuth",
@@ -6111,6 +6351,30 @@ export enum DtoInstanceTagsMode {
 export enum DtoInstanceUpdateRequestMode {
     auto = "auto",
     manual = "manual"
+}
+export enum DtoMePasswordUnavailableResponseReason {
+    managed_by_idp = "managed_by_idp",
+    managed_by_basic_auth = "managed_by_basic_auth",
+    auth_disabled = "auth_disabled"
+}
+export enum DtoMeResponseAuth_mode {
+    forms = "forms",
+    basic = "basic",
+    none = "none",
+    oidc = "oidc"
+}
+export enum DtoMeResponseAvatar_mode {
+    auto = "auto",
+    monogram = "monogram",
+    gravatar = "gravatar"
+}
+export enum DtoMeResponseAvatar_resolved_mode {
+    gravatar = "gravatar",
+    monogram = "monogram"
+}
+export enum DtoMeResponseRole {
+    admin = "admin",
+    user = "user"
 }
 export enum DtoReadyStatusStatus {
     ok = "ok",

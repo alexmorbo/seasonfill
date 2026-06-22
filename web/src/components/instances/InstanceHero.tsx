@@ -40,7 +40,11 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
   const forceScan = useForceScanButton(name);
 
   const kind = healthKind(instance.health);
-  const degraded = kind !== 'success';
+  // Story 488 (B-14): Bootstrapping renders neutral pill + spinner,
+  // and must NOT trigger the red degraded border treatment — the
+  // operator hasn't seen a real failure yet.
+  const bootstrapping = instance.health === 'Bootstrapping';
+  const degraded = kind !== 'success' && !bootstrapping;
   // Self-throttled wears a warning (amber) accent rather than the red
   // danger accent — same border treatment, different colour token.
   const warn = kind === 'warning';
@@ -69,7 +73,15 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
                 )}
                 data-testid={`hero-health-${name}`}
               >
-                <span className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(instance.health)])} />
+                {instance.health === 'Bootstrapping' ? (
+                  <Loader2
+                    className="w-3 h-3 animate-spin text-tx-faint"
+                    aria-hidden="true"
+                    data-testid={`hero-health-spinner-${name}`}
+                  />
+                ) : (
+                  <span className={cn('inline-block w-1.5 h-1.5 rounded-full', KIND_DOT[healthKind(instance.health)])} />
+                )}
                 {t(healthLabelKey(instance.health))} · {relativeTime(instance.last_check_at)}
               </span>
               <Badge variant="solid" mono>{instance.mode ?? 'auto'}</Badge>
