@@ -116,3 +116,47 @@ const (
 	EventCompleted   EventKind = "completed"
 	EventDeleted     EventKind = "deleted"
 )
+
+// Metrics is the application-layer port the torrentsync UseCase + Loop
+// emit telemetry through. Production impl:
+// observability.TorrentsyncMetricsAdapter. Tests pass a fake that
+// records calls.
+//
+// The existing reconciler UnmappedGauge (defined inline in reconciler.go)
+// is a subset of this interface — production wiring reuses the same
+// TorrentsyncMetricsAdapter value for both ports, so there is no
+// double-emission risk.
+type Metrics interface {
+	// ObserveRefreshDuration records one iterate() duration end-to-end.
+	// outcome ∈ {"ok", "error"}.
+	ObserveRefreshDuration(instance domain.InstanceName, outcome string, seconds float64)
+
+	// SetTorrentsByState replaces the per-state gauge. Called once per
+	// state group per successful RunInstance, with the count of
+	// torrents currently in that group.
+	SetTorrentsByState(instance domain.InstanceName, state qbit.StateGroup, count int)
+
+	// AddDelta bumps the per-op counter by n. op ∈
+	// {"insert", "update", "delete"}.
+	AddDelta(instance domain.InstanceName, op string, n int)
+
+	// SetLastRefreshAt publishes the Unix epoch seconds of the last
+	// successful refresh.
+	SetLastRefreshAt(instance domain.InstanceName, unixSec int64)
+
+	// AddUnmappedDetected bumps the newly-detected-unmapped counter by
+	// n. n is the count of hashes seen this tick that are NOT in the
+	// previous store snapshot.
+	AddUnmappedDetected(instance domain.InstanceName, n int)
+}
+
+// nullMetrics is the bootstrap-time default. Use case constructor
+// installs this when no Metrics is wired; tests pin their own stub
+// via WithMetrics().
+type nullMetrics struct{}
+
+func (nullMetrics) ObserveRefreshDuration(domain.InstanceName, string, float64)  {}
+func (nullMetrics) SetTorrentsByState(domain.InstanceName, qbit.StateGroup, int) {}
+func (nullMetrics) AddDelta(domain.InstanceName, string, int)                    {}
+func (nullMetrics) SetLastRefreshAt(domain.InstanceName, int64)                  {}
+func (nullMetrics) AddUnmappedDetected(domain.InstanceName, int)                 {}

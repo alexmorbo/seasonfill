@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -44,6 +45,10 @@ type UseCase struct {
 	// every 10th tick (PRD §4.5). Nil-OK: pre-Story-221 wiring
 	// runs the qBit refresh without the bridge.
 	reconciler *Reconciler
+	// metrics is the observability sink (B-32). nullMetrics by
+	// default so RunInstance calls are safe when wiring is absent
+	// (tests and pre-B-32 boot paths).
+	metrics Metrics
 }
 
 // NewUseCase wires the dependencies. Construction never touches
@@ -62,6 +67,7 @@ func NewUseCase(store *Store, policy *PersistPolicy, sessions SyncSessionFactory
 		lastFlush:         make(map[domain.InstanceName]time.Time),
 		pending:           make(map[domain.InstanceName]map[string]Entry),
 		hydrated:          make(map[domain.InstanceName]bool),
+		metrics:           nullMetrics{},
 	}
 }
 
@@ -72,6 +78,17 @@ func NewUseCase(store *Store, policy *PersistPolicy, sessions SyncSessionFactory
 // refresh without the bridge.
 func (u *UseCase) WithReconciler(r *Reconciler) *UseCase {
 	u.reconciler = r
+	return u
+}
+
+// WithMetrics installs the observability sink (B-32). Nil restores
+// the no-op default so a caller can clear a previously-installed
+// stub without knowing the package-private nullMetrics type.
+func (u *UseCase) WithMetrics(m Metrics) *UseCase {
+	if m == nil {
+		m = nullMetrics{}
+	}
+	u.metrics = m
 	return u
 }
 
@@ -143,6 +160,12 @@ func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName,
 
 	u.store.EnsureInstance(instance)
 
+	// B-32 delta bookkeeping. previouslyKnown snapshots the keyset
+	// BEFORE the diff loop so AddUnmappedDetected can count "fresh"
+	// arrivals only (hashes that were not in the store at start-of-tick).
+	previouslyKnown := u.store.AllHashes(instance)
+	var dInsert, dUpdate, dDelete int
+
 	for _, info := range snap.Torrents {
 		next := Entry{
 			Info:       info,
@@ -154,6 +177,8 @@ func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName,
 		if hadPrev {
 			prevPtr = &prev
 			next.LastFlushedCounters = prev.LastFlushedCounters
+		} else {
+			dInsert++
 		}
 		persisted, perr := u.policy.HandleTransition(ctx, instance, prevPtr, next)
 		if perr != nil {
@@ -170,8 +195,14 @@ func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName,
 			// date, so drop any pending entry for this hash.
 			next.LastFlushedCounters = CountersFrom(info)
 			u.dropPending(instance, info.Hash)
+			if hadPrev {
+				dUpdate++
+			}
 		} else if CountersDirty(next.LastFlushedCounters, CountersFrom(info)) {
 			u.markPending(instance, next)
+			if hadPrev {
+				dUpdate++
+			}
 		}
 		u.store.Put(instance, next)
 	}
@@ -188,6 +219,7 @@ func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName,
 		u.store.Delete(instance, hash)
 		u.dropPending(instance, hash)
 	}
+	dDelete = len(snap.Removed)
 
 	if u.flushDue(instance, now) {
 		pending := u.takePending(instance)
@@ -225,7 +257,68 @@ func (u *UseCase) RunInstance(ctx context.Context, instance domain.InstanceName,
 				slog.String("error", err.Error()))
 		}
 	}
+	// B-32 — emit per-tick telemetry. Order matters only insofar as
+	// SetLastRefreshAt must come AFTER a successful Refresh — if we
+	// reached this point, snap.Torrents was successfully merged.
+	u.emitMetrics(instance, now, snap, dInsert, dUpdate, dDelete, previouslyKnown)
 	return nil
+}
+
+// emitMetrics is the B-32 telemetry sink invoked at the end of every
+// successful RunInstance. Builds the state-group histogram from the
+// current store snapshot (NOT snap.Torrents, because the store may
+// have had additional removals applied during this tick), bumps the
+// delta counters, stamps the last-refresh gauge, and reports newly-
+// detected unmapped hashes.
+//
+// previouslyKnown is the keyset of u.store.AllHashes(instance) taken
+// BEFORE the diff loop; we use it to count "fresh" unmapped hashes
+// (hashes that appeared this tick AND were not in the store at
+// start-of-tick).
+func (u *UseCase) emitMetrics(
+	instance domain.InstanceName,
+	now time.Time,
+	snap qbit.Snapshot,
+	dInsert, dUpdate, dDelete int,
+	previouslyKnown map[string]struct{},
+) {
+	if u.metrics == nil {
+		return
+	}
+	// State distribution from the live store. Initialise every state
+	// group to zero so the gauge zeros out a previously-populated
+	// state when the last torrent of that group is removed.
+	counts := map[qbit.StateGroup]int{
+		qbit.StateGroupDownloading: 0, qbit.StateGroupSeeding: 0,
+		qbit.StateGroupStalled: 0, qbit.StateGroupQueued: 0,
+		qbit.StateGroupPaused: 0, qbit.StateGroupChecking: 0,
+		qbit.StateGroupError: 0, qbit.StateGroupUnknown: 0,
+	}
+	for _, e := range u.store.All(instance) {
+		counts[e.StateGroup]++
+	}
+	for state, n := range counts {
+		u.metrics.SetTorrentsByState(instance, state, n)
+	}
+
+	u.metrics.AddDelta(instance, observability.TorrentsyncDeltaOpInsert, dInsert)
+	u.metrics.AddDelta(instance, observability.TorrentsyncDeltaOpUpdate, dUpdate)
+	u.metrics.AddDelta(instance, observability.TorrentsyncDeltaOpDelete, dDelete)
+	u.metrics.SetLastRefreshAt(instance, now.Unix())
+
+	// Newly-detected hashes: those in this tick's snap.Torrents
+	// that were not in the store snapshot taken BEFORE the diff
+	// loop. The reconciler emits the absolute unmapped gauge on
+	// its own cadence; this counter measures the *rate* of fresh
+	// arrivals between reconciler ticks.
+	fresh := 0
+	for hash := range snap.Torrents {
+		if _, known := previouslyKnown[hash]; known {
+			continue
+		}
+		fresh++
+	}
+	u.metrics.AddUnmappedDetected(instance, fresh)
 }
 
 // session is a one-method helper that returns (and caches) the

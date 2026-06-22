@@ -217,6 +217,60 @@ func TestLoop_SetIntervalRespectsDegradedMode(t *testing.T) {
 	assert.Equal(t, DegradedInterval, l.Interval())
 }
 
+// stubLoopMetrics is the minimal Loop-side Metrics impl. The Loop
+// only calls ObserveRefreshDuration; the rest of the Metrics surface
+// is handled by the use case (covered in usecase_test.go).
+type stubLoopMetrics struct {
+	durations []stubLoopDuration
+}
+
+type stubLoopDuration struct {
+	outcome string
+	seconds float64
+}
+
+func (s *stubLoopMetrics) ObserveRefreshDuration(_ domain.InstanceName, outcome string, seconds float64) {
+	s.durations = append(s.durations, stubLoopDuration{outcome: outcome, seconds: seconds})
+}
+func (*stubLoopMetrics) SetTorrentsByState(domain.InstanceName, qbit.StateGroup, int) {}
+func (*stubLoopMetrics) AddDelta(domain.InstanceName, string, int)                    {}
+func (*stubLoopMetrics) SetLastRefreshAt(domain.InstanceName, int64)                  {}
+func (*stubLoopMetrics) AddUnmappedDetected(domain.InstanceName, int)                 {}
+
+func TestLoop_Iterate_ObservesRefreshDuration_OK(t *testing.T) {
+	t.Parallel()
+	sess := &fakeSession{stages: []qbit.Snapshot{
+		{Torrents: map[string]qbit.TorrentInfo{}},
+	}}
+	repo := &fakeTorrentsRepo{}
+	events := &fakeEventsRepo{}
+	policy := newPolicy(t, repo, events)
+	uc := NewUseCase(NewStore(), policy, fakeFactory{sess: sess}, repo, slog.Default())
+
+	stub := &stubLoopMetrics{}
+	l := NewLoopWithMetrics("alpha", uc, 30*time.Second, slog.Default(), stub)
+	l.iterate(context.Background())
+
+	require.Len(t, stub.durations, 1)
+	assert.Equal(t, "ok", stub.durations[0].outcome)
+}
+
+func TestLoop_Iterate_ObservesRefreshDuration_Error(t *testing.T) {
+	t.Parallel()
+	sess := &fakeSession{errs: []error{errors.New("boom")}}
+	repo := &fakeTorrentsRepo{}
+	events := &fakeEventsRepo{}
+	policy := newPolicy(t, repo, events)
+	uc := NewUseCase(NewStore(), policy, fakeFactory{sess: sess}, repo, slog.Default())
+
+	stub := &stubLoopMetrics{}
+	l := NewLoopWithMetrics("alpha", uc, 30*time.Second, slog.Default(), stub)
+	l.iterate(context.Background())
+
+	require.Len(t, stub.durations, 1)
+	assert.Equal(t, "error", stub.durations[0].outcome)
+}
+
 func TestLoop_RunExitsOnCtxCancel(t *testing.T) {
 	t.Parallel()
 	sess := &fakeSession{stages: []qbit.Snapshot{

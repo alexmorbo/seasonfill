@@ -166,6 +166,23 @@ func (r *QbitTorrentsRepository) FindByHashes(ctx context.Context, instance doma
 	return out, nil
 }
 
+// CountPresentByInstance returns the number of `present=true` rows in
+// qbit_torrents for the instance. Used by the periodic capacity
+// collector (cmd/server/loops/qbit_capacity.go) to feed the
+// seasonfill_qbit_torrents_rows gauge. Returns (0, nil) when the
+// instance has never been seen.
+func (r *QbitTorrentsRepository) CountPresentByInstance(ctx context.Context, instance domain.InstanceName) (int, error) {
+	var count int64
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.QbitTorrentModel{}).
+		Where("instance_name = ? AND present = ?", instance, true).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count present qbit_torrents: %w", err)
+	}
+	return int(count), nil
+}
+
 // modelFromEntry projects a torrentsync.Entry into the GORM
 // model. Live fields are NOT carried over — they have no column.
 func modelFromEntry(instance domain.InstanceName, e torrentsync.Entry, updatedAt time.Time) database.QbitTorrentModel {

@@ -205,6 +205,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// torrentsync loop's Start needs rootCtx (owned by server.go, not
 	// the wirer). Same pattern as regrabBundle.RegrabLoop.Start above.
 	torrentsyncBundle.Loop.Start(rootCtx)
+	// B-32 — qbit_torrents row-count collector. bgWG.Add + go-Run
+	// mirrors the sweep/regrab pattern; the loop calls bgWG.Done on
+	// exit. Drained by drainBackground at shutdown.
+	bgWG.Add(1)
+	go torrentsyncBundle.QbitCapacityLoop.Run(rootCtx)
 
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {

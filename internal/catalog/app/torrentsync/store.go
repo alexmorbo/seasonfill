@@ -256,3 +256,21 @@ func (s *Store) Len(instance domain.InstanceName) int {
 	defer s.mu.RUnlock()
 	return len(s.rows[instance])
 }
+
+// AllHashes returns the keyset of stored hashes for the instance.
+// Returned map is safe to mutate — the store does not retain it.
+// Used by the use case to detect newly-arriving torrents between
+// ticks (B-32 newly-unmapped counter).
+func (s *Store) AllHashes(instance domain.InstanceName) map[string]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows, ok := s.rows[instance]
+	if !ok {
+		return nil
+	}
+	out := make(map[string]struct{}, len(rows))
+	for h := range rows {
+		out[h] = struct{}{}
+	}
+	return out
+}

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
@@ -39,16 +40,32 @@ type Loop struct {
 	wake       chan struct{}
 	failures   atomic.Int32
 	degraded   atomic.Bool
+	// metrics is the observability sink (B-32). nullMetrics by
+	// default so existing tests that call NewLoop with the
+	// legacy signature stay green.
+	metrics Metrics
 }
 
 // NewLoop wires the loop value. Callers fill `cancel` themselves
 // (cmd/server/torrentsync_loop.go owns the ctx tree).
 func NewLoop(instance domain.InstanceName, uc *UseCase, configured time.Duration, logger *slog.Logger) *Loop {
+	return NewLoopWithMetrics(instance, uc, configured, logger, nil)
+}
+
+// NewLoopWithMetrics wires the loop value with a Metrics sink (B-32).
+// metricsPort nil → nullMetrics; all other args mirror NewLoop. The
+// extra constructor preserves the legacy NewLoop signature for
+// existing call sites (tests) while letting production wiring pass
+// the observability adapter.
+func NewLoopWithMetrics(instance domain.InstanceName, uc *UseCase, configured time.Duration, logger *slog.Logger, metricsPort Metrics) *Loop {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	if configured <= 0 {
 		configured = 30 * time.Second
+	}
+	if metricsPort == nil {
+		metricsPort = nullMetrics{}
 	}
 	l := &Loop{
 		instance: instance,
@@ -56,6 +73,7 @@ func NewLoop(instance domain.InstanceName, uc *UseCase, configured time.Duration
 		logger:   logger,
 		now:      func() time.Time { return time.Now().UTC() },
 		wake:     make(chan struct{}, 1),
+		metrics:  metricsPort,
 	}
 	l.configNS.Store(int64(configured))
 	l.intervalNS.Store(int64(configured))
@@ -147,7 +165,16 @@ func (l *Loop) Run(ctx context.Context) {
 // never propagate — the loop must survive arbitrary qBit /
 // network failures across days.
 func (l *Loop) iterate(ctx context.Context) {
-	err := l.uc.RunInstance(ctx, l.instance, l.now())
+	started := l.now()
+	err := l.uc.RunInstance(ctx, l.instance, started)
+	elapsed := l.now().Sub(started).Seconds()
+	outcome := observability.TorrentsyncOutcomeOK
+	if err != nil {
+		outcome = observability.TorrentsyncOutcomeError
+	}
+	if l.metrics != nil {
+		l.metrics.ObserveRefreshDuration(l.instance, outcome, elapsed)
+	}
 	if err != nil {
 		streak := l.failures.Add(1)
 		l.logger.WarnContext(ctx, "torrentsync_iteration_failed",

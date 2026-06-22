@@ -601,6 +601,10 @@ type TorrentsyncBundle struct {
 	Loop                  *loops.TorrentsyncLoop
 	Query                 *torrentsync.Query
 	SeriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler
+	// QbitCapacityLoop is the B-32 periodic qbit_torrents row-count
+	// collector. server.go owns rootCtx and calls .Run on it under
+	// bgWG, mirroring the TorrentsyncLoop.Start pattern.
+	QbitCapacityLoop *loops.QbitCapacityLoop
 }
 
 // BuildTorrentsync wires the torrentsync stack (220 A-2 + 221 A-3 +
@@ -683,26 +687,50 @@ func BuildTorrentsync(
 		}
 		return client, true
 	}
+	// B-32 — single TorrentsyncMetricsAdapter value satisfies the
+	// reconciler's narrow UnmappedGauge AND the use-case + loop wider
+	// Metrics port. One sink, no double-emission risk.
+	torrentsyncMetrics := observability.TorrentsyncMetricsAdapter{}
+
 	reconciler := torrentsync.NewReconciler(
 		store,
 		webhookBundle.TorrentSeriesMapRepo,
 		scanBundle.GrabRepo,
 		sonarrFor,
-		observability.TorrentsyncMetricsAdapter{},
+		torrentsyncMetrics,
 		qbitLog,
 	)
 
 	useCase := torrentsync.NewUseCase(
 		store, policy,
 		factory, qbitTorrentsRepo, qbitLog,
-	).WithReconciler(reconciler)
+	).WithReconciler(reconciler).WithMetrics(torrentsyncMetrics)
 
 	// Loop owns per-instance polling goroutines; SwapSettings is
 	// called from the OnApplied fanout. NOT started here — server.go
 	// owns rootCtx and calls .Start(rootCtx) inline after
 	// BuildTorrentsync returns.
 	loop := loops.NewTorrentsyncLoop(
-		loops.NewProductionTorrentsyncRunner(useCase, qbitLog),
+		loops.NewProductionTorrentsyncRunnerWithMetrics(useCase, torrentsyncMetrics, qbitLog),
+		bgWG, qbitLog,
+	)
+
+	// B-32 — qbit_torrents row-count collector. Instance source is
+	// a closure over the sonarr holder so OnApplied publishes are
+	// reflected on the next 60s tick. NOT started here; server.go
+	// bumps bgWG and runs it under rootCtx, mirroring TorrentsyncLoop.
+	capacityLoop := loops.NewQbitCapacityLoop(
+		qbitTorrentsRepo,
+		loops.QbitCapacityInstancesFunc(func() []domain.InstanceName {
+			snap := holder.Load()
+			out := make([]domain.InstanceName, 0, len(snap))
+			for name := range snap {
+				out = append(out, domain.InstanceName(name))
+			}
+			return out
+		}),
+		observability.QbitCapacityMetricsAdapter{},
+		loops.DefaultQbitCapacityInterval,
 		bgWG, qbitLog,
 	)
 
@@ -731,6 +759,7 @@ func BuildTorrentsync(
 		Loop:                  loop,
 		Query:                 query,
 		SeriesTorrentsHandler: seriesTorrentsHandler,
+		QbitCapacityLoop:      capacityLoop,
 	}, nil
 }
 

@@ -165,6 +165,41 @@ func TestQbitTorrentsRepository_SeasonNumber_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestQbitTorrentsRepository_CountPresentByInstance covers Story 479a
+// (B-32 part A capacity collector): COUNT(*) WHERE instance_name=? AND
+// present=true. Absent rows must NOT count; unseen instances return
+// (0, nil).
+func TestQbitTorrentsRepository_CountPresentByInstance(t *testing.T) {
+	t.Parallel()
+	for _, backend := range qbitSettingsBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			r := NewQbitTorrentsRepository(db)
+			ctx := context.Background()
+
+			// alpha: two present + one absent. beta: one present.
+			require.NoError(t, r.Upsert(ctx, "alpha", mkEntry("h1", "a", qbit.StateGroupSeeding)))
+			require.NoError(t, r.Upsert(ctx, "alpha", mkEntry("h2", "b", qbit.StateGroupSeeding)))
+			require.NoError(t, r.Upsert(ctx, "alpha", mkEntry("h3", "c", qbit.StateGroupSeeding)))
+			require.NoError(t, r.MarkAbsent(ctx, "alpha", "h3", time.Now().UTC()))
+			require.NoError(t, r.Upsert(ctx, "beta", mkEntry("h4", "d", qbit.StateGroupSeeding)))
+
+			got, err := r.CountPresentByInstance(ctx, "alpha")
+			require.NoError(t, err)
+			assert.Equal(t, 2, got, "absent row must NOT count")
+
+			got, err = r.CountPresentByInstance(ctx, "beta")
+			require.NoError(t, err)
+			assert.Equal(t, 1, got)
+
+			got, err = r.CountPresentByInstance(ctx, "ghost")
+			require.NoError(t, err)
+			assert.Equal(t, 0, got, "unseen instance returns 0, nil")
+		})
+	}
+}
+
 // TestQbitTorrentsRepository_SeasonNumber_BatchUpsertSurvivesAcrossRows
 // asserts BatchUpsert correctly persists distinct season values
 // across rows in the same transaction — the column is in the

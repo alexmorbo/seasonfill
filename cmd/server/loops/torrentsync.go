@@ -193,15 +193,25 @@ func (l *TorrentsyncLoop) cadenceOf(name string) time.Duration {
 // SwapSettings can spawn loops without importing torrentsync's
 // constructors inline.
 type productionTorrentsyncRunner struct {
-	uc     *torrentsync.UseCase
-	logger *slog.Logger
+	uc      *torrentsync.UseCase
+	metrics torrentsync.Metrics
+	logger  *slog.Logger
 }
 
 // NewProductionTorrentsyncRunner is the public constructor for the
 // production runner. server.go uses it; tests roll their own
-// TorrentsyncRunner.
+// TorrentsyncRunner. Loops constructed via this runner use a no-op
+// metrics sink — call NewProductionTorrentsyncRunnerWithMetrics to
+// wire the B-32 observability adapter.
 func NewProductionTorrentsyncRunner(uc *torrentsync.UseCase, log *slog.Logger) TorrentsyncRunner {
 	return productionTorrentsyncRunner{uc: uc, logger: log}
+}
+
+// NewProductionTorrentsyncRunnerWithMetrics wires a runner whose
+// spawned loops carry the supplied Metrics port (B-32). metrics nil
+// is treated as the no-op sink by torrentsync.NewLoopWithMetrics.
+func NewProductionTorrentsyncRunnerWithMetrics(uc *torrentsync.UseCase, metrics torrentsync.Metrics, log *slog.Logger) TorrentsyncRunner {
+	return productionTorrentsyncRunner{uc: uc, metrics: metrics, logger: log}
 }
 
 func (r productionTorrentsyncRunner) Hydrate(ctx context.Context, instance domain.InstanceName) error {
@@ -209,7 +219,7 @@ func (r productionTorrentsyncRunner) Hydrate(ctx context.Context, instance domai
 }
 
 func (r productionTorrentsyncRunner) NewLoop(instance domain.InstanceName, configured time.Duration) TorrentsyncRunningLoop {
-	return torrentsync.NewLoop(instance, r.uc, configured, r.logger)
+	return torrentsync.NewLoopWithMetrics(instance, r.uc, configured, r.logger, r.metrics)
 }
 
 // TorrentsyncSettingsLookup is the narrow Settings projection
