@@ -6,8 +6,8 @@ description: |
   on a schedule. Singleton service; database stores state. Frontend
   (React SPA served by nginx) ships as a second Deployment.
 type: application
-version: 0.6.3
-appVersion: "0.6.3"
+version: 0.6.4
+appVersion: "0.6.4"
 kubeVersion: ">=1.25.0-0"
 maintainers:
   - name: AlexMorbo
@@ -26,8 +26,8 @@ annotations:
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: seasonfill
-      image: ghcr.io/alexmorbo/seasonfill:0.6.3
+      image: ghcr.io/alexmorbo/seasonfill:0.6.4
     - name: seasonfill-web
-      image: ghcr.io/alexmorbo/seasonfill-web:0.6.3
+      image: ghcr.io/alexmorbo/seasonfill-web:0.6.4
   artifacthub.io/changes: |
-    - {kind: added, description: "mediaStore.s3 wiring shipped (was already in 0.6.2 chart template but never published since 0.6.2 OCI artifact predates the rebuild commits)"}
+    - {kind: fixed, description: "nginx /metrics buffer 16k and ServiceMonitor scoped to backend Service only (B-21)"}
