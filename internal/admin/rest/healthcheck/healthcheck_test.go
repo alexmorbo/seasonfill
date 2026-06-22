@@ -79,16 +79,42 @@ func openDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestChecker_New_InitialStateUnknown(t *testing.T) {
+func TestChecker_New_InitialStateBootstrapping(t *testing.T) {
 	t.Parallel()
+	// Story 488 (B-14): fresh registry seed is Bootstrapping; before
+	// the first preflight runs, no instance is available.
 	db := openDB(t)
 	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "a"}, &fakeSonarr{name: "b"}})
 	snap := c.Snapshot()
 	assert.Len(t, snap, 2)
 	for _, h := range snap {
-		assert.Equal(t, instance.HealthUnavailableUnknown, h.Health)
+		assert.Equal(t, instance.HealthBootstrapping, h.Health)
 	}
 	assert.False(t, c.AnyInstanceAvailable())
+}
+
+// TestPreflight_TransitionsOutOfBootstrapping is the end-to-end guard
+// for Story 488 (B-14): a freshly-constructed Checker seeds entries in
+// Bootstrapping; the first Preflight transitions a reachable instance
+// to Available and increments the transitions counter exactly once.
+func TestPreflight_TransitionsOutOfBootstrapping(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
+	// Seed assertion: registry must start at Bootstrapping per Story 488.
+	snap, ok := c.Registry().Get("alpha")
+	require.True(t, ok)
+	require.Equal(t, instance.HealthBootstrapping, snap.Health,
+		"expected fresh registry seed = Bootstrapping")
+
+	c.Preflight(context.Background())
+
+	snap, ok = c.Registry().Get("alpha")
+	require.True(t, ok)
+	assert.Equal(t, instance.HealthAvailable, snap.Health,
+		"expected post-preflight transition Bootstrapping → Available")
+	assert.Equal(t, 1, snap.TransitionsCount,
+		"expected exactly one transition (Bootstrapping → Available)")
 }
 
 func TestChecker_Preflight_AllUp(t *testing.T) {

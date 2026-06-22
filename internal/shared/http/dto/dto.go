@@ -94,7 +94,7 @@ type Instance struct {
 	URL              string     `json:"url"    example:"http://sonarr:8989"`
 	PublicURL        string     `json:"public_url,omitempty" example:"https://sonarr.example.com"`
 	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`
-	Health           string     `json:"health" example:"Available" enums:"Available,SelfThrottled,UnavailableAuth,UnavailableNetwork,UnavailableUnknown"`
+	Health           string     `json:"health" example:"Available" enums:"Bootstrapping,Available,SelfThrottled,UnavailableAuth,UnavailableNetwork,UnavailableUnknown"`
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
 	TransitionsCount int        `json:"transitions_count"`

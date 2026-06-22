@@ -1812,7 +1812,7 @@ func wireInstanceSecretFK(instanceSecret, sonarrInstance *atlasschema.Table) {
 //	public_url        TEXT NULL (browser deeplinks)
 //	mode              TEXT NOT NULL DEFAULT 'auto'
 //	token_secret_id   BIGINT NULL FK → instance_secret.id SET NULL
-//	health            TEXT NOT NULL DEFAULT 'unknown'
+//	health            TEXT NOT NULL DEFAULT 'Bootstrapping'
 //	last_check_at     TIMESTAMPTZ NULL
 //	transitions_count INTEGER NOT NULL DEFAULT 0
 //	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -1835,7 +1835,7 @@ func buildSonarrInstanceTable(d Dialect, instanceSecretTable *atlasschema.Table)
 	tokenSecretID := fkColumn(d, "token_secret_id", true /* nullable */)
 	health := atlasschema.NewStringColumn("health", "text").
 		SetNull(false).
-		SetDefault(&atlasschema.Literal{V: "'unknown'"})
+		SetDefault(&atlasschema.Literal{V: "'Bootstrapping'"})
 	lastCheckAt := timestampColumn(d, "last_check_at", false, false)
 	transitionsCount := atlasschema.NewIntColumn("transitions_count", "integer").
 		SetNull(false).

@@ -20,12 +20,21 @@ type Listener interface {
 	OnCheck(name string, h Health, at time.Time)
 }
 
-// NewRegistry returns an empty registry seeded with the given instance names
-// in HealthUnavailableUnknown state.
+// seedHealth is the initial state for a freshly-added instance — that
+// is, an entry the registry has not yet observed a preflight result
+// for. Story 488 (B-14): was HealthUnavailableUnknown; now
+// HealthBootstrapping so the FE can render the neutral "checking" pill
+// instead of the red "unreachable" pill during the typical 1-4s window
+// between save and first preflight.
+func seedHealth() Health { return HealthBootstrapping }
+
+// NewRegistry returns an empty registry seeded with the given instance names.
+// Per Story 488, fresh entries land in HealthBootstrapping — the first
+// preflight transitions them out.
 func NewRegistry(names []string) *Registry {
 	r := &Registry{entries: make(map[string]Snapshot, len(names))}
 	for _, n := range names {
-		r.entries[n] = Snapshot{Name: n, Health: HealthUnavailableUnknown}
+		r.entries[n] = Snapshot{Name: n, Health: seedHealth()}
 	}
 	return r
 }
@@ -127,9 +136,10 @@ func (r *Registry) Names() []string {
 
 // SetNames reconciles the registry's instance set with the given target
 // list: names present in `target` but absent from the registry are added
-// in HealthUnavailableUnknown state; names present in the registry but
-// absent from `target` are removed. Returns the names that were added
-// and removed (in unspecified order) — useful for diff logging.
+// in HealthBootstrapping state (Story 488 — was HealthUnavailableUnknown);
+// names present in the registry but absent from `target` are removed.
+// Returns the names that were added and removed (in unspecified order)
+// — useful for diff logging.
 //
 // SetNames runs entirely under the registry's write lock so it is safe
 // to call concurrently with MarkAvailable / MarkUnavailable / Get /
@@ -144,7 +154,7 @@ func (r *Registry) SetNames(target []string) (added, removed []string) {
 	defer r.mu.Unlock()
 	for n := range want {
 		if _, ok := r.entries[n]; !ok {
-			r.entries[n] = Snapshot{Name: n, Health: HealthUnavailableUnknown}
+			r.entries[n] = Snapshot{Name: n, Health: seedHealth()}
 			added = append(added, n)
 		}
 	}

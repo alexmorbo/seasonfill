@@ -6,6 +6,12 @@ import "time"
 type Health string
 
 const (
+	// HealthBootstrapping — Story 488 (B-14): a freshly-added instance
+	// before the first preflight completes. Distinguishes "we haven't
+	// checked yet" from "we checked and it's unreachable". The registry
+	// seeds new entries here; the first preflight transitions it to
+	// Available or one of the Unavailable* states.
+	HealthBootstrapping      Health = "Bootstrapping"
 	HealthAvailable          Health = "Available"
 	HealthSelfThrottled      Health = "SelfThrottled"
 	HealthUnavailableAuth    Health = "UnavailableAuth"
@@ -17,6 +23,9 @@ const (
 // SelfThrottled counts as available — the backend itself is reachable,
 // we just hit our own rate-limiter queue. Scans/probes continue; the
 // watchdog short-circuits on this state via an explicit branch.
+// Bootstrapping does NOT count as available: until preflight has
+// confirmed reachability, scans must not consume the instance
+// (Story 488).
 func (h Health) IsAvailable() bool { return h == HealthAvailable || h == HealthSelfThrottled }
 
 // IsUnavailable is the inverse of IsAvailable.

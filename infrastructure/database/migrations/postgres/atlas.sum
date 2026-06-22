@@ -1,4 +1,4 @@
-h1:QJtkf8csf50Fo6ixwnRZOslOXM+7lvPVwCBjZB5bNp4=
+h1:5hXT7BPlkd2+ekubjsyXz534PU7+Fe47xiPYuqqlpTY=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -37,3 +37,5 @@ h1:QJtkf8csf50Fo6ixwnRZOslOXM+7lvPVwCBjZB5bNp4=
 000018_qbit_runtime.up.sql h1:4guDufjMffYt7+A98G3Q+Xj3+8A8VFBLdhW4rNFURSA=
 000019_media_assets.down.sql h1:snjIVy0YPwkymSQ4e3Tj2o5+txTknVgXGl7/N3uwv0c=
 000019_media_assets.up.sql h1:BzTg5AOcOolyRVVOGrjLPJgC4LLlqVrjEb3baptW278=
+000020_instance_bootstrapping_default.down.sql h1:nkm45hT642b66tawNil0dhyGIyPanNFjlVq8YVMnZqQ=
+000020_instance_bootstrapping_default.up.sql h1:x+jG6QLjcwcuJyITND8BH7IJh3JVzvITSk3YpJmwh9s=

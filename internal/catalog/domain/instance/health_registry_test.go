@@ -27,13 +27,15 @@ func (c *captureListener) OnTransition(_ string, from, to Health, _ time.Time, _
 	c.mu.Unlock()
 }
 
-func TestRegistry_NewSeedsUnknown(t *testing.T) {
+func TestRegistry_NewSeedsBootstrapping(t *testing.T) {
 	t.Parallel()
+	// Story 488 (B-14): fresh entries seed in Bootstrapping until the
+	// first preflight transitions them out.
 	r := NewRegistry([]string{"a", "b"})
 	for _, name := range []string{"a", "b"} {
 		s, ok := r.Get(name)
 		require.True(t, ok)
-		assert.Equal(t, HealthUnavailableUnknown, s.Health)
+		assert.Equal(t, HealthBootstrapping, s.Health)
 	}
 }
 
@@ -43,7 +45,8 @@ func TestRegistry_MarkAvailable_Transition(t *testing.T) {
 	listener := &captureListener{}
 	r.WithListener(listener)
 	from, changed := r.MarkAvailable("a", time.Now().UTC())
-	assert.Equal(t, HealthUnavailableUnknown, from)
+	// Story 488 (B-14): fresh seed is Bootstrapping, not Unknown.
+	assert.Equal(t, HealthBootstrapping, from)
 	assert.True(t, changed)
 	s, _ := r.Get("a")
 	assert.Equal(t, HealthAvailable, s.Health)
@@ -91,7 +94,7 @@ func TestRegistry_MarkUnavailable_Variants(t *testing.T) {
 func TestRegistry_MarkUnavailable_TracksTransitionCount(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry([]string{"a"})
-	// 1: Unknown -> Available
+	// 1: Bootstrapping -> Available (Story 488 — seed is Bootstrapping)
 	r.MarkAvailable("a", time.Now().UTC())
 	// 2: Available -> Auth
 	r.MarkUnavailable("a", HealthUnavailableAuth, "x", time.Now().UTC())
@@ -157,8 +160,9 @@ func TestRegistry_SetNames_AddsAndRemoves(t *testing.T) {
 
 	s, ok := r.Get("c")
 	require.True(t, ok)
-	assert.Equal(t, HealthUnavailableUnknown, s.Health,
-		"newly added name must seed in Unknown state")
+	// Story 488 (B-14): newly added name seeds in Bootstrapping.
+	assert.Equal(t, HealthBootstrapping, s.Health,
+		"newly added name must seed in Bootstrapping state")
 }
 
 func TestRegistry_SetNames_NoOpOnUnchanged(t *testing.T) {
@@ -213,6 +217,47 @@ func TestRegistry_MarkUnavailable_NoResurrectAfterRemove(t *testing.T) {
 	assert.False(t, changed)
 	_, ok := r.Get("a")
 	assert.False(t, ok, "MarkUnavailable must not resurrect a name removed from membership")
+}
+
+// TestRegistry_NewRegistry_SeedsBootstrapping verifies Story 488 (B-14)
+// seed behaviour at the constructor: a fresh registry returns entries
+// in HealthBootstrapping rather than HealthUnavailableUnknown.
+func TestRegistry_NewRegistry_SeedsBootstrapping(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"alpha"})
+	snap, ok := r.Get("alpha")
+	require.True(t, ok, "expected entry to be seeded")
+	assert.Equal(t, HealthBootstrapping, snap.Health)
+}
+
+// TestRegistry_SetNames_AddsBootstrapping verifies Story 488 (B-14)
+// seed behaviour at the reconcile path: entries added via SetNames also
+// land in HealthBootstrapping.
+func TestRegistry_SetNames_AddsBootstrapping(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry(nil)
+	added, _ := r.SetNames([]string{"beta"})
+	require.Len(t, added, 1)
+	assert.Equal(t, "beta", added[0])
+	snap, ok := r.Get("beta")
+	require.True(t, ok)
+	assert.Equal(t, HealthBootstrapping, snap.Health)
+}
+
+// TestRegistry_Transition_OutOfBootstrapping verifies that the first
+// preflight transitions a freshly-seeded entry to Available, bumps the
+// transitions counter, and reports the previous state correctly.
+func TestRegistry_Transition_OutOfBootstrapping(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"gamma"})
+	now := time.Now().UTC()
+	from, changed := r.MarkAvailable("gamma", now)
+	assert.True(t, changed,
+		"expected transition Bootstrapping → Available to be reported as changed")
+	assert.Equal(t, HealthBootstrapping, from)
+	snap, _ := r.Get("gamma")
+	assert.Equal(t, HealthAvailable, snap.Health)
+	assert.Equal(t, 1, snap.TransitionsCount)
 }
 
 func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {
