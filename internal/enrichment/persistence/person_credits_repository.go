@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,6 +13,15 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 )
+
+// personCreditKey is the in-memory mirror of the
+// `person_credits_credit` UNIQUE index `(person_id, tmdb_credit_id)`.
+// Used by batchUpsert's dedupe pass to fold duplicates before they
+// reach Postgres — see SQLSTATE 21000 below.
+type personCreditKey struct {
+	personID     int64
+	tmdbCreditID string
+}
 
 // PersonCredit is the read-shape returned by PersonCreditsRepository.
 // PosterPath is an upstream TMDB image path string in v1 — the media
@@ -114,7 +124,11 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 		return nil, nil
 	}
 	now := time.Now().UTC()
-	models := make([]database.PersonCreditModel, 0, len(credits))
+
+	// Per-row validation runs BEFORE dedupe — a malformed row must
+	// surface its error rather than be silently swallowed by a
+	// duplicate-key drop.
+	validated := make([]database.PersonCreditModel, 0, len(credits))
 	for _, c := range credits {
 		if c.PersonID == 0 {
 			return nil, fmt.Errorf("upsert person_credit: person_id must be non-zero")
@@ -138,8 +152,49 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			c.CreatedAt = now
 		}
 		c.UpdatedAt = now
+		validated = append(validated, c)
+	}
+
+	// Dedupe by the (person_id, tmdb_credit_id) conflict target.
+	// Postgres rejects `INSERT … ON CONFLICT DO UPDATE` when two input
+	// rows hit the same target row (SQLSTATE 21000:
+	// "ON CONFLICT DO UPDATE command cannot affect row a second
+	// time"). The common producer is series_worker.applyEpisodeCredits,
+	// which fans a single crew credit_id (show-runner / EP / director)
+	// across every episode of a season.
+	//
+	// Semantics: keep the first occurrence per key. `firstIdx` maps key
+	// to its index in `models` (the INSERT slice). Duplicate inputs at
+	// later positions are dropped from the INSERT but the returned
+	// `ids` slice still mirrors the input length — duplicates resolve
+	// to the same DB id their first-seen sibling earns.
+	firstIdx := make(map[personCreditKey]int, len(validated))
+	models := make([]database.PersonCreditModel, 0, len(validated))
+	// inputToModel[i] = position in `models` that input row i maps to.
+	inputToModel := make([]int, len(validated))
+	dropped := 0
+	for i, c := range validated {
+		key := personCreditKey{personID: c.PersonID, tmdbCreditID: c.TMDBCreditID}
+		if idx, ok := firstIdx[key]; ok {
+			inputToModel[i] = idx
+			dropped++
+			continue
+		}
+		idx := len(models)
+		firstIdx[key] = idx
+		inputToModel[i] = idx
 		models = append(models, c)
 	}
+
+	if dropped > 0 {
+		slog.DebugContext(ctx, "person_credits.dedupe",
+			slog.String("domain", "enrichment"),
+			slog.Int("input", len(validated)),
+			slog.Int("kept", len(models)),
+			slog.Int("dropped", dropped),
+		)
+	}
+
 	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "person_id"},
@@ -156,9 +211,10 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 	if err != nil {
 		return nil, fmt.Errorf("batch upsert person_credits: %w", err)
 	}
-	ids := make([]int64, len(models))
-	for i, m := range models {
-		ids[i] = m.ID
+
+	ids := make([]int64, len(validated))
+	for i, idx := range inputToModel {
+		ids[i] = models[idx].ID
 	}
 	return ids, nil
 }
