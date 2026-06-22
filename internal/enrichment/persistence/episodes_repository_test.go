@@ -177,3 +177,62 @@ func TestEpisodesRepository_CountBySeries(t *testing.T) {
 		})
 	}
 }
+
+// TestEpisodesRepository_BatchUpsert_HandlesAbove3500Rows — B-27 regression.
+// Postgres extended-protocol limits one Bind message to 65535 parameters.
+// EpisodeModel has 17 columns; pre-B-27 batchUpsert sent one INSERT for
+// the whole input, breaking at N > 65535/17 ≈ 3855 rows. CreateInBatches
+// chunks the INSERT (batchSize=1000) so 5000-row input fits comfortably.
+//
+// On SQLite the parameter limit is much higher (~999999) — the test still
+// validates that batch chunking does not break ID round-trip semantics
+// (require.Len ids, NotZero ids[i]). On Postgres this test FAILS without
+// the fix (SQLSTATE 08P01 / "extended protocol limited to 65535 parameters")
+// and PASSES with chunking enabled — the only regression test that catches
+// this specific class of bug.
+func TestEpisodesRepository_BatchUpsert_HandlesAbove3500Rows(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("The Bold and the Beautiful"))
+			require.NoError(t, err)
+			repo := NewEpisodesRepository(db)
+
+			// 5000 rows — well above the 17-col × 3855-row Postgres limit.
+			// Vary episode_number to keep natural-key conflict surface clean
+			// (single season, monotonic ep numbers).
+			const n = 5000
+			episodes := make([]series.CanonEpisode, n)
+			for i := range n {
+				episodes[i] = series.CanonEpisode{
+					SeriesID:      seriesID,
+					SeasonNumber:  1,
+					EpisodeNumber: i + 1,
+				}
+			}
+
+			ids, err := repo.BatchUpsert(ctx, episodes)
+			require.NoError(t, err,
+				"BatchUpsert must chunk inputs above ~3855 rows; raw "+
+					"INSERT exceeds Postgres 65535 bind-parameter limit "+
+					"(see B-27 / story 475)")
+			require.Len(t, ids, n,
+				"id slice must mirror input length even across chunk boundaries")
+			for i, id := range ids {
+				require.NotZero(t, id, "id at position %d must be populated (RETURNING per chunk)", i)
+			}
+
+			// Round-trip: re-batch the same payload → ids must be stable
+			// (idempotency across chunks).
+			ids2, err := repo.BatchUpsert(ctx, episodes)
+			require.NoError(t, err)
+			require.Equal(t, ids, ids2,
+				"second batch must resolve to the same ids by natural key — "+
+					"chunking must not break id round-trip on ON CONFLICT DO UPDATE")
+		})
+	}
+}

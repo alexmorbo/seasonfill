@@ -15,6 +15,16 @@ import (
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
+// episodeBatchSize chunks BatchUpsert INSERT statements to stay under
+// Postgres extended-protocol bind-parameter limit (65535). EpisodeModel
+// has 17 GORM-bound columns; 1000 rows × 17 = 17000 params — 3.8× margin
+// under the limit, survives ~13 future column additions without re-tuning.
+// Long-running series (3855+ episodes) historically hit the limit before
+// this chunking; see B-27 / story 475. Pattern mirrors qbit_torrents
+// repository (`internal/catalog/persistence/qbit_torrents_repository.go`)
+// which already uses CreateInBatches with the same OnConflict shape.
+const episodeBatchSize = 1000
+
 // EpisodesRepository persists the canonical `episodes` table. Natural
 // key (series_id, season_number, episode_number) — TMDB / Sonarr both
 // emit episode lists in batches, so BatchUpsert is the primary write
@@ -131,6 +141,12 @@ func (r *EpisodesRepository) batchUpsert(ctx context.Context, episodes []series.
 		e.UpdatedAt = now
 		models = append(models, fromCanonEpisode(e))
 	}
+	// B-27: chunk via CreateInBatches to stay under Postgres 65535 bind-param
+	// limit. For len(models) <= episodeBatchSize, GORM emits exactly one
+	// INSERT — behavior identical to the previous .Create(&models) path.
+	// For larger inputs, GORM emits ceil(N/batchSize) INSERTs, all inside
+	// the caller's transaction (series_worker wraps applyAll in Transactor.
+	// Transaction → atomicity preserved across chunks).
 	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "series_id"},
@@ -145,7 +161,7 @@ func (r *EpisodesRepository) batchUpsert(ctx context.Context, episodes []series.
 			"still_asset", "tmdb_rating", "tmdb_votes",
 			"updated_at",
 		}),
-	}).Create(&models).Error
+	}).CreateInBatches(&models, episodeBatchSize).Error
 	if err != nil {
 		return nil, fmt.Errorf("batch upsert episodes: %w", err)
 	}
