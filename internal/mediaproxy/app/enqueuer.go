@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
@@ -40,13 +41,17 @@ const TMDBImageBase = tmdbImageBase
 // BuildTMDBImageURL(SeriesPosterListSize, s.poster_asset).
 const SeriesPosterListSize = "w342"
 
-// channelCap is the pre-warm queue depth — PRD §6.6. Sized for ~10
-// series worth of pre-warm in flight (each series produces ~30 assets
-// = poster ×2, backdrop, network logos, top-10 profiles, season
-// posters, trailer thumb). When the channel is full the enqueuer
-// drops new requests with a "queue_full" warn log rather than
-// blocking the series worker.
-const channelCap = 500
+// channelCap is the pre-warm queue depth — PRD §6.6, raised in B-28
+// from 500 to 2000 to cover the typical operator cold-start workflow
+// (50+ series imports on first Sonarr connection). Sized for ~67
+// series worth of pre-warm in flight (each series produces ~30
+// assets = poster ×2, backdrop, network logos, top-10 profiles,
+// season posters, trailer thumb). When the channel is still full
+// the enqueuer drops new requests with a rate-limited
+// "media.prewarm.queue_full" warn log (see warnRate below) rather
+// than blocking the series worker. Drops self-heal on read via the
+// OnDemandFetcher path (internal/mediaproxy/app/ondemand.go).
+const channelCap = 2000
 
 // EnqueueRequest is the producer-side input shape. UpstreamURL is the
 // fully-qualified canonical URL (the enqueuer hashes it to derive the
@@ -72,7 +77,19 @@ type Enqueuer struct {
 	jobs   chan job
 	dedup  *inflightSet
 	logger *slog.Logger
+	// warn is the B-28 log shaper — at most one WARN per
+	// queueFullWarnWindow of wall-clock time, with intra-window
+	// drops aggregated into the next emit. nil falls back to per-
+	// drop WARN (legacy behavior) so the type stays test-friendly.
+	warn *warnRate
 }
+
+// queueFullWarnWindow is the rate-limit window for the queue_full
+// WARN. 30s balances log noise reduction (no flood) against
+// operator visibility (a persistent overflow surfaces within one
+// window). Tunable by editing this constant — not env-driven
+// because the value is operator-experience-only.
+const queueFullWarnWindow = 30 * time.Second
 
 // job is the downloader's internal work item. Hash + Extension are
 // pre-computed (the producer already paid the sha256 cost), so the
@@ -87,6 +104,9 @@ type job struct {
 // NewEnqueuer constructs the producer. logger=nil falls back to
 // slog.Default. The downloader is constructed against the SAME jobs
 // channel + dedup set via NewDownloader(eq.Channel(), eq.Dedup(), ...).
+// The B-28 WARN shaper is built with the package-level
+// queueFullWarnWindow + real time.Now; tests substitute via
+// newEnqueuerForTest below.
 func NewEnqueuer(logger *slog.Logger) *Enqueuer {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
@@ -95,6 +115,22 @@ func NewEnqueuer(logger *slog.Logger) *Enqueuer {
 		jobs:   make(chan job, channelCap),
 		dedup:  newInflightSet(),
 		logger: logger,
+		warn:   newWarnRate(queueFullWarnWindow, nil),
+	}
+}
+
+// newEnqueuerForTest is the unexported constructor used by
+// enqueuer_test.go to inject a stubbed clock. Real callers always
+// use NewEnqueuer.
+func newEnqueuerForTest(logger *slog.Logger, window time.Duration, nowFn func() time.Time) *Enqueuer {
+	if logger == nil {
+		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
+	}
+	return &Enqueuer{
+		jobs:   make(chan job, channelCap),
+		dedup:  newInflightSet(),
+		logger: logger,
+		warn:   newWarnRate(window, nowFn),
 	}
 }
 
@@ -130,13 +166,24 @@ func (e *Enqueuer) Enqueue(ctx context.Context, reqs []EnqueueRequest) {
 		case e.jobs <- j:
 		default:
 			// Channel full — drop. Removes the dedup mark so a
-			// retry on the next pre-warm pass can still land.
+			// retry on the next pre-warm pass can still land. B-28
+			// — the WARN is rate-limited via warnRate so 100s of
+			// drops в одной cold-start волне emit at most one WARN
+			// per queueFullWarnWindow (30s) with the aggregated
+			// count.
 			e.dedup.remove(hash)
-			e.logger.WarnContext(ctx, "media.prewarm.queue_full",
-				slog.String("hash", hash),
-				slog.String("kind", r.Kind),
-				slog.String("upstream_url", clean),
-			)
+			if e.warn != nil {
+				e.warn.Drop(ctx, e.logger, hash, r.Kind, clean)
+			} else {
+				// Defensive fallback for any future constructor that
+				// forgets to wire warn — preserves legacy behavior
+				// rather than swallowing drops silently.
+				e.logger.WarnContext(ctx, "media.prewarm.queue_full",
+					slog.String("hash", hash),
+					slog.String("kind", r.Kind),
+					slog.String("upstream_url", clean),
+				)
+			}
 		}
 	}
 }
@@ -184,6 +231,91 @@ func (s *inflightSet) closeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.set = map[string]struct{}{}
+}
+
+// warnRate is the producer-side log shaper for queue_full drops. It
+// emits at most one WARN per (window) of wall-clock time; intra-
+// window drops accumulate (dropped count + sample kind/hash from
+// the FIRST suppressed drop) and the next eligible WARN emits the
+// aggregate. The leading-edge drop is always logged immediately so
+// the operator sees overflow surface within seconds of cold-start
+// — never silently suppressed for the full window.
+//
+// Invariants:
+//   - lastEmit==zero → next drop emits immediately (leading edge).
+//   - Suppressed count + sample fields are cleared on every emit.
+//   - Sample fields are captured from the FIRST suppressed drop in
+//     the window, not the last — gives the operator a stable
+//     reference for grep'ing against media_assets.
+//   - Thread-safe: all mutation under mu; no atomics needed because
+//     the slog emit happens inside the lock (cheap; logger is
+//     non-blocking JSON writer) — keeps the count invariant simple.
+type warnRate struct {
+	mu             sync.Mutex
+	lastEmit       time.Time
+	window         time.Duration
+	suppressed     int
+	sampleKind     string
+	sampleHash     string
+	sampleUpstream string
+	nowFn          func() time.Time
+}
+
+// newWarnRate returns a shaper with the configured window. nowFn=nil
+// falls back to time.Now (tests inject a stubbed clock).
+func newWarnRate(window time.Duration, nowFn func() time.Time) *warnRate {
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	return &warnRate{window: window, nowFn: nowFn}
+}
+
+// Drop is called from Enqueue when the channel is full. It either
+// emits a WARN immediately (leading edge or window expired) or
+// accumulates the drop into the next-eligible aggregate. The first
+// suppressed drop seeds the sample fields; later drops in the same
+// window only bump the counter.
+func (r *warnRate) Drop(ctx context.Context, logger *slog.Logger, hash, kind, upstreamURL string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.nowFn()
+	if r.lastEmit.IsZero() || now.Sub(r.lastEmit) >= r.window {
+		// Leading edge OR window elapsed — emit aggregate (which
+		// includes any suppressed count from the previous window)
+		// then reset.
+		dropped := r.suppressed + 1
+		sampleKind := kind
+		sampleHash := hash
+		sampleUpstream := upstreamURL
+		if r.suppressed > 0 {
+			// Prefer the FIRST suppressed sample (stable reference
+			// for the entire window) over the trigger drop.
+			sampleKind = r.sampleKind
+			sampleHash = r.sampleHash
+			sampleUpstream = r.sampleUpstream
+		}
+		logger.WarnContext(ctx, "media.prewarm.queue_full",
+			slog.Int("dropped_in_window", dropped),
+			slog.Int("window_seconds", int(r.window/time.Second)),
+			slog.String("kind_sample", sampleKind),
+			slog.String("first_hash", sampleHash),
+			slog.String("first_upstream_url", sampleUpstream),
+		)
+		r.lastEmit = now
+		r.suppressed = 0
+		r.sampleKind = ""
+		r.sampleHash = ""
+		r.sampleUpstream = ""
+		return
+	}
+	// Inside suppression window — accumulate.
+	if r.suppressed == 0 {
+		// First suppressed drop seeds the sample.
+		r.sampleKind = kind
+		r.sampleHash = hash
+		r.sampleUpstream = upstreamURL
+	}
+	r.suppressed++
 }
 
 // hashURL returns the lowercase sha256-hex of url. Exported via

@@ -1,13 +1,16 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestEnqueuer_Dedup(t *testing.T) {
@@ -41,6 +44,125 @@ func TestEnqueuer_QueueFull(t *testing.T) {
 	if len(eq.Channel()) != channelCap {
 		t.Fatalf("channel: want %d got %d", channelCap, len(eq.Channel()))
 	}
+}
+
+// B-28 — warnRate emits the first drop immediately so the operator
+// sees overflow surface within seconds of cold-start.
+func TestEnqueuer_QueueFull_FirstWarnImmediate(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	clock := &fakeClock{now: time.Unix(1_700_000_000, 0)}
+	eq := newEnqueuerForTest(logger, 30*time.Second, clock.Now)
+	defer eq.Close()
+	// Stuff exactly channelCap+1 unique URLs without a consumer —
+	// the +1 hits the default-arm and triggers exactly ONE WARN.
+	for i := range channelCap + 1 {
+		eq.Enqueue(context.Background(), []EnqueueRequest{
+			{UpstreamURL: "https://image.tmdb.org/t/p/w342/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"},
+		})
+	}
+	lines := countWarnLines(buf.String())
+	if lines != 1 {
+		t.Fatalf("leading-edge: want exactly 1 WARN, got %d (buf=%s)", lines, buf.String())
+	}
+	// dropped_in_window must be 1 на первой emit — никаких
+	// suppressed entries ещё нет.
+	if !strings.Contains(buf.String(), `"dropped_in_window":1`) {
+		t.Fatalf("first WARN must have dropped_in_window=1, got: %s", buf.String())
+	}
+}
+
+// B-28 — 47 drops внутри одного 30s окна emit exactly 1 WARN
+// (the leading edge) and accumulate a count.
+func TestEnqueuer_QueueFull_WindowSuppression(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	clock := &fakeClock{now: time.Unix(1_700_000_000, 0)}
+	eq := newEnqueuerForTest(logger, 30*time.Second, clock.Now)
+	defer eq.Close()
+	// First fill exhausts the channel.
+	for i := range channelCap {
+		eq.Enqueue(context.Background(), []EnqueueRequest{
+			{UpstreamURL: "https://image.tmdb.org/t/p/w342/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"},
+		})
+	}
+	// Next 47 drops — same wall clock, all inside the window.
+	for i := range 47 {
+		eq.Enqueue(context.Background(), []EnqueueRequest{
+			{UpstreamURL: "https://image.tmdb.org/t/p/w342/extra" + strconv.Itoa(i) + ".jpg", Kind: "still_w300", Extension: "jpg"},
+		})
+	}
+	lines := countWarnLines(buf.String())
+	if lines != 1 {
+		t.Fatalf("window-suppression: want exactly 1 WARN, got %d", lines)
+	}
+	// The single emitted WARN is the LEADING edge — dropped_in_window=1
+	// (it reflects the trigger drop alone; the 46 subsequent
+	// suppressed drops are pending для следующего window).
+	if !strings.Contains(buf.String(), `"dropped_in_window":1`) {
+		t.Fatalf("leading-edge WARN must have dropped_in_window=1, got: %s", buf.String())
+	}
+}
+
+// B-28 — после window expiry the next drop emits an aggregate WARN
+// with the suppressed count from the previous window.
+func TestEnqueuer_QueueFull_WindowExpiry_EmitsAggregate(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	clock := &fakeClock{now: time.Unix(1_700_000_000, 0)}
+	eq := newEnqueuerForTest(logger, 30*time.Second, clock.Now)
+	defer eq.Close()
+	// Fill channel.
+	for i := range channelCap {
+		eq.Enqueue(context.Background(), []EnqueueRequest{
+			{UpstreamURL: "https://image.tmdb.org/t/p/w342/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"},
+		})
+	}
+	// First overflow drop — leading-edge WARN (count=1).
+	eq.Enqueue(context.Background(), []EnqueueRequest{
+		{UpstreamURL: "https://image.tmdb.org/t/p/w342/lead.jpg", Kind: "poster_w342", Extension: "jpg"},
+	})
+	// 9 drops inside window — suppressed (sample captured from first).
+	for i := range 9 {
+		eq.Enqueue(context.Background(), []EnqueueRequest{
+			{UpstreamURL: "https://image.tmdb.org/t/p/w342/inwin" + strconv.Itoa(i) + ".jpg", Kind: "still_w300", Extension: "jpg"},
+		})
+	}
+	// Advance past window — next drop must emit aggregate (9
+	// suppressed + 1 trigger = 10 dropped_in_window).
+	clock.now = clock.now.Add(31 * time.Second)
+	eq.Enqueue(context.Background(), []EnqueueRequest{
+		{UpstreamURL: "https://image.tmdb.org/t/p/w342/trigger.jpg", Kind: "backdrop_w1280", Extension: "jpg"},
+	})
+	lines := countWarnLines(buf.String())
+	if lines != 2 {
+		t.Fatalf("expiry-aggregate: want exactly 2 WARN (leading + aggregate), got %d (buf=%s)", lines, buf.String())
+	}
+	// Second WARN must report dropped_in_window=10 (9 suppressed +
+	// trigger) and the kind_sample must be the FIRST suppressed
+	// drop's kind ("still_w300"), not the trigger's "backdrop_w1280".
+	if !strings.Contains(buf.String(), `"dropped_in_window":10`) {
+		t.Fatalf("aggregate must report dropped_in_window=10, got: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), `"kind_sample":"still_w300"`) {
+		t.Fatalf("aggregate must use first suppressed sample kind, got: %s", buf.String())
+	}
+}
+
+// fakeClock is a deterministic time source for warnRate tests.
+// Tests mutate .now directly — single goroutine, no lock needed.
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }
+
+// countWarnLines counts WARN-level JSON log lines в buf. JSON
+// handler emits one line per log call; level token is the literal
+// "level":"WARN".
+func countWarnLines(s string) int {
+	return strings.Count(s, `"level":"WARN"`)
 }
 
 func TestBuildTMDBImageURL(t *testing.T) {
