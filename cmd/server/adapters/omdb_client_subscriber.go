@@ -77,6 +77,21 @@ func (s *OMDbClientSubscriber) WithOnFirstActivation(fn func(ctx context.Context
 	return s
 }
 
+// WithInitialActivated marks the subscriber as already-activated before
+// the first Apply call. Used by wiring (B-22) when the boot path
+// constructed a non-nil OMDb client (DB or env), so the prime-pass
+// Apply does NOT re-fire the first-activation hook (which would
+// duplicate the daily-batch sweep that the boot kick at
+// enrichment.go:712 already ran).
+//
+// Idempotent: false leaves the default zero-value behaviour. Safe to
+// chain after WithOnFirstActivation — the option only mutates the
+// activated flag, not the callback.
+func (s *OMDbClientSubscriber) WithInitialActivated(activated bool) *OMDbClientSubscriber {
+	s.activated = activated
+	return s
+}
+
 // Apply is the SettingsListener entrypoint. Compares against the cached
 // "last seen" row; on a material change rebuilds the client + atomically
 // swaps it onto the holder. Logs INFO on rebuild with the redacted

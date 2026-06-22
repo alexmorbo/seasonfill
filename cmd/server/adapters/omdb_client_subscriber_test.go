@@ -312,6 +312,66 @@ func TestOMDbClientSubscriber_FactoryFailurePreservesActivated(t *testing.T) {
 	assert.Equal(t, 1, fires, "successful re-apply after recovery must fire activation")
 }
 
+// TestOMDbClientSubscriber_BootEnabledPrimePassDoesNotFire verifies the
+// Story 482 (B-22) opt-in: when wiring seeds activated=true via
+// WithInitialActivated (boot path already constructed a live client),
+// the prime-pass Apply MUST NOT re-fire the first-activation hook. A
+// subsequent clear + re-set still fires normally (proves the option is
+// a one-shot seed, not a permanent disable). Mirrors the TMDB test.
+func TestOMDbClientSubscriber_BootEnabledPrimePassDoesNotFire(t *testing.T) {
+	t.Parallel()
+	holder := NewOMDbClientHolder()
+	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
+
+	var (
+		fires    int
+		triggers []string
+		mu       sync.Mutex
+	)
+	sub = sub.WithOnFirstActivation(func(ctx context.Context, trigger string) {
+		mu.Lock()
+		defer mu.Unlock()
+		fires++
+		triggers = append(triggers, trigger)
+	}).WithInitialActivated(true)
+
+	// Prime-pass with enabled+key-present payload (mirrors server.go's
+	// omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB)) on a
+	// boot-enabled install).
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "abcdef1234",
+		APIKeyLast4: "1234",
+	})
+	require.NotNil(t, sub.Current(), "prime-pass must still build the client")
+	mu.Lock()
+	assert.Equal(t, 0, fires, "boot-enabled prime-pass must NOT re-fire activation")
+	mu.Unlock()
+
+	// Clear → activated flips false; re-set MUST fire normally.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceOMDB,
+		Enabled: false,
+		APIKey:  "",
+	})
+	mu.Lock()
+	assert.Equal(t, 0, fires, "clear must NOT fire activation")
+	mu.Unlock()
+
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "post_clear_9999",
+		APIKeyLast4: "9999",
+	})
+	mu.Lock()
+	require.Equal(t, 1, fires,
+		"post-clear re-activation MUST still fire — option is a seed, not a disable")
+	require.Equal(t, []string{"runtime_first_key_save"}, triggers)
+	mu.Unlock()
+}
+
 // newTestLogger returns a JSON slog logger writing to w; nil w sinks
 // to io.Discard (defensive default). Keeps test assertions stable across
 // Go versions whose slog text writer shape may vary.

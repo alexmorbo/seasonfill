@@ -160,6 +160,16 @@ type EnrichmentBundle struct {
 	// Signature is (ctx, trigger) so the subscriber can pass a stable
 	// "runtime_first_key_save" trigger string for log auditability.
 	OMDbActivation func(ctx context.Context, trigger string)
+	// 482 (B-22): boot-enabled flags consumed by server.go to seed the
+	// reload subscribers with WithInitialActivated. True when the boot
+	// path successfully constructed the matching client (env/DB key
+	// present + factory succeeded). False otherwise — including when
+	// the factory ran but failed, since a failed boot is NOT an
+	// activation. When true, the subscriber's prime-pass Apply suppresses
+	// the OnFirstActivation hook (which would duplicate the cold-start /
+	// daily-batch sweeps the boot path already ran).
+	TMDBBootEnabled bool
+	OMDbBootEnabled bool
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -728,6 +738,12 @@ func BuildEnrichment(
 		TMDBFactoryCfg:    tmdbFactoryCfg,
 		OnFirstActivation: onFirstActivation, // 470 (B-7)
 		OMDbActivation:    omdbActivation,    // 473 (B-25/B-24)
+		// 482 (B-22): true iff the boot path constructed a live client.
+		// Threaded into the reload subscribers' WithInitialActivated so
+		// the prime-pass Apply does NOT re-fire the first-activation
+		// hook (boot already triggered the cold-start / daily-batch sweep).
+		TMDBBootEnabled: tmdbClient != nil,
+		OMDbBootEnabled: omdbHolder.Load() != nil,
 	}, nil
 }
 

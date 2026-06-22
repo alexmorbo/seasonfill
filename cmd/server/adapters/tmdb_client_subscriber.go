@@ -126,6 +126,20 @@ func (s *TMDBClientSubscriber) WithOnFirstActivation(fn func(context.Context)) *
 	return s
 }
 
+// WithInitialActivated marks the subscriber as already-activated before
+// the first Apply call. Used by wiring (B-22) when the boot path
+// constructed a non-nil TMDB client (DB or env), so the prime-pass
+// Apply does NOT re-fire the first-activation hook (which would
+// duplicate the cold-start sweep that the normal boot loop already ran).
+//
+// Idempotent: false leaves the default zero-value behaviour. Safe to
+// chain after WithOnFirstActivation — the option only mutates the
+// activated flag, not the callback.
+func (s *TMDBClientSubscriber) WithInitialActivated(activated bool) *TMDBClientSubscriber {
+	s.activated = activated
+	return s
+}
+
 // Apply is the SettingsListener entrypoint. See file-level doc.
 func (s *TMDBClientSubscriber) Apply(ctx context.Context, settings infraextsvc.Settings) {
 	if s == nil {

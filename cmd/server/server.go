@@ -346,18 +346,19 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.OMDbHolder != nil {
 		omdbSub := adapters.NewOMDbClientSubscriber(enrichBundle.OMDbHolder,
 			sharedports.DomainLogger(log, "omdb")).
-			WithOnFirstActivation(enrichBundle.OMDbActivation)
+			WithOnFirstActivation(enrichBundle.OMDbActivation).
+			WithInitialActivated(enrichBundle.OMDbBootEnabled) // 482 (B-22): suppress prime-pass hook when boot already constructed the client
 		extSub.RegisterListener(infraextsvc.ServiceOMDB, omdbSub.Apply)
 		// Prime by reading the current cached settings — the listener
 		// fan-out only fires on future apply() calls, but Story 352
 		// scenarios (operator change before any other reload) need an
 		// initial seed so the "first apply with no prior baseline"
 		// path is exercised in production exactly as in tests.
-		// 473: prime-pass may fire OnFirstActivation if subscriber state
-		// is fresh AND settings are enabled. This is the SAME boot-kick
-		// as the wiring-layer boot kick in BuildEnrichment — dispatcher
-		// dedup makes the double-call harmless. See B-22 backlog for
-		// the prime-pass clarity follow-up.
+		// 482 (B-22): boot-enabled installs seed activated=true via
+		// WithInitialActivated above, so the prime-pass does NOT
+		// re-fire OnFirstActivation (which would duplicate the boot
+		// kick at enrichment.go:712). Runtime saves still fire it
+		// normally — the flag toggles back to false on clear.
 		omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB))
 	}
 	// Story 352 + 470 (B-7) — TMDB reload subscriber. Always
@@ -368,7 +369,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		tmdbSub := adapters.NewTMDBClientSubscriber(enrichBundle.TMDBHolder, enrichBundle.TMDBFactoryCfg,
 			sharedports.DomainLogger(log, "tmdb")).
-			WithOnFirstActivation(enrichBundle.OnFirstActivation)
+			WithOnFirstActivation(enrichBundle.OnFirstActivation).
+			WithInitialActivated(enrichBundle.TMDBBootEnabled) // 482 (B-22): suppress prime-pass hook when boot already constructed the client
 		extSub.RegisterListener(infraextsvc.ServiceTMDB, tmdbSub.Apply)
 		tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB))
 	}

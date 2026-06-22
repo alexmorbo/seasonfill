@@ -424,3 +424,55 @@ func TestTMDBClientSubscriber_FirstActivationFactoryErrorDoesNotFire(t *testing.
 	sub.Wait()
 	sub.Current().Close()
 }
+
+// TestTMDBClientSubscriber_BootEnabledPrimePassDoesNotFire verifies the
+// Story 482 (B-22) opt-in: when wiring seeds activated=true via
+// WithInitialActivated (boot path already constructed a live client),
+// the prime-pass Apply MUST NOT re-fire the first-activation hook. A
+// subsequent clear + re-set still fires normally (proves the option is
+// a one-shot seed, not a permanent disable).
+func TestTMDBClientSubscriber_BootEnabledPrimePassDoesNotFire(t *testing.T) {
+	t.Parallel()
+	holder := NewTMDBClientHolder()
+	var fired atomic.Int32
+	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
+		WithCloseDelay(0).
+		WithCloseFn(func(c *tmdb.Client) { c.Close() }).
+		WithFactoryFn(func(s infraextsvc.Settings) (*tmdb.Client, error) {
+			return newStubTMDBClient(t, s.APIKey), nil
+		}).
+		WithOnFirstActivation(func(ctx context.Context) { fired.Add(1) }).
+		WithInitialActivated(true)
+
+	// Prime-pass with enabled+key-present payload (mirrors server.go's
+	// tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB)) on a
+	// boot-enabled install).
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceTMDB,
+		Enabled: true,
+		APIKey:  "token_boot",
+	})
+	require.NotNil(t, sub.Current(), "prime-pass must still build the client")
+	assert.Equal(t, int32(0), fired.Load(),
+		"boot-enabled prime-pass must NOT re-fire the activation hook")
+
+	// Clear → activated flips false; re-set MUST fire normally to prove
+	// the option seeded the initial state but didn't permanently disable
+	// the gate.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceTMDB,
+		Enabled: false,
+	})
+	assert.Equal(t, int32(0), fired.Load(), "clear must NOT fire activation")
+
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceTMDB,
+		Enabled: true,
+		APIKey:  "token_after_clear",
+	})
+	assert.Equal(t, int32(1), fired.Load(),
+		"post-clear re-activation MUST still fire — option is a seed, not a disable")
+
+	sub.Wait()
+	sub.Current().Close()
+}
