@@ -23,16 +23,22 @@ import (
 // dependency surfaces as a nil-deref in the constructor's
 // validate step, NOT inside the hot path under load.
 type SeriesWorkerDeps struct {
-	TMDB             TMDBClient
-	Tx               Transactor
-	Language         string // "en-US" — only language Story 211 writes; ru lands in C-5
-	Series           SeriesRepo
-	SeriesTexts      SeriesTextsRepo
-	Seasons          SeasonsRepo
-	Episodes         EpisodesRepo
-	EpisodeTexts     EpisodeTextsRepo
-	People           PeopleRepo
-	SeriesPeople     SeriesPeopleRepo
+	TMDB         TMDBClient
+	Tx           Transactor
+	Language     string // "en-US" — only language Story 211 writes; ru lands in C-5
+	Series       SeriesRepo
+	SeriesTexts  SeriesTextsRepo
+	Seasons      SeasonsRepo
+	Episodes     EpisodesRepo
+	EpisodeTexts EpisodeTextsRepo
+	People       PeopleRepo
+	// PersonCredits — D-7 (468a): the series_worker writes
+	// series-level credits into the polymorphic person_credits table
+	// (media_type='tv', tmdb_media_id=<series.tmdb_id>) instead of the
+	// dropped series_people table. Shares the port with PersonWorker
+	// so the same DoUpdates AssignmentColumns shape (which avoids
+	// SQLSTATE 42601 on Postgres) covers both write paths.
+	PersonCredits    PersonCreditsPort
 	Genres           GenresRepo
 	Keywords         KeywordsRepo
 	Networks         NetworksRepo
@@ -68,7 +74,7 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 	}
 	if deps.Series == nil || deps.SeriesTexts == nil || deps.Seasons == nil ||
 		deps.Episodes == nil || deps.EpisodeTexts == nil ||
-		deps.People == nil || deps.SeriesPeople == nil ||
+		deps.People == nil || deps.PersonCredits == nil ||
 		deps.Genres == nil || deps.Keywords == nil ||
 		deps.Networks == nil || deps.Companies == nil ||
 		deps.Videos == nil || deps.ContentRatings == nil ||
@@ -507,18 +513,31 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		}
 	}
 
-	// 7. series_people — re-walk the TV aggregate_credits payload to
-	//    pair each credit row with the TMDB person id, then resolve
-	//    against personIDByTMDB. The mapper-produced SeriesCredit
-	//    slice does NOT carry the TMDB person id (see infrastructure/
-	//    tmdb/mappers.go::MapTVToCredits comment); re-walking is the
-	//    cheapest correlation path that does NOT change the mapper
-	//    surface. Credits whose person we failed to upsert (defensive)
-	//    are dropped + counted.
+	// 7. person_credits (media_type='tv') — re-walk the TV
+	//    aggregate_credits payload to pair each credit row with the
+	//    TMDB person id, then resolve against personIDByTMDB. The
+	//    mapper-produced SeriesCredit slice does NOT carry the TMDB
+	//    person id (see infrastructure/tmdb/mappers.go::MapTVToCredits
+	//    comment); re-walking is the cheapest correlation path that
+	//    does NOT change the mapper surface. Credits whose person we
+	//    failed to upsert (defensive) are dropped + counted.
+	//
+	//    D-7 (468a): series-level credits land on the polymorphic
+	//    person_credits table (media_type=MediaTypeTV, tmdb_media_id=
+	//    canon.tmdb_id) — the legacy series_people table was dropped
+	//    in D-1. MediaTypeTV is the SAME discriminator the
+	//    PersonWorker uses for /person/{id}/tv_credits rows, so the
+	//    UNIQUE (person_id, tmdb_credit_id) UPSERT branches harmonise
+	//    across both writers (no UPDATE-thrash between media types).
 	finalCredits, droppedCredits := resolveSeriesCreditsWithPersonID(tv, seriesID, personIDByTMDB)
 	if len(finalCredits) > 0 {
-		if _, err := w.deps.SeriesPeople.BatchUpsert(txCtx, finalCredits); err != nil {
-			return nil, fmt.Errorf("batch upsert series_people: %w", err)
+		// canon.TMDBID is non-nil here: Handle guards against nil
+		// before invoking applyAll, so the deref is safe. The shape
+		// the port expects ([]people.PersonCredit) is built in-place
+		// by mapSeriesCreditsToPersonCredits.
+		pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID))
+		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows); err != nil {
+			return nil, fmt.Errorf("batch upsert person_credits (tv): %w", err)
 		}
 	}
 	if droppedCredits > 0 {
@@ -606,6 +625,50 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		return nil, fmt.Errorf("set recommendations: %w", err)
 	}
 	return enqueueRows, nil
+}
+
+// mapSeriesCreditsToPersonCredits projects the per-series cast+crew
+// slice that resolveSeriesCreditsWithPersonID returns into the
+// polymorphic []people.PersonCredit shape PersonCreditsPort wants.
+// D-7 (468a): MediaType is hard-wired to tmdb.MediaTypeTV — the same
+// discriminator PersonWorker writes for /person/{id}/tv_credits, so
+// the UNIQUE (person_id, tmdb_credit_id) UPSERT branches harmonise.
+//
+// Title is sourced from tv.Name so the per-person filmography listing
+// downstream (H-2 / cast.probeInLibrary) gets a usable label without
+// a JOIN to canon.series. Year is left nil — the series_worker has
+// no first_air_date in the patch shape at this seam; the PersonWorker
+// fills it later from /person/{id}/tv_credits payload.
+//
+// Crew rows preserve Department / Job; cast rows preserve
+// CharacterName + EpisodeCount. CreditOrder is dropped — the
+// person_credits table has no series-side billing index (the cast
+// list is ordered by person_id ASC on the read path).
+func mapSeriesCreditsToPersonCredits(
+	creds []people.SeriesCredit,
+	tv *tmdb.TVResponse,
+	tmdbMediaID int64,
+) []people.PersonCredit {
+	title := ""
+	if tv != nil {
+		title = tv.Name
+	}
+	out := make([]people.PersonCredit, 0, len(creds))
+	for _, cr := range creds {
+		out = append(out, people.PersonCredit{
+			PersonID:      cr.PersonID,
+			MediaType:     tmdb.MediaTypeTV,
+			TMDBMediaID:   tmdbMediaID,
+			TMDBCreditID:  cr.TMDBCreditID,
+			Kind:          cr.Kind,
+			Title:         title,
+			CharacterName: cr.CharacterName,
+			Department:    cr.Department,
+			Job:           cr.Job,
+			EpisodeCount:  cr.EpisodeCount,
+		})
+	}
+	return out
 }
 
 // resolveSeriesCreditsWithPersonID re-walks tv.AggregateCredits and

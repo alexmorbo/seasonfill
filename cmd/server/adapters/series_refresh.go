@@ -9,6 +9,15 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
+// SeriesPeopleListPort is the narrow read surface
+// SeriesRefreshCastAdapter consumes — the same shape the
+// seriesdetail.SeriesPeoplePort exposes. *SeriesPeopleFromPersonCredits
+// satisfies it; the refresh adapter delegates to the same D-7
+// person_credits-backed path the composer reads from.
+type SeriesPeopleListPort interface {
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind dompeople.SeriesCreditKind) ([]dompeople.SeriesCredit, error)
+}
+
 // SeriesRefreshSeriesAdapter projects SeriesRepository.Get onto the
 // thin seriesrefresh.CanonView shape so the use case stays free of
 // the domain/series import. Story 218 (E-2).
@@ -34,14 +43,18 @@ func (a SeriesRefreshSeriesAdapter) Get(ctx context.Context, id domain.SeriesID)
 }
 
 // SeriesRefreshCastAdapter implements seriesrefresh.TopCastReader by
-// calling SeriesPeopleRepository.ListBySeries (the composer's existing
-// path) and slicing the first N person ids. Story 218 (E-2).
+// delegating to a SeriesPeopleListPort (the same surface the
+// composer reads). Story 218 (E-2); rewired to person_credits by
+// D-7 (468a) — the legacy *SeriesPeopleRepository was dropped.
 type SeriesRefreshCastAdapter struct {
-	R *persistence.SeriesPeopleRepository
+	R SeriesPeopleListPort
 }
 
-// NewSeriesRefreshCastAdapter wraps the supplied repository.
-func NewSeriesRefreshCastAdapter(r *persistence.SeriesPeopleRepository) SeriesRefreshCastAdapter {
+// NewSeriesRefreshCastAdapter wraps the supplied list port. In
+// production the input is *SeriesPeopleFromPersonCredits, which the
+// seriesdetail wiring already constructs for the composer + cast
+// composer.
+func NewSeriesRefreshCastAdapter(r SeriesPeopleListPort) SeriesRefreshCastAdapter {
 	return SeriesRefreshCastAdapter{R: r}
 }
 

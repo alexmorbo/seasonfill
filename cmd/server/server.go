@@ -273,7 +273,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	episodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	episodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
 	peopleRepo := enrichpersistence.NewPeopleRepository(db)
-	seriesPeopleRepo := enrichpersistence.NewSeriesPeopleRepository(db)
 	genresRepo := enrichpersistence.NewGenresRepository(db)
 	genresI18nRepo := enrichpersistence.NewGenresI18nRepository(db)
 	keywordsRepo := enrichpersistence.NewKeywordsRepository(db)
@@ -303,7 +302,6 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		Episodes:          episodesRepo,
 		EpisodeTexts:      episodeTextsRepo,
 		People:            peopleRepo,
-		SeriesPeople:      seriesPeopleRepo,
 		Genres:            wiring.GenresRepoAdapter{Main: genresRepo, I18n: genresI18nRepo},
 		Keywords:          wiring.KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18nRepo},
 		Networks:          networksRepo,

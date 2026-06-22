@@ -149,10 +149,6 @@ type PeopleRepo interface {
 	Upsert(ctx context.Context, p people.Person) (int64, error)
 }
 
-type SeriesPeopleRepo interface {
-	BatchUpsert(ctx context.Context, credits []people.SeriesCredit) ([]int64, error)
-}
-
 // GenresRepo / KeywordsRepo / NetworksRepo / CompaniesRepo —
 // "resolve or create + set join" surface, matching the repository
 // methods shipped in B-3.

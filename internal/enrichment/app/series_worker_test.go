@@ -287,13 +287,19 @@ func (f *fakePeopleRepo) Upsert(ctx context.Context, p people.Person) (int64, er
 	return p.ID, nil
 }
 
-type fakeSeriesPeopleRepo struct {
+// fakeSeriesWorkerPersonCredits satisfies PersonCreditsPort for the
+// series_worker tests. D-7 (468a): series-level credits write through
+// person_credits(media_type='tv', tmdb_media_id=<series.tmdb_id>)
+// rather than the dropped series_people table. The fake records each
+// row so the happy-path assertion can verify PersonID resolution +
+// MediaType discriminator.
+type fakeSeriesWorkerPersonCredits struct {
 	rec  *callRecord
-	rows []people.SeriesCredit
+	rows []people.PersonCredit
 }
 
-func (f *fakeSeriesPeopleRepo) BatchUpsert(ctx context.Context, credits []people.SeriesCredit) ([]int64, error) {
-	f.rec.add("SeriesPeople.BatchUpsert")
+func (f *fakeSeriesWorkerPersonCredits) BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
+	f.rec.add("PersonCredits.BatchUpsert")
 	ids := make([]int64, 0, len(credits))
 	for i, c := range credits {
 		ids = append(ids, int64(i+1))
@@ -535,7 +541,7 @@ type workerFixture struct {
 	episodes         *fakeEpisodesRepo
 	episodeTexts     *fakeEpisodeTextsRepo
 	people           *fakePeopleRepo
-	seriesPeople     *fakeSeriesPeopleRepo
+	personCredits    *fakeSeriesWorkerPersonCredits
 	genres           *fakeGenresRepo
 	keywords         *fakeKeywordsRepo
 	networks         *fakeNetworksRepo
@@ -559,7 +565,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 		episodes:         newFakeEpisodesRepo(rec),
 		episodeTexts:     &fakeEpisodeTextsRepo{rec: rec},
 		people:           newFakePeopleRepo(rec),
-		seriesPeople:     &fakeSeriesPeopleRepo{rec: rec},
+		personCredits:    &fakeSeriesWorkerPersonCredits{rec: rec},
 		genres:           newFakeGenresRepo(rec),
 		keywords:         newFakeKeywordsRepo(rec),
 		networks:         &fakeNetworksRepo{rec: rec},
@@ -580,7 +586,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 		Episodes:         f.episodes,
 		EpisodeTexts:     f.episodeTexts,
 		People:           f.people,
-		SeriesPeople:     f.seriesPeople,
+		PersonCredits:    f.personCredits,
 		Genres:           f.genres,
 		Keywords:         f.keywords,
 		Networks:         f.networks,
@@ -681,7 +687,7 @@ func TestSeriesWorker_HappyPath_AllRepoesWritten(t *testing.T) {
 		"Episodes.BatchUpsert",
 		"EpisodeTexts.Upsert",
 		"People.Upsert",
-		"SeriesPeople.BatchUpsert",
+		"PersonCredits.BatchUpsert",
 		"Genres.Upsert",
 		"Genres.Set",
 		"Keywords.Upsert",
@@ -708,10 +714,14 @@ func TestSeriesWorker_HappyPath_AllRepoesWritten(t *testing.T) {
 	assert.Equal(t, enrichment.EntityTypeSeries, f.enrichmentErrors.cleared[0].EntityType)
 	assert.Equal(t, enrichment.SourceTMDBSeries, f.enrichmentErrors.cleared[0].Source)
 
-	// Verify SeriesPeople rows got non-zero PersonID (LATENT RISK fix).
-	require.NotEmpty(t, f.seriesPeople.rows, "series_people should be written")
-	for _, sp := range f.seriesPeople.rows {
-		assert.NotEqual(t, int64(0), sp.PersonID, "PersonID must be resolved")
+	// Verify PersonCredits rows got non-zero PersonID (LATENT RISK fix)
+	// and the D-7 discriminator (media_type='tv', tmdb_media_id=series
+	// canon tmdb_id) is set correctly on every row.
+	require.NotEmpty(t, f.personCredits.rows, "person_credits should be written")
+	for _, pc := range f.personCredits.rows {
+		assert.NotEqual(t, int64(0), pc.PersonID, "PersonID must be resolved")
+		assert.Equal(t, tmdb.MediaTypeTV, pc.MediaType, "series_worker writes media_type=tv")
+		assert.Equal(t, int64(42), pc.TMDBMediaID, "tmdb_media_id must be series canon tmdb_id (seedCanon used 42)")
 	}
 }
 
@@ -888,8 +898,8 @@ func TestSeriesWorker_DeterministicWriteOrder(t *testing.T) {
 	mustOrder("Seasons.Upsert", "Episodes.BatchUpsert")
 	mustOrder("Episodes.BatchUpsert", "EpisodeTexts.Upsert")
 	mustOrder("EpisodeTexts.Upsert", "People.Upsert")
-	mustOrder("People.Upsert", "SeriesPeople.BatchUpsert")
-	mustOrder("SeriesPeople.BatchUpsert", "Genres.Upsert")
+	mustOrder("People.Upsert", "PersonCredits.BatchUpsert")
+	mustOrder("PersonCredits.BatchUpsert", "Genres.Upsert")
 	mustOrder("Genres.Set", "Videos.Upsert")
 	mustOrder("Videos.Upsert", "ContentRatings.Upsert")
 	mustOrder("ContentRatings.Upsert", "ExternalIDs.Upsert")

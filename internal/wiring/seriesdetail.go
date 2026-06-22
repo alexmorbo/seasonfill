@@ -160,7 +160,6 @@ func BuildSeriesDetail(
 	sdEpisodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
 	sdSeasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
-	sdSeriesPeopleRepo := enrichpersistence.NewSeriesPeopleRepository(db)
 	sdPeopleRepo := enrichpersistence.NewPeopleRepository(db)
 	sdGenresRepo := enrichpersistence.NewGenresRepository(db)
 	sdKeywordsRepo := enrichpersistence.NewKeywordsRepository(db)
@@ -177,6 +176,15 @@ func BuildSeriesDetail(
 	sdEnrichmentErrorsRepo := enrichpersistence.NewEnrichmentErrorsRepository(db)
 	sdFreshness := seriesdetail.NewEnrichmentFreshnessAdapter(sdSeriesRepo, sdEnrichmentErrorsRepo)
 
+	// D-7 (468a) — the SeriesPeoplePort surface is now backed by
+	// person_credits via SeriesPeopleFromPersonCredits. Constructed
+	// here so the Composer, CastComposer, AND SeriesRefreshUC all
+	// share the same adapter instance (stateless — re-using it is a
+	// micro-optimisation that keeps wire shapes obviously identical
+	// across the three readers).
+	sdPersonCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
+	sdSeriesPeopleAdapter := adapters.NewSeriesPeopleFromPersonCredits(sdPersonCreditsRepo, sdSeriesRepo)
+
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
@@ -187,7 +195,7 @@ func BuildSeriesDetail(
 		EpisodeStates:     sdEpisodeStatesRepo,
 		SeasonStats:       sdSeasonStatsRepo,
 		EpisodeTexts:      sdEpisodeTextsRepo,
-		SeriesPeople:      sdSeriesPeopleRepo,
+		SeriesPeople:      sdSeriesPeopleAdapter,
 		People:            sdPeopleRepo,
 		Genres:            sdGenresRepo,
 		Keywords:          sdKeywordsRepo,
@@ -220,16 +228,17 @@ func BuildSeriesDetail(
 	seasonHandler := seriesdetailrest.NewSeriesSeasonHandler(composer, log)
 
 	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
-	// repos (series_cache + series + series_people + people) plus
-	// the new EpisodesRepository.CountBySeries method and a thin
-	// adapter projecting enrichpersistence.PersonCredit → composer-local
-	// PersonCreditRef.
-	sdPersonCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
+	// repos (series_cache + series + people) plus the new
+	// EpisodesRepository.CountBySeries method and a thin adapter
+	// projecting enrichpersistence.PersonCredit → composer-local
+	// PersonCreditRef. D-7 (468a): SeriesPeople surface is backed by
+	// the SeriesPeopleFromPersonCredits adapter constructed above,
+	// shared with the Composer + SeriesRefreshUC.
 	castComposer := seriesdetail.NewCastComposer(seriesdetail.CastDeps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
 		Series:            sdSeriesRepo,
-		SeriesPeople:      sdSeriesPeopleRepo,
+		SeriesPeople:      sdSeriesPeopleAdapter,
 		People:            sdPeopleRepo,
 		PersonCredits:     adapters.NewPersonCreditsAdapter(sdPersonCreditsRepo),
 		EpisodesCount:     sdEpisodesRepo,
@@ -267,7 +276,7 @@ func BuildSeriesDetail(
 	seriesRefreshUC, err := seriesrefresh.New(seriesrefresh.Deps{
 		SeriesCache:  sdSeriesCacheRepo,
 		Series:       adapters.NewSeriesRefreshSeriesAdapter(sdSeriesRepo),
-		SeriesPeople: adapters.NewSeriesRefreshCastAdapter(sdSeriesPeopleRepo),
+		SeriesPeople: adapters.NewSeriesRefreshCastAdapter(sdSeriesPeopleAdapter),
 		Dispatcher:   peopleEnqueuerHolder,
 		Logger:       composerLog,
 	})

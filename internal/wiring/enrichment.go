@@ -337,7 +337,7 @@ func BuildEnrichment(
 		Episodes:         repos.Episodes,
 		EpisodeTexts:     repos.EpisodeTexts,
 		People:           repos.People,
-		SeriesPeople:     repos.SeriesPeople,
+		PersonCredits:    repos.PersonCredits,
 		Genres:           repos.Genres,
 		Keywords:         repos.Keywords,
 		Networks:         repos.Networks,
@@ -658,7 +658,6 @@ type EnrichmentRepoBundle struct {
 	Episodes        appenrich.EpisodesRepo
 	EpisodeTexts    appenrich.EpisodeTextsRepo
 	People          peopleRepoCombined
-	SeriesPeople    appenrich.SeriesPeopleRepo
 	Genres          appenrich.GenresRepo
 	Keywords        appenrich.KeywordsRepo
 	Networks        appenrich.NetworksRepo
