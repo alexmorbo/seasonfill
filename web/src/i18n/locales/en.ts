@@ -864,6 +864,15 @@ export const en = {
       general: 'General',
       security: 'Security',
       integrations: 'Integrations',
+      profile: 'Profile',
+      system: 'System',
+    },
+    profile: {
+      placeholder: 'Section in development',
+    },
+    system: {
+      access_denied: 'Access denied — admins only',
+      redirect_notice: 'Redirecting to Profile…',
     },
     modeConfirm: {
       title: 'Switch authentication mode to "{{target}}"?',

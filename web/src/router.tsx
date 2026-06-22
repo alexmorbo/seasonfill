@@ -10,7 +10,14 @@ import { ScanDetail } from '@/pages/ScanDetail';
 import { Decisions } from '@/pages/Decisions';
 import { Grabs } from '@/pages/Grabs';
 import { Watchdog } from '@/pages/Watchdog';
-import { Settings } from '@/pages/Settings';
+import { SettingsPage } from '@/pages/SettingsPage';
+import { SettingsRedirect } from '@/pages/settings/SettingsRedirect';
+import { ProfileTab } from '@/pages/settings/ProfileTab';
+import { SystemLayout } from '@/pages/settings/SystemLayout';
+import { SystemTabGuard } from '@/components/settings/SystemTabGuard';
+import { GeneralTab } from '@/components/settings/GeneralTab';
+import { SecurityTab } from '@/components/settings/SecurityTab';
+import { IntegrationsTab } from '@/components/settings/IntegrationsTab';
 import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
@@ -34,7 +41,28 @@ export const router = createBrowserRouter([
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
-      { path: '/settings',  element: <Settings /> },
+      {
+        path: '/settings',
+        element: <SettingsPage />,
+        children: [
+          { index: true, element: <SettingsRedirect /> },
+          { path: 'profile', element: <ProfileTab /> },
+          {
+            path: 'system',
+            element: <SystemTabGuard><SystemLayout /></SystemTabGuard>,
+            children: [
+              { index: true, element: <Navigate to="general" replace /> },
+              { path: 'general',      element: <GeneralTab /> },
+              { path: 'security',     element: <SecurityTab /> },
+              { path: 'integrations', element: <IntegrationsTab /> },
+            ],
+          },
+        ],
+      },
+      // /settings/external-services stays as a sibling route in N-7b.
+      // The move under /settings/system/external-services is deferred
+      // to N-7c per Decision §1 in story 486 (avoids cross-cutting
+      // navigation/link rewrites in N-7b scope).
       { path: '/settings/external-services', element: <SettingsExternalServices /> },
     ],
   },

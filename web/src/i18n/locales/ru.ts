@@ -869,6 +869,15 @@ export const ru: Translations = {
       general: 'Общие',
       security: 'Безопасность',
       integrations: 'Интеграции',
+      profile: 'Профиль',
+      system: 'Системные',
+    },
+    profile: {
+      placeholder: 'Раздел в разработке',
+    },
+    system: {
+      access_denied: 'Доступ запрещён — только администраторы',
+      redirect_notice: 'Перенаправление в Профиль…',
     },
     modeConfirm: {
       title: 'Сменить режим на «{{target}}»?',
