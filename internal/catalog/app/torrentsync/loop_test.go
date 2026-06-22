@@ -47,6 +47,11 @@ func (s *fakeSession) Refresh(_ context.Context) (qbit.Snapshot, error) {
 
 func (s *fakeSession) Rid() int64 { return s.rid }
 
+// LoginAge satisfies qbit.SyncSession (story 479b). Test sessions
+// report a zero duration — the use case publishes 0 which is the
+// "no login yet" sentinel and tests don't assert on it.
+func (s *fakeSession) LoginAge(_ time.Time) time.Duration { return 0 }
+
 type fakeFactory struct{ sess *fakeSession }
 
 func (f fakeFactory) NewSyncSession(_ context.Context, _ domain.InstanceName) (qbit.SyncSession, error) {
@@ -236,6 +241,7 @@ func (*stubLoopMetrics) SetTorrentsByState(domain.InstanceName, qbit.StateGroup,
 func (*stubLoopMetrics) AddDelta(domain.InstanceName, string, int)                    {}
 func (*stubLoopMetrics) SetLastRefreshAt(domain.InstanceName, int64)                  {}
 func (*stubLoopMetrics) AddUnmappedDetected(domain.InstanceName, int)                 {}
+func (*stubLoopMetrics) SetSessionAge(domain.InstanceName, float64)                   {}
 
 func TestLoop_Iterate_ObservesRefreshDuration_OK(t *testing.T) {
 	t.Parallel()

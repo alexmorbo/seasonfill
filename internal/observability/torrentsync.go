@@ -146,3 +146,11 @@ func (TorrentsyncMetricsAdapter) SetLastRefreshAt(instance domain.InstanceName, 
 func (TorrentsyncMetricsAdapter) AddUnmappedDetected(instance domain.InstanceName, n int) {
 	AddTorrentsyncUnmappedDetected(instance, n)
 }
+
+// SetSessionAge implements torrentsync.Metrics (story 479b). Dispatches
+// to the qBit session telemetry helper so a single adapter value
+// covers both the torrentsync loop metrics AND the qBit session age
+// gauge — no extra port wiring at the constructor site.
+func (TorrentsyncMetricsAdapter) SetSessionAge(instance domain.InstanceName, ageSec float64) {
+	SetQbitSessionAge(instance, ageSec)
+}

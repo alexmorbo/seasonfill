@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	qbt "github.com/autobrr/go-qbittorrent"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 )
@@ -22,7 +24,36 @@ type Config struct {
 	Password string
 	Category string
 	Timeout  time.Duration
+	// Instance is the Sonarr instance name this client serves. Used
+	// to label session telemetry (story 479b). Empty string disables
+	// labelling — the gauge will publish under instance="" which the
+	// operator can ignore on the dashboard.
+	Instance domain.InstanceName
 }
+
+// Story 479b — reauth reason classifier. Closed set; kept in parity
+// with internal/observability/qbit_session.go QbitReauthReason*
+// constants. Duplicated locally so the qbit client does not import
+// the observability package (which is shared infra and pulls a wider
+// dependency graph than a low-level client should).
+const (
+	reauthReasonCookieExpired = "cookie_expired"
+	reauthReasonNetworkError  = "network_error"
+	reauthReasonUnauthorized  = "unauthorized"
+	reauthReasonUnknown       = "unknown"
+)
+
+// SessionMetrics is the qBit client's session telemetry port. nil-OK
+// via the nullSessionMetrics default installed by NewClient.
+type SessionMetrics interface {
+	// IncReauth bumps the re-login counter. Called from Login() on
+	// every successful re-login (skip the first ever).
+	IncReauth(instance domain.InstanceName, reason string)
+}
+
+type nullSessionMetrics struct{}
+
+func (nullSessionMetrics) IncReauth(domain.InstanceName, string) {}
 
 // Torrent is the lean per-torrent shape the Watchdog cares about. Sourced
 // from qbt.Torrent — only fields the use case reads are exposed here.
@@ -64,6 +95,50 @@ type client struct {
 	inner  *qbt.Client
 	anon   bool
 	closed bool
+
+	// Story 479b — session telemetry. loginAt is unix-seconds of the
+	// most recent successful Login. loginCount is the total number of
+	// successful Login calls; second+ logins increment the reauth
+	// counter. lastLoginErrKind classifies the most recent failed
+	// Login attempt so the next successful Login knows the reauth
+	// reason ("cookie_expired" by default; "network_error" /
+	// "unauthorized" when the prior attempt failed).
+	loginAt          atomic.Int64
+	loginCount       atomic.Int32
+	lastLoginErrKind atomic.Value // string; one of reauthReason* consts
+
+	// metrics is the session telemetry sink. nullSessionMetrics by
+	// default; production wiring may replace it via SetSessionMetrics.
+	metrics SessionMetrics
+
+	// instance is the Sonarr instance name this client serves.
+	// Populated by NewClient via cfg.Instance.
+	instance domain.InstanceName
+}
+
+// SetSessionMetrics installs the session telemetry sink. Concurrent
+// callers MUST NOT call this after the client has been handed off to
+// a goroutine that calls Login — the field is a plain interface, not
+// atomic. Production wiring sets it once at construction. Test code
+// uses package-internal access (same package).
+func (c *client) SetSessionMetrics(m SessionMetrics) {
+	if m == nil {
+		m = nullSessionMetrics{}
+	}
+	c.metrics = m
+}
+
+// LoginAge returns the wall-clock duration since the last successful
+// Login. Returns 0 when no successful Login has yet happened. Safe
+// for concurrent use. Exposed at the package level so SyncSession can
+// surface it to the torrentsync use case without going through the
+// public Client interface.
+func (c *client) LoginAge(now time.Time) time.Duration {
+	at := c.loginAt.Load()
+	if at == 0 {
+		return 0
+	}
+	return now.Sub(time.Unix(at, 0))
 }
 
 const defaultTimeout = 30 * time.Second
@@ -124,11 +199,17 @@ func NewClient(cfg Config) (Client, error) {
 		)
 	}
 
-	return &client{
-		cfg:   cfg,
-		inner: inner,
-		anon:  cfg.Username == "" && cfg.Password == "",
-	}, nil
+	c := &client{
+		cfg:      cfg,
+		inner:    inner,
+		anon:     cfg.Username == "" && cfg.Password == "",
+		metrics:  nullSessionMetrics{},
+		instance: cfg.Instance,
+	}
+	// Empty-string sentinel — first successful Login does NOT
+	// increment the reauth counter (it's the "initial" Login).
+	c.lastLoginErrKind.Store("")
+	return c, nil
 }
 
 // Login establishes a session cookie with qBit. No-op when both
@@ -147,6 +228,20 @@ func (c *client) Login(ctx context.Context) error {
 		return nil
 	}
 	if err := c.inner.LoginCtx(ctx); err != nil {
+		// Story 479b — classify the failure so the next successful
+		// Login can publish the right reauth reason. Order matters:
+		// auth-shaped errors win over the catch-all network bucket.
+		kind := reauthReasonUnknown
+		switch {
+		case errors.Is(err, qbt.ErrBadCredentials) || errors.Is(err, qbt.ErrIPBanned):
+			kind = reauthReasonUnauthorized
+		case ctx.Err() == nil:
+			// Anything not an explicit context cancellation we treat
+			// as a network failure for reauth-reason purposes.
+			kind = reauthReasonNetworkError
+		}
+		c.lastLoginErrKind.Store(kind)
+
 		if errors.Is(err, qbt.ErrBadCredentials) || errors.Is(err, qbt.ErrIPBanned) {
 			return fmt.Errorf("qbit login: %w", errors.Join(err, sharedErrors.ErrInstanceUnauthorized))
 		}
@@ -155,6 +250,20 @@ func (c *client) Login(ctx context.Context) error {
 		}
 		return fmt.Errorf("qbit login: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
 	}
+
+	// Story 479b — record successful login timestamp + emit reauth on
+	// every Login AFTER the first.
+	c.loginAt.Store(time.Now().Unix())
+	if c.loginCount.Add(1) > 1 {
+		reason := reauthReasonCookieExpired
+		if raw := c.lastLoginErrKind.Load(); raw != nil {
+			if s, ok := raw.(string); ok && s != "" {
+				reason = s
+			}
+		}
+		c.metrics.IncReauth(c.instance, reason)
+	}
+	c.lastLoginErrKind.Store("")
 	return nil
 }
 

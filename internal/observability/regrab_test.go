@@ -82,3 +82,27 @@ func TestWatchdogMetricsAdapter_DelegatesAll(t *testing.T) {
 	assert.Contains(t, out, `seasonfill_watchdog_blacklist_size{instance="beta"}`)
 	assert.Contains(t, out, `seasonfill_watchdog_qbit_unreachable_streak{instance="beta"} 2`)
 }
+
+func TestSetWatchdogCooldownPending_EmitsGauge(t *testing.T) {
+	t.Parallel()
+	SetWatchdogCooldownPending("cooldown_alpha", 17)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_watchdog_cooldown_pending{instance="cooldown_alpha"}`)
+}
+
+func TestSetWatchdogRegrabCandidates_EmitsGauge(t *testing.T) {
+	t.Parallel()
+	SetWatchdogRegrabCandidates("candidates_alpha", 3)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_watchdog_regrab_candidates{instance="candidates_alpha"}`)
+}
+
+func TestWatchdogMetricsAdapter_DispatchesNewMethods(t *testing.T) {
+	t.Parallel()
+	a := WatchdogMetricsAdapter{}
+	a.SetCooldownPending("gamma_new", 4)
+	a.SetRegrabCandidates("gamma_new", 5)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_watchdog_cooldown_pending{instance="gamma_new"}`)
+	assert.Contains(t, out, `seasonfill_watchdog_regrab_candidates{instance="gamma_new"}`)
+}

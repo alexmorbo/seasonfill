@@ -133,6 +133,17 @@ type Metrics interface {
 
 	// SetQbitUnreachableStreak replaces the gauge seasonfill_watchdog_qbit_unreachable_streak{instance}.
 	SetQbitUnreachableStreak(instance domain.InstanceName, streak int)
+
+	// SetCooldownPending replaces seasonfill_watchdog_cooldown_pending{instance}.
+	// Published by the periodic watchdog state collector
+	// (cmd/server/loops/watchdog_state_collector.go), NOT from inside
+	// RunInstance — the use case never reads cooldown counts.
+	SetCooldownPending(instance domain.InstanceName, count int)
+
+	// SetRegrabCandidates replaces seasonfill_watchdog_regrab_candidates{instance}.
+	// Published per-cycle by cmd/server/loops/regrab.go using
+	// RunResult.UnregisteredCount after each iterate.
+	SetRegrabCandidates(instance domain.InstanceName, count int)
 }
 
 // nullMetrics is the bootstrap-time default. The regrab use case
@@ -146,6 +157,8 @@ func (nullMetrics) IncUnregistered(domain.InstanceName, string)       {}
 func (nullMetrics) IncRegrabResult(domain.InstanceName, string)       {}
 func (nullMetrics) SetBlacklistSize(domain.InstanceName, int)         {}
 func (nullMetrics) SetQbitUnreachableStreak(domain.InstanceName, int) {}
+func (nullMetrics) SetCooldownPending(domain.InstanceName, int)       {}
+func (nullMetrics) SetRegrabCandidates(domain.InstanceName, int)      {}
 
 // Compile-time blank assignments — keep the deferred-import compiler
 // happy so a future refactor that drops one of the import sites here

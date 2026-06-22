@@ -14,6 +14,8 @@ const (
 	MetricWatchdogRegrabTotal           = `seasonfill_watchdog_regrab_triggered_total`
 	MetricWatchdogBlacklistSize         = `seasonfill_watchdog_blacklist_size`
 	MetricWatchdogQbitUnreachableStreak = `seasonfill_watchdog_qbit_unreachable_streak`
+	MetricWatchdogCooldownPending       = `seasonfill_watchdog_cooldown_pending`
+	MetricWatchdogRegrabCandidates      = `seasonfill_watchdog_regrab_candidates`
 )
 
 // Poll result values — emitted as the `result` label on
@@ -59,6 +61,29 @@ func SetWatchdogQbitUnreachableStreak(instance domain.InstanceName, streak int) 
 	metrics.GetOrCreateGauge(`seasonfill_watchdog_qbit_unreachable_streak{instance="`+string(instance)+`"}`, nil).Set(float64(streak))
 }
 
+// SetWatchdogCooldownPending replaces the per-instance gauge for the
+// count of (series, season) cooldowns currently active in the
+// regrab_retry scope. Published by the periodic watchdog state
+// collector (cmd/server/loops/watchdog_state_collector.go) every 5
+// minutes. Source query: cooldown table where scope=regrab_retry and
+// expires_at > now, grouped by the instance segment of the key.
+func SetWatchdogCooldownPending(instance domain.InstanceName, count int) {
+	metrics.GetOrCreateGauge(
+		`seasonfill_watchdog_cooldown_pending{instance="`+string(instance)+`"}`, nil,
+	).Set(float64(count))
+}
+
+// SetWatchdogRegrabCandidates replaces the per-instance gauge for the
+// count of unregistered torrents detected on the LAST completed
+// regrab cycle. Equivalent to RunResult.UnregisteredCount. Published
+// by cmd/server/loops/regrab.go after each iterate. The value can be
+// 0 — that's the steady-state "all good" reading.
+func SetWatchdogRegrabCandidates(instance domain.InstanceName, count int) {
+	metrics.GetOrCreateGauge(
+		`seasonfill_watchdog_regrab_candidates{instance="`+string(instance)+`"}`, nil,
+	).Set(float64(count))
+}
+
 // WatchdogMetricsAdapter satisfies application/regrab.Metrics by
 // dispatching to the package-level helpers above. The regrab use case
 // constructor takes the interface; cmd/server passes a value of this
@@ -84,4 +109,12 @@ func (WatchdogMetricsAdapter) SetBlacklistSize(instance domain.InstanceName, siz
 
 func (WatchdogMetricsAdapter) SetQbitUnreachableStreak(instance domain.InstanceName, streak int) {
 	SetWatchdogQbitUnreachableStreak(instance, streak)
+}
+
+func (WatchdogMetricsAdapter) SetCooldownPending(instance domain.InstanceName, count int) {
+	SetWatchdogCooldownPending(instance, count)
+}
+
+func (WatchdogMetricsAdapter) SetRegrabCandidates(instance domain.InstanceName, count int) {
+	SetWatchdogRegrabCandidates(instance, count)
 }

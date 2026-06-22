@@ -20,10 +20,15 @@ type RegrabRunner interface {
 }
 
 // InstanceLoopMetrics is the subset of regrab.Metrics the per-instance
-// loop emits directly. Currently only the qbit_unreachable_streak gauge
-// is owned at this level — the rest are owned inside RunInstance.
+// loop emits directly. The qbit_unreachable_streak gauge plus the
+// per-cycle regrab_candidates gauge (story 479b) are owned at this
+// level; the rest are owned inside RunInstance.
 type InstanceLoopMetrics interface {
 	SetQbitUnreachableStreak(instance domain.InstanceName, streak int)
+	// SetRegrabCandidates publishes the count of unregistered torrents
+	// detected on the last completed RunInstance cycle (story 479b).
+	// Sourced from regrab.RunResult.UnregisteredCount.
+	SetRegrabCandidates(instance domain.InstanceName, count int)
 }
 
 // RegrabLoop owns one polling goroutine per qBit-enabled Sonarr
@@ -98,6 +103,7 @@ func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.
 type nullStreakMetrics struct{}
 
 func (nullStreakMetrics) SetQbitUnreachableStreak(domain.InstanceName, int) {}
+func (nullStreakMetrics) SetRegrabCandidates(domain.InstanceName, int)      {}
 
 // Start records the parent context. Must be called before SwapSettings.
 // The actual goroutines are spawned by SwapSettings on the first
@@ -299,4 +305,10 @@ func (il *instanceLoop) iterate(ctx context.Context) {
 		il.streak.Store(0)
 		il.parent.metrics.SetQbitUnreachableStreak(instName, 0)
 	}
+	// Story 479b — per-cycle gauge of unregistered candidates. Even
+	// when the use case errored we publish whatever count was
+	// computed before the failure (UnregisteredCount stays at its
+	// zero value on early-return; the gauge reads as 0 which is the
+	// correct "nothing seen" semantic).
+	il.parent.metrics.SetRegrabCandidates(instName, res.UnregisteredCount)
 }

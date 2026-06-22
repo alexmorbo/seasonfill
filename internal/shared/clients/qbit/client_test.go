@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
@@ -462,4 +464,214 @@ func TestClient_HTTPMetricsTransport_UnknownEndpoint_BucketsSafely(t *testing.T)
 	if strings.Contains(body, `endpoint="exportTorrent"`) || strings.Contains(body, `endpoint="/api/v2/torrents/exportTorrent"`) {
 		t.Errorf("raw path leaked into endpoint label — cardinality bound broken:\n%s", body)
 	}
+}
+
+// stubSessionMetrics records IncReauth calls for assertion in
+// session-telemetry tests. Same-package access — safe to assign via
+// (*client).SetSessionMetrics or direct field assignment.
+type stubSessionMetrics struct {
+	mu     sync.Mutex
+	reauth []reauthCall
+}
+type reauthCall struct {
+	instance domain.InstanceName
+	reason   string
+}
+
+func (s *stubSessionMetrics) IncReauth(instance domain.InstanceName, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reauth = append(s.reauth, reauthCall{instance: instance, reason: reason})
+}
+
+// TestClient_LoginAge_StartsZero asserts the LoginAge accessor returns
+// 0 before any successful Login.
+func TestClient_LoginAge_StartsZero(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	c, err := NewClient(Config{URL: f.srv.URL, Username: "admin", Password: "secret", Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if age := c.(*client).LoginAge(time.Now()); age != 0 {
+		t.Errorf("LoginAge before Login = %v, want 0", age)
+	}
+}
+
+// TestClient_FirstLogin_DoesNotIncrementReauth covers the explicit
+// "first Login is initial, not a reauth" contract. We wire a stub
+// metrics impl, drive one successful Login, assert IncReauth was NOT
+// called.
+func TestClient_FirstLogin_DoesNotIncrementReauth(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	stub := &stubSessionMetrics{}
+
+	c, err := NewClient(Config{
+		URL: f.srv.URL, Username: "admin", Password: "secret",
+		Timeout: 2 * time.Second, Instance: "alpha_first",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	c.(*client).SetSessionMetrics(stub)
+
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.reauth) != 0 {
+		t.Errorf("first Login should NOT increment reauth, got %v", stub.reauth)
+	}
+}
+
+// TestClient_SecondLogin_IncrementsReauth_CookieExpired drives two
+// successful Logins back-to-back and asserts the second triggers the
+// cookie_expired reauth counter (the prior Login succeeded, so the
+// classification is "session re-established").
+func TestClient_SecondLogin_IncrementsReauth_CookieExpired(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	stub := &stubSessionMetrics{}
+
+	c, err := NewClient(Config{
+		URL: f.srv.URL, Username: "admin", Password: "secret",
+		Timeout: 2 * time.Second, Instance: "alpha_second",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	c.(*client).SetSessionMetrics(stub)
+
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login 1: %v", err)
+	}
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login 2: %v", err)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.reauth) != 1 {
+		t.Fatalf("expected exactly 1 reauth call, got %d (%v)", len(stub.reauth), stub.reauth)
+	}
+	if stub.reauth[0].reason != reauthReasonCookieExpired {
+		t.Errorf("reason = %q, want %q", stub.reauth[0].reason, reauthReasonCookieExpired)
+	}
+	if stub.reauth[0].instance != domain.InstanceName("alpha_second") {
+		t.Errorf("instance = %q, want alpha_second", stub.reauth[0].instance)
+	}
+}
+
+// TestClient_LoginAfterUnauthorized_TagsReauthAsUnauthorized drives
+// the sequence success → fail → success. The intermediate failure
+// caches the "unauthorized" classification; the trailing success is
+// the second successful Login (re-login) and fires the reauth counter
+// with that cached reason.
+func TestClient_LoginAfterUnauthorized_TagsReauthAsUnauthorized(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	stub := &stubSessionMetrics{}
+
+	c, err := NewClient(Config{
+		URL: f.srv.URL, Username: "admin", Password: "secret",
+		Timeout: 2 * time.Second, Instance: "alpha_unauth",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	c.(*client).SetSessionMetrics(stub)
+
+	// First Login succeeds — establishes baseline (loginCount=1).
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login 1: %v", err)
+	}
+
+	// Intermediate failure: maps to reauthReasonUnauthorized.
+	f.failLogin.Store(true)
+	if err := c.Login(context.Background()); err == nil {
+		t.Fatal("expected Login 2 to fail (bad creds)")
+	}
+
+	// Recovery: second successful Login → reauth fires with the
+	// cached "unauthorized" classification (loginCount=2).
+	f.failLogin.Store(false)
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login 3 (recovery): %v", err)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.reauth) != 1 {
+		t.Fatalf("expected exactly 1 reauth call, got %d (%v)", len(stub.reauth), stub.reauth)
+	}
+	if stub.reauth[0].reason != reauthReasonUnauthorized {
+		t.Errorf("reason = %q, want %q", stub.reauth[0].reason, reauthReasonUnauthorized)
+	}
+}
+
+// TestClient_LoginAge_GrowsWithWall covers the LoginAge accessor's
+// happy path: after a successful Login, the age increases proportionally
+// to wall-clock elapsed.
+func TestClient_LoginAge_GrowsWithWall(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	c, err := NewClient(Config{URL: f.srv.URL, Username: "admin", Password: "secret", Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	// Sleep at least 1 wall-second so the unix-second-grained loginAt
+	// has had time to advance from now.
+	time.Sleep(1100 * time.Millisecond)
+	age := c.(*client).LoginAge(time.Now())
+	if age < time.Second {
+		t.Errorf("LoginAge = %v, want >= 1s", age)
+	}
+}
+
+// TestSyncSession_LoginAge_DelegatesToClient confirms the SyncSession's
+// LoginAge accessor surfaces the underlying client's session age.
+func TestSyncSession_LoginAge_DelegatesToClient(t *testing.T) {
+	t.Parallel()
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+	c, err := NewClient(Config{URL: f.srv.URL, Username: "admin", Password: "secret", Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	sess, err := c.NewSyncSession(context.Background())
+	if err != nil {
+		t.Fatalf("NewSyncSession: %v", err)
+	}
+	// NewSyncSession calls Login internally — loginAt should be non-zero.
+	age := sess.LoginAge(time.Now())
+	if age < 0 {
+		t.Errorf("LoginAge = %v, want >= 0", age)
+	}
+	// Confirm parity with the underlying client value.
+	clientAge := c.(*client).LoginAge(time.Now())
+	// Tolerate up to a second of clock skew between the two samples.
+	delta := clientAge - age
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > time.Second {
+		t.Errorf("sess.LoginAge = %v != client.LoginAge = %v", age, clientAge)
+	}
+	// silence unused atomic import — unrelated tests use atomic.Int32.
+	_ = atomic.Int32{}
 }

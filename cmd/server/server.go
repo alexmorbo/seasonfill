@@ -195,6 +195,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// fires from the OnApplied fanout in wiring.StartSubscribers. Only
 	// the rootCtx-bearing .Start lives here.
 	regrabBundle.RegrabLoop.Start(rootCtx)
+	// Story 479b — watchdog state collector (5min cadence) publishing
+	// cooldown_pending + blacklist_size gauges per known instance.
+	bgWG.Add(1)
+	go regrabBundle.WatchdogStateCollector.Run(rootCtx)
 
 	torrentsyncBundle, err := wiring.BuildTorrentsync(
 		persistence, sonarrBundle, scanBundle, webhookBundle, regrabBundle, &bgWG, log,

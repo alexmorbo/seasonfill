@@ -208,6 +208,18 @@ func (mr *MockMetricsMockRecorder) SetBlacklistSize(instance, size any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBlacklistSize", reflect.TypeOf((*MockMetrics)(nil).SetBlacklistSize), instance, size)
 }
 
+// SetCooldownPending mocks base method.
+func (m *MockMetrics) SetCooldownPending(instance domain.InstanceName, count int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCooldownPending", instance, count)
+}
+
+// SetCooldownPending indicates an expected call of SetCooldownPending.
+func (mr *MockMetricsMockRecorder) SetCooldownPending(instance, count any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCooldownPending", reflect.TypeOf((*MockMetrics)(nil).SetCooldownPending), instance, count)
+}
+
 // SetQbitUnreachableStreak mocks base method.
 func (m *MockMetrics) SetQbitUnreachableStreak(instance domain.InstanceName, streak int) {
 	m.ctrl.T.Helper()
@@ -218,4 +230,16 @@ func (m *MockMetrics) SetQbitUnreachableStreak(instance domain.InstanceName, str
 func (mr *MockMetricsMockRecorder) SetQbitUnreachableStreak(instance, streak any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetQbitUnreachableStreak", reflect.TypeOf((*MockMetrics)(nil).SetQbitUnreachableStreak), instance, streak)
+}
+
+// SetRegrabCandidates mocks base method.
+func (m *MockMetrics) SetRegrabCandidates(instance domain.InstanceName, count int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRegrabCandidates", instance, count)
+}
+
+// SetRegrabCandidates indicates an expected call of SetRegrabCandidates.
+func (mr *MockMetricsMockRecorder) SetRegrabCandidates(instance, count any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRegrabCandidates", reflect.TypeOf((*MockMetrics)(nil).SetRegrabCandidates), instance, count)
 }

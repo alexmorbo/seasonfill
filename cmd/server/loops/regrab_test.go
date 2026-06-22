@@ -48,20 +48,32 @@ func (f *fakeRunner) count(name string) int {
 }
 
 // fakeMetrics captures the per-instance streak gauge so tests can
-// assert the qbit_unreachable_streak gauge transitions.
+// assert the qbit_unreachable_streak gauge transitions. Story 479b
+// extended the port with SetRegrabCandidates — the stub records the
+// last-published value per instance so tests can assert it too.
 type fakeMetrics struct {
-	mu      sync.Mutex
-	streaks map[string]int
+	mu         sync.Mutex
+	streaks    map[string]int
+	candidates map[string]int
 }
 
 func newFakeMetrics() *fakeMetrics {
-	return &fakeMetrics{streaks: make(map[string]int)}
+	return &fakeMetrics{
+		streaks:    make(map[string]int),
+		candidates: make(map[string]int),
+	}
 }
 
 func (m *fakeMetrics) SetQbitUnreachableStreak(name domain.InstanceName, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.streaks[string(name)] = n
+}
+
+func (m *fakeMetrics) SetRegrabCandidates(name domain.InstanceName, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.candidates[string(name)] = n
 }
 
 func (m *fakeMetrics) streak(name string) int {

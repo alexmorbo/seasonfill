@@ -148,6 +148,13 @@ type Metrics interface {
 	// n. n is the count of hashes seen this tick that are NOT in the
 	// previous store snapshot.
 	AddUnmappedDetected(instance domain.InstanceName, n int)
+
+	// SetSessionAge publishes the wall-clock seconds since the qBit
+	// client's last successful Login for this instance. Read by the
+	// use case from the cached SyncSession's LoginAge accessor (story
+	// 479b). Best-effort: gauge stays at last-good when the session
+	// builder hasn't yet succeeded for this instance.
+	SetSessionAge(instance domain.InstanceName, ageSec float64)
 }
 
 // nullMetrics is the bootstrap-time default. Use case constructor
@@ -160,3 +167,4 @@ func (nullMetrics) SetTorrentsByState(domain.InstanceName, qbit.StateGroup, int)
 func (nullMetrics) AddDelta(domain.InstanceName, string, int)                    {}
 func (nullMetrics) SetLastRefreshAt(domain.InstanceName, int64)                  {}
 func (nullMetrics) AddUnmappedDetected(domain.InstanceName, int)                 {}
+func (nullMetrics) SetSessionAge(domain.InstanceName, float64)                   {}

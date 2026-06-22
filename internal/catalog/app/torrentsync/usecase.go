@@ -322,12 +322,17 @@ func (u *UseCase) emitMetrics(
 }
 
 // session is a one-method helper that returns (and caches) the
-// SyncSession for the instance, building it on demand.
+// SyncSession for the instance, building it on demand. Story 479b —
+// after every successful lookup (cached OR freshly-built) the helper
+// publishes the qBit session age via the metrics port. The gauge
+// represents the long-lived torrentsync session age, which is the
+// operator-meaningful "is the cookie still warm" signal.
 func (u *UseCase) session(ctx context.Context, instance domain.InstanceName) (qbit.SyncSession, error) {
 	u.mu.Lock()
 	sess, ok := u.sessionByInstance[instance]
 	u.mu.Unlock()
 	if ok {
+		u.publishSessionAge(instance, sess)
 		return sess, nil
 	}
 	sess, err := u.sessions.NewSyncSession(ctx, instance)
@@ -337,7 +342,17 @@ func (u *UseCase) session(ctx context.Context, instance domain.InstanceName) (qb
 	u.mu.Lock()
 	u.sessionByInstance[instance] = sess
 	u.mu.Unlock()
+	u.publishSessionAge(instance, sess)
 	return sess, nil
+}
+
+// publishSessionAge reads LoginAge off the cached SyncSession and
+// emits the SetSessionAge gauge. Story 479b. Nil metrics → no-op.
+func (u *UseCase) publishSessionAge(instance domain.InstanceName, sess qbit.SyncSession) {
+	if u.metrics == nil || sess == nil {
+		return
+	}
+	u.metrics.SetSessionAge(instance, sess.LoginAge(time.Now()).Seconds())
 }
 
 func (u *UseCase) markPending(instance domain.InstanceName, e Entry) {

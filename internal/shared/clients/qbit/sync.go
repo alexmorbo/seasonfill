@@ -109,11 +109,21 @@ type SyncSession interface {
 	// Rid returns the current cursor. Exposed for diagnostics
 	// (metrics, log lines); the loop does not need to thread it.
 	Rid() int64
+
+	// LoginAge returns the wall-clock duration since the underlying
+	// qBit client's most recent successful Login. Returns 0 before any
+	// successful Login. Story 479b — read once per tick by the
+	// torrentsync use case to publish seasonfill_qbit_session_age_seconds.
+	LoginAge(now time.Time) time.Duration
 }
 
 type syncSession struct {
 	inner *qbt.Client
 	main  *qbt.MainData
+	// owner retains a reference to the parent client so LoginAge can
+	// read its loginAt without exposing the unexported field through
+	// the public interface.
+	owner *client
 }
 
 // newSyncSession is the SyncSession constructor exposed through
@@ -129,6 +139,7 @@ func newSyncSession(ctx context.Context, c *client) (*syncSession, error) {
 	return &syncSession{
 		inner: c.inner,
 		main:  &qbt.MainData{},
+		owner: c,
 	}, nil
 }
 
@@ -181,6 +192,17 @@ func (s *syncSession) Refresh(ctx context.Context) (Snapshot, error) {
 }
 
 func (s *syncSession) Rid() int64 { return s.main.Rid }
+
+// LoginAge implements SyncSession (story 479b). Delegates to the
+// underlying client; returns 0 when no successful Login has yet
+// happened OR the session was constructed without an owner (defensive
+// guard — should never happen in production wiring).
+func (s *syncSession) LoginAge(now time.Time) time.Duration {
+	if s.owner == nil {
+		return 0
+	}
+	return s.owner.LoginAge(now)
+}
 
 // mapTorrent projects a single qbt.Torrent into seasonfill's
 // TorrentInfo, applying hash normalisation and state grouping.

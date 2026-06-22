@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/domain/cooldown"
 )
@@ -167,6 +168,98 @@ func TestCooldownRepository_Sweep(t *testing.T) {
 
 			_, ok, _ := repo.Get(ctx, cooldown.ScopeGUID, "future")
 			assert.True(t, ok)
+		})
+	}
+}
+
+func TestCooldownRepository_CountActiveByScope(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewCooldownRepository(db)
+			ctx := context.Background()
+			now := time.Now().UTC().Truncate(time.Second)
+
+			// Seed: 3 active in regrab_retry scope, 1 expired, 1 in a
+			// different scope. Keys mirror cooldown.SeriesKey output —
+			// "<instance>:<seriesID>:<season>" (no scope prefix).
+			mustSet := func(scope cooldown.Scope, key string, expiresAt time.Time) {
+				require.NoError(t, repo.Set(ctx, cooldown.Cooldown{
+					Scope: scope, Key: key, ExpiresAt: expiresAt,
+					Reason: "test", CreatedAt: now,
+				}))
+			}
+			mustSet(cooldown.ScopeRegrabRetry, "alpha:140:1", now.Add(time.Hour))
+			mustSet(cooldown.ScopeRegrabRetry, "alpha:140:2", now.Add(time.Hour))
+			mustSet(cooldown.ScopeRegrabRetry, "beta:200:1", now.Add(time.Hour))
+			mustSet(cooldown.ScopeRegrabRetry, "alpha:300:1", now.Add(-time.Hour)) // expired
+			mustSet(cooldown.ScopeSeries, "alpha:140:1", now.Add(time.Hour))
+
+			got, err := repo.CountActiveByScope(ctx, cooldown.ScopeRegrabRetry, now)
+			require.NoError(t, err)
+			assert.Equal(t, 3, got, "active in regrab_retry scope")
+
+			gotSeries, err := repo.CountActiveByScope(ctx, cooldown.ScopeSeries, now)
+			require.NoError(t, err)
+			assert.Equal(t, 1, gotSeries, "active in series scope")
+		})
+	}
+}
+
+func TestCooldownRepository_CountActiveByScopeGroupedByInstance(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewCooldownRepository(db)
+			ctx := context.Background()
+			now := time.Now().UTC().Truncate(time.Second)
+
+			mustSet := func(key string) {
+				require.NoError(t, repo.Set(ctx, cooldown.Cooldown{
+					Scope: cooldown.ScopeRegrabRetry, Key: key,
+					ExpiresAt: now.Add(time.Hour), Reason: "test", CreatedAt: now,
+				}))
+			}
+			mustSet("alpha:140:1")
+			mustSet("alpha:140:2")
+			mustSet("beta:200:1")
+			mustSet("badly_formatted_no_colons") // dropped — first char...etc, single token
+
+			got, err := repo.CountActiveByScopeGroupedByInstance(ctx, cooldown.ScopeRegrabRetry, now)
+			require.NoError(t, err)
+
+			assert.Equal(t, 2, got[domain.InstanceName("alpha")], "alpha cooldown count")
+			assert.Equal(t, 1, got[domain.InstanceName("beta")], "beta cooldown count")
+			// badly_formatted_no_colons maps to instance == "badly_formatted_no_colons"
+			// only when no colon present → returns "" (dropped). Verify
+			// no empty-instance entry in the map.
+			_, hasEmpty := got[domain.InstanceName("")]
+			assert.False(t, hasEmpty, "empty-instance key dropped from the map")
+		})
+	}
+}
+
+func TestExtractInstanceFromCooldownKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		key  string
+		want domain.InstanceName
+	}{
+		{"normal three-part key", "alpha:140:1", domain.InstanceName("alpha")},
+		{"two-part key", "alpha:140", domain.InstanceName("alpha")},
+		{"empty input", "", domain.InstanceName("")},
+		{"single-segment", "noColons", domain.InstanceName("")},
+		{"leading colon empty instance", ":140:1", domain.InstanceName("")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, c.want, extractInstanceFromCooldownKey(c.key))
 		})
 	}
 }

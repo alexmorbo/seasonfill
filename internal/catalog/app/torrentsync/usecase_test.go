@@ -22,6 +22,7 @@ type stubTorrentsyncMetrics struct {
 	deltas           map[string]int
 	lastRefresh      int64
 	unmappedDetected int
+	sessionAge       float64
 }
 
 type stubDuration struct {
@@ -54,6 +55,10 @@ func (s *stubTorrentsyncMetrics) SetLastRefreshAt(_ domain.InstanceName, unixSec
 
 func (s *stubTorrentsyncMetrics) AddUnmappedDetected(_ domain.InstanceName, n int) {
 	s.unmappedDetected += n
+}
+
+func (s *stubTorrentsyncMetrics) SetSessionAge(_ domain.InstanceName, ageSec float64) {
+	s.sessionAge = ageSec
 }
 
 // TestUseCase_RunInstance_EmitsB32Metrics asserts the use case

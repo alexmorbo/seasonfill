@@ -12,6 +12,7 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	handlers "github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
@@ -119,6 +120,10 @@ type RegrabBundle struct {
 	WatchdogSeasonsHandler   *watchdogrest.WatchdogSeasonsHandler
 	WebhooksAggregateHandler *catalogrest.WebhooksAggregateHandler
 	QbitLoader               adapters.QbitSettingsLoaderFunc
+	// WatchdogStateCollector is the story-479b 5min cooldown_pending +
+	// blacklist_size gauge collector. server.go owns rootCtx and calls
+	// .Run on it under bgWG, mirroring TorrentsyncLoop / capacity loop.
+	WatchdogStateCollector *loops.WatchdogStateCollector
 }
 
 // BuildRegrab wires the Phase 10 Watchdog stack.
@@ -243,6 +248,27 @@ func BuildRegrab(
 	// delegates to qbitSettingsUC so password decryption is centralised.
 	// Reload-safe by construction — no captured snapshot, every Load
 	// re-reads the live repos.
+	// Story 479b — watchdog state collector. Publishes
+	// seasonfill_watchdog_cooldown_pending + seasonfill_watchdog_blacklist_size
+	// every 5 minutes for each known Sonarr instance. NOT started here;
+	// server.go owns rootCtx and calls .Run on it under bgWG, mirroring
+	// the capacity loop pattern.
+	stateCollector := loops.NewWatchdogStateCollector(
+		blacklistRepo,           // CountByInstance
+		scanBundle.CooldownRepo, // CountActiveByScopeGroupedByInstance
+		loops.WatchdogStateInstancesFunc(func() []domain.InstanceName {
+			snap := sonarrBundle.Holder.Load()
+			out := make([]domain.InstanceName, 0, len(snap))
+			for name := range snap {
+				out = append(out, domain.InstanceName(name))
+			}
+			return out
+		}),
+		observability.WatchdogMetricsAdapter{},
+		loops.DefaultWatchdogStateInterval,
+		bgWG, watchdogLog,
+	)
+
 	qbitLoader := adapters.QbitSettingsLoaderFunc(func(ctx context.Context) map[string]regrab.Settings {
 		recs, err := qbitSettingsRepo.List(ctx)
 		if err != nil {
@@ -280,5 +306,6 @@ func BuildRegrab(
 		WatchdogSeasonsHandler:   watchdogSeasonsHandler,
 		WebhooksAggregateHandler: webhooksAggregateHandler,
 		QbitLoader:               qbitLoader,
+		WatchdogStateCollector:   stateCollector,
 	}, nil
 }
