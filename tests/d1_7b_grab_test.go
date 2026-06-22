@@ -262,9 +262,10 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// then to 47 after D-6 story 467a re-added the grab audit trio
 			// (decisions, cooldowns, origin_releases), then to 51 after
 			// D-6 story 467c added qbit_settings + qbit_torrents +
-			// qbit_torrent_events + torrent_series_map.
-			if len(s.Tables) != 51 {
-				t.Errorf("Schema(%s) tables = %d, want 51 (after D-6 qbit_runtime)", d, len(s.Tables))
+			// qbit_torrent_events + torrent_series_map, then to 52 after
+			// D-7 story 468c re-added media_assets.
+			if len(s.Tables) != 52 {
+				t.Errorf("Schema(%s) tables = %d, want 52 (after D-7 media_assets)", d, len(s.Tables))
 			}
 		})
 	}
