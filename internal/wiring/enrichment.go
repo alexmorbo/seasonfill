@@ -154,6 +154,12 @@ type EnrichmentBundle struct {
 	// the cold-start scanner repo is unavailable (defensive — current
 	// production wiring always supplies it).
 	OnFirstActivation func(context.Context)
+	// 473 (B-25/B-24): OMDb activation callback. Invoked by the OMDb
+	// reload subscriber on the first nil→non-nil client transition
+	// (operator adds key via UI). Mirrors OnFirstActivation for TMDB.
+	// Signature is (ctx, trigger) so the subscriber can pass a stable
+	// "runtime_first_key_save" trigger string for log auditability.
+	OMDbActivation func(ctx context.Context, trigger string)
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -438,10 +444,14 @@ func BuildEnrichment(
 	omdbWorkerHandle := func(ctx context.Context, id int64) error {
 		return omdbWorker.Handle(ctx, domain.SeriesID(id))
 	}
-	var (
-		omdbDailyBatch  func(context.Context)
-		omdbBudgetReset func(context.Context)
-	)
+	// 473 (B-25/B-24): omdbDailyBatch + omdbBudgetReset closures are now
+	// ALWAYS constructed. The closures runtime-gate on holder/budget
+	// presence so a still-empty OMDb installation (key not yet set OR
+	// cleared at runtime) no-ops the sweep without burning budget OR
+	// log noise. Pre-473: closures were nil-when-disabled-at-boot, which
+	// meant the cron either never registered (B-24 runtime-enable path)
+	// OR registered but operator waited ~15h for next 04:30 UTC tick
+	// (B-25 boot-enabled path). Mirrors Story 470 TMDB always-allocate.
 	omdbSettings := extSub.Get(infraextsvc.ServiceOMDB)
 	omdbEnabledAtBoot := omdbSettings.Enabled && omdbSettings.APIKey != ""
 	if omdbEnabledAtBoot {
@@ -453,7 +463,9 @@ func BuildEnrichment(
 	} else {
 		omdbLog.InfoContext(rootCtx, "enrichment.omdb.disabled",
 			slog.Bool("enabled", omdbSettings.Enabled),
-			slog.Bool("api_key", omdbSettings.APIKey != ""))
+			slog.Bool("api_key", omdbSettings.APIKey != ""),
+			slog.String("note", "worker wired; awaiting runtime activation via Settings → External Services"),
+		)
 	}
 
 	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
@@ -468,41 +480,65 @@ func BuildEnrichment(
 	}, enrichmentLog)
 	holder.set(dispatcher)
 
-	// 213: Daily-batch + budget-reset closures (cron 04:30 / 04:00).
-	// Constructed AFTER dispatcher exists so the batch closure can
-	// reference dispatcher.Enqueue. Cron registration is gated by
-	// boot-time OMDb enablement — runtime enable lifts the worker but
-	// the cron stays off until the next process restart (the scheduler
-	// itself is reload-aware via a separate subscriber; new jobs are
-	// not registered post-boot).
-	if omdbEnabledAtBoot {
-		omdbDailyBatch = func(ctx context.Context) {
-			if repos.LibraryWithIMDB == nil {
-				omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
-				return
-			}
-			const batchLimit = 900
-			ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
-			ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, ttl, batchLimit)
-			if err != nil {
-				omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
-					slog.String("error", err.Error()))
-				return
-			}
-			for _, id := range ids {
-				dispatcher.Enqueue(appenrich.EntityOMDb, id, appenrich.PriorityCold)
-			}
-			omdbLog.InfoContext(ctx, "enrichment.omdb.daily_batch.enqueued",
-				slog.Int("series_count", len(ids)),
-				slog.Int("quota_remaining", omdbBudget.Remaining()))
+	// 473: omdbDailyBatch always non-nil. Runtime-gates on holder.
+	omdbDailyBatch := func(ctx context.Context) {
+		if omdbHolder.Load() == nil {
+			omdbLog.DebugContext(ctx, "enrichment.omdb.daily_batch.skipped",
+				slog.String("reason", "holder_empty_no_runtime_client"))
+			return
 		}
-		omdbBudgetReset = func(ctx context.Context) {
-			before := omdbBudget.Remaining()
-			omdbBudget.Reset()
-			omdbLog.InfoContext(ctx, "enrichment.omdb.budget.reset",
-				slog.Int("before", before),
-				slog.Int("after", omdbBudget.Remaining()))
+		if repos.LibraryWithIMDB == nil {
+			omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.no_scanner")
+			return
 		}
+		const batchLimit = 900
+		ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
+		ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, ttl, batchLimit)
+		if err != nil {
+			omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
+				slog.String("error", err.Error()))
+			return
+		}
+		for _, id := range ids {
+			dispatcher.Enqueue(appenrich.EntityOMDb, id, appenrich.PriorityCold)
+		}
+		omdbLog.InfoContext(ctx, "enrichment.omdb.daily_batch.enqueued",
+			slog.Int("series_count", len(ids)),
+			slog.Int("quota_remaining", omdbBudget.Remaining()))
+	}
+
+	// 473: omdbBudgetReset stays unconditional too. In-process budget
+	// guard owns its own zero-state — Reset on empty counter is harmless.
+	// The DB-backed guard rotates at UTC midnight implicitly so this
+	// closure goes unused there (bootstrap.go guard via UsesQuotaCounter).
+	omdbBudgetReset := func(ctx context.Context) {
+		before := omdbBudget.Remaining()
+		omdbBudget.Reset()
+		omdbLog.InfoContext(ctx, "enrichment.omdb.budget.reset",
+			slog.Int("before", before),
+			slog.Int("after", omdbBudget.Remaining()))
+	}
+
+	// 473 (B-25/B-24): OMDb activation kick. Unlike TMDB, OMDb has NO
+	// periodic ticker — its only production driver was the daily cron at
+	// 04:30 UTC. This closure runs one sweep (functionally identical to
+	// omdbDailyBatch but with an "activation" log tag) to:
+	//   - Boot-enabled (B-25): fire immediately at boot so a fresh deploy
+	//     populates OMDb data within seconds (not 15h).
+	//   - Runtime-enabled (B-24): fire on OMDb subscriber's first
+	//     nil→non-nil holder transition so adding a key via UI does
+	//     not require pod restart.
+	// Idempotent — dispatcher.Enqueue dedup'd against in-flight slots.
+	omdbActivation := func(ctx context.Context, trigger string) {
+		if omdbHolder.Load() == nil {
+			omdbLog.DebugContext(ctx, "enrichment.omdb.activation.skipped",
+				slog.String("reason", "holder_empty"),
+				slog.String("trigger", trigger))
+			return
+		}
+		omdbLog.InfoContext(ctx, "enrichment.omdb.activation.triggered",
+			slog.String("trigger", trigger))
+		omdbDailyBatch(ctx)
 	}
 
 	nightly := func(ctx context.Context) {
@@ -666,6 +702,16 @@ func BuildEnrichment(
 	if mediaDownloader != nil {
 		mediaDownloader.Start(rootCtx)
 	}
+
+	// 473 (B-25): boot kick for OMDb if enabled. Runs the daily-batch
+	// sweep ONCE at boot so the operator does not wait ~15h until next
+	// 04:30 UTC cron tick. Cron stays registered for steady-state daily
+	// refresh; boot kick handles the cold-start gap. Async to avoid
+	// blocking the boot path on a 900-row enqueue scan.
+	if omdbEnabledAtBoot {
+		go omdbActivation(rootCtx, "boot_kick")
+	}
+
 	return &EnrichmentBundle{
 		Dispatcher:        dispatcher,
 		Nightly:           nightly,
@@ -676,11 +722,12 @@ func BuildEnrichment(
 		MediaDownloader:   mediaDownloader,
 		MediaOnDemand:     mediaOnDemand,
 		MediaHTTP:         httpClient,
-		UsesQuotaCounter:  quotaCounter != nil && omdbEnabledAtBoot,
+		UsesQuotaCounter:  quotaCounter != nil, // 473: holder-runtime-gate frees us from omdbEnabledAtBoot here
 		TMDBHolder:        tmdbHolder,
 		OMDbHolder:        omdbHolder,
 		TMDBFactoryCfg:    tmdbFactoryCfg,
 		OnFirstActivation: onFirstActivation, // 470 (B-7)
+		OMDbActivation:    omdbActivation,    // 473 (B-25/B-24)
 	}, nil
 }
 

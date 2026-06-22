@@ -347,8 +347,13 @@ type SchedulerBundle struct {
 //  4. If bootScheduler != nil:
 //     - !UsesQuotaCounter && OMDbBudgetReset != nil —
 //     Register("omdb-budget-reset", "0 4 * * *", OMDbBudgetReset).
+//     Story 473 (B-25/B-24): OMDbBudgetReset is now always non-nil
+//     post-always-allocate; the predicate reduces to !UsesQuotaCounter.
 //     - OMDbDailyBatch != nil —
 //     Register("omdb-daily-batch", "30 4 * * *", OMDbDailyBatch).
+//     Story 473: OMDbDailyBatch is now always non-nil; cron is
+//     registered unconditionally and the closure runtime-gates on
+//     the OMDb client holder being populated.
 //     - Register("quota-counter-gc", "15 4 * * *", quotaSweep) — closure
 //     captures persistence.QuotaCounter + log.
 //  5. If bootScheduler != nil — build weeklyJob (gc.WeeklyJob) over

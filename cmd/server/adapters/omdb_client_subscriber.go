@@ -36,6 +36,17 @@ type OMDbClientSubscriber struct {
 	// rebuilds is bumped on every successful Set; exported via
 	// RebuildCount for tests.
 	rebuilds int
+
+	// 473 (B-25/B-24): tracks whether the holder has ever been populated
+	// since boot OR since the last clear. Set to true on a successful Set
+	// with a non-nil client; flipped back to false in the clear branch.
+	// Used to fire OnFirstActivation exactly once per "no client" →
+	// "client" transition (parallel to TMDBClientSubscriber.activated).
+	activated bool
+
+	// 473: one-shot activation callback. Fires on every
+	// (prev empty key → settings non-empty key) transition. Nil-OK.
+	onFirstActivation func(ctx context.Context, trigger string)
 }
 
 // NewOMDbClientSubscriber wires the holder + logger. The caller is
@@ -51,6 +62,21 @@ func NewOMDbClientSubscriber(holder *OMDbClientHolder, logger *slog.Logger) *OMD
 	}
 }
 
+// WithOnFirstActivation registers a callback invoked once per
+// nil→non-nil client transition (boot-disabled→enabled via UI). The
+// callback runs on the subscriber goroutine after the holder swap; it
+// MUST be non-blocking — production wiring runs the daily-batch
+// enqueue scan which is a single 900-row DB read + 900 non-blocking
+// channel sends. nil resets the callback.
+//
+// Story 473 (B-25/B-24) — production wiring passes the
+// EnrichmentBundle's OMDbActivation closure so adding a key via UI
+// converges OMDb enrichment within seconds.
+func (s *OMDbClientSubscriber) WithOnFirstActivation(fn func(ctx context.Context, trigger string)) *OMDbClientSubscriber {
+	s.onFirstActivation = fn
+	return s
+}
+
 // Apply is the SettingsListener entrypoint. Compares against the cached
 // "last seen" row; on a material change rebuilds the client + atomically
 // swaps it onto the holder. Logs INFO on rebuild with the redacted
@@ -64,6 +90,7 @@ func (s *OMDbClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 	s.mu.Lock()
 	primed := s.primed
 	prev := s.lastSeen
+	wasActivated := s.activated // 473
 	s.mu.Unlock()
 
 	if primed && !materialOMDbChange(prev, settings) {
@@ -74,7 +101,7 @@ func (s *OMDbClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 	// so the worker dequeues "client_nil" until the operator re-enables.
 	if !settings.Enabled || settings.APIKey == "" {
 		previous := s.holder.Set(nil)
-		s.commit(settings)
+		s.commitWithActivated(settings, false) // 473: clear activated so re-set fires activation again
 		if previous != nil {
 			// Best-effort cleanup of the prior client. OMDb has no
 			// background goroutines so Close is a no-op today — kept
@@ -99,12 +126,12 @@ func (s *OMDbClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 		// Cache the lastSeen so a follow-up apply with the same broken
 		// settings doesn't spam the warn log. A subsequent change still
 		// triggers a fresh attempt.
-		s.commit(settings)
+		s.commitWithActivated(settings, wasActivated) // 473: preserve activated on factory failure
 		return
 	}
 
 	previous := s.holder.Set(client)
-	s.commit(settings)
+	s.commitWithActivated(settings, true) // 473: mark activated
 	s.logger.InfoContext(ctx, "external_service.client.rebuilt",
 		slog.String("service", string(infraextsvc.ServiceOMDB)),
 		slog.String("last4", settings.APIKeyLast4),
@@ -114,6 +141,15 @@ func (s *OMDbClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 	// previous *omdb.Client is GC'd once the worker drops its last in-
 	// flight reference. No explicit Close needed today.
 	_ = previous
+
+	// 473 (B-25/B-24): fire the activation hook exactly once per
+	// transition from "no client" → "client present". wasActivated
+	// captured under the mutex above — race-free against a concurrent
+	// second Apply on the same subscriber goroutine (SettingsListener
+	// fan-out is single-threaded per subscriber).
+	if !wasActivated && s.onFirstActivation != nil {
+		s.onFirstActivation(ctx, "runtime_first_key_save")
+	}
 }
 
 // RebuildCount returns the number of successful Set operations the
@@ -141,11 +177,14 @@ func (s *OMDbClientSubscriber) Load() (infraextsvc.Settings, bool) {
 	return s.lastSeen, s.primed
 }
 
-func (s *OMDbClientSubscriber) commit(settings infraextsvc.Settings) {
+// commitWithActivated extends the prior commit() with the activated
+// flag setter. Story 473 (B-25/B-24).
+func (s *OMDbClientSubscriber) commitWithActivated(settings infraextsvc.Settings, activated bool) {
 	s.mu.Lock()
 	s.lastSeen = settings
 	s.primed = true
 	s.rebuilds++
+	s.activated = activated
 	s.mu.Unlock()
 }
 

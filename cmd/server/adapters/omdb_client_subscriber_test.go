@@ -202,6 +202,116 @@ func TestOMDbClientSubscriber_FactoryErrorLeavesPrevious(t *testing.T) {
 		"either a rebuild_failed warn OR a rebuilt log line must appear")
 }
 
+// TestOMDbClientSubscriber_FirstActivationFiresOnce covers Story 473
+// (B-25/B-24): the OnFirstActivation callback must fire exactly once
+// per nil→non-nil client transition. Mirrors
+// TestTMDBClientSubscriber_FirstActivationFiresOnce.
+func TestOMDbClientSubscriber_FirstActivationFiresOnce(t *testing.T) {
+	t.Parallel()
+	holder := NewOMDbClientHolder()
+	logBuf := &bytes.Buffer{}
+	sub := NewOMDbClientSubscriber(holder, newTestLogger(logBuf))
+
+	var (
+		fires    int
+		triggers []string
+		mu       sync.Mutex
+	)
+	sub = sub.WithOnFirstActivation(func(ctx context.Context, trigger string) {
+		mu.Lock()
+		defer mu.Unlock()
+		fires++
+		triggers = append(triggers, trigger)
+	})
+
+	// First Apply with enabled+key → activation fires.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "abcdef1234",
+		APIKeyLast4: "1234",
+	})
+	mu.Lock()
+	require.Equal(t, 1, fires, "first nil→non-nil transition must fire activation")
+	require.Equal(t, []string{"runtime_first_key_save"}, triggers)
+	mu.Unlock()
+
+	// Second Apply with SAME settings → no rebuild, no second fire.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "abcdef1234",
+		APIKeyLast4: "1234",
+	})
+	mu.Lock()
+	assert.Equal(t, 1, fires, "same-payload re-apply must not fire activation")
+	mu.Unlock()
+
+	// Rotate key → rebuild but no activation (still activated == true).
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "new_key_9999",
+		APIKeyLast4: "9999",
+	})
+	mu.Lock()
+	assert.Equal(t, 1, fires, "key rotation must not fire activation (still activated)")
+	mu.Unlock()
+
+	// Clear settings → activated flips false.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     false,
+		APIKey:      "",
+		APIKeyLast4: "",
+	})
+
+	// Re-enable → second activation fires.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "third_key_5555",
+		APIKeyLast4: "5555",
+	})
+	mu.Lock()
+	require.Equal(t, 2, fires, "post-clear re-set must fire activation again")
+	require.Equal(t, []string{"runtime_first_key_save", "runtime_first_key_save"}, triggers)
+	mu.Unlock()
+}
+
+// TestOMDbClientSubscriber_FactoryFailurePreservesActivated covers the
+// edge case where BuildOMDbClient errors: activated must NOT be toggled
+// (a broken settings save should not pretend we activated). Story 473.
+func TestOMDbClientSubscriber_FactoryFailurePreservesActivated(t *testing.T) {
+	t.Parallel()
+	holder := NewOMDbClientHolder()
+	sub := NewOMDbClientSubscriber(holder, newTestLogger(nil))
+
+	var fires int
+	sub = sub.WithOnFirstActivation(func(ctx context.Context, trigger string) { fires++ })
+
+	// First-call with deliberately bad proxy URL → factory fails. Mirrors
+	// TestOMDbClientSubscriber_FactoryErrorLeavesPrevious which uses the
+	// same "invalid-scheme://oops" URL shape known to break HttpClientFor.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "abcdef1234",
+		APIKeyLast4: "1234",
+		ProxyURL:    "invalid-scheme://oops",
+	})
+	assert.Equal(t, 0, fires, "factory failure must not fire activation")
+
+	// Recover with a valid settings → activation fires.
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service:     infraextsvc.ServiceOMDB,
+		Enabled:     true,
+		APIKey:      "abcdef1234",
+		APIKeyLast4: "1234",
+	})
+	assert.Equal(t, 1, fires, "successful re-apply after recovery must fire activation")
+}
+
 // newTestLogger returns a JSON slog logger writing to w; nil w sinks
 // to io.Discard (defensive default). Keeps test assertions stable across
 // Go versions whose slog text writer shape may vary.

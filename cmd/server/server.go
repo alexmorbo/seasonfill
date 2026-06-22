@@ -331,15 +331,24 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// TMDB holder is nil when TMDB was disabled at boot (in which case
 	// the subscriber would only ever log the "boot_disabled" warn so we
 	// skip registration to keep the log quiet).
+	// 473 (B-25/B-24): OMDb subscriber now carries OnFirstActivation
+	// so adding a key via UI on a boot-disabled instance fires the
+	// daily-batch sweep immediately. Parallels TMDB Story 470 wiring.
 	if enrichBundle != nil && enrichBundle.OMDbHolder != nil {
 		omdbSub := adapters.NewOMDbClientSubscriber(enrichBundle.OMDbHolder,
-			sharedports.DomainLogger(log, "omdb"))
+			sharedports.DomainLogger(log, "omdb")).
+			WithOnFirstActivation(enrichBundle.OMDbActivation)
 		extSub.RegisterListener(infraextsvc.ServiceOMDB, omdbSub.Apply)
 		// Prime by reading the current cached settings — the listener
 		// fan-out only fires on future apply() calls, but Story 352
 		// scenarios (operator change before any other reload) need an
 		// initial seed so the "first apply with no prior baseline"
 		// path is exercised in production exactly as in tests.
+		// 473: prime-pass may fire OnFirstActivation if subscriber state
+		// is fresh AND settings are enabled. This is the SAME boot-kick
+		// as the wiring-layer boot kick in BuildEnrichment — dispatcher
+		// dedup makes the double-call harmless. See B-22 backlog for
+		// the prime-pass clarity follow-up.
 		omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB))
 	}
 	// Story 352 + 470 (B-7) — TMDB reload subscriber. Always
