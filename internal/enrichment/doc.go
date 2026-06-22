@@ -21,11 +21,13 @@
 //	    externalservices/ — Settings UseCase (test_runner + provider
 //	                    credentials persistence)
 //	  persistence/  — Postgres GORM repositories for series, seasons,
-//	                  episodes, people, credits, biographies,
-//	                  episode_people, series_people, taxonomy, i18n,
-//	                  external_ids, content_ratings, origin_release,
+//	                  episodes, people, credits, biographies, taxonomy,
+//	                  i18n, external_ids, content_ratings, origin_release,
 //	                  recommendations, live_assets, media_assets
-//	                  (story 437 A-1-11).
+//	                  (story 437 A-1-11). episode_people + series_people
+//	                  retired in D-3 (story 464c); the consumer rewrite
+//	                  to person_credits(media_type=tv|tv_episode) ships
+//	                  in D-7 (story 468a series, 468b episode).
 //	  rest/         — HTTP handlers for the enrichment surface
 //	                  (story 438 A-1-12):
 //	                    - PeopleHandler    GET    /api/v1/people/:tmdbId

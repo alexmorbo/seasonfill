@@ -24,11 +24,16 @@ func (k SeriesCreditKind) IsValid() bool {
 	return k == SeriesCreditCast || k == SeriesCreditCrew
 }
 
-// EpisodeCreditKind is the discriminator on episode_people.kind.
-// The TMDB episode-level shape distinguishes guest stars (one-off
+// EpisodeCreditKind is the discriminator on the episode-level credit
+// row. The TMDB episode-level shape distinguishes guest stars (one-off
 // appearances) from per-episode crew (episode director, episode
-// writer); regular cast members do NOT appear in episode_people —
-// they live in series_people with an episode_count instead.
+// writer); regular cast members do NOT appear at the episode level —
+// they appear once at the series level (person_credits media_type='tv'
+// with an episode_count instead).
+//
+// D-7 (468b): persisted as person_credits rows with
+// media_type='tv_episode'; the legacy `episode_people` table was
+// dropped in D-3 (story 464c).
 type EpisodeCreditKind string
 
 const (
@@ -62,13 +67,21 @@ type SeriesCredit struct {
 	UpdatedAt     time.Time
 }
 
-// EpisodeCredit is one row of episode_people. Natural key
-// (episode_id, tmdb_credit_id) — idempotent. Episode-level credits
-// are kept separate from series-level credits because (a) the read
-// path for the episode card needs per-episode-only rows (guest
-// stars) without filtering, and (b) the write paths differ — series
-// credits come from aggregate_credits in one shot, episode credits
-// come from per-season `GET /tv/{id}/season/{n}` enrichment.
+// EpisodeCredit is one canonical row of episode-level credits.
+//
+// D-7 (468b): persistence moved to person_credits with
+// media_type='tv_episode' + tmdb_media_id=<episode tmdb_id>. The
+// legacy `episode_people` table (PK on episode_id) was dropped in D-3
+// (story 464c). The domain type is kept because tmdb.MapSeasonToCredits
+// still emits it as its return shape; the worker projects to
+// people.PersonCredit before BatchUpsert.
+//
+// Episode-level credits stay logically separate from series-level
+// credits because (a) the read path for the episode card needs
+// per-episode-only rows (guest stars) without filtering, and (b) the
+// write paths differ — series credits come from aggregate_credits in
+// one shot, episode credits come from per-season
+// `GET /tv/{id}/season/{n}` enrichment.
 type EpisodeCredit struct {
 	ID            int64
 	EpisodeID     domain.EpisodeID

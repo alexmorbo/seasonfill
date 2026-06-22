@@ -11,12 +11,27 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// MediaTypeTV and MediaTypeMovie are the media_type discriminator
-// values used in person_credits (B-3). Kept here because they are
-// the only place TMDB media-type strings leak into the mapper layer.
+// MediaTypeTV, MediaTypeTVEpisode and MediaTypeMovie are the
+// media_type discriminator values used in person_credits (B-3 + D-7).
+// Kept here because they are the only place TMDB media-type strings
+// leak into the mapper layer.
+//
+// MediaTypeTV: series-level credit row (aggregate_credits cast/crew),
+// tmdb_media_id=<series tmdb_id>. Written by SeriesWorker step 7 + by
+// PersonWorker for /person/{id}/tv_credits.
+//
+// MediaTypeTVEpisode: D-7 (468b) episode-level credit row (per-episode
+// guest_stars + crew), tmdb_media_id=<episode tmdb_id>. Written by
+// SeriesWorker step 7b. Replaces the dropped legacy `episode_people`
+// table (which carried episode_id as the FK); the polymorphic
+// person_credits surface uses the episode's TMDB id as the join key
+// instead, mirroring how the series-level row keys by tmdb_media_id.
+//
+// MediaTypeMovie: movie credit row (PersonWorker only).
 const (
-	MediaTypeTV    = "tv"
-	MediaTypeMovie = "movie"
+	MediaTypeTV        = "tv"
+	MediaTypeTVEpisode = "tv_episode"
+	MediaTypeMovie     = "movie"
 )
 
 // MapTVToCanon flattens a TVResponse into a series.Canon row.

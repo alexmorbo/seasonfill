@@ -182,7 +182,7 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 	// 6. ONE tx for the whole graph.
 	var enqueueRows []personEnqueueRow
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		rows, err := w.applyAll(txCtx, canon, tv, mapped, log)
+		rows, err := w.applyAll(txCtx, canon, tv, seasonResponses, mapped, log)
 		if err != nil {
 			return err
 		}
@@ -401,7 +401,7 @@ func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonR
 // can fan them out to the dispatcher AFTER the tx commits (calling
 // Dispatcher.Enqueue inside a tx is a layering violation — the
 // dispatcher's dedup window opens at enqueue time, not at commit).
-func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, m mappedPayload, log *slog.Logger) ([]personEnqueueRow, error) {
+func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, m mappedPayload, log *slog.Logger) ([]personEnqueueRow, error) {
 	// 1. Merge + upsert series canon.
 	merged := enrichment.MergeSeries(
 		canonToEnrichmentCanon(canon),
@@ -547,7 +547,44 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 		)
 	}
 
-	// 7b. 212: build the post-tx person-enqueue list from the cast +
+	// 7b. person_credits (media_type='tv_episode') — D-7 (468b): walk
+	//     every hydrated season's per-episode guest_stars + crew and
+	//     project them onto the polymorphic person_credits surface
+	//     (tmdb_media_id=<episode tmdb_id>). Replaces the dropped
+	//     `episode_people` table; the natural key
+	//     (person_id, tmdb_credit_id) keeps re-ingest idempotent.
+	//
+	//     Person-stub upsert: season guest_stars are NOT included in the
+	//     series-level aggregate_credits payload, so personIDByTMDB
+	//     (built in step 6) does not contain them. The worker upserts
+	//     a stub Person for each unseen tmdb_id here so the FK target
+	//     exists by the time BatchUpsert runs. Same UpsertStub-equivalent
+	//     shape PeopleRepo.Upsert already provides (idempotent on tmdb_id).
+	//
+	//     Person stubs whose Upsert fails are surfaced as drops — the
+	//     batch loses that credit row but the tx keeps going. The seed
+	//     for /api/v1/instances/{name}/series/{id} routes does not yet
+	//     read episode credits (B-13 hero stops at series-level cast),
+	//     so the write is a "build it so the read can land in N-6"
+	//     posture rather than a hot-path. Loss is acceptable.
+	episodeCreditRows, droppedEpisodeCredits, err := w.applyEpisodeCredits(txCtx, seasons, personIDByTMDB, log)
+	if err != nil {
+		return nil, fmt.Errorf("apply episode credits: %w", err)
+	}
+	if len(episodeCreditRows) > 0 {
+		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, episodeCreditRows); err != nil {
+			return nil, fmt.Errorf("batch upsert person_credits (tv_episode): %w", err)
+		}
+	}
+	if droppedEpisodeCredits > 0 {
+		log.WarnContext(txCtx, "enrichment.series.handle.episode_credits_dropped",
+			slog.Int("dropped", droppedEpisodeCredits),
+			slog.Int("kept", len(episodeCreditRows)),
+			slog.String("reason", "guest_star person stub upsert failed or credit_id empty"),
+		)
+	}
+
+	// 7c. 212: build the post-tx person-enqueue list from the cast +
 	//     crew rows. Cast carries credit_order (TMDB billing index) —
 	//     the worker passes <10 to PriorityHot, ≥10 to PriorityCold
 	//     downstream. Crew has no billing order; sentinel 999 forces
@@ -669,6 +706,150 @@ func mapSeriesCreditsToPersonCredits(
 		})
 	}
 	return out
+}
+
+// applyEpisodeCredits walks every fetched season's per-episode
+// guest_stars + crew and projects them to []people.PersonCredit rows
+// keyed by media_type='tv_episode', tmdb_media_id=<episode tmdb_id>.
+// Returns the row slice + a drop counter for credits whose person
+// stub upsert failed or whose tmdb_credit_id was empty.
+//
+// Person stubs: the series-level aggregate_credits payload does NOT
+// include episode-only guest stars, so personIDByTMDB (built in step 6)
+// is missing them. The helper upserts a People row for each unseen
+// guest star / crew member before emitting the credit row. The upserted
+// stubs reuse the existing PeopleRepo.Upsert path (idempotent on
+// tmdb_id); a failed stub upsert is logged and the credit dropped.
+//
+// Mirrors the series-level mapSeriesCreditsToPersonCredits shape so the
+// downstream PersonCreditsRepository.BatchUpsert UPSERT branches
+// harmonise across both writers (UNIQUE (person_id, tmdb_credit_id) is
+// globally unique per TMDB).
+func (w *SeriesWorker) applyEpisodeCredits(
+	txCtx context.Context,
+	seasons map[int]*tmdb.SeasonResponse,
+	personIDByTMDB map[int]int64,
+	log *slog.Logger,
+) ([]people.PersonCredit, int, error) {
+	if len(seasons) == 0 {
+		return nil, 0, nil
+	}
+	// Pre-size: most series episodes carry 1-5 guests + 2-4 crew.
+	rows := make([]people.PersonCredit, 0, len(seasons)*8)
+	dropped := 0
+	for _, sr := range seasons {
+		if sr == nil {
+			continue
+		}
+		for _, ep := range sr.Episodes {
+			if ep.ID == 0 {
+				dropped += len(ep.GuestStars) + len(ep.Crew)
+				continue
+			}
+			for _, g := range ep.GuestStars {
+				if g.CreditID == "" {
+					dropped++
+					continue
+				}
+				pid, err := w.resolveOrUpsertEpisodePersonStub(txCtx, int(g.ID), g.Name, g.ProfilePath, personIDByTMDB, log)
+				if err != nil || pid == 0 {
+					dropped++
+					continue
+				}
+				var characterPtr *string
+				if g.Character != "" {
+					ch := g.Character
+					characterPtr = &ch
+				}
+				rows = append(rows, people.PersonCredit{
+					PersonID:      pid,
+					MediaType:     tmdb.MediaTypeTVEpisode,
+					TMDBMediaID:   ep.ID,
+					TMDBCreditID:  g.CreditID,
+					Kind:          people.SeriesCreditCast,
+					Title:         ep.Name,
+					CharacterName: characterPtr,
+				})
+			}
+			for _, c := range ep.Crew {
+				if c.CreditID == "" {
+					dropped++
+					continue
+				}
+				pid, err := w.resolveOrUpsertEpisodePersonStub(txCtx, int(c.ID), c.Name, c.ProfilePath, personIDByTMDB, log)
+				if err != nil || pid == 0 {
+					dropped++
+					continue
+				}
+				var deptPtr *string
+				if c.Department != "" {
+					d := c.Department
+					deptPtr = &d
+				}
+				var jobPtr *string
+				if c.Job != "" {
+					j := c.Job
+					jobPtr = &j
+				}
+				rows = append(rows, people.PersonCredit{
+					PersonID:     pid,
+					MediaType:    tmdb.MediaTypeTVEpisode,
+					TMDBMediaID:  ep.ID,
+					TMDBCreditID: c.CreditID,
+					Kind:         people.SeriesCreditCrew,
+					Title:        ep.Name,
+					Department:   deptPtr,
+					Job:          jobPtr,
+				})
+			}
+		}
+	}
+	return rows, dropped, nil
+}
+
+// resolveOrUpsertEpisodePersonStub returns the canon person id for the
+// given TMDB person id. If the id is already in personIDByTMDB (series
+// aggregate_credits), the cached id is returned. Otherwise the helper
+// upserts a stub Person and caches the id so the next episode with the
+// same guest star reuses it without a second round-trip.
+//
+// Returns 0 + nil when tmdbPersonID is 0 (TMDB returned a bare row);
+// caller treats that as a drop.
+func (w *SeriesWorker) resolveOrUpsertEpisodePersonStub(
+	txCtx context.Context,
+	tmdbPersonID int,
+	name string,
+	profilePath string,
+	personIDByTMDB map[int]int64,
+	log *slog.Logger,
+) (int64, error) {
+	if tmdbPersonID == 0 {
+		return 0, nil
+	}
+	if pid, ok := personIDByTMDB[tmdbPersonID]; ok && pid != 0 {
+		return pid, nil
+	}
+	tid := domain.TMDBID(tmdbPersonID)
+	stub := people.Person{
+		Name:      name,
+		Hydration: people.HydrationStub,
+		TMDBID:    &tid,
+	}
+	if profilePath != "" {
+		p := profilePath
+		stub.ProfileAsset = &p
+	}
+	pid, err := w.deps.People.Upsert(txCtx, stub)
+	if err != nil {
+		log.WarnContext(txCtx, "enrichment.series.handle.episode_person_stub_failed",
+			slog.Int("tmdb_person_id", tmdbPersonID),
+			slog.String("name", name),
+			slog.String("error", err.Error()),
+		)
+		return 0, err
+	}
+	personIDByTMDB[tmdbPersonID] = pid
+	return pid, nil
 }
 
 // resolveSeriesCreditsWithPersonID re-walks tv.AggregateCredits and
