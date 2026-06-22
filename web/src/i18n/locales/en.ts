@@ -1672,7 +1672,10 @@ export const en = {
       posterAria: '{{label}}',
       monitoredOn: 'monitored',
       monitoredOff: 'not monitored',
-      missing: '{{count}} missing',
+      missing_one: '{{count}} missing',
+      missing_few: '{{count}} missing',
+      missing_many: '{{count}} missing',
+      missing_other: '{{count}} missing',
     },
     filters: {
       search: {
@@ -1785,7 +1788,10 @@ export const en = {
       cap: 'On disk',
       downloadShort: 'Downloading',
       onDiskCounts: '{{on}} of {{total}} on disk',
-      missing: '{{count}} missing',
+      missing_one: '{{count}} missing',
+      missing_few: '{{count}} missing',
+      missing_many: '{{count}} missing',
+      missing_other: '{{count}} missing',
       nothingOnDisk: 'Nothing on disk yet',
       downloadingFallback: 'Downloading…',
       inProgress: '{{episode}} · {{percent}}%',

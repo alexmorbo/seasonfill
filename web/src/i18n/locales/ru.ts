@@ -1670,7 +1670,10 @@ export const ru: Translations = {
       posterAria: '{{label}}',
       monitoredOn: 'отслеживается',
       monitoredOff: 'не отслеживается',
-      missing: 'нет {{count}} серий',
+      missing_one: 'нет {{count}} серии',
+      missing_few: 'нет {{count}} серий',
+      missing_many: 'нет {{count}} серий',
+      missing_other: 'нет {{count}} серии',
     },
     filters: {
       search: {
@@ -1783,7 +1786,10 @@ export const ru: Translations = {
       cap: 'На диске',
       downloadShort: 'Скачивается',
       onDiskCounts: '{{on}} из {{total}} на диске',
-      missing: 'нет {{count}} серий',
+      missing_one: 'нет {{count}} серии',
+      missing_few: 'нет {{count}} серий',
+      missing_many: 'нет {{count}} серий',
+      missing_other: 'нет {{count}} серии',
       nothingOnDisk: 'На диске пока ничего нет',
       downloadingFallback: 'Скачивается…',
       inProgress: '{{episode}} · {{percent}}%',
