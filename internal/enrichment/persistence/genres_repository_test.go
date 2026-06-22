@@ -3,13 +3,20 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
@@ -191,6 +198,80 @@ func TestGenresRepository_Upsert_OrphanBranch(t *testing.T) {
 			assert.NotEqual(t, id1, id2,
 				"two NULL-tmdb_id rows must coexist — partial unique excludes them")
 		})
+	}
+}
+
+// TestGenresRepository_BatchUpsert_NoDeadlockUnderConcurrency — B-26
+// regression. Same shape as the People test; the contract is identical
+// (sort by tmdb_id ASC before per-row Upsert loop). Postgres-only.
+// Despite the BatchUpsert suffix, this exercises single-row Upsert
+// concurrently — the contract under test is call-site ordering.
+func TestGenresRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	sawPostgres := false
+	for _, backend := range testhelpers.AllBackends(t) {
+		if backend.Name != "postgres" {
+			continue
+		}
+		sawPostgres = true
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+
+			const N = 4
+			const iters = 30
+			// 8 genre tmdb_ids — TMDB has 16 TV genres so 8 is a realistic
+			// hot-overlap surface.
+			tmdbIDs := []int64{18, 80, 99, 18000, 35, 9648, 10765, 10759}
+
+			var wg sync.WaitGroup
+			errCh := make(chan error, N*iters)
+			for w := range N {
+				wg.Add(1)
+				go func(workerSeed int) {
+					defer wg.Done()
+					rng := rand.New(rand.NewSource(int64(workerSeed) * 7919))
+					for i := range iters {
+						ids := append([]int64(nil), tmdbIDs...)
+						rng.Shuffle(len(ids), func(a, b int) { ids[a], ids[b] = ids[b], ids[a] })
+
+						// The contract: sort by tmdb_id ASC before the
+						// per-row Upsert loop.
+						slices.Sort(ids)
+
+						err := db.Transaction(func(tx *gorm.DB) error {
+							repo := NewGenresRepository(tx)
+							for _, id := range ids {
+								tid := domain.TMDBID(id)
+								g := taxonomy.Genre{TMDBID: &tid}
+								if _, err := repo.Upsert(context.Background(), g); err != nil {
+									return err
+								}
+							}
+							return nil
+						})
+						if err != nil {
+							errCh <- fmt.Errorf("worker %d iter %d: %w", workerSeed, i, err)
+							return
+						}
+					}
+				}(w)
+			}
+			wg.Wait()
+			close(errCh)
+
+			var failures []string
+			for err := range errCh {
+				failures = append(failures, err.Error())
+			}
+			require.Empty(t, failures,
+				"no SQLSTATE 40P01 (deadlock) errors expected after sort discipline; got:\n%s",
+				strings.Join(failures, "\n"))
+		})
+	}
+	if !sawPostgres {
+		t.Log("postgres backend not available; deadlock repro skipped")
 	}
 }
 

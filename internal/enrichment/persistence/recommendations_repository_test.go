@@ -3,11 +3,17 @@ package persistence
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -115,6 +121,88 @@ func TestRecommendationsRepository_Upsert_SingleRow(t *testing.T) {
 			require.Len(t, rows, 1)
 			assert.Equal(t, rec, rows[0])
 		})
+	}
+}
+
+// TestRecommendationsRepository_BatchUpsert_NoDeadlockUnderConcurrency
+// — B-26 regression. Recommendation stubs are upserted into the
+// `series` table via SeriesRepository.UpsertStub (partial unique on
+// tmdb_id). Two parallel series_worker txes hitting overlapping
+// recommended_series produce SQLSTATE 40P01
+// (`upsert recommendation stub: upsert stub series: deadlock detected`
+// in 2026-06-22 audit). The contract: sort recommendation stubs by
+// tmdb_id ASC before UpsertStub loop — same discipline as People/Genres.
+// Postgres-only. Despite the BatchUpsert suffix, this exercises single-
+// row UpsertStub concurrently — the contract under test is call-site
+// ordering, not a batch API.
+func TestRecommendationsRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	sawPostgres := false
+	for _, backend := range testhelpers.AllBackends(t) {
+		if backend.Name != "postgres" {
+			continue
+		}
+		sawPostgres = true
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+
+			const N = 4
+			const iters = 30
+			tmdbIDs := []int64{70001, 70002, 70003, 70004, 70005, 70006, 70007, 70008}
+
+			var wg sync.WaitGroup
+			errCh := make(chan error, N*iters)
+			for w := range N {
+				wg.Add(1)
+				go func(workerSeed int) {
+					defer wg.Done()
+					rng := rand.New(rand.NewSource(int64(workerSeed) * 7919))
+					for i := range iters {
+						ids := append([]int64(nil), tmdbIDs...)
+						rng.Shuffle(len(ids), func(a, b int) { ids[a], ids[b] = ids[b], ids[a] })
+
+						// The contract: sort by tmdb_id ASC before the
+						// per-row UpsertStub loop.
+						slices.Sort(ids)
+
+						err := db.Transaction(func(tx *gorm.DB) error {
+							repo := NewSeriesRepository(tx)
+							for _, id := range ids {
+								tid := domain.TMDBID(id)
+								c := series.Canon{
+									Title:     fmt.Sprintf("Test Recommendation %d", id),
+									Hydration: series.HydrationStub,
+									TMDBID:    &tid,
+								}
+								if _, err := repo.UpsertStub(context.Background(), c); err != nil {
+									return err
+								}
+							}
+							return nil
+						})
+						if err != nil {
+							errCh <- fmt.Errorf("worker %d iter %d: %w", workerSeed, i, err)
+							return
+						}
+					}
+				}(w)
+			}
+			wg.Wait()
+			close(errCh)
+
+			var failures []string
+			for err := range errCh {
+				failures = append(failures, err.Error())
+			}
+			require.Empty(t, failures,
+				"no SQLSTATE 40P01 (deadlock) errors expected after sort discipline; got:\n%s",
+				strings.Join(failures, "\n"))
+		})
+	}
+	if !sawPostgres {
+		t.Log("postgres backend not available; deadlock repro skipped")
 	}
 }
 

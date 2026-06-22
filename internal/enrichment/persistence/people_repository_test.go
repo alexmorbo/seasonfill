@@ -3,10 +3,16 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -206,6 +212,97 @@ func TestPeopleRepository_Upsert_PartialUnique(t *testing.T) {
 			assert.NotEqual(t, id1, id2,
 				"two NULL-tmdb rows must coexist — partial index excludes them")
 		})
+	}
+}
+
+// TestPeopleRepository_BatchUpsert_NoDeadlockUnderConcurrency proves
+// that the cross-tx deadlock (SQLSTATE 40P01) observed in production
+// on 2026-06-22 is suppressed when callers sort their per-tx Upsert
+// loop by tmdb_id ASC before iterating. This is the discipline
+// series_worker.go now enforces (B-26 patch 2). Despite the BatchUpsert
+// suffix, this exercises single-row Upsert concurrently — the contract
+// under test is call-site ordering, not a batch API.
+//
+// Postgres-only: SQLite does not have row-level UPDATE locks and
+// cannot reproduce the deadlock. The test SKIPS the sqlite backend
+// rather than asserting a no-op, to keep the failure trail focused
+// on the lane that actually exercises the invariant.
+//
+// Repro mechanics: N=4 goroutines × 30 iters each, all upserting the
+// same 8 tmdb_ids in independently-shuffled order — BEFORE the
+// sort.Slice call, deadlock detector fires within ~5s. AFTER sort,
+// all 120 transactions complete cleanly.
+func TestPeopleRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	sawPostgres := false
+	for _, backend := range testhelpers.AllBackends(t) {
+		if backend.Name != "postgres" {
+			// sqlite has no row-level deadlock detector — skip.
+			continue
+		}
+		sawPostgres = true
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+
+			const N = 4
+			const iters = 30
+			tmdbIDs := []int64{1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008}
+
+			var wg sync.WaitGroup
+			errCh := make(chan error, N*iters)
+			for w := range N {
+				wg.Add(1)
+				go func(workerSeed int) {
+					defer wg.Done()
+					rng := rand.New(rand.NewSource(int64(workerSeed) * 7919))
+					for i := range iters {
+						ids := append([]int64(nil), tmdbIDs...)
+						rng.Shuffle(len(ids), func(a, b int) { ids[a], ids[b] = ids[b], ids[a] })
+
+						// The contract under test: callers sort by tmdb_id ASC
+						// BEFORE the per-row Upsert loop. Removing this line
+						// re-introduces the deadlock — the test catches that
+						// regression on the next pre-merge run.
+						slices.Sort(ids)
+
+						err := db.Transaction(func(tx *gorm.DB) error {
+							repo := NewPeopleRepository(tx)
+							for _, id := range ids {
+								tid := domain.TMDBID(id)
+								p := people.Person{
+									Name:      fmt.Sprintf("Test Person %d", id),
+									Hydration: people.HydrationStub,
+									TMDBID:    &tid,
+								}
+								if _, err := repo.Upsert(context.Background(), p); err != nil {
+									return err
+								}
+							}
+							return nil
+						})
+						if err != nil {
+							errCh <- fmt.Errorf("worker %d iter %d: %w", workerSeed, i, err)
+							return
+						}
+					}
+				}(w)
+			}
+			wg.Wait()
+			close(errCh)
+
+			var failures []string
+			for err := range errCh {
+				failures = append(failures, err.Error())
+			}
+			require.Empty(t, failures,
+				"no SQLSTATE 40P01 (deadlock) errors expected after sort discipline; got:\n%s",
+				strings.Join(failures, "\n"))
+		})
+	}
+	if !sawPostgres {
+		t.Log("postgres backend not available (set SEASONFILL_TEST_POSTGRES_ENABLE=1 to enable); deadlock repro skipped")
 	}
 }
 

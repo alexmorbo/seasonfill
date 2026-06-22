@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -502,6 +503,17 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	}
 
 	// 6. People stubs — upsert each, build (tmdb_person_id → person_id) map.
+	//
+	// B-26: PersonStubs is sorted by tmdb_id ASC before the loop so that
+	// two parallel series_worker txes acquire row-level locks on `people`
+	// in the same global order — no cross-tx deadlock cycle possible.
+	// Mapper-built order (TMDB credits payload order) is not stable across
+	// series, which historically produced SQLSTATE 40P01 victims.
+	// In-place sort is safe: mappedPayload is not reused after this tx.
+	slices.SortStableFunc(m.PersonStubs, func(a, b people.Person) int {
+		return compareTMDBID(a.TMDBID, b.TMDBID)
+	})
+
 	personIDByTMDB := make(map[int]int64, len(m.PersonStubs))
 	for _, st := range m.PersonStubs {
 		pid, err := w.deps.People.Upsert(txCtx, st)
@@ -645,11 +657,41 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	//     through UpsertStub, whose ON CONFLICT preserves existing
 	//     poster_asset / backdrop_asset / hydration='full' so a
 	//     recommendation sweep cannot blank out a real canon row.
-	recIDs := make([]domain.SeriesID, 0, len(m.Recommendations))
-	for _, rec := range m.Recommendations {
+	//
+	// B-26: UpsertStub touches the `series` table (partial unique on
+	// tmdb_id). Two parallel series_worker txes upserting overlapping
+	// recommendation stubs without ordering produce SQLSTATE 40P01
+	// (`upsert recommendation stub: upsert stub series: deadlock detected`).
+	// Discipline: sort a COPY by tmdb_id ASC for the upsert loop (global
+	// lock order); emit recIDs in the ORIGINAL TMDB-rank order so
+	// `recommendations.position` still reflects TMDB ranking
+	// (recommendations have a user-visible order; people/genres do not).
+	sortedRecs := make([]series.Canon, len(m.Recommendations))
+	copy(sortedRecs, m.Recommendations)
+	slices.SortStableFunc(sortedRecs, func(a, b series.Canon) int {
+		return compareTMDBID(a.TMDBID, b.TMDBID)
+	})
+	stubIDByTMDB := make(map[domain.TMDBID]domain.SeriesID, len(sortedRecs))
+	for _, rec := range sortedRecs {
 		id, err := w.deps.Series.UpsertStub(txCtx, rec)
 		if err != nil {
 			return nil, fmt.Errorf("upsert recommendation stub: %w", err)
+		}
+		if rec.TMDBID != nil {
+			stubIDByTMDB[*rec.TMDBID] = id
+		}
+	}
+	// Emit recIDs in ORIGINAL (TMDB-rank) order, dropping self-refs and
+	// any stub whose upsert was suppressed (TMDBID==nil — should be
+	// impossible because UpsertStub validates that, but defensive).
+	recIDs := make([]domain.SeriesID, 0, len(m.Recommendations))
+	for _, rec := range m.Recommendations {
+		if rec.TMDBID == nil {
+			continue
+		}
+		id, ok := stubIDByTMDB[*rec.TMDBID]
+		if !ok {
+			continue
 		}
 		// Skip self-references defensively (the recommendations Set
 		// rejects recommended_series_id == series_id).
@@ -940,6 +982,19 @@ func resolveSeriesCreditsWithPersonID(tv *tmdb.TVResponse, seriesID domain.Serie
 }
 
 func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.SeriesID, m mappedPayload) error {
+	// B-26: Genres.Upsert touches the shared `genres` table (16 TMDB
+	// TV genres, every series upserts 1-5 of them). Two parallel
+	// series_worker txes acquire row-level UPDATE locks on overlapping
+	// rows; without deterministic ordering Postgres reports
+	// SQLSTATE 40P01 (2 series with cumulative 57 attempts in
+	// 2026-06-22 audit). Sort in-place by tmdb_id ASC — genres are a
+	// logical SET (no user-visible position), so the slight reorder
+	// of series_genres.position (ListBySeries sorts by position ASC,
+	// genre_id ASC anyway) is acceptable.
+	slices.SortStableFunc(m.Genres, func(a, b taxonomy.Genre) int {
+		return compareTMDBID(a.TMDBID, b.TMDBID)
+	})
+
 	gIDs := make([]int64, 0, len(m.Genres))
 	for _, g := range m.Genres {
 		id, err := w.deps.Genres.Upsert(txCtx, g)
@@ -1283,4 +1338,36 @@ func findEpisodeOverview(sr *tmdb.SeasonResponse, seasonNumber, episodeNumber in
 		}
 	}
 	return ""
+}
+
+// compareTMDBID is the deterministic comparator used by the People /
+// Genres / Recommendations upsert-loop sorts in series_worker. Sorts
+// by *TMDBID ASCENDING, NULL entries pushed to the tail.
+//
+// Rationale — B-26: two parallel series_worker txes that both
+// upsert overlapping people/genres/series rows acquire row-level
+// UPDATE locks. If the lock-acquisition order differs between txes,
+// Postgres detects a cycle and kills one (SQLSTATE 40P01). Sorting
+// the per-tx loop by tmdb_id ASC enforces a global lock acquisition
+// order — no cycle possible.
+//
+// NULL-tail rationale: NULL tmdb_id rows don't match the partial
+// unique index `WHERE tmdb_id IS NOT NULL` and therefore don't take
+// the contended row-lock — they go through INSERT. Placing them at
+// the tail keeps non-NULL ordering correct without branching.
+func compareTMDBID(a, b *domain.TMDBID) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil: // nil pushes to tail
+		return 1
+	case b == nil:
+		return -1
+	case *a < *b:
+		return -1
+	case *a > *b:
+		return 1
+	default:
+		return 0
+	}
 }
