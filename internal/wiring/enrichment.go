@@ -139,19 +139,29 @@ type EnrichmentBundle struct {
 	UsesQuotaCounter bool
 	// Story 352 — runtime-swappable client holders. server.go hands
 	// each holder + its factory to the matching reload subscriber so a
-	// settings change (UI Upsert) rebuilds the client in-place. nil
-	// when the corresponding subsystem was unavailable at boot:
-	//   - TMDBHolder nil  → TMDB disabled at boot (no workers).
+	// settings change (UI Upsert) rebuilds the client in-place.
+	// 470 (B-7): TMDBHolder is now ALWAYS non-nil. The inner client may
+	// be nil at boot when TMDB is unconfigured; the reload subscriber
+	// populates it on the operator's first key save and OnFirstActivation
+	// fires a one-shot cold-start sweep so enrichment converges within
+	// seconds of the save (rather than within ColdStartResweepInterval).
 	//   - OMDbHolder nil  → never (always allocated; may be empty).
 	TMDBHolder     *adapters.TMDBClientHolder
 	OMDbHolder     *adapters.OMDbClientHolder
 	TMDBFactoryCfg adapters.TMDBClientFactoryConfig
+	// 470 (B-7): one-shot sweep callback invoked by the TMDB reload
+	// subscriber on the first nil→non-nil client transition. nil when
+	// the cold-start scanner repo is unavailable (defensive — current
+	// production wiring always supplies it).
+	OnFirstActivation func(context.Context)
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
-// Returns a nil dispatcher when TMDB is disabled or no token is set
-// (boot path stays green on a freshly-installed instance with no
-// runtime config yet).
+// Always allocates the dispatcher, workers, holders, and media pipeline
+// so a TMDB key added at runtime (Settings → External Services)
+// activates enrichment without a process restart (Story 470 / B-7).
+// The TMDB *http.Client itself is built only when the key is present at
+// boot — runtime activation rebuilds it via the reload subscriber.
 func BuildEnrichment(
 	rootCtx context.Context,
 	extSub *adapters.ExternalServicesSubscriber,
@@ -174,143 +184,155 @@ func BuildEnrichment(
 	//     call AND every subsequent BuildTMDBClient rebuild via the
 	//     Story 352 subscriber carry domain="tmdb" on the client's
 	//     rate-limiter pause/resume INFO records.
-	// All three wraps fire BEFORE the disabled early-return below so
-	// the "enrichment.disabled" record also carries domain="enrichment".
 	enrichmentLog := sharedports.DomainLogger(log, "enrichment")
 	omdbLog := sharedports.DomainLogger(log, "omdb")
 	tmdbLog := sharedports.DomainLogger(log, "tmdb")
 
+	// 470 (B-7): no boot-time short-circuit. The dispatcher + holders +
+	// workers are always wired. When TMDB is disabled at boot, the
+	// holder simply carries a nil client until the reload subscriber
+	// populates it on the operator's first key save. The worker layer
+	// is client-nil-tolerant — GetTV/GetPerson/GetSeason on an empty
+	// holder return ErrTMDBClientNotReady, which handleTMDBError
+	// journals to enrichment_errors with a backoff. No panic, no leak.
 	settings := extSub.Get(infraextsvc.ServiceTMDB)
-	if !settings.Enabled || settings.APIKey == "" {
-		enrichmentLog.InfoContext(rootCtx, "enrichment.disabled",
+	enabledAtBoot := settings.Enabled && settings.APIKey != ""
+	if !enabledAtBoot {
+		enrichmentLog.InfoContext(rootCtx, "enrichment.boot.tmdb_unconfigured",
 			slog.Bool("enabled", settings.Enabled),
-			slog.Bool("api_key", settings.APIKey != ""))
-		// Story 352 — return an empty bundle with NO holders. A from-
-		// disabled→enabled flip at runtime requires a process restart
-		// because the workers / dispatcher don't exist yet, and
-		// constructing them post-boot would tangle with bus / scheduler
-		// ordering. The operator-facing UI logs this explicitly when the
-		// reload subscriber declines a same-restart enable.
-		return &EnrichmentBundle{}, nil
+			slog.Bool("api_key", settings.APIKey != ""),
+			slog.String("note", "workers wired; awaiting runtime activation via Settings → External Services"),
+		)
 	}
 
-	httpClient, err := infraextsvc.HttpClientFor(settings)
-	if err != nil {
-		return nil, err
-	}
-
-	// Story 312: surface the configured TMDB external-services proxy at
-	// boot so the operator can confirm image.tmdb.org goes through the
-	// same proxy as api.themoviedb.org (RU DPI blocks both the same way).
-	proxy := "none"
-	if settings.ProxyURL != "" {
-		proxy = settings.ProxyURL
-	}
-	enrichmentLog.InfoContext(rootCtx, "media.http_client.configured",
-		slog.String("proxy", proxy),
-	)
-
-	// Story 313 + Story 346 — plumb SEASONFILL_TMDB_API_RPS (legacy
-	// SEASONFILL_TMDB_RPS still honoured by config.FromEnv as an
-	// alias) + the wiring logger so adaptive pause + resume INFO
-	// lines surface under the enrichment component prefix. 0 from
-	// config means "tmdb package picks its default (50 rps)".
-	if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
-		enrichmentLog.WarnContext(rootCtx, "config.deprecated_env",
-			slog.String("env", "SEASONFILL_TMDB_RPS"),
-			slog.String("replacement", "SEASONFILL_TMDB_API_RPS"),
-			slog.String("removal", "next release"))
-	}
-	// Story 351 — tmdb.New must run FIRST. The TMDB client constructs
-	// an internal CLONE of httpClient and wraps its Transport with
-	// httpx.NewMetricsTransport("tmdb", ...). That clone captures the
-	// CURRENT httpClient.Transport (the raw proxy transport).
-	//
-	// AFTER tmdb.New returns we mutate the SHARED httpClient pointer in
-	// place — wrapping its Transport with httpx.NewMetricsTransport
-	// ("tmdb_cdn", ...) — so every subsequent http.Request issued via
-	// the shared pointer (i.e. every image.tmdb.org fetch from the
-	// media downloader / on-demand fetcher) flows through the
-	// "tmdb_cdn" metric writes.
-	//
-	// This ordering guarantees api.themoviedb.org metrics carry ONLY
-	// client="tmdb" and image.tmdb.org metrics carry ONLY
-	// client="tmdb_cdn" — no double-write. Canary check: a
-	// client="tmdb_cdn" row with endpoint matching a /tv/... or /search/...
-	// path means the order is broken.
-	//
-	// Story 352 — the factory below mirrors this boot path verbatim so
-	// the reload subscriber can rebuild a metric-wrapped TMDB API client
-	// on key/proxy change. The downloader's "tmdb_cdn" wrap is NOT
-	// rebuilt by the subscriber because the downloader was constructed
-	// with the SHARED httpClient pointer below — Story 352 is scoped to
-	// the api.themoviedb.org client only.
-	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
-		Language: tmdb.DefaultLanguage,
-		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:   tmdbLog,
-	}
-	tmdbClient, err := tmdb.New(tmdb.Config{
-		Token:      settings.APIKey,
-		HTTPClient: httpClient,
-		Language:   tmdbFactoryCfg.Language,
-		RPS:        tmdbFactoryCfg.RPS,
-		Logger:     tmdbFactoryCfg.Logger,
-	})
-	if err != nil {
-		return nil, err
-	}
-	tmdbHolder := adapters.NewTMDBClientHolder()
-	tmdbHolder.Set(tmdbClient)
-	// Story 351 — see comment block above. tmdb.New has captured the
-	// pre-wrap Transport into its clone; now we wrap the SHARED pointer
-	// for the downloader's use.
-	httpClient.Transport = httpx.NewMetricsTransport("tmdb_cdn", httpx.TMDBCDNEndpointFor, httpClient.Transport)
-
-	// 214 (F-1): media pre-warm pipeline. Only constructed when both
-	// the blob store + the media_assets repo are available; the pair
-	// is required for the downloader to make persistent progress.
-	// httpClient is SHARED with tmdbClient above so the same
-	// proxy-connection pool serves both API + image fetches (RU DPI
-	// blocks image.tmdb.org the same way it blocks api.themoviedb.org).
+	// 470 (B-7): httpClient + tmdbClient only when enabled at boot.
+	// Media pipeline depends on httpClient (it shares the proxy/TLS
+	// pool with the TMDB API client) so the media pre-warm pipeline
+	// stays off until the key is set. The reload subscriber rebuilds
+	// the TMDB API client on key save — image.tmdb.org downloads
+	// remain disabled until the next process restart (a known
+	// limitation; the Series Detail UI's on-demand fetcher path falls
+	// back to async download once the pipeline is up).
 	var (
+		httpClient      *http.Client
+		tmdbClient      *tmdb.Client
 		mediaEnqueuer   *appmedia.Enqueuer
 		mediaDownloader *appmedia.Downloader
 		mediaOnDemand   appmedia.OnDemandFetcher
 		mediaPrewarmer  appenrich.MediaPrewarmer // nil OK
 	)
-	if repos.MediaAssets != nil && repos.MediaStore != nil {
-		mediaEnqueuer = appmedia.NewEnqueuer(enrichmentLog)
-		// Story 346: split CDN limiter from the TMDB API limiter.
-		// bootstrap.ExternalServices.TMDBCDNRPS=0 → downloader default
-		// (100 rps for image.tmdb.org); override via
-		// SEASONFILL_TMDB_CDN_RPS.
-		mediaDownloader, err = appmedia.NewDownloader(mediaEnqueuer, appmedia.DownloaderDeps{
-			Store:           repos.MediaStore,
-			Repo:            repos.MediaAssets,
-			HTTPClient:      httpClient,
-			Logger:          enrichmentLog,
-			CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
-		})
+	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
+		Language: tmdb.DefaultLanguage,
+		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
+		Logger:   tmdbLog,
+	}
+	if enabledAtBoot {
+		var err error
+		httpClient, err = infraextsvc.HttpClientFor(settings)
 		if err != nil {
-			return nil, fmt.Errorf("media downloader: %w", err)
+			return nil, err
 		}
-		mediaPrewarmer = mediaPrewarmerAdapter{eq: mediaEnqueuer}
-		// Story 316 — on-demand fetcher shares the downloader's rate
-		// limiter so the 5 rps cap applies globally across the sync +
-		// async paths. The wiring layer in main.go calls
-		// seriesDetailMediaResolver.SetSideEffects(mediaEnqueuer,
-		// mediaOnDemand) once the bundle returns.
-		mediaOnDemand, err = appmedia.NewOnDemandFetcher(appmedia.OnDemandDeps{
-			Store:      repos.MediaStore,
-			Repo:       repos.MediaAssets,
+		// Story 312: surface the configured TMDB external-services proxy
+		// at boot so the operator can confirm image.tmdb.org goes
+		// through the same proxy as api.themoviedb.org (RU DPI blocks
+		// both the same way).
+		proxy := "none"
+		if settings.ProxyURL != "" {
+			proxy = settings.ProxyURL
+		}
+		enrichmentLog.InfoContext(rootCtx, "media.http_client.configured",
+			slog.String("proxy", proxy),
+		)
+
+		// Story 313 + Story 346 — plumb SEASONFILL_TMDB_API_RPS (legacy
+		// SEASONFILL_TMDB_RPS still honoured by config.FromEnv as an
+		// alias) + the wiring logger so adaptive pause + resume INFO
+		// lines surface under the enrichment component prefix. 0 from
+		// config means "tmdb package picks its default (50 rps)".
+		if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
+			enrichmentLog.WarnContext(rootCtx, "config.deprecated_env",
+				slog.String("env", "SEASONFILL_TMDB_RPS"),
+				slog.String("replacement", "SEASONFILL_TMDB_API_RPS"),
+				slog.String("removal", "next release"))
+		}
+
+		// Story 351 — tmdb.New must run FIRST. The TMDB client constructs
+		// an internal CLONE of httpClient and wraps its Transport with
+		// httpx.NewMetricsTransport("tmdb", ...). That clone captures
+		// the CURRENT httpClient.Transport (the raw proxy transport).
+		//
+		// AFTER tmdb.New returns we mutate the SHARED httpClient pointer
+		// in place — wrapping its Transport with httpx.NewMetricsTransport
+		// ("tmdb_cdn", ...) — so every subsequent http.Request issued via
+		// the shared pointer (i.e. every image.tmdb.org fetch from the
+		// media downloader / on-demand fetcher) flows through the
+		// "tmdb_cdn" metric writes.
+		//
+		// This ordering guarantees api.themoviedb.org metrics carry ONLY
+		// client="tmdb" and image.tmdb.org metrics carry ONLY
+		// client="tmdb_cdn" — no double-write.
+		//
+		// Story 352 — the factory mirrors this boot path verbatim so the
+		// reload subscriber can rebuild a metric-wrapped TMDB API client
+		// on key/proxy change. The downloader's "tmdb_cdn" wrap is NOT
+		// rebuilt by the subscriber because the downloader was
+		// constructed with the SHARED httpClient pointer below.
+		tmdbClient, err = tmdb.New(tmdb.Config{
+			Token:      settings.APIKey,
 			HTTPClient: httpClient,
-			Limiter:    mediaDownloader.Limiter(),
-			Logger:     enrichmentLog,
+			Language:   tmdbFactoryCfg.Language,
+			RPS:        tmdbFactoryCfg.RPS,
+			Logger:     tmdbFactoryCfg.Logger,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("media ondemand fetcher: %w", err)
+			return nil, err
 		}
+		httpClient.Transport = httpx.NewMetricsTransport("tmdb_cdn", httpx.TMDBCDNEndpointFor, httpClient.Transport)
+
+		// 214 (F-1): media pre-warm pipeline. Only constructed when both
+		// the blob store + the media_assets repo are available; the pair
+		// is required for the downloader to make persistent progress.
+		// httpClient is SHARED with tmdbClient above so the same
+		// proxy-connection pool serves both API + image fetches.
+		if repos.MediaAssets != nil && repos.MediaStore != nil {
+			mediaEnqueuer = appmedia.NewEnqueuer(enrichmentLog)
+			// Story 346: split CDN limiter from the TMDB API limiter.
+			mediaDownloader, err = appmedia.NewDownloader(mediaEnqueuer, appmedia.DownloaderDeps{
+				Store:           repos.MediaStore,
+				Repo:            repos.MediaAssets,
+				HTTPClient:      httpClient,
+				Logger:          enrichmentLog,
+				CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("media downloader: %w", err)
+			}
+			mediaPrewarmer = mediaPrewarmerAdapter{eq: mediaEnqueuer}
+			// Story 316 — on-demand fetcher shares the downloader's rate
+			// limiter so the 5 rps cap applies globally across the sync +
+			// async paths.
+			mediaOnDemand, err = appmedia.NewOnDemandFetcher(appmedia.OnDemandDeps{
+				Store:      repos.MediaStore,
+				Repo:       repos.MediaAssets,
+				HTTPClient: httpClient,
+				Limiter:    mediaDownloader.Limiter(),
+				Logger:     enrichmentLog,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("media ondemand fetcher: %w", err)
+			}
+		}
+	}
+
+	// 470 (B-7): tmdbHolder is ALWAYS allocated. tmdbClient may be nil
+	// at this point (boot-disabled); the reload subscriber populates
+	// the holder on the operator's first key save. Workers receive
+	// the holder, which satisfies appenrich.TMDBClient and returns
+	// ErrTMDBClientNotReady on every method when the inner pointer
+	// is nil — see cmd/server/adapters/extsvc_client_holders.go:102.
+	tmdbHolder := adapters.NewTMDBClientHolder()
+	if tmdbClient != nil {
+		tmdbHolder.Set(tmdbClient)
 	}
 
 	// Story 212: dispatcherHolder breaks the construction cycle
@@ -484,6 +506,10 @@ func BuildEnrichment(
 	}
 
 	nightly := func(ctx context.Context) {
+		// 470 (B-7): sweep is harmless on an empty holder — workers
+		// return ErrTMDBClientNotReady which lands in handleTMDBError
+		// with backoff. Once the holder is populated the next nightly
+		// tick retries those rows naturally.
 		now := time.Now().UTC()
 		// Series sweep: cutoff is 2 × continuing-series TTL (24h).
 		// Stale-rows are series whose canon enrichment_tmdb_synced_at
@@ -548,6 +574,13 @@ func BuildEnrichment(
 	// so series the dispatcher dropped on a saturated cold channel are
 	// re-enqueued on the next tick. RunBackfillLoop returns when ctx
 	// is Done.
+	//
+	// 470 (B-7): coldStart is the production driver — registers the
+	// re-sweep ticker AND runs a one-shot canon-images recovery. The
+	// inner sweep gates on tmdbHolder.Load() != nil per tick so a
+	// boot-disabled instance does NOT spam pointless enrichment_errors
+	// rows while the operator is still on the Settings page. Once the
+	// holder is populated the gate opens automatically (atomic load).
 	resweepInterval := bootstrap.Enrichment.ColdStartResweepInterval
 	coldStart := func(ctx context.Context) {
 		if repos.ColdStartScanner == nil {
@@ -561,7 +594,11 @@ func BuildEnrichment(
 		// both columns non-NULL and are not returned). Set
 		// SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED=1 to skip
 		// during disaster recovery / manual control.
-		if os.Getenv("SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED") != "1" {
+		//
+		// 470 (B-7): canon-images recovery is gated on holder so a still-
+		// boot-disabled instance does not enqueue 1000 useless rows.
+		if tmdbHolder.Load() != nil &&
+			os.Getenv("SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED") != "1" {
 			// Story 346: per-kind breakdown log so operators can
 			// confirm the sweep observed both poster + backdrop NULLs
 			// (or just one). Counted BEFORE the enqueue so a converging
@@ -592,7 +629,33 @@ func BuildEnrichment(
 					slog.String("priority", "cold"))
 			}
 		}
-		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval, enrichmentLog)
+		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval,
+			enrichmentLog, appenrich.RunBackfillLoopOptions{
+				// 470 (B-7): per-tick gate so a still-empty TMDB holder
+				// skips a sweep cycle without burning enrichment_errors rows.
+				// The check is one atomic.Load — negligible cost.
+				ShouldSweep: func() bool { return tmdbHolder.Load() != nil },
+			})
+	}
+
+	// 470 (B-7): onFirstActivation runs ONE cold-start sweep
+	// immediately after the operator's first key save. The subscriber
+	// fires this exactly once per nil→non-nil transition (and again
+	// after a clear→re-set). Without it the operator must wait up to
+	// ColdStartResweepInterval (60s default) for the periodic loop's
+	// next tick. With it the sweep starts within ms of the save.
+	// Safe to call from the subscriber goroutine — BackfillSeries is
+	// itself thread-safe and uses the dispatcher's enqueue dedup.
+	onFirstActivation := func(ctx context.Context) {
+		if repos.ColdStartScanner == nil {
+			return
+		}
+		enrichmentLog.InfoContext(ctx, "enrichment.runtime_activation.cold_start.triggered",
+			slog.String("trigger", "tmdb_first_key_save"))
+		if err := appenrich.BackfillSeries(ctx, repos.ColdStartScanner, dispatcher, enrichmentLog); err != nil {
+			enrichmentLog.WarnContext(ctx, "enrichment.runtime_activation.cold_start.failed",
+				slog.String("error", err.Error()))
+		}
 	}
 
 	dispatcher.Start(rootCtx)
@@ -604,19 +667,20 @@ func BuildEnrichment(
 		mediaDownloader.Start(rootCtx)
 	}
 	return &EnrichmentBundle{
-		Dispatcher:       dispatcher,
-		Nightly:          nightly,
-		ColdStart:        coldStart,
-		OMDbDailyBatch:   omdbDailyBatch,
-		OMDbBudgetReset:  omdbBudgetReset,
-		MediaEnqueuer:    mediaEnqueuer,
-		MediaDownloader:  mediaDownloader,
-		MediaOnDemand:    mediaOnDemand,
-		MediaHTTP:        httpClient,
-		UsesQuotaCounter: quotaCounter != nil && omdbEnabledAtBoot,
-		TMDBHolder:       tmdbHolder,
-		OMDbHolder:       omdbHolder,
-		TMDBFactoryCfg:   tmdbFactoryCfg,
+		Dispatcher:        dispatcher,
+		Nightly:           nightly,
+		ColdStart:         coldStart,
+		OMDbDailyBatch:    omdbDailyBatch,
+		OMDbBudgetReset:   omdbBudgetReset,
+		MediaEnqueuer:     mediaEnqueuer,
+		MediaDownloader:   mediaDownloader,
+		MediaOnDemand:     mediaOnDemand,
+		MediaHTTP:         httpClient,
+		UsesQuotaCounter:  quotaCounter != nil && omdbEnabledAtBoot,
+		TMDBHolder:        tmdbHolder,
+		OMDbHolder:        omdbHolder,
+		TMDBFactoryCfg:    tmdbFactoryCfg,
+		OnFirstActivation: onFirstActivation, // 470 (B-7)
 	}, nil
 }
 

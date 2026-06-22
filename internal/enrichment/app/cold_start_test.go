@@ -1,8 +1,11 @@
 package enrichment
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -277,7 +280,7 @@ func TestRunBackfillLoop_RunsImmediatelyThenOnTick(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunBackfillLoop(ctx, scanner, d, 50*time.Millisecond, quietLogger())
+		RunBackfillLoop(ctx, scanner, d, 50*time.Millisecond, quietLogger(), RunBackfillLoopOptions{})
 		close(done)
 	}()
 
@@ -315,7 +318,7 @@ func TestRunBackfillLoop_ScannerErrorDoesNotKillLoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunBackfillLoop(ctx, scanner, d, 30*time.Millisecond, quietLogger())
+		RunBackfillLoop(ctx, scanner, d, 30*time.Millisecond, quietLogger(), RunBackfillLoopOptions{})
 		close(done)
 	}()
 
@@ -352,7 +355,7 @@ func TestRunBackfillLoop_ZeroIntervalUsesDefault(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunBackfillLoop(ctx, scanner, d, 0, quietLogger())
+		RunBackfillLoop(ctx, scanner, d, 0, quietLogger(), RunBackfillLoopOptions{})
 		close(done)
 	}()
 	// Give the initial synchronous sweep time to run.
@@ -365,4 +368,54 @@ func TestRunBackfillLoop_ZeroIntervalUsesDefault(t *testing.T) {
 	}
 	require.Equal(t, 1, scanner.callCount(),
 		"initial sweep runs once before the ticker")
+}
+
+// TestRunBackfillLoop_ShouldSweepGate_SkipsWhenFalse verifies the
+// Story 470 (B-7) gate: a ShouldSweep returning false skips the tick
+// without calling the scanner. The gate is checked at the initial
+// synchronous sweep AND at every ticker fire — a boot-disabled TMDB
+// instance spins lightly without burning enrichment_errors rows.
+func TestRunBackfillLoop_ShouldSweepGate_SkipsWhenFalse(t *testing.T) {
+	t.Parallel()
+	scanner := &countingScanner{
+		idsFn: func(int) []domain.SeriesID { return nil },
+	}
+	d := &recordingDispatcher{}
+	logBuf := &bytes.Buffer{}
+	log := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	RunBackfillLoop(ctx, scanner, d, 20*time.Millisecond, log, RunBackfillLoopOptions{
+		ShouldSweep: func() bool { return false },
+	})
+
+	assert.Equal(t, 0, scanner.callCount(), "ShouldSweep=false must skip every tick incl. initial")
+	assert.Contains(t, logBuf.String(), "enrichment.cold_start.skipped")
+}
+
+// TestRunBackfillLoop_ShouldSweepGate_OpensWhenTrue verifies the gate
+// re-opens when the predicate flips to true mid-loop — the next tick
+// runs BackfillSeries.
+func TestRunBackfillLoop_ShouldSweepGate_OpensWhenTrue(t *testing.T) {
+	t.Parallel()
+	scanner := &countingScanner{
+		idsFn: func(int) []domain.SeriesID { return nil },
+	}
+	d := &recordingDispatcher{}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	var open atomic.Bool
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Open the gate after 40ms — the loop must observe the flip
+	// at the next 20ms tick.
+	time.AfterFunc(40*time.Millisecond, func() { open.Store(true) })
+
+	RunBackfillLoop(ctx, scanner, d, 20*time.Millisecond, log, RunBackfillLoopOptions{
+		ShouldSweep: open.Load,
+	})
+
+	assert.GreaterOrEqual(t, scanner.callCount(), 1, "gate must open mid-loop and trigger at least one sweep")
 }

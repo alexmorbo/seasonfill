@@ -13,7 +13,9 @@ import (
 
 // TMDBClientSubscriber rebuilds the live *tmdb.Client (held in
 // TMDBClientHolder) when the operator changes the TMDB settings row via
-// the UI. Story 352.
+// the UI. Story 352. Story 470 (B-7) — also fires OnFirstActivation
+// once per nil→non-nil client transition so the cold-start sweep runs
+// the moment a key is saved (no pod restart, no 60s wait).
 //
 // Subscription model: registered as a listener on
 // ExternalServicesSubscriber (ServiceTMDB). The listener fires
@@ -29,11 +31,10 @@ import (
 // the worker goroutine releases its last reference). Tests can shrink
 // the delay via WithCloseDelay.
 //
-// Boot-disabled TMDB: when BuildEnrichment short-circuits (TMDB
-// disabled at boot) the holder pointer is nil — the wiring layer simply
-// never registers this subscriber. A runtime enable from
-// boot-disabled state requires a process restart; the subscriber's
-// Apply log explicitly says so when it sees holder=nil + enabled=true.
+// Story 470 (B-7): post-470 wiring ALWAYS allocates the holder (even
+// when TMDB is unconfigured at boot). The defensive nil-holder branch
+// in Apply is therefore a programming-error log only — production
+// wiring guarantees a non-nil holder.
 type TMDBClientSubscriber struct {
 	holder    *TMDBClientHolder
 	factoryFn func(infraextsvc.Settings) (*tmdb.Client, error)
@@ -43,10 +44,20 @@ type TMDBClientSubscriber struct {
 	closeFn    func(*tmdb.Client) // closed after closeDelay; tests override
 	wg         sync.WaitGroup
 
+	// 470 (B-7): one-shot activation callback. Fires on every
+	// (prev empty key → settings non-empty key) transition. Nil-OK.
+	onFirstActivation func(context.Context)
+
 	mu       sync.Mutex
 	lastSeen infraextsvc.Settings
 	primed   bool
 	rebuilds int
+	// 470 (B-7): tracks whether the holder has ever been populated since
+	// boot OR since the last clear. Set to true on a successful Set with
+	// a non-nil client; flipped back to false in the clear branch. Used
+	// to fire OnFirstActivation exactly once per "no client" → "client"
+	// transition.
+	activated bool
 }
 
 // NewTMDBClientSubscriber wires the holder + factory + logger. holder
@@ -101,26 +112,40 @@ func (s *TMDBClientSubscriber) WithFactoryFn(fn func(infraextsvc.Settings) (*tmd
 	return s
 }
 
+// WithOnFirstActivation registers a callback invoked once per
+// nil→non-nil client transition (boot-disabled→enabled, OR
+// clear-then-set). The callback runs on the subscriber goroutine after
+// the holder swap; it MUST be non-blocking (cold-start enqueue loop is
+// O(rows) but each Enqueue is non-blocking). nil resets the callback.
+//
+// Story 470 (B-7) — production wiring passes the EnrichmentBundle's
+// OnFirstActivation closure, which runs BackfillSeries once so the
+// operator sees enrichment converging within seconds of save.
+func (s *TMDBClientSubscriber) WithOnFirstActivation(fn func(context.Context)) *TMDBClientSubscriber {
+	s.onFirstActivation = fn
+	return s
+}
+
 // Apply is the SettingsListener entrypoint. See file-level doc.
 func (s *TMDBClientSubscriber) Apply(ctx context.Context, settings infraextsvc.Settings) {
 	if s == nil {
 		return
 	}
 	if s.holder == nil {
-		// Boot-disabled TMDB. Log only on enabled=true so a steady
-		// stream of bus publishes with enabled=false stays quiet.
-		if settings.Enabled && settings.APIKey != "" {
-			s.logger.WarnContext(ctx, "external_service.client.boot_disabled",
-				slog.String("service", string(infraextsvc.ServiceTMDB)),
-				slog.String("reason", "tmdb_was_disabled_at_boot_restart_required"),
-			)
-		}
+		// 470 (B-7): post-470 wiring always supplies a non-nil holder.
+		// A nil holder here is a programming error — log loudly so it
+		// surfaces in tests + ops.
+		s.logger.ErrorContext(ctx, "tmdb.subscriber.nil_holder",
+			slog.String("service", string(infraextsvc.ServiceTMDB)),
+			slog.String("note", "wiring must always allocate the holder; this is a Story 470 invariant"),
+		)
 		return
 	}
 
 	s.mu.Lock()
 	primed := s.primed
 	prev := s.lastSeen
+	wasActivated := s.activated
 	s.mu.Unlock()
 
 	if primed && !materialTMDBChange(prev, settings) {
@@ -129,7 +154,7 @@ func (s *TMDBClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 
 	if !settings.Enabled || settings.APIKey == "" {
 		previous := s.holder.Set(nil)
-		s.commit(settings)
+		s.commitWithActivated(settings, false) // 470: clear activated so a re-set fires the hook again
 		s.logger.InfoContext(ctx, "external_service.client.cleared",
 			slog.String("service", string(infraextsvc.ServiceTMDB)),
 			slog.Bool("enabled", settings.Enabled),
@@ -145,18 +170,32 @@ func (s *TMDBClientSubscriber) Apply(ctx context.Context, settings infraextsvc.S
 			slog.String("service", string(infraextsvc.ServiceTMDB)),
 			slog.String("error", err.Error()),
 		)
-		s.commit(settings)
+		// 470: commit but preserve activated flag — a factory failure
+		// must NOT pretend we activated. wasActivated propagates verbatim.
+		s.commitWithActivated(settings, wasActivated)
 		return
 	}
 
 	previous := s.holder.Set(client)
-	s.commit(settings)
+	s.commitWithActivated(settings, true) // 470: mark activated
 	s.logger.InfoContext(ctx, "external_service.client.rebuilt",
 		slog.String("service", string(infraextsvc.ServiceTMDB)),
 		slog.String("last4", settings.APIKeyLast4),
 		slog.String("proxy_scheme", proxySchemeFor(settings.ProxyURL)),
 	)
 	s.scheduleClose(previous)
+
+	// 470 (B-7): fire the first-activation hook exactly once per
+	// transition from "no client" → "client present". wasActivated
+	// captured under the mutex above — race-free against a concurrent
+	// second Apply on the same subscriber goroutine (the
+	// SettingsListener fan-out is single-threaded per subscriber).
+	if !wasActivated && s.onFirstActivation != nil {
+		s.logger.InfoContext(ctx, "tmdb.subscriber.first_activation",
+			slog.String("trigger", "key_added_at_runtime"),
+		)
+		s.onFirstActivation(ctx)
+	}
 }
 
 // scheduleClose drains the previous client off the goroutine after
@@ -202,11 +241,15 @@ func (s *TMDBClientSubscriber) LoadLastSeen() (infraextsvc.Settings, bool) {
 	return s.lastSeen, s.primed
 }
 
-func (s *TMDBClientSubscriber) commit(settings infraextsvc.Settings) {
+// commitWithActivated extends the prior commit() with the activated
+// flag setter. Story 470 (B-7) — activated participates in the
+// OnFirstActivation gate.
+func (s *TMDBClientSubscriber) commitWithActivated(settings infraextsvc.Settings, activated bool) {
 	s.mu.Lock()
 	s.lastSeen = settings
 	s.primed = true
 	s.rebuilds++
+	s.activated = activated
 	s.mu.Unlock()
 }
 

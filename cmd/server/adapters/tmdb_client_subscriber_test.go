@@ -172,9 +172,11 @@ func TestTMDBClientSubscriber_DisabledClearsHolder(t *testing.T) {
 	require.ErrorIs(t, err, ErrTMDBClientNotReady)
 }
 
-// TestTMDBClientSubscriber_NilHolderShortCircuits exercises the boot-
-// disabled path: the subscriber sees holder=nil and logs a single warn
-// without panicking.
+// TestTMDBClientSubscriber_NilHolderShortCircuits documents the
+// defensive nil-holder guard. Post-Story-470 the wiring layer always
+// allocates the holder, so this branch is a "this should never fire"
+// safety net — it logs ERROR loudly so a future wiring regression
+// surfaces.
 func TestTMDBClientSubscriber_NilHolderShortCircuits(t *testing.T) {
 	t.Parallel()
 	logBuf := &bytes.Buffer{}
@@ -186,7 +188,7 @@ func TestTMDBClientSubscriber_NilHolderShortCircuits(t *testing.T) {
 		APIKey:  "token",
 	})
 
-	assert.Contains(t, logBuf.String(), "external_service.client.boot_disabled")
+	assert.Contains(t, logBuf.String(), "tmdb.subscriber.nil_holder")
 }
 
 // TestTMDBClientSubscriber_FactoryErrorLeavesPrevious covers the
@@ -287,5 +289,138 @@ func TestTMDBClientSubscriber_CloseDelayHonoured(t *testing.T) {
 	sub.Wait()
 	assert.GreaterOrEqual(t, closedAt.Load(), int64(40),
 		"close should fire after ~50ms delay")
+	sub.Current().Close()
+}
+
+// TestTMDBClientSubscriber_FirstActivationFiresOnce verifies the Story
+// 470 (B-7) hook: an empty subscriber (no prior key) receives a first
+// Apply with a non-empty key — the OnFirstActivation callback fires
+// EXACTLY ONCE.
+func TestTMDBClientSubscriber_FirstActivationFiresOnce(t *testing.T) {
+	t.Parallel()
+	holder := NewTMDBClientHolder()
+	var fired atomic.Int32
+	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
+		WithCloseDelay(0).
+		WithFactoryFn(func(s infraextsvc.Settings) (*tmdb.Client, error) {
+			return newStubTMDBClient(t, s.APIKey), nil
+		}).
+		WithOnFirstActivation(func(ctx context.Context) { fired.Add(1) })
+
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceTMDB,
+		Enabled: true,
+		APIKey:  "token_first",
+	})
+
+	require.NotNil(t, sub.Current())
+	assert.Equal(t, int32(1), fired.Load(), "first nil→non-nil transition must fire the hook once")
+
+	// A second Apply with the same payload must NOT re-fire the hook
+	// (materialTMDBChange guards us against same-payload spam).
+	sub.Apply(context.Background(), infraextsvc.Settings{
+		Service: infraextsvc.ServiceTMDB,
+		Enabled: true,
+		APIKey:  "token_first",
+	})
+	assert.Equal(t, int32(1), fired.Load(), "same-payload re-apply must NOT re-fire the hook")
+
+	sub.Wait()
+	sub.Current().Close()
+}
+
+// TestTMDBClientSubscriber_FirstActivationNotFiredOnKeyRotation verifies
+// that rotating an existing key (key1 → key2) does NOT fire the hook —
+// the subscriber was already "activated" from the first key save, so
+// rotation is just a swap, not an activation.
+func TestTMDBClientSubscriber_FirstActivationNotFiredOnKeyRotation(t *testing.T) {
+	t.Parallel()
+	holder := NewTMDBClientHolder()
+	var fired atomic.Int32
+	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
+		WithCloseDelay(0).
+		WithCloseFn(func(c *tmdb.Client) { c.Close() }).
+		WithFactoryFn(func(s infraextsvc.Settings) (*tmdb.Client, error) {
+			return newStubTMDBClient(t, s.APIKey), nil
+		}).
+		WithOnFirstActivation(func(ctx context.Context) { fired.Add(1) })
+
+	first := infraextsvc.Settings{Service: infraextsvc.ServiceTMDB, Enabled: true, APIKey: "token_old"}
+	sub.Apply(context.Background(), first)
+	assert.Equal(t, int32(1), fired.Load(), "first apply fires once")
+
+	rotated := first
+	rotated.APIKey = "token_new"
+	sub.Apply(context.Background(), rotated)
+	assert.Equal(t, int32(1), fired.Load(), "key rotation must NOT re-fire — already activated")
+
+	sub.Wait()
+	sub.Current().Close()
+}
+
+// TestTMDBClientSubscriber_FirstActivationRefiresAfterClear verifies
+// that disabling then re-enabling the key counts as a new activation —
+// the hook fires again on the second enable.
+func TestTMDBClientSubscriber_FirstActivationRefiresAfterClear(t *testing.T) {
+	t.Parallel()
+	holder := NewTMDBClientHolder()
+	var fired atomic.Int32
+	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
+		WithCloseDelay(0).
+		WithCloseFn(func(c *tmdb.Client) { c.Close() }).
+		WithFactoryFn(func(s infraextsvc.Settings) (*tmdb.Client, error) {
+			return newStubTMDBClient(t, s.APIKey), nil
+		}).
+		WithOnFirstActivation(func(ctx context.Context) { fired.Add(1) })
+
+	enabled := infraextsvc.Settings{Service: infraextsvc.ServiceTMDB, Enabled: true, APIKey: "token"}
+	sub.Apply(context.Background(), enabled)
+	assert.Equal(t, int32(1), fired.Load(), "first apply fires")
+
+	disabled := enabled
+	disabled.Enabled = false
+	sub.Apply(context.Background(), disabled)
+	assert.Equal(t, int32(1), fired.Load(), "disable must NOT fire activation")
+
+	reEnabled := enabled
+	reEnabled.APIKey = "token_v2"
+	sub.Apply(context.Background(), reEnabled)
+	assert.Equal(t, int32(2), fired.Load(), "re-enable after clear MUST fire activation again")
+
+	sub.Wait()
+	sub.Current().Close()
+}
+
+// TestTMDBClientSubscriber_FirstActivationFactoryErrorDoesNotFire
+// verifies that a factory error on the first apply does NOT mark the
+// subscriber as activated — a subsequent successful apply still fires
+// the hook.
+func TestTMDBClientSubscriber_FirstActivationFactoryErrorDoesNotFire(t *testing.T) {
+	t.Parallel()
+	holder := NewTMDBClientHolder()
+	var fired atomic.Int32
+	var callCount atomic.Int32
+	factoryErr := errors.New("first call fails")
+	sub := NewTMDBClientSubscriber(holder, TMDBClientFactoryConfig{}, newTestLogger(nil)).
+		WithCloseDelay(0).
+		WithFactoryFn(func(s infraextsvc.Settings) (*tmdb.Client, error) {
+			if callCount.Add(1) == 1 {
+				return nil, factoryErr
+			}
+			return newStubTMDBClient(t, s.APIKey), nil
+		}).
+		WithOnFirstActivation(func(ctx context.Context) { fired.Add(1) })
+
+	first := infraextsvc.Settings{Service: infraextsvc.ServiceTMDB, Enabled: true, APIKey: "token_old"}
+	sub.Apply(context.Background(), first)
+	assert.Equal(t, int32(0), fired.Load(), "factory error must NOT fire activation")
+
+	// Second apply (different key — passes materialTMDBChange) succeeds.
+	retry := first
+	retry.APIKey = "token_new"
+	sub.Apply(context.Background(), retry)
+	assert.Equal(t, int32(1), fired.Load(), "first successful apply MUST fire activation")
+
+	sub.Wait()
 	sub.Current().Close()
 }

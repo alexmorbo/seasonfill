@@ -342,9 +342,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		// path is exercised in production exactly as in tests.
 		omdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceOMDB))
 	}
+	// Story 352 + 470 (B-7) — TMDB reload subscriber. Always
+	// registered now (the wiring layer always allocates the holder).
+	// On a nil→non-nil client transition (operator saves the first
+	// key at runtime) OnFirstActivation fires a one-shot cold-start
+	// sweep so enrichment converges within ms of the save.
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		tmdbSub := adapters.NewTMDBClientSubscriber(enrichBundle.TMDBHolder, enrichBundle.TMDBFactoryCfg,
-			sharedports.DomainLogger(log, "tmdb"))
+			sharedports.DomainLogger(log, "tmdb")).
+			WithOnFirstActivation(enrichBundle.OnFirstActivation)
 		extSub.RegisterListener(infraextsvc.ServiceTMDB, tmdbSub.Apply)
 		tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB))
 	}

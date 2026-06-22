@@ -148,6 +148,18 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 	return nil
 }
 
+// RunBackfillLoopOptions tunes RunBackfillLoop's per-tick behaviour.
+// Zero value preserves pre-470 semantics: every tick runs BackfillSeries.
+// Story 470 (B-7): production sets ShouldSweep so the loop skips a
+// cycle when the TMDB holder is still empty (boot-disabled, awaiting
+// the operator's first key save).
+type RunBackfillLoopOptions struct {
+	// ShouldSweep is consulted before each tick. nil → always sweep.
+	// Returning false skips the tick with an INFO log; the ticker keeps
+	// firing so the next opportunity comes at interval+0.
+	ShouldSweep func() bool
+}
+
 // RunBackfillLoop is the production driver for the cold-start re-sweep
 // (Story 318). It runs BackfillSeries once synchronously, then on a
 // ticker until ctx cancels. interval <= 0 collapses to a 60s default;
@@ -158,21 +170,32 @@ func BackfillSeries(ctx context.Context, scanner ColdStartScanner, dispatcher Di
 // the loop — a transient DB blip on one tick must not silence the
 // re-sweep forever.
 //
+// Story 470 (B-7): opts.ShouldSweep gates each tick (initial + every
+// ticker fire). A boot-disabled TMDB instance returns false until the
+// operator saves a key — the loop spins lightly (one atomic load per
+// tick) without burning enrichment_errors rows.
+//
 // The function returns when ctx is Done. main.go wraps the call in
 // bgWG so shutdown waits for the goroutine to exit cleanly.
-func RunBackfillLoop(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, interval time.Duration, log *slog.Logger) {
+func RunBackfillLoop(ctx context.Context, scanner ColdStartScanner, dispatcher Dispatcher, interval time.Duration, log *slog.Logger, opts RunBackfillLoopOptions) {
 	if log == nil {
 		log = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
-	// Initial synchronous sweep keeps boot-time behaviour identical
-	// to the pre-Story-318 codepath.
-	if err := BackfillSeries(ctx, scanner, dispatcher, log); err != nil {
-		log.WarnContext(ctx, "enrichment.cold_start.failed",
-			slog.String("error", err.Error()))
+	sweep := func() {
+		if opts.ShouldSweep != nil && !opts.ShouldSweep() {
+			log.InfoContext(ctx, "enrichment.cold_start.skipped",
+				slog.String("reason", "should_sweep_false"))
+			return
+		}
+		if err := BackfillSeries(ctx, scanner, dispatcher, log); err != nil {
+			log.WarnContext(ctx, "enrichment.cold_start.failed",
+				slog.String("error", err.Error()))
+		}
 	}
+	sweep()
 	if err := ctx.Err(); err != nil {
 		return
 	}
@@ -187,10 +210,7 @@ func RunBackfillLoop(ctx context.Context, scanner ColdStartScanner, dispatcher D
 			log.InfoContext(ctx, "enrichment.cold_start.resweep.stopped")
 			return
 		case <-ticker.C:
-			if err := BackfillSeries(ctx, scanner, dispatcher, log); err != nil {
-				log.WarnContext(ctx, "enrichment.cold_start.failed",
-					slog.String("error", err.Error()))
-			}
+			sweep()
 		}
 	}
 }
