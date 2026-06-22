@@ -225,7 +225,7 @@ migrations-lint: ## Lint all 16 migrations on both dialects
 # using docker:// dev-DB (it spawns one ephemeral); for sqlite, atlas
 # uses the in-memory dev-DB declared in atlas.hcl. CI sets the env in
 # the .github/workflows/ci.yml job before invoking this target.
-migrations-diff-check: ## D-1-8 gate — schema is fully expressed by 13 migrations on both dialects
+migrations-diff-check: ## D-1-8 gate — schema is fully expressed by all committed migrations on both dialects
 	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
 	@set -e; for dialect in postgres sqlite; do \
 	  echo ">>> diff probe ($$dialect)"; \
@@ -239,7 +239,7 @@ migrations-diff-check: ## D-1-8 gate — schema is fully expressed by 13 migrati
 	    exit 1; \
 	  fi; \
 	done
-	@echo "OK: schema fully expressed in 13 migrations on both dialects"
+	@echo "OK: schema fully expressed on both dialects"
 
 # Apply migrations to a local dev DB via atlas (dev convenience —
 # production uses golang-migrate). Reads SEASONFILL_DATABASE_DRIVER to

@@ -68,17 +68,16 @@ jobs:
           # dataports out of application/ports/ into internal/shared/dataports/.
           #
           # D-2 (463a) lowered the gate from 75% to 55% pending consumer
-          # rewrites in D-3..D-7. Hundreds of tests are skipped because
-          # they exercise broken-schema repository paths; the rewrites
-          # in D-3 (enrichment), D-4 (catalog), D-5 (admin+auth), and
-          # D-6 (grab+watchdog) will restore the missing coverage. The
-          # gate ratchets back to 75% in D-8 (cleanup).
+          # rewrites in D-3..D-7. D-8 (story closure) restored 75% after
+          # D-3..D-7 un-skipped the rewritten tests (enrichment / catalog /
+          # admin+auth / grab+watchdog / i18n+seriesdetail). Live measure
+          # at D-8 close: 75.7% with the two excludes below.
           grep -v "docs/docs.go" coverage.out \
             | grep -v "sonarr_mock.go" \
             > coverage_gate.out
           PCT=$(go tool cover -func=coverage_gate.out | tail -1 | awk '{print $3}' | sed 's/%//')
           echo "Total coverage (excl. generated): ${PCT}%"
-          awk "BEGIN { exit !(${PCT} >= 55) }" || (echo "Coverage below 55%"; exit 1)
+          awk "BEGIN { exit !(${PCT} >= 75) }" || (echo "Coverage below 75%"; exit 1)
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
@@ -209,9 +208,9 @@ jobs:
     # Story 461 (D-1-8) — final D-1 acceptance gate.
     # Proves that schema.go is fully expressed by all committed
     # migrations on both Postgres and SQLite. The job runs:
-    #   1. `atlas migrate lint --latest 15` per dialect (D-4 story 465b
-    #      bumped from 13 to 15 — 000014 enrichment_synced_at + 000015
-    #      scan_runs)
+    #   1. `atlas migrate lint --latest 19` per dialect (D-8 closure
+    #      raised from 15 to 19 — 000016 app_config + 000017 grab_audit
+    #      + 000018 qbit_runtime + 000019 media_assets landed in D-5/D-6/D-7)
     #   2. `make migrations-diff-check` (idempotency probe)
     # Independent of unit/integration jobs — no needs:[] dependency so a
     # broken schema fails fast without waiting for the long test matrix.
@@ -244,13 +243,13 @@ jobs:
       - name: Install atlas CLI
         run: make atlas-install
 
-      - name: atlas migrate lint (postgres, all 15)
+      - name: atlas migrate lint (postgres, all 19)
         env:
           SEASONFILL_DATABASE_DSN: postgres://atlas:atlas@localhost:5432/atlas_dev?sslmode=disable
-        run: atlas migrate lint --env postgres --latest 15
+        run: atlas migrate lint --env postgres --latest 19
 
-      - name: atlas migrate lint (sqlite, all 15)
-        run: atlas migrate lint --env sqlite --latest 15
+      - name: atlas migrate lint (sqlite, all 19)
+        run: atlas migrate lint --env sqlite --latest 19
 
       - name: migrations-diff-check (both dialects)
         env:
