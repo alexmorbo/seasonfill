@@ -1,15 +1,19 @@
 package qbit
 
 import (
+	"bytes"
 	"context"
 	encjson "encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/VictoriaMetrics/metrics"
 
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -299,5 +303,163 @@ func TestClient_Close_NoOp(t *testing.T) {
 	}
 	if _, err := c.GetTrackers(context.Background(), "x"); err == nil {
 		t.Fatal("GetTrackers after Close should fail")
+	}
+}
+
+// dumpQbitMetrics writes the global VictoriaMetrics set to a string.
+// Used by the qbit metrics integration tests to verify the
+// MetricsTransport wrap is wired. Lives here (not in httpx) because
+// the test exercises the wrap end-to-end through a real *qbt.Client.
+func dumpQbitMetrics() string {
+	buf := &bytes.Buffer{}
+	metrics.WritePrometheus(buf, true)
+	return buf.String()
+}
+
+// TestClient_HTTPMetricsTransport_Wired covers Story 478 (B-31):
+// every outbound qBit Web API call must increment
+// seasonfill_external_http_requests_total{client="qbit",...}. The test
+// drives two real wire calls through the wrapper (Login on
+// /api/v2/auth/login, Ping on /api/v2/app/version) against an
+// httptest.Server and asserts the corresponding counter labels.
+//
+// We pick login + version specifically because they have stable
+// 200-OK paths that don't require any pre-seeded torrent state,
+// keeping the test minimal and deterministic.
+func TestClient_HTTPMetricsTransport_Wired(t *testing.T) {
+	// NOT t.Parallel — this test reads the global VictoriaMetrics
+	// registry which is shared process-wide. A parallel run would let
+	// other tests' counters bleed into our assertions. The wrap itself
+	// is goroutine-safe; the assertion is what needs serialisation.
+	f := newFakeQbit("admin", "secret")
+	defer f.close()
+
+	// /api/v2/app/version is not in fakeQbit's default mux; install it
+	// so Ping has a 200 path to hit.
+	f.srv.Config.Handler.(*http.ServeMux).HandleFunc(
+		"/api/v2/app/version",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("v4.6.0"))
+		},
+	)
+
+	c, err := NewClient(Config{
+		URL:      f.srv.URL,
+		Username: "admin",
+		Password: "secret",
+		Timeout:  2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := c.Login(ctx); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if err := c.Ping(ctx); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	body := dumpQbitMetrics()
+
+	// Counter assertions — the metric line must carry client="qbit"
+	// AND the expected endpoint label AND status="200".
+	wantSubstrs := []string{
+		`seasonfill_external_http_requests_total{client="qbit",endpoint="auth_login",method="POST",status="200"}`,
+		`seasonfill_external_http_requests_total{client="qbit",endpoint="app_version",method="GET",status="200"}`,
+		// Histograms expose _count with the full label set — assert
+		// on _count rather than _sum/_bucket because _count is the
+		// stable shape across VictoriaMetrics versions.
+		`seasonfill_external_http_request_duration_seconds_count{client="qbit",endpoint="auth_login",method="POST",status="200"}`,
+		`seasonfill_external_http_request_duration_seconds_count{client="qbit",endpoint="app_version",method="GET",status="200"}`,
+	}
+	for _, want := range wantSubstrs {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics dump missing expected line:\n  want substr: %s\n  full dump:\n%s", want, body)
+		}
+	}
+
+	// In-flight gauge must exist for client="qbit" — even if the
+	// current value is 0 by the time we sample (Inc/Dec around the
+	// round-trip already balanced). The metric line shape is
+	// `seasonfill_external_http_requests_in_flight{client="qbit"} N`.
+	const inFlightPrefix = `seasonfill_external_http_requests_in_flight{client="qbit"}`
+	if !strings.Contains(body, inFlightPrefix) {
+		t.Errorf("metrics dump missing in-flight gauge for client=qbit:\n%s", body)
+	}
+}
+
+// TestClient_HTTPMetricsTransport_UnknownEndpoint_BucketsSafely covers
+// the cardinality-bound contract: a qBit V2 endpoint not in the
+// QbitEndpointFor table must bucket as endpoint="other", never as the
+// raw path. Prevents a future library upgrade from silently exploding
+// the label space.
+//
+// We drive this by installing a custom V2 handler at
+// /api/v2/torrents/exportTorrent (a real qBit endpoint that is NOT
+// wrapped by seasonfill today and therefore intentionally absent from
+// QbitEndpointFor). The wrapper's wire surface doesn't expose this
+// endpoint, so we hit it directly through the library's underlying
+// http.Client to keep the test focused on the mapper contract.
+func TestClient_HTTPMetricsTransport_UnknownEndpoint_BucketsSafely(t *testing.T) {
+	f := newFakeQbit("", "")
+	defer f.close()
+
+	called := atomic.Int32{}
+	f.srv.Config.Handler.(*http.ServeMux).HandleFunc(
+		"/api/v2/torrents/exportTorrent",
+		func(w http.ResponseWriter, _ *http.Request) {
+			called.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		},
+	)
+
+	c, err := NewClient(Config{URL: f.srv.URL, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	// Reach into the unexported field via the type assertion shortcut
+	// used elsewhere in the package — we're in the same package, so
+	// c.(*client).inner is accessible without reflection.
+	impl, ok := c.(*client)
+	if !ok {
+		t.Fatalf("Client is not *client (test wiring assumption broken)")
+	}
+	httpClient := impl.inner.GetHTTPClient()
+	if httpClient == nil {
+		t.Fatalf("library http.Client is nil — metrics wrap precondition broken")
+	}
+
+	req, _ := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		f.srv.URL+"/api/v2/torrents/exportTorrent?hash=ABC",
+		nil,
+	)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if called.Load() != 1 {
+		t.Fatalf("expected handler hit, got %d", called.Load())
+	}
+
+	body := dumpQbitMetrics()
+	const wantOther = `seasonfill_external_http_requests_total{client="qbit",endpoint="other",method="GET",status="200"}`
+	if !strings.Contains(body, wantOther) {
+		t.Errorf("expected unmapped V2 endpoint to bucket as 'other':\n  want substr: %s\n  full dump:\n%s", wantOther, body)
+	}
+	// Cardinality guard: make sure the raw path didn't leak through.
+	if strings.Contains(body, `endpoint="exportTorrent"`) || strings.Contains(body, `endpoint="/api/v2/torrents/exportTorrent"`) {
+		t.Errorf("raw path leaked into endpoint label — cardinality bound broken:\n%s", body)
 	}
 }

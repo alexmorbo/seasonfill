@@ -10,6 +10,7 @@ import (
 	qbt "github.com/autobrr/go-qbittorrent"
 
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 )
 
 // Config is the constructor input for a Client. Username + Password may
@@ -97,6 +98,31 @@ func NewClient(cfg Config) (Client, error) {
 		Password: cfg.Password,
 		Timeout:  int(timeout / time.Second),
 	})
+
+	// Story 478 (B-31) — wrap the library-allocated http.Client.Transport
+	// with httpx.MetricsTransport so every qBit Web API call surfaces in
+	// seasonfill_external_http_request_* under client="qbit". The library
+	// configures its own *http.Transport at construction (HTTP/2 prefer,
+	// proxy-aware, cookie jar, 100/10 idle conns, TLSSkipVerify wired
+	// from cfg) — we wrap that transport in place rather than replacing
+	// the whole *http.Client via WithHTTPClient, so the library's tuned
+	// dialer + idle pool stays in the chain underneath the metrics
+	// layer. Mirrors the tmdb_cdn pattern in
+	// internal/shared/clients/tmdb/client.go:266-268.
+	//
+	// Safety: NewClient is a pure constructor (no goroutines, no
+	// network I/O), so mutating the transport here is race-free — no
+	// other goroutine has a handle to the client yet. httpx.NewMetrics
+	// Transport falls back to http.DefaultTransport when its inner is
+	// nil, so a hypothetical future library change shipping a nil
+	// transport is absorbed without panic.
+	if httpClient := inner.GetHTTPClient(); httpClient != nil {
+		httpClient.Transport = httpx.NewMetricsTransport(
+			"qbit",
+			httpx.QbitEndpointFor,
+			httpClient.Transport,
+		)
+	}
 
 	return &client{
 		cfg:   cfg,
