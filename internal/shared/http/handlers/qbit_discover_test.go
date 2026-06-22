@@ -41,7 +41,6 @@ func newDiscoverTestRig(t *testing.T, sonarrHandler http.HandlerFunc) (*gin.Engi
 }
 
 func TestQbitDiscover_200MatchFirstEnabled(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -65,7 +64,6 @@ func TestQbitDiscover_200MatchFirstEnabled(t *testing.T) {
 }
 
 func TestQbitDiscover_200FallbackWhenAllDisabled(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -80,7 +78,6 @@ func TestQbitDiscover_200FallbackWhenAllDisabled(t *testing.T) {
 }
 
 func TestQbitDiscover_404NoQbit(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -97,7 +94,6 @@ func TestQbitDiscover_404NoQbit(t *testing.T) {
 }
 
 func TestQbitDiscover_404UnknownInstance(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {})
 	w := httptest.NewRecorder()
@@ -108,7 +104,6 @@ func TestQbitDiscover_404UnknownInstance(t *testing.T) {
 }
 
 func TestQbitDiscover_502SonarrUnauthorized(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	r, _ := newDiscoverTestRig(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -121,7 +116,6 @@ func TestQbitDiscover_502SonarrUnauthorized(t *testing.T) {
 }
 
 func TestQbitDiscover_502SonarrNetworkError(t *testing.T) {
-	t.Skip("pending D-7 i18n+seriesdetail rewrite (D2-revised-roadmap.md)")
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	client := sonarr.New("alpha", "http://127.0.0.1:1", "k", 200*time.Millisecond,
