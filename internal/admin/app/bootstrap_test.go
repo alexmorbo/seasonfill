@@ -77,6 +77,29 @@ func (r *fakeAdminRepo) CreateFromOIDC(_ context.Context, subject, username, ema
 	r.mu.Unlock()
 	return u, nil
 }
+func (r *fakeAdminRepo) GetByUsername(_ context.Context, name string) (admin.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user != nil && r.user.Username == name {
+		return *r.user, nil
+	}
+	return admin.User{}, ports.ErrNotFound
+}
+func (r *fakeAdminRepo) UpdateSettings(_ context.Context, _ uint, patch ports.UserSettingsPatch) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user == nil {
+		return ports.ErrNotFound
+	}
+	if patch.AvatarMode != nil {
+		r.user.AvatarMode = *patch.AvatarMode
+	}
+	if patch.PreferredLanguage != nil {
+		v := *patch.PreferredLanguage
+		r.user.PreferredLanguage = &v
+	}
+	return nil
+}
 
 func TestBootstrap_ExistingRow_NoOp(t *testing.T) {
 	t.Parallel()

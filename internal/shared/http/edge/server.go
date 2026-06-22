@@ -78,6 +78,8 @@ func NewServer(
 	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
 	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
 	timezoneHandler *adminrest.TimezoneHandler,
+	meHandler *adminrest.MeHandler,
+	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -133,10 +135,25 @@ func NewServer(
 		// per ClientIP. Independent from the login limiter so a brute-
 		// forcer with a stolen cookie can't exhaust BOTH paths.
 		passwordLimiter := auth.NewIPLimiter(auth.PasswordChangeLimit(), 3)
+		// Story 485 (N-7a): if a shared AuthRuntime pointer was supplied,
+		// seed its boot defaults (SessionTTL + SecureCookie + Mode=forms)
+		// here so the AuthHandler and MeHandler observe the same initial
+		// values BEFORE the reload subscriber publishes the first snapshot.
+		// Without this seed, the shared atomic would carry SessionTTL=0 and
+		// Login would issue a cookie with max-age=0 on the very first
+		// request after boot.
+		if sharedAuthRuntime != nil {
+			sharedAuthRuntime.Store(&middleware.AuthRuntime{
+				Mode:         runtime.AuthModeForms,
+				SessionTTL:   cfg.Auth.SessionTTL,
+				SecureCookie: cfg.Auth.SecureCookie,
+			})
+		}
 		authHandler := adminrest.NewAuthHandler(
 			cfg.Auth.APIKey, adminRepo, cfg.Auth.SessionTTL,
 			cfg.Auth.SecureCookie, loginLimiter, logger,
 			adminrest.WithPasswordLimiter(passwordLimiter),
+			adminrest.WithAuthRuntimePointer(sharedAuthRuntime),
 		)
 		// Hold a reference so the reload subscriber can pull the
 		// shared AuthRuntime pointer out at startup.
@@ -271,6 +288,23 @@ func NewServer(
 			guarded.PATCH("/settings/timezone", timezoneHandler.Patch)
 		}
 
+		// Story 485 (N-7a) — current-user profile + settings patch +
+		// change-password. Nil-OK pattern mirrors timezoneHandler: when
+		// the wirer skipped construction (test / minimal boot) the routes
+		// are omitted rather than 5xx-stubbed.
+		//
+		// /me/change-password reuses the SAME per-IP passwordLimiter the
+		// legacy /auth/password sits behind via a tiny adapter (gin doesn't
+		// expose the parent group's middleware as a slice).
+		if meHandler != nil {
+			guarded.GET("/me", meHandler.Get)
+			guarded.PATCH("/me/settings", meHandler.UpdateSettings)
+			guarded.POST("/me/change-password",
+				passwordLimiterMiddleware(passwordLimiter),
+				meHandler.ChangePassword,
+			)
+		}
+
 		oidcTestHandler := adminrest.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
 		guarded.POST("/auth/oidc/test", oidcTestHandler.Test)
 
@@ -307,6 +341,26 @@ func NewServer(
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 	return &Server{cfg: cfg, server: srv, engine: r, authHandler: serverAuthHandler, logger: logger}
+}
+
+// passwordLimiterMiddleware adapts an *auth.IPLimiter into a Gin
+// middleware that mirrors the inline 429 envelope used by the legacy
+// PasswordChange handler. Pulled out so /me/change-password reuses the
+// SAME limiter instance constructed in NewServer rather than allocating
+// a parallel one.
+//
+// The limiter is nil-OK so test wiring that omits cfg.Auth.Enabled gets
+// a pass-through middleware. Story 485 (N-7a).
+func passwordLimiterMiddleware(lim *auth.IPLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if lim != nil && !lim.Allow(c.ClientIP()) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "rate limit exceeded", "code": "RATE_LIMITED",
+			})
+			return
+		}
+		c.Next()
+	}
 }
 
 // probeRateLimit reuses the login limiter so a brute-forcer can't

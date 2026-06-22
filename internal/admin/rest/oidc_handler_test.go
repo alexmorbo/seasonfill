@@ -35,6 +35,12 @@ func (stubAdminRepo) CreateFromOIDC(context.Context, string, string, string) (ad
 }
 func (stubAdminRepo) UpdatePassword(context.Context, uint, string) error       { return nil }
 func (stubAdminRepo) UpdateLastLoginAt(context.Context, uint, time.Time) error { return nil }
+func (stubAdminRepo) GetByUsername(context.Context, string) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
+}
+func (stubAdminRepo) UpdateSettings(context.Context, uint, ports.UserSettingsPatch) error {
+	return nil
+}
 
 func TestOIDCStart_NotConfigured_ReturnsServiceUnavailable(t *testing.T) {
 	t.Parallel()

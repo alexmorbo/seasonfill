@@ -8,8 +8,10 @@ import (
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
+	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -20,9 +22,10 @@ import (
 // wirers (currently they live inside the HTTP server construction).
 
 // AuthBundle holds the auth-domain collaborators wired by BuildAuth.
-// All five handles are passed-through to httpserver.NewServer (AdminRepo,
-// LoginLimiter, WebhookLimiter, OIDCUC) and to the reload OIDC provider
-// subscriber (OIDCCache) constructed in server.go's Run flow.
+// All six handles are passed-through to httpserver.NewServer (AdminRepo,
+// LoginLimiter, WebhookLimiter, OIDCUC, MeHandler, AuthRuntime) and to
+// the reload OIDC provider subscriber (OIDCCache) constructed in
+// server.go's Run flow.
 //
 // AdminRepo  — users CRUD (greenfield D-5 rename of admin_users CRUD),
 //
@@ -40,12 +43,24 @@ import (
 // LoginLimiter / WebhookLimiter — IP-keyed token bucket limiters with
 //
 //	the standard LoginLimit() / WebhookLimit() rates.
+//
+// MeHandler — owner of GET /api/v1/me + PATCH /me/settings +
+//
+//	POST /me/change-password (story 485, N-7a).
+//
+// AuthRuntime — shared atomic the reload subscriber publishes into.
+//
+//	Allocated here so BOTH the MeHandler (built here) and the
+//	AuthHandler (built inside edge.NewServer via
+//	WithAuthRuntimePointer) read the SAME pointer.
 type AuthBundle struct {
 	AdminRepo      *adminpersistence.UserRepository
 	OIDCCache      *infraoidc.ProviderCache
 	OIDCUC         *authapp.OIDCLoginUseCase
 	LoginLimiter   *authapp.IPLimiter
 	WebhookLimiter *authapp.IPLimiter
+	MeHandler      *adminrest.MeHandler
+	AuthRuntime    *middleware.AuthRuntimePointer
 }
 
 // BuildAuth constructs the admin user repo, the OIDC provider cache,
@@ -96,11 +111,24 @@ func BuildAuth(
 	loginLimiter := authapp.NewIPLimiter(authapp.LoginLimit(), 5)
 	webhookLimiter := authapp.NewIPLimiter(authapp.WebhookLimit(), 60)
 
+	// Story 485 (N-7a): allocate the shared AuthRuntime atomic here so
+	// the MeHandler (built next) and the AuthHandler (built inside
+	// edge.NewServer via WithAuthRuntimePointer) read the SAME pointer.
+	// Seeded with mode=forms so the dispatcher and MeHandler agree on
+	// the default before the reload subscriber publishes a snapshot.
+	authRuntime := &middleware.AuthRuntimePointer{}
+	authRuntime.Store(&middleware.AuthRuntime{Mode: runtime.AuthModeForms})
+
+	meUC := authapp.NewMeUseCase(adminRepo)
+	meHandler := adminrest.NewMeHandler(meUC, authRuntime, authLog)
+
 	return &AuthBundle{
 		AdminRepo:      adminRepo,
 		OIDCCache:      oidcCache,
 		OIDCUC:         oidcUC,
 		LoginLimiter:   loginLimiter,
 		WebhookLimiter: webhookLimiter,
+		MeHandler:      meHandler,
+		AuthRuntime:    authRuntime,
 	}, nil
 }

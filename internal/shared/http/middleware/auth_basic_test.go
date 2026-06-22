@@ -59,6 +59,17 @@ func (r *fakeBasicAdminRepo) CreateFromOIDC(_ context.Context, subject, username
 	}
 	return u, nil
 }
+func (r *fakeBasicAdminRepo) GetByUsername(_ context.Context, name string) (admin.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user != nil && r.user.Username == name {
+		return *r.user, nil
+	}
+	return admin.User{}, ports.ErrNotFound
+}
+func (r *fakeBasicAdminRepo) UpdateSettings(_ context.Context, _ uint, _ ports.UserSettingsPatch) error {
+	return nil
+}
 
 func setupAuthBasic(
 	t *testing.T,

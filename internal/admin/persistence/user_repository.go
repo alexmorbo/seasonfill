@@ -153,6 +153,65 @@ func (r *UserRepository) UpdateLastLoginAt(ctx context.Context, userID uint, whe
 	return nil
 }
 
+// GetByUsername returns the user row whose `username` column matches name.
+// Returns errors.Join(UserNotFoundError, ports.ErrNotFound) when no row
+// matches — distinguishable via errors.As / errors.Is.
+//
+// Story 485 (N-7a). The MeHandler reads
+// middleware.UsernameContextKey off the gin context and looks up the
+// row via this method so that even under a future multi-user wire
+// (N-1) the response always reflects the cookie-authenticated user
+// rather than the legacy "first row" invariant on Get().
+func (r *UserRepository) GetByUsername(ctx context.Context, name string) (admin.User, error) {
+	var m database.UserModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("username = ?", name).First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return admin.User{}, errors.Join(
+				&sharedErrors.UserNotFoundError{},
+				ports.ErrNotFound,
+			)
+		}
+		return admin.User{}, fmt.Errorf("get user by username: %w", err)
+	}
+	return modelToUser(m), nil
+}
+
+// UpdateSettings applies a partial user-scope settings patch. Only the
+// columns whose corresponding pointer in `patch` is non-nil are written;
+// updated_at is bumped on every call.
+//
+// Returns errors.Join(UserNotFoundError, ports.ErrNotFound) when userID
+// matches no row. Returns nil on a "no fields to patch" call (the handler
+// already short-circuits empty bodies but the repo stays tolerant).
+func (r *UserRepository) UpdateSettings(ctx context.Context, userID uint, patch ports.UserSettingsPatch) error {
+	updates := map[string]any{"updated_at": time.Now().UTC()}
+	if patch.AvatarMode != nil {
+		updates["avatar_mode"] = *patch.AvatarMode
+	}
+	if patch.PreferredLanguage != nil {
+		updates["preferred_language"] = *patch.PreferredLanguage
+	}
+	if len(updates) == 1 {
+		return nil
+	}
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.UserModel{}).
+		Where("id = ?", userID).
+		Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("update user settings: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return errors.Join(
+			&sharedErrors.UserNotFoundError{},
+			ports.ErrNotFound,
+		)
+	}
+	return nil
+}
+
 func userToModel(u admin.User) database.UserModel {
 	m := database.UserModel{
 		ID:                u.ID,

@@ -968,3 +968,60 @@ type SeasonEpisodeList struct {
 	Have  int                 `json:"have"  example:"11"`
 	Miss  int                 `json:"miss"  example:"13"`
 }
+
+// MeResponse is the wire shape of GET /api/v1/me and PATCH
+// /api/v1/me/settings (story 485, N-7a).
+//
+// Email is `*string` so the absence of a stored email serialises to JSON
+// `null` rather than `""`. PreferredLanguage / IDPProfileURL / OIDCSubject
+// / LastLoginAt follow the same convention.
+//
+// `avatar_mode` is the stored value (one of auto|monogram|gravatar).
+// `avatar_resolved_mode` is the effective value after auto-resolution and
+// the gravatar-without-email fallback — what the FE Avatar component
+// renders. `avatar_hash` is the md5 used by Gravatar; empty when email
+// is null (FE falls back to monogram).
+type MeResponse struct {
+	ID                 uint       `json:"id"                 example:"1"`
+	Username           string     `json:"username"           example:"admin"`
+	Email              *string    `json:"email"              example:"admin@example.com"`
+	Role               string     `json:"role"               example:"admin" enums:"admin,user"`
+	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,basic,none,oidc"`
+	AvatarMode         string     `json:"avatar_mode"        example:"auto" enums:"auto,monogram,gravatar"`
+	AvatarResolvedMode string     `json:"avatar_resolved_mode" example:"gravatar" enums:"gravatar,monogram"`
+	AvatarHash         string     `json:"avatar_hash"        example:"0bc83cb571cd1c50ba6f3e8a78ef1346"`
+	PreferredLanguage  *string    `json:"preferred_language" example:"ru"`
+	IDPProfileURL      *string    `json:"idp_profile_url"    example:"https://keycloak.example.com/realms/homelab/account"`
+	OIDCSubject        *string    `json:"oidc_subject"       example:"abc-123"`
+	LastLoginAt        *time.Time `json:"last_login_at"`
+}
+
+// MeSettingsPatchRequest is the body of PATCH /api/v1/me/settings.
+// Both fields are pointers so the handler can distinguish "absent"
+// (no write) from "explicit value" (write). Unknown fields are rejected
+// at decode time via json.Decoder.DisallowUnknownFields.
+type MeSettingsPatchRequest struct {
+	PreferredLanguage *string `json:"preferred_language,omitempty" example:"ru"`
+	AvatarMode        *string `json:"avatar_mode,omitempty"        example:"gravatar"`
+}
+
+// MeChangePasswordRequest is the body of POST /api/v1/me/change-password.
+type MeChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" example:"hunter22"`
+	NewPassword     string `json:"new_password"     example:"NewSecretLongEnough"`
+}
+
+// MePasswordUnavailableResponse is the 405 envelope for
+// POST /api/v1/me/change-password when auth_mode != forms.
+//
+// Reason values: "managed_by_idp" (oidc), "managed_by_basic_auth"
+// (basic), "auth_disabled" (none).
+//
+// ManageURL is non-nil only for oidc (issuer's account page); nil for
+// basic + none. SPA renders either a deep-link button or a generic
+// notice depending on presence.
+type MePasswordUnavailableResponse struct {
+	Error     string  `json:"error"      example:"password_change_unavailable"`
+	Reason    string  `json:"reason"     example:"managed_by_idp" enums:"managed_by_idp,managed_by_basic_auth,auth_disabled"`
+	ManageURL *string `json:"manage_url" example:"https://keycloak.example.com/realms/homelab/account"`
+}

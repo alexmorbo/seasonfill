@@ -240,6 +240,29 @@ func (r *stubAdminRepo) CreateFromOIDC(_ context.Context, subject, username, ema
 	r.mu.Unlock()
 	return u, nil
 }
+func (r *stubAdminRepo) GetByUsername(_ context.Context, name string) (admin.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user != nil && r.user.Username == name {
+		return *r.user, nil
+	}
+	return admin.User{}, ports.ErrNotFound
+}
+func (r *stubAdminRepo) UpdateSettings(_ context.Context, _ uint, patch ports.UserSettingsPatch) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user == nil {
+		return ports.ErrNotFound
+	}
+	if patch.AvatarMode != nil {
+		r.user.AvatarMode = *patch.AvatarMode
+	}
+	if patch.PreferredLanguage != nil {
+		v := *patch.PreferredLanguage
+		r.user.PreferredLanguage = &v
+	}
+	return nil
+}
 
 func buildServer(t *testing.T) *Server {
 	t.Helper()
@@ -280,6 +303,8 @@ func buildServer(t *testing.T) *Server {
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
 		nil, // timezoneHandler (Story 301)
+		nil, // meHandler (Story 485 N-7a)
+		nil, // sharedAuthRuntime (Story 485 N-7a)
 		lg)
 }
 
@@ -340,6 +365,8 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
 		nil, // timezoneHandler (Story 301)
+		nil, // meHandler (Story 485 N-7a)
+		nil, // sharedAuthRuntime (Story 485 N-7a)
 		lg)
 }
 
@@ -514,6 +541,8 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
 		nil, // timezoneHandler (Story 301)
+		nil, // meHandler (Story 485 N-7a)
+		nil, // sharedAuthRuntime (Story 485 N-7a)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

@@ -278,6 +278,91 @@ func TestUserRepo_UpdateLastLoginAt_NoRow_ErrNotFound(t *testing.T) {
 	}
 }
 
+// TestUserRepo_GetByUsername covers the N-7a per-username lookup path
+// used by the MeHandler to resolve the cookie-authenticated user.
+func TestUserRepo_GetByUsername(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			require.NoError(t, repo.Create(ctx, admin.User{
+				Username:     "alice",
+				PasswordHash: "hash-a",
+			}))
+			require.NoError(t, repo.Create(ctx, admin.User{
+				Username:     "bob",
+				PasswordHash: "hash-b",
+			}))
+
+			gotAlice, err := repo.GetByUsername(ctx, "alice")
+			require.NoError(t, err)
+			assert.Equal(t, "alice", gotAlice.Username)
+			assert.Equal(t, "hash-a", gotAlice.PasswordHash)
+
+			gotBob, err := repo.GetByUsername(ctx, "bob")
+			require.NoError(t, err)
+			assert.Equal(t, "bob", gotBob.Username)
+
+			_, err = repo.GetByUsername(ctx, "missing")
+			require.Error(t, err)
+			var typedErr *sharedErrors.UserNotFoundError
+			require.True(t, errors.As(err, &typedErr))
+			require.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
+}
+
+// TestUserRepo_UpdateSettings covers the N-7a partial settings patch
+// (avatar_mode + preferred_language). The no-op short-circuit, the
+// success path on both columns, and the typed-NotFound miss are all
+// asserted.
+func TestUserRepo_UpdateSettings(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			require.NoError(t, repo.Create(ctx, admin.User{
+				Username:     "alice",
+				PasswordHash: "hash-a",
+			}))
+			created, err := repo.GetByUsername(ctx, "alice")
+			require.NoError(t, err)
+
+			ru := "ru"
+			gravatar := admin.AvatarModeGravatar
+			require.NoError(t, repo.UpdateSettings(ctx, created.ID, ports.UserSettingsPatch{
+				AvatarMode:        &gravatar,
+				PreferredLanguage: &ru,
+			}))
+			after, err := repo.GetByUsername(ctx, "alice")
+			require.NoError(t, err)
+			assert.Equal(t, "gravatar", after.AvatarMode)
+			require.NotNil(t, after.PreferredLanguage)
+			assert.Equal(t, "ru", *after.PreferredLanguage)
+			assert.True(t, after.UpdatedAt.After(created.UpdatedAt) ||
+				after.UpdatedAt.Equal(created.UpdatedAt))
+
+			// Empty patch is a no-op (no DB row needed).
+			require.NoError(t, repo.UpdateSettings(ctx, created.ID, ports.UserSettingsPatch{}))
+
+			// Unknown id surfaces typed not-found.
+			err = repo.UpdateSettings(ctx, 9999, ports.UserSettingsPatch{
+				AvatarMode: &gravatar,
+			})
+			require.Error(t, err)
+			var typedErr *sharedErrors.UserNotFoundError
+			require.True(t, errors.As(err, &typedErr))
+			require.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
+}
+
 // TestUserRepo_OIDCSubject_PartialUnique covers the partial UNIQUE
 // invariant on oidc_subject: NULL collisions allowed, non-NULL
 // collisions rejected.

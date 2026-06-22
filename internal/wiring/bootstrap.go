@@ -819,6 +819,8 @@ func BuildHTTPServer(
 		seriesDetailBundle.RefreshHandler,
 		torrentsyncBundle.SeriesTorrentsHandler,
 		persistence.TimezoneHandler,
+		auth.MeHandler,
+		auth.AuthRuntime,
 		log,
 	)
 }
