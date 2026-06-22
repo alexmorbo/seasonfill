@@ -552,65 +552,14 @@ func BuildEnrichment(
 	}
 
 	nightly := func(ctx context.Context) {
-		// 470 (B-7): sweep is harmless on an empty holder — workers
-		// return ErrTMDBClientNotReady which lands in handleTMDBError
-		// with backoff. Once the holder is populated the next nightly
-		// tick retries those rows naturally.
-		now := time.Now().UTC()
-		// Series sweep: cutoff is 2 × continuing-series TTL (24h).
-		// Stale-rows are series whose canon enrichment_tmdb_synced_at
-		// is NULL or older than the cutoff; retry-rows are
-		// enrichment_errors entries with next_attempt_at <= now.
-		seriesStaleTTL := 2 * 24 * time.Hour
-		seriesStale, err := repos.SeriesStaleScan.ListStaleForTMDB(ctx, seriesStaleTTL, 100)
-		if err != nil {
-			enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
-				slog.String("source", string(enrichment.SourceTMDBSeries)),
-				slog.String("error", err.Error()))
-		}
-		seriesRetries, err := repos.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBSeries, now, 100)
-		if err != nil {
-			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
-				slog.String("source", string(enrichment.SourceTMDBSeries)),
-				slog.String("error", err.Error()))
-		}
-		for _, id := range seriesStale {
-			dispatcher.Enqueue(appenrich.EntitySeries, int64(id), appenrich.PriorityCold)
-		}
-		for _, e := range seriesRetries {
-			dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
-		}
-
-		// 212: person sweep — 30d person TTL → cutoff = now - 60d.
-		personStaleTTL := 60 * 24 * time.Hour
-		var personStale []int64
-		if repos.PeopleStaleScan != nil {
-			personStale, err = repos.PeopleStaleScan.ListStaleForTMDB(ctx, personStaleTTL, 200)
-			if err != nil {
-				enrichmentLog.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
-					slog.String("source", string(enrichment.SourceTMDBPerson)),
-					slog.String("error", err.Error()))
-			}
-		}
-		personRetries, err := repos.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBPerson, now, 200)
-		if err != nil {
-			enrichmentLog.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
-				slog.String("source", string(enrichment.SourceTMDBPerson)),
-				slog.String("error", err.Error()))
-		}
-		for _, id := range personStale {
-			dispatcher.Enqueue(appenrich.EntityPerson, id, appenrich.PriorityCold)
-		}
-		for _, e := range personRetries {
-			dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
-		}
-
-		enrichmentLog.InfoContext(ctx, "enrichment.nightly.swept",
-			slog.Int("series_stale", len(seriesStale)),
-			slog.Int("series_retries", len(seriesRetries)),
-			slog.Int("person_stale", len(personStale)),
-			slog.Int("person_retries", len(personRetries)),
-		)
+		runNightlyTick(ctx, nightlyTickDeps{
+			TMDBHolder:       tmdbHolder,
+			SeriesStaleScan:  repos.SeriesStaleScan,
+			PeopleStaleScan:  repos.PeopleStaleScan,
+			EnrichmentErrors: repos.EnrichmentErrors,
+			Dispatcher:       dispatcher,
+			Log:              enrichmentLog,
+		})
 	}
 
 	// 212 + 318: cold-start backfill closure. Hands repos.ColdStartScanner
@@ -745,6 +694,98 @@ func BuildEnrichment(
 		TMDBBootEnabled: tmdbClient != nil,
 		OMDbBootEnabled: omdbHolder.Load() != nil,
 	}, nil
+}
+
+// nightlyTickDeps groups the dependencies of the nightly stale-scan tick
+// so the tick body can live outside BuildEnrichment for unit testing.
+// All fields are non-nil contracts; the gate at the top short-circuits
+// before any field is touched, so the gate test does NOT need to populate
+// the scanners.
+type nightlyTickDeps struct {
+	TMDBHolder       *adapters.TMDBClientHolder
+	SeriesStaleScan  SeriesStaleScanner
+	PeopleStaleScan  PeopleStaleScanner
+	EnrichmentErrors appenrich.EnrichmentErrorRepo
+	Dispatcher       *appenrich.DispatcherImpl
+	Log              *slog.Logger
+}
+
+// runNightlyTick is the nightly stale-and-retry sweep body. Invoked by
+// the boot scheduler at 04:00 UTC per bootstrap.go cron registration.
+//
+// 483 (B-23): early-return when the TMDB holder is empty. Symmetric with
+// the cold-start `ShouldSweep` gate at enrichment.go:683 and the
+// canon-images recovery gate at :646. Without the gate, an unconfigured
+// install (operator has not saved a TMDB key) emits ~600 enrichment_errors
+// rows per tick via handleTMDBError's retryable-backoff write, costing
+// log noise, DB bloat, and counter inflation. The gate is one
+// atomic.Load — negligible cost.
+//
+// DEBUG (not INFO): on a chronically-unconfigured install the gate
+// fires nightly forever; INFO would spam the daily log window. Same
+// level used by the OMDb activation skip log at enrichment.go:543-547.
+func runNightlyTick(ctx context.Context, d nightlyTickDeps) {
+	if d.TMDBHolder.Load() == nil {
+		d.Log.DebugContext(ctx, "enrichment.nightly.skipped",
+			slog.String("reason", "tmdb_holder_empty"))
+		return
+	}
+
+	now := time.Now().UTC()
+	// Series sweep: cutoff is 2 × continuing-series TTL (24h).
+	// Stale-rows are series whose canon enrichment_tmdb_synced_at
+	// is NULL or older than the cutoff; retry-rows are
+	// enrichment_errors entries with next_attempt_at <= now.
+	seriesStaleTTL := 2 * 24 * time.Hour
+	seriesStale, err := d.SeriesStaleScan.ListStaleForTMDB(ctx, seriesStaleTTL, 100)
+	if err != nil {
+		d.Log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+			slog.String("source", string(enrichment.SourceTMDBSeries)),
+			slog.String("error", err.Error()))
+	}
+	seriesRetries, err := d.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBSeries, now, 100)
+	if err != nil {
+		d.Log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+			slog.String("source", string(enrichment.SourceTMDBSeries)),
+			slog.String("error", err.Error()))
+	}
+	for _, id := range seriesStale {
+		d.Dispatcher.Enqueue(appenrich.EntitySeries, int64(id), appenrich.PriorityCold)
+	}
+	for _, e := range seriesRetries {
+		d.Dispatcher.Enqueue(appenrich.EntitySeries, e.EntityID, appenrich.PriorityCold)
+	}
+
+	// 212: person sweep — 30d person TTL → cutoff = now - 60d.
+	personStaleTTL := 60 * 24 * time.Hour
+	var personStale []int64
+	if d.PeopleStaleScan != nil {
+		personStale, err = d.PeopleStaleScan.ListStaleForTMDB(ctx, personStaleTTL, 200)
+		if err != nil {
+			d.Log.WarnContext(ctx, "enrichment.nightly.stale_scan_failed",
+				slog.String("source", string(enrichment.SourceTMDBPerson)),
+				slog.String("error", err.Error()))
+		}
+	}
+	personRetries, err := d.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBPerson, now, 200)
+	if err != nil {
+		d.Log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+			slog.String("source", string(enrichment.SourceTMDBPerson)),
+			slog.String("error", err.Error()))
+	}
+	for _, id := range personStale {
+		d.Dispatcher.Enqueue(appenrich.EntityPerson, id, appenrich.PriorityCold)
+	}
+	for _, e := range personRetries {
+		d.Dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
+	}
+
+	d.Log.InfoContext(ctx, "enrichment.nightly.swept",
+		slog.Int("series_stale", len(seriesStale)),
+		slog.Int("series_retries", len(seriesRetries)),
+		slog.Int("person_stale", len(personStale)),
+		slog.Int("person_retries", len(personRetries)),
+	)
 }
 
 // dispatcherHolder is a late-binding holder satisfying
