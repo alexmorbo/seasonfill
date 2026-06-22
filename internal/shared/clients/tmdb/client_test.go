@@ -782,6 +782,66 @@ func TestClient_Metrics_ExternalHTTPFamily_OnSuccess(t *testing.T) {
 	}
 }
 
+// TestClient_V3HexAuth_UsesQueryParam verifies Story 471 (B-18): a
+// 32-char hex token is classified as v3 API Key and sent via
+// `?api_key=…` query param, NOT as Authorization header. This is the
+// regression the Phase 2 cutover surfaced — operator pasted a v3 hex
+// key, got 401 from TMDB.
+func TestClient_V3HexAuth_UsesQueryParam(t *testing.T) {
+	const v3Token = "80b85503e3cca9aa92f99ab20f473fb1"
+	var (
+		seenAuth   string
+		seenAPIKey string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		seenAPIKey = r.URL.Query().Get("api_key")
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, v3Token)
+	defer c.Close()
+
+	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
+		t.Fatalf("GetTV: %v", err)
+	}
+	if seenAuth != "" {
+		t.Fatalf("v3 path must NOT send Authorization header, got %q", seenAuth)
+	}
+	if seenAPIKey != v3Token {
+		t.Fatalf("v3 path must send api_key query, got %q", seenAPIKey)
+	}
+}
+
+// TestClient_V4JWTAuth_UsesBearerHeader verifies Story 471 (B-18):
+// a JWT-shaped token (eyJ… with 2 dots) is classified as v4 Read
+// Access Token and sent via Authorization: Bearer header.
+func TestClient_V4JWTAuth_UsesBearerHeader(t *testing.T) {
+	const v4Token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature"
+	var (
+		seenAuth   string
+		seenAPIKey string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		seenAPIKey = r.URL.Query().Get("api_key")
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, v4Token)
+	defer c.Close()
+
+	if _, err := c.GetTV(context.Background(), 1, ""); err != nil {
+		t.Fatalf("GetTV: %v", err)
+	}
+	if seenAuth != "Bearer "+v4Token {
+		t.Fatalf("v4 path must send Bearer header, got %q", seenAuth)
+	}
+	if seenAPIKey != "" {
+		t.Fatalf("v4 path must NOT send api_key query, got %q", seenAPIKey)
+	}
+}
+
 // 429 → literal status="429" path. Compare with Story 306's
 // TestClient_Metrics_RecordsRateLimited which asserts the retry-semantic
 // counter; this one asserts the per-RoundTrip status label is the literal code.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )
 
 // realTester implements Tester by issuing the documented cheap probe
@@ -72,7 +73,12 @@ func buildTestRequest(ctx context.Context, s infra.Settings) (*http.Request, err
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+s.APIKey)
+		// 471 (B-18): TMDB accepts BOTH v3 (32-hex, query) and v4
+		// (JWT, Bearer header) credentials. The connection-test
+		// probe must use the same auth method the runtime client
+		// would pick, or Save → Test would pass for v4 JWT and
+		// fail for v3 hex even when the key is valid.
+		tmdb.ApplyAuth(req, s.APIKey, tmdb.DetectAuthFormat(s.APIKey))
 		return req, nil
 	case infra.ServiceOMDB:
 		u := url.URL{Scheme: "https", Host: "www.omdbapi.com"}

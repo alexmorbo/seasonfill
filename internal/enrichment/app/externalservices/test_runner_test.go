@@ -69,17 +69,58 @@ func TestClassifyTransportErr_GenericNetwork(t *testing.T) {
 	}
 }
 
-func TestBuildTestRequest_TMDB(t *testing.T) {
+func TestBuildTestRequest_TMDB_V4JWT_UsesBearer(t *testing.T) {
 	t.Parallel()
-	req, err := buildTestRequest(context.Background(), infra.Settings{Service: infra.ServiceTMDB, APIKey: "abc"})
+	const v4 = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0In0.sig"
+	req, err := buildTestRequest(context.Background(), infra.Settings{Service: infra.ServiceTMDB, APIKey: v4})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	if req.Method != "GET" || !strings.Contains(req.URL.String(), "api.themoviedb.org") {
 		t.Fatalf("tmdb url wrong: %s %s", req.Method, req.URL)
 	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+v4 {
+		t.Fatalf("v4 tmdb auth header: %q", got)
+	}
+	if got := req.URL.Query().Get("api_key"); got != "" {
+		t.Fatalf("v4 must NOT set api_key query, got %q", got)
+	}
+}
+
+// TestBuildTestRequest_TMDB_V3Hex_UsesQuery verifies Story 471 (B-18):
+// the Settings UI's "Test" button now succeeds for v3 API keys — the
+// 32-hex token is sent via ?api_key=…, NOT as Bearer header.
+func TestBuildTestRequest_TMDB_V3Hex_UsesQuery(t *testing.T) {
+	t.Parallel()
+	const v3 = "80b85503e3cca9aa92f99ab20f473fb1"
+	req, err := buildTestRequest(context.Background(), infra.Settings{Service: infra.ServiceTMDB, APIKey: v3})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("v3 must NOT set Authorization header, got %q", got)
+	}
+	if got := req.URL.Query().Get("api_key"); got != v3 {
+		t.Fatalf("v3 must set api_key query, got %q", got)
+	}
+}
+
+// TestBuildTestRequest_TMDB_UnknownFormat_FallsBackToBearer verifies
+// that a non-classifying token (e.g. truncated paste) still produces
+// a valid Bearer-header request — TMDB will return 401, the test
+// runner classifies as auth_failed, the operator sees the error in
+// the Settings UI.
+func TestBuildTestRequest_TMDB_UnknownFormat_FallsBackToBearer(t *testing.T) {
+	t.Parallel()
+	req, err := buildTestRequest(context.Background(), infra.Settings{Service: infra.ServiceTMDB, APIKey: "abc"})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
 	if got := req.Header.Get("Authorization"); got != "Bearer abc" {
-		t.Fatalf("tmdb auth header: %q", got)
+		t.Fatalf("unknown must fall back to Bearer, got %q", got)
+	}
+	if got := req.URL.Query().Get("api_key"); got != "" {
+		t.Fatalf("unknown must NOT set api_key query, got %q", got)
 	}
 }
 

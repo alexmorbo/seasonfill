@@ -2,10 +2,11 @@
 // (C-2), person_enrichment_worker (C-3), and orphan-resolution path
 // consume. The package owns three concerns:
 //
-//  1. HTTP transport: Bearer-token auth, retry/backoff on 5xx,
-//     Retry-After-honouring 429 handling, 5 rps self-cap. Every
-//     network call goes through the injected *http.Client (proxy-
-//     aware, built by infrastructure/externalservices.HttpClientFor).
+//  1. HTTP transport: v3/v4 auth (query param OR Bearer header),
+//     retry/backoff on 5xx, Retry-After-honouring 429 handling, 5 rps
+//     self-cap. Every network call goes through the injected
+//     *http.Client (proxy-aware, built by
+//     infrastructure/externalservices.HttpClientFor).
 //  2. Raw response types: one *_types.go file per endpoint. These
 //     are strictly JSON-shape structs — no business logic, no
 //     time.Time (TMDB ships dates as YYYY-MM-DD strings; the mapper
@@ -100,6 +101,7 @@ const defaultRetryAfterFallback = 10 * time.Second
 type Client struct {
 	baseURL    string
 	token      string
+	authFormat AuthFormat // Story 471 (B-18) — v3 (query) vs v4 (Bearer header).
 	lang       string
 	httpClient *http.Client
 	limiter    *tokenBucket
@@ -174,6 +176,26 @@ func New(cfg Config) (*Client, error) {
 	if clk == nil {
 		clk = clock.Real()
 	}
+
+	// 471 (B-18): detect TMDB auth format at construction. TMDB
+	// accepts BOTH v3 API Keys (32-char hex, query-param auth) and v4
+	// Read Access Tokens (JWT, Bearer-header auth). Picking the wrong
+	// wire form returns 401. The detector runs once; doOnce funnels
+	// every request through ApplyAuth with the cached format.
+	authFormat := DetectAuthFormat(cfg.Token)
+	if authFormat == AuthFormatUnknown {
+		// Visible operator hint at boot — surfaces in `kubectl logs`
+		// before the first enrichment request fails with 401. Log the
+		// first 4 chars only so the secret is not leaked.
+		last4Hint := cfg.Token
+		if len(last4Hint) > 4 {
+			last4Hint = last4Hint[:4] + "…"
+		}
+		logger.LogAttrs(context.Background(), slog.LevelWarn, "tmdb.auth.unknown_format",
+			slog.String("token_prefix", last4Hint),
+			slog.String("note", "neither 32-hex (v3) nor JWT (v4); defaulting to Bearer header — TMDB may return 401"),
+		)
+	}
 	// Story 351 — wrap the injected httpClient with the per-client
 	// metrics transport. We CLONE the *http.Client so the caller's
 	// shared pointer is left untouched (the media downloader uses the
@@ -191,6 +213,7 @@ func New(cfg Config) (*Client, error) {
 	c := &Client{
 		baseURL:    strings.TrimRight(base, "/"),
 		token:      cfg.Token,
+		authFormat: authFormat, // 471 (B-18)
 		lang:       lang,
 		httpClient: clientWithMetrics,
 		limiter:    newTokenBucket(interval, rateLimitBurst, clk),
@@ -338,7 +361,12 @@ func (c *Client) doOnce(ctx context.Context, path string, query url.Values) ([]b
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("tmdb: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	// 471 (B-18): pick header vs query based on detected token format.
+	// v3 (32-hex) → ?api_key=…; v4 (JWT) / Unknown → Bearer header.
+	// ApplyAuth merges `api_key` into the existing query string built
+	// from `query` above, so language=/append_to_response=/etc.
+	// survive the auth-write step.
+	ApplyAuth(req, c.token, c.authFormat)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
