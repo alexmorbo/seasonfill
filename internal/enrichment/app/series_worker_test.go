@@ -802,16 +802,23 @@ func TestSeriesWorker_StalenessGate_PrefersCanonColumn(t *testing.T) {
 	assert.Empty(t, f.enrichmentErrors.failures)
 }
 
-func TestSeriesWorker_NoTMDBID_TerminalNotFound(t *testing.T) {
+// TestSeriesWorker_NoTMDBID_NoJournal — Story 510 (B-38): canon with
+// tmdb_id == nil represents a permanent natural state for Sonarr-only
+// imports. The worker must NOT journal an enrichment_errors row,
+// must NOT call TMDB, and must return nil. Steady-state cold-start
+// no longer reaches this branch (SQL filter); the only callers are
+// operator-driven manual refresh.
+func TestSeriesWorker_NoTMDBID_NoJournal(t *testing.T) {
 	t.Parallel()
 	f := newWorkerFixture(t, nil, nil)
 	f.seedCanon(1, nil) // tmdb_id is nil
 
 	require.NoError(t, f.worker.Handle(context.Background(), 1))
 
-	last := f.enrichmentErrors.lastFailure()
-	assert.Equal(t, enrichment.SourceTMDBSeries, last.Source)
-	assert.Equal(t, terminalAttempts, last.Attempts, "no tmdb_id ⇒ terminal not_found")
+	assert.Empty(t, f.enrichmentErrors.failures,
+		"no tmdb_id ⇒ no enrichment_errors row written (B-38)")
+	assert.Empty(t, f.enrichmentErrors.cleared,
+		"no tmdb_id ⇒ ClearOnSuccess MUST NOT fire either")
 	assert.Equal(t, 0, f.tmdb.getTVHit, "no TMDB call when no tmdb_id")
 }
 

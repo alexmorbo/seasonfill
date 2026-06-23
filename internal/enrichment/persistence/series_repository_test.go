@@ -299,6 +299,28 @@ func TestSeriesRepository_ListMissingTMDBSync(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, ids, idC)
 			assert.Contains(t, ids, idD, "OMDb-only sync MUST NOT count as TMDB-sync presence")
+
+			// Story 510 (B-38): a series with tmdb_id IS NULL must NOT
+			// appear in the cold-start scanner output, even when
+			// enrichment_tmdb_synced_at is also NULL (which would have
+			// matched pre-510). Legacy Sonarr-imported rows fall in
+			// this bucket and previously generated per-tick log noise.
+			t.Run("ExcludesSeriesWithNullTMDBID", func(t *testing.T) {
+				e := sampleCanon("E-no-tmdb")
+				e.TMDBID = nil
+				e.TVDBID = nil
+				e.IMDBID = nil
+				e.EnrichmentTMDBSyncedAt = nil
+				idE, err := repo.Upsert(ctx, e)
+				require.NoError(t, err)
+
+				ids, err := repo.ListMissingTMDBSync(ctx, 100)
+				require.NoError(t, err)
+				assert.NotContains(t, ids, idE,
+					"series with tmdb_id IS NULL MUST be excluded (B-38)")
+				assert.Contains(t, ids, idC,
+					"series with tmdb_id set and no sync timestamp MUST still appear")
+			})
 		})
 	}
 }

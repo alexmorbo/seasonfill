@@ -406,12 +406,22 @@ func (r *SeriesRepository) ListStaleForTMDB(ctx context.Context, ttl time.Durati
 	return ids, nil
 }
 
-// ListMissingTMDBSync returns series.id rows that have never been
-// TMDB-enriched (enrichment_tmdb_synced_at IS NULL). The cold-start
-// backfill loop (Story 212, rewritten in 464b) consumes this to enqueue
-// initial enrichment jobs. The column-on-canon path replaces the
-// pre-D-3 LEFT JOIN sync_log lookup — same selectivity, ~5× faster
-// (no join, direct WHERE on the column the worker stamps on success).
+// ListMissingTMDBSync returns series.id rows that:
+//   - have a non-NULL tmdb_id (TMDB-enrichable; B-38 fix), AND
+//   - have never been TMDB-enriched (enrichment_tmdb_synced_at IS NULL).
+//
+// The tmdb_id filter (Story 510, B-38) excludes legacy Sonarr-imported
+// series whose canon row has no TMDB ID — those rows are unreachable
+// by the TMDB enrichment path and re-enqueuing them every 6h sweep
+// produced log noise ("no tmdb_id on canon") with no actionable
+// outcome. Operator-driven manual refresh still works via the
+// /series/{id}/refresh path (which bypasses this scanner).
+//
+// The cold-start backfill loop (Story 212, rewritten in 464b) consumes
+// this to enqueue initial enrichment jobs. The column-on-canon path
+// replaces the pre-D-3 LEFT JOIN sync_log lookup — same selectivity,
+// ~5× faster (no join, direct WHERE on the column the worker stamps on
+// success).
 func (r *SeriesRepository) ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -420,7 +430,7 @@ func (r *SeriesRepository) ListMissingTMDBSync(ctx context.Context, limit int) (
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series").
 		Select("id").
-		Where("enrichment_tmdb_synced_at IS NULL").
+		Where("enrichment_tmdb_synced_at IS NULL AND tmdb_id IS NOT NULL").
 		Limit(limit).
 		Pluck("id", &ids).Error
 	if err != nil {

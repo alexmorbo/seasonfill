@@ -122,8 +122,20 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 		return fmt.Errorf("series worker: load canon: %w", err)
 	}
 	if canon.TMDBID == nil {
-		// No tmdb_id — TMDB cannot enrich. Journal terminal not_found.
-		w.journalNotFound(ctx, seriesID, "no tmdb_id on canon", start)
+		// No tmdb_id — TMDB cannot enrich. This is a permanent natural
+		// state for Sonarr-only imports (Sonarr does not always populate
+		// tmdbId in /api/v3/series). Story 510 (B-38): we no longer
+		// journal an enrichment_errors row here — the row would never
+		// clear (no retry resolves it), would pollute the
+		// ListDueForRetry/degraded[] consumers, and would inflate the
+		// enrichment_errors_total metric. Cold-start scanner now filters
+		// these rows at the SQL level (ListMissingTMDBSync WHERE
+		// tmdb_id IS NOT NULL), so the only path reaching this branch in
+		// steady state is operator-driven manual refresh — log at Debug
+		// for diagnosis, return silently.
+		log.DebugContext(ctx, "enrichment.series.handle.no_tmdb_id_skip",
+			slog.String("domain", "enrichment"),
+		)
 		return nil
 	}
 
@@ -1154,25 +1166,6 @@ func (w *SeriesWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, 
 			slog.String("error", err.Error()))
 	}
 	_ = durMs // surfaced on the caller's ok log line
-}
-
-// journalNotFound records a terminal-attempts error row when canon has
-// no tmdb_id (or the bare-Find path returned nil). Marks the row
-// non-retryable via attempts=terminalAttempts, no NextAttemptAt.
-func (w *SeriesWorker) journalNotFound(ctx context.Context, seriesID domain.SeriesID, msg string, start time.Time) {
-	now := w.deps.Clock()
-	durMs := int(now.Sub(start).Milliseconds())
-	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
-		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
-		slog.Int64("entity_id", int64(seriesID)),
-		slog.String("source", string(enrichment.SourceTMDBSeries)),
-	)
-	w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, errors.New(msg), terminalAttempts, nil, log)
-	log.InfoContext(ctx, "enrichment.series.handle.not_found",
-		slog.String("reason", msg),
-		slog.Int("duration_ms", durMs),
-	)
 }
 
 // ---- mapping helpers (private) -------------------------------------
