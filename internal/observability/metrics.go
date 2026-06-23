@@ -2,6 +2,7 @@ package observability
 
 import (
 	"io"
+	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 
@@ -132,6 +133,23 @@ const (
 	MetricCacheEvictionsTotal = `cache_evictions_total`
 	MetricCachePendingFetches = `cache_pending_fetches`
 	MetricCacheDedupHitsTotal = `cache_dedup_hits_total`
+
+	// Story 506 — discovery worker observability (PRD §5.1.1 lines
+	// 696-702). Five families. Labels:
+	//   - kind:     closed set {trending_day, trending_week, popular,
+	//                by_genre, by_network, by_keyword}
+	//   - language: per-list language tag (e.g. "en-US", "ru-RU")
+	//   - outcome:  closed set {ok, error} on the refresh counter ONLY
+	//
+	// discovery_warming is a 0/1 GLOBAL gauge (no labels) — 1 from
+	// worker construction until the first successful repo.ReplaceList
+	// for ANY (kind, language). The handler (story 507) reads it to
+	// emit the {"degraded":["discovery_warming"]} JSON wrapper.
+	MetricDiscoveryRefreshTotal           = `seasonfill_discovery_refresh_total`
+	MetricDiscoveryRefreshDurationSeconds = `seasonfill_discovery_refresh_duration_seconds`
+	MetricDiscoveryListAgeSeconds         = `seasonfill_discovery_list_age_seconds`
+	MetricDiscoveryListSize               = `seasonfill_discovery_list_size`
+	MetricDiscoveryWarming                = `seasonfill_discovery_warming`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -377,6 +395,55 @@ func AddRecoverySweepEnqueued(kind string, n int) {
 func SetTMDBRateLimitInPause(paused bool) {
 	g := metrics.GetOrCreateGauge(`tmdb_rate_limit_in_pause`, nil)
 	if paused {
+		g.Set(1)
+		return
+	}
+	g.Set(0)
+}
+
+// IncDiscoveryRefresh ticks the per-(kind,language,outcome) refresh
+// counter. outcome ∈ {"ok","error"} per the closed label set; any
+// caller passing other values pollutes the cardinality budget — the
+// worker is the only writer and only emits ok|error.
+func IncDiscoveryRefresh(kind, language, outcome string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_discovery_refresh_total{kind="` + kind +
+			`",language="` + language +
+			`",outcome="` + outcome + `"}`).Inc()
+}
+
+// ObserveDiscoveryRefreshDuration records the per-refresh wall-clock
+// (TMDB fetch + stub-upsert fan-out + ReplaceList). Seconds, histogram.
+func ObserveDiscoveryRefreshDuration(kind, language string, d time.Duration) {
+	metrics.GetOrCreateHistogram(
+		`seasonfill_discovery_refresh_duration_seconds{kind="` + kind +
+			`",language="` + language + `"}`).Update(d.Seconds())
+}
+
+// SetDiscoveryListAge publishes seconds-since-last-refresh per
+// (kind, language). Worker writes this right after a successful
+// ReplaceList (where age=0) so dashboards see a sawtooth.
+func SetDiscoveryListAge(kind, language string, ageSeconds float64) {
+	metrics.GetOrCreateGauge(
+		`seasonfill_discovery_list_age_seconds{kind="`+kind+
+			`",language="`+language+`"}`, nil).Set(ageSeconds)
+}
+
+// SetDiscoveryListSize publishes the row count after a ReplaceList.
+// 0 means "list cleared" — alert if size==0 for >1 ScheduleFor cycle.
+func SetDiscoveryListSize(kind, language string, size int) {
+	metrics.GetOrCreateGauge(
+		`seasonfill_discovery_list_size{kind="`+kind+
+			`",language="`+language+`"}`, nil).Set(float64(size))
+}
+
+// SetDiscoveryWarming flips the 0/1 global gauge. Worker sets it to
+// 1 at construction and to 0 the first time any ReplaceList succeeds.
+// Subsequent flips back to 1 are NOT supported by spec — the gauge
+// is monotonic 1→0 within a process lifetime.
+func SetDiscoveryWarming(warming bool) {
+	g := metrics.GetOrCreateGauge(`seasonfill_discovery_warming`, nil)
+	if warming {
 		g.Set(1)
 		return
 	}
