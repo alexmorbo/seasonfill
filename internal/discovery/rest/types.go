@@ -1,0 +1,70 @@
+// types.go declares the wire DTOs for the discovery HTTP surface
+// (story 507 N-2f). Shapes pin PRD §5.1 lines 483-499 + §5.1.1
+// cold-start envelope (lines 665-678).
+//
+// Domain rule: this file imports stdlib + gin-free types only. The
+// handler converts disco.Item → DiscoverySeriesItem at projection
+// time; the worker / repository never see these structs.
+package rest
+
+import "time"
+
+// DiscoverySeriesItem is one row of GET /api/v1/discovery/* responses.
+// Shape per PRD §5.1 lines 483-499.
+//
+// SeriesID is the local catalog primary key. TMDBID is the public
+// TMDB id when present (a stub may have NULL tmdb_id). Pointer
+// fields encode "column was NULL on the joined series row".
+//
+// InLibraryInstances is the list of Sonarr instance slugs the series
+// is registered to. Empty slice (never nil) when not in any library
+// — a discovery hit on a TMDB-only stub still returns [] so the FE
+// can render an "Add to library" CTA. Story 507 populates this from
+// a future cross-instance lookup; until N-2g lands the slice ships
+// as []string{} unconditionally.
+//
+// Genres is the localised genre name slice — populated by the handler
+// at projection time from the series_genres × genres_i18n join. The
+// repo leaves it nil; the handler renders [] when empty.
+type DiscoverySeriesItem struct {
+	ID                 int64    `json:"id"`
+	TMDBID             *int     `json:"tmdb_id,omitempty"`
+	Title              string   `json:"title"`
+	OriginalTitle      *string  `json:"original_title,omitempty"`
+	Year               *int     `json:"year,omitempty"`
+	PosterPath         *string  `json:"poster_path,omitempty"`
+	BackdropPath       *string  `json:"backdrop_path,omitempty"`
+	TMDBRating         *float64 `json:"tmdb_rating,omitempty"`
+	IMDBRating         *float64 `json:"imdb_rating,omitempty"`
+	Status             *string  `json:"status,omitempty"`
+	InLibraryInstances []string `json:"in_library_instances"`
+	Genres             []string `json:"genres,omitempty"`
+}
+
+// DiscoveryListResponse wraps the paged item slice + freshness +
+// cold-start hints. Per PRD §5.1.1 lines 660-678.
+//
+// Degraded carries non-fatal status hints that change the FE render:
+//   - "discovery_warming" — worker has not yet completed first refresh
+//   - "tmdb_throttled"    — last refresh hit a 429 (data may be stale)
+//   - "refresh_failed"    — on-demand refresh errored but stale rows
+//     are being returned anyway
+//   - "genre_unknown_to_tmdb" — on-demand refresh returned 0 items
+//     for a long-tail param.
+//
+// WarmingEst is the rough seconds-until-first-list-ready estimate.
+// Populated only when "discovery_warming" appears in Degraded.
+type DiscoveryListResponse struct {
+	Items       []DiscoverySeriesItem `json:"items"`
+	RefreshedAt time.Time             `json:"refreshed_at"`
+	Page        int                   `json:"page"`
+	PerPage     int                   `json:"per_page"`
+	Total       int                   `json:"total"`
+	Degraded    []string              `json:"degraded,omitempty"`
+	WarmingEst  *int                  `json:"warming_estimate_seconds,omitempty"`
+}
+
+// WarmingEstimateSeconds is the constant value surfaced when the
+// worker is still in cold-start. Picked from PRD §5.1.1 line 678 —
+// "30s is the 95th-percentile cold-start latency at homelab scale".
+const WarmingEstimateSeconds = 30

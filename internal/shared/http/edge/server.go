@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
@@ -81,6 +82,7 @@ func NewServer(
 	meHandler *adminrest.MeHandler,
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
+	discoveryHandler *discoveryrest.DiscoveryHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -276,6 +278,19 @@ func NewServer(
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
 		)
+		// Story 507 (N-2f) — curated discovery read endpoints.
+		// Nil-OK pattern: when wiring did not construct the handler
+		// (TMDB disabled at boot or test wiring) the routes are
+		// omitted rather than 5xx-stubbed.
+		if discoveryHandler != nil {
+			guarded.GET("/discovery/trending", discoveryHandler.Trending)
+			guarded.GET("/discovery/popular", discoveryHandler.Popular)
+			guarded.GET("/discovery/genre/:id", discoveryHandler.ByGenre)
+			guarded.GET("/discovery/network/:id", discoveryHandler.ByNetwork)
+			guarded.GET("/discovery/keyword/:id", discoveryHandler.ByKeyword)
+			guarded.GET("/discovery/genres", discoveryHandler.PickerGenres)
+			guarded.GET("/discovery/networks", discoveryHandler.PickerNetworks)
+		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)
 			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)

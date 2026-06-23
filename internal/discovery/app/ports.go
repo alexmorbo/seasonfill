@@ -56,3 +56,25 @@ type StubUpserter interface {
 type ActiveLanguagesProvider interface {
 	ActiveLanguages(ctx context.Context) ([]string, error)
 }
+
+// WarmingProbe is the narrow read-only surface story 507 handlers use
+// to render a cold-start envelope on /discovery/trending and /popular
+// before the worker's first successful list refresh. Satisfied by
+// *Worker.IsWarming.
+type WarmingProbe interface {
+	IsWarming() bool
+}
+
+// RefreshOnDemand is the narrow write surface story 507 long-tail
+// handlers (/discovery/genre /network /keyword) use to trigger an
+// inline refresh when the requested (kind, param, lang) tuple is
+// missing or stale-by-7d. Satisfied by *Worker.RefreshNow.
+//
+// Concurrency note (mirrors Worker.RefreshNow godoc): callers MUST
+// de-dupe at the (kind, param, lang) key — the worker does NOT
+// coalesce concurrent invocations. Story 507's HTTP handlers use
+// singleflight to collapse parallel cold-cache requests onto one
+// TMDB fetch.
+type RefreshOnDemand interface {
+	RefreshNow(ctx context.Context, kind disco.Kind, param, lang string) error
+}

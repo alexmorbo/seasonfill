@@ -244,13 +244,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	seriesDetailMediaResolver := seriesDetailBundle.MediaResolver
 	peopleEnqueuerHolder := seriesDetailBundle.PersonEnqueuerHolder
 
-	httpServer := wiring.BuildHTTPServer(
-		persistence, runtimecfg, auth,
-		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
-		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
-		mediaBundle, seriesDetailBundle,
-		seriesCacheRepo, counterRepo, log,
-	)
+	// httpServer is constructed AFTER BuildEnrichment + the discovery
+	// runtime block below so the curated discovery handler (story 507
+	// N-2f) — which depends on the worker's IsWarming/RefreshNow ports
+	// — can be wired through the request chain. The late-bind zone
+	// further down mutates handler internals AFTER BuildHTTPServer
+	// returns; that pattern still holds because gin captures method
+	// pointers and the struct's internal state is observed via
+	// per-request dispatch.
 
 	// Cooldown sweep — reload-aware cadence via SetInterval from the
 	// OnApplied fan-out. Constructed in BuildScan; spawned here so
@@ -432,8 +433,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		discoTMDB = enrichBundle.TMDBHolder
 	}
+	var discoRuntime *wiring.DiscoveryRuntimeBundle
 	if discoTMDB != nil {
-		discoRuntime, err := wiring.BuildDiscoveryRuntime(wiring.DiscoveryRuntimeDeps{
+		discoRuntime, err = wiring.BuildDiscoveryRuntime(wiring.DiscoveryRuntimeDeps{
 			Persistence: discoPersistence,
 			DB:          db,
 			TMDB:        discoTMDB,
@@ -448,6 +450,36 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 				sharedports.DomainLogger(log, "discovery"))
 		})
 	}
+
+	// Story 507 (N-2f) — curated discovery HTTP handler. Built only
+	// when the discovery runtime exists (i.e. TMDB was constructable
+	// at boot). When TMDB is runtime-only enabled (operator flips
+	// from disabled→configured), the routes will be absent until pod
+	// restart — explicit trade-off documented in 507's roadmap notes.
+	var discoveryHTTPBundle *wiring.DiscoveryHTTPBundle
+	if discoRuntime != nil {
+		discoveryHTTPBundle = wiring.BuildDiscoveryHTTP(
+			persistence,
+			discoRuntime,
+			discoPersistence.ListRepo,
+			sharedports.DomainLogger(log, "discovery"),
+		)
+	}
+
+	// BuildHTTPServer now runs AFTER enrichBundle + discovery wirings
+	// so the curated discovery handler can be threaded through. The
+	// later late-bind zone still mutates already-registered handler
+	// internals (mediaHandler.SetOnDemandFetcher etc.) — moved BELOW
+	// here so the routes are registered before the LATE BIND mutations
+	// kick in (these are no-ops from the route-registration POV; gin
+	// captured method pointers).
+	httpServer := wiring.BuildHTTPServer(
+		persistence, runtimecfg, auth,
+		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
+		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
+		mediaBundle, seriesDetailBundle,
+		seriesCacheRepo, counterRepo, discoveryHTTPBundle, log,
+	)
 
 	// Boot scheduler — constructed after BuildEnrichment so the four
 	// enrichment-derived job closures are ready. BuildScheduler Registers

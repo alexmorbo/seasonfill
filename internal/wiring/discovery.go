@@ -11,6 +11,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	discopersistence "github.com/alexmorbo/seasonfill/internal/discovery/persistence"
+	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -160,4 +161,42 @@ func (a *stubUpserterAdapter) EnsureStub(
 		BackdropAsset: backdrop,
 	}
 	return a.seriesRepo.UpsertStub(ctx, canon)
+}
+
+// DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507.
+type DiscoveryHTTPBundle struct {
+	Handler  *discoveryrest.DiscoveryHandler
+	Genres   *discopersistence.GenresPickerRepo
+	Networks *discopersistence.NetworksPickerRepo
+}
+
+// BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler.
+//
+// The Worker arg satisfies BOTH narrow ports the handler reads — the
+// concrete *Worker is passed; Go's interface satisfaction unifies
+// (worker.IsWarming, worker.RefreshNow) onto the
+// (WarmingProbe, RefreshOnDemand) tuple at the call site.
+//
+// log MUST already carry the "discovery" domain tag.
+func BuildDiscoveryHTTP(
+	persistence *PersistenceBundle,
+	runtime *DiscoveryRuntimeBundle,
+	listRepo discoapp.DiscoveryListRepo,
+	log *slog.Logger,
+) *DiscoveryHTTPBundle {
+	genres := discopersistence.NewGenresPickerRepo(persistence.DB)
+	networks := discopersistence.NewNetworksPickerRepo(persistence.DB)
+	h := discoveryrest.NewDiscoveryHandler(
+		listRepo,
+		runtime.Worker, // satisfies WarmingProbe
+		runtime.Worker, // satisfies RefreshOnDemand
+		genres,
+		networks,
+		log,
+	)
+	return &DiscoveryHTTPBundle{
+		Handler:  h,
+		Genres:   genres,
+		Networks: networks,
+	}
 }

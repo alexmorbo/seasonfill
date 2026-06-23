@@ -18,10 +18,11 @@
 //
 // Import direction (PRD §3.3): once populated, rest MAY import
 // internal/discovery/app (use-case wiring), internal/discovery/domain
-// (value types), and the shared HTTP kernel (interface/http/dto until
-// it relocates into internal/shared/dto/). It MUST NOT reach into
-// internal/discovery/persistence, and MUST NOT depend on other
-// bounded contexts' rest leaves. The depcheck guard
+// (value types), internal/discovery/persistence (picker repos for
+// non-list catalog reads such as /discovery/genres + /discovery/networks
+// — story 507 N-2f), and the shared HTTP kernel (interface/http/dto
+// until it relocates into internal/shared/dto/). It MUST NOT depend
+// on other bounded contexts' rest leaves. The depcheck guard
 // tests/lint_discovery_imports_test.go pins this rule from
 // story 447 onward.
 package rest

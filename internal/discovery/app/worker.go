@@ -432,3 +432,32 @@ func parseYear(d string) *int {
 	}
 	return &y
 }
+
+// IsWarming reports whether the worker has yet completed its first
+// successful list refresh. Returns true between boot and the first
+// ReplaceList ok-flip; false thereafter. Read by the discovery HTTP
+// handlers (story 507) to surface a cold-start envelope on
+// /trending /popular requests instead of an empty 200.
+//
+// The flag is sticky-OFF — once a refresh succeeds the worker never
+// flips back to "warming" (a transient TMDB outage downgrades to
+// degraded:["tmdb_throttled"] in the handler instead). The atomic
+// load is cheap enough to call on every request without contention.
+func (w *Worker) IsWarming() bool {
+	return !w.warmingOnce.Load()
+}
+
+// RefreshNow runs a single (kind, param, lang) refresh synchronously.
+// Exposes the private `refresh` for the story 507 on-demand long-tail
+// path: a /discovery/genre/{id} request whose list is missing or
+// stale-by-7d triggers RefreshNow inline so the response carries
+// freshly-fetched items instead of 0 results.
+//
+// Concurrency: callers MUST de-dupe at the (kind, param, lang) key
+// (e.g. golang.org/x/sync/singleflight) — RefreshNow itself does not
+// coalesce duplicate calls. The worker's main Tick loop is
+// single-threaded, but on-demand requests are concurrent per gin
+// request goroutine.
+func (w *Worker) RefreshNow(ctx context.Context, kind disco.Kind, param, lang string) error {
+	return w.refresh(ctx, kind, param, lang)
+}

@@ -20,6 +20,7 @@ import (
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -779,8 +780,13 @@ func BuildHTTPServer(
 	seriesDetailBundle *SeriesDetailBundle,
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
+	discoveryHTTP *DiscoveryHTTPBundle,
 	log *slog.Logger,
 ) *httpserver.Server {
+	var discoveryHandler *discoveryrest.DiscoveryHandler
+	if discoveryHTTP != nil {
+		discoveryHandler = discoveryHTTP.Handler
+	}
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -822,6 +828,7 @@ func BuildHTTPServer(
 		auth.MeHandler,
 		auth.AuthRuntime,
 		seriesDetailBundle.GlobalSeriesHandler,
+		discoveryHandler,
 		log,
 	)
 }
