@@ -375,6 +375,20 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		tmdbSub.Apply(rootCtx, extSub.Get(infraextsvc.ServiceTMDB))
 	}
 
+	// Story 497 (B-35) — boot-time validation of configured TMDB+OMDb
+	// keys. Without this, a pod restart wipes the per-pod
+	// `validationResults` sync.Map (Story 489 B-17), trapping the
+	// onboarding stepper (Story 494 N-1d) at step 3/4 = "in_progress"
+	// until the operator clicks "Test" in Settings. The boot kick
+	// re-runs the same validate-on-save probe used by Upsert so the
+	// stepper auto-advances to "done" (valid) / "error" (invalid_key)
+	// within ~30s of pod ready. Async-from-caller's POV — the
+	// errgroup inside the UC blocks the goroutine but not the boot
+	// path. lifecycle.Go drains the goroutine cleanly on shutdown.
+	lifecycle.Go(rootCtx, "extsvc-boot-validation", func(ctx context.Context) {
+		extSvcBundle.UC.ValidateConfiguredKeysOnBoot(ctx)
+	})
+
 	// ───────── LATE BIND ZONE ─────────
 	// The three callsites below need enrichBundle (its dispatcher /
 	// fetcher / enqueuer don't exist at BuildSeriesDetail / BuildMedia

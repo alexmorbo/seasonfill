@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	infra "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	apports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -313,6 +315,13 @@ type TestResult struct {
 // so the realTester probe and any future probe inherit the same cap.
 const testTimeout = 5 * time.Second
 
+// bootValidationTimeout caps each per-service boot validation probe.
+// More generous than testTimeout because boot networking (proxy ramp,
+// DNS warm) can be slower than steady-state operator-driven Test(). 30s
+// is the empirical "operator-tolerable cold-start window" per night-run
+// 2026-06-19 observations on through-vpn node. Story 497 (B-35).
+const bootValidationTimeout = 30 * time.Second
+
 // Test performs a real upstream call against the merged settings,
 // classifies the outcome, and persists it. Returns the result for
 // immediate UI feedback even when persistence fails (the operator
@@ -376,6 +385,107 @@ func (uc *UseCase) Test(ctx context.Context, svc infra.Service) (TestResult, err
 		}
 	}
 	return TestResult{Outcome: outcome, Message: message, LatencyMS: latency.Milliseconds()}, nil
+}
+
+// ValidateConfiguredKeysOnBoot re-runs the same validate-on-save probe
+// used by Upsert (Story 489 B-17) against every configured external
+// service at process start. Without this, a pod restart leaves the
+// per-pod `validationResults` sync.Map empty until either an
+// operator-driven Test() (Story 489) or a live 401 from the enrichment
+// worker (Story 489 hot path) repopulates it. The Dashboard
+// `useStepperState` hook (Story 494 N-1d) gates step 3 (TMDB) +
+// step 4 (OMDb) on `last_validation_status` — empty → "in_progress"
+// (blue spinner) — which traps the operator at the stepper screen
+// after every restart. Story 497 (B-35) closes that gap.
+//
+// Scope: TMDB + OMDb only. TVDB has no stepper entry (Decision §2 in
+// the story). For each service:
+//   - merged := EffectiveSettings(svc) (env > DB).
+//   - skip silently if APIKey == "" (service unconfigured).
+//   - probe via uc.tester.Test under a 30s timeout
+//     (bootValidationTimeout, more generous than testTimeout because
+//     boot networking is slower than steady-state).
+//   - OutcomeOK              → recordValidationOK (stamp "valid").
+//   - OutcomeAuthFailed      → validationResults.Store("invalid_key"
+//   - truncated body).
+//   - transient (network/timeout/proxy_failed/dns_blocked) → no stamp;
+//     log at debug level; next periodic scheduler/operator save retries
+//     (Decision §4).
+//
+// Concurrency: TMDB + OMDb probes run in parallel via errgroup.
+// Per-service ctx is derived from the caller's ctx; shutdown cancels
+// in-flight probes cleanly. Errors are logged inline — the errgroup
+// itself never propagates an error (every worker returns nil).
+//
+// Caller: server.go spawns this on rootCtx via lifecycle.Go after the
+// reload subscribers are registered (so the sync.Map stamps are
+// observed by the same fan-out used by Upsert/Test). Boot is NOT
+// blocked — the goroutine runs asynchronously.
+func (uc *UseCase) ValidateConfiguredKeysOnBoot(ctx context.Context) {
+	if uc == nil || uc.tester == nil {
+		return
+	}
+	services := []infra.Service{infra.ServiceTMDB, infra.ServiceOMDB}
+	g, gctx := errgroup.WithContext(ctx)
+	for _, svc := range services {
+		g.Go(func() error {
+			uc.validateOneOnBoot(gctx, svc)
+			return nil
+		})
+	}
+	// Wait blocks until both probes finish or gctx cancels. We do not
+	// surface an error — every worker swallows its own outcome into the
+	// sync.Map / log; errgroup itself is just a concurrency primitive.
+	_ = g.Wait()
+}
+
+// validateOneOnBoot runs one boot-time probe for svc. Pure side-effect
+// (sync.Map + slog). Story 497 (B-35).
+func (uc *UseCase) validateOneOnBoot(ctx context.Context, svc infra.Service) {
+	merged, err := uc.EffectiveSettings(ctx, svc)
+	if err != nil {
+		uc.logger.WarnContext(ctx, "extsvc.validation.boot_kick.settings_read_failed",
+			slog.String("service", string(svc)),
+			slog.Any("err", err),
+		)
+		return
+	}
+	if merged.APIKey == "" {
+		// Service unconfigured — operator never set a key. No stamp,
+		// no log noise (Decision §3). The stepper shows "todo" via
+		// !api_key_configured branch, which is correct.
+		return
+	}
+	pctx, cancel := context.WithTimeout(ctx, bootValidationTimeout)
+	defer cancel()
+	outcome, message, _ := uc.tester.Test(pctx, merged)
+	switch outcome {
+	case infra.OutcomeOK:
+		uc.recordValidationOK(svc)
+		uc.logger.InfoContext(ctx, "extsvc.validation.boot_kick",
+			slog.String("service", string(svc)),
+			slog.String("status", "valid"),
+		)
+	case infra.OutcomeAuthFailed:
+		uc.validationResults.Store(svc, validationResult{
+			At:      uc.now(),
+			Status:  "invalid_key",
+			Message: message,
+		})
+		uc.logger.WarnContext(ctx, "extsvc.validation.boot_kick",
+			slog.String("service", string(svc)),
+			slog.String("status", "invalid_key"),
+			slog.String("message", message),
+		)
+	default:
+		// Transient (network/timeout/proxy_failed/dns_blocked). No stamp.
+		// Operator action or next periodic poll repopulates (Decision §4).
+		uc.logger.DebugContext(ctx, "extsvc.validation.boot_kick",
+			slog.String("service", string(svc)),
+			slog.String("status", "skipped_transient"),
+			slog.String("outcome", string(outcome)),
+		)
+	}
 }
 
 // EffectiveSettings returns the merged (env > DB) plaintext settings

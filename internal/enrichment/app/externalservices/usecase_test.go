@@ -3,6 +3,7 @@ package externalservices
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -686,4 +687,250 @@ func TestTest_OutcomeOK_ClearsInvalidKeyFlag(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Story 497 (B-35): boot validation stamps "valid" when TMDB probe
+// succeeds and "invalid_key" when OMDb probe returns 401. Both
+// services configured.
+func TestValidateConfiguredKeysOnBoot_StampsValidAndInvalidKey(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "good-tmdb", APIKeyLast4: "tmdb",
+	}
+	repo.row[infra.ServiceOMDB] = infra.Settings{
+		Service: infra.ServiceOMDB, APIKey: "bad-omdb", APIKeyLast4: "mdb1",
+	}
+	// One tester drives both services; outcome is stamped by Service
+	// in the stub's recorded call. Real-world the realTester picks
+	// the right probe via Settings.Service. We split outcomes by
+	// wrapping in a switch on the merged Service field.
+	tester := &perServiceTester{
+		byService: map[infra.Service]testerResult{
+			infra.ServiceTMDB: {outcome: infra.OutcomeOK, msg: "ok"},
+			infra.ServiceOMDB: {outcome: infra.OutcomeAuthFailed, msg: "401 invalid api"},
+		},
+	}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	uc.ValidateConfiguredKeysOnBoot(context.Background())
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var tmdbView, omdbView MaskedView
+	for _, v := range views {
+		switch v.Service {
+		case infra.ServiceTMDB:
+			tmdbView = v
+		case infra.ServiceOMDB:
+			omdbView = v
+		}
+	}
+	if tmdbView.LastValidationStatus != "valid" {
+		t.Fatalf("TMDB expected valid, got %q", tmdbView.LastValidationStatus)
+	}
+	if tmdbView.LastValidationAt == nil {
+		t.Fatalf("TMDB expected LastValidationAt set")
+	}
+	if omdbView.LastValidationStatus != "invalid_key" {
+		t.Fatalf("OMDb expected invalid_key, got %q", omdbView.LastValidationStatus)
+	}
+	if omdbView.LastValidationMessage != "401 invalid api" {
+		t.Fatalf("OMDb unexpected message: %q", omdbView.LastValidationMessage)
+	}
+	// TVDB MUST remain unstamped (out of scope per Decision §2).
+	for _, v := range views {
+		if v.Service == infra.ServiceTVDB && v.LastValidationStatus != "" {
+			t.Fatalf("TVDB must not be probed on boot, got status=%q", v.LastValidationStatus)
+		}
+	}
+	if tester.calls(infra.ServiceTVDB) != 0 {
+		t.Fatalf("TVDB tester must not be called on boot, got %d", tester.calls(infra.ServiceTVDB))
+	}
+}
+
+// Story 497 (B-35): services with empty APIKey are silently skipped.
+// No tester call, no stamp.
+func TestValidateConfiguredKeysOnBoot_SkipsUnconfigured(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo() // empty rows + no env
+	tester := &perServiceTester{}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	uc.ValidateConfiguredKeysOnBoot(context.Background())
+	if tester.totalCalls() != 0 {
+		t.Fatalf("expected zero tester calls when no key configured, got %d", tester.totalCalls())
+	}
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, v := range views {
+		if v.LastValidationStatus != "" {
+			t.Fatalf("svc=%s expected empty validation status, got %q", v.Service, v.LastValidationStatus)
+		}
+	}
+}
+
+// Story 497 (B-35): transient outcomes (network/timeout/proxy_failed/
+// dns_blocked) do NOT stamp the cache. Operator-driven Test() or the
+// live 401 hot path repopulates the cache later. (Decision §4.)
+func TestValidateConfiguredKeysOnBoot_TransientNoStamp(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "k", APIKeyLast4: "k",
+	}
+	repo.row[infra.ServiceOMDB] = infra.Settings{
+		Service: infra.ServiceOMDB, APIKey: "k", APIKeyLast4: "k",
+	}
+	tester := &perServiceTester{
+		byService: map[infra.Service]testerResult{
+			infra.ServiceTMDB: {outcome: infra.OutcomeTimeout, msg: "ctx done"},
+			infra.ServiceOMDB: {outcome: infra.OutcomeProxyFailed, msg: "proxy boom"},
+		},
+	}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	uc.ValidateConfiguredKeysOnBoot(context.Background())
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, v := range views {
+		if v.LastValidationStatus != "" {
+			t.Fatalf("svc=%s expected NO stamp on transient outcome, got %q",
+				v.Service, v.LastValidationStatus)
+		}
+	}
+	// Tester WAS called — we just refused to stamp the result.
+	if tester.calls(infra.ServiceTMDB) != 1 || tester.calls(infra.ServiceOMDB) != 1 {
+		t.Fatalf("expected one tester call per configured service, got tmdb=%d omdb=%d",
+			tester.calls(infra.ServiceTMDB), tester.calls(infra.ServiceOMDB))
+	}
+}
+
+// Story 497 (B-35): the per-probe deadline is bootValidationTimeout
+// (30s — more generous than the 5s testTimeout used by Upsert/Test).
+// We assert by capturing the deadline the tester observed.
+func TestValidateConfiguredKeysOnBoot_AppliesBootTimeout(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "k", APIKeyLast4: "k",
+	}
+	tester := &perServiceTester{
+		byService: map[infra.Service]testerResult{
+			infra.ServiceTMDB: {outcome: infra.OutcomeOK},
+		},
+	}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	start := time.Now()
+	uc.ValidateConfiguredKeysOnBoot(context.Background())
+	dls := tester.deadlinesFor(infra.ServiceTMDB)
+	if len(dls) != 1 {
+		t.Fatalf("expected exactly one deadline, got %d", len(dls))
+	}
+	got := dls[0]
+	// boot timeout is 30s; small slack for scheduler latency.
+	min := start.Add(bootValidationTimeout - time.Second)
+	max := start.Add(bootValidationTimeout + 2*time.Second)
+	if got.Before(min) || got.After(max) {
+		t.Fatalf("deadline outside bootValidationTimeout window: got=%v want in [%v,%v]",
+			got, min, max)
+	}
+}
+
+// Story 497 (B-35): TMDB + OMDb probes run in parallel (errgroup).
+// We assert by giving each tester a 200ms sleep — sequential would
+// take ≥400ms; parallel should land near 200ms (with slack).
+func TestValidateConfiguredKeysOnBoot_RunsInParallel(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "k", APIKeyLast4: "k",
+	}
+	repo.row[infra.ServiceOMDB] = infra.Settings{
+		Service: infra.ServiceOMDB, APIKey: "k", APIKeyLast4: "k",
+	}
+	tester := &perServiceTester{
+		byService: map[infra.Service]testerResult{
+			infra.ServiceTMDB: {outcome: infra.OutcomeOK, sleep: 200 * time.Millisecond},
+			infra.ServiceOMDB: {outcome: infra.OutcomeOK, sleep: 200 * time.Millisecond},
+		},
+	}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	start := time.Now()
+	uc.ValidateConfiguredKeysOnBoot(context.Background())
+	elapsed := time.Since(start)
+	if elapsed >= 400*time.Millisecond {
+		t.Fatalf("expected parallel execution (~200ms), got sequential-ish elapsed=%v", elapsed)
+	}
+	if tester.calls(infra.ServiceTMDB) != 1 || tester.calls(infra.ServiceOMDB) != 1 {
+		t.Fatalf("expected one call per service, got tmdb=%d omdb=%d",
+			tester.calls(infra.ServiceTMDB), tester.calls(infra.ServiceOMDB))
+	}
+}
+
+// perServiceTester is a per-service Tester stub used by Story 497
+// (B-35) tests. Existing `stubTester` returns one outcome for all
+// services; the boot kick exercises TMDB + OMDb with potentially
+// different outcomes, so we need a richer stub. Mutex-guarded because
+// the boot kick fans out to two goroutines via errgroup.
+type perServiceTester struct {
+	mu        sync.Mutex
+	byService map[infra.Service]testerResult
+	seenCalls map[infra.Service]int
+	deadlines map[infra.Service][]time.Time
+}
+
+type testerResult struct {
+	outcome infra.Outcome
+	msg     string
+	sleep   time.Duration
+}
+
+func (t *perServiceTester) Test(ctx context.Context, s infra.Settings) (infra.Outcome, string, time.Duration) {
+	t.mu.Lock()
+	if t.seenCalls == nil {
+		t.seenCalls = make(map[infra.Service]int)
+	}
+	if t.deadlines == nil {
+		t.deadlines = make(map[infra.Service][]time.Time)
+	}
+	t.seenCalls[s.Service]++
+	if dl, ok := ctx.Deadline(); ok {
+		t.deadlines[s.Service] = append(t.deadlines[s.Service], dl)
+	}
+	res := t.byService[s.Service]
+	t.mu.Unlock()
+
+	if res.sleep > 0 {
+		select {
+		case <-time.After(res.sleep):
+		case <-ctx.Done():
+			return infra.OutcomeTimeout, "ctx done", 0
+		}
+	}
+	return res.outcome, res.msg, 0
+}
+
+func (t *perServiceTester) calls(svc infra.Service) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.seenCalls[svc]
+}
+
+func (t *perServiceTester) totalCalls() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, v := range t.seenCalls {
+		n += v
+	}
+	return n
+}
+
+func (t *perServiceTester) deadlinesFor(svc infra.Service) []time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]time.Time(nil), t.deadlines[svc]...)
 }
