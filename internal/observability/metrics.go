@@ -116,6 +116,22 @@ const (
 	MetricExternalHTTPRequestsTotal    = `seasonfill_external_http_requests_total`
 	MetricExternalHTTPRequestDuration  = `seasonfill_external_http_request_duration_seconds`
 	MetricExternalHTTPRequestsInFlight = `seasonfill_external_http_requests_in_flight`
+
+	// Story 503 — generic cache observability (PRD §6.7). The helper at
+	// internal/shared/cachewatch registers and writes these directly via
+	// VictoriaMetrics; the names are duplicated here only for grep-ability
+	// and Grafana / alert authoring. Labels:
+	//   - cache:  caller-supplied name (closed set, one per registered
+	//             instance — see cachewatch.Names())
+	//   - reason: closed set {capacity, ttl, manual} on the evictions
+	//             counter family ONLY.
+	MetricCacheEntries        = `cache_entries`
+	MetricCacheBytesEstimated = `cache_bytes_estimated`
+	MetricCacheHitsTotal      = `cache_hits_total`
+	MetricCacheMissesTotal    = `cache_misses_total`
+	MetricCacheEvictionsTotal = `cache_evictions_total`
+	MetricCachePendingFetches = `cache_pending_fetches`
+	MetricCacheDedupHitsTotal = `cache_dedup_hits_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
