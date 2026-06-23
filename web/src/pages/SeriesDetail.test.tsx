@@ -29,7 +29,8 @@ function renderRoute(path: string) {
           <TooltipProvider delayDuration={0}>
             <MemoryRouter initialEntries={[path]}>
               <Routes>
-                <Route path="/series/:instance/:id" element={<SeriesDetail />} />
+                {/* Story 495 / N-1e: global URL — `:instance` segment dropped. */}
+                <Route path="/series/:id" element={<SeriesDetail />} />
               </Routes>
             </MemoryRouter>
           </TooltipProvider>
@@ -43,6 +44,9 @@ const fullFixture = {
   instance: 'homelab',
   series_id: 42,
   sonarr_series_id: 122,
+  // Story 495 / N-1e §A1: SeriesDetail picks the primary instance from
+  // here instead of the URL. Empty ⇒ TMDB-only series.
+  in_library_instances: ['homelab'],
   synced_at: new Date().toISOString(),
   degraded: [],
   hero: {
@@ -74,8 +78,12 @@ const sonarrOnlyFixture = {
   instance: 'homelab',
   series_id: 42,
   sonarr_series_id: 122,
+  in_library_instances: ['homelab'],
   synced_at: new Date().toISOString(),
-  degraded: ['tmdb', 'omdb'],
+  // Story 495 / N-1e §C1: composer emits *_series / *_person /
+  // _season variants — the prior `['tmdb', 'omdb']` shape never
+  // matched live data.
+  degraded: ['tmdb_series', 'omdb'],
   hero: { title: 'Cold Show', status: 'ended', year_start: 2010, year_end: 2014 },
   library: { episodes_on_disk: 0, episodes_total: 0, missing_count: 0, size_on_disk_bytes: 0 },
 };
@@ -88,7 +96,7 @@ describe('<SeriesDetail />', () => {
   it('renders the skeleton while loading', async () => {
     let resolveDetail: ((v: unknown) => void) | undefined;
     mockApi.mockImplementation(() => new Promise((res) => { resolveDetail = res; }));
-    renderRoute('/series/homelab/122');
+    renderRoute('/series/122');
     expect(await screen.findByTestId('series-detail-skeleton')).toBeInTheDocument();
     // Resolve the in-flight query so test teardown does not hang on the
     // dangling promise.
@@ -98,7 +106,7 @@ describe('<SeriesDetail />', () => {
 
   it('renders the full hero, ratings, library and external links on success', async () => {
     mockApi.mockResolvedValue(fullFixture);
-    renderRoute('/series/homelab/122');
+    renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     expect(screen.getByTestId('hero-title')).toHaveTextContent('For All Mankind');
     expect(screen.getByTestId('rating-tmdb')).toBeInTheDocument();
@@ -123,7 +131,7 @@ describe('<SeriesDetail />', () => {
 
   it('renders sections in v2 order', async () => {
     mockApi.mockResolvedValue(fullFixture);
-    renderRoute('/series/homelab/122');
+    renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     const order = ['series-hero', 'overview-section',
                    'seasons-accordion', 'recommendations-carousel', 'external-links-footer'];
@@ -138,7 +146,7 @@ describe('<SeriesDetail />', () => {
 
   it('renders the Sonarr-only state with no TMDB blocks', async () => {
     mockApi.mockResolvedValue(sonarrOnlyFixture);
-    renderRoute('/series/homelab/122');
+    renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     expect(screen.getByTestId('series-hero').getAttribute('data-sonarr-only')).toBe('true');
     expect(screen.queryByTestId('hero-backdrop')).not.toBeInTheDocument();
@@ -150,15 +158,103 @@ describe('<SeriesDetail />', () => {
 
   it('renders an error alert when the API fails', async () => {
     mockApi.mockImplementation(() => Promise.reject(new Error('boom')));
-    renderRoute('/series/homelab/122');
+    renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-detail-error')).toBeInTheDocument());
   });
 
   it('renders the invalid-params alert when the id is NaN', () => {
     // The hook is disabled when seriesId is NaN; api is never invoked.
     mockApi.mockResolvedValue(undefined);
-    renderRoute('/series/homelab/notanumber');
+    renderRoute('/series/notanumber');
     expect(screen.queryByTestId('series-detail-skeleton')).not.toBeInTheDocument();
     expect(screen.getByText(/Invalid series link/)).toBeInTheDocument();
+  });
+});
+
+describe('B-20 degraded per-section', () => {
+  const baseDegraded = {
+    instance: 'homelab',
+    series_id: 42,
+    sonarr_series_id: 122,
+    in_library_instances: ['homelab'],
+    synced_at: new Date().toISOString(),
+    // No imdb_rating set ⇒ omdb degraded triggers IMDb loading slot.
+    hero: {
+      title: 'Cold Series',
+      status: 'continuing',
+      year_start: 2020,
+      tmdb_rating: { score: 7.5, votes: 100 },
+    },
+    library: { episodes_on_disk: 0, episodes_total: 0, missing_count: 0, size_on_disk_bytes: 0 },
+    overview: { overview: '', language: 'en-US' },
+    cast: [],
+    seasons: [],
+    recommendations: [],
+  } as const;
+
+  beforeEach(() => {
+    mockApi.mockReset();
+  });
+
+  it('shows overview loading copy + skeleton when tmdb_series is degraded', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('overview-text')).toBeInTheDocument());
+    expect(screen.getByTestId('overview-text').textContent).toMatch(/Loading description/i);
+    expect(screen.getByTestId('overview-skeleton')).toBeInTheDocument();
+  });
+
+  it('shows season skeleton rows when tmdb_season is degraded', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_season'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
+    expect(screen.getByTestId('seasons-loading-label')).toBeInTheDocument();
+    expect(screen.getAllByTestId('seasons-skeleton-row')).toHaveLength(5);
+  });
+
+  it('shows cast strip loading skeletons when tmdb_person is degraded', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_person'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('cast-strip-loading')).toBeInTheDocument());
+    expect(screen.getAllByTestId('cast-skeleton-avatar')).toHaveLength(8);
+  });
+
+  it('shows IMDb loading chip in hero when omdb is degraded and rating is missing', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['omdb'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('imdb-rating-loading')).toBeInTheDocument());
+  });
+
+  it('shows backdrop loading plate when tmdb_series is degraded and no backdrop is present', async () => {
+    // hero has no backdrop_asset → MonogramFallback path; tmdb_series
+    // degraded ⇒ thin loading plate overlay rendered inside the fallback.
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('monogram-loading-plate')).toBeInTheDocument());
+  });
+
+  it('shows recommendations skeleton tiles when tmdb_series is degraded and list is empty', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('recommendations-carousel-loading')).toBeInTheDocument());
+    expect(screen.getAllByTestId('recommendations-skeleton-tile')).toHaveLength(6);
+  });
+});
+
+describe('URL migration (story 495 / N-1e)', () => {
+  beforeEach(() => mockApi.mockReset());
+
+  it('renders page from global URL `/series/:id`', async () => {
+    mockApi.mockResolvedValue(fullFixture);
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    expect(screen.getByTestId('hero-title')).toHaveTextContent('For All Mankind');
+  });
+
+  it('cast-strip view-all link is instance-less', async () => {
+    mockApi.mockResolvedValue(fullFixture);
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('cast-strip-view-all')).toBeInTheDocument());
+    expect(screen.getByTestId('cast-strip-view-all').getAttribute('href')).toBe('/series/122/cast');
   });
 });

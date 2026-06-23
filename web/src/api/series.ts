@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { components } from '@/api/schema';
@@ -43,9 +44,25 @@ export function mediaUrl(hash: string | undefined | null): string | undefined {
   return `/api/v1/media/${encodeURIComponent(hash)}`;
 }
 
+// Story 495 / N-1e: source tokens emitted by the composer's degraded[]
+// field. Widened from the prior stale set ('tmdb'/'omdb'/...) which
+// silently never matched live data — composer has emitted *_series /
+// *_season / *_person variants since story 215.
+export type DegradedSource =
+  | 'tmdb_series'
+  | 'tmdb_season'
+  | 'tmdb_person'
+  | 'omdb'
+  | 'sonarr_queue';
+
 export interface UseSeriesParams {
   readonly seriesId: number | undefined;
   readonly lang?: string | undefined;
+  // Story 495 / N-1e (B-20): when true, refetches every 5 s while the
+  // response carries a "hot" degraded source (tmdb_*, omdb). Auto-disables
+  // after 6 consecutive ticks at the same `degraded.length` so cold
+  // series don't poll forever.
+  readonly pollWhileDegraded?: boolean | undefined;
 }
 
 export function seriesQueryKey(
@@ -55,12 +72,20 @@ export function seriesQueryKey(
   return ['series-detail', seriesId, lang] as const;
 }
 
+const POLL_MS = 5_000;
+const POLL_MAX_TICKS = 6; // ~30 s ceiling
+
 export function useSeries({
   seriesId,
   lang,
+  pollWhileDegraded,
 }: UseSeriesParams) {
   const enabled = typeof seriesId === 'number' && seriesId > 0;
   const effectiveLang = lang ?? '';
+  // Tick-cap lives outside the query callback because TanStack's
+  // refetchInterval(query) callback must be pure on the data slice.
+  const tickRef = useRef<{ lastLen: number; ticks: number }>({ lastLen: -1, ticks: 0 });
+
   return useQuery<SeriesDetailResponse>({
     queryKey: enabled
       ? seriesQueryKey(seriesId as number, effectiveLang)
@@ -74,17 +99,58 @@ export function useSeries({
     enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => {
+      if (!pollWhileDegraded) return false;
+      const data = query.state.data;
+      if (!data || !isHotDegraded(data)) {
+        tickRef.current = { lastLen: -1, ticks: 0 };
+        return false;
+      }
+      const len = data.degraded?.length ?? 0;
+      const t = tickRef.current;
+      if (len === t.lastLen) {
+        t.ticks += 1;
+      } else {
+        t.lastLen = len;
+        t.ticks = 1;
+      }
+      if (t.ticks > POLL_MAX_TICKS) return false;
+      return POLL_MS;
+    },
   });
 }
 
-// Helper consumed by hero + skeleton: did the response degrade the
-// given source? `degraded[]` carries source tokens like "tmdb" /
-// "omdb" / "sonarr_queue" / "torrents".
+// Story 495 / N-1e: typed against the composer's actual token union.
+// The hero stale-badge call site previously asked for `'tmdb'` which
+// never matched live data — fixed in SeriesDetail.tsx as part of this
+// story.
 export function isDegraded(
   resp: SeriesDetailResponse | undefined,
-  source: 'tmdb' | 'omdb' | 'sonarr_queue' | 'torrents',
+  source: DegradedSource,
 ): boolean {
   return (resp?.degraded ?? []).includes(source);
+}
+
+// Story 495 / N-1e: generic predicate so both SeriesDetailResponse
+// and SeriesCastResponse can share the degraded[] check without a
+// per-DTO helper.
+export function degradedIncludes(
+  degraded: readonly string[] | undefined,
+  source: DegradedSource,
+): boolean {
+  return (degraded ?? []).includes(source);
+}
+
+// Tokens that should trigger auto-poll while the response is degraded.
+// `sonarr_queue` is excluded because it's a live source — failure means
+// "Sonarr is down right now", not "enrichment in progress".
+const HOT_SOURCES: ReadonlySet<DegradedSource> = new Set([
+  'tmdb_series', 'tmdb_season', 'tmdb_person', 'omdb',
+]);
+
+export function isHotDegraded(resp: SeriesDetailResponse | undefined): boolean {
+  const degraded = resp?.degraded ?? [];
+  return degraded.some((s): boolean => HOT_SOURCES.has(s as DegradedSource));
 }
 
 // Hero renders in "Sonarr-only" mode when the TMDB-derived fields

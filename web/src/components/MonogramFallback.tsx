@@ -15,6 +15,9 @@ export interface MonogramFallbackProps {
    *  Brand color is fixed; the value is ignored. Kept so the
    *  rewrite is API-additive. */
   readonly hueKey?: string;
+  /** Story 495 / N-1e (B-20): thin bottom-edge plate text rendered
+   *  over the monogram while enrichment is still loading. */
+  readonly loadingLabel?: string;
   readonly className?: string;
   readonly 'data-testid'?: string;
 }
@@ -28,6 +31,7 @@ const GLYPH_SIZE: Record<MonogramKind, string> = {
 export function MonogramFallback({
   title,
   kind = 'poster',
+  loadingLabel,
   className,
   ...rest
 }: MonogramFallbackProps) {
@@ -50,6 +54,18 @@ export function MonogramFallback({
       >
         s<b>f</b>
       </span>
+      {loadingLabel && (
+        <span
+          data-testid="monogram-loading-plate"
+          className={cn(
+            'absolute inset-x-0 bottom-0 z-10 flex items-center justify-center',
+            'px-2 py-1 text-[11px] font-medium text-white/85',
+            'bg-bg-base/60 backdrop-blur-[2px] border-t border-white/10',
+          )}
+        >
+          {loadingLabel}
+        </span>
+      )}
     </div>
   );
 }

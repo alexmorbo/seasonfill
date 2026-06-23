@@ -1810,6 +1810,25 @@ export const ru: Translations = {
         body: 'Под текущие фильтры ничего не попадает. Сбросьте их, чтобы увидеть больше.',
         cta: 'Сбросить фильтры',
       },
+      scanRunning: {
+        title: 'Сканирование запущено',
+        body: 'Sonarr-инстанс сейчас сканируется. Можно перейти на страницу скана, чтобы наблюдать прогресс.',
+        cta: 'Открыть скан',
+      },
+      firstScan: {
+        title: 'Запустите первый скан',
+        body: 'Инстанс подключён, но кеш ещё пуст. Запустите первый скан, чтобы Seasonfill нашёл пропуски.',
+        cta: 'Запустить скан',
+        ctaRunning: 'Запускаем…',
+        toastStarted: 'Скан запущен',
+        toastAlreadyRunning: 'Скан уже идёт — открываем существующий.',
+        toastEmpty: 'Сервер не вернул scan_run — повторите попытку.',
+        toastError: 'Не удалось запустить скан: {{error}}',
+      },
+      allHealthy: {
+        title: 'Все сериалы целые',
+        body: 'Скан завершился без находок — Seasonfill не нашёл сезонов, которые нужно дополнить.',
+      },
     },
     firstRun: {
       title: 'Инстансы не настроены',
@@ -2078,6 +2097,14 @@ export const ru: Translations = {
     },
     placeholders: {
       torrents: 'Торренты — будут в A-*.',
+    },
+    degraded: {
+      overview: { loading: 'Информация загружается…' },
+      seasons: { loading: 'Загружаем сезоны…' },
+      cast: { loading: 'Загружаем актёров…' },
+      recommendations: { loading: 'Загружаем рекомендации…' },
+      imdb: { loading: 'IMDb загружается…' },
+      backdrop: { loading: 'Загружаем обложку…' },
     },
     errors: {
       invalidParams: 'Неверная ссылка на сериал',

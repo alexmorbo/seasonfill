@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from 'i18next';
 
-import { Series } from './Series';
+import { Series, decideEmptyBranch, type EmptyBranch } from './Series';
 import { PageTitleProvider } from '@/components/shell/page-title-context';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
 
@@ -82,6 +82,36 @@ function resetInfinite(overrides: Partial<InfiniteFixture> = {}) {
 
 vi.mock('@/lib/instances', () => ({
   useInstances: () => instancesFixture,
+}));
+
+// Story 495 / N-1e (B-15): mock useInstanceLatestScan so the empty-state
+// branching logic can be driven from the tests below.
+let latestScanFixture: {
+  data: { id: string; status: string } | null;
+  isPending: boolean;
+} = { data: null, isPending: false };
+
+vi.mock('@/lib/scans', async () => {
+  const real = await vi.importActual<typeof import('@/lib/scans')>('@/lib/scans');
+  return { ...real, useInstanceLatestScan: () => latestScanFixture };
+});
+
+// Story 495 / N-1e (B-15 branch 3): SeriesFirstScanState uses
+// useTriggerScan + sonner toast. Stub both so the CTA renders without
+// firing real network requests.
+vi.mock('@/lib/scan-mutations', async () => {
+  const real = await vi.importActual<typeof import('@/lib/scan-mutations')>('@/lib/scan-mutations');
+  return {
+    ...real,
+    useTriggerScan: () => ({
+      mutateAsync: vi.fn().mockResolvedValue([{ scan_run_id: 'sr-fake' }]),
+      isPending: false,
+    }),
+  };
+});
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() },
 }));
 
 vi.mock('@/lib/api/seriesCache', async () => {
@@ -305,4 +335,124 @@ describe('<Series /> integration', () => {
     expect(screen.getByTestId('series-filters-networks-item-HBO')).toBeInTheDocument();
     expect(screen.getByTestId('series-filters-networks-item-Netflix')).toBeInTheDocument();
   });
+});
+
+describe('B-15 empty-state branching', () => {
+  beforeEach(() => {
+    instancesFixture = {
+      data: { instances: [{ name: 'homelab', ui_url: 'http://sonarr' }] },
+      isPending: false,
+    };
+    hookCalls.length = 0;
+    resetInfinite();
+    latestScanFixture = { data: null, isPending: false };
+  });
+
+  it('renders firstRun branch when no instances configured', () => {
+    instancesFixture = { data: { instances: [] }, isPending: false };
+    renderPage();
+    expect(screen.getByTestId('series-first-run')).toBeInTheDocument();
+    expect(screen.queryByTestId('series-empty-scan-running')).toBeNull();
+    expect(screen.queryByTestId('series-empty-first-scan')).toBeNull();
+    expect(screen.queryByTestId('series-empty-all-healthy')).toBeNull();
+  });
+
+  it('renders scanRunning branch when latest scan is running', async () => {
+    latestScanFixture = {
+      data: { id: 'sr-123', status: 'running' },
+      isPending: false,
+    };
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-empty-scan-running')).toBeInTheDocument();
+    });
+    const link = screen.getByTestId('series-empty-scan-link');
+    expect(link.getAttribute('href')).toBe('/scans/sr-123');
+    expect(screen.queryByTestId('series-empty-first-scan')).toBeNull();
+    expect(screen.queryByTestId('series-empty-all-healthy')).toBeNull();
+  });
+
+  it('renders firstScan branch when no scan has run yet', async () => {
+    latestScanFixture = { data: null, isPending: false };
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-empty-first-scan')).toBeInTheDocument();
+    });
+    const cta = screen.getByTestId('series-empty-first-scan-cta') as HTMLButtonElement;
+    expect(cta.disabled).toBe(false);
+    expect(screen.queryByTestId('series-empty-scan-running')).toBeNull();
+    expect(screen.queryByTestId('series-empty-all-healthy')).toBeNull();
+  });
+
+  it('renders allHealthy branch when latest scan completed with zero results', async () => {
+    latestScanFixture = {
+      data: { id: 'sr-999', status: 'completed' },
+      isPending: false,
+    };
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('series-empty-all-healthy')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('series-empty-scan-running')).toBeNull();
+    expect(screen.queryByTestId('series-empty-first-scan')).toBeNull();
+  });
+});
+
+describe('decideEmptyBranch', () => {
+  type Args = Parameters<typeof decideEmptyBranch>[0];
+  const base: Args = {
+    instancesPending: false,
+    instanceCount: 1,
+    listSuccess: true,
+    rawCount: 0,
+    filteredCount: 0,
+    total: 0,
+    latestScanStatus: undefined,
+    latestScanResolved: true,
+  };
+
+  const cases: Array<{ name: string; over: Partial<Args>; want: EmptyBranch }> = [
+    { name: 'no instances ⇒ firstRun', over: { instanceCount: 0 }, want: 'firstRun' },
+    {
+      name: 'no instances takes priority over running scan',
+      over: { instanceCount: 0, latestScanStatus: 'running' },
+      want: 'firstRun',
+    },
+    {
+      name: 'list not yet resolved ⇒ null (loading)',
+      over: { listSuccess: false },
+      want: null,
+    },
+    {
+      name: 'scan running ⇒ scanRunning',
+      over: { latestScanStatus: 'running' },
+      want: 'scanRunning',
+    },
+    {
+      name: 'never scanned + empty cache ⇒ firstScan',
+      over: { latestScanResolved: true, latestScanStatus: undefined, rawCount: 0 },
+      want: 'firstScan',
+    },
+    {
+      name: 'completed + empty cache ⇒ allHealthy',
+      over: { latestScanStatus: 'completed', rawCount: 0, total: 0 },
+      want: 'allHealthy',
+    },
+    {
+      name: 'cache has rows but filters eliminate all ⇒ filtered',
+      over: { rawCount: 5, filteredCount: 0, total: 5 },
+      want: 'filtered',
+    },
+    {
+      name: 'cache has rows AND filtered shows them ⇒ null (normal grid)',
+      over: { rawCount: 5, filteredCount: 5, total: 5, latestScanStatus: 'completed' },
+      want: null,
+    },
+  ];
+
+  for (const c of cases) {
+    it(c.name, () => {
+      expect(decideEmptyBranch({ ...base, ...c.over })).toBe(c.want);
+    });
+  }
 });

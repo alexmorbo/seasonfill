@@ -1812,6 +1812,25 @@ export const en = {
         body: 'No series match the current filters. Try clearing them to see more.',
         cta: 'Clear filters',
       },
+      scanRunning: {
+        title: 'Scan in progress',
+        body: 'The Sonarr instance is currently scanning. Open the scan page to watch progress.',
+        cta: 'Open scan',
+      },
+      firstScan: {
+        title: 'Run the first scan',
+        body: 'Instance connected but the cache is empty. Run the first scan so Seasonfill can find missing seasons.',
+        cta: 'Run scan',
+        ctaRunning: 'Starting…',
+        toastStarted: 'Scan started',
+        toastAlreadyRunning: 'Scan already in progress — opening the existing one.',
+        toastEmpty: 'Server returned no scan_run — try again.',
+        toastError: 'Failed to start scan: {{error}}',
+      },
+      allHealthy: {
+        title: 'Everything looks healthy',
+        body: 'Scan completed without findings — Seasonfill did not detect any seasons to fill.',
+      },
     },
     firstRun: {
       title: 'No instances configured',
@@ -2080,6 +2099,14 @@ export const en = {
     },
     placeholders: {
       torrents: 'Torrents section — coming in A-*.',
+    },
+    degraded: {
+      overview: { loading: 'Loading description…' },
+      seasons: { loading: 'Loading seasons…' },
+      cast: { loading: 'Loading cast…' },
+      recommendations: { loading: 'Loading recommendations…' },
+      imdb: { loading: 'IMDb loading…' },
+      backdrop: { loading: 'Loading backdrop…' },
     },
     errors: {
       invalidParams: 'Invalid series link',

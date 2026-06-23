@@ -24,23 +24,23 @@ const sample = [
 
 describe('CastStrip', () => {
   it('returns null when cast is empty', () => {
-    const { container } = render(wrap(<CastStrip instance="homelab" seriesId={369} cast={[]} />));
+    const { container } = render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={[]} />));
     expect(container.firstChild).toBeNull();
   });
 
   it('renders one card per cast member up to limit', () => {
-    render(wrap(<CastStrip instance="homelab" seriesId={369} cast={sample as unknown as typeof sample} limit={2} />));
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={sample as unknown as typeof sample} limit={2} />));
     expect(screen.getAllByTestId('cast-strip-card')).toHaveLength(2);
   });
 
   it('renders the avatar with image when profile_asset is set', () => {
-    render(wrap(<CastStrip instance="homelab" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
     const av = screen.getByTestId('cast-strip-avatar');
     expect(av.querySelector('img')).toBeTruthy();
   });
 
   it('renders the monogram fallback when profile_asset is missing', () => {
-    render(wrap(<CastStrip instance="homelab" seriesId={369} cast={[sample[1]] as unknown as typeof sample} />));
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[1]] as unknown as typeof sample} />));
     const av = screen.getByTestId('cast-strip-avatar');
     expect(av.querySelector('img')).toBeFalsy();
     // MonogramFallback renders initials or a placeholder
@@ -48,15 +48,15 @@ describe('CastStrip', () => {
   });
 
   it('renders name + character labels', () => {
-    render(wrap(<CastStrip instance="homelab" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
     expect(screen.getByTestId('cast-strip-name').textContent).toMatch(/Joel/);
     expect(screen.getByTestId('cast-strip-character').textContent).toMatch(/Ed Baldwin/);
   });
 
   it('view-all link points to the cast subpage', () => {
-    render(wrap(<CastStrip instance="homelab" seriesId={369} cast={sample as unknown as typeof sample} />));
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={sample as unknown as typeof sample} />));
     const link = screen.getByTestId('cast-strip-view-all');
-    expect(link.getAttribute('href')).toBe('/series/homelab/369/cast');
+    expect(link.getAttribute('href')).toBe('/series/369/cast');
   });
 
   it('header uses justify-between and the view-all link is a sibling of the heading', () => {
@@ -64,7 +64,7 @@ describe('CastStrip', () => {
       { person_id: 1, name: 'Alex', character_name: 'Alex' },
       { person_id: 2, name: 'Sam', character_name: 'Sam' },
     ];
-    render(wrap(<CastStrip instance="homelab" seriesId={377} cast={cast as unknown as CastMember[]} />));
+    render(wrap(<CastStrip castHref="/series/377/cast" seriesId={377} cast={cast as unknown as CastMember[]} />));
     const header = screen.getByTestId('cast-strip-header');
     expect(header.className).toContain('justify-between');
     // view-all is a direct child of the header.

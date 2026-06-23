@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/series';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { components } from '@/api/schema';
 
 type Recommendation = components['schemas']['dto.Recommendation'];
@@ -15,6 +16,9 @@ export interface RecommendationsCarouselProps {
   // Optional badge rendered inline with the section heading
   // (used for per-section StaleBadge wire-up from SeriesDetail).
   readonly staleBadge?: ReactNode;
+  // Story 495 / N-1e (B-20): when true AND list is empty, render 6
+  // tile skeletons + loading label instead of returning null.
+  readonly tmdbSeriesLoading?: boolean | undefined;
 }
 
 interface RecCardProps {
@@ -105,11 +109,52 @@ function RecCard({ rec }: RecCardProps) {
 }
 
 export function RecommendationsCarousel({
-  recommendations, limit = 8, className, staleBadge,
+  recommendations, limit = 8, className, staleBadge, tmdbSeriesLoading,
 }: RecommendationsCarouselProps) {
   const { t } = useTranslation();
   const items = (recommendations ?? []).slice(0, limit);
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    if (!tmdbSeriesLoading) return null;
+    return (
+      <section
+        data-testid="recommendations-carousel-loading"
+        aria-labelledby="recommendations-heading"
+        className={cn('flex flex-col gap-3', className)}
+      >
+        <h2
+          id="recommendations-heading"
+          className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint"
+        >
+          {t('seriesDetail.recommendations.label')}
+          {staleBadge}
+          <span
+            data-testid="recommendations-loading-label"
+            className="ml-2 text-[10px] font-normal normal-case tracking-normal text-tx-muted"
+          >
+            {t('seriesDetail.degraded.recommendations.loading')}
+          </span>
+        </h2>
+        <div
+          className={cn(
+            'flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-2',
+            'md:grid md:grid-cols-6 md:gap-4 md:overflow-visible md:snap-none md:pb-0',
+          )}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              data-testid="recommendations-skeleton-tile"
+              className="flex flex-col gap-1.5 min-w-[124px] md:min-w-0"
+            >
+              <Skeleton className="aspect-[2/3] w-full rounded-md" />
+              <Skeleton className="h-3 w-[80%]" />
+              <Skeleton className="h-2.5 w-[50%]" />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
   return (
     <section
       data-testid="recommendations-carousel"

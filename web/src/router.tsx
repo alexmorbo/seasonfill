@@ -22,6 +22,7 @@ import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
 import { SeriesCast } from '@/pages/SeriesCast';
+import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 
 export const router = createBrowserRouter([
@@ -35,8 +36,13 @@ export const router = createBrowserRouter([
       { path: '/decisions', element: <Decisions /> },
       { path: '/grabs',     element: <Grabs /> },
       { path: '/series',    element: <Series /> },
-      { path: '/series/:instance/:id', element: <SeriesDetail /> },
-      { path: '/series/:instance/:id/cast', element: <SeriesCast /> },
+      { path: '/series/:id', element: <SeriesDetail /> },
+      { path: '/series/:id/cast', element: <SeriesCast /> },
+      // REMOVE 2026-09: soft-redirect for pre-N-1e operator bookmarks.
+      // Story 495 §A2 — keeps `/series/:instance/:id` working for one
+      // release cycle; LegacySeriesRedirect navigates to the new shape.
+      { path: '/series/:instance/:id', element: <LegacySeriesRedirect /> },
+      { path: '/series/:instance/:id/cast', element: <LegacySeriesRedirect kind="cast" /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },

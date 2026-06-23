@@ -17,8 +17,56 @@ import { SeriesGrid } from '@/components/series/SeriesGrid';
 import { SeriesFiltersBar, type SeriesFiltersValue } from '@/components/series/SeriesFiltersBar';
 import { SeriesEmptyState } from '@/components/series/SeriesEmptyState';
 import { SeriesFirstRunState } from '@/components/series/SeriesFirstRunState';
+import { SeriesScanRunningState } from '@/components/series/SeriesScanRunningState';
+import { SeriesFirstScanState } from '@/components/series/SeriesFirstScanState';
+import { SeriesAllHealthyState } from '@/components/series/SeriesAllHealthyState';
+import { useInstanceLatestScan } from '@/lib/scans';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
+
+// Story 495 / N-1e (B-15): empty-state branches surfaced on `/series`.
+// `firstRun`     — no Sonarr instances configured.
+// `scanRunning`  — instance exists AND latest scan is in flight.
+// `firstScan`    — instance exists AND no scan has ever run (cache empty).
+// `allHealthy`   — instance exists AND latest scan completed with 0 finds.
+// `filtered`     — server returned >0 rows but client filters eliminated them.
+// `null`         — render the regular grid.
+export type EmptyBranch =
+  | 'firstRun'
+  | 'scanRunning'
+  | 'firstScan'
+  | 'allHealthy'
+  | 'filtered'
+  | null;
+
+export interface DecideEmptyBranchArgs {
+  readonly instancesPending: boolean;
+  readonly instanceCount: number;
+  readonly listSuccess: boolean;
+  readonly rawCount: number;
+  readonly filteredCount: number;
+  readonly total: number;
+  readonly latestScanStatus: string | undefined;
+  // `true` when `useInstanceLatestScan` has resolved (data === null OR
+  // data is a Scan); `false` while the query is still pending.
+  readonly latestScanResolved: boolean;
+}
+
+export function decideEmptyBranch(args: DecideEmptyBranchArgs): EmptyBranch {
+  if (!args.instancesPending && args.instanceCount === 0) return 'firstRun';
+  if (!args.listSuccess) return null;
+  if (args.latestScanStatus === 'running') return 'scanRunning';
+  if (args.rawCount > 0 && args.filteredCount === 0) return 'filtered';
+  // `latestScanResolved && latestScanStatus === undefined` ⇒ no run row exists
+  // yet for this instance, AND the cache is empty ⇒ first-scan branch.
+  if (args.latestScanResolved && args.latestScanStatus === undefined && args.rawCount === 0) {
+    return 'firstScan';
+  }
+  if (args.latestScanStatus === 'completed' && args.rawCount === 0 && args.total === 0) {
+    return 'allHealthy';
+  }
+  return null;
+}
 
 const DEFAULT_FILTERS: SeriesFiltersValue = {
   search: '',
@@ -157,6 +205,12 @@ export function Series() {
     void list.refetch();
   }, [list]);
 
+  // Story 495 / N-1e (B-15): poll latest scan for the current instance
+  // so we can branch between "scan in progress" / "first scan" /
+  // "all healthy". `useInstanceLatestScan` is `enabled: Boolean(instance)`
+  // so it short-circuits when no instance is selected.
+  const latestScan = useInstanceLatestScan(current ?? undefined);
+
   if (!inst.isPending && instances.length === 0) {
     return (
       <div>
@@ -165,8 +219,16 @@ export function Series() {
     );
   }
 
-  const showEmptyServer = list.isSuccess && rawItems.length === 0;
-  const showEmptyFiltered = !showEmptyServer && list.isSuccess && filtered.length === 0 && rawItems.length > 0;
+  const branch = decideEmptyBranch({
+    instancesPending: inst.isPending,
+    instanceCount: instances.length,
+    listSuccess: list.isSuccess,
+    rawCount: rawItems.length,
+    filteredCount: filtered.length,
+    total,
+    latestScanStatus: latestScan.data?.status,
+    latestScanResolved: !latestScan.isPending,
+  });
 
   return (
     <div className="flex flex-col gap-4">
@@ -212,10 +274,20 @@ export function Series() {
         </Alert>
       )}
 
-      {showEmptyServer && <SeriesEmptyState variant="server" />}
-      {showEmptyFiltered && <SeriesEmptyState variant="filtered" onClearFilters={onClear} />}
+      {/* Story 495 / N-1e (B-15): per-branch empty states. The grid
+          renders only when no branch is active and the list is healthy. */}
+      {branch === 'scanRunning' && latestScan.data?.id && (
+        <SeriesScanRunningState scanRunId={latestScan.data.id} />
+      )}
+      {branch === 'firstScan' && current && (
+        <SeriesFirstScanState instance={current} />
+      )}
+      {branch === 'allHealthy' && <SeriesAllHealthyState />}
+      {branch === 'filtered' && (
+        <SeriesEmptyState variant="filtered" onClearFilters={onClear} />
+      )}
 
-      {!showEmptyServer && !showEmptyFiltered && !list.isError && (
+      {branch === null && !list.isError && (
         <SeriesGrid
           items={filtered}
           isLoading={list.isPending}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useSeries, parseStatus, isSonarrOnly, isDegraded } from '@/api/series';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
@@ -21,26 +22,41 @@ import { useFormatDate } from '@/lib/timezone';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
-  const { instance, id } = useParams<{ instance: string; id: string }>();
+  // Story 495 / N-1e §A1: URL is global — `:instance` segment is gone.
+  // The primary instance for downstream sections (`<SeriesHero>` Sonarr
+  // link, `<CastStrip>` back-link, `<TorrentsSection>` qBit fetch) is
+  // derived from `data.in_library_instances[0]` after fetch.
+  const { id } = useParams<{ id: string }>();
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const fmt = useFormatDate();
   const torrentsRef = useRef<HTMLDivElement | null>(null);
 
+  // Story 495 / N-1e (B-20): poll while a hot degraded source is
+  // active. Tick budget lives inside `useSeries` (~30 s cap).
   const detail = useSeries({
     seriesId,
     ...(lang ? { lang } : {}),
+    pollWhileDegraded: true,
   });
 
   const data = detail.data;
   const hero = data?.hero;
   const status = parseStatus(hero?.status);
   const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
-  const tmdbDegraded = isDegraded(data, 'tmdb');
+  // Story 495 / N-1e §C1: composer emits `tmdb_series`, not `'tmdb'`.
+  // The legacy call site was always returning `false` against live data.
+  const tmdbSeriesDegraded = isDegraded(data, 'tmdb_series');
+  const tmdbSeasonDegraded = isDegraded(data, 'tmdb_season');
+  const tmdbPersonDegraded = isDegraded(data, 'tmdb_person');
   const omdbDegraded = isDegraded(data, 'omdb');
-  const tmdbStaleAt = tmdbDegraded ? data?.synced_at : undefined;
+  const tmdbStaleAt = tmdbSeriesDegraded ? data?.synced_at : undefined;
   const imdbStaleAt = omdbDegraded ? data?.synced_at : undefined;
   const syncedAt = data?.synced_at;
+
+  // Story 495 / N-1e §A1: pick the first in-library instance as the
+  // anchor for downstream sections. Undefined ⇒ TMDB-only series.
+  const primaryInstance = data?.in_library_instances?.[0];
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
@@ -48,7 +64,7 @@ export function SeriesDetail() {
     torrentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  if (!instance || !seriesId || Number.isNaN(seriesId)) {
+  if (!seriesId || Number.isNaN(seriesId)) {
     return (
       <div className="p-4">
         <Alert variant="destructive">
@@ -60,9 +76,32 @@ export function SeriesDetail() {
     );
   }
 
-  const tmdbStaleSlot = tmdbDegraded && syncedAt
+  const tmdbStaleSlot = tmdbSeriesDegraded && syncedAt
     ? <StaleBadge asOf={syncedAt} source="tmdb" />
     : undefined;
+
+  // Story 495 / N-1e §C2: per-section degraded UX.
+  // Overview text:
+  //   - empty + tmdb_series in degraded ⇒ "загружается" copy + skeleton.
+  //   - empty + tmdb_series NOT in degraded ⇒ existing "недоступно" fallback.
+  //   - non-empty ⇒ normal text.
+  const overviewEmpty = !data?.overview?.overview;
+  const overviewLoading = overviewEmpty && tmdbSeriesDegraded;
+  // Cast strip — degraded UI is internal to CastStrip; pass the bool.
+  const castEmpty = (data?.cast?.length ?? 0) === 0;
+  const castLoading = castEmpty && tmdbPersonDegraded;
+  const showCastSection = !sonarrOnly && (!castEmpty || castLoading);
+  // Seasons / Recommendations — same shape.
+  const seasonsEmpty = (data?.seasons?.length ?? 0) === 0;
+  const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
+  const recsEmpty = (data?.recommendations?.length ?? 0) === 0;
+  const recsLoading = recsEmpty && tmdbSeriesDegraded;
+  // IMDb rating loading slot in hero (RatingDuo handles the render).
+  const imdbLoading = omdbDegraded && !hero?.imdb_rating;
+
+  // Build the cast href once so CastStrip stays URL-agnostic
+  // (Story 495 §A3).
+  const castHref = `/series/${seriesId}/cast`;
 
   return (
     <div className="sd-real -mt-5 flex flex-col gap-5 px-[36px] lg:px-[36px]">
@@ -81,13 +120,15 @@ export function SeriesDetail() {
       {detail.isSuccess && data && (
         <>
           <SeriesHero
-            instance={instance}
+            instance={primaryInstance}
             seriesId={seriesId}
             hero={hero}
             {...(data.library ? { library: data.library } : {})}
             {...(data.download ? { download: data.download } : {})}
             {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
             {...(imdbStaleAt ? { imdbStaleAt } : {})}
+            {...(tmdbSeriesDegraded ? { tmdbSeriesDegraded: true } : {})}
+            {...(imdbLoading ? { imdbLoading: true } : {})}
             onScrollToTorrents={scrollToTorrents}
           />
 
@@ -107,18 +148,31 @@ export function SeriesDetail() {
                         testid="overview-lang-fallback"
                       />
                     </div>
+                    {overviewLoading && (
+                      <div
+                        data-testid="overview-skeleton"
+                        className="flex flex-col gap-1.5 max-w-[64ch]"
+                      >
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-[92%]" />
+                        <Skeleton className="h-3 w-[78%]" />
+                      </div>
+                    )}
                     <p
                       data-testid="overview-text"
                       className="text-[13.5px] leading-relaxed text-tx-primary whitespace-pre-line max-w-[64ch] [text-shadow:0_1px_2px_oklch(0_0_0/.55)]"
                     >
-                      {data.overview?.overview || t('seriesDetail.overview.empty')}
+                      {overviewLoading
+                        ? t('seriesDetail.degraded.overview.loading')
+                        : (data.overview?.overview || t('seriesDetail.overview.empty'))}
                     </p>
                   </div>
-                  {!sonarrOnly && (
+                  {showCastSection && (
                     <CastStrip
-                      instance={instance}
+                      castHref={castHref}
                       seriesId={seriesId}
                       {...(data.cast ? { cast: data.cast } : {})}
+                      {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
                     />
                   )}
                 </>
@@ -138,7 +192,7 @@ export function SeriesDetail() {
           <RecentStrip {...(data.recent ? { recent: data.recent } : {})} />
 
           <div ref={torrentsRef}>
-            <TorrentsSection instance={instance} seriesId={seriesId} />
+            <TorrentsSection instance={primaryInstance ?? ''} seriesId={seriesId} />
           </div>
 
           <SeasonsAccordion
@@ -146,11 +200,13 @@ export function SeriesDetail() {
             seasons={data.seasons}
             {...(lang ? { lang } : {})}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
+            {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
           />
 
           <RecommendationsCarousel
             recommendations={data.recommendations}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
+            {...(recsLoading ? { tmdbSeriesLoading: true } : {})}
           />
 
           <ExternalLinksFooter {...(data.external_links ? { links: data.external_links } : {})} />
@@ -158,7 +214,7 @@ export function SeriesDetail() {
           {syncedAt && (
             <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">
               <span>{t('seriesDetail.synced', { time: fmt(syncedAt, 'datetime') })}</span>
-              {tmdbDegraded && <StaleBadge asOf={syncedAt} source="tmdb" />}
+              {tmdbSeriesDegraded && <StaleBadge asOf={syncedAt} source="tmdb" />}
               {omdbDegraded && <StaleBadge asOf={syncedAt} source="omdb" />}
             </div>
           )}

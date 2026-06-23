@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useSeriesCast, type CastPageMember, type CrewPageMember } from '@/api/seriesCast';
+import { degradedIncludes } from '@/api/series';
 import { CompactHero } from '@/components/cast-page/CompactHero';
 import { CastGrid } from '@/components/cast-page/CastGrid';
 import { CrewGrid } from '@/components/cast-page/CrewGrid';
@@ -35,7 +36,9 @@ function filterCrew(crew: readonly CrewPageMember[], q: string): readonly CrewPa
 
 export function SeriesCast() {
   const { t, i18n } = useTranslation();
-  const { instance, id } = useParams<{ instance: string; id: string }>();
+  // Story 495 / N-1e §A1: URL is global — `:instance` segment is gone.
+  // Back-link uses `/series/${seriesId}` (instance-less).
+  const { id } = useParams<{ id: string }>();
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const [query, setQuery] = useState('');
@@ -53,7 +56,7 @@ export function SeriesCast() {
 
   useSetPageTitle(t('seriesDetail.castPage.pageTitle'));
 
-  if (!instance || !seriesId || Number.isNaN(seriesId)) {
+  if (!seriesId || Number.isNaN(seriesId)) {
     return (
       <div className="p-4">
         <Alert variant="destructive">
@@ -65,11 +68,22 @@ export function SeriesCast() {
     );
   }
 
+  // Story 495 / N-1e (B-20): when TMDB person enrichment is in flight
+  // AND both lists are empty, render a skeleton instead of the "empty"
+  // fallback so operator can tell "loading" from "no data". The
+  // dto.SeriesCastResponse schema doesn't expose `degraded[]` yet —
+  // we read it dynamically (`as unknown`) so the BE can add it
+  // without a schema regen and we get the UX immediately.
+  const dataDegraded = (data as unknown as { degraded?: readonly string[] } | undefined)?.degraded;
+  const tmdbPersonDegraded = degradedIncludes(dataDegraded, 'tmdb_person');
+  const castLoading = result.isSuccess
+    && cast.length === 0 && crew.length === 0 && tmdbPersonDegraded;
+
   return (
     <div className="flex flex-col gap-4">
       <nav className="flex items-center gap-2 text-[12.5px] text-tx-muted">
         <Link
-          to={`/series/${encodeURIComponent(instance)}/${seriesId}`}
+          to={`/series/${seriesId}`}
           className="inline-flex items-center gap-1 hover:text-tx-primary transition-colors"
           data-testid="cast-page-back"
         >
@@ -138,12 +152,32 @@ export function SeriesCast() {
           </div>
 
           {cast.length === 0 && crew.length === 0 ? (
-            <p
-              data-testid="cast-page-empty"
-              className="text-[13px] text-tx-muted py-12 text-center"
-            >
-              {t('seriesDetail.castPage.empty.both')}
-            </p>
+            castLoading ? (
+              <div
+                data-testid="cast-page-loading"
+                className="flex flex-col gap-4"
+              >
+                <p className="text-[12.5px] text-tx-muted text-center">
+                  {t('seriesDetail.degraded.cast.loading')}
+                </p>
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <Skeleton
+                      key={i}
+                      data-testid="cast-page-skeleton-tile"
+                      className="h-[180px] w-full rounded-lg"
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p
+                data-testid="cast-page-empty"
+                className="text-[13px] text-tx-muted py-12 text-center"
+              >
+                {t('seriesDetail.castPage.empty.both')}
+              </p>
+            )
           ) : (
             <Tabs defaultValue="cast">
               <TabsList data-testid="cast-tabs-list">

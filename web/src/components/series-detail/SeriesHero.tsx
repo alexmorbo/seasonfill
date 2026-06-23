@@ -21,7 +21,11 @@ import { NextEpisodeCard } from './NextEpisodeCard';
 import { HeroLibraryStrip } from './HeroLibraryStrip';
 
 export interface SeriesHeroProps {
-  readonly instance: string;
+  // Story 495 / N-1e: now optional — TMDB-only series carry no
+  // primary instance; SeriesDetail picks `in_library_instances[0]`
+  // and passes undefined when empty. The Sonarr-link branch already
+  // handles `undefined` via `useInstancePublicURL`'s early-return.
+  readonly instance: string | undefined;
   readonly seriesId: number;
   readonly hero: HeroDTO | undefined;
   readonly library?: LibraryStrip | undefined;
@@ -30,6 +34,12 @@ export interface SeriesHeroProps {
   readonly imdbStaleAt?: string | undefined;
   readonly titleSlug?: string | undefined;
   readonly onScrollToTorrents?: () => void;
+  // Story 495 / N-1e (B-20): when true AND no backdrop_asset, render
+  // the MonogramFallback with a "loading backdrop" plate overlay.
+  readonly tmdbSeriesDegraded?: boolean | undefined;
+  // Story 495 / N-1e (B-20): when true AND no imdb_rating, render a
+  // skeleton chip on the IMDb side of `<RatingDuo>`.
+  readonly imdbLoading?: boolean | undefined;
 }
 
 function yearRange(start: number | undefined, end: number | undefined, status: string): string {
@@ -41,10 +51,12 @@ function yearRange(start: number | undefined, end: number | undefined, status: s
 
 export function SeriesHero({
   instance, hero, library, download, tmdbStaleAt, imdbStaleAt, titleSlug,
-  onScrollToTorrents,
+  onScrollToTorrents, tmdbSeriesDegraded, imdbLoading,
 }: SeriesHeroProps) {
   const { t } = useTranslation();
-  const sonarrPublic = useInstancePublicURL(instance);
+  // `useInstancePublicURL` tolerates undefined — returns undefined,
+  // which makes `sonarrHref` undefined and hides the Sonarr button.
+  const sonarrPublic = useInstancePublicURL(instance ?? '');
   const status = parseStatus(hero?.status);
   const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
   const title = hero?.title ?? '';
@@ -64,8 +76,11 @@ export function SeriesHero({
   const sonarrHref = sonarrPublic
     ? buildSonarrSeriesHref(sonarrPublic, titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title))
     : undefined;
-  const showRatings = !sonarrOnly && (hero?.tmdb_rating || hero?.imdb_rating);
+  const showRatings = !sonarrOnly && (hero?.tmdb_rating || hero?.imdb_rating || imdbLoading);
   const nextEpisode: NextEpisode | undefined = hero?.next_episode;
+  const backdropLoadingLabel = !sonarrOnly && !backdropSrc && tmdbSeriesDegraded
+    ? t('seriesDetail.degraded.backdrop.loading')
+    : undefined;
 
   const [trailerOpen, setTrailerOpen] = useState(false);
 
@@ -102,7 +117,11 @@ export function SeriesHero({
           />
         )}
         {!sonarrOnly && !backdropSrc && (
-          <MonogramFallback title={title} kind="backdrop" />
+          <MonogramFallback
+            title={title}
+            kind="backdrop"
+            {...(backdropLoadingLabel ? { loadingLabel: backdropLoadingLabel } : {})}
+          />
         )}
       </div>
 
@@ -185,6 +204,7 @@ export function SeriesHero({
                   {...(hero?.tmdb_rating ? { tmdb: hero.tmdb_rating } : {})}
                   {...(hero?.imdb_rating ? { imdb: hero.imdb_rating } : {})}
                   {...(imdbStaleAt ? { imdbStaleAt } : {})}
+                  {...(imdbLoading ? { imdbLoading: true } : {})}
                 />
               )}
 

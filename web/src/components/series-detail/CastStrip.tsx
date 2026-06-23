@@ -4,24 +4,74 @@ import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/series';
 import { MonogramFallback } from '@/components/MonogramFallback';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { components } from '@/api/schema';
 
 type CastMember = components['schemas']['dto.CastMember'];
 
 export interface CastStripProps {
-  readonly instance: string;
+  // Story 495 / N-1e §A3: rendered URL is composed in SeriesDetail so
+  // the routing concern stays in the page that owns the URL shape.
+  readonly castHref: string;
   readonly seriesId: number;
   readonly cast?: readonly CastMember[] | undefined;
   readonly limit?: number;
   readonly className?: string | undefined;
+  // Story 495 / N-1e (B-20): when true AND cast is empty, render a
+  // skeleton row + loading label instead of returning null.
+  readonly tmdbPersonDegraded?: boolean | undefined;
 }
 
 export function CastStrip({
-  instance, seriesId, cast, limit = 8, className,
+  castHref, seriesId, cast, limit = 8, className, tmdbPersonDegraded,
 }: CastStripProps) {
   const { t } = useTranslation();
   const items = (cast ?? []).slice(0, limit);
-  if (items.length === 0) return null;
+
+  if (items.length === 0) {
+    if (!tmdbPersonDegraded) return null;
+    return (
+      <section
+        data-testid="cast-strip-loading"
+        aria-labelledby="cast-strip-heading"
+        data-series-id={seriesId}
+        className={cn('flex flex-col gap-3', className)}
+      >
+        <div className="flex items-center justify-between gap-2.5 mb-3.5 min-w-0">
+          <h2
+            id="cast-strip-heading"
+            className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tx-faint truncate"
+          >
+            {t('seriesDetail.cast.label')}
+          </h2>
+          <span
+            data-testid="cast-strip-loading-label"
+            className="shrink-0 text-[12.5px] text-tx-muted"
+          >
+            {t('seriesDetail.degraded.cast.loading')}
+          </span>
+        </div>
+        <div
+          className="grid gap-2.5"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              data-testid="cast-skeleton-avatar"
+              className="flex items-center gap-2.5 rounded-md min-w-0 p-[7px_9px]"
+            >
+              <Skeleton className="shrink-0 w-[42px] h-[42px] rounded-full" />
+              <div className="flex flex-col gap-1 min-w-0 flex-1">
+                <Skeleton className="h-3 w-[80%]" />
+                <Skeleton className="h-2.5 w-[60%]" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -40,7 +90,7 @@ export function CastStrip({
           {t('seriesDetail.cast.label')}
         </h2>
         <Link
-          to={`/series/${encodeURIComponent(instance)}/${seriesId}/cast`}
+          to={castHref}
           data-testid="cast-strip-view-all"
           className="shrink-0 inline-flex items-center gap-1 text-[12.5px] text-tx-muted hover:text-tx-primary transition-colors"
         >

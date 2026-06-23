@@ -23,7 +23,8 @@ function renderRoute(path: string) {
           <TooltipProvider delayDuration={0}>
             <MemoryRouter initialEntries={[path]}>
               <Routes>
-                <Route path="/series/:instance/:id/cast" element={<SeriesCast />} />
+                {/* Story 495 / N-1e: URL is global — `:instance` segment dropped. */}
+                <Route path="/series/:id/cast" element={<SeriesCast />} />
               </Routes>
             </MemoryRouter>
           </TooltipProvider>
@@ -60,13 +61,13 @@ describe('<SeriesCast />', () => {
 
   it('renders skeleton while loading', () => {
     mockApi.mockReturnValueOnce(new Promise(() => {}));
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     expect(screen.getByTestId('cast-page-skeleton')).toBeInTheDocument();
   });
 
   it('renders both tabs after data loads', async () => {
     mockApi.mockResolvedValueOnce(fullFixture);
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-tabs-list')).toBeInTheDocument());
     expect(screen.getByTestId('cast-tab-cast')).toHaveTextContent('Cast (2)');
     expect(screen.getByTestId('cast-tab-crew')).toHaveTextContent('Crew (1)');
@@ -74,7 +75,7 @@ describe('<SeriesCast />', () => {
 
   it('filters both tabs from the search input and updates counts', async () => {
     mockApi.mockResolvedValueOnce(fullFixture);
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-search')).toBeInTheDocument());
     fireEvent.change(screen.getByTestId('cast-search'), { target: { value: 'Pedro' } });
     expect(screen.getByTestId('cast-tab-cast')).toHaveTextContent('Cast (1 / 2)');
@@ -83,7 +84,7 @@ describe('<SeriesCast />', () => {
 
   it('shows the empty-search callout with a Clear button', async () => {
     mockApi.mockResolvedValueOnce(fullFixture);
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-search')).toBeInTheDocument());
     fireEvent.change(screen.getByTestId('cast-search'), { target: { value: 'zzzzz' } });
     expect(screen.getByTestId('cast-search-empty')).toBeInTheDocument();
@@ -91,36 +92,53 @@ describe('<SeriesCast />', () => {
 
   it('renders the page-level empty callout when both lists are empty', async () => {
     mockApi.mockResolvedValueOnce({ instance: 'alpha', series_id: 42, cast: [], crew: [] });
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-page-empty')).toBeInTheDocument());
     expect(screen.queryByTestId('cast-tabs-list')).toBeNull();
   });
 
   it('renders the error alert on a failed fetch', async () => {
     mockApi.mockRejectedValueOnce(new Error('boom'));
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-page-error')).toBeInTheDocument());
   });
 
   it('renders a back link to the series detail page', async () => {
     mockApi.mockResolvedValueOnce(fullFixture);
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     const back = await screen.findByTestId('cast-page-back');
-    expect(back.getAttribute('href')).toBe('/series/alpha/42');
+    expect(back.getAttribute('href')).toBe('/series/42');
   });
 
   it('renders an invalid-params error when the URL is malformed', () => {
-    renderRoute('/series/alpha/not-a-number/cast');
+    renderRoute('/series/not-a-number/cast');
     expect(screen.getByText(/Invalid series link/i)).toBeInTheDocument();
   });
 
   it('renders the hero with title + year range from series_summary', async () => {
     mockApi.mockResolvedValueOnce(fullFixture);
-    renderRoute('/series/alpha/42/cast');
+    renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-tabs-list')).toBeInTheDocument());
     expect(screen.getByTestId('cast-page-title')).toHaveTextContent('The Last of Us');
     // Year-range text contains the en-dash (formatYearRange in CompactHero).
     expect(screen.getByTestId('cast-compact-hero')).toHaveTextContent('2023');
     expect(screen.getByTestId('cast-compact-hero')).toHaveTextContent('2025');
+  });
+
+  // Story 495 / N-1e (B-20): when the cast DTO carries `degraded: ['tmdb_person']`
+  // AND both lists are empty, render skeleton tiles instead of the "no
+  // data" fallback so operator can distinguish loading from empty.
+  it('renders the cast-page loading skeleton when tmdb_person is degraded', async () => {
+    mockApi.mockResolvedValueOnce({
+      instance: 'alpha',
+      series_id: 42,
+      cast: [],
+      crew: [],
+      degraded: ['tmdb_person'],
+    });
+    renderRoute('/series/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-page-loading')).toBeInTheDocument());
+    expect(screen.queryByTestId('cast-page-empty')).toBeNull();
+    expect(screen.getAllByTestId('cast-page-skeleton-tile')).toHaveLength(10);
   });
 });

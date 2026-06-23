@@ -9,6 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { Skeleton } from '@/components/ui/skeleton';
 import { mediaUrl } from '@/api/series';
 import { useSeriesSeason } from '@/api/seriesSeason';
 import type { components } from '@/api/schema';
@@ -24,6 +25,11 @@ export interface SeasonsAccordionProps {
   // Optional badge rendered inline with the section heading
   // (used for per-section StaleBadge wire-up from SeriesDetail).
   readonly staleBadge?: ReactNode;
+  // Story 495 / N-1e (B-20): when true AND `seasons` is empty, render
+  // 5 skeleton rows + loading label instead of the "Сезоны пока
+  // недоступны" fallback. Distinguishes "TMDB enrichment in flight"
+  // from "TMDB returned no data".
+  readonly tmdbSeasonLoading?: boolean | undefined;
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
@@ -139,11 +145,12 @@ function SeasonAccordionItem({
 }
 
 export function SeasonsAccordion({
-  seriesId, seasons, lang, className, staleBadge,
+  seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
   const [expanded, setExpanded] = useState<readonly string[]>([]);
+  const showLoading = sorted.length === 0 && Boolean(tmdbSeasonLoading);
 
   return (
     <section
@@ -157,8 +164,33 @@ export function SeasonsAccordion({
       >
         {t('seriesDetail.seasons.label')}
         {staleBadge}
+        {showLoading && (
+          <span
+            data-testid="seasons-loading-label"
+            className="ml-2 text-[10px] font-normal normal-case tracking-normal text-tx-muted"
+          >
+            {t('seriesDetail.degraded.seasons.loading')}
+          </span>
+        )}
       </h2>
-      {sorted.length === 0 ? (
+      {showLoading ? (
+        <div className="flex flex-col gap-2 px-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              data-testid="seasons-skeleton-row"
+              className="flex items-center gap-3 rounded-md px-3 py-2.5"
+            >
+              <Skeleton className="w-10 h-[60px] rounded shrink-0" />
+              <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                <Skeleton className="h-3.5 w-[40%]" />
+                <Skeleton className="h-3 w-[60%]" />
+              </div>
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="text-[12px] text-tx-faint px-1 py-2">{t('seriesDetail.seasons.none')}</div>
       ) : (
         <Accordion

@@ -3,12 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { RatingScore } from '@/api/series';
 import { StaleBadge } from './StaleBadge';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export interface RatingDuoProps {
   readonly tmdb?: RatingScore | undefined;
   readonly imdb?: RatingScore | undefined;
   readonly tmdbStaleAt?: string | undefined;
   readonly imdbStaleAt?: string | undefined;
+  // Story 495 / N-1e (B-20): render an IMDb skeleton chip while OMDb
+  // enrichment is in flight (`degraded[]` carries `'omdb'` AND no
+  // rating yet).
+  readonly imdbLoading?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
@@ -24,11 +29,12 @@ function ratingValid(r: RatingScore | undefined): r is RatingScore {
   return Boolean(r) && typeof r?.score === 'number' && r.score > 0;
 }
 
-export function RatingDuo({ tmdb, imdb, tmdbStaleAt, imdbStaleAt, className }: RatingDuoProps) {
+export function RatingDuo({ tmdb, imdb, tmdbStaleAt, imdbStaleAt, imdbLoading, className }: RatingDuoProps) {
   const { t } = useTranslation();
   const showTmdb = ratingValid(tmdb);
   const showImdb = ratingValid(imdb);
-  if (!showTmdb && !showImdb) return null;
+  const showImdbLoading = Boolean(imdbLoading) && !showImdb;
+  if (!showTmdb && !showImdb && !showImdbLoading) return null;
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px]', className)}>
       {showTmdb && (
@@ -55,6 +61,21 @@ export function RatingDuo({ tmdb, imdb, tmdbStaleAt, imdbStaleAt, className }: R
             <span className="text-tx-faint tabular-nums">· {humanizeVotes(imdb!.votes)}</span>
           )}
           {imdbStaleAt && <StaleBadge asOf={imdbStaleAt} source="omdb" />}
+        </span>
+      )}
+      {showImdbLoading && (
+        <span
+          data-testid="imdb-rating-loading"
+          className="inline-flex items-center gap-1.5"
+        >
+          <span className="text-[10px] font-bold tracking-wide uppercase text-tx-faint">
+            {t('seriesDetail.ratings.imdb')}
+          </span>
+          <Star className="w-3.5 h-3.5 text-tx-faint" aria-hidden="true" />
+          <Skeleton className="h-3 w-10" />
+          <span className="text-[10.5px] text-tx-faint">
+            {t('seriesDetail.degraded.imdb.loading')}
+          </span>
         </span>
       )}
     </div>
