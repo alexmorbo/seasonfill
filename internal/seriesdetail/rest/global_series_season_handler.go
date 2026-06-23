@@ -46,11 +46,11 @@ func NewGlobalSeriesSeasonHandler(
 // Get handles GET /api/v1/series/:id/season/:n.
 //
 // @Summary     Series season detail (global)
-// @Description Same shape as the per-instance
-// @Description /api/v1/instances/{name}/series/{id}/season/{n}, but
-// @Description resolves the preferred Sonarr instance automatically
-// @Description from the canonical series.id. 404 when no library
-// @Description carries the series.
+// @Description Season detail document for a series keyed by canonical
+// @Description series.id. Resolves the preferred Sonarr instance
+// @Description automatically (lex-first instance that carries the series
+// @Description in series_cache). 404 when no library carries the series —
+// @Description TMDB-only series have no per-season surface.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"

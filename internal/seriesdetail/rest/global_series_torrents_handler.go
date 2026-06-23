@@ -46,11 +46,11 @@ func NewGlobalSeriesTorrentsHandler(
 // Get handles GET /api/v1/series/:id/torrents.
 //
 // @Summary     Per-series torrent inventory (global)
-// @Description Same shape as the per-instance
-// @Description /api/v1/instances/{name}/series/{id}/torrents, but
-// @Description resolves the preferred Sonarr instance automatically
-// @Description from the canonical series.id. 404 when no library
-// @Description carries the series.
+// @Description Per-series torrent inventory keyed by canonical series.id.
+// @Description Resolves the preferred Sonarr instance automatically
+// @Description (lex-first instance that carries the series in
+// @Description series_cache). 404 when no library carries the series —
+// @Description TMDB-only series have no torrent surface.
 // @Tags        series
 // @Produce     json
 // @Param       id  path  int  true  "Canonical series.id"

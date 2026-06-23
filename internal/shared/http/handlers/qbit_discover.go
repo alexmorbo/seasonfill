@@ -37,9 +37,11 @@ func NewQbitDiscoverHandler(reg catalogrest.InstanceRegistry, logger *slog.Logge
 //
 // @Summary     Discover qBit settings from a Sonarr instance
 // @Description Calls Sonarr's /api/v3/downloadclient and returns the
-// @Description first QBittorrent download client's host/port/username/
-// @Description category. Password is never returned — Sonarr redacts
-// @Description it server-side; the operator types it themselves into
+// @Description first ENABLED QBittorrent download client (falling back
+// @Description to the first one regardless of Enable). Surfaces the
+// @Description client `name`, composed `url` (http://host:port), `username`
+// @Description and `category`. Password is never returned — Sonarr
+// @Description redacts it server-side; the operator re-enters it into
 // @Description the qBit settings form.
 // @Tags        instances
 // @Produce     json

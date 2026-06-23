@@ -15,10 +15,13 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
-// GrabEpisodeFilesHandler exposes
-// GET /api/v1/instances/:name/grabs/:id/episode-files — lazy on-demand
-// fetch of the on-disk files Sonarr placed for the grab. PRD §3 B1
-// item 5 / decision #6 (lazy, no persistence). 043c.
+// GrabEpisodeFilesHandler — legacy per-instance handler retained for
+// internal tests after the route was deleted in N-1b cutover
+// (story 492). The live entry point for the same use case is now
+// GlobalGrabEpisodeFilesHandler at GET /api/v1/grabs/:id/episode-files
+// (`global_grab_episode_files_handler.go`). Kept here so the test
+// surface in `grab_episode_files_test.go` still compiles; no
+// production route registers `List` after N-1b.
 type GrabEpisodeFilesHandler struct {
 	grabs  ports.GrabRepository
 	reg    catalogrest.InstanceRegistry
@@ -36,23 +39,12 @@ func NewGrabEpisodeFilesHandler(
 	return &GrabEpisodeFilesHandler{grabs: grabs, reg: reg, logger: logger}
 }
 
-// List handles GET /api/v1/instances/:name/grabs/:id/episode-files.
-//
-// @Summary     List on-disk files for a grab
-// @Description Lazy fetch of Sonarr's episodeFile + episode rows for
-// @Description the grab's (series_id, season_number). Returns 200 with
-// @Description empty items when status != imported.
-// @Tags        grabs
-// @Produce     json
-// @Param       name  path      string  true  "Instance name"
-// @Param       id    path      string  true  "Grab UUID"
-// @Success     200   {object}  dto.EpisodeFileList
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     502   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/grabs/{id}/episode-files [get]
+// List was reachable at GET /api/v1/instances/:name/grabs/:id/episode-files
+// pre-N-1b. The route is deleted; the function survives for the
+// test surface. NOT documented in OpenAPI on purpose — swag
+// annotations were stripped in story 498 to clear the phantom
+// /instances/{name}/grabs/{id}/episode-files path from
+// docs/swagger.yaml.
 func (h *GrabEpisodeFilesHandler) List(c *gin.Context) {
 	ctx := c.Request.Context()
 	name := c.Param("name")

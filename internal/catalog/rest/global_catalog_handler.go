@@ -43,10 +43,12 @@ func NewGlobalCatalogHandler(inner *InstancesHandler, logger *slog.Logger) *Glob
 // List handles GET /api/v1/series.
 //
 // @Summary     List series-cache entries (global)
-// @Description Same shape as /api/v1/instances/{name}/series-cache; the
-// @Description instance is taken from `?instance=` query rather than path.
-// @Description Required query param: instance. Other filter/sort/cursor
-// @Description params identical to the per-instance endpoint.
+// @Description Global series-cache list. Required query param: instance —
+// @Description the global namespace replaces the per-instance route that
+// @Description was deleted at N-1b (story 492); multi-instance aggregation
+// @Description is out of scope (see N-2 Discovery). Supports filter
+// @Description (state, q, monitored, networks), sort (updated_desc,
+// @Description title_asc, air_date_desc), and keyset pagination.
 // @Tags        series
 // @Produce     json
 // @Param       instance       query  string  true   "Instance name"

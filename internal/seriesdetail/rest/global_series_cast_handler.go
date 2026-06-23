@@ -47,13 +47,11 @@ func NewGlobalSeriesCastHandler(
 // Get handles GET /api/v1/series/:id/cast.
 //
 // @Summary     Full series cast & crew (global)
-// @Description Same shape as the per-instance
-// @Description /api/v1/instances/{name}/series/{id}/cast, but resolves
-// @Description the preferred Sonarr instance automatically from the
-// @Description canonical series.id (lex-first instance that carries
-// @Description the series in series_cache). 404 when no library
-// @Description carries the series — TMDB-only series have no cast
-// @Description surface in v1.
+// @Description Cast list for a series keyed by canonical series.id.
+// @Description Resolves the preferred Sonarr instance automatically
+// @Description (lex-first instance that carries the series in
+// @Description series_cache). 404 when no library carries the series —
+// @Description TMDB-only series have no cast surface in v1.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"

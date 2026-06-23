@@ -1525,9 +1525,11 @@ export type paths = {
         /**
          * Discover qBit settings from a Sonarr instance
          * @description Calls Sonarr's /api/v3/downloadclient and returns the
-         *     first QBittorrent download client's host/port/username/
-         *     category. Password is never returned — Sonarr redacts
-         *     it server-side; the operator types it themselves into
+         *     first ENABLED QBittorrent download client (falling back
+         *     to the first one regardless of Enable). Surfaces the
+         *     client `name`, composed `url` (http://host:port), `username`
+         *     and `category`. Password is never returned — Sonarr
+         *     redacts it server-side; the operator re-enters it into
          *     the qBit settings form.
          */
         readonly get: {
@@ -1561,79 +1563,6 @@ export type paths = {
                     };
                 };
                 /** @description unknown instance OR no qBit configured in Sonarr */
-                readonly 404: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Bad Gateway */
-                readonly 502: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-            };
-        };
-        readonly put?: never;
-        readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/instances/{name}/grabs/{id}/episode-files": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /**
-         * List on-disk files for a grab
-         * @description Lazy fetch of Sonarr's episodeFile + episode rows for
-         *     the grab's (series_id, season_number). Returns 200 with
-         *     empty items when status != imported.
-         */
-        readonly get: {
-            readonly parameters: {
-                readonly query?: never;
-                readonly header?: never;
-                readonly path: {
-                    /** @description Instance name */
-                    readonly name: string;
-                    /** @description Grab UUID */
-                    readonly id: string;
-                };
-                readonly cookie?: never;
-            };
-            readonly requestBody?: never;
-            readonly responses: {
-                /** @description OK */
-                readonly 200: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.EpisodeFileList"];
-                    };
-                };
-                /** @description Bad Request */
-                readonly 400: {
-                    headers: {
-                        readonly [name: string]: unknown;
-                    };
-                    content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
-                    };
-                };
-                /** @description Not Found */
                 readonly 404: {
                     headers: {
                         readonly [name: string]: unknown;
@@ -2839,10 +2768,12 @@ export type paths = {
         };
         /**
          * List series-cache entries (global)
-         * @description Same shape as /api/v1/instances/{name}/series-cache; the
-         *     instance is taken from `?instance=` query rather than path.
-         *     Required query param: instance. Other filter/sort/cursor
-         *     params identical to the per-instance endpoint.
+         * @description Global series-cache list. Required query param: instance —
+         *     the global namespace replaces the per-instance route that
+         *     was deleted at N-1b (story 492); multi-instance aggregation
+         *     is out of scope (see N-2 Discovery). Supports filter
+         *     (state, q, monitored, networks), sort (updated_desc,
+         *     title_asc, air_date_desc), and keyset pagination.
          */
         readonly get: {
             readonly parameters: {
@@ -2934,13 +2865,13 @@ export type paths = {
         };
         /**
          * Composite series detail document (global)
-         * @description Same shape as the per-instance /api/v1/instances/{name}/series/{id}
-         *     endpoint, but resolves the preferred instance automatically
-         *     from the canonical series.id. When the series is in zero
-         *     libraries (TMDB-only) the response carries `in_library_instances=[]`
-         *     and the per-instance branches (Library / Download / Seasons /
-         *     Cast) are empty — the Hero block is populated from the
-         *     canon row.
+         * @description Composite series-detail document keyed by canonical series.id.
+         *     Resolves the preferred Sonarr instance automatically (lex-first
+         *     instance that carries the series in series_cache). When the
+         *     series is in zero libraries (TMDB-only) the response carries
+         *     `in_library_instances=[]` and the per-instance branches
+         *     (Library / Download / Seasons / Cast) are empty — the Hero
+         *     block is populated from the canon row.
          */
         readonly get: {
             readonly parameters: {
@@ -3021,13 +2952,11 @@ export type paths = {
         };
         /**
          * Full series cast & crew (global)
-         * @description Same shape as the per-instance
-         *     /api/v1/instances/{name}/series/{id}/cast, but resolves
-         *     the preferred Sonarr instance automatically from the
-         *     canonical series.id (lex-first instance that carries
-         *     the series in series_cache). 404 when no library
-         *     carries the series — TMDB-only series have no cast
-         *     surface in v1.
+         * @description Cast list for a series keyed by canonical series.id.
+         *     Resolves the preferred Sonarr instance automatically
+         *     (lex-first instance that carries the series in
+         *     series_cache). 404 when no library carries the series —
+         *     TMDB-only series have no cast surface in v1.
          */
         readonly get: {
             readonly parameters: {
@@ -3111,10 +3040,10 @@ export type paths = {
         /**
          * Re-enrich a series (global)
          * @description Resolves the canonical series.id to the preferred Sonarr
-         *     instance (lexicographically-first instance that carries
-         *     this series), then enqueues series + cast + OMDb re-enrich
-         *     at PriorityHot — same semantics as the per-instance
-         *     /series/{id}/refresh endpoint.
+         *     instance (lex-first instance that carries this series in
+         *     series_cache), then enqueues series + cast + OMDb
+         *     re-enrichment at PriorityHot. Returns 202 with the
+         *     scan_run_id of the spawned refresh.
          */
         readonly post: {
             readonly parameters: {
@@ -3190,11 +3119,11 @@ export type paths = {
         };
         /**
          * Series season detail (global)
-         * @description Same shape as the per-instance
-         *     /api/v1/instances/{name}/series/{id}/season/{n}, but
-         *     resolves the preferred Sonarr instance automatically
-         *     from the canonical series.id. 404 when no library
-         *     carries the series.
+         * @description Season detail document for a series keyed by canonical
+         *     series.id. Resolves the preferred Sonarr instance
+         *     automatically (lex-first instance that carries the series
+         *     in series_cache). 404 when no library carries the series —
+         *     TMDB-only series have no per-season surface.
          */
         readonly get: {
             readonly parameters: {
@@ -3277,11 +3206,11 @@ export type paths = {
         };
         /**
          * Sonarr-side season episodes (global)
-         * @description Same shape as the per-instance
-         *     /api/v1/instances/{name}/series/{id}/seasons/{season}/episodes,
-         *     but resolves the preferred Sonarr instance
-         *     automatically from the canonical series.id. 404 when no
-         *     library carries the series.
+         * @description Lists the episodes for one season of a series, resolving
+         *     the preferred Sonarr instance automatically from the
+         *     canonical series.id (lex-first instance that carries the
+         *     series in series_cache). 404 when no library carries the
+         *     series — TMDB-only series have no episode surface.
          */
         readonly get: {
             readonly parameters: {
@@ -3361,11 +3290,11 @@ export type paths = {
         };
         /**
          * Per-series torrent inventory (global)
-         * @description Same shape as the per-instance
-         *     /api/v1/instances/{name}/series/{id}/torrents, but
-         *     resolves the preferred Sonarr instance automatically
-         *     from the canonical series.id. 404 when no library
-         *     carries the series.
+         * @description Per-series torrent inventory keyed by canonical series.id.
+         *     Resolves the preferred Sonarr instance automatically
+         *     (lex-first instance that carries the series in
+         *     series_cache). 404 when no library carries the series —
+         *     TMDB-only series have no torrent surface.
          */
         readonly get: {
             readonly parameters: {

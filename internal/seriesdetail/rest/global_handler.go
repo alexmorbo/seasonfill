@@ -62,13 +62,13 @@ func NewGlobalSeriesHandler(
 // Get handles GET /api/v1/series/:id.
 //
 // @Summary     Composite series detail document (global)
-// @Description Same shape as the per-instance /api/v1/instances/{name}/series/{id}
-// @Description endpoint, but resolves the preferred instance automatically
-// @Description from the canonical series.id. When the series is in zero
-// @Description libraries (TMDB-only) the response carries `in_library_instances=[]`
-// @Description and the per-instance branches (Library / Download / Seasons /
-// @Description Cast) are empty — the Hero block is populated from the
-// @Description canon row.
+// @Description Composite series-detail document keyed by canonical series.id.
+// @Description Resolves the preferred Sonarr instance automatically (lex-first
+// @Description instance that carries the series in series_cache). When the
+// @Description series is in zero libraries (TMDB-only) the response carries
+// @Description `in_library_instances=[]` and the per-instance branches
+// @Description (Library / Download / Seasons / Cast) are empty — the Hero
+// @Description block is populated from the canon row.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"
@@ -103,10 +103,10 @@ func (h *GlobalSeriesHandler) Get(c *gin.Context) {
 //
 // @Summary     Re-enrich a series (global)
 // @Description Resolves the canonical series.id to the preferred Sonarr
-// @Description instance (lexicographically-first instance that carries
-// @Description this series), then enqueues series + cast + OMDb re-enrich
-// @Description at PriorityHot — same semantics as the per-instance
-// @Description /series/{id}/refresh endpoint.
+// @Description instance (lex-first instance that carries this series in
+// @Description series_cache), then enqueues series + cast + OMDb
+// @Description re-enrichment at PriorityHot. Returns 202 with the
+// @Description scan_run_id of the spawned refresh.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"
