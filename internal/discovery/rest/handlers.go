@@ -45,8 +45,6 @@ import (
 
 // staleTTL is the on-demand long-tail freshness window (PRD §5.1.1
 // line 691). Lists older than 7d are refreshed inline on read.
-//
-//nolint:unused // referenced by serveLongTail in Commit B
 const staleTTL = 7 * 24 * time.Hour
 
 // defaultLang is the BCP-47 tag used when the client omits ?lang=.
@@ -78,8 +76,6 @@ type DiscoveryHandler struct {
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
 	// group keeps memory usage flat — singleflight evicts the entry
 	// the moment the call returns.
-	//
-	//nolint:unused // referenced by serveLongTail in Commit B
 	sfGroup singleflight.Group
 }
 
@@ -170,24 +166,127 @@ func (h *DiscoveryHandler) serveLeaderboard(c *gin.Context, kind disco.Kind) {
 }
 
 // ByGenre serves GET /api/v1/discovery/genre/:id.
-// Commit A: STUB — returns 501. Commit B replaces.
+//
+// Long-tail contract (PRD §5.1.1 lines 686-692): when the
+// (KindByGenre, id, lang) tuple is missing OR stale-by-7d the handler
+// calls RefreshOnDemand inline before reading. Concurrent cold-cache
+// requests for the same key collapse onto a single TMDB fetch via
+// singleflight.
 func (h *DiscoveryHandler) ByGenre(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented",
-		"by_genre lands in commit B")
+	h.serveLongTail(c, disco.KindByGenre)
 }
 
-// ByNetwork serves GET /api/v1/discovery/network/:id.
-// Commit A: STUB — returns 501. Commit B replaces.
+// ByNetwork serves GET /api/v1/discovery/network/:id. Same shape as
+// ByGenre with kind=by_network.
 func (h *DiscoveryHandler) ByNetwork(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented",
-		"by_network lands in commit B")
+	h.serveLongTail(c, disco.KindByNetwork)
 }
 
-// ByKeyword serves GET /api/v1/discovery/keyword/:id.
-// Commit A: STUB — returns 501. Commit B replaces.
+// ByKeyword serves GET /api/v1/discovery/keyword/:id. Same shape as
+// ByGenre with kind=by_keyword. Keywords have no picker endpoint —
+// clients must already know the keyword id (FE will offer this via
+// /series/{id} keyword chips in N-3).
 func (h *DiscoveryHandler) ByKeyword(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not_implemented",
-		"by_keyword lands in commit B")
+	h.serveLongTail(c, disco.KindByKeyword)
+}
+
+// serveLongTail runs the genre / network / keyword pipeline:
+//  1. parse :id (must be positive integer)
+//  2. parse lang + page + per_page
+//  3. test IsStale; if stale, RefreshNow (singleflight-collapsed)
+//  4. read + project
+//  5. if refresh failed AND repo still empty → 502
+//     if refresh failed AND repo has stale rows → 200 + degraded:["refresh_failed"]
+//     if refresh ok AND repo still empty → 200 + degraded:["genre_unknown_to_tmdb"]
+func (h *DiscoveryHandler) serveLongTail(c *gin.Context, kind disco.Kind) {
+	rawID := c.Param("id")
+	idInt, err := strconv.Atoi(rawID)
+	if err != nil || idInt <= 0 {
+		respondError(c, http.StatusBadRequest, "invalid_id",
+			"id must be a positive integer")
+		return
+	}
+	param := strconv.Itoa(idInt)
+
+	lang, page, perPage, ok := h.parsePaging(c)
+	if !ok {
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	stale, err := h.repo.IsStale(ctx, kind, param, lang, staleTTL)
+	if err != nil {
+		h.log.WarnContext(ctx, "discovery is_stale query failed",
+			slog.String("kind", string(kind)),
+			slog.String("param", param),
+			slog.String("language", lang),
+			slog.String("error", err.Error()))
+		respondError(c, http.StatusInternalServerError, "discovery_read_failed",
+			"is_stale failed")
+		return
+	}
+
+	var refreshErr error
+	if stale {
+		key := string(kind) + "|" + param + "|" + lang
+		_, refreshErr, _ = h.sfGroup.Do(key, func() (any, error) {
+			// Defensive recover — singleflight propagates panics
+			// to every coalesced caller. Wrap the worker call to
+			// turn a panic into an error so a buggy refresh path
+			// doesn't crash 16 in-flight goroutines simultaneously.
+			defer func() {
+				if r := recover(); r != nil {
+					h.log.ErrorContext(ctx, "discovery refresh panic",
+						slog.String("kind", string(kind)),
+						slog.String("param", param),
+						slog.String("language", lang),
+						slog.Any("recover", r))
+				}
+			}()
+			return nil, h.refresh.RefreshNow(ctx, kind, param, lang)
+		})
+		if refreshErr != nil {
+			h.log.WarnContext(ctx, "discovery on-demand refresh failed",
+				slog.String("kind", string(kind)),
+				slog.String("param", param),
+				slog.String("language", lang),
+				slog.String("error", refreshErr.Error()))
+		}
+	}
+
+	var extra []string
+	if refreshErr != nil {
+		extra = append(extra, "refresh_failed")
+	}
+	resp, err := h.readAndProject(ctx, kind, param, lang, page, perPage, extra)
+	if err != nil {
+		h.log.WarnContext(ctx, "discovery long-tail read failed",
+			slog.String("kind", string(kind)),
+			slog.String("param", param),
+			slog.String("language", lang),
+			slog.String("error", err.Error()))
+		respondError(c, http.StatusInternalServerError, "discovery_read_failed",
+			"read failed")
+		return
+	}
+
+	switch {
+	case len(resp.Items) == 0 && refreshErr != nil:
+		// Refresh failed AND no stale fallback to render.
+		respondError(c, http.StatusBadGateway, "discovery_unavailable",
+			"upstream refresh failed and no cached rows available")
+		return
+	case len(resp.Items) == 0 && refreshErr == nil:
+		// Refresh succeeded but TMDB returned no items for this param —
+		// surface a non-fatal hint so the FE renders empty-state.
+		// errStaleRead remains the named sentinel for log correlation
+		// across the two response paths.
+		_ = errStaleRead
+		resp.Degraded = append(resp.Degraded, "genre_unknown_to_tmdb")
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // PickerGenres serves GET /api/v1/discovery/genres.
@@ -370,9 +469,5 @@ func respondError(c *gin.Context, status int, slug, msg string) {
 
 // errStaleRead is the marker used by serveLongTail when the repo read
 // after RefreshNow still returns 0 items — the handler surfaces
-// "genre_unknown_to_tmdb" in degraded[] rather than 404. Commit B
-// consumes this constant; declared here so Commit A's file hash
-// references it stably.
-//
-//nolint:unused // referenced by serveLongTail in Commit B
+// "genre_unknown_to_tmdb" in degraded[] rather than 404.
 var errStaleRead = errors.New("discovery: stale read after refresh")

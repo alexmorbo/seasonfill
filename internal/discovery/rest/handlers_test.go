@@ -3,11 +3,13 @@ package rest_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,7 +25,10 @@ import (
 )
 
 // fakeRepo implements discoapp.DiscoveryListRepo for handler tests.
+// Maps are guarded by mu so the concurrent singleflight test stays
+// race-clean under -race.
 type fakeRepo struct {
+	mu          sync.Mutex
 	pages       map[string]disco.Page
 	stale       map[string]bool
 	lastRefresh map[string]time.Time
@@ -44,9 +49,13 @@ func fakeKey(kind disco.Kind, param, lang string) string {
 
 func (f *fakeRepo) GetRanked(_ context.Context, kind disco.Kind, param, lang string, _, _ int) (disco.Page, error) {
 	f.getCalls.Add(1)
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.pages[fakeKey(kind, param, lang)], nil
 }
 func (f *fakeRepo) IsStale(_ context.Context, kind disco.Kind, param, lang string, _ time.Duration) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	v, ok := f.stale[fakeKey(kind, param, lang)]
 	if !ok {
 		return true, nil
@@ -54,10 +63,23 @@ func (f *fakeRepo) IsStale(_ context.Context, kind disco.Kind, param, lang strin
 	return v, nil
 }
 func (f *fakeRepo) LastRefreshedAt(_ context.Context, kind disco.Kind, param, lang string) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.lastRefresh[fakeKey(kind, param, lang)], nil
 }
 func (f *fakeRepo) ReplaceList(_ context.Context, _ disco.Kind, _, _ string, _ []disco.Item) error {
 	return nil
+}
+
+// setPage is a test-only helper that atomically writes the (kind, param,
+// lang) tuple into pages/stale/lastRefresh under mu.
+func (f *fakeRepo) setPage(kind disco.Kind, param, lang string, p disco.Page, stale bool, refresh time.Time) {
+	k := fakeKey(kind, param, lang)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pages[k] = p
+	f.stale[k] = stale
+	f.lastRefresh[k] = refresh
 }
 
 // fakeWarming implements discoapp.WarmingProbe.
@@ -82,13 +104,11 @@ func (f *fakeRefresh) RefreshNow(_ context.Context, kind disco.Kind, param, lang
 		return f.err
 	}
 	if f.repo != nil {
-		f.repo.pages[fakeKey(kind, param, lang)] = disco.Page{
+		f.repo.setPage(kind, param, lang, disco.Page{
 			Items:       f.emit,
 			RefreshedAt: f.refresh,
 			Total:       len(f.emit),
-		}
-		f.repo.stale[fakeKey(kind, param, lang)] = false
-		f.repo.lastRefresh[fakeKey(kind, param, lang)] = f.refresh
+		}, false, f.refresh)
 	}
 	return nil
 }
@@ -126,11 +146,20 @@ func seedSeries(repo *fakeRepo, kind disco.Kind, param, lang string, n int) {
 			Title:    t,
 		})
 	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	repo.pages[fakeKey(kind, param, lang)] = disco.Page{
 		Items:       items,
 		RefreshedAt: time.Now(),
 		Total:       len(items),
 	}
+}
+
+// setStale is a test-only helper that flips repo.stale[key] under mu.
+func (f *fakeRepo) setStale(kind disco.Kind, param, lang string, v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stale[fakeKey(kind, param, lang)] = v
 }
 
 func TestTrending_HappyPath_DayAndWeek(t *testing.T) {
@@ -223,12 +252,154 @@ func TestParsePaging_Boundaries(t *testing.T) {
 	}
 }
 
-func TestLongTail_Commit_A_Stub_Returns_501(t *testing.T) {
+func TestByGenre_CachedHit_DoesNotCallRefresh(t *testing.T) {
+	repo := newFakeRepo()
+	seedSeries(repo, disco.KindByGenre, "18", "en-US", 5)
+	repo.setStale(disco.KindByGenre, "18", "en-US", false)
+	rf := &fakeRefresh{repo: repo}
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/18?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(0), rf.calls.Load(), "fresh cache must NOT call RefreshNow")
+}
+
+func TestByGenre_Stale_TriggersRefresh(t *testing.T) {
+	repo := newFakeRepo()
+	rf := &fakeRefresh{
+		repo: repo,
+		emit: []disco.Item{
+			{SeriesID: shareddomain.SeriesID(1), Title: "Refreshed"},
+		},
+		refresh: time.Now(),
+	}
+	repo.setStale(disco.KindByGenre, "18", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/18?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(1), rf.calls.Load())
+	require.Contains(t, rec.Body.String(), `"Refreshed"`)
+}
+
+func TestByGenre_ConcurrentStaleRequests_SingleflightCollapses(t *testing.T) {
+	repo := newFakeRepo()
+	rf := &fakeRefresh{
+		repo: repo,
+		emit: []disco.Item{
+			{SeriesID: shareddomain.SeriesID(1), Title: "Refreshed"},
+		},
+		refresh: time.Now(),
+	}
+	repo.setStale(disco.KindByGenre, "18", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	const n = 16
+	done := make(chan struct{}, n)
+	for range n {
+		go func() {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/18?lang=en-US", nil)
+			r.ServeHTTP(rec, req)
+			done <- struct{}{}
+		}()
+	}
+	for range n {
+		<-done
+	}
+	// Singleflight collapses the burst to ONE RefreshNow call.
+	require.Equal(t, int64(1), rf.calls.Load())
+}
+
+func TestByGenre_UnknownParam_RefreshOK_Empty_Degraded(t *testing.T) {
+	repo := newFakeRepo()
+	// Refresh "succeeds" but writes 0 items.
+	rf := &fakeRefresh{repo: repo, emit: nil, refresh: time.Now()}
+	repo.setStale(disco.KindByGenre, "99999", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/99999?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Empty(t, resp.Items)
+	require.Equal(t, []string{"genre_unknown_to_tmdb"}, resp.Degraded)
+}
+
+func TestByGenre_RefreshFails_NoCachedFallback_502(t *testing.T) {
+	repo := newFakeRepo()
+	rf := &fakeRefresh{repo: repo, err: errors.New("tmdb down")}
+	repo.setStale(disco.KindByGenre, "18", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/18?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), `"discovery_unavailable"`)
+}
+
+func TestByGenre_RefreshFails_StaleFallback_200_Degraded(t *testing.T) {
+	repo := newFakeRepo()
+	// Pre-seed stale cache.
+	seedSeries(repo, disco.KindByGenre, "18", "en-US", 3)
+	repo.setStale(disco.KindByGenre, "18", "en-US", true)
+	rf := &fakeRefresh{repo: repo, err: errors.New("tmdb down")}
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/genre/18?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"refresh_failed"`)
+}
+
+func TestByNetwork_StaleTrigger(t *testing.T) {
+	repo := newFakeRepo()
+	rf := &fakeRefresh{
+		repo:    repo,
+		emit:    []disco.Item{{SeriesID: shareddomain.SeriesID(7), Title: "Net"}},
+		refresh: time.Now(),
+	}
+	repo.setStale(disco.KindByNetwork, "213", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/network/213?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(1), rf.calls.Load())
+}
+
+func TestByKeyword_StaleTrigger(t *testing.T) {
+	repo := newFakeRepo()
+	rf := &fakeRefresh{
+		repo:    repo,
+		emit:    []disco.Item{{SeriesID: shareddomain.SeriesID(9), Title: "Kw"}},
+		refresh: time.Now(),
+	}
+	repo.setStale(disco.KindByKeyword, "33", "en-US", true)
+	r := newTestHandler(t, repo, &fakeWarming{}, rf)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/discovery/keyword/33?lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(1), rf.calls.Load())
+}
+
+func TestLongTail_InvalidID_400(t *testing.T) {
 	r := newTestHandler(t, newFakeRepo(), &fakeWarming{}, &fakeRefresh{})
-	for _, path := range []string{"/discovery/genre/1", "/discovery/network/1", "/discovery/keyword/1"} {
+	for _, path := range []string{"/discovery/genre/abc", "/discovery/network/0", "/discovery/keyword/-1"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(t.Context(), "GET", path, nil)
 		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusNotImplemented, rec.Code, path)
+		require.Equal(t, http.StatusBadRequest, rec.Code, path)
 	}
 }
