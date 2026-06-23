@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
+	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	infraomdb "github.com/alexmorbo/seasonfill/internal/shared/clients/omdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
@@ -167,6 +168,12 @@ type TMDBClientFactoryConfig struct {
 	RPS                 float64
 	Logger              *slog.Logger
 	AuthFailureReporter tmdb.AuthFailureReporter
+	// QuotaCounter is the optional B-1 observability sink. Nil-OK —
+	// when nil, the rebuilt client neither Increments nor publishes
+	// the seasonfill_external_service_quota_used{service="tmdb"} gauge.
+	// Threaded through every reload subscriber rebuild so a runtime
+	// key swap preserves the observability wiring.
+	QuotaCounter quota.QuotaCounter
 }
 
 // BuildTMDBClient is the factory the boot wiring + the reload subscriber
@@ -191,6 +198,7 @@ func BuildTMDBClient(settings infraextsvc.Settings, cfg TMDBClientFactoryConfig)
 		RPS:                 cfg.RPS,
 		Logger:              cfg.Logger,
 		AuthFailureReporter: cfg.AuthFailureReporter, // Story 489 (B-17)
+		QuotaCounter:        cfg.QuotaCounter,        // B-1
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb client: %w", err)

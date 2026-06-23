@@ -248,6 +248,7 @@ func BuildEnrichment(
 		RPS:                 bootstrap.ExternalServices.TMDBAPIRPS,
 		Logger:              tmdbLog,
 		AuthFailureReporter: extSvcUC,
+		QuotaCounter:        quotaCounter, // B-1 — nil-OK; observability-only (TMDB has no daily cap)
 	}
 	if enabledAtBoot {
 		var err error
@@ -271,7 +272,7 @@ func BuildEnrichment(
 		// SEASONFILL_TMDB_RPS still honoured by config.FromEnv as an
 		// alias) + the wiring logger so adaptive pause + resume INFO
 		// lines surface under the enrichment component prefix. 0 from
-		// config means "tmdb package picks its default (50 rps)".
+		// config means "tmdb package picks its default (4.5 rps)".
 		if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
 			enrichmentLog.WarnContext(rootCtx, "config.deprecated_env",
 				slog.String("env", "SEASONFILL_TMDB_RPS"),
@@ -307,6 +308,7 @@ func BuildEnrichment(
 			RPS:                 tmdbFactoryCfg.RPS,
 			Logger:              tmdbFactoryCfg.Logger,
 			AuthFailureReporter: tmdbFactoryCfg.AuthFailureReporter, // 489 (B-17)
+			QuotaCounter:        tmdbFactoryCfg.QuotaCounter,        // B-1
 		})
 		if err != nil {
 			return nil, err

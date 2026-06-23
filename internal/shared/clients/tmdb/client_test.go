@@ -317,7 +317,7 @@ func TestClient_NotFound_Terminal(t *testing.T) {
 	}
 }
 
-func TestClient_RateLimiter_50RPS_Default(t *testing.T) {
+func TestClient_RateLimiter_DefaultRPS(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":1}`))
 	}))
@@ -325,27 +325,27 @@ func TestClient_RateLimiter_50RPS_Default(t *testing.T) {
 	c := mustNew(t, srv.URL, "tk")
 	defer c.Close()
 
-	// At 50 rps the refill interval is 20ms. 5 pre-filled + 25 refills
-	// at 20ms each → 30 calls in roughly 500ms steady-state. We measure
-	// 30 calls so timing variance over a longer window is more
-	// reliable than the legacy 10-call window. Threshold accounts for
-	// CI jitter — assert ">= 400ms" (30-5 == 25 refills × 20ms == 500ms
-	// minimum; 400ms allows 20% slack).
+	// At 4.5 rps (defaultRPS per backlog B-2) the refill interval is
+	// ~222ms. 5 pre-filled + 5 refills × 222ms → 10 calls in ~1.11s
+	// steady-state. Threshold accounts for CI jitter — assert
+	// ">= 950ms" (the 4.5 rps timing contract from story 313's env
+	// override test). Ceiling 4s catches a regression to a much slower
+	// rate without flaking under load.
 	start := time.Now()
-	for i := range 30 {
+	for i := range 10 {
 		_, err := c.GetTV(context.Background(), int64(i), "")
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
 	elapsed := time.Since(start)
-	if elapsed < 400*time.Millisecond {
-		t.Fatalf("30 calls completed in %v — 50 rps limiter not throttling (expected >= 400ms)", elapsed)
+	if elapsed < 950*time.Millisecond {
+		t.Fatalf("10 calls completed in %v — 4.5 rps default limiter not throttling (expected >= 950ms)", elapsed)
 	}
-	// Sanity ceiling: even with CI noise, 30 calls at 50 rps should
-	// land in under 2s. A regression to 5 rps would land at ~5s.
-	if elapsed > 2*time.Second {
-		t.Fatalf("30 calls took %v — limiter throttling more than 50 rps (regression?)", elapsed)
+	// Sanity ceiling: even with CI noise, 10 calls at 4.5 rps should
+	// land in under 4s. A regression to 1 rps would land at ~10s.
+	if elapsed > 4*time.Second {
+		t.Fatalf("10 calls took %v — limiter throttling slower than 4.5 rps (regression?)", elapsed)
 	}
 }
 

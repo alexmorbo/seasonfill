@@ -39,7 +39,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
+
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -55,13 +58,16 @@ const DefaultBaseURL = "https://api.themoviedb.org/3"
 // stable when an operator's UI is in any language.
 const DefaultLanguage = "en-US"
 
-// defaultRPS is the Story 313 default target — TMDB has no published
-// rate limit since 2019, community measurements put the practical
-// per-IP ceiling at 40-50 sustained rps before 429s appear. We pick
-// 50 as the "use 100% of what TMDB gives us" target; the adaptive
-// pause (do() → tokenBucket.PauseUntil) handles overshoot. Override
-// via Config.RPS (env: SEASONFILL_TMDB_RPS).
-const defaultRPS = 50.0
+// defaultRPS is the per-host self-cap target per PRD §5.1.1 + backlog
+// B-2. TMDB removed its published rate limit in 2019; community
+// measurements put the practical per-IP ceiling at 40-50 sustained
+// rps before 429s appear. PRD §5.1.1 line 593 mandates 4.5 rps as a
+// conservative default that leaves ample headroom for Discovery /
+// search / image fetches without triggering upstream throttling
+// (B-2). The adaptive pause (do() → tokenBucket.PauseUntil) handles
+// any residual overshoot. Override via Config.RPS (env:
+// SEASONFILL_TMDB_API_RPS).
+const defaultRPS = 4.5
 
 // rateLimitBurst is the bucket's capacity — how many calls can land
 // back-to-back without waiting. Matches the historical "burst == cap
@@ -121,6 +127,7 @@ type Client struct {
 	logger       *slog.Logger
 	clk          clock.Clock
 	authReporter AuthFailureReporter // Story 489 (B-17) — nil-OK.
+	quota        quota.QuotaCounter  // B-1 — nil-OK observability sink for daily request volume.
 }
 
 // Config holds the constructor arguments. BaseURL defaults to
@@ -128,8 +135,8 @@ type Client struct {
 // is REQUIRED — pass the one built by
 // infrastructure/externalservices.HttpClientFor.
 //
-// Story 313:
-//   - RPS — float self-cap target. 0 → defaultRPS (50). Drives the
+// Story 313 / backlog B-2:
+//   - RPS — float self-cap target. 0 → defaultRPS (4.5). Drives the
 //     token-bucket refill interval (1s / RPS).
 //   - Logger — used for tmdb.rate_limit.pause / resume INFO lines.
 //     Nil-OK; falls back to slog.Default().
@@ -152,13 +159,22 @@ type Config struct {
 	// be safe for concurrent use and non-blocking — see the interface
 	// doc.
 	AuthFailureReporter AuthFailureReporter
+	// QuotaCounter is the optional observability sink for upstream
+	// request volume per backlog B-1. Nil-OK — when nil, the client
+	// neither Increments nor publishes the
+	// seasonfill_external_service_quota_used{service="tmdb"} gauge.
+	// TMDB has no published daily cap so this is observability-only:
+	// the client does NOT gate calls on the counter (contrast with
+	// OMDb's NewOMDbBudgetGuardDB which DOES enforce a cap). Calls
+	// are counted via daily UTC windows — see quota.Daily(t, time.UTC).
+	QuotaCounter quota.QuotaCounter
 }
 
 // New constructs a Client. Returns an error when Token or HTTPClient
 // is missing — both are required for any real call.
 //
-// Story 313:
-//   - cfg.RPS = 0 → defaultRPS (50). Negative is also clamped to default.
+// Story 313 / backlog B-2:
+//   - cfg.RPS = 0 → defaultRPS (4.5). Negative is also clamped to default.
 //   - cfg.Logger = nil → slog.Default() so pause/resume INFO lines
 //     still surface in production.
 func New(cfg Config) (*Client, error) {
@@ -239,6 +255,7 @@ func New(cfg Config) (*Client, error) {
 		logger:       logger,
 		clk:          clk,
 		authReporter: cfg.AuthFailureReporter, // 489 (B-17)
+		quota:        cfg.QuotaCounter,        // B-1 — nil-OK
 	}
 	// Story 313 — surface tmdb.rate_limit.resume INFO via the Client's
 	// logger. The bucket doesn't know about slog; we hand it a closure
@@ -252,6 +269,29 @@ func New(cfg Config) (*Client, error) {
 		)
 	}
 	c.limiter.onResume.Store(&resumeHook)
+
+	// B-1 — register the generic external-service quota gauge. Mirrors
+	// the OMDb wiring in internal/enrichment/app/omdb_budget.go:117.
+	// VictoriaMetrics GetOrCreateGauge is idempotent on the labelled
+	// name — a second client constructed during the reload subscriber
+	// swap reuses the same gauge without duplicate-registration panics.
+	// The callback closes over `c.quota` so when the operator clears
+	// the API key (Settings → External Services → Disable) and the
+	// reload subscriber rebuilds the client without a QuotaCounter,
+	// the next collection no-ops to 0 (the previous client's gauge is
+	// not unregistered — the subscriber Close()s the client, not the
+	// metric — but it converges to 0 over the next sweep).
+	if c.quota != nil {
+		metrics.GetOrCreateGauge(`seasonfill_external_service_quota_used{service="tmdb"}`, func() float64 {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			n, err := c.quota.Get(ctx, "tmdb", quota.Daily(c.clk.Now().UTC(), time.UTC))
+			if err != nil {
+				return 0
+			}
+			return float64(n)
+		})
+	}
 	return c, nil
 }
 
@@ -283,6 +323,7 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 		body, retryWait, rawRetryAfter, err := c.doOnce(ctx, path, query)
 		if err == nil {
 			observability.IncTMDBRequest("success")
+			c.incrementQuota(ctx)
 			return body, nil
 		}
 		// Classify the attempt's outcome for tmdb_requests_total. 429
@@ -494,6 +535,24 @@ func parseRetryAfter(raw string, now time.Time) time.Duration {
 func expoBackoff(attempt int) time.Duration {
 	d := min(time.Second<<attempt, retryBackoffCap)
 	return d
+}
+
+// incrementQuota nudges the optional B-1 QuotaCounter by one. Nil-OK —
+// no-ops when the counter is unconfigured. Errors are swallowed at WARN
+// level: the DB-backed counter is transient-tolerant (next call retries)
+// and TMDB has no hard cap to enforce, so a missed Increment is purely
+// an observability gap, never a correctness one. Mirrors omdb_budget.go
+// degrade-open policy.
+func (c *Client) incrementQuota(ctx context.Context) {
+	if c.quota == nil {
+		return
+	}
+	window := quota.Daily(c.clk.Now().UTC(), time.UTC)
+	if _, err := c.quota.Increment(ctx, "tmdb", window); err != nil {
+		c.logger.LogAttrs(ctx, slog.LevelWarn, "tmdb.quota.increment_failed",
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 // tokenBucket is a fixed-rate refill bucket. Capacity == rps,
