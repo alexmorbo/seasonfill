@@ -1,0 +1,23 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "id": 60625,
+      "name": "Rick and Morty",
+      "original_name": "Rick and Morty",
+      "original_language": "en",
+      "overview": "Rick is a mentally-unbalanced but scientifically-gifted old man...",
+      "poster_path": "/8kOWDBK6XlPUzckuHDo3wwVRFwt.jpg",
+      "backdrop_path": "/8aWHQCT5Lw15PXEnLgF8Wd16IfQ.jpg",
+      "first_air_date": "2013-12-02",
+      "vote_average": 8.7,
+      "vote_count": 9012,
+      "popularity": 980.5,
+      "origin_country": ["US"],
+      "genre_ids": [16, 35, 10765, 10759],
+      "adult": false
+    }
+  ],
+  "total_pages": 500,
+  "total_results": 10000
+}

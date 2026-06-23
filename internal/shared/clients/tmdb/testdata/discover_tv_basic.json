@@ -1,0 +1,23 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "id": 82856,
+      "name": "The Mandalorian",
+      "original_name": "The Mandalorian",
+      "original_language": "en",
+      "overview": "After the fall of the Galactic Empire...",
+      "poster_path": "/sWgBv7LV2PRoQgkxwlibdGXKz1S.jpg",
+      "backdrop_path": "/9ijMGlJKqcslswWUzTEwScm82Gs.jpg",
+      "first_air_date": "2019-11-12",
+      "vote_average": 8.4,
+      "vote_count": 4123,
+      "popularity": 220.1,
+      "origin_country": ["US"],
+      "genre_ids": [10765, 18, 10759],
+      "adult": false
+    }
+  ],
+  "total_pages": 50,
+  "total_results": 1000
+}
