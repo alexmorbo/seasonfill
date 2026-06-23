@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -187,6 +188,68 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 		}
 	}
 	return m.ID, nil
+}
+
+// BatchUpsert applies Upsert to a slice of persons inside the caller's
+// transaction, sorted internally by tmdb_id ASC so concurrent batches
+// touching overlapping rows acquire row locks in the same global
+// order. This is the deadlock-safe upsert path for any caller that
+// has N>1 persons to write in a single tx (series_worker.handle
+// person stubs, applyEpisodeCredits guests/crew).
+//
+// Why a separate method: Upsert is single-row and cannot enforce
+// global ordering across its callers. Postgres takes row-level
+// EXCLUSIVE locks during INSERT ... ON CONFLICT in arrival order; two
+// concurrent txes that issue per-row Upserts in disagreeing order will
+// deadlock at the row-lock layer regardless of any retry budget at the
+// application layer (SQLSTATE 40P01 aborts the whole tx; the lock
+// graph cycle is structural). BatchUpsert centralises the sort so
+// callers don't have to reproduce the discipline at every callsite,
+// and lifts the deadlock probability to ~zero on the burst paths.
+//
+// Persons with TMDBID==nil are upserted last (orphans go through the
+// PK / partial-index branch and don't contend with the sorted prefix).
+// Returns the slice of resulting ids in input order (NOT sorted order)
+// so callers can correlate back to their original mappings.
+func (r *PeopleRepository) BatchUpsert(ctx context.Context, persons []people.Person) ([]int64, error) {
+	if len(persons) == 0 {
+		return nil, nil
+	}
+	// Build an index permutation so we can return ids in the input
+	// order even though we upsert in sorted order.
+	type slot struct {
+		idx int
+		p   people.Person
+	}
+	slots := make([]slot, len(persons))
+	for i, p := range persons {
+		slots[i] = slot{idx: i, p: p}
+	}
+	slices.SortStableFunc(slots, func(a, b slot) int {
+		switch {
+		case a.p.TMDBID == nil && b.p.TMDBID == nil:
+			return 0
+		case a.p.TMDBID == nil:
+			return 1 // nils last
+		case b.p.TMDBID == nil:
+			return -1
+		case *a.p.TMDBID < *b.p.TMDBID:
+			return -1
+		case *a.p.TMDBID > *b.p.TMDBID:
+			return 1
+		default:
+			return 0
+		}
+	})
+	ids := make([]int64, len(persons))
+	for _, s := range slots {
+		id, err := r.Upsert(ctx, s.p)
+		if err != nil {
+			return nil, err
+		}
+		ids[s.idx] = id
+	}
+	return ids, nil
 }
 
 // peopleUpdateCols lists the columns updated on a conflict. id /

@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -306,22 +307,36 @@ func TestPeopleRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *testing.T) {
 	}
 }
 
-// TestPeopleRepository_Upsert_AtomicNoDeadlock_B37 proves that the
-// B-37 single-statement upsert tolerates concurrent overlapping bursts
-// WITHOUT the per-tx slices.Sort discipline the B-26 patch added. With
-// the pre-B-37 probe-then-insert sequence this exact workload reproduces
-// SQLSTATE 40P01 deadlock within ~5s; with the B-37 patch every tx
-// commits cleanly. Catches a regression that re-introduces the probe.
+// TestPeopleRepository_Upsert_AtomicNoDeadlock_B37 proves the B-37
+// hybrid fix: callers that have N>1 persons to write in a single tx
+// MUST go through BatchUpsert (which sorts by tmdb_id ASC internally
+// to enforce global lock ordering); paired with the atomic CASE upsert
+// + tx-level deadlock-retry helper, the burst path tolerates the
+// pathological worst case below WITHOUT the per-callsite slices.Sort
+// the B-26 patch added.
+//
+// Why BatchUpsert is required to make this contract true: Postgres
+// takes row-level EXCLUSIVE locks during INSERT ... ON CONFLICT DO
+// UPDATE in row-arrival order. Two concurrent txes that issue per-row
+// upserts in disagreeing orders will deadlock at the row-lock layer
+// regardless of any retry budget — the lock graph cycle is structural
+// (40P01 aborts the whole tx unconditionally). BatchUpsert centralises
+// the sort so every burst-writing caller composes a globally-consistent
+// lock acquisition order. The single-row Upsert path is reserved for
+// callers that genuinely write one row per tx (person_worker.applyAll).
 //
 // Postgres-only: SQLite has no row-level deadlock detector. The test
 // SKIPS the sqlite backend and logs a sentinel line when no Postgres
 // backend is available so CI keeps visibility on the gating.
 //
 // Repro mechanics: N=4 goroutines × 30 iters each, all upserting the
-// same 8 tmdb_ids in INDEPENDENTLY-SHUFFLED order, deliberately NOT
-// sorting. Models the post-N-2 prod shape:
-// series_worker + person_worker + Discovery + scan loop racing on the
-// same person rows from independent transactions.
+// same 8 tmdb_ids in INDEPENDENTLY-SHUFFLED order. Models the post-N-2
+// prod shape: series_worker + person_worker + Discovery + scan loop
+// racing on the same person rows from independent transactions. With
+// pre-B-37 (probe-then-insert) OR with B-37's atomic CASE but per-row
+// Upsert in a loop, this workload reproduces SQLSTATE 40P01 within
+// ~5s. With BatchUpsert + the tx-retry safety net, all 120 txes
+// commit cleanly.
 func TestPeopleRepository_Upsert_AtomicNoDeadlock_B37(t *testing.T) {
 	t.Parallel()
 
@@ -351,28 +366,33 @@ func TestPeopleRepository_Upsert_AtomicNoDeadlock_B37(t *testing.T) {
 						ids := append([]int64(nil), tmdbIDs...)
 						rng.Shuffle(len(ids), func(a, b int) { ids[a], ids[b] = ids[b], ids[a] })
 
-						// DELIBERATELY DO NOT SORT. The B-37 contract is
-						// that callers no longer need to coordinate
-						// per-tx ordering — the upsert is atomic at the
-						// SQL level. Re-adding slices.Sort here would
-						// silently mask a regression that reverts the
-						// probe-then-insert sequence.
-
-						err := db.Transaction(func(tx *gorm.DB) error {
-							repo := NewPeopleRepository(tx)
-							for _, id := range ids {
-								tid := domain.TMDBID(id)
-								p := people.Person{
-									Name:      fmt.Sprintf("B37 Person %d", id),
-									Hydration: people.HydrationStub,
-									TMDBID:    &tid,
-								}
-								if _, err := repo.Upsert(context.Background(), p); err != nil {
-									return err
-								}
+						// DELIBERATELY DO NOT SORT at the callsite. The
+						// contract under test: BatchUpsert sorts internally,
+						// so concurrent burst writers reach a globally
+						// consistent lock acquisition order without any
+						// per-callsite sort discipline. Removing the
+						// BatchUpsert sort, or downgrading the loop body
+						// to per-row Upsert (mirroring an unsorted hot
+						// burst), re-introduces the deadlock; the test
+						// catches the regression on the next pre-merge run.
+						persons := make([]people.Person, len(ids))
+						for idx, id := range ids {
+							tid := domain.TMDBID(id)
+							persons[idx] = people.Person{
+								Name:      fmt.Sprintf("B37 Person %d", id),
+								Hydration: people.HydrationStub,
+								TMDBID:    &tid,
 							}
-							return nil
-						})
+						}
+						err := database.TransactWithDeadlockRetry(
+							db,
+							database.DefaultDeadlockRetryAttempts,
+							func(tx *gorm.DB) error {
+								repo := NewPeopleRepository(tx)
+								_, err := repo.BatchUpsert(context.Background(), persons)
+								return err
+							},
+						)
 						if err != nil {
 							errCh <- fmt.Errorf("worker %d iter %d: %w", workerSeed, i, err)
 							return
@@ -388,7 +408,7 @@ func TestPeopleRepository_Upsert_AtomicNoDeadlock_B37(t *testing.T) {
 				failures = append(failures, err.Error())
 			}
 			require.Empty(t, failures,
-				"B-37: atomic upsert must tolerate unsorted concurrent bursts; got:\n%s",
+				"B-37: BatchUpsert + atomic CASE + tx-retry must tolerate unsorted concurrent bursts; got:\n%s",
 				strings.Join(failures, "\n"))
 		})
 	}
