@@ -109,4 +109,26 @@ describe('<Person />', () => {
     expect(screen.getByText(/Invalid person link/i)).toBeInTheDocument();
     expect(mockApi).not.toHaveBeenCalled();
   });
+
+  // Story 499 — closes the 496 review_warning "Person page full integration
+  // test gap". The B-3 dept pill is unit-tested in OtherCreditsGrid.test.tsx,
+  // but no test exercises the page-mount → API → grid → pill path together.
+  // A `kind:'crew'` row with `department:'Art'` (TMDB-standard label, per
+  // story 496 line 152) renders the pill on the Person detail page.
+  it('renders the dept pill on the page when a crew Other-credit has department set', async () => {
+    mockApi.mockResolvedValueOnce({
+      ...fullFixture,
+      other_credits: [
+        { tmdb_media_id: 555, title: 'Some Show', year: 2024,
+          media_type: 'tv', kind: 'crew', department: 'Art',
+          role_label: 'Production Designer' },
+      ],
+    });
+    renderRoute('/person/4495');
+    await waitFor(() => expect(screen.getByTestId('person-hero-name')).toBeInTheDocument());
+    expect(screen.getByTestId('person-other-section')).toBeInTheDocument();
+    const pill = await screen.findByTestId('person-other-dept-pill');
+    expect(pill).toHaveTextContent('Art');
+    expect(pill.getAttribute('data-department')).toBe('Art');
+  });
 });

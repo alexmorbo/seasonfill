@@ -170,12 +170,14 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(screen.getByText('11')).toBeInTheDocument();
   });
 
-  // SKIPPED — depends on per-season chip rendering. 493 dropped
-  // `seasons[]` from the useMissing projection (§H lossy). 494's
-  // queue rewrite restores per-season data via a new BE projection.
-  it.skip('opens the season drill on chip click and fetches episodes', async () => {
-    // 494 will restore this behaviour.
-  });
+  // NOTE (story 499): Two `it.skip` placeholders for the season-chip → drill
+  // flow were removed. The chip path depends on `MissingSeries.seasons[]`
+  // populated by `useMissing` (web/src/lib/missing.ts §H), which currently
+  // projects from the global /series catalog wire (`SeriesCacheItem`) and
+  // emits `seasons: []` by design. Restoring per-season chips requires a BE
+  // projection change (per-season counts on the cache row or a parallel
+  // endpoint). When that lands, author fresh integration tests against the
+  // new data shape — the prior placeholders carried no assertions to revive.
 
   it('row Scan → POST /scan with series_ids and navigates', async () => {
     const captured: Captured = {};
@@ -204,11 +206,6 @@ describe('<InstanceQueue /> (integration)', () => {
       instance: 'alpha', series_ids: [122],
     });
     expect(await screen.findByText(/scan-detail-stub/i)).toBeInTheDocument();
-  });
-
-  // SKIPPED — depends on the season chip → drill flow. See 494.
-  it.skip('drill Scan-season fires POST /scan with series_ids only (no season_numbers)', async () => {
-    // 494 will restore this behaviour.
   });
 
   it('surfaces 404 when the instance is unknown', async () => {
