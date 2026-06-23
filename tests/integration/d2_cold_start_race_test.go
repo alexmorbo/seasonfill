@@ -75,14 +75,24 @@ func TestD2_ColdStartRace_KickerFiresWithinMs(t *testing.T) {
 			// 3. Boot pass: arm the kicker.
 			kicker.MarkPassResult(0)
 
-			// 4. Simulate sonarr_sync writing 10 stub series.
+			// 4. Simulate sonarr_sync writing 10 stub series WITH tmdb_id
+			//    (Sonarr's /api/v3/series typically includes tmdbId).
 			for i := 1; i <= 10; i++ {
 				_, err := db.ExecContext(ctx,
-					`INSERT INTO series (title, hydration, in_production, origin_countries, created_at, updated_at)
-					 VALUES ($1, 'stub', false, '[]', now(), now())`,
-					fmt.Sprintf("Series %d", i))
+					`INSERT INTO series (title, tmdb_id, hydration, in_production, origin_countries, created_at, updated_at)
+					 VALUES ($1, $2, 'stub', false, '[]', now(), now())`,
+					fmt.Sprintf("Series %d", i),
+					int64(1000+i))
 				require.NoError(t, err)
 			}
+
+			// 4b. One legacy stub WITHOUT tmdb_id — must NOT be enqueued
+			//     (B-38: ListMissingTMDBSync filters AND tmdb_id IS NOT NULL).
+			_, err = db.ExecContext(ctx,
+				`INSERT INTO series (title, hydration, in_production, origin_countries, created_at, updated_at)
+				 VALUES ($1, 'stub', false, '[]', now(), now())`,
+				"Legacy stub without tmdb_id")
+			require.NoError(t, err)
 
 			// 5. Fire OnSyncCompleted — measure latency to BackfillSeries
 			//    completion.
@@ -91,8 +101,8 @@ func TestD2_ColdStartRace_KickerFiresWithinMs(t *testing.T) {
 			elapsed := time.Since(start)
 			require.Less(t, elapsed, 5*time.Second,
 				"kicker must fire BackfillSeries synchronously (no 60s wait)")
-			require.GreaterOrEqual(t, disp.enqueues.Load(), int64(10),
-				"BackfillSeries must enqueue all 10 freshly-synced series")
+			require.Equal(t, int64(10), disp.enqueues.Load(),
+				"BackfillSeries must enqueue exactly the 10 tmdb_id-bearing series (B-38 excludes the legacy row)")
 
 			// 6. Second OnSyncCompleted must be a no-op (kicker single-fire).
 			before := disp.enqueues.Load()
