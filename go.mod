@@ -3,7 +3,7 @@ module github.com/alexmorbo/seasonfill
 go 1.26
 
 require (
-	ariga.io/atlas v0.31.0
+	ariga.io/atlas v1.2.2
 	github.com/VictoriaMetrics/metrics v1.44.0
 	github.com/autobrr/go-qbittorrent v1.16.0
 	github.com/coreos/go-oidc/v3 v3.19.0
