@@ -3,6 +3,10 @@ package wiring
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
@@ -53,6 +57,72 @@ func BuildDiscoveryPersistence(
 		ListRepo:     discopersistence.NewListRepository(db),
 		LangProvider: discopersistence.NewActiveLanguagesRepository(db),
 		Stubs:        &stubUpserterAdapter{seriesRepo: seriesRepo},
+	}, nil
+}
+
+// DiscoveryRuntimeBundle groups the worker + supporting reader
+// constructed at boot. Server.go consumes Worker via the
+// cmd/server/loops/discovery.go entry point.
+type DiscoveryRuntimeBundle struct {
+	Worker   *discoapp.Worker
+	TopKinds *discopersistence.TopKindsReader
+}
+
+// realDiscoveryClock satisfies discoapp.Clock with time.Now().
+type realDiscoveryClock struct{}
+
+func (realDiscoveryClock) Now() time.Time { return time.Now() }
+
+// DiscoveryRuntimeDeps is the input contract for BuildDiscoveryRuntime.
+// All fields required — nil causes a wiring error before NewWorker is
+// reached.
+type DiscoveryRuntimeDeps struct {
+	Persistence *DiscoveryPersistenceBundle
+	DB          *gorm.DB
+	TMDB        discoapp.TMDBClient
+	Log         *slog.Logger
+}
+
+// BuildDiscoveryRuntime wires the worker + top-kinds reader. The
+// caller is server.go, which:
+//  1. invokes BuildDiscoveryPersistence first to get the repos +
+//     stub adapter,
+//  2. passes the live TMDBClientHolder (cmd/server/adapters) as the
+//     discoapp.TMDBClient,
+//  3. starts the loop via cmd/server/loops.RunDiscovery on
+//     lifecycle.Go.
+//
+// The Log argument MUST already carry the "discovery" domain tag —
+// callers should pass sharedports.DomainLogger(log, "discovery").
+// The construction is in-memory only; an error path is returned for
+// symmetry with the sibling Build* wirers (room for future
+// boot-time validation).
+func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, error) {
+	if deps.Persistence == nil {
+		return nil, fmt.Errorf("discovery runtime: persistence required")
+	}
+	if deps.DB == nil {
+		return nil, fmt.Errorf("discovery runtime: db required")
+	}
+	if deps.TMDB == nil {
+		return nil, fmt.Errorf("discovery runtime: tmdb client required")
+	}
+	if deps.Log == nil {
+		return nil, fmt.Errorf("discovery runtime: log required")
+	}
+	topKinds := discopersistence.NewTopKindsReader(deps.DB)
+	worker := discoapp.NewWorker(discoapp.WorkerDeps{
+		Repo:     deps.Persistence.ListRepo,
+		Langs:    deps.Persistence.LangProvider,
+		Stubs:    deps.Persistence.Stubs,
+		TMDB:     deps.TMDB,
+		TopKinds: topKinds,
+		Log:      deps.Log,
+		Clock:    realDiscoveryClock{},
+	})
+	return &DiscoveryRuntimeBundle{
+		Worker:   worker,
+		TopKinds: topKinds,
 	}, nil
 }
 

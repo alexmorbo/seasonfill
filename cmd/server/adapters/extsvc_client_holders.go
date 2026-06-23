@@ -132,6 +132,38 @@ func (h *TMDBClientHolder) FindByTVDB(ctx context.Context, tvdbID domain.TVDBID)
 	return c.FindByTVDB(ctx, tvdbID)
 }
 
+// Trending forwards to the live tmdb.Client, returning the wrapped
+// not-ready error when the operator has TMDB disabled at runtime.
+// Added for the DiscoveryWorker (story 506) — same Load+nil-check
+// pattern as GetTV / GetSeason / GetPerson / FindByTVDB.
+func (h *TMDBClientHolder) Trending(ctx context.Context, scope tmdb.TrendingScope, language string, page int) (*tmdb.TVListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.Trending(ctx, scope, language, page)
+}
+
+// Popular forwards to the live tmdb.Client; DiscoveryWorker entry
+// point for the popular leaderboard.
+func (h *TMDBClientHolder) Popular(ctx context.Context, language string, page int) (*tmdb.TVListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.Popular(ctx, language, page)
+}
+
+// DiscoverTV forwards to the live tmdb.Client; DiscoveryWorker entry
+// point for the by_genre / by_network / by_keyword curated lists.
+func (h *TMDBClientHolder) DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, page int) (*tmdb.TVListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.DiscoverTV(ctx, filter, page)
+}
+
 // Compile-time guarantee: *TMDBClientHolder satisfies the application
 // port. Caught at build time if the port ever grows a new method.
 var _ appenrich.TMDBClient = (*TMDBClientHolder)(nil)

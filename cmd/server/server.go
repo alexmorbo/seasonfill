@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	"github.com/alexmorbo/seasonfill/internal/config"
+	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -415,6 +416,38 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		mediaHandler.SetOnDemandFetcher(enrichBundle.MediaOnDemand)
 	}
 	// ───────── END LATE BIND ZONE ─────────
+
+	// Story 506 (N-2e) — DiscoveryWorker. BuildDiscoveryPersistence
+	// supplies repos + stub adapter; BuildDiscoveryRuntime constructs
+	// the Worker over the TMDBClientHolder so a runtime TMDB
+	// disable/enable propagates through the holder's atomic.Pointer
+	// without restarting the loop. The loop entry point in
+	// cmd/server/loops fires the first Tick immediately (cold-start
+	// per PRD §5.1.1 line 666) and ticks every 1h thereafter.
+	discoPersistence, err := wiring.BuildDiscoveryPersistence(persistence, seriesRepo)
+	if err != nil {
+		return nil, fmt.Errorf("wire discovery persistence: %w", err)
+	}
+	var discoTMDB discoapp.TMDBClient
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		discoTMDB = enrichBundle.TMDBHolder
+	}
+	if discoTMDB != nil {
+		discoRuntime, err := wiring.BuildDiscoveryRuntime(wiring.DiscoveryRuntimeDeps{
+			Persistence: discoPersistence,
+			DB:          db,
+			TMDB:        discoTMDB,
+			Log:         sharedports.DomainLogger(log, "discovery"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("wire discovery runtime: %w", err)
+		}
+		lifecycle.Go(rootCtx, "discovery-worker", func(ctx context.Context) {
+			loops.RunDiscovery(ctx, discoRuntime.Worker,
+				loops.DefaultDiscoveryInterval,
+				sharedports.DomainLogger(log, "discovery"))
+		})
+	}
 
 	// Boot scheduler — constructed after BuildEnrichment so the four
 	// enrichment-derived job closures are ready. BuildScheduler Registers
