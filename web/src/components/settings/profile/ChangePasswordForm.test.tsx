@@ -38,6 +38,28 @@ describe('<ChangePasswordForm />', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // B-34 regression (story 489): zod min(N) message keys carry the
+  // i18n key "settings.profile.change_password.too_short", and that
+  // copy uses "{{n}}" interpolation. Without passing { n: NEW_PASSWORD_MIN }
+  // to t(), the placeholder leaked into the rendered DOM as literal
+  // "{{n}}". Assert the interpolated number "12" is present and the
+  // raw placeholder is absent.
+  it('shows interpolated min-length number in the error (B-34 regression)', async () => {
+    renderWithProviders(<ChangePasswordForm />);
+    fillForm('current-x', 'short', 'short');
+    fireEvent.click(screen.getByTestId('change-password-submit'));
+    await waitFor(() => {
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts.length).toBeGreaterThanOrEqual(1);
+    });
+    const errorText = screen
+      .getAllByRole('alert')
+      .map((el) => el.textContent ?? '')
+      .join(' ');
+    expect(errorText).toMatch(/12/);
+    expect(errorText).not.toMatch(/\{\{n\}\}/);
+  });
+
   it('rejects mismatched confirm', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     renderWithProviders(<ChangePasswordForm />);

@@ -133,7 +133,7 @@ export function ChangePasswordForm() {
         />
         {errors.current_password && (
           <p role="alert" className="text-status-danger text-[11.5px]">
-            {t(errors.current_password.message ?? '')}
+            {t(errors.current_password.message ?? '', { n: NEW_PASSWORD_MIN })}
           </p>
         )}
       </div>
@@ -154,7 +154,7 @@ export function ChangePasswordForm() {
         </span>
         {errors.new_password && (
           <p role="alert" className="text-status-danger text-[11.5px]">
-            {t(errors.new_password.message ?? '')}
+            {t(errors.new_password.message ?? '', { n: NEW_PASSWORD_MIN })}
           </p>
         )}
       </div>
@@ -172,7 +172,7 @@ export function ChangePasswordForm() {
         />
         {errors.confirm_password && (
           <p role="alert" className="text-status-danger text-[11.5px]">
-            {t(errors.confirm_password.message ?? '')}
+            {t(errors.confirm_password.message ?? '', { n: NEW_PASSWORD_MIN })}
           </p>
         )}
       </div>

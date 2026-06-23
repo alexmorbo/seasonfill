@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
+import { ApiError } from '@/lib/api';
 import {
   type ExternalServiceDTO,
   type ExternalServiceName,
@@ -103,6 +104,10 @@ function ServiceCard({ dto }: { dto: ExternalServiceDTO }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(dto));
+  // Story 489 (B-17): inline error rendered under the API Key input when
+  // the BE rejects the key (422 external_service_invalid_key). Cleared
+  // on the next save attempt and on successful save.
+  const [inlineKeyError, setInlineKeyError] = useState<string | null>(null);
 
   const upsert = useMutation({
     mutationFn: async () => {
@@ -113,9 +118,13 @@ function ServiceCard({ dto }: { dto: ExternalServiceDTO }) {
       if (draft.proxyPassDirty) body.proxy_password = draft.proxyPass;
       return upsertExternalService(dto.service, body);
     },
+    onMutate: () => {
+      setInlineKeyError(null);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['external-services'] });
       toast.success(t('settings.externalServices.savedOk', { service: dto.service.toUpperCase() }));
+      setInlineKeyError(null);
       setDraft((d) => ({
         ...d,
         apiKey: '',
@@ -126,6 +135,21 @@ function ServiceCard({ dto }: { dto: ExternalServiceDTO }) {
       }));
     },
     onError: (err: unknown) => {
+      // Story 489 (B-17): 422 = upstream rejected the key. Surface the
+      // error inline under the API Key input so the operator can fix it
+      // without losing context. The form stays open.
+      if (
+        err instanceof ApiError &&
+        err.status === 422 &&
+        typeof err.body === 'object' &&
+        err.body !== null &&
+        'error' in err.body &&
+        (err.body as { error?: unknown }).error === 'external_service_invalid_key'
+      ) {
+        setInlineKeyError(t('settings.externalServices.invalidKey.saveError'));
+        qc.invalidateQueries({ queryKey: ['external-services'] });
+        return;
+      }
       toast.error(
         t('settings.externalServices.savedErr', {
           service: dto.service.toUpperCase(),
@@ -178,6 +202,19 @@ function ServiceCard({ dto }: { dto: ExternalServiceDTO }) {
         <Globe className="w-4 h-4 text-tx-muted" aria-hidden="true" />
         <h3 className="text-[14px] font-[650] tracking-[-0.01em] m-0 uppercase">{dto.service}</h3>
         <div className="ml-auto flex items-center gap-2">
+          {/* Story 489 (B-17): invalid-key badge sits alongside OutcomePill.
+              Two distinct signals (Decision §7): OutcomePill = last manual
+              POST /test result; validation badge = live 401 or rejected
+              validate-on-save. */}
+          {dto.last_validation_status === 'invalid_key' && (
+            <span
+              data-testid={`validation-badge-${dto.service}`}
+              className="inline-flex items-center gap-1 px-2 h-[20px] rounded-full font-mono text-[11px] font-semibold text-status-danger bg-status-danger-dim"
+            >
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+              {t('settings.externalServices.invalidKey.badge')}
+            </span>
+          )}
           {dto.last_test_outcome ? (
             <OutcomePill outcome={dto.last_test_outcome} />
           ) : (
@@ -211,6 +248,17 @@ function ServiceCard({ dto }: { dto: ExternalServiceDTO }) {
           onChange={(e) => setDraft((d) => ({ ...d, apiKey: e.target.value, apiKeyDirty: true }))}
           data-testid={`ext-api-key-${dto.service}`}
         />
+        {/* Story 489 (B-17): inline error rendered when validate-on-save
+            returned 422 external_service_invalid_key. */}
+        {inlineKeyError && (
+          <p
+            role="alert"
+            data-testid={`ext-api-key-error-${dto.service}`}
+            className="text-[11.5px] text-status-danger"
+          >
+            {inlineKeyError}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">

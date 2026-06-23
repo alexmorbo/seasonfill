@@ -22,6 +22,13 @@ export interface ExternalServiceDTO {
   last_test_at?: string;
   last_test_outcome?: ExternalServiceOutcome;
   last_test_message?: string;
+  // Story 489 (B-17): runtime validation status. Empty when the service
+  // was never validated. 'valid' = inline probe or POST /test succeeded.
+  // 'invalid_key' = either a live 401 was reported by the TMDB client
+  // OR a validate-on-save Upsert was rejected by the upstream.
+  last_validation_at?: string;
+  last_validation_status?: 'valid' | 'invalid_key';
+  last_validation_message?: string;
 }
 
 export interface ExternalServiceUpsertRequest {

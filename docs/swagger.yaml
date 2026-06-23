@@ -494,6 +494,19 @@ components:
         last_test_outcome:
           example: ok
           type: string
+        last_validation_at:
+          description: |-
+            Story 489 (B-17): runtime validation status. Empty when the
+            service was never validated (live 401 hook never fired AND the
+            operator has not saved a key); "valid" or "invalid_key" otherwise.
+          type: string
+        last_validation_message:
+          type: string
+        last_validation_status:
+          enum:
+          - valid
+          - invalid_key
+          type: string
         proxy_auth_set:
           type: boolean
         proxy_host:

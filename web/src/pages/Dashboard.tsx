@@ -17,6 +17,7 @@ import { PosterGrid } from '@/components/dashboard/PosterGrid';
 import { DashboardEmptyState } from '@/components/dashboard/DashboardEmptyState';
 import { DashboardFirstRunState } from '@/components/dashboard/DashboardFirstRunState';
 import { DashboardRail } from '@/components/dashboard/DashboardRail';
+import { TMDBStatusBanner } from '@/components/dashboard/TMDBStatusBanner';
 import { relativeTime } from '@/lib/format';
 
 // Local mirror of 048 CountersAggregateDTO — swap to codegen once 048
@@ -86,9 +87,13 @@ export function Dashboard() {
   };
 
   // First-run branch.
+  // Story 489 (B-17): TMDBStatusBanner mounts above both first-run and
+  // main paths so the operator sees an invalid-key warning even before
+  // configuring their first Sonarr instance.
   if (!inst.isPending && instances.length === 0) {
     return (
       <div className="flex flex-col gap-5">
+        <TMDBStatusBanner />
         <DashboardFirstRunState />
       </div>
     );
@@ -110,6 +115,7 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-5">
+      <TMDBStatusBanner />
       <HeroGreeting
         grabs={heroGrabs}
         imports={heroImports}

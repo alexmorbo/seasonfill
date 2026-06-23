@@ -1378,6 +1378,15 @@ export const en = {
         proxy_failed: 'proxy failed',
         dns_blocked: 'DNS blocked',
       },
+      invalidKey: {
+        banner: {
+          title: 'TMDB rejected the API key',
+          body: 'The TMDB endpoint returns 401 Unauthorized. Verify the key on themoviedb.org → Settings → API.',
+          cta: 'Open settings',
+        },
+        badge: '401 Invalid Key',
+        saveError: 'TMDB rejected this key. Check Settings → API → API Key (v3 auth).',
+      },
     },
   },
   reasons: {

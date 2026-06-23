@@ -4376,6 +4376,15 @@ export type components = {
             readonly last_test_message?: string;
             /** @example ok */
             readonly last_test_outcome?: string;
+            /**
+             * @description Story 489 (B-17): runtime validation status. Empty when the
+             *     service was never validated (live 401 hook never fired AND the
+             *     operator has not saved a key); "valid" or "invalid_key" otherwise.
+             */
+            readonly last_validation_at?: string;
+            readonly last_validation_message?: string;
+            /** @enum {string} */
+            readonly last_validation_status?: DtoExternalServiceDTOLast_validation_status;
             readonly proxy_auth_set?: boolean;
             /** @example proxy.example.com:1080 */
             readonly proxy_host?: string;
@@ -6301,6 +6310,10 @@ export enum DtoDecisionIntentChosen_because {
     watchdog_replay_already_added = "watchdog_replay_already_added",
     watchdog_replay_error = "watchdog_replay_error",
     manual_selection = "manual_selection"
+}
+export enum DtoExternalServiceDTOLast_validation_status {
+    valid = "valid",
+    invalid_key = "invalid_key"
 }
 export enum DtoGrabReplay_kind {
     replay_quality = "replay_quality",

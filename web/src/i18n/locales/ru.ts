@@ -1386,6 +1386,15 @@ export const ru: Translations = {
         proxy_failed: 'ошибка прокси',
         dns_blocked: 'DNS заблокирован',
       },
+      invalidKey: {
+        banner: {
+          title: 'TMDB отверг ключ',
+          body: 'TMDB возвращает 401 Unauthorized. Проверьте ключ на themoviedb.org → Settings → API.',
+          cta: 'Открыть настройки',
+        },
+        badge: '401 Неверный ключ',
+        saveError: 'TMDB отверг этот ключ. Проверьте Settings → API → API Key (v3 auth).',
+      },
     },
   },
   reasons: {
