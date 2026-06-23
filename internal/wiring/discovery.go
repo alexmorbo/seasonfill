@@ -12,6 +12,7 @@ import (
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	discopersistence "github.com/alexmorbo/seasonfill/internal/discovery/persistence"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
+	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -163,40 +164,94 @@ func (a *stubUpserterAdapter) EnsureStub(
 	return a.seriesRepo.UpsertStub(ctx, canon)
 }
 
-// DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507.
+// DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507 +
+// 508 (SearchUC).
 type DiscoveryHTTPBundle struct {
 	Handler  *discoveryrest.DiscoveryHandler
 	Genres   *discopersistence.GenresPickerRepo
 	Networks *discopersistence.NetworksPickerRepo
+	SearchUC *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
 }
 
-// BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler.
+// BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler + the
+// story 508 N-2g search use case.
 //
 // The Worker arg satisfies BOTH narrow ports the handler reads — the
 // concrete *Worker is passed; Go's interface satisfaction unifies
 // (worker.IsWarming, worker.RefreshNow) onto the
 // (WarmingProbe, RefreshOnDemand) tuple at the call site.
 //
+// tmdb / stubs / dispatcher are the SearchUseCase dependencies (story
+// 508). Any nil → searchUC is nil and the handler returns 503
+// search_unavailable on /discovery/search.
+//
 // log MUST already carry the "discovery" domain tag.
 func BuildDiscoveryHTTP(
 	persistence *PersistenceBundle,
 	runtime *DiscoveryRuntimeBundle,
 	listRepo discoapp.DiscoveryListRepo,
+	tmdb discoapp.SearchTMDB,
+	stubs discoapp.StubUpserter,
+	dispatcher discoapp.EnrichmentDispatcher,
 	log *slog.Logger,
 ) *DiscoveryHTTPBundle {
 	genres := discopersistence.NewGenresPickerRepo(persistence.DB)
 	networks := discopersistence.NewNetworksPickerRepo(persistence.DB)
+
+	var searchUC *discoapp.SearchUseCase
+	if tmdb != nil && stubs != nil && dispatcher != nil {
+		searchRepo := discopersistence.NewSearchRepository(persistence.DB)
+		searchUC = discoapp.NewSearchUseCase(searchRepo, tmdb, stubs, dispatcher, log)
+	}
+
 	h := discoveryrest.NewDiscoveryHandler(
 		listRepo,
 		runtime.Worker, // satisfies WarmingProbe
 		runtime.Worker, // satisfies RefreshOnDemand
 		genres,
 		networks,
+		searchUC, // nil-OK; handler returns 503 search_unavailable
 		log,
 	)
 	return &DiscoveryHTTPBundle{
 		Handler:  h,
 		Genres:   genres,
 		Networks: networks,
+		SearchUC: searchUC,
 	}
+}
+
+// EnrichmentDispatcherAdapter bridges the discoapp.EnrichmentDispatcher
+// port (kind/priority as strings) to the concrete appenrich.Dispatcher
+// (typed kind + Priority constants). Lives in wiring so discovery never
+// imports enrichment.
+//
+// Exported so server.go can construct it without an extra wiring
+// constructor.
+type EnrichmentDispatcherAdapter struct {
+	Inner appenrich.Dispatcher
+}
+
+// Enqueue translates the discovery string enums into the appenrich
+// typed constants. Unknown entity kinds drop silently — the cold-start
+// search path is series-only by design.
+func (a *EnrichmentDispatcherAdapter) Enqueue(entity string, id int64, priority string) {
+	if a.Inner == nil {
+		return
+	}
+	var kind appenrich.EntityKind
+	switch entity {
+	case discoapp.EntitySeriesKind:
+		kind = appenrich.EntitySeries
+	default:
+		return
+	}
+	var p appenrich.Priority
+	switch priority {
+	case discoapp.PriorityHotLabel:
+		p = appenrich.PriorityHot
+	default:
+		p = appenrich.PriorityCold
+	}
+	a.Inner.Enqueue(kind, id, p)
 }

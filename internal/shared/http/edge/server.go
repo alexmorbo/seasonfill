@@ -290,6 +290,8 @@ func NewServer(
 			guarded.GET("/discovery/keyword/:id", discoveryHandler.ByKeyword)
 			guarded.GET("/discovery/genres", discoveryHandler.PickerGenres)
 			guarded.GET("/discovery/networks", discoveryHandler.PickerNetworks)
+			// Story 508 (N-2g) — local LIKE + TMDB fallback search.
+			guarded.GET("/discovery/search", discoveryHandler.Search)
 		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)

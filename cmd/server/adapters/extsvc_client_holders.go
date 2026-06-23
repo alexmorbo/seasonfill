@@ -164,6 +164,18 @@ func (h *TMDBClientHolder) DiscoverTV(ctx context.Context, filter tmdb.DiscoverF
 	return c.DiscoverTV(ctx, filter, page)
 }
 
+// SearchTV forwards to the live tmdb.Client; discovery search fallback
+// entry point (story 508 N-2g). Same Load+nil-check pattern as the
+// other forwarders so a runtime TMDB disable surfaces the canonical
+// ErrTMDBClientNotReady rather than a nil-pointer panic.
+func (h *TMDBClientHolder) SearchTV(ctx context.Context, query, language string, page int) (*tmdb.TVListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.SearchTV(ctx, query, language, page)
+}
+
 // Compile-time guarantee: *TMDBClientHolder satisfies the application
 // port. Caught at build time if the port ever grows a new method.
 var _ appenrich.TMDBClient = (*TMDBClientHolder)(nil)

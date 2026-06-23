@@ -129,6 +129,14 @@ type UseCase struct {
 	// process-wide WaitGroup here so SIGTERM-drain blocks on
 	// outstanding scans. nil in tests that don't care about drain.
 	bgWG *sync.WaitGroup
+
+	// postScanCycle — story 508 (N-2g) / B-9 Scope A. Optional sweep-
+	// completion hook fired AFTER scan_completed INFO line on the
+	// success path. Wired in by cmd/server/adapters.ColdStartKicker so
+	// the boot-race "Sonarr sync ran AFTER initial BackfillSeries"
+	// case kicks enrichment within ms (not 60s ticker delay).
+	// nil-OK; never fired on aborted/cancelled/failed paths.
+	postScanCycle func(ctx context.Context)
 }
 
 func NewUseCase(
@@ -197,6 +205,18 @@ func (u *UseCase) WithBarrier(b Barrier) *UseCase                   { u.barrier 
 // WithWaitGroup wires the process-wide background wait group so
 // async scan goroutines block graceful shutdown's drainBackground.
 func (u *UseCase) WithWaitGroup(wg *sync.WaitGroup) *UseCase { u.bgWG = wg; return u }
+
+// WithPostScanCycle registers a hook fired AFTER scan_completed (and
+// AFTER the scan record Update) on the happy-path completion of a
+// single instance scan. The hook is called from processScan's
+// goroutine — the supplied closure MUST be thread-safe (production
+// uses an atomic-guarded ColdStartKicker). nil-OK; never fired on
+// abort/cancel/failed paths so a failing scan does not poison the
+// enrichment kicker.
+func (u *UseCase) WithPostScanCycle(fn func(ctx context.Context)) *UseCase {
+	u.postScanCycle = fn
+	return u
+}
 
 type RunResult struct {
 	ScanRunID    uuid.UUID
@@ -928,6 +948,16 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 		slog.Int("errors", errorsCount),
 		slog.Float64("duration_seconds", finished.Sub(started).Seconds()),
 	)
+
+	// 508 (N-2g / B-9 Scope A): post-scan-cycle hook fires after the
+	// per-instance scan_completed line. Detached ctx so a SIGTERM
+	// mid-cycle does not cancel the kicker — the dispatcher's enqueue
+	// is fast (<1ms) and the kicker is idempotent. Trace ID carries
+	// over for log correlation with the scan that triggered it.
+	if u.postScanCycle != nil {
+		hookCtx := logger.WithTraceID(context.Background(), rec.ID.String())
+		u.postScanCycle(hookCtx)
+	}
 
 	return RunResult{
 		ScanRunID:    scanID,

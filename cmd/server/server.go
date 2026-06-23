@@ -456,14 +456,41 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// at boot). When TMDB is runtime-only enabled (operator flips
 	// from disabled→configured), the routes will be absent until pod
 	// restart — explicit trade-off documented in 507's roadmap notes.
+	//
+	// Story 508 (N-2g) — search use case threads through here. tmdb /
+	// stubs / dispatcher are derived from holders/bundles wired above.
+	// Any nil → BuildDiscoveryHTTP returns a bundle whose SearchUC is
+	// nil and the handler returns 503 search_unavailable.
 	var discoveryHTTPBundle *wiring.DiscoveryHTTPBundle
 	if discoRuntime != nil {
+		var searchTMDB discoapp.SearchTMDB
+		if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+			searchTMDB = enrichBundle.TMDBHolder
+		}
+		var dispAdapter discoapp.EnrichmentDispatcher
+		if enrichBundle != nil && enrichBundle.Dispatcher != nil {
+			dispAdapter = &wiring.EnrichmentDispatcherAdapter{Inner: enrichBundle.Dispatcher}
+		}
 		discoveryHTTPBundle = wiring.BuildDiscoveryHTTP(
 			persistence,
 			discoRuntime,
 			discoPersistence.ListRepo,
+			searchTMDB,
+			discoPersistence.Stubs,
+			dispAdapter,
 			sharedports.DomainLogger(log, "discovery"),
 		)
+	}
+
+	// Story 508 (N-2g / B-9 Scope A) — late-bind the ColdStartKicker's
+	// OnSyncCompleted hook into the scan use case via
+	// WithPostScanCycle. BuildScan ran earlier (before BuildEnrichment)
+	// so the hook is wired here once enrichBundle exists. Builder
+	// returns the same *UseCase pointer so the field swap is safe
+	// at this point (no scan has started yet — the cron scheduler
+	// fires later in Start()).
+	if enrichBundle != nil && enrichBundle.ColdStartKicker != nil && scanUC != nil {
+		scanUC.WithPostScanCycle(enrichBundle.ColdStartKicker.OnSyncCompleted)
 	}
 
 	// BuildHTTPServer now runs AFTER enrichBundle + discovery wirings

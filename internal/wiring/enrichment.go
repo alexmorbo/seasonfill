@@ -170,6 +170,14 @@ type EnrichmentBundle struct {
 	// daily-batch sweeps the boot path already ran).
 	TMDBBootEnabled bool
 	OMDbBootEnabled bool
+	// ColdStartKicker — story 508 (B-9 Scope A). Boot-race breaker.
+	// nil when ColdStartScanner is unavailable (defensive — current
+	// production wiring always supplies it). cmd/server/server.go
+	// threads ColdStartKicker.OnSyncCompleted into scan.UseCase
+	// via WithPostScanCycle so a scan_completed sweep kicks
+	// BackfillSeries within ms when the boot pass scanned an empty
+	// series table.
+	ColdStartKicker *adapters.ColdStartKicker
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -643,6 +651,39 @@ func BuildEnrichment(
 			})
 	}
 
+	// 508 (B-9 Scope A): ColdStartKicker breaks the boot race where
+	// BackfillSeries runs BEFORE sonarr_sync populates series. Armed
+	// on the first empty pass; fired on the next scan_completed sweep.
+	// nil when ColdStartScanner is unavailable so the kicker is purely
+	// optional from server.go's POV.
+	var coldStartKicker *adapters.ColdStartKicker
+	if repos.ColdStartScanner != nil {
+		coldStartKicker = adapters.NewColdStartKicker(
+			func(ctx context.Context) error {
+				return appenrich.BackfillSeries(ctx, repos.ColdStartScanner, dispatcher, enrichmentLog)
+			},
+			enrichmentLog,
+		)
+		// Wrap `coldStart` so the boot pass's series count is reported
+		// to the kicker BEFORE the unconditional original sweep runs.
+		// A cheap LIMIT 1 read is enough for the armed/not-armed
+		// decision — MarkPassResult is single-shot, so subsequent
+		// 60s ticks do NOT re-arm the kicker. Failure of the pre-sweep
+		// count is non-fatal; we fall through to the original sweep
+		// unchanged.
+		originalColdStart := coldStart
+		coldStart = func(ctx context.Context) {
+			ids, scanErr := repos.ColdStartScanner.ListMissingTMDBSync(ctx, 1)
+			if scanErr == nil {
+				coldStartKicker.MarkPassResult(len(ids))
+			} else {
+				enrichmentLog.WarnContext(ctx, "enrichment.cold_start_kicker.pre_sweep_count_failed",
+					slog.String("error", scanErr.Error()))
+			}
+			originalColdStart(ctx)
+		}
+	}
+
 	// 470 (B-7): onFirstActivation runs ONE cold-start sweep
 	// immediately after the operator's first key save. The subscriber
 	// fires this exactly once per nil→non-nil transition (and again
@@ -703,6 +744,9 @@ func BuildEnrichment(
 		// hook (boot already triggered the cold-start / daily-batch sweep).
 		TMDBBootEnabled: tmdbClient != nil,
 		OMDbBootEnabled: omdbHolder.Load() != nil,
+		// 508 (B-9 Scope A): nil-OK; server.go wires it to scan.UseCase
+		// via WithPostScanCycle only when non-nil.
+		ColdStartKicker: coldStartKicker,
 	}, nil
 }
 

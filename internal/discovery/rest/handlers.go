@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -70,7 +71,12 @@ type DiscoveryHandler struct {
 	refresh  app.RefreshOnDemand
 	genres   *persistence.GenresPickerRepo
 	networks *persistence.NetworksPickerRepo
-	log      *slog.Logger
+	// search — story 508 (N-2g). Nil-OK at construction-time for tests
+	// that exercise the curated endpoints only; the Search handler
+	// returns 503 search_unavailable when the use case is unwired
+	// (TMDB disabled at boot).
+	search *app.SearchUseCase
+	log    *slog.Logger
 
 	// sfGroup collapses concurrent cold-cache on-demand refresh calls
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
@@ -80,14 +86,17 @@ type DiscoveryHandler struct {
 }
 
 // NewDiscoveryHandler wires the handler against its narrow ports.
-// Every arg is required — panics on nil so a wiring bug surfaces at
-// startup rather than at first request.
+// Every arg is required EXCEPT searchUC (nil-OK; the Search handler
+// returns 503 search_unavailable when nil). Panics on missing
+// required ports so a wiring bug surfaces at startup rather than at
+// first request.
 func NewDiscoveryHandler(
 	repo app.DiscoveryListRepo,
 	warming app.WarmingProbe,
 	refresh app.RefreshOnDemand,
 	genres *persistence.GenresPickerRepo,
 	networks *persistence.NetworksPickerRepo,
+	searchUC *app.SearchUseCase,
 	log *slog.Logger,
 ) *DiscoveryHandler {
 	switch {
@@ -110,6 +119,7 @@ func NewDiscoveryHandler(
 		refresh:  refresh,
 		genres:   genres,
 		networks: networks,
+		search:   searchUC, // nil-OK
 		log:      log,
 	}
 }
@@ -325,6 +335,83 @@ func (h *DiscoveryHandler) PickerNetworks(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, items)
+}
+
+// Search serves GET /api/v1/discovery/search?q=…&lang=… (story 508).
+// Two-tier lookup per PRD §5.1.1 lines 711-720:
+//
+//  1. Local LIKE: response envelope {items, source:"local"}.
+//  2. On local miss: TMDB /search/tv fallback with stub-upsert +
+//     hot enqueue, envelope {items, source:"tmdb"}.
+//
+// Validation:
+//   - q trimmed; empty → 400 invalid_query.
+//   - len(q) > 100 → 400 invalid_query.
+//   - lang BCP-47 validated via the shared regex (defaults to en-US).
+//
+// Errors:
+//   - TMDB transport failure on fallback path → 502 tmdb_unavailable.
+//   - Repo error on local path → 500 search_read_failed.
+func (h *DiscoveryHandler) Search(c *gin.Context) {
+	if h.search == nil {
+		respondError(c, http.StatusServiceUnavailable, "search_unavailable",
+			"search use case not wired (TMDB disabled)")
+		return
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" || len(q) > 100 {
+		respondError(c, http.StatusBadRequest, "invalid_query",
+			"q must be 1..100 characters after trim")
+		return
+	}
+	lang := c.DefaultQuery("lang", defaultLang)
+	if !validateLang(lang) {
+		respondError(c, http.StatusBadRequest, "invalid_language",
+			"lang must be a BCP-47 tag")
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	localItems, err := h.search.Local(ctx, q, lang, 20)
+	if err != nil {
+		h.log.WarnContext(ctx, "discovery.search.local_failed",
+			slog.String("query", q),
+			slog.String("language", lang),
+			slog.String("error", err.Error()))
+		respondError(c, http.StatusInternalServerError, "search_read_failed",
+			"local search failed")
+		return
+	}
+	if len(localItems) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"items":  projectSearchItems(localItems),
+			"source": "local",
+		})
+		return
+	}
+
+	tmdbItems, err := h.search.TMDBFallback(ctx, q, lang)
+	if err != nil {
+		respondError(c, http.StatusBadGateway, "tmdb_unavailable",
+			"tmdb fallback failed")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":  projectSearchItems(tmdbItems),
+		"source": "tmdb",
+	})
+}
+
+// projectSearchItems maps domain Items → wire DiscoverySeriesItem
+// preserving the curated endpoints' projection contract (empty []
+// for InLibraryInstances, nil-safe pointer field copies).
+func projectSearchItems(items []disco.Item) []DiscoverySeriesItem {
+	out := make([]DiscoverySeriesItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, projectItem(it))
+	}
+	return out
 }
 
 // parsePaging extracts (lang, page, per_page) from the query string,

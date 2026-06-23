@@ -125,6 +125,7 @@ func newTestHandler(t *testing.T, repo discoapp.DiscoveryListRepo,
 		// stub repos so the constructor doesn't panic.
 		persistence.NewGenresPickerRepo(nil),
 		persistence.NewNetworksPickerRepo(nil),
+		nil, // searchUC — story 508; nil-OK for curated-endpoint tests
 		log,
 	)
 	r := gin.New()
