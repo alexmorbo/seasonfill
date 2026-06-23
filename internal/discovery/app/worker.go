@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
@@ -40,6 +42,19 @@ const MaxActiveLanguages = 10
 // TopKindsLimit is the per-tick fan-out for by_genre / by_network
 // refreshes — top-10 per kind per language per PRD §5.1.1 line 645.
 const TopKindsLimit = 10
+
+// DefaultRefreshRPS is the steady-state ceiling on refresh starts per
+// second (B-39). Tuned so the cold-start sweep of ~46 (lang × kind) pairs
+// spreads its stub-upsert + enrichment-enqueue fan-out without overrunning
+// the media prewarm queue's 30s window.
+const DefaultRefreshRPS = 5
+
+// DefaultRefreshBurst is the immediate-burst budget — covers the
+// 3 leaderboards × N langs hot-path on cold start before the rps cap kicks
+// in. PRD §5.1.1 leaves the figure implicit; 20 was chosen so the first
+// curated genre/network refreshes (the user-visible "fresh discovery") land
+// inside ~4s post-boot.
+const DefaultRefreshBurst = 20
 
 // TMDBClient is the narrow surface the worker reads through. The
 // production *tmdb.Client (story 504) satisfies this by signature
@@ -74,7 +89,8 @@ type Clock interface {
 }
 
 // WorkerDeps groups the worker dependencies for constructor-arg
-// hygiene. Every field is required — NewWorker panics on nil.
+// hygiene. Every field is required — NewWorker panics on nil — EXCEPT
+// Limiter, which defaults to a production-tuned rate.Limiter when nil.
 type WorkerDeps struct {
 	Repo     DiscoveryListRepo
 	Langs    ActiveLanguagesProvider
@@ -83,6 +99,11 @@ type WorkerDeps struct {
 	TopKinds TopKindsProvider
 	Log      *slog.Logger
 	Clock    Clock
+	// Limiter paces refresh() calls (B-39). Optional — nil falls back
+	// to rate.NewLimiter(DefaultRefreshRPS, DefaultRefreshBurst). Tests
+	// pass a faster limiter (e.g. rate.NewLimiter(rate.Inf, 1)) to keep
+	// runtime short, or a slower one to assert the throttle fires.
+	Limiter *rate.Limiter
 }
 
 // Worker is the 1h refresh loop owner. Single-threaded — Tick is
@@ -98,6 +119,11 @@ type Worker struct {
 	topKinds TopKindsProvider
 	log      *slog.Logger
 	clock    Clock
+
+	// limiter paces refresh() calls — both Tick-driven and on-demand
+	// (RefreshNow) paths. See WorkerDeps.Limiter godoc for tuning notes
+	// and B-39 for the production failure mode this guards against.
+	limiter *rate.Limiter
 
 	// warmingOnce flips discovery_warming 1→0 exactly once, on the
 	// first successful ReplaceList of ANY kind. atomic.Bool +
@@ -132,6 +158,10 @@ func NewWorker(deps WorkerDeps) *Worker {
 	// flips it to 0. Set unconditionally on construction so a pod
 	// that crashes mid-warmup re-publishes 1 after restart.
 	observability.SetDiscoveryWarming(true)
+	limiter := deps.Limiter
+	if limiter == nil {
+		limiter = rate.NewLimiter(rate.Limit(DefaultRefreshRPS), DefaultRefreshBurst)
+	}
 	return &Worker{
 		repo:     deps.Repo,
 		langs:    deps.Langs,
@@ -140,6 +170,7 @@ func NewWorker(deps WorkerDeps) *Worker {
 		topKinds: deps.TopKinds,
 		log:      deps.Log,
 		clock:    deps.Clock,
+		limiter:  limiter,
 	}
 }
 
@@ -281,6 +312,19 @@ func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang 
 // bump outcome="error"; the OLD data stays in place until the next
 // successful Tick.
 func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang string) error {
+	// B-39: pace refresh() so the cold-start sweep doesn't fan-out the full
+	// stub-upsert + enrichment-enqueue burst within a few seconds. Wait
+	// BEFORE the first TMDB fetch so the limiter accounts for the
+	// downstream stub-upsert + ReplaceList work as one unit. ctx
+	// cancellation surfaces as the only error path here — RunForever
+	// already swallows it on shutdown.
+	waitStart := w.clock.Now()
+	if err := w.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	observability.ObserveDiscoveryRefreshPaceWait(
+		string(kind), lang, w.clock.Now().Sub(waitStart))
+
 	start := w.clock.Now()
 	pages := PagesFor(kind)
 	items := make([]disco.Item, 0, pages*20)

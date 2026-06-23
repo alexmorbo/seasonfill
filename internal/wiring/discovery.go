@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -115,6 +116,11 @@ func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, 
 		return nil, fmt.Errorf("discovery runtime: log required")
 	}
 	topKinds := discopersistence.NewTopKindsReader(deps.DB)
+	// B-39: production-tuned limiter paces refresh() so cold-start
+	// fan-out doesn't overrun the enrichment prewarm queue. Constants
+	// live in discoapp so tests can reference the same values; here we
+	// hand the worker its very own *rate.Limiter so concurrent on-demand
+	// RefreshNow calls share the same budget as the Tick loop.
 	worker := discoapp.NewWorker(discoapp.WorkerDeps{
 		Repo:     deps.Persistence.ListRepo,
 		Langs:    deps.Persistence.LangProvider,
@@ -123,6 +129,10 @@ func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, 
 		TopKinds: topKinds,
 		Log:      deps.Log,
 		Clock:    realDiscoveryClock{},
+		Limiter: rate.NewLimiter(
+			rate.Limit(discoapp.DefaultRefreshRPS),
+			discoapp.DefaultRefreshBurst,
+		),
 	})
 	return &DiscoveryRuntimeBundle{
 		Worker:   worker,

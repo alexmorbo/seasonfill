@@ -461,3 +461,13 @@ func IncDiscoverHandlerOutcome(outcome string) {
 	metrics.GetOrCreateCounter(
 		`seasonfill_discover_handler_outcome_total{outcome="` + outcome + `"}`).Inc()
 }
+
+// ObserveDiscoveryRefreshPaceWait records wall-clock spent waiting on the
+// worker's pace-limiter (B-39). Histogram in seconds. Steady-state near
+// zero; cold-start spikes confirm the limiter is smoothing the stub-upsert
+// burst against the enrichment prewarm queue.
+func ObserveDiscoveryRefreshPaceWait(kind, language string, d time.Duration) {
+	metrics.GetOrCreateHistogram(
+		`seasonfill_discovery_refresh_pace_wait_seconds{kind="` + kind +
+			`",language="` + language + `"}`).Update(d.Seconds())
+}

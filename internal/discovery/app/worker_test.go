@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
@@ -371,6 +372,59 @@ func TestTick_WarmingFlipsAfterFirstSuccess(t *testing.T) {
 	w := newTestWorker(t, repo, langs, stubs, client, tops)
 	require.NoError(t, w.Tick(context.Background()))
 	require.NoError(t, w.Tick(context.Background()), "second tick must not re-flip warming")
+}
+
+func TestWorker_ThrottlesRefreshRate(t *testing.T) {
+	repo := newFakeRepo()
+	// 2 langs × 3 leaderboards = 6 refreshes. With burst=2 and rps=20,
+	// 4 of those 6 must block on the limiter — measurable wall-clock.
+	langs := &fakeLangs{langs: []string{"en-US", "ru-RU"}}
+	client := &fakeTMDB{resp: makeResp(1)}
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{}
+
+	limiter := rate.NewLimiter(rate.Limit(20), 2)
+	w := app.NewWorker(app.WorkerDeps{
+		Repo:     repo,
+		Langs:    langs,
+		Stubs:    stubs,
+		TMDB:     client,
+		TopKinds: tops,
+		Log:      slog.New(slog.NewTextHandler(testWriter{t: t}, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Clock:    &fixedClock{now: time.Unix(1_700_000_000, 0)},
+		Limiter:  limiter,
+	})
+
+	startWall := time.Now()
+	require.NoError(t, w.Tick(context.Background()))
+	elapsed := time.Since(startWall)
+
+	// 6 refreshes - 2 burst = 4 throttled at 20rps → ≈200ms minimum.
+	// Generous slack for CI flake.
+	require.GreaterOrEqual(t, elapsed, 150*time.Millisecond,
+		"limiter must delay tick beyond burst budget")
+	require.Less(t, elapsed, 2*time.Second,
+		"limiter must not stall (sanity)")
+
+	// All 6 leaderboard refreshes still landed.
+	require.Equal(t, 4, client.trendingCalls(), "2 langs × 2 trending kinds = 4")
+	require.Equal(t, 2, client.popularCalls(), "2 langs × 1 popular kind = 2")
+}
+
+func TestWorker_NilLimiterDefaultsToProduction(t *testing.T) {
+	// Sanity: omitting the limiter yields a working worker. Production
+	// burst (20) easily absorbs a single-lang single-tick test, so no
+	// measurable delay should leak through.
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{resp: makeResp(1)}
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{}
+
+	w := newTestWorker(t, repo, langs, stubs, client, tops) // no Limiter
+	require.NoError(t, w.Tick(context.Background()))
+	require.Equal(t, 2, client.trendingCalls())
+	require.Equal(t, 1, client.popularCalls())
 }
 
 func TestRunForever_FirstTickImmediate_AndHonoursContext(t *testing.T) {
