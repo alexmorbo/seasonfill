@@ -233,16 +233,19 @@ func TestD1_7c_WatchdogState_NullableColumns(t *testing.T) {
 	}
 }
 
-// TestD1_7c_WatchdogMigrationDown — apply 000001..000019, then
+// TestD1_7c_WatchdogMigrationDown — migrate explicitly to 000019, then
 // m.Steps(-7) to roll back 000019 (media_assets, added by 468c / D-7),
 // 000018 (qbit_runtime, added by 467c / D-6), 000017 (grab_audit, added
 // by 467a / D-6), 000016 (app_config, added by 466b), 000015 (scan_runs,
 // added by 465b), 000014 (people_enrichment, added by 464b), and 000013
 // (watchdog); SELECT 1 from the watchdog tables errors (tables gone);
-// Up() reapplies cleanly. The -7 step count covers the six migrations
-// on top of 000013 added during the D-3 (people_enrichment), D-4
-// (scan_runs), D-5 (app_config), D-6 grab_audit + qbit_runtime, and
-// D-7 (media_assets) cutovers.
+// Up() reapplies cleanly through to head. The -7 step count covers the
+// six migrations on top of 000013 added during the D-3 (people_enrichment),
+// D-4 (scan_runs), D-5 (app_config), D-6 grab_audit + qbit_runtime, and
+// D-7 (media_assets) cutovers. We pin the starting version to 000019
+// (instead of using Up() to head) so the test stays stable when future
+// migrations land — the -7 reverse delta is anchored to the D-7 closure
+// surface, not "whatever head happens to be".
 func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -251,7 +254,8 @@ func TestD1_7c_WatchdogMigrationDown(t *testing.T) {
 
 			db, m, cleanup := b.migrate(t)
 			t.Cleanup(cleanup)
-			require.NoError(t, m.Up())
+			require.NoError(t, m.Migrate(19),
+				"Migrate(19) should apply 000001..000019 cleanly")
 
 			require.NoError(t, m.Steps(-7),
 				"Steps(-7) should reverse 000019 + 000018 + 000017 + 000016 + 000015 + 000014 + 000013")

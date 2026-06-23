@@ -91,7 +91,9 @@ func TestD7_MediaAssetsRestored(t *testing.T) {
 }
 
 // TestD7_MediaAssetsDownReversibility — apply through 000019 then Down(1)
-// drops media_assets cleanly; re-Up() restores it.
+// drops media_assets cleanly; re-Up() restores it. We Migrate(19)
+// explicitly (instead of Up() to head) so the -1 step targets exactly
+// 000019_media_assets regardless of later migrations.
 func TestD7_MediaAssetsDownReversibility(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -100,7 +102,8 @@ func TestD7_MediaAssetsDownReversibility(t *testing.T) {
 
 			db, m, cleanup := b.migrate(t)
 			t.Cleanup(cleanup)
-			require.NoError(t, m.Up())
+			require.NoError(t, m.Migrate(19),
+				"Migrate(19) should apply 000001..000019 cleanly on %s", b.name)
 
 			// Down 000019 only — verifies the .down.sql DROPs the table.
 			require.NoError(t, m.Steps(-1),
@@ -109,7 +112,8 @@ func TestD7_MediaAssetsDownReversibility(t *testing.T) {
 			require.Errorf(t, err,
 				"media_assets must be gone after Down(1) on %s", b.name)
 
-			// Re-Up restores it.
+			// Re-Up restores it (and continues to head, which is fine —
+			// the assertion below only checks media_assets is back).
 			require.NoError(t, m.Up(),
 				"Up() should reapply 000019 cleanly on %s", b.name)
 			var rowCount int64
