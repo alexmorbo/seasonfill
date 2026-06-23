@@ -36,5 +36,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // sharedAuthRuntime (Story 485 N-7a)
 		nil, // globalSeriesHandler (Story 491 N-1a)
 		nil, // discoveryHandler (Story 507 N-2f)
+		nil, // discoverHandler (Story 509 N-2h)
 		logger)
 }

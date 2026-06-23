@@ -150,6 +150,10 @@ const (
 	MetricDiscoveryListAgeSeconds         = `seasonfill_discovery_list_age_seconds`
 	MetricDiscoveryListSize               = `seasonfill_discovery_list_size`
 	MetricDiscoveryWarming                = `seasonfill_discovery_warming`
+	// Story 509 (N-2h). Counts /discovery/discover handler outcomes per
+	// branch of Pattern B: hit (LRU), miss_sync (sync fetch ok),
+	// miss_warming (sync timeout → 202 + bg enqueue), error (TMDB 5xx).
+	MetricDiscoverHandlerOutcome = `seasonfill_discover_handler_outcome_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -448,4 +452,12 @@ func SetDiscoveryWarming(warming bool) {
 		return
 	}
 	g.Set(0)
+}
+
+// IncDiscoverHandlerOutcome ticks the per-outcome counter. outcome ∈
+// {"hit","miss_sync","miss_warming","error"} per the closed label set;
+// the rest handler is the only writer.
+func IncDiscoverHandlerOutcome(outcome string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_discover_handler_outcome_total{outcome="` + outcome + `"}`).Inc()
 }

@@ -307,6 +307,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // sharedAuthRuntime (Story 485 N-7a)
 		nil, // globalSeriesHandler (Story 491 N-1a)
 		nil, // discoveryHandler (Story 507 N-2f)
+		nil, // discoverHandler (Story 509 N-2h)
 		lg)
 }
 
@@ -371,6 +372,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // sharedAuthRuntime (Story 485 N-7a)
 		nil, // globalSeriesHandler (Story 491 N-1a)
 		nil, // discoveryHandler (Story 507 N-2f)
+		nil, // discoverHandler (Story 509 N-2h)
 		lg)
 }
 
@@ -551,6 +553,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // sharedAuthRuntime (Story 485 N-7a)
 		nil, // globalSeriesHandler (Story 491 N-1a)
 		nil, // discoveryHandler (Story 507 N-2f)
+		nil, // discoverHandler (Story 509 N-2h)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

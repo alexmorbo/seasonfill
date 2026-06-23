@@ -10,10 +10,12 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
+	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	discopersistence "github.com/alexmorbo/seasonfill/internal/discovery/persistence"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -165,12 +167,13 @@ func (a *stubUpserterAdapter) EnsureStub(
 }
 
 // DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507 +
-// 508 (SearchUC).
+// 508 (SearchUC) + story 509 (DiscoverHandler).
 type DiscoveryHTTPBundle struct {
-	Handler  *discoveryrest.DiscoveryHandler
-	Genres   *discopersistence.GenresPickerRepo
-	Networks *discopersistence.NetworksPickerRepo
-	SearchUC *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
+	Handler         *discoveryrest.DiscoveryHandler
+	DiscoverHandler *discoveryrest.DiscoverHandler // story 509 N-2h
+	Genres          *discopersistence.GenresPickerRepo
+	Networks        *discopersistence.NetworksPickerRepo
+	SearchUC        *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
 }
 
 // BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler + the
@@ -254,4 +257,49 @@ func (a *EnrichmentDispatcherAdapter) Enqueue(entity string, id int64, priority 
 		p = appenrich.PriorityCold
 	}
 	a.Inner.Enqueue(kind, id, p)
+}
+
+// DiscoveryDiscoverBundle groups the cache + bg fetcher + handler wired
+// for /discovery/discover (story 509 N-2h).
+type DiscoveryDiscoverBundle struct {
+	Handler   *discoveryrest.DiscoverHandler
+	BgFetcher *discoapp.BgFetcher
+	LRU       *cachewatch.Cache[string, []disco.Item]
+}
+
+// DiscoveryDiscoverDeps is the input contract for BuildDiscoveryDiscover.
+type DiscoveryDiscoverDeps struct {
+	TMDBClient discoapp.TMDBDiscoverClient
+	Stubs      discoapp.StubUpserter
+	Worker     discoapp.WarmingProbe
+	Log        *slog.Logger
+}
+
+// BuildDiscoveryDiscover wires the LRU + passthrough + bg fetcher +
+// handler. Caller (cmd/server/server.go) launches BgFetcher.RunWorker
+// on lifecycle.Go.
+//
+// LRU sizing per PRD §5.1.2 line 811: 1000 entries, TTL 1h. Sizer
+// estimates ~500 bytes per disco.Item.
+func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle {
+	switch {
+	case deps.TMDBClient == nil:
+		panic("BuildDiscoveryDiscover: TMDBClient required")
+	case deps.Stubs == nil:
+		panic("BuildDiscoveryDiscover: Stubs required")
+	case deps.Worker == nil:
+		panic("BuildDiscoveryDiscover: Worker required")
+	case deps.Log == nil:
+		panic("BuildDiscoveryDiscover: Log required")
+	}
+	sizer := func(k string, v []disco.Item) int { return len(k) + len(v)*500 }
+	lru := cachewatch.New[string, []disco.Item]("discover", 1000, 1*time.Hour, sizer)
+	pass := discoapp.NewTMDBPassthrough(deps.TMDBClient, deps.Stubs, deps.Log)
+	bg := discoapp.NewBgFetcher(lru, pass, deps.Log)
+	handler := discoveryrest.NewDiscoverHandler(lru, pass, bg, deps.Worker, deps.Log)
+	return &DiscoveryDiscoverBundle{
+		Handler:   handler,
+		BgFetcher: bg,
+		LRU:       lru,
+	}
 }

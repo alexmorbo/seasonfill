@@ -83,6 +83,7 @@ func NewServer(
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
 	discoveryHandler *discoveryrest.DiscoveryHandler,
+	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -292,6 +293,11 @@ func NewServer(
 			guarded.GET("/discovery/networks", discoveryHandler.PickerNetworks)
 			// Story 508 (N-2g) — local LIKE + TMDB fallback search.
 			guarded.GET("/discovery/search", discoveryHandler.Search)
+		}
+		if discoverHandler != nil {
+			// Story 509 (N-2h) — ad-hoc TMDB Discover passthrough with LRU
+			// + background fetcher Pattern B (PRD §5.1.2).
+			guarded.GET("/discovery/discover", discoverHandler.Handle)
 		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)

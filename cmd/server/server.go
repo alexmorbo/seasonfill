@@ -482,6 +482,28 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		)
 	}
 
+	// Story 509 (N-2h) — /discovery/discover ad-hoc passthrough.
+	// Built only when the discovery runtime exists. Routes auth-gated.
+	var discoverBundle *wiring.DiscoveryDiscoverBundle
+	if discoRuntime != nil && enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		discoverBundle = wiring.BuildDiscoveryDiscover(wiring.DiscoveryDiscoverDeps{
+			TMDBClient: enrichBundle.TMDBHolder,
+			Stubs:      discoPersistence.Stubs,
+			Worker:     discoRuntime.Worker,
+			Log:        sharedports.DomainLogger(log, "discovery"),
+		})
+		if discoveryHTTPBundle != nil {
+			discoveryHTTPBundle.DiscoverHandler = discoverBundle.Handler
+		}
+		lifecycle.Go(rootCtx, "discover-bg-fetcher", func(ctx context.Context) {
+			if err := discoverBundle.BgFetcher.RunWorker(ctx); err != nil {
+				sharedports.DomainLogger(log, "discovery").Error(
+					"discover bg-fetcher exited with error",
+					slog.String("error", err.Error()))
+			}
+		})
+	}
+
 	// Story 508 (N-2g / B-9 Scope A) — late-bind the ColdStartKicker's
 	// OnSyncCompleted hook into the scan use case via
 	// WithPostScanCycle. BuildScan ran earlier (before BuildEnrichment)

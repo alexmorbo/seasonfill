@@ -784,8 +784,10 @@ func BuildHTTPServer(
 	log *slog.Logger,
 ) *httpserver.Server {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
+	var discoverHandler *discoveryrest.DiscoverHandler // story 509 N-2h
 	if discoveryHTTP != nil {
 		discoveryHandler = discoveryHTTP.Handler
+		discoverHandler = discoveryHTTP.DiscoverHandler
 	}
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
@@ -829,6 +831,7 @@ func BuildHTTPServer(
 		auth.AuthRuntime,
 		seriesDetailBundle.GlobalSeriesHandler,
 		discoveryHandler,
+		discoverHandler,
 		log,
 	)
 }
