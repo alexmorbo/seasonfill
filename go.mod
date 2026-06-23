@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	ariga.io/atlas v0.31.0
-	github.com/VictoriaMetrics/metrics v1.43.2
+	github.com/VictoriaMetrics/metrics v1.44.0
 	github.com/autobrr/go-qbittorrent v1.16.0
 	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/gin-gonic/gin v1.12.0
@@ -22,7 +22,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.53.0
-	golang.org/x/net v0.55.0
+	golang.org/x/net v0.56.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/time v0.15.0
