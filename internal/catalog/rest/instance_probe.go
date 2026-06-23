@@ -70,7 +70,7 @@ func NewInstanceProbeHandler(client *http.Client, logger *slog.Logger, opts ...P
 // @Failure     504   {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances/test [post]
+// @Router      /admin/instances/test [post]
 func (h *InstanceProbeHandler) Test(c *gin.Context) {
 	req, ok := h.readBody(c)
 	if !ok {

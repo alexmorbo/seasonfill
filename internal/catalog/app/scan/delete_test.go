@@ -42,6 +42,9 @@ func (f *cascadeFakeCache) ListDistinctNetworks(_ context.Context, _ domain.Inst
 func (f *cascadeFakeCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
 	return nil, nil
 }
+func (f *cascadeFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 
 type cascadeFakeEpisodes struct {
 	calls        atomic.Int32

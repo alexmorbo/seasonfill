@@ -942,6 +942,9 @@ func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ shareddomain
 func (s *stubSeriesCache) GetInstancesBySeriesID(_ context.Context, _ shareddomain.SeriesID) ([]shareddomain.InstanceName, error) {
 	return nil, nil
 }
+func (s *stubSeriesCache) ListBySeriesID(_ context.Context, _ shareddomain.SeriesID) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
 

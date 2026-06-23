@@ -3205,6 +3205,220 @@ info:
   version: "1.0"
 openapi: 3.1.0
 paths:
+  /admin/instances:
+    get:
+      description: Latest snapshot from the in-memory checker.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List Sonarr instance health
+      tags:
+      - instances
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceCreateRequest'
+        description: Instance fields
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Conflict
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Create a Sonarr instance
+      tags:
+      - instances
+  /admin/instances/{name}:
+    delete:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Delete a Sonarr instance and its history
+      tags:
+      - instances
+    get:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get one Sonarr instance (masked)
+      tags:
+      - instances
+    put:
+      parameters:
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceUpdateRequest'
+        description: Instance fields
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceDetail'
+          description: OK
+          headers:
+            Last-Modified:
+              description: RFC1123 of updated_at
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Precondition Failed
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Update a Sonarr instance
+      tags:
+      - instances
+  /admin/instances/test:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dto.InstanceTestRequest'
+        description: URL and api_key to probe
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceTestResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Too Many Requests
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Gateway Timeout
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Probe a Sonarr instance for reachability/auth
+      tags:
+      - instances
   /auth/config:
     get:
       responses:
@@ -3911,6 +4125,52 @@ paths:
       summary: List grabs
       tags:
       - grabs
+  /grabs/{id}/episode-files:
+    get:
+      description: |-
+        Lazy fetch of Sonarr's episodeFile + episode rows for
+        the grab's (series_id, season_number). The instance is
+        resolved from the persisted grab_records row — no
+        path scope. Returns 200 with empty items when
+        status != imported.
+      parameters:
+      - description: Grab UUID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.EpisodeFileList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List on-disk files for a grab (global)
+      tags:
+      - grabs
   /healthz:
     get:
       responses:
@@ -3923,180 +4183,6 @@ paths:
       summary: Liveness probe
       tags:
       - health
-  /instances:
-    get:
-      description: Latest snapshot from the in-memory checker.
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.InstanceList'
-          description: OK
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Unauthorized
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: List Sonarr instance health
-      tags:
-      - instances
-    post:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/dto.InstanceCreateRequest'
-        description: Instance fields
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.InstanceDetail'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Conflict
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Create a Sonarr instance
-      tags:
-      - instances
-  /instances/{name}:
-    delete:
-      parameters:
-      - description: Instance name
-        in: path
-        name: name
-        required: true
-        schema:
-          type: string
-      responses:
-        "204":
-          description: No Content
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Unauthorized
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Not Found
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Delete a Sonarr instance and its history
-      tags:
-      - instances
-    get:
-      parameters:
-      - description: Instance name
-        in: path
-        name: name
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.InstanceDetail'
-          description: OK
-          headers:
-            Last-Modified:
-              description: RFC1123 of updated_at
-              schema:
-                type: string
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Unauthorized
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Not Found
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Get one Sonarr instance (masked)
-      tags:
-      - instances
-    put:
-      parameters:
-      - description: Instance name
-        in: path
-        name: name
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/dto.InstanceUpdateRequest'
-        description: Instance fields
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.InstanceDetail'
-          description: OK
-          headers:
-            Last-Modified:
-              description: RFC1123 of updated_at
-              schema:
-                type: string
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Not Found
-        "412":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Precondition Failed
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Update a Sonarr instance
-      tags:
-      - instances
   /instances/{name}/counters:
     get:
       description: |-
@@ -5250,46 +5336,6 @@ paths:
       summary: Check whether the seasonfill webhook is installed in Sonarr
       tags:
       - instances
-  /instances/test:
-    post:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/dto.InstanceTestRequest'
-        description: URL and api_key to probe
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.InstanceTestResponse'
-          description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Bad Request
-        "429":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Too Many Requests
-        "504":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.ErrorResponse'
-          description: Gateway Timeout
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
-      summary: Probe a Sonarr instance for reachability/auth
-      tags:
-      - instances
   /me:
     get:
       responses:
@@ -5871,6 +5917,65 @@ paths:
       summary: Composite series detail document (global)
       tags:
       - series
+  /series/{id}/cast:
+    get:
+      description: |-
+        Same shape as the per-instance
+        /api/v1/instances/{name}/series/{id}/cast, but resolves
+        the preferred Sonarr instance automatically from the
+        canonical series.id (lex-first instance that carries
+        the series in series_cache). 404 when no library
+        carries the series — TMDB-only series have no cast
+        surface in v1.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (default en-US)
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCastResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Full series cast & crew (global)
+      tags:
+      - series
   /series/{id}/regrab:
     post:
       description: |-
@@ -5921,6 +6026,181 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Re-enrich a series (global)
+      tags:
+      - series
+  /series/{id}/season/{n}:
+    get:
+      description: |-
+        Same shape as the per-instance
+        /api/v1/instances/{name}/series/{id}/season/{n}, but
+        resolves the preferred Sonarr instance automatically
+        from the canonical series.id. 404 when no library
+        carries the series.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: Season number (0 = Specials)
+        in: path
+        name: "n"
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (default en-US)
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeasonDetailResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Series season detail (global)
+      tags:
+      - series
+  /series/{id}/seasons/{season}/episodes:
+    get:
+      description: |-
+        Same shape as the per-instance
+        /api/v1/instances/{name}/series/{id}/seasons/{season}/episodes,
+        but resolves the preferred Sonarr instance
+        automatically from the canonical series.id. 404 when no
+        library carries the series.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: Season number (0 = Specials)
+        in: path
+        name: season
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeasonEpisodeList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Sonarr-side season episodes (global)
+      tags:
+      - series
+  /series/{id}/torrents:
+    get:
+      description: |-
+        Same shape as the per-instance
+        /api/v1/instances/{name}/series/{id}/torrents, but
+        resolves the preferred Sonarr instance automatically
+        from the canonical series.id. 404 when no library
+        carries the series.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesTorrentsResponse'
+          description: OK
+        "304":
+          description: not modified — If-None-Match matched the current ETag
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Per-series torrent inventory (global)
       tags:
       - series
   /series/networks:

@@ -517,6 +517,14 @@ type SeriesCacheRepository interface {
 	// Used by the global composer + regrab handler (story 491 / N-1a) to
 	// resolve the preferred instance for a canonical series.id.
 	GetInstancesBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]domain.InstanceName, error)
+
+	// ListBySeriesID returns every active (non-soft-deleted) cache row
+	// pointing at the canonical series.id. Richer projection than
+	// GetInstancesBySeriesID — surfaces the per-row SonarrSeriesID so
+	// callers (story 491 / N-1a composer; story 492 / N-1b global
+	// series-scoped wrappers) can both pick the preferred instance and
+	// pass the matching per-instance Sonarr id to the inner handlers.
+	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
 }
 
 // MaxDistinctNetworks bounds the distinct-network result so a

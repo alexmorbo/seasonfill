@@ -42,7 +42,7 @@ func NewInstanceCRUDHandler(uc *instance.UseCase, logger *slog.Logger) *Instance
 // @Header      200   {string}  Last-Modified  "RFC1123 of updated_at"
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances/{name} [get]
+// @Router      /admin/instances/{name} [get]
 func (h *InstanceCRUDHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	snap, ts, err := h.uc.Get(c.Request.Context(), name)
@@ -66,7 +66,7 @@ func (h *InstanceCRUDHandler) Get(c *gin.Context) {
 // @Failure     409   {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances [post]
+// @Router      /admin/instances [post]
 func (h *InstanceCRUDHandler) Create(c *gin.Context) {
 	var req dto.InstanceCreateRequest
 	if !middleware.BindAndValidateJSON(c, &req) {
@@ -108,7 +108,7 @@ func (h *InstanceCRUDHandler) Create(c *gin.Context) {
 // @Header      200   {string}  Last-Modified  "RFC1123 of updated_at"
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances/{name} [put]
+// @Router      /admin/instances/{name} [put]
 func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	name := c.Param("name")
 	var req dto.InstanceUpdateRequest
@@ -169,7 +169,7 @@ func (h *InstanceCRUDHandler) writeStaleWrite(c *gin.Context, name string) {
 // @Failure     404   {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances/{name} [delete]
+// @Router      /admin/instances/{name} [delete]
 func (h *InstanceCRUDHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.uc.Delete(c.Request.Context(), name); err != nil {

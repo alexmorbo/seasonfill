@@ -49,6 +49,9 @@ func (f *refreshHandlerFakeCache) ListDistinctNetworks(_ context.Context, _ doma
 func (f *refreshHandlerFakeCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
 	return nil, nil
 }
+func (f *refreshHandlerFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 
 type refreshHandlerFakeSeries struct{ canon seriesrefresh.CanonView }
 

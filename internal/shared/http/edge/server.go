@@ -116,6 +116,26 @@ func NewServer(
 		WithMediaPending(mediaPending)
 	// Story 491 / N-1a — global catalog handler over the per-instance one.
 	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
+	// Story 492 / N-1b — global series-scoped wrappers + global grab
+	// episode-files. Constructed as thin delegates over the per-instance
+	// handlers; nil-OK pattern mirrors the per-instance variants so the
+	// route is omitted (not 5xx-stubbed) when the inner is absent.
+	var (
+		globalCastHandler     *seriesdetailrest.GlobalSeriesCastHandler
+		globalSeasonHandler   *seriesdetailrest.GlobalSeriesSeasonHandler
+		globalTorrentsHandler *seriesdetailrest.GlobalSeriesTorrentsHandler
+	)
+	if seriesCastHandler != nil {
+		globalCastHandler = seriesdetailrest.NewGlobalSeriesCastHandler(seriesCastHandler, seriesCacheRepo, logger)
+	}
+	if seriesSeasonHandler != nil {
+		globalSeasonHandler = seriesdetailrest.NewGlobalSeriesSeasonHandler(seriesSeasonHandler, seriesCacheRepo, logger)
+	}
+	if seriesTorrentsHandler != nil {
+		globalTorrentsHandler = seriesdetailrest.NewGlobalSeriesTorrentsHandler(seriesTorrentsHandler, seriesCacheRepo, logger)
+	}
+	globalSeasonEpisodesHandler := catalogrest.NewGlobalSeasonEpisodesHandler(instancesHandler, seriesCacheRepo, logger)
+	globalGrabEpisodeFilesHandler := grabrest.NewGlobalGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithMediaPending(mediaPending)
@@ -184,42 +204,18 @@ func NewServer(
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
 		guarded.POST("/scan", scanHandler.Trigger)
-		guarded.GET("/instances", instancesHandler.List)
-		guarded.GET("/instances/:name/missing", instancesHandler.Missing)
-		guarded.GET("/instances/:name/series/:id/seasons/:season/episodes", instancesHandler.SeasonEpisodes)
+		// Story 492 / N-1b — per-instance series-scoped routes DELETED.
+		// `/missing` (no replacement; FE drops the consumer), per-
+		// instance counters, the series-cache list / networks facet,
+		// the series-detail document, refresh trigger, season detail,
+		// cast, torrents, and the season-episodes upstream fetch all
+		// move to the global namespace (`/series/...`) or are dropped
+		// entirely. The per-instance handler STRUCTS stay alive —
+		// they're reached via the global wrappers' c.Params splice —
+		// only the route registrations drop. The `/instances` list
+		// endpoint also moves under `/admin/instances` per PRD §4828.
+		// The aggregate `/counters` (global cross-instance) stays.
 		countersHandler := catalogrest.NewCountersHandler(instanceReg, counterRepo, logger)
-		guarded.GET("/instances/:name/counters", countersHandler.ForInstance)
-		guarded.GET("/instances/:name/series-cache", instancesHandler.ListSeriesCache)
-		guarded.GET("/instances/:name/series-cache/networks", instancesHandler.ListSeriesCacheNetworks)
-		guarded.GET("/instances/:name/series", instancesHandler.SearchSeries)
-		// Story 215 (G-1) — composite series-detail document + per-
-		// season subset. The composer reads only from the local entity
-		// tables (no synchronous external fetches); the single live
-		// call is the local Sonarr /queue for the in-flight chip.
-		// Nil-guards mirror the mediaHandler pattern — when the
-		// composer isn't wired (tests / minimal boot) the routes are
-		// omitted, NOT 5xx-stubbed.
-		if seriesDetailHandler != nil {
-			guarded.GET("/instances/:name/series/:id", seriesDetailHandler.Get)
-		}
-		// Story 218 (E-2) — refresh trigger. Nil-OK mirrors the
-		// detail handler pattern (test/minimal-boot omits the route).
-		if seriesRefreshHandler != nil {
-			guarded.POST("/instances/:name/series/:id/refresh", seriesRefreshHandler.Refresh)
-		}
-		if seriesSeasonHandler != nil {
-			guarded.GET("/instances/:name/series/:id/season/:n", seriesSeasonHandler.Get)
-		}
-		// Story 216 (H-1) — full cast & crew page. Nil-OK mirrors the
-		// series detail handler pattern.
-		if seriesCastHandler != nil {
-			guarded.GET("/instances/:name/series/:id/cast", seriesCastHandler.Get)
-		}
-		// Story 222 (A-4) — per-series torrents endpoint. Nil-OK
-		// mirrors the cast handler pattern.
-		if seriesTorrentsHandler != nil {
-			guarded.GET("/instances/:name/series/:id/torrents", seriesTorrentsHandler.Get)
-		}
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
@@ -237,6 +233,18 @@ func NewServer(
 			guarded.GET("/series/:id", globalSeriesHandler.Get)
 			guarded.POST("/series/:id/regrab", globalSeriesHandler.Regrab)
 		}
+		// Story 492 / N-1b — global series-scoped surfaces.
+		if globalCastHandler != nil {
+			guarded.GET("/series/:id/cast", globalCastHandler.Get)
+		}
+		if globalSeasonHandler != nil {
+			guarded.GET("/series/:id/season/:n", globalSeasonHandler.Get)
+		}
+		guarded.GET("/series/:id/seasons/:season/episodes", globalSeasonEpisodesHandler.Get)
+		if globalTorrentsHandler != nil {
+			guarded.GET("/series/:id/torrents", globalTorrentsHandler.Get)
+		}
+		guarded.GET("/grabs/:id/episode-files", globalGrabEpisodeFilesHandler.List)
 		// F-1 (Story 214): content-addressed media proxy. Serves the
 		// canonical TMDB image variants pre-warmed by the series
 		// enrichment worker. mediaHandler is nil-OK — when wiring is
@@ -256,11 +264,15 @@ func NewServer(
 		guarded.POST("/instances/:name/webhook/install", reconcileContextMiddleware(), webhookInstallHandler.Install)
 		webhookStatusHandler := catalogrest.NewWebhookStatusHandler(webhookReconciler, logger)
 		guarded.GET("/instances/:name/webhook/status", reconcileContextMiddleware(), webhookStatusHandler.Status)
-		guarded.GET("/instances/:name", instanceCRUD.Get)
-		guarded.POST("/instances", reconcileContextMiddleware(), instanceCRUD.Create)
-		guarded.PUT("/instances/:name", reconcileContextMiddleware(), instanceCRUD.Update)
-		guarded.DELETE("/instances/:name", reconcileContextMiddleware(), instanceCRUD.Delete)
-		guarded.POST("/instances/test",
+		// Story 492 / N-1b — admin instance management moves under
+		// `/admin/instances/...`. Atomic flip (no co-registration) — the
+		// FE story 493 swaps every call site in the same PR.
+		guarded.GET("/admin/instances", instancesHandler.List)
+		guarded.GET("/admin/instances/:name", instanceCRUD.Get)
+		guarded.POST("/admin/instances", reconcileContextMiddleware(), instanceCRUD.Create)
+		guarded.PUT("/admin/instances/:name", reconcileContextMiddleware(), instanceCRUD.Update)
+		guarded.DELETE("/admin/instances/:name", reconcileContextMiddleware(), instanceCRUD.Delete)
+		guarded.POST("/admin/instances/test",
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
 		)
@@ -289,8 +301,12 @@ func NewServer(
 		guarded.GET("/decisions/:id", auditHandler.GetDecision)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
 		guarded.GET("/counters", countersHandler.Aggregate)
-		grabEpisodeFilesHandler := grabrest.NewGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
-		guarded.GET("/instances/:name/grabs/:id/episode-files", grabEpisodeFilesHandler.List)
+		// Story 492 / N-1b — per-instance grab episode-files moved to
+		// the global namespace (`/grabs/:id/episode-files`); see route
+		// registration in the N-1b block above. The per-instance
+		// handler struct stays in `internal/grab/rest/grab_episode_files.go`
+		// for its own test coverage but is no longer reached via any
+		// HTTP route.
 		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
 		rescanHandler := watchdogrest.NewRescanHandler(rescanUC, logger)
 		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)

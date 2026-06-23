@@ -422,8 +422,9 @@ func TestServer_LoginFlow_EndToEnd(t *testing.T) {
 	const adminKey = "admin-secret"
 	handler, sc, _ := doLogin(t, adminKey)
 	// Cookie alone authenticates admin routes (no X-Api-Key).
+	// Story 492 / N-1b — instance list moved under /admin/instances.
 	getReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
-		"/api/v1/instances", nil)
+		"/api/v1/admin/instances", nil)
 	getReq.AddCookie(sc)
 	getW := httptest.NewRecorder()
 	handler.ServeHTTP(getW, getReq)
@@ -463,8 +464,9 @@ func TestServer_HeaderAuthBackwardCompat(t *testing.T) {
 	const adminKey = "admin-secret"
 	srv := buildServerWithAuth(t, adminKey)
 	// CLI / automation contract: X-Api-Key header alone authenticates.
+	// Story 492 / N-1b — instance list moved under /admin/instances.
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
-		"/api/v1/instances", nil)
+		"/api/v1/admin/instances", nil)
 	req.Header.Set("X-Api-Key", adminKey)
 	w := httptest.NewRecorder()
 	srv.server.Handler.ServeHTTP(w, req)
@@ -590,5 +592,110 @@ func TestServer_StartShutdown_Cycle(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Start did not return after Shutdown")
+	}
+}
+
+// TestNewServer_LegacyRoutesReturn404 — Story 492 / N-1b. Verifies the
+// per-instance series-scoped surfaces and the per-instance instance
+// CRUD/list endpoints are GONE — every legacy path returns 404. The
+// webhook receiver `/webhook/sonarr/:instance_name` MUST stay alive
+// (PRD §4825 — Sonarr-facing endpoint unchanged).
+func TestNewServer_LegacyRoutesReturn404(t *testing.T) {
+	t.Parallel()
+	const adminKey = "admin-secret"
+	srv := buildServerWithAuth(t, adminKey)
+	handler := srv.server.Handler
+
+	legacyGETPaths := []string{
+		"/api/v1/instances",
+		"/api/v1/instances/main",
+		"/api/v1/instances/main/missing",
+		"/api/v1/instances/main/counters",
+		"/api/v1/instances/main/series-cache",
+		"/api/v1/instances/main/series-cache/networks",
+		"/api/v1/instances/main/series",
+		"/api/v1/instances/main/series/140",
+		"/api/v1/instances/main/series/140/season/1",
+		"/api/v1/instances/main/series/140/cast",
+		"/api/v1/instances/main/series/140/torrents",
+		"/api/v1/instances/main/series/140/seasons/1/episodes",
+		"/api/v1/instances/main/grabs/" + uuid.New().String() + "/episode-files",
+	}
+	for _, path := range legacyGETPaths {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.Header.Set("X-Api-Key", adminKey)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		assert.Equalf(t, http.StatusNotFound, w.Code, "legacy GET %s must be 404 after N-1b delete", path)
+	}
+
+	// The per-instance series/:id/refresh POST is also gone (replaced
+	// by the global /series/:id/regrab in 491).
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/instances/main/series/140/refresh", nil)
+	req.Header.Set("X-Api-Key", adminKey)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code, "legacy POST /series/:id/refresh must be 404")
+
+	// Webhook receiver MUST stay alive — Sonarr posts to it (PRD §4825).
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/webhook/sonarr/main", bytes.NewReader([]byte(`{"eventType":"Test"}`)))
+	req.Header.Set("X-Api-Key", adminKey)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	assert.NotEqualf(t, http.StatusNotFound, w.Code,
+		"webhook receiver must stay registered (got %d %s)", w.Code, w.Body.String())
+}
+
+// TestNewServer_AdminInstancesRouteRegistered — Story 492 / N-1b.
+// Verifies the renamed admin instance surface answers (NOT 404).
+func TestNewServer_AdminInstancesRouteRegistered(t *testing.T) {
+	t.Parallel()
+	const adminKey = "admin-secret"
+	srv := buildServerWithAuth(t, adminKey)
+	handler := srv.server.Handler
+
+	for _, path := range []string{
+		"/api/v1/admin/instances",
+		"/api/v1/admin/instances/main",
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.Header.Set("X-Api-Key", adminKey)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		assert.NotEqualf(t, http.StatusNotFound, w.Code,
+			"admin path %s must be registered (got %d)", path, w.Code)
+	}
+}
+
+// TestNewServer_GlobalSeriesScopedRoutesRegistered — Story 492 / N-1b.
+// Verifies the new global routes that are unconditionally registered
+// (season-episodes + grab episode-files) hit a wrapper handler, NOT
+// gin's default 404 page. The cast / season / torrents wrappers use
+// the same nil-OK pattern as their inner per-instance handlers — they
+// register only when the inner is wired, and the buildServerWithAuth
+// rig passes nil for the inners. Those routes are NOT asserted here
+// (covered by the live-curl smoke step in the story's Verify plan).
+func TestNewServer_GlobalSeriesScopedRoutesRegistered(t *testing.T) {
+	t.Parallel()
+	const adminKey = "admin-secret"
+	srv := buildServerWithAuth(t, adminKey)
+	handler := srv.server.Handler
+
+	for _, path := range []string{
+		"/api/v1/series/140/seasons/1/episodes",
+		"/api/v1/grabs/" + uuid.New().String() + "/episode-files",
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.Header.Set("X-Api-Key", adminKey)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		// A registered wrapper handler always emits a JSON envelope —
+		// gin's default plain-text 404 body MUST NOT appear.
+		assert.NotContainsf(t, w.Body.String(), "404 page not found",
+			"global path %s must hit a wrapper handler (gin default 404 body observed)", path)
+		assert.NotEqualf(t, http.StatusNotFound, w.Code,
+			"global path %s must be registered (route-level 404 means not registered)", path)
 	}
 }

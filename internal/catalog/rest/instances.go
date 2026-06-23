@@ -110,7 +110,7 @@ func (h *InstancesHandler) WithMediaPrewarmer(p adminrest.CatalogMediaPrewarmer)
 // @Failure     401  {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /instances [get]
+// @Router      /admin/instances [get]
 func (h *InstancesHandler) List(c *gin.Context) {
 	snap := h.checker.Snapshot()
 	instMap := h.reg.snapshot()

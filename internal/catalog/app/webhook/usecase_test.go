@@ -259,6 +259,9 @@ func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.Insta
 func (f *fakeSeriesCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
 	return nil, nil
 }
+func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
 
