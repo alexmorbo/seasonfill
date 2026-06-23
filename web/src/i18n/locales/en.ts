@@ -260,6 +260,41 @@ export const en = {
       step3: { title: 'Run the first scan', body: "We'll find series with gaps and grab the missing episodes." },
       cta: { addInstance: 'Add instance', help: 'How it works' },
     },
+    onboarding: {
+      optional: 'optional',
+      status: {
+        done: 'done',
+        in_progress: 'in progress',
+        todo: 'not configured',
+        error: 'needs attention',
+      },
+      step_sonarr: {
+        title: 'Connect Sonarr',
+        body: "URL + API key — we'll verify connectivity right away.",
+      },
+      step_webhook: {
+        title: 'Install webhook',
+        body: 'Seasonfill registers itself in Sonarr Connect automatically.',
+      },
+      step_tmdb: {
+        title: 'Add TMDB key',
+        body: 'Required for posters, ratings, and the cast carousel.',
+      },
+      step_omdb: {
+        title: 'Add OMDb key',
+        body: 'Optional — adds IMDb ratings to the Hero.',
+      },
+      step_scan: {
+        title: 'Run the first scan',
+        body: "We'll find series with gaps and grab the missing episodes.",
+      },
+    },
+    tmdb_disabled_banner: {
+      title: 'TMDB not connected',
+      body: "Without a TMDB key, posters, ratings, and cast won't load. Configure the key to get full series data.",
+      cta: 'Configure →',
+      dismiss: 'Dismiss',
+    },
     poster: {
       episodes: {
         range: 'S{{season}} · E{{first}}–{{last}}',

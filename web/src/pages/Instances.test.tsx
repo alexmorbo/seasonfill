@@ -86,4 +86,14 @@ describe('<Instances />', () => {
       expect(getTitle()).toBe(i18n.t('instances.title'));
     });
   });
+
+  it('Story 494 / B-13: opens InstanceFormDialog in create mode when ?add=1 in URL', async () => {
+    renderWithProviders(wrap(<Instances />), { route: '/instances?add=1' });
+    // Dialog mounts and focus lands on the name input ("Имя"/"Name").
+    const nameInput = await screen.findByLabelText(/имя|name/i);
+    expect(nameInput).toBeInTheDocument();
+    await waitFor(() => {
+      expect(nameInput).toHaveFocus();
+    });
+  });
 });

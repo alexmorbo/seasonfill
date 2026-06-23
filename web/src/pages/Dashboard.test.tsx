@@ -12,11 +12,24 @@ vi.mock('@/lib/api/watchdogRollups', async () => {
   const a = await vi.importActual<typeof import('@/lib/api/watchdogRollups')>('@/lib/api/watchdogRollups');
   return { ...a, useWatchdogRollups: vi.fn() };
 });
+vi.mock('@/components/dashboard/useStepperState', () => ({
+  useStepperState: vi.fn(),
+}));
 import { useWebhookStatusAggregate } from '@/lib/api/webhookStatus';
 import { useWatchdogRollups } from '@/lib/api/watchdogRollups';
+import { useStepperState } from '@/components/dashboard/useStepperState';
 
 const useWh = vi.mocked(useWebhookStatusAggregate);
 const useRoll = vi.mocked(useWatchdogRollups);
+const useStepper = vi.mocked(useStepperState);
+// Story 494: by default tests run with onboarding complete so the normal
+// Dashboard layout renders. The first-run-state + onboarding-shell tests
+// override this to `allRequiredDone: false`.
+const allDone = () => ({
+  steps: [],
+  allRequiredDone: true,
+  isLoading: false,
+});
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const okR = <T,>(d: T) => ({ data: d, isPending: false, isError: false } as any);
 
@@ -76,7 +89,11 @@ beforeEach(() => {
   });
   useWh.mockReset();
   useRoll.mockReset();
+  useStepper.mockReset();
   vi.clearAllMocks();
+  // Default: onboarding complete → normal Dashboard layout renders. Tests
+  // for first-run / onboarding shell override this.
+  useStepper.mockReturnValue(allDone());
 });
 
 afterEach(() => {
@@ -91,6 +108,7 @@ describe('<Dashboard />', () => {
     }) as typeof fetch;
     useWh.mockReturnValue(okR({ items: [], healthy_count: 0, unhealthy_count: 0 }));
     useRoll.mockReturnValue(okR({ items: [] }));
+    useStepper.mockReturnValue({ steps: [], allRequiredDone: false, isLoading: false });
 
     renderWithProviders(wrap(<Dashboard />), { route: '/' });
     expect(
@@ -100,6 +118,35 @@ describe('<Dashboard />', () => {
     expect(screen.getByTestId('first-run-cta-add')).toBeInTheDocument();
     expect(screen.getByTestId('first-run-cta-help')).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard-rail')).toBeNull();
+  });
+
+  it('Story 494: renders onboarding shell when instances exist but required steps not done', async () => {
+    globalThis.fetch = fetchStub({
+      '/instances': () =>
+        json({ instances: [{ name: 'alpha', mode: 'manual', health: 'Available' }] }),
+      '/series-cache': () => json({ items: [], total: 0, has_more: false }),
+      '/counters': () =>
+        json({
+          items: [
+            {
+              instance_name: 'alpha',
+              window: '24h',
+              totals: { grabs: 0, imports: 0, fails: 0 },
+              avg_grabs_7d: 0,
+            },
+          ],
+        }),
+    }) as typeof fetch;
+    useWh.mockReturnValue(okR({ items: [], healthy_count: 0, unhealthy_count: 0 }));
+    useRoll.mockReturnValue(okR({ items: [] }));
+    useStepper.mockReturnValue({ steps: [], allRequiredDone: false, isLoading: false });
+
+    renderWithProviders(wrap(<Dashboard />), { route: '/' });
+    expect(
+      await screen.findByTestId('dashboard-onboarding-shell'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-first-run')).toBeInTheDocument();
+    expect(screen.queryByTestId('hero-greeting')).toBeNull();
   });
 
   it('renders hero greeting on normal load', async () => {

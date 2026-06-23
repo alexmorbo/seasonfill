@@ -1,11 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function SeriesFirstRunState() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   return (
     <div
       data-testid="series-first-run"
@@ -32,8 +31,9 @@ export function SeriesFirstRunState() {
           {t('series.firstRun.step3')}
         </li>
       </ol>
-      <Button type="button" onClick={() => navigate('/instances')}>
-        {t('series.firstRun.cta')}
+      {/* Story 494 (B-13): bookmarkable deep-link opens InstanceFormDialog. */}
+      <Button asChild>
+        <Link to="/instances?add=1">{t('series.firstRun.cta')}</Link>
       </Button>
     </div>
   );

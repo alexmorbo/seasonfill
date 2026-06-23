@@ -61,8 +61,13 @@ export function Instances() {
   );
   const { hero, rest } = useMemo(() => pickHero(instances, filter), [instances, filter]);
 
+  // Story 494 (B-13): `?add=1` deep-link from Dashboard CTA opens
+  // InstanceFormDialog in create mode on initial render. The legacy
+  // `?edit=<name>` deep-link still opens it in edit mode. The query
+  // params are stripped via `onOpenChange` below when the dialog closes
+  // — same pattern as `?edit`, no setState-in-effect.
   const [dialogOpen, setDialogOpen] = useState(
-    () => searchParams.get('edit') !== null,
+    () => searchParams.get('edit') !== null || searchParams.has('add'),
   );
   const [editing, setEditing] = useState<string | null>(
     () => searchParams.get('edit'),
@@ -159,9 +164,13 @@ export function Instances() {
           setDialogOpen(v);
           if (!v) {
             setEditing(null);
-            if (searchParams.has('edit')) {
+            // Story 494 (B-13): strip both `edit=<name>` and `add=1` deep-
+            // link query params so the URL is bookmarkable but the dialog
+            // does not re-open on subsequent renders or page reloads.
+            if (searchParams.has('edit') || searchParams.has('add')) {
               const next = new URLSearchParams(searchParams);
               next.delete('edit');
+              next.delete('add');
               setSearchParams(next, { replace: true });
             }
           }

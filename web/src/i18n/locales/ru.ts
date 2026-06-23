@@ -262,6 +262,41 @@ export const ru: Translations = {
       step3: { title: 'Запустить первый скан', body: 'Найдём сериалы с пропусками и до-качаем.' },
       cta: { addInstance: 'Добавить инстанс', help: 'Как это работает' },
     },
+    onboarding: {
+      optional: 'опционально',
+      status: {
+        done: 'выполнено',
+        in_progress: 'в работе',
+        todo: 'не настроено',
+        error: 'требует внимания',
+      },
+      step_sonarr: {
+        title: 'Подключить Sonarr',
+        body: 'URL + API-ключ. Seasonfill проверит связь сразу.',
+      },
+      step_webhook: {
+        title: 'Установить webhook',
+        body: 'Seasonfill пропишет себя в Sonarr Connect автоматически.',
+      },
+      step_tmdb: {
+        title: 'Добавить TMDB ключ',
+        body: 'Нужен для постеров, рейтингов и cast карусели.',
+      },
+      step_omdb: {
+        title: 'Добавить OMDb ключ',
+        body: 'Опционально — добавляет IMDb рейтинги в Hero.',
+      },
+      step_scan: {
+        title: 'Запустить первый скан',
+        body: 'Найдём сериалы с пропусками и до-качаем.',
+      },
+    },
+    tmdb_disabled_banner: {
+      title: 'TMDB не подключён',
+      body: 'Без TMDB ключа постеры, рейтинги и cast не загружаются. Настройте ключ, чтобы получить полные данные о сериалах.',
+      cta: 'Настроить →',
+      dismiss: 'Скрыть',
+    },
     poster: {
       episodes: {
         range: 'S{{season}} · E{{first}}–{{last}}',

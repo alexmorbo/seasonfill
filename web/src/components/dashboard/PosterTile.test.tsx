@@ -69,6 +69,16 @@ describe('<PosterTile />', () => {
     expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
   });
 
+  it('Story 494 / B-16b: renders MonogramFallback when poster_hash is omitted (TMDB-disabled fallback)', () => {
+    // B-16b contract: when TMDB is not configured, series_cache.poster_hash
+    // is NULL on cold-DB rows. PosterTile must NOT render a broken image —
+    // it must render the brand monogram fallback.
+    const { poster_hash: _ph, ...rest } = fixture;
+    renderTile(rest as SeriesCacheItem);
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+    expect(screen.queryByTestId('media-image-img')).toBeNull();
+  });
+
   it('does not emit legacy /api/v1/instances/.../poster URL', () => {
     renderTile(fixture);
     const imgs = document.querySelectorAll('img');
