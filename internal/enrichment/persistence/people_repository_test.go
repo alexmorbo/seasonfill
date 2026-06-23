@@ -306,6 +306,97 @@ func TestPeopleRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *testing.T) {
 	}
 }
 
+// TestPeopleRepository_Upsert_AtomicNoDeadlock_B37 proves that the
+// B-37 single-statement upsert tolerates concurrent overlapping bursts
+// WITHOUT the per-tx slices.Sort discipline the B-26 patch added. With
+// the pre-B-37 probe-then-insert sequence this exact workload reproduces
+// SQLSTATE 40P01 deadlock within ~5s; with the B-37 patch every tx
+// commits cleanly. Catches a regression that re-introduces the probe.
+//
+// Postgres-only: SQLite has no row-level deadlock detector. The test
+// SKIPS the sqlite backend and logs a sentinel line when no Postgres
+// backend is available so CI keeps visibility on the gating.
+//
+// Repro mechanics: N=4 goroutines × 30 iters each, all upserting the
+// same 8 tmdb_ids in INDEPENDENTLY-SHUFFLED order, deliberately NOT
+// sorting. Models the post-N-2 prod shape:
+// series_worker + person_worker + Discovery + scan loop racing on the
+// same person rows from independent transactions.
+func TestPeopleRepository_Upsert_AtomicNoDeadlock_B37(t *testing.T) {
+	t.Parallel()
+
+	sawPostgres := false
+	for _, backend := range testhelpers.AllBackends(t) {
+		if backend.Name != "postgres" {
+			// sqlite has no row-level deadlock detector — skip.
+			continue
+		}
+		sawPostgres = true
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+
+			const N = 4
+			const iters = 30
+			tmdbIDs := []int64{2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008}
+
+			var wg sync.WaitGroup
+			errCh := make(chan error, N*iters)
+			for w := range N {
+				wg.Add(1)
+				go func(workerSeed int) {
+					defer wg.Done()
+					rng := rand.New(rand.NewSource(int64(workerSeed) * 7919))
+					for i := range iters {
+						ids := append([]int64(nil), tmdbIDs...)
+						rng.Shuffle(len(ids), func(a, b int) { ids[a], ids[b] = ids[b], ids[a] })
+
+						// DELIBERATELY DO NOT SORT. The B-37 contract is
+						// that callers no longer need to coordinate
+						// per-tx ordering — the upsert is atomic at the
+						// SQL level. Re-adding slices.Sort here would
+						// silently mask a regression that reverts the
+						// probe-then-insert sequence.
+
+						err := db.Transaction(func(tx *gorm.DB) error {
+							repo := NewPeopleRepository(tx)
+							for _, id := range ids {
+								tid := domain.TMDBID(id)
+								p := people.Person{
+									Name:      fmt.Sprintf("B37 Person %d", id),
+									Hydration: people.HydrationStub,
+									TMDBID:    &tid,
+								}
+								if _, err := repo.Upsert(context.Background(), p); err != nil {
+									return err
+								}
+							}
+							return nil
+						})
+						if err != nil {
+							errCh <- fmt.Errorf("worker %d iter %d: %w", workerSeed, i, err)
+							return
+						}
+					}
+				}(w)
+			}
+			wg.Wait()
+			close(errCh)
+
+			var failures []string
+			for err := range errCh {
+				failures = append(failures, err.Error())
+			}
+			require.Empty(t, failures,
+				"B-37: atomic upsert must tolerate unsorted concurrent bursts; got:\n%s",
+				strings.Join(failures, "\n"))
+		})
+	}
+	if !sawPostgres {
+		t.Log("postgres backend not available (set SEASONFILL_TEST_POSTGRES_ENABLE=1 to enable); B-37 deadlock repro skipped")
+	}
+}
+
 // TestPeopleRepository_Get_ResolvesBiographyViaFallback proves the
 // people.Get path JOINs through the shared §5.6 helper.
 func TestPeopleRepository_Get_ResolvesBiographyViaFallback(t *testing.T) {

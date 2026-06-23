@@ -124,6 +124,14 @@ func (r *PeopleRepository) ListByIDs(ctx context.Context, ids []int64) ([]people
 //
 // Rule (3) keeps the row's hydration monotonic on the
 // stub → full axis; non-hydration fields still merge in.
+//
+// Atomicity — B-37. The monotonic-hydration invariant is enforced
+// inside the ON CONFLICT DO UPDATE clause via a CASE expression
+// rather than a Go-level probe-then-insert. Eliminates the
+// SHARE→EXCLUSIVE lock upgrade window that produced cross-tx
+// deadlock (SQLSTATE 40P01) under concurrent
+// series_worker + person_worker + Discovery burst on overlapping
+// tmdb_ids. See peopleConflictAssignments below.
 func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, error) {
 	if p.Name == "" {
 		return 0, fmt.Errorf("upsert person: name must be non-empty")
@@ -142,21 +150,6 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 
-	// Rule (3): preserve full hydration on a stub upsert over an
-	// existing full row.
-	if p.Hydration == people.HydrationStub && p.TMDBID != nil {
-		var existing database.PeopleModel
-		err := db.Select("id, hydration").
-			Where("tmdb_id = ?", *p.TMDBID).
-			First(&existing).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, fmt.Errorf("upsert person: probe existing: %w", err)
-		}
-		if err == nil && existing.Hydration == string(people.HydrationFull) {
-			p.Hydration = people.HydrationFull
-		}
-	}
-
 	m := fromPerson(p)
 	// No PK + no natural key ⇒ pure INSERT, no ON CONFLICT clause.
 	// Previously this branch emitted `clause.OnConflict{DoNothing:
@@ -169,7 +162,7 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 	case m.ID != 0:
 		conflict := clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
-			DoUpdates: clause.AssignmentColumns(peopleUpdateCols()),
+			DoUpdates: clause.Assignments(peopleConflictAssignments()),
 		}
 		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
 			return 0, fmt.Errorf("upsert person: %w", err)
@@ -182,7 +175,7 @@ func (r *PeopleRepository) Upsert(ctx context.Context, p people.Person) (int64, 
 		conflict := clause.OnConflict{
 			Columns:     []clause.Column{{Name: "tmdb_id"}},
 			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
-			DoUpdates:   clause.AssignmentColumns(peopleUpdateCols()),
+			DoUpdates:   clause.Assignments(peopleConflictAssignments()),
 		}
 		if err := db.Clauses(conflict).Create(&m).Error; err != nil {
 			return 0, fmt.Errorf("upsert person: %w", err)
@@ -218,6 +211,33 @@ func peopleUpdateCols() []string {
 		"popularity", "profile_asset",
 		"updated_at",
 	}
+}
+
+// peopleConflictAssignments returns the ON CONFLICT DO UPDATE assignment
+// map for the people table. Every column in peopleUpdateCols() routes
+// to its `EXCLUDED.<col>` source EXCEPT hydration, which uses a CASE
+// expression to enforce monotonicity — a stub upsert MUST NOT downgrade
+// an existing 'full' row.
+//
+// This replaces the pre-B-37 probe-then-insert sequence with a single
+// atomic statement, eliminating the SHARE→EXCLUSIVE lock upgrade
+// window that produced SQLSTATE 40P01 deadlock under concurrent burst
+// load from series_worker + person_worker + Discovery on overlapping
+// tmdb_ids. Both Postgres and SQLite accept uppercase EXCLUDED inside
+// DO UPDATE.
+func peopleConflictAssignments() map[string]any {
+	cols := peopleUpdateCols()
+	out := make(map[string]any, len(cols))
+	for _, c := range cols {
+		if c == "hydration" {
+			out[c] = clause.Expr{
+				SQL: "CASE WHEN people.hydration = 'full' THEN 'full' ELSE EXCLUDED.hydration END",
+			}
+			continue
+		}
+		out[c] = clause.Expr{SQL: "EXCLUDED." + c}
+	}
+	return out
 }
 
 // MarkSynced stamps people.enrichment_synced_at = now for one person row.
