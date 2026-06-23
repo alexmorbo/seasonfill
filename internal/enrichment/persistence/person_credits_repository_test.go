@@ -353,3 +353,58 @@ func TestPersonCreditsRepository_BatchUpsert_DedupesByConflictKey(t *testing.T) 
 		})
 	}
 }
+
+// TestPersonCreditsRepository_BatchUpsert_BatchSize_PostgresProtocolSafe is
+// the N-2 regression guard: PG extended protocol caps query params at
+// 65535. PersonCreditModel binds ~18 columns per row, so a single
+// .Create(rows) round-trip hits the cap around 3640 rows. Rich casts
+// (Rick and Morty fanned across tv_episode aggregation, etc.) regularly
+// blew past that ceiling once the Discovery worker started dispatching
+// enrichment in earnest. Repo now CreateInBatches at 1000 rows/batch —
+// 4000 distinct rows MUST round-trip clean, every row earning a non-zero
+// id, no protocol error.
+//
+// SQLite has no equivalent cap; the SQLite branch still exercises the
+// batching mechanics (multiple sub-INSERTs, ids stay sequential).
+// Postgres branch (opt-in via SEASONFILL_TEST_POSTGRES_ENABLE) actually
+// proves the protocol-limit fix.
+func TestPersonCreditsRepository_BatchUpsert_BatchSize_PostgresProtocolSafe(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Cast Member"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			// 4000 unique rows — comfortably above the 3640-row ceiling
+			// of a single round-trip, so the test fails loudly if
+			// CreateInBatches ever regresses to .Create.
+			const n = 4000
+			credits := make([]database.PersonCreditModel, n)
+			for i := range n {
+				credits[i] = samplePersonCredit(
+					personID,
+					fmt.Sprintf("credit-batch-%05d", i),
+					fmt.Sprintf("Title %05d", i),
+					300000+i,
+				)
+			}
+
+			ids, err := repo.BatchUpsert(ctx, credits)
+			require.NoError(t, err,
+				"batch of %d rows must NOT exceed Postgres' 65535 extended-protocol param cap", n)
+			require.Len(t, ids, n)
+			for i, id := range ids {
+				require.NotZero(t, id, "row %d must earn a non-zero id from RETURNING", i)
+			}
+
+			rows, err := repo.ListByPerson(ctx, personID)
+			require.NoError(t, err)
+			assert.Len(t, rows, n, "every input row must persist as a distinct DB row")
+		})
+	}
+}

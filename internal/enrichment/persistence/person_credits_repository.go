@@ -195,6 +195,13 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 		)
 	}
 
+	// Batch in chunks of 1000 to stay under Postgres' 65535 extended-protocol
+	// parameter cap. PersonCreditModel has ~18 bindable columns, so the
+	// hard ceiling is ~3640 rows/round-trip; 1000 picks a safe margin and
+	// keeps the OnConflict clause + RETURNING id round-tripping per batch.
+	// Producer in prod: Discovery worker's enrichment dispatcher fans
+	// TMDB /person/{id}/tv_credits across rich casts (Rick and Morty et al.)
+	// and easily exceeded the 3640-row ceiling pre-batching (B-19 follow-up).
 	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "person_id"},
@@ -207,7 +214,7 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			"poster_path", "vote_average", "tmdb_votes", "episode_count",
 			"updated_at",
 		}),
-	}).Create(&models).Error
+	}).CreateInBatches(&models, 1000).Error
 	if err != nil {
 		return nil, fmt.Errorf("batch upsert person_credits: %w", err)
 	}
