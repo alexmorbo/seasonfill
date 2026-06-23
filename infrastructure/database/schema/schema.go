@@ -937,18 +937,23 @@ func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlassc
 }
 
 // addSeriesExtras appends the 4 series-extras tables (videos,
-// content_ratings, external_ids, series_recommendations). Called from
-// Schema(d) after addPeople.
+// content_ratings, external_ids, series_recommendations) AND the
+// discovery_lists curated ranking projection. Called from Schema(d)
+// after addPeople.
 //
-// PRD §4.3 / §D-1 line 4390. Sourced from legacy migrations 000029.
+// N-2 (story 502) adds discovery_lists alongside the series-extras
+// batch because it shares the same FK target (series.id CASCADE) and
+// is logically a per-series curated projection — same family as
+// series_recommendations. Co-locating keeps the addX helper count
+// stable; renaming addSeriesExtras to addSeriesProjections would be
+// churn for no gain.
+//
+// PRD §4.3 / §D-1 line 4390 (series-extras); PRD §5.1.1 (discovery_lists).
 //
 // FK direction:
-//   - videos / content_ratings / series_recommendations.{series_id,
-//     recommended_series_id} → series(id) ON DELETE CASCADE (per-series
-//     extensions, dead without parent).
-//   - external_ids has NO FK on entity_id (polymorphic — entity_type
-//     discriminates). This is a deliberate schema choice; do NOT add an
-//     FK by reflex.
+//   - videos / content_ratings / series_recommendations / discovery_lists.{series_id,
+//     recommended_series_id} → series(id) ON DELETE CASCADE.
+//   - external_ids has NO FK on entity_id (polymorphic).
 func addSeriesExtras(s *atlasschema.Schema, d Dialect) {
 	series := mustTable(s, "series")
 	s.AddTables(
@@ -956,6 +961,7 @@ func addSeriesExtras(s *atlasschema.Schema, d Dialect) {
 		buildContentRatingsTable(d, series),
 		buildExternalIDsTable(d), // polymorphic, no FK
 		buildSeriesRecommendationsTable(d, series),
+		buildDiscoveryListsTable(d, series),
 	)
 }
 
@@ -1087,6 +1093,74 @@ func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) 
 				AddColumns(recommendedID).
 				SetRefTable(seriesTable).
 				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildDiscoveryListsTable returns discovery_lists — 6 cols, composite-4
+// PK (kind, param, language, series_id), 2 non-unique indexes, FK
+// series_id → series(id) CASCADE.
+//
+// PRD §5.1.1 / N-2 roadmap line 33-45. Curated Seerr-style ranking
+// projection — DiscoveryWorker (story 506) writes one row per
+// (kind, param, language) tuple per series, position-ordered. Reads
+// come from /discovery/trending|popular|by_genre|by_network|by_keyword
+// handlers (story 507) via the `discovery_lists_lookup_idx`
+// scan-by-(kind,param,language) ordered by position.
+//
+// Columns:
+//
+//	kind          TEXT NOT NULL (PK part 1) — 'trending_day'|'trending_week'|
+//	                              'popular'|'by_genre'|'by_network'|'by_keyword'
+//	param         TEXT NOT NULL DEFAULT '' (PK part 2) — genre/network/keyword id;
+//	                              '' for trending+popular (no parameter)
+//	language      TEXT NOT NULL (PK part 3) — BCP-47, '' = neutral
+//	series_id     BIGINT NOT NULL (PK part 4) FK→series.id CASCADE
+//	position      INTEGER NOT NULL — 1-based rank inside the list
+//	refreshed_at  TIMESTAMPTZ NOT NULL DEFAULT now() — last write of this row
+//
+// Indexes:
+//
+//	discovery_lists_lookup_idx   non-unique (kind, param, language, position)
+//	                              — primary read path: ORDER BY position.
+//	discovery_lists_refresh_idx  non-unique (kind, refreshed_at)
+//	                              — DiscoveryWorker GC sweep / staleness
+//	                              detection ("kind X last refreshed > 6h ago").
+//
+// Why composite PK on the full 4-tuple instead of a surrogate `id`:
+// natural identity of a (list-slot, series) pair is the 4-tuple; a
+// surrogate would add a column that's never referenced and force a
+// UNIQUE index on the same 4 cols. Mirrors content_ratings shape.
+//
+// No standalone index on `series_id` alone — the DELETE-by-series-id
+// CASCADE path goes through the FK which Postgres + SQLite both
+// index implicitly; fan-out "which lists contain series X?" is a
+// rare admin query, not a hot path.
+func buildDiscoveryListsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
+	param := atlasschema.NewStringColumn("param", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "''"})
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	seriesID := fkColumn(d, "series_id", false /* not nullable */)
+	position := atlasschema.NewIntColumn("position", "integer").SetNull(false)
+	refreshedAt := timestampColumn(d, "refreshed_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("discovery_lists").
+		AddColumns(kind, param, language, seriesID, position, refreshedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(kind, param, language, seriesID)).
+		AddIndexes(
+			atlasschema.NewIndex("discovery_lists_lookup_idx").
+				AddColumns(kind, param, language, position),
+			atlasschema.NewIndex("discovery_lists_refresh_idx").
+				AddColumns(kind, refreshedAt),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("discovery_lists_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)

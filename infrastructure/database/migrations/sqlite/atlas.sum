@@ -1,4 +1,4 @@
-h1:iFU1pyz7nP3bWSpS/R63S+Gbbgufg3U6FgA90VFoQgQ=
+h1:vF+8Q4xckybFfSlaBJ4SxCs0UIJJHu/PGfw5wpSIFf0=
 000001_core_series.down.sql h1:g/jAztVO3BHc0O0tkKdmg68Q0lZZlgzecVvBegBQlBE=
 000001_core_series.up.sql h1:MmXX1qaneSHNwJbnxUh0lI51h1t2Ijg2A5r4P8hMxQ8=
 000002_i18n_texts.down.sql h1:XeUg6hO9QcWnT/EE/pvGZKTYq2uESNtlTw5o8c3zPwA=
@@ -39,3 +39,5 @@ h1:iFU1pyz7nP3bWSpS/R63S+Gbbgufg3U6FgA90VFoQgQ=
 000019_media_assets.up.sql h1:VnQdLU22HdUWeBryDX8yOT15gRlNRWIoRTuoqptauMQ=
 000020_instance_bootstrapping_default.down.sql h1:XuV1KT5MVUridQ/ofsZVSBgPcGZXHBBSvr+tk+oSPZc=
 000020_instance_bootstrapping_default.up.sql h1:yarFegPN96JyAnLOhgb+Gby5MDxt1A6gRj8ujIU504U=
+000021_discovery_lists.down.sql h1:UDJYwgQ6IQ6ieqG1CHDTSH+SMObOlis5tyFo8Gh9KIY=
+000021_discovery_lists.up.sql h1:Fw/a7ZPraRv6PL21z2cPES1qkrBa8kkJlAcCrU7hS8I=
