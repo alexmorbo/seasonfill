@@ -29,42 +29,7 @@ func NewSeriesCastHandler(composer *seriesdetail.CastComposer, logger *slog.Logg
 	return &SeriesCastHandler{composer: composer, logger: logger}
 }
 
-// Get handles GET /api/v1/instances/:name/series/:id/cast.
-//
-// @Summary     Full series cast & crew
-// @Description Returns the complete cast and crew for one series —
-// @Description cast sorted by TMDB billing order, crew grouped by
-// @Description department then person name. Each row carries the
-// @Description per-person `episode_count` (from TMDB
-// @Description aggregate_credits[*].total_episode_count) and an
-// @Description `in_library` flag derived from local
-// @Description `person_credits` intersected with active
-// @Description `series_cache` rows (excluding the current series so
-// @Description the "what else are they in?" affordance never
-// @Description renders a self-link).
-// @Description
-// @Description `total_episode_count` is the series-level divisor
-// @Description the frontend uses to derive Main / Recurring /
-// @Description Guest badges from `episode_count /
-// @Description total_episode_count` (design-handoff Q3).
-// @Description
-// @Description `series_summary` carries the lightweight title +
-// @Description poster + status + year-range block the cast page
-// @Description hero renders — keeps the page to a single API call
-// @Description (story 303).
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true   "Instance name"
-// @Param       id    path      int     true   "Sonarr series id (per-instance)"
-// @Param       lang  query     string  false  "BCP-47 language tag (default en-US, reserved for H-2 parity — cast list has no per-language fields in v1)"
-// @Success     200   {object}  dto.SeriesCastResponse
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     500   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id}/cast [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesCastHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")

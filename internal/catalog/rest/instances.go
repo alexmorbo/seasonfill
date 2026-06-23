@@ -121,23 +121,7 @@ func (h *InstancesHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
 }
 
-// Missing returns monitored series with aired episodes that have no
-// file on disk, derived lazily from Sonarr's `series.statistics`.
-// Works for both auto- and manual-mode instances (Q-010-4).
-//
-// @Summary     List missing-aired series for an instance
-// @Description Monitored series whose aired episode count exceeds
-// @Description the on-disk file count, with per-season breakdown.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true  "Instance name"
-// @Success     200   {object}  dto.MissingSeriesList
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     502   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/missing [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *InstancesHandler) Missing(c *gin.Context) {
 	name := c.Param("name")
 	inst, ok := h.reg.snapshot()[name]
@@ -421,33 +405,7 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 	}
 }
 
-// SearchSeries returns matching monitored series for an instance,
-// powering 013b's autocomplete picker. q is case-insensitive substring
-// match on title; monitored filters server-side; limit clamps result
-// length. Total reflects the count BEFORE limit so the UI can render
-// "showing N of M". No cursor — autocomplete UX narrows by typing
-// (Q-013a-1). No server-side cache (Q-013a-2).
-//
-// @Summary     Search series in a Sonarr instance
-// @Description Title-substring search with monitored filter. Returns
-// @Description a trimmed picker-specific DTO (series_id, title,
-// @Description monitored, season_count, missing_aired_count). `total`
-// @Description is the pre-limit count; clients narrow by typing more
-// @Description rather than paginating.
-// @Tags        instances
-// @Produce     json
-// @Param       name       path      string  true   "Instance name"
-// @Param       q          query     string  false  "Title substring (case-insensitive)"
-// @Param       monitored  query     string  false  "true | false | any (default any)"  Enums(true, false, any)
-// @Param       limit      query     int     false  "1..100 (default 30)"
-// @Success     200  {object}  dto.SeriesSearchList
-// @Failure     400  {object}  dto.ErrorResponse
-// @Failure     401  {object}  dto.ErrorResponse
-// @Failure     404  {object}  dto.ErrorResponse
-// @Failure     502  {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	name := c.Param("name")
 	inst, ok := h.reg.snapshot()[name]
@@ -510,30 +468,7 @@ func (h *InstancesHandler) SearchSeries(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.SeriesSearchList{Items: items, Total: total})
 }
 
-// SeasonEpisodes returns the per-episode have/miss list for one
-// season of one series. Powers the queue drill (F5 054c). The
-// season-aggregate count from /missing remains the source of truth
-// for the queue list; this endpoint just expands ONE season on
-// demand when the operator opens its drill.
-//
-// @Summary     List episodes of one season with on-disk state
-// @Description Per-episode `have`/`miss` state for the queue drill.
-// @Description `have` = files on disk; `miss` = monitored + aired
-// @Description + no file (matches the season-chip count from
-// @Description /instances/:name/missing).
-// @Tags        instances
-// @Produce     json
-// @Param       name    path   string  true  "Instance name"
-// @Param       id      path   int     true  "Sonarr series ID"
-// @Param       season  path   int     true  "Season number (0 = specials)"
-// @Success     200     {object}  dto.SeasonEpisodeList
-// @Failure     400     {object}  dto.ErrorResponse
-// @Failure     401     {object}  dto.ErrorResponse
-// @Failure     404     {object}  dto.ErrorResponse
-// @Failure     502     {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id}/seasons/{season}/episodes [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 	name := c.Param("name")
 	inst, ok := h.reg.snapshot()[name]
@@ -675,37 +610,7 @@ const (
 	seriesCacheMaxNetworkNameLen = 128
 )
 
-// ListSeriesCache returns the per-instance cached series list with
-// filter (state, q), sort, and keyset pagination. Powers F1 dashboard
-// poster tiles, F5 queue, and F11 series page.
-//
-// @Summary     List cached series for an instance
-// @Description Returns the persisted series_cache rows for an instance,
-// @Description filtered by state (all | imported | missing) and an
-// @Description optional case-insensitive substring `q` over title /
-// @Description title_slug, sorted (updated_desc | title_asc |
-// @Description air_date_desc), keyset-paginated. Enriched with
-// @Description last_grab_at + last_imported_episode aggregated from
-// @Description grab_records.
-// @Tags        instances
-// @Produce     json
-// @Param       name    path   string  true   "Instance name"
-// @Param       state   query  string  false  "all | imported | missing (default all)" Enums(all,imported,missing)
-// @Param       status  query  string  false  "deprecated alias for state"
-// @Param       q       query  string  false  "Case-insensitive substring over title / title_slug"
-// @Param       sort    query  string  false  "updated_desc | title_asc | air_date_desc (default updated_desc)" Enums(updated_desc,title_asc,air_date_desc)
-// @Param       limit   query  int     false  "1..100 (default 24)"
-// @Param       cursor  query  string  false  "Opaque next_cursor from prior page"
-// @Param       monitored  query  string  false  "1 = monitored only, 0 = unmonitored only" Enums(1,0,true,false)
-// @Param       networks   query  string  false  "Pipe-separated broadcast network names (e.g. HBO|Netflix). Max 32."
-// @Success     200  {object}  dto.SeriesCacheList
-// @Failure     400  {object}  dto.ErrorResponse
-// @Failure     401  {object}  dto.ErrorResponse
-// @Failure     404  {object}  dto.ErrorResponse
-// @Failure     500  {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series-cache [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 	name := c.Param("name")
 	if _, ok := h.reg.snapshot()[name]; !ok {
@@ -964,28 +869,7 @@ func parseSeriesCacheNetworks(raw string) ([]string, error) {
 	return out, nil
 }
 
-// ListSeriesCacheNetworks returns the distinct broadcast network
-// strings present in the instance's active series_cache rows. Powers
-// the /series networks facet panel. Story 121a §A: the panel
-// previously read networks from the loaded pages, which meant rows
-// past page 1 were missing from the dropdown.
-//
-// @Summary     List distinct networks for an instance's series cache
-// @Description Returns the alphabetically-sorted, distinct set of
-// @Description broadcast network strings for an instance's active
-// @Description series_cache rows. Used by the /series facet panel to
-// @Description render every available checkbox regardless of which
-// @Description page of the paginated series list is loaded.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path  string  true  "Instance name"
-// @Success     200  {object}  dto.SeriesCacheNetworksList
-// @Failure     401  {object}  dto.ErrorResponse
-// @Failure     404  {object}  dto.ErrorResponse
-// @Failure     500  {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series-cache/networks [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *InstancesHandler) ListSeriesCacheNetworks(c *gin.Context) {
 	name := c.Param("name")
 	if _, ok := h.reg.snapshot()[name]; !ok {

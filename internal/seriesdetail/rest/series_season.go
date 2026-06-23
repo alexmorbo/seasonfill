@@ -29,28 +29,7 @@ func NewSeriesSeasonHandler(composer *seriesdetail.Composer, logger *slog.Logger
 	return &SeriesSeasonHandler{composer: composer, logger: logger}
 }
 
-// Get handles GET /api/v1/instances/:name/series/:id/season/:n.
-//
-// @Summary     Series season detail (single-season subset)
-// @Description Returns the seasons-accordion subset of the composite
-// @Description read for one season. Cheaper than the full series detail
-// @Description endpoint — exists for the SPA's polling path when a
-// @Description specific season is expanded and needs fresher per-instance
-// @Description state without re-fetching the whole series document.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true   "Instance name"
-// @Param       id    path      int     true   "Sonarr series id"
-// @Param       n     path      int     true   "Season number (0 = Specials)"
-// @Param       lang  query     string  false  "BCP-47 language tag (default en-US)"
-// @Success     200   {object}  dto.SeasonDetailResponse
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     500   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id}/season/{n} [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesSeasonHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")

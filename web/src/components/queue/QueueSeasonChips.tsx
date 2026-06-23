@@ -5,9 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type { components } from '@/api/schema';
-
-type SeasonEpisodePresence = components['schemas']['dto.SeasonEpisodePresence'];
+import type { SeasonEpisodePresence } from '@/lib/missing';
 
 export interface QueueSeasonChipsProps {
   readonly seasonNumber: number;

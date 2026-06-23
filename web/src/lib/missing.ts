@@ -1,16 +1,45 @@
 import { useMemo } from 'react';
 import { type UseQueryResult } from '@tanstack/react-query';
 import { ApiError } from './api';
-import type { components } from '@/api/schema';
 import {
   useSeriesCacheInfinite,
   flattenSeriesCachePages,
   type SeriesCacheItem,
 } from './api/seriesCache';
 
-export type MissingSeries = components['schemas']['dto.MissingSeries'];
-export type MissingSeasonStat = components['schemas']['dto.MissingSeasonStat'];
-export type MissingSeriesList = components['schemas']['dto.MissingSeriesList'];
+// FE-local shapes for the synthesized queue payload. Mirrors the
+// deleted BE per-instance dto.Missing* wire types; kept here because
+// useMissing now projects the global series-cache feed into the
+// legacy shape so QueueRow / lib/missing-sort can stay unchanged.
+// Tracked for cleanup with the 493 lossy-projection follow-up.
+export interface SeasonEpisodePresence {
+  readonly number?: number;
+  readonly present?: boolean;
+  readonly title?: string;
+}
+
+export interface MissingSeasonStat {
+  readonly season_number?: number;
+  readonly missing_aired_count?: number;
+  readonly aired_episode_count?: number;
+  readonly episodes?: readonly SeasonEpisodePresence[];
+}
+
+export interface MissingSeries {
+  readonly series_id?: number;
+  readonly title?: string;
+  readonly title_slug?: string;
+  readonly monitored?: boolean;
+  readonly total_missing_aired?: number;
+  readonly seasons?: readonly MissingSeasonStat[];
+  readonly year?: number;
+  readonly poster_hash?: string;
+}
+
+export interface MissingSeriesList {
+  readonly items?: readonly MissingSeries[];
+  readonly total?: number;
+}
 
 // 493 / N-1c §scope-9 + §H — lossy projection over the new global
 // catalog list. BE 492 deleted the legacy per-instance "missing"

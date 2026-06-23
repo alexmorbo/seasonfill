@@ -14,12 +14,6 @@
 //   - PATCH /api/v1/instances/:name                        (update instance)
 //   - DELETE /api/v1/instances/:name                       (delete instance)
 //   - POST /api/v1/instances/probe                         (probe Sonarr config)
-//   - GET  /api/v1/instances/:name/missing                 (missing seasons)
-//   - GET  /api/v1/instances/:name/series                  (search series picker)
-//   - GET  /api/v1/instances/:name/series/:id/seasons/:season/episodes
-//   - GET  /api/v1/instances/:name/series-cache            (cached series)
-//   - GET  /api/v1/instances/:name/series-cache/networks   (networks facet)
-//   - GET  /api/v1/instances/:name/counters                (per-instance counters)
 //   - GET  /api/v1/counters                                (aggregate counters)
 //   - GET  /api/v1/runtime-config                          (runtime config get)
 //   - PATCH /api/v1/runtime-config                         (runtime config update)

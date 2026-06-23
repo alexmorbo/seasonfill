@@ -54,35 +54,7 @@ func NewSeriesTorrentsHandler(
 	}
 }
 
-// Get handles GET /api/v1/instances/:name/series/:id/torrents.
-//
-// @Summary     Per-series torrent inventory
-// @Description Returns the merged torrent inventory for a single
-// @Description series — live data from the in-memory torrentsync
-// @Description store overlaid with a durable qbit_torrents
-// @Description fallback for hashes that have disappeared from
-// @Description qBit (e.g. deleted, qBit unreachable). Each row
-// @Description carries the full qBit column set plus a `live`
-// @Description discriminator the UI uses to grey out live cells
-// @Description on DB-only rows. Default sort is `added_on DESC`.
-// @Description
-// @Description The endpoint short-circuits via `If-None-Match`:
-// @Description ETag is `sha256(synced_at_unix + len(torrents))`
-// @Description rendered as a quoted hex string. Granularity is
-// @Description per-second — enough for the SPA's 3-second poll.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true   "Instance name"
-// @Param       id    path      int     true   "Sonarr series id (per-instance)"
-// @Success     200   {object}  dto.SeriesTorrentsResponse
-// @Success     304   "not modified — If-None-Match matched the current ETag"
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     500   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id}/torrents [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesTorrentsHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")

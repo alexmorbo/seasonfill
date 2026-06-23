@@ -4,9 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueueSeasonChips } from './QueueSeasonChips';
-import type { components } from '@/api/schema';
-
-type SeasonEpisodePresence = components['schemas']['dto.SeasonEpisodePresence'];
+import type { SeasonEpisodePresence } from '@/lib/missing';
 
 const eps: SeasonEpisodePresence[] = [
   { number: 1, title: 'Solaricks', present: true },

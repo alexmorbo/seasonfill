@@ -31,31 +31,7 @@ func NewSeriesDetailHandler(composer *seriesdetail.Composer, logger *slog.Logger
 	return &SeriesDetailHandler{composer: composer, logger: logger}
 }
 
-// Get handles GET /api/v1/instances/:name/series/:id.
-//
-// @Summary     Composite series detail document
-// @Description Returns the full Series Detail Page payload — series
-// @Description hero, library tile, seasons accordion, cast, recommendations,
-// @Description taxonomy, external links — composed from the local entity
-// @Description tables in one call. Each section is independently degradable:
-// @Description a failed enrichment source surfaces as a `degraded[]` entry
-// @Description with the affected section's data falling back to nil/empty
-// @Description (NEVER 5xx). The single live call is the local Sonarr /queue
-// @Description for the in-flight download chip — unreachable Sonarr also
-// @Description surfaces via `degraded[]`.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true   "Instance name"
-// @Param       id    path      int     true   "Sonarr series id (per-instance)"
-// @Param       lang  query     string  false  "BCP-47 language tag (default en-US)"
-// @Success     200   {object}  dto.SeriesDetailResponse
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     500   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id} [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesDetailHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")

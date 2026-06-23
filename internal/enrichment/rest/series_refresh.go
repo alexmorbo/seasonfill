@@ -36,25 +36,7 @@ func NewSeriesRefreshHandler(uc *seriesrefresh.UseCase, logger *slog.Logger) *Se
 	return &SeriesRefreshHandler{uc: uc, logger: logger}
 }
 
-// Refresh handles POST /api/v1/instances/:name/series/:id/refresh.
-//
-// @Summary     Re-enrich a series
-// @Description Re-enqueues the series, its top-10 cast persons, and
-// @Description (when imdb_id is set) the OMDb rating refresh at
-// @Description PriorityHot. Returns 202 immediately; the work happens
-// @Description on the enrichment dispatcher.
-// @Tags        instances
-// @Produce     json
-// @Param       name  path      string  true   "Instance name"
-// @Param       id    path      int     true   "Sonarr series id"
-// @Success     202   {object}  dto.SeriesRefreshResponse
-// @Failure     400   {object}  dto.ErrorResponse
-// @Failure     401   {object}  dto.ErrorResponse
-// @Failure     404   {object}  dto.ErrorResponse
-// @Failure     500   {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/series/{id}/refresh [post]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesRefreshHandler) Refresh(c *gin.Context) {
 	name := c.Param("name")
 	idStr := c.Param("id")

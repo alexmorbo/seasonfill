@@ -45,24 +45,7 @@ func (h *CountersHandler) WithClock(clock func() time.Time) *CountersHandler {
 	return h
 }
 
-// ForInstance handles GET /api/v1/instances/:name/counters.
-//
-// @Summary     Per-instance counters and sparkline
-// @Description Grabs/imports/fails totals and bucketed sparkline for
-// @Description the requested window (24h hourly, 7d/30d daily). Plus
-// @Description the 7-day daily-grabs average for above/below copy.
-// @Tags        instances
-// @Produce     json
-// @Param       name   path      string  true   "Instance name"
-// @Param       window query     string  false  "24h|7d|30d (default 24h)"  Enums(24h, 7d, 30d)
-// @Success     200    {object}  dto.InstanceCountersDTO
-// @Failure     400    {object}  dto.ErrorResponse
-// @Failure     401    {object}  dto.ErrorResponse
-// @Failure     404    {object}  dto.ErrorResponse
-// @Failure     500    {object}  dto.ErrorResponse
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
-// @Router      /instances/{name}/counters [get]
+// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *CountersHandler) ForInstance(c *gin.Context) {
 	name := c.Param("name")
 	if _, ok := h.reg.Snapshot()[name]; !ok {

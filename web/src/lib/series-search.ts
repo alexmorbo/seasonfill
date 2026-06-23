@@ -1,9 +1,22 @@
 import { useQuery, type UseQueryResult, keepPreviousData } from '@tanstack/react-query';
 import { ApiError, api } from './api';
-import type { components } from '@/api/schema';
 
-export type SeriesSearchItem = components['schemas']['dto.SeriesSearchItem'];
-export type SeriesSearchList = components['schemas']['dto.SeriesSearchList'];
+// FE-local shapes for the global /series search picker payload.
+// Mirrors the deleted BE per-instance dto.SeriesSearch* wire types;
+// kept here because the legacy picker still consumes this shape from
+// the global endpoint (which projects into the legacy shape on the BE).
+export interface SeriesSearchItem {
+  readonly series_id?: number;
+  readonly title?: string;
+  readonly monitored?: boolean;
+  readonly season_count?: number;
+  readonly missing_aired_count?: number;
+}
+
+export interface SeriesSearchList {
+  readonly items?: readonly SeriesSearchItem[];
+  readonly total?: number;
+}
 
 export interface UseSeriesSearchOpts {
   readonly instance: string;
