@@ -20,14 +20,15 @@ import (
 // trio (decisions, cooldowns, origin_releases) → 47. D-6 story 467c
 // adds the qBit runtime quartet (qbit_settings, qbit_torrents,
 // qbit_torrent_events, torrent_series_map) → 51. D-7 story 468c
-// re-adds media_assets → 52, so the live assertion below is on 52.
+// re-adds media_assets → 52. N-2a story 502 adds discovery_lists → 53,
+// so the live assertion below is on 53.
 func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 52; got != want {
+			if got, want := len(s.Tables), 53; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}
