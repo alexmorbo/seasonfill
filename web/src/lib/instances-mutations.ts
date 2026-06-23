@@ -63,7 +63,7 @@ async function jsonFetch<T>(
 
 async function getInstanceDetailRaw(name: string): Promise<InstanceDetailWithMeta> {
   const { data, lastModified } = await jsonFetch<InstanceDetail>(
-    `/api/v1/instances/${encodeURIComponent(name)}`,
+    `/api/v1/admin/instances/${encodeURIComponent(name)}`,
   );
   return { detail: data, lastModified };
 }
@@ -88,7 +88,7 @@ export function useCreateInstance() {
   const qc = useQueryClient();
   return useMutation<InstanceDetailWithMeta, ApiError, CreateInstanceInput>({
     mutationFn: ({ body }) =>
-      jsonFetch<InstanceDetail>('/api/v1/instances', {
+      jsonFetch<InstanceDetail>('/api/v1/admin/instances', {
         method: 'POST', body: JSON.stringify(body),
       }).then(({ data, lastModified }) => ({ detail: data, lastModified })),
     onSuccess: ({ detail, lastModified }) => {
@@ -127,7 +127,7 @@ export function useUpdateInstance() {
     // the stored key otherwise — so last-write-wins can't clobber it.
     mutationFn: async ({ name, body }) => {
       const { data, lastModified } = await jsonFetch<InstanceDetail>(
-        `/api/v1/instances/${encodeURIComponent(name)}`,
+        `/api/v1/admin/instances/${encodeURIComponent(name)}`,
         {
           method: 'PUT',
           body: JSON.stringify(body),
@@ -157,7 +157,7 @@ export function useDeleteInstance() {
   const qc = useQueryClient();
   return useMutation<void, ApiError, DeleteInstanceInput>({
     mutationFn: async ({ name }) => {
-      await jsonFetch<void>(`/api/v1/instances/${encodeURIComponent(name)}`, {
+      await jsonFetch<void>(`/api/v1/admin/instances/${encodeURIComponent(name)}`, {
         method: 'DELETE',
       });
     },
@@ -190,7 +190,7 @@ function errorCode(err: ApiError): string {
 export function useTestInstance() {
   return useMutation<InstanceTestResponse, ApiError, InstanceTestRequest>({
     mutationFn: ({ url, api_key }) =>
-      jsonFetch<InstanceTestResponse>('/api/v1/instances/test', {
+      jsonFetch<InstanceTestResponse>('/api/v1/admin/instances/test', {
         method: 'POST',
         body: JSON.stringify({ url, api_key }),
       }).then(({ data }) => data),

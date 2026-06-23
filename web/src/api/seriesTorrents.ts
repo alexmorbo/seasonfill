@@ -20,7 +20,6 @@ export type StateGroup =
   | 'unknown';
 
 export interface UseSeriesTorrentsParams {
-  readonly instance: string | undefined;
   readonly seriesId: number | undefined;
   // visible drives refetchInterval gating. The component composes
   // tab-visibility AND viewport-intersection into a single boolean
@@ -32,10 +31,9 @@ export interface UseSeriesTorrentsParams {
 }
 
 export function seriesTorrentsQueryKey(
-  instance: string,
   seriesId: number,
-): readonly ['series-torrents', string, number] {
-  return ['series-torrents', instance, seriesId] as const;
+): readonly ['series-torrents', number] {
+  return ['series-torrents', seriesId] as const;
 }
 
 // useSeriesTorrents — pollable per-series torrents inventory.
@@ -49,20 +47,19 @@ export function seriesTorrentsQueryKey(
 // alt-tabs back to a stale section, we want a tick BEFORE the
 // next 3s boundary so the stale-banner clears immediately.
 export function useSeriesTorrents({
-  instance,
   seriesId,
   visible,
   enabled = true,
 }: UseSeriesTorrentsParams): UseQueryResult<SeriesTorrentsResponse> {
   const ready =
-    enabled && Boolean(instance) && typeof seriesId === 'number' && seriesId > 0;
+    enabled && typeof seriesId === 'number' && seriesId > 0;
   return useQuery<SeriesTorrentsResponse>({
     queryKey: ready
-      ? seriesTorrentsQueryKey(instance as string, seriesId as number)
-      : (['series-torrents', '', 0] as const),
+      ? seriesTorrentsQueryKey(seriesId as number)
+      : (['series-torrents', 0] as const),
     queryFn: () =>
       api<SeriesTorrentsResponse>(
-        `/instances/${encodeURIComponent(instance as string)}/series/${seriesId}/torrents`,
+        `/series/${seriesId}/torrents`,
       ),
     enabled: ready,
     refetchInterval: visible ? 3000 : false,

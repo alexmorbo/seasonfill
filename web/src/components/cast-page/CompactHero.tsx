@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { mediaUrl, parseStatus } from '@/api/seriesDetail';
+import { mediaUrl, parseStatus } from '@/api/series';
 import { StatusPill } from '@/components/series-detail/StatusPill';
 
 export interface CompactHeroProps {

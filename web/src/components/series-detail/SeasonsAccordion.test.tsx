@@ -49,7 +49,7 @@ const seasons = [
 
 describe('<SeasonsAccordion />', () => {
   it('renders seasons DESC with Specials pinned to the end', () => {
-    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
+    r(<SeasonsAccordion seriesId={42} seasons={seasons} />);
     const items = screen.getAllByTestId('season-accordion-item');
     expect(items).toHaveLength(4);
     expect(items[0]!.getAttribute('data-season')).toBe('3');
@@ -60,7 +60,7 @@ describe('<SeasonsAccordion />', () => {
   });
 
   it('expands and renders episodes (lazy fetch overrides composite payload)', () => {
-    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
+    r(<SeasonsAccordion seriesId={42} seasons={seasons} />);
     fireEvent.click(screen.getAllByRole('button')[0]!);
     expect(screen.getByText('Lazy')).toBeInTheDocument();
   });
@@ -78,7 +78,7 @@ describe('<SeasonsAccordion />', () => {
       isError: false,
     }) as unknown as ReturnType<typeof useSeriesSeason>);
     try {
-      r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={seasons} />);
+      r(<SeasonsAccordion seriesId={42} seasons={seasons} />);
       fireEvent.click(screen.getAllByRole('button')[0]!);
       const rows = screen.getAllByTestId('episode-row');
       expect(rows).toHaveLength(3);
@@ -96,7 +96,7 @@ describe('<SeasonsAccordion />', () => {
   });
 
   it('renders the empty-state line when seasons is empty', () => {
-    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={[]} />);
+    r(<SeasonsAccordion seriesId={42} seasons={[]} />);
     expect(screen.getByText(/No seasons available yet/)).toBeInTheDocument();
   });
 
@@ -107,7 +107,7 @@ describe('<SeasonsAccordion />', () => {
       downloading_count: 2,
       episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
     }];
-    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={fixture} />);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
     const chip = screen.getByTestId('season-downloading-chip');
     expect(chip.getAttribute('data-season')).toBe('5');
     expect(chip.textContent).toMatch(/2/);
@@ -119,7 +119,7 @@ describe('<SeasonsAccordion />', () => {
       downloading_count: 0,
       episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
     }];
-    r(<SeasonsAccordion instance="alpha" seriesId={42} seasons={fixture} />);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
     expect(screen.queryByTestId('season-downloading-chip')).not.toBeInTheDocument();
   });
 });

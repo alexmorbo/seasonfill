@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import type { components } from '@/api/schema';
 

@@ -38,7 +38,6 @@ describe('<QueueSeasonDrill />', () => {
 
     renderWithProviders(withTooltip(
       <QueueSeasonDrill
-        instanceName="alpha"
         seriesId={122}
         seasonNumber={2}
         isScanInFlight={false}
@@ -55,7 +54,6 @@ describe('<QueueSeasonDrill />', () => {
     globalThis.fetch = vi.fn(async () => json({ error: 'boom' }, 502)) as typeof fetch;
     renderWithProviders(withTooltip(
       <QueueSeasonDrill
-        instanceName="alpha"
         seriesId={122}
         seasonNumber={2}
         isScanInFlight={false}
@@ -75,7 +73,6 @@ describe('<QueueSeasonDrill />', () => {
     const onScanSeason = vi.fn();
     renderWithProviders(withTooltip(
       <QueueSeasonDrill
-        instanceName="alpha"
         seriesId={122}
         seasonNumber={5}
         isScanInFlight={false}

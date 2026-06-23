@@ -129,7 +129,7 @@ describe('<NewScanModal />', () => {
   it('replaces the placeholder field with a working SeriesPicker', async () => {
     globalThis.fetch = handler({
       '/instances': () => json(instances),
-      '/instances/alpha/series': () =>
+      'instance=alpha': () =>
         json({
           items: [
             { series_id: 122, title: 'Severance', monitored: true,
@@ -157,7 +157,7 @@ describe('<NewScanModal />', () => {
       captured.urls.push(path);
       captured.methods.push(init?.method ?? 'GET');
       captured.bodies.push(typeof init?.body === 'string' ? init.body : '');
-      if (path.includes('/instances/alpha/series')) return json({ items: [sevItem], total: 1 });
+      if (path.includes('instance=alpha')) return json({ items: [sevItem], total: 1 });
       if (path.includes('/instances')) return json(instances);
       if (path.includes('/scan')) {
         return json([{ scan_run_id: 'run-007', instance: 'alpha', status: 'running' }], 202);
@@ -188,7 +188,7 @@ describe('<NewScanModal />', () => {
     const holder: { resolve?: (r: Response) => void } = {};
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       const path = typeof url === 'string' ? url : url.toString();
-      if (path.includes('/instances/alpha/series')) {
+      if (path.includes('instance=alpha')) {
         return new Promise<Response>((r) => { holder.resolve = r; });
       }
       if (path.includes('/instances')) return json(instances);

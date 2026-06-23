@@ -44,8 +44,23 @@ beforeEach(() => {
         avg_grabs_7d: 6.7,
       }), { status: 200 });
     }
-    if (url.endsWith('/missing')) {
-      return new Response(JSON.stringify({ items: Array.from({ length: 294 }, () => ({})) }), { status: 200 });
+    if (url.includes('state=missing') || url.endsWith('/missing')) {
+      // 493: useMissing now hits `/series?instance=&state=missing`
+      // and lossily projects to MissingSeries shape. The
+      // chip-missing count is derived from `items.length`.
+      return new Response(JSON.stringify({
+        items: Array.from({ length: 294 }, (_, i) => ({
+          sonarr_series_id: i + 1,
+          instance_name: 'homelab',
+          title: `Show ${i}`,
+          title_slug: `show-${i}`,
+          monitored: true,
+          missing_count: 1,
+          updated_at: '2025-01-01T00:00:00Z',
+        })),
+        total: 294,
+        has_more: false,
+      }), { status: 200 });
     }
     if (url.endsWith('/webhook/status')) {
       return new Response(JSON.stringify({ installed: true }), { status: 200 });
@@ -69,7 +84,13 @@ describe('<InstanceHero />', () => {
     url: 'http://sonarr:80',
   } as never;
 
-  it('renders 24h + 7d stats, sparkline, and chip row', async () => {
+  it('renders sparkline and chip row (counters disabled in 493 by VITE_LEGACY_COUNTERS flag)', async () => {
+    // 493 / N-1c §C: useInstanceCounters is gated by
+    // `VITE_LEGACY_COUNTERS === '1'`. Default builds disable the
+    // counters call entirely until 494 rewrites the data source
+    // to the global series-cache aggregate. The sparkline + chip
+    // row stay visible; the 24h/7d stats blocks collapse to the
+    // empty state.
     renderWithProviders(
       <InstanceHero
         instance={inst}
@@ -79,15 +100,14 @@ describe('<InstanceHero />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('hero-sparkline')).toBeInTheDocument();
     });
-    // 24h + 7d stats blocks (should appear after data loads)
-    await waitFor(() => {
-      expect(screen.getAllByTestId('instance-stats-block').length).toBe(2);
-    });
-    // Chip row
+    // Chip row still renders from the non-counters fetches.
     expect(await screen.findByTestId('chip-missing')).toHaveTextContent(/294/);
     expect(await screen.findByTestId('chip-watchdog')).toHaveTextContent(/running/i);
     const webhookChip = await screen.findByTestId('chip-webhook');
     expect(webhookChip.className).toMatch(/ok/);
+    // 24h + 7d stats blocks are absent — they only show when
+    // `useInstanceCounters` resolves successfully.
+    expect(screen.queryAllByTestId('instance-stats-block')).toHaveLength(0);
   });
 
   it('applies danger left-border + last-error when degraded', async () => {

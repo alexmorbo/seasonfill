@@ -69,7 +69,7 @@ describe('useCreateInstance()', () => {
       body: { name: 'alpha', url: 'http://x', api_key: 'k' } as never,
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured.url).toBe('/api/v1/instances');
+    expect(captured.url).toBe('/api/v1/admin/instances');
     expect(captured.method).toBe('POST');
     expect(toastSuccess).toHaveBeenCalledWith('Instance created');
   });

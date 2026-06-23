@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
-import { useSeriesDetail, parseStatus, isSonarrOnly, isDegraded } from '@/api/seriesDetail';
+import { useSeries, parseStatus, isSonarrOnly, isDegraded } from '@/api/series';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
@@ -27,8 +27,7 @@ export function SeriesDetail() {
   const fmt = useFormatDate();
   const torrentsRef = useRef<HTMLDivElement | null>(null);
 
-  const detail = useSeriesDetail({
-    instance,
+  const detail = useSeries({
     seriesId,
     ...(lang ? { lang } : {}),
   });
@@ -143,7 +142,6 @@ export function SeriesDetail() {
           </div>
 
           <SeasonsAccordion
-            instance={instance}
             seriesId={seriesId}
             seasons={data.seasons}
             {...(lang ? { lang } : {})}

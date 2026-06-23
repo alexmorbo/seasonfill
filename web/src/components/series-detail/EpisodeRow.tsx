@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Award } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { relativeTime } from '@/lib/format';
 import { useFormatDate } from '@/lib/timezone';
 import { formatEpisodeMeta } from '@/lib/episodeMeta';

@@ -34,7 +34,6 @@ export function TorrentsSection({ instance, seriesId, className }: TorrentsSecti
 
   // Layer 2 — fetch + 3s poll, gated by visibility.
   const torrents = useSeriesTorrents({
-    instance,
     seriesId,
     visible,
     enabled: qbitConfigured,

@@ -1522,6 +1522,8 @@ export const ru: Translations = {
     probePrivateBlocked: 'URL ведёт на приватный или loopback адрес',
     probeBadRequest: 'Некорректный запрос',
     probeFailed: 'Не удалось проверить: {{error}}',
+    regrabQueued: 'Перезапрос отправлен',
+    regrabFailed: 'Не удалось перезапросить: {{error}}',
   },
   categories: {
     action_taken: 'Действие выполнено',

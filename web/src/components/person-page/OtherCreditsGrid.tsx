@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import type { OtherCreditEntry } from '@/api/person';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 
 const INITIAL_LIMIT = 10;
 

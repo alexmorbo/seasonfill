@@ -43,35 +43,32 @@ export function mediaUrl(hash: string | undefined | null): string | undefined {
   return `/api/v1/media/${encodeURIComponent(hash)}`;
 }
 
-export interface UseSeriesDetailParams {
-  readonly instance: string | undefined;
+export interface UseSeriesParams {
   readonly seriesId: number | undefined;
   readonly lang?: string | undefined;
 }
 
-export function seriesDetailQueryKey(
-  instance: string,
+export function seriesQueryKey(
   seriesId: number,
   lang: string,
-): readonly [string, string, number, string] {
-  return ['series-detail', instance, seriesId, lang] as const;
+): readonly [string, number, string] {
+  return ['series-detail', seriesId, lang] as const;
 }
 
-export function useSeriesDetail({
-  instance,
+export function useSeries({
   seriesId,
   lang,
-}: UseSeriesDetailParams) {
-  const enabled = Boolean(instance) && typeof seriesId === 'number' && seriesId > 0;
+}: UseSeriesParams) {
+  const enabled = typeof seriesId === 'number' && seriesId > 0;
   const effectiveLang = lang ?? '';
   return useQuery<SeriesDetailResponse>({
     queryKey: enabled
-      ? seriesDetailQueryKey(instance as string, seriesId as number, effectiveLang)
-      : (['series-detail', '', 0, ''] as const),
+      ? seriesQueryKey(seriesId as number, effectiveLang)
+      : (['series-detail', 0, ''] as const),
     queryFn: () => {
       const qs = effectiveLang ? `?lang=${encodeURIComponent(effectiveLang)}` : '';
       return api<SeriesDetailResponse>(
-        `/instances/${encodeURIComponent(instance as string)}/series/${seriesId}${qs}`,
+        `/series/${seriesId}${qs}`,
       );
     },
     enabled,

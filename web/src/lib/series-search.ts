@@ -28,11 +28,12 @@ export function useSeriesSearch(
     queryKey: ['series-search', instance, query, monitored, limit] as const,
     queryFn: () => {
       const params = new URLSearchParams();
+      params.set('instance', instance);
       if (query) params.set('q', query);
       params.set('monitored', monitored ? 'true' : 'false');
       params.set('limit', String(limit));
       return api<SeriesSearchList>(
-        `/instances/${encodeURIComponent(instance)}/series?${params.toString()}`,
+        `/series?${params.toString()}`,
       );
     },
     enabled,

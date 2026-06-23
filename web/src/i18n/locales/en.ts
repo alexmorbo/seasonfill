@@ -1524,6 +1524,8 @@ export const en = {
     probePrivateBlocked: 'URL resolves to a private or loopback address',
     probeBadRequest: 'Bad request',
     probeFailed: 'Probe failed: {{error}}',
+    regrabQueued: 'Re-grab queued',
+    regrabFailed: 'Re-grab failed: {{error}}',
   },
   categories: {
     action_taken: 'Action taken',

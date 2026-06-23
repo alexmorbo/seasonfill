@@ -12,7 +12,7 @@ import {
   type LibraryStrip,
   type DownloadChip,
   type NextEpisode,
-} from '@/api/seriesDetail';
+} from '@/api/series';
 import { RatingDuo } from './RatingDuo';
 import { StaleBadge } from './StaleBadge';
 import { TrailerModal } from './TrailerModal';

@@ -5,7 +5,7 @@ import {
   mediaUrl,
   type SeriesHero,
   type StatusToken,
-} from '@/api/seriesDetail';
+} from '@/api/series';
 import type { components } from '@/api/schema';
 import { CountryName } from './CountryName';
 import { LanguageName } from './LanguageName';

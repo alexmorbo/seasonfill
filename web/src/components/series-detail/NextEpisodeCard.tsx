@@ -2,7 +2,7 @@ import { Flag, Hammer } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useFormatDate } from '@/lib/timezone';
-import { type NextEpisode, type StatusToken } from '@/api/seriesDetail';
+import { type NextEpisode, type StatusToken } from '@/api/series';
 import { IpCdBadge } from './IpCdBadge';
 
 export interface NextEpisodeCardProps {

@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/format';
-import type { RecentEvent } from '@/api/seriesDetail';
+import type { RecentEvent } from '@/api/series';
 
 export interface RecentStripProps {
   readonly recent?: readonly RecentEvent[] | undefined;

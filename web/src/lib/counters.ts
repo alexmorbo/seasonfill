@@ -38,16 +38,24 @@ const _schemaCheckInstanceCounters: components['schemas'] extends { 'dto.Instanc
 
 export type CounterWindow = '24h' | '7d' | '30d';
 
+// 493 / N-1c §C — `useInstanceCounters` is left intentionally
+// disabled because BE 492 deleted `GET /api/v1/instances/:name/counters`
+// and 494 will rewire the Dashboard counters card to use the
+// global series-cache aggregates (`totals_grabs` / `totals_imports` /
+// `totals_fails` per row). Until then the chart cell renders its
+// "—" empty state. Set `VITE_LEGACY_COUNTERS=1` at build time to
+// re-enable the old wire call for local debugging.
 export function useInstanceCounters(
   instance: string | null,
   window: CounterWindow,
   opts: { refetchInterval?: number } = {},
 ): UseQueryResult<InstanceCounters, ApiError> {
+  const legacyEnabled = import.meta.env.VITE_LEGACY_COUNTERS === '1';
   return useQuery<InstanceCounters, ApiError>({
     queryKey: ['instance-counters', instance, window] as const,
     queryFn: () =>
       api<InstanceCounters>(`/instances/${instance}/counters?window=${window}`),
-    enabled: Boolean(instance),
+    enabled: legacyEnabled && Boolean(instance),
     staleTime: 30_000,
     refetchInterval: opts.refetchInterval ?? 60_000,
     refetchOnWindowFocus: false,

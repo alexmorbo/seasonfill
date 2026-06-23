@@ -20,21 +20,21 @@ describe('useSeriesTorrents', () => {
   beforeEach(() => mockApi.mockReset());
 
   it('does not fetch when disabled', () => {
-    renderHook(() => useSeriesTorrents({ instance: 'alpha', seriesId: 42, visible: true, enabled: false }), { wrapper: wrap() });
+    renderHook(() => useSeriesTorrents({ seriesId: 42, visible: true, enabled: false }), { wrapper: wrap() });
     expect(mockApi).not.toHaveBeenCalled();
   });
 
-  it('builds the URL with instance + id', async () => {
+  it('builds the global URL with seriesId', async () => {
     mockApi.mockResolvedValueOnce({ torrents: [] });
     const { result } = renderHook(
-      () => useSeriesTorrents({ instance: 'alpha', seriesId: 42, visible: true }),
+      () => useSeriesTorrents({ seriesId: 42, visible: true }),
       { wrapper: wrap() },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockApi).toHaveBeenCalledWith('/instances/alpha/series/42/torrents');
+    expect(mockApi).toHaveBeenCalledWith('/series/42/torrents');
   });
 
   it('has a stable query key', () => {
-    expect(seriesTorrentsQueryKey('alpha', 42)).toEqual(['series-torrents', 'alpha', 42]);
+    expect(seriesTorrentsQueryKey(42)).toEqual(['series-torrents', 42]);
   });
 });

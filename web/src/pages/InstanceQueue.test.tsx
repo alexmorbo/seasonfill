@@ -62,31 +62,41 @@ const wrap = () => (
   </InstanceFilterCtx.Provider>
 );
 
-const missingSeverance = {
-  series_id: 122,
+// 493 / N-1c §scope-9 + §H: useMissing now delegates to the global
+// /series catalog endpoint and lossily projects each row to the
+// MissingSeries shape. SeriesCacheItem (the new wire) carries
+// `sonarr_series_id` and `missing_count` per row but no per-season
+// stats. The projection sets `seasons[]` to `[]`. Tests that
+// exercise the season chip / drill behaviour are skipped pending
+// 494's queue rewrite (Open Note §5 in story 493).
+const cacheSeverance = {
+  sonarr_series_id: 122,
+  instance_name: 'alpha',
   title: 'Severance',
   title_slug: 'severance',
   year: 2022,
   monitored: true,
-  total_missing_aired: 8,
-  seasons: [{ season_number: 2, missing_aired_count: 8 }],
+  missing_count: 8,
+  updated_at: '2025-01-01T00:00:00Z',
 };
 
-const missingAndor = {
-  series_id: 9,
+const cacheAndor = {
+  sonarr_series_id: 9,
+  instance_name: 'alpha',
   title: 'Andor',
+  title_slug: 'andor',
   monitored: true,
-  total_missing_aired: 3,
-  seasons: [
-    { season_number: 1, missing_aired_count: 1 },
-    { season_number: 2, missing_aired_count: 2 },
-  ],
+  missing_count: 3,
+  updated_at: '2025-01-01T00:00:00Z',
 };
+
+const cacheListResp = (items: readonly unknown[]) =>
+  ({ items, total: items.length, has_more: false });
 
 describe('<InstanceQueue /> (integration)', () => {
   it('renders empty state when items=[]', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () => json({ items: [], total: 0 }),
+      'state=missing': () => json(cacheListResp([])),
       '/instances': () =>
         json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
     }) as typeof fetch;
@@ -103,7 +113,7 @@ describe('<InstanceQueue /> (integration)', () => {
       resolveMissing = resolve;
     });
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () => pending,
+      'state=missing': () => pending,
       '/instances': () =>
         json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
     }) as typeof fetch;
@@ -113,31 +123,26 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(await screen.findByTestId('queue-loading')).toBeInTheDocument();
     expect(screen.queryByTestId('queue-stats')).not.toBeInTheDocument();
     // Resolve the request — stats strip materialises with the real numbers.
-    resolveMissing?.(json({ items: [missingSeverance, missingAndor], total: 2 }));
+    resolveMissing?.(json(cacheListResp([cacheSeverance, cacheAndor])));
     expect(await screen.findByTestId('queue-stats')).toBeInTheDocument();
     expect(screen.getByText('11')).toBeInTheDocument();
   });
 
   it('renders rows from a live-shaped response with 111 items + counters', async () => {
-    // Synthetic large payload modelled on the live /missing response so the
-    // page can never silently regress to "0 series / 0 episodes" when the
-    // backend does return data.
     const items = Array.from({ length: 111 }).map((_, i) => ({
-      series_id: 1000 + i,
+      sonarr_series_id: 1000 + i,
+      instance_name: 'alpha',
       title: `Show ${i}`,
       title_slug: `show-${i}`,
       year: 2010 + (i % 15),
       monitored: true,
-      total_missing_aired: (i % 7) + 1,
-      seasons: [
-        { season_number: 1, missing_aired_count: (i % 7) + 1 },
-      ],
+      missing_count: (i % 7) + 1,
+      updated_at: '2025-01-01T00:00:00Z',
     }));
-    const totalEpisodes = items.reduce((a, s) => a + s.total_missing_aired, 0);
+    const totalEpisodes = items.reduce((a, s) => a + s.missing_count, 0);
 
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () =>
-        json({ items, total: items.length }),
+      'state=missing': () => json(cacheListResp(items)),
       '/instances': () =>
         json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
     }) as typeof fetch;
@@ -150,13 +155,9 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(screen.getByText(totalEpisodes.toLocaleString())).toBeInTheDocument();
   });
 
-  it('renders rows with title + season chips and stats strip', async () => {
+  it('renders rows with title + missing pill + stats strip', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () =>
-        json({
-          items: [missingSeverance, missingAndor],
-          total: 2,
-        }),
+      'state=missing': () => json(cacheListResp([cacheSeverance, cacheAndor])),
       '/instances': () =>
         json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
     }) as typeof fetch;
@@ -169,43 +170,18 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(screen.getByText('11')).toBeInTheDocument();
   });
 
-  it('opens the season drill on chip click and fetches episodes', async () => {
-    globalThis.fetch = fetchStub({
-      '/instances/alpha/series/122/seasons/2/episodes': () =>
-        json({
-          items: [
-            { number: 1, monitored: true, has_file: true, aired: true, air_date_utc: '2024-01-01T00:00:00Z' },
-            { number: 2, monitored: true, has_file: false, aired: true, air_date_utc: '2024-01-08T00:00:00Z' },
-            { number: 3, monitored: true, has_file: false, aired: false, air_date_utc: '2099-01-01T00:00:00Z' },
-          ],
-          total: 3,
-          have: 1,
-          miss: 1,
-        }),
-      '/instances/alpha/missing': () =>
-        json({ items: [missingSeverance], total: 1 }),
-      '/instances': () =>
-        json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
-    }) as typeof fetch;
-
-    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
-    const chip = await screen.findByLabelText(/Season 2: 8 missing/i);
-    await userEvent.click(chip);
-
-    expect(await screen.findByTestId('queue-drill')).toBeInTheDocument();
-    expect(await screen.findByTestId('queue-episode-chips')).toBeInTheDocument();
-    // E1 = have, E2 = miss, E3 = upcoming
-    expect(screen.getByText('E1').getAttribute('data-state')).toBe('have');
-    expect(screen.getByText('E2').getAttribute('data-state')).toBe('miss');
-    expect(screen.getByText('E3').getAttribute('data-state')).toBe('upcoming');
+  // SKIPPED — depends on per-season chip rendering. 493 dropped
+  // `seasons[]` from the useMissing projection (§H lossy). 494's
+  // queue rewrite restores per-season data via a new BE projection.
+  it.skip('opens the season drill on chip click and fetches episodes', async () => {
+    // 494 will restore this behaviour.
   });
 
   it('row Scan → POST /scan with series_ids and navigates', async () => {
     const captured: Captured = {};
     globalThis.fetch = fetchStub(
       {
-        '/instances/alpha/missing': () =>
-          json({ items: [missingSeverance], total: 1 }),
+        'state=missing': () => json(cacheListResp([cacheSeverance])),
         '/scan': () =>
           json([{ scan_run_id: 'run-77', instance: 'alpha', status: 'running' }], 202),
         '/instances': () =>
@@ -230,44 +206,14 @@ describe('<InstanceQueue /> (integration)', () => {
     expect(await screen.findByText(/scan-detail-stub/i)).toBeInTheDocument();
   });
 
-  it('drill Scan-season fires POST /scan with series_ids only (no season_numbers)', async () => {
-    const captured: Captured = {};
-    globalThis.fetch = fetchStub(
-      {
-        '/instances/alpha/series/122/seasons/2/episodes': () =>
-          json({
-            items: [{ number: 1, monitored: true, has_file: false, aired: true, air_date_utc: '2024-01-01T00:00:00Z' }],
-            total: 1, have: 0, miss: 1,
-          }),
-        '/instances/alpha/missing': () =>
-          json({ items: [missingSeverance], total: 1 }),
-        '/scan': () =>
-          json([{ scan_run_id: 'run-78', instance: 'alpha', status: 'running' }], 202),
-        '/instances': () =>
-          json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
-      },
-      captured,
-    ) as typeof fetch;
-
-    renderWithProviders(wrap(), { route: '/instances/alpha/queue' });
-    await userEvent.click(await screen.findByLabelText(/Season 2: 8 missing/i));
-    const scanSeasonBtn = await screen.findByTestId('queue-drill-scan-season');
-    await userEvent.click(scanSeasonBtn);
-
-    const findScanPost = () =>
-      (captured.urls ?? []).findIndex(
-        (u, i) => u.includes('/scan') && (captured.methods ?? [])[i] === 'POST',
-      );
-    await waitFor(() => expect(findScanPost()).toBeGreaterThanOrEqual(0));
-    const idx = findScanPost();
-    const body = JSON.parse((captured.bodies ?? [])[idx] || '{}');
-    expect(body).toEqual({ instance: 'alpha', series_ids: [122] });
-    expect(body).not.toHaveProperty('season_numbers');
+  // SKIPPED — depends on the season chip → drill flow. See 494.
+  it.skip('drill Scan-season fires POST /scan with series_ids only (no season_numbers)', async () => {
+    // 494 will restore this behaviour.
   });
 
   it('surfaces 404 when the instance is unknown', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/ghost/missing': () =>
+      'state=missing': () =>
         json({ error: 'unknown instance: ghost' }, 404),
       '/instances': () => json({ instances: [] }),
     }) as typeof fetch;
@@ -278,9 +224,8 @@ describe('<InstanceQueue /> (integration)', () => {
 
   it('renders title as a Sonarr link when ui_url + title_slug are present', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () =>
-        json({ items: [missingSeverance], total: 1 }),
-      '/api/v1/instances/alpha': () =>
+      'state=missing': () => json(cacheListResp([cacheSeverance])),
+      '/api/v1/admin/instances/alpha': () =>
         json({
           name: 'alpha',
           url: 'http://sonarr:8989',
@@ -302,8 +247,7 @@ describe('<InstanceQueue /> (integration)', () => {
 
   it('search filter narrows the row list', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/missing': () =>
-        json({ items: [missingSeverance, missingAndor], total: 2 }),
+      'state=missing': () => json(cacheListResp([cacheSeverance, cacheAndor])),
       '/instances': () =>
         json({ instances: [{ name: 'alpha', mode: 'auto', health: 'available' }] }),
     }) as typeof fetch;

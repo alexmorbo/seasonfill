@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowDown, ArrowRight, FolderInput, Inbox, PieChart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { LibraryStrip, DownloadChip } from '@/api/seriesDetail';
+import type { LibraryStrip, DownloadChip } from '@/api/series';
 
 export interface HeroLibraryStripProps {
   readonly library?: LibraryStrip | undefined;

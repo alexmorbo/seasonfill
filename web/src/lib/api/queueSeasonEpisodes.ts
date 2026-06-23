@@ -35,19 +35,18 @@ export function episodeState(e: SeasonEpisodeItem): EpisodeState {
   return 'upcoming';
 }
 
-function buildPath(name: string, seriesId: number, seasonNumber: number): string {
-  return `/instances/${encodeURIComponent(name)}/series/${seriesId}/seasons/${seasonNumber}/episodes`;
+function buildPath(seriesId: number, seasonNumber: number): string {
+  return `/series/${seriesId}/seasons/${seasonNumber}/episodes`;
 }
 
 export function useSeasonEpisodes(
-  name: string | undefined,
   seriesId: number | undefined,
   seasonNumber: number | null,
 ): UseQueryResult<SeasonEpisodeList, ApiError> {
-  const enabled = Boolean(name) && Boolean(seriesId) && seasonNumber !== null;
+  const enabled = Boolean(seriesId) && seasonNumber !== null;
   return useQuery<SeasonEpisodeList, ApiError>({
-    queryKey: ['queue-season-episodes', name ?? '', seriesId ?? 0, seasonNumber ?? -1] as const,
-    queryFn: () => api<SeasonEpisodeList>(buildPath(name!, seriesId!, seasonNumber!)),
+    queryKey: ['queue-season-episodes', seriesId ?? 0, seasonNumber ?? -1] as const,
+    queryFn: () => api<SeasonEpisodeList>(buildPath(seriesId!, seasonNumber!)),
     enabled,
     staleTime: 30_000,
     refetchInterval: enabled ? 60_000 : false,

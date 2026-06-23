@@ -1,7 +1,7 @@
 import { ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { ExternalLinks } from '@/api/seriesDetail';
+import type { ExternalLinks } from '@/api/series';
 
 export interface ExternalLinksFooterProps {
   readonly links?: ExternalLinks | undefined;

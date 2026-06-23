@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { MonogramFallback, type MonogramKind } from './MonogramFallback';
 
 export type MediaImageKind =

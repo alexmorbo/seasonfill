@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import type { CastPageMember } from '@/api/seriesCast';
 

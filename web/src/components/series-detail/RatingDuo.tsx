@@ -1,7 +1,7 @@
 import { Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { RatingScore } from '@/api/seriesDetail';
+import type { RatingScore } from '@/api/series';
 import { StaleBadge } from './StaleBadge';
 
 export interface RatingDuoProps {

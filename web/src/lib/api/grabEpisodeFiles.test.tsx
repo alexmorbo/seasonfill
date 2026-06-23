@@ -68,7 +68,7 @@ describe('useGrabEpisodeFiles', () => {
     expect(result.current.data?.items.length).toBe(1);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect((fetchSpy.mock.calls[0]?.[0] as string)).toMatch(
-      /\/api\/v1\/instances\/alpha\/grabs\/g1\/episode-files/,
+      /\/api\/v1\/grabs\/g1\/episode-files/,
     );
   });
 

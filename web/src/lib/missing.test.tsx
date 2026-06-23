@@ -21,17 +21,24 @@ describe('useMissing()', () => {
   });
   afterEach(() => { globalThis.fetch = origFetch; });
 
-  it('hits /instances/:name/missing and returns parsed list', async () => {
+  it('delegates to /series?instance=:name&state=missing and projects to MissingSeries', async () => {
     const captured: { url?: string } = {};
+    // SeriesCacheList wire shape — after 493 useMissing reads
+    // the global catalog endpoint and lossily projects rows.
     const payload = {
       items: [
         {
-          series_id: 122, title: 'Severance', monitored: true,
-          total_missing_aired: 8,
-          seasons: [{ season_number: 2, missing_aired_count: 8 }],
+          sonarr_series_id: 122,
+          instance_name: 'alpha',
+          title: 'Severance',
+          title_slug: 'severance',
+          monitored: true,
+          missing_count: 8,
+          updated_at: '2025-01-01T00:00:00Z',
         },
       ],
       total: 1,
+      has_more: false,
     };
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       captured.url = typeof url === 'string' ? url : url.toString();
@@ -42,9 +49,12 @@ describe('useMissing()', () => {
 
     const { result } = renderHook(() => useMissing('alpha'), { wrapper: wrap() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured.url).toBe('/api/v1/instances/alpha/missing');
+    expect(captured.url).toContain('/api/v1/series?instance=alpha');
+    expect(captured.url).toContain('state=missing');
     expect(result.current.data?.total).toBe(1);
     expect(result.current.data?.items?.[0]?.title).toBe('Severance');
+    expect(result.current.data?.items?.[0]?.series_id).toBe(122);
+    expect(result.current.data?.items?.[0]?.total_missing_aired).toBe(8);
   });
 
   it('is disabled when name is undefined (no fetch)', async () => {

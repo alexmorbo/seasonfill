@@ -7,7 +7,6 @@ import { QueueEpisodeChips } from './QueueEpisodeChips';
 import { useSeasonEpisodes } from '@/lib/api/queueSeasonEpisodes';
 
 export interface QueueSeasonDrillProps {
-  readonly instanceName: string;
   readonly seriesId: number;
   readonly seasonNumber: number;
   readonly isScanInFlight: boolean;
@@ -15,11 +14,11 @@ export interface QueueSeasonDrillProps {
 }
 
 export function QueueSeasonDrill({
-  instanceName, seriesId, seasonNumber,
+  seriesId, seasonNumber,
   isScanInFlight, onScanSeason,
 }: QueueSeasonDrillProps) {
   const { t } = useTranslation();
-  const episodes = useSeasonEpisodes(instanceName, seriesId, seasonNumber);
+  const episodes = useSeasonEpisodes(seriesId, seasonNumber);
 
   if (episodes.isPending) {
     return (

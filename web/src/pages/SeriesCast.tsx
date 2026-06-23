@@ -41,7 +41,6 @@ export function SeriesCast() {
   const [query, setQuery] = useState('');
 
   const result = useSeriesCast({
-    instance,
     seriesId,
     ...(lang ? { lang } : {}),
   });

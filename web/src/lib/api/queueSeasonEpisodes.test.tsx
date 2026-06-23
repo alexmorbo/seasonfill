@@ -26,27 +26,30 @@ function wrapper() {
 }
 
 describe('useSeasonEpisodes', () => {
-  it('is disabled when name or seriesId is missing', () => {
+  it('is disabled when seriesId is missing', () => {
     const { result } = renderHook(
-      () => useSeasonEpisodes(undefined, undefined, null),
+      () => useSeasonEpisodes(undefined, null),
       { wrapper: wrapper() },
     );
     expect(result.current.isPending).toBe(true);
     expect(result.current.fetchStatus).toBe('idle');
   });
 
-  it('fetches and exposes data when fully populated', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      json({
+  it('fetches the global URL and exposes data', async () => {
+    const captured: { url?: string } = {};
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      captured.url = typeof url === 'string' ? url : url.toString();
+      return json({
         items: [{ number: 1, monitored: true, has_file: true, aired: true, air_date_utc: '2024-01-01T00:00:00Z' }],
         total: 1, have: 1, miss: 0,
-      }),
-    ) as typeof fetch;
+      });
+    }) as typeof fetch;
     const { result } = renderHook(
-      () => useSeasonEpisodes('alpha', 122, 2),
+      () => useSeasonEpisodes(122, 2),
       { wrapper: wrapper() },
     );
     await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(captured.url).toContain('/api/v1/series/122/seasons/2/episodes');
     expect(result.current.data?.have).toBe(1);
     expect(result.current.data?.miss).toBe(0);
   });

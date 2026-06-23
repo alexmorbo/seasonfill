@@ -39,7 +39,7 @@ describe('useSeriesSearch()', () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(captured.url).toBe(
-      '/api/v1/instances/alpha/series?q=sev&monitored=true&limit=30',
+      '/api/v1/series?instance=alpha&q=sev&monitored=true&limit=30',
     );
   });
 
@@ -55,7 +55,7 @@ describe('useSeriesSearch()', () => {
       { wrapper: wrap() },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured.url).toBe('/api/v1/instances/alpha/series?monitored=false&limit=5');
+    expect(captured.url).toBe('/api/v1/series?instance=alpha&monitored=false&limit=5');
     expect(captured.url).not.toContain('q=');
   });
 

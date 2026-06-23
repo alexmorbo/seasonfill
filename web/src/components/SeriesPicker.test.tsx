@@ -60,7 +60,7 @@ describe('<SeriesPicker />', () => {
     // is unreliable. Wait the actual debounce window instead.
     const captured: Captured = {};
     globalThis.fetch = fetchStub(
-      { '/instances/alpha/series': () => json(FIXTURE) }, captured,
+      { 'instance=alpha': () => json(FIXTURE) }, captured,
     ) as typeof fetch;
 
     const user = userEvent.setup();
@@ -82,7 +82,7 @@ describe('<SeriesPicker />', () => {
 
   it('clicking a suggestion calls onChange and clears query', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/series': () => json(FIXTURE),
+      'instance=alpha': () => json(FIXTURE),
     }) as typeof fetch;
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -110,7 +110,7 @@ describe('<SeriesPicker />', () => {
 
   it('ArrowDown + Enter picks the highlighted suggestion', async () => {
     globalThis.fetch = fetchStub({
-      '/instances/alpha/series': () => json(FIXTURE),
+      'instance=alpha': () => json(FIXTURE),
     }) as typeof fetch;
     const onChange = vi.fn();
     const user = userEvent.setup();

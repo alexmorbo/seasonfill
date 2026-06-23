@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Plus, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import type { components } from '@/api/schema';
 
 type Recommendation = components['schemas']['dto.Recommendation'];

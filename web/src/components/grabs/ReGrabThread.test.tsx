@@ -60,14 +60,16 @@ describe('<ReGrabThread />', () => {
     expect(screen.getByTestId('regrab-node-g_r2')).toBeInTheDocument();
   });
 
-  it('triggers lazy ancestor fetch when an ancestor is missing', async () => {
+  it('walks React Query cache for missing ancestor (no per-grab wire call)', async () => {
+    // 493 / N-1c §D: BE 492 deleted the per-instance single-grab
+    // endpoint and the global `/grabs` list lacks a `?id=` filter.
+    // useGrabById now walks any cached `['grabs', ...]` infinite
+    // query for the row. When the row isn't cached, it triggers a
+    // `invalidate(['grabs'])` to refetch the list — it does NOT
+    // hit a per-grab endpoint of its own.
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({
-          id: 'g_missing', series_title: 'X', season_number: 1,
-          status: 'imported', coverage_count: 1,
-          created_at: '2026-05-01T00:00:00Z',
-        }),
+        JSON.stringify({ items: [], next_cursor: undefined }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     );
@@ -76,10 +78,13 @@ describe('<ReGrabThread />', () => {
     render(wrap(
       <ReGrabThread instance="alpha" grab={current} all={[current]} open={true} />,
     ));
-    // The fetch should fire (`enabled` true, missing ancestor in chain).
     await new Promise((r) => setTimeout(r, 10));
-    expect(fetchSpy).toHaveBeenCalled();
-    expect((fetchSpy.mock.calls[0]?.[0] as string)).toMatch(/\/instances\/alpha\/grabs\/g_missing/);
+    // The hook does not fire a wire call to a per-grab endpoint.
+    // It may trigger a list refetch via invalidate — assert no
+    // request hits `/grabs/g_missing` (the deleted shape).
+    const calls = fetchSpy.mock.calls.map((c) => String(c[0]));
+    expect(calls.every((u) => !u.includes('/grabs/g_missing'))).toBe(true);
+    expect(calls.every((u) => !u.includes('/instances/alpha/grabs/g_missing'))).toBe(true);
   });
 
   it('does NOT trigger lazy fetch when closed', async () => {

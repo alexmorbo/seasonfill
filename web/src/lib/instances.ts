@@ -21,7 +21,7 @@ export function useInstances(): UseQueryResult<InstanceList, ApiError> {
 
   return useQuery<InstanceList, ApiError>({
     queryKey: ['instances'] as const,
-    queryFn: () => api<InstanceList>('/instances'),
+    queryFn: () => api<InstanceList>('/admin/instances'),
     staleTime: 15_000,
     refetchInterval: (query) => {
       const data = query.state.data;

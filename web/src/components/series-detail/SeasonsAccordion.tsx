@@ -9,7 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { useSeriesSeason } from '@/api/seriesSeason';
 import type { components } from '@/api/schema';
 import { EpisodeRow } from './EpisodeRow';
@@ -17,7 +17,6 @@ import { EpisodeRow } from './EpisodeRow';
 type Season = components['schemas']['dto.Season'];
 
 export interface SeasonsAccordionProps {
-  readonly instance: string;
   readonly seriesId: number;
   readonly seasons: readonly Season[] | undefined;
   readonly lang?: string | undefined;
@@ -45,7 +44,6 @@ function seasonYear(airDate: string | undefined): string {
 }
 
 interface SeasonAccordionItemProps {
-  readonly instance: string;
   readonly seriesId: number;
   readonly season: Season;
   readonly lang?: string | undefined;
@@ -53,12 +51,11 @@ interface SeasonAccordionItemProps {
 }
 
 function SeasonAccordionItem({
-  instance, seriesId, season, lang, expanded,
+  seriesId, season, lang, expanded,
 }: SeasonAccordionItemProps) {
   const { t } = useTranslation();
   const seasonNumber = season.season_number ?? 0;
   const lazy = useSeriesSeason({
-    instance,
     seriesId,
     seasonNumber,
     ...(lang ? { lang } : {}),
@@ -142,7 +139,7 @@ function SeasonAccordionItem({
 }
 
 export function SeasonsAccordion({
-  instance, seriesId, seasons, lang, className, staleBadge,
+  seriesId, seasons, lang, className, staleBadge,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
@@ -175,7 +172,6 @@ export function SeasonsAccordion({
             return (
               <SeasonAccordionItem
                 key={sn}
-                instance={instance}
                 seriesId={seriesId}
                 season={season}
                 {...(lang ? { lang } : {})}

@@ -42,11 +42,14 @@ export interface SeriesCacheQuery {
 
 function buildPath(instance: string, q: SeriesCacheQuery): string {
   const p = new URLSearchParams();
-  if (q.status) p.set('status', q.status);
+  p.set('instance', instance);
+  // BE 492 global /series accepts `state` for missing/imported/all
+  // (see /series-cache → /series rewrite). Keep `status` name on the
+  // FE typed query for API stability, map it to wire `state`.
+  if (q.status) p.set('state', q.status);
   if (q.limit !== undefined) p.set('limit', String(q.limit));
   if (q.sort) p.set('sort', q.sort);
-  const qs = p.toString();
-  return `/instances/${encodeURIComponent(instance)}/series-cache${qs ? `?${qs}` : ''}`;
+  return `/series?${p.toString()}`;
 }
 
 export function useSeriesCache(
@@ -96,6 +99,7 @@ function buildInfinitePath(
   cursor: string,
 ): string {
   const p = new URLSearchParams();
+  p.set('instance', instance);
   if (q.state) p.set('state', q.state);
   if (q.sort) p.set('sort', q.sort);
   if (q.limit !== undefined) p.set('limit', String(q.limit));
@@ -107,8 +111,7 @@ function buildInfinitePath(
     p.set('networks', [...q.networks].sort().join('|'));
   }
   if (cursor) p.set('cursor', cursor);
-  const qs = p.toString();
-  return `/instances/${encodeURIComponent(instance)}/series-cache${qs ? `?${qs}` : ''}`;
+  return `/series?${p.toString()}`;
 }
 
 // seriesCacheInfiniteKey already passes the entire `q` into the key
@@ -171,7 +174,7 @@ export function useSeriesCacheNetworks(
     queryKey: ['series-cache', 'networks', instance ?? ''] as const,
     queryFn: async () => {
       const res = await api<SeriesCacheNetworksResponse>(
-        `/instances/${encodeURIComponent(instance ?? '')}/series-cache/networks`,
+        `/series/networks?instance=${encodeURIComponent(instance ?? '')}`,
       );
       return res.networks;
     },

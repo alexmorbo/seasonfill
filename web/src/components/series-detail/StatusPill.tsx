@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { type StatusToken } from '@/api/seriesDetail';
+import { type StatusToken } from '@/api/series';
 
 export interface StatusPillProps {
   readonly status: StatusToken;

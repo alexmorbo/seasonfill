@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/seriesDetail';
+import { mediaUrl } from '@/api/series';
 import { useFormatDate } from '@/lib/timezone';
 import type { PersonInfo } from '@/api/person';
 

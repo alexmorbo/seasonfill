@@ -199,7 +199,6 @@ export function InstanceQueue() {
                   drillSlot={
                     openSeason !== null && row.series_id !== undefined ? (
                       <QueueSeasonDrill
-                        instanceName={name}
                         seriesId={row.series_id}
                         seasonNumber={openSeason}
                         isScanInFlight={isInFlight}
