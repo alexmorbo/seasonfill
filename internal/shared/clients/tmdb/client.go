@@ -86,6 +86,19 @@ const retryBackoffCap = 60 * time.Second
 // 60s cap still wins on header-driven long pauses.
 const defaultRetryAfterFallback = 10 * time.Second
 
+// AuthFailureReporter receives a notification every time TMDB returns
+// a 401 Unauthorized response. The reporter implementation (the
+// externalservices.UseCase) stamps the in-process validationResults
+// cache so the operator-facing /external-services endpoint surfaces
+// the failure. Story 489 (B-17).
+//
+// Implementations must be safe for concurrent use — doOnce can fire
+// from any worker goroutine. They MUST NOT block or perform IO; the
+// reporter is called inline on the request hot path.
+type AuthFailureReporter interface {
+	ReportAuthFailure(service string, body string)
+}
+
 // Client is the TMDB v3 wrapper. Construct via New; close via Close.
 //
 // Concurrency: every method is safe for concurrent use. The rate
@@ -99,14 +112,15 @@ const defaultRetryAfterFallback = 10 * time.Second
 // Close() the old Client before swapping in a new one (token /
 // proxy change).
 type Client struct {
-	baseURL    string
-	token      string
-	authFormat AuthFormat // Story 471 (B-18) — v3 (query) vs v4 (Bearer header).
-	lang       string
-	httpClient *http.Client
-	limiter    *tokenBucket
-	logger     *slog.Logger
-	clk        clock.Clock
+	baseURL      string
+	token        string
+	authFormat   AuthFormat // Story 471 (B-18) — v3 (query) vs v4 (Bearer header).
+	lang         string
+	httpClient   *http.Client
+	limiter      *tokenBucket
+	logger       *slog.Logger
+	clk          clock.Clock
+	authReporter AuthFailureReporter // Story 489 (B-17) — nil-OK.
 }
 
 // Config holds the constructor arguments. BaseURL defaults to
@@ -133,6 +147,11 @@ type Config struct {
 	RPS        float64
 	Logger     *slog.Logger
 	Clock      clock.Clock
+	// AuthFailureReporter is the optional 401-callback. Nil-OK — when
+	// nil, doOnce skips reporting. Story 489 (B-17). The reporter must
+	// be safe for concurrent use and non-blocking — see the interface
+	// doc.
+	AuthFailureReporter AuthFailureReporter
 }
 
 // New constructs a Client. Returns an error when Token or HTTPClient
@@ -211,14 +230,15 @@ func New(cfg Config) (*Client, error) {
 		CheckRedirect: cfg.HTTPClient.CheckRedirect,
 	}
 	c := &Client{
-		baseURL:    strings.TrimRight(base, "/"),
-		token:      cfg.Token,
-		authFormat: authFormat, // 471 (B-18)
-		lang:       lang,
-		httpClient: clientWithMetrics,
-		limiter:    newTokenBucket(interval, rateLimitBurst, clk),
-		logger:     logger,
-		clk:        clk,
+		baseURL:      strings.TrimRight(base, "/"),
+		token:        cfg.Token,
+		authFormat:   authFormat, // 471 (B-18)
+		lang:         lang,
+		httpClient:   clientWithMetrics,
+		limiter:      newTokenBucket(interval, rateLimitBurst, clk),
+		logger:       logger,
+		clk:          clk,
+		authReporter: cfg.AuthFailureReporter, // 489 (B-17)
 	}
 	// Story 313 — surface tmdb.rate_limit.resume INFO via the Client's
 	// logger. The bucket doesn't know about slog; we hand it a closure
@@ -404,6 +424,18 @@ func (c *Client) doOnce(ctx context.Context, path string, query url.Values) ([]b
 	default:
 		// 4xx other than 429 — terminal. Includes 401 (bad token),
 		// 404 (entity gone), 422 (bad request).
+		if resp.StatusCode == http.StatusUnauthorized && c.authReporter != nil {
+			// Story 489 (B-17): notify the use case so /external-services
+			// surfaces the failure. Truncate to 200 chars so the cache
+			// stays bounded — the body is operator-facing context, not
+			// an audit log. 401 (not 403): forbidden has different
+			// semantics in TMDB land (region restrictions etc).
+			snippet := string(body)
+			if len(snippet) > 200 {
+				snippet = snippet[:200] + "…"
+			}
+			c.authReporter.ReportAuthFailure("tmdb", snippet)
+		}
 		return nil, 0, 0, &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 }

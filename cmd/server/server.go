@@ -329,7 +329,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,
 	}
-	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, bootCfg, enrichRepos, txr, quotaCounter, log)
+	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, extSvcBundle.UC, bootCfg, enrichRepos, txr, quotaCounter, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}

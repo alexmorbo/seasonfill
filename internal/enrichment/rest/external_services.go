@@ -124,6 +124,15 @@ func (h *ExternalServicesHandler) writeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, infra.ErrInvalidService):
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, appext.ErrInvalidExternalKey):
+		// Story 489 (B-17): 422 = "value rejected by business logic"
+		// (RFC 4918 §11.2). FE branches on this slug to render an
+		// inline error under the API Key input and keep the form open.
+		// Wire shape mirrors the F-2c {error, message} envelope.
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":   "external_service_invalid_key",
+			"message": "The supplied API key was rejected by the upstream service",
+		})
 	default:
 		h.logger.ErrorContext(c.Request.Context(), "external_services.handler_err", slog.Any("err", err))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "internal error"})
@@ -132,15 +141,18 @@ func (h *ExternalServicesHandler) writeError(c *gin.Context, err error) {
 
 func externalServiceViewToDTO(v appext.MaskedView) dto.ExternalServiceDTO {
 	out := dto.ExternalServiceDTO{
-		Service:          string(v.Service),
-		Enabled:          v.Enabled,
-		APIKeyMasked:     v.APIKeyMasked,
-		APIKeyConfigured: v.APIKeyConfigured,
-		ProxyURLSet:      v.ProxyURLSet,
-		ProxyAuthSet:     v.ProxyAuthSet,
-		ProxyScheme:      v.ProxyScheme,
-		ProxyHost:        v.ProxyHost,
-		LastTestAt:       v.LastTestAt,
+		Service:               string(v.Service),
+		Enabled:               v.Enabled,
+		APIKeyMasked:          v.APIKeyMasked,
+		APIKeyConfigured:      v.APIKeyConfigured,
+		ProxyURLSet:           v.ProxyURLSet,
+		ProxyAuthSet:          v.ProxyAuthSet,
+		ProxyScheme:           v.ProxyScheme,
+		ProxyHost:             v.ProxyHost,
+		LastTestAt:            v.LastTestAt,
+		LastValidationAt:      v.LastValidationAt,
+		LastValidationStatus:  v.LastValidationStatus,
+		LastValidationMessage: v.LastValidationMessage,
 	}
 	if v.LastTestOutcome != "" {
 		out.LastTestOutcome = string(v.LastTestOutcome)

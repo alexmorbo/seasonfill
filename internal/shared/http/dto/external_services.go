@@ -16,6 +16,12 @@ type ExternalServiceDTO struct {
 	LastTestAt       *time.Time `json:"last_test_at,omitempty"`
 	LastTestOutcome  string     `json:"last_test_outcome,omitempty" example:"ok"`
 	LastTestMessage  string     `json:"last_test_message,omitempty"`
+	// Story 489 (B-17): runtime validation status. Empty when the
+	// service was never validated (live 401 hook never fired AND the
+	// operator has not saved a key); "valid" or "invalid_key" otherwise.
+	LastValidationAt      *time.Time `json:"last_validation_at,omitempty"`
+	LastValidationStatus  string     `json:"last_validation_status,omitempty" enums:"valid,invalid_key"`
+	LastValidationMessage string     `json:"last_validation_message,omitempty"`
 }
 
 // ExternalServiceListResponse wraps the list endpoint return.

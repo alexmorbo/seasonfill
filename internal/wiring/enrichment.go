@@ -181,6 +181,7 @@ type EnrichmentBundle struct {
 func BuildEnrichment(
 	rootCtx context.Context,
 	extSub *adapters.ExternalServicesSubscriber,
+	extSvcUC *appextsvc.UseCase,
 	bootstrap *config.Bootstrap,
 	repos EnrichmentRepoBundle,
 	tx appenrich.Transactor,
@@ -237,10 +238,16 @@ func BuildEnrichment(
 		mediaOnDemand   appmedia.OnDemandFetcher
 		mediaPrewarmer  appenrich.MediaPrewarmer // nil OK
 	)
+	// Story 489 (B-17) — extSvcUC implements tmdb.AuthFailureReporter.
+	// Wiring it into the factory means every TMDB client (boot path +
+	// every reload-rebuilt instance) reports 401s back to the use case
+	// so the operator-facing /external-services List + Dashboard banner
+	// surface the invalid-key signal without a pod restart.
 	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
-		Language: tmdb.DefaultLanguage,
-		RPS:      bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:   tmdbLog,
+		Language:            tmdb.DefaultLanguage,
+		RPS:                 bootstrap.ExternalServices.TMDBAPIRPS,
+		Logger:              tmdbLog,
+		AuthFailureReporter: extSvcUC,
 	}
 	if enabledAtBoot {
 		var err error
@@ -294,11 +301,12 @@ func BuildEnrichment(
 		// rebuilt by the subscriber because the downloader was
 		// constructed with the SHARED httpClient pointer below.
 		tmdbClient, err = tmdb.New(tmdb.Config{
-			Token:      settings.APIKey,
-			HTTPClient: httpClient,
-			Language:   tmdbFactoryCfg.Language,
-			RPS:        tmdbFactoryCfg.RPS,
-			Logger:     tmdbFactoryCfg.Logger,
+			Token:               settings.APIKey,
+			HTTPClient:          httpClient,
+			Language:            tmdbFactoryCfg.Language,
+			RPS:                 tmdbFactoryCfg.RPS,
+			Logger:              tmdbFactoryCfg.Logger,
+			AuthFailureReporter: tmdbFactoryCfg.AuthFailureReporter, // 489 (B-17)
 		})
 		if err != nil {
 			return nil, err

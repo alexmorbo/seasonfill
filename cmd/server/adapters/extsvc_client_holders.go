@@ -157,10 +157,16 @@ func BuildOMDbClient(settings infraextsvc.Settings) (*infraomdb.Client, error) {
 // the reload subscriber MUST carry into BuildTMDBClient — proxy / key
 // come from the live Settings but RPS + Language + Logger are wired at
 // boot and never change at runtime.
+//
+// Story 489 (B-17) — AuthFailureReporter is the optional 401-hook
+// passed to tmdb.New so every reload-rebuilt TMDB client surfaces
+// auth failures into the externalservices.UseCase validation cache.
+// Nil-OK; tests skip wiring it.
 type TMDBClientFactoryConfig struct {
-	Language string
-	RPS      float64
-	Logger   *slog.Logger
+	Language            string
+	RPS                 float64
+	Logger              *slog.Logger
+	AuthFailureReporter tmdb.AuthFailureReporter
 }
 
 // BuildTMDBClient is the factory the boot wiring + the reload subscriber
@@ -179,11 +185,12 @@ func BuildTMDBClient(settings infraextsvc.Settings, cfg TMDBClientFactoryConfig)
 		return nil, fmt.Errorf("tmdb http client: %w", err)
 	}
 	c, err := tmdb.New(tmdb.Config{
-		Token:      settings.APIKey,
-		HTTPClient: httpClient,
-		Language:   cfg.Language,
-		RPS:        cfg.RPS,
-		Logger:     cfg.Logger,
+		Token:               settings.APIKey,
+		HTTPClient:          httpClient,
+		Language:            cfg.Language,
+		RPS:                 cfg.RPS,
+		Logger:              cfg.Logger,
+		AuthFailureReporter: cfg.AuthFailureReporter, // Story 489 (B-17)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb client: %w", err)

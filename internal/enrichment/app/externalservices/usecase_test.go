@@ -73,10 +73,12 @@ type stubTester struct {
 	gotCtx    context.Context
 	deadlines []time.Time
 	sleep     time.Duration
+	calls     int
 }
 
 func (t *stubTester) Test(ctx context.Context, _ infra.Settings) (infra.Outcome, string, time.Duration) {
 	t.gotCtx = ctx
+	t.calls++
 	if dl, ok := ctx.Deadline(); ok {
 		t.deadlines = append(t.deadlines, dl)
 	}
@@ -497,6 +499,191 @@ func TestSchemeAndHostOf(t *testing.T) {
 		}
 		if got := hostOf(tc.raw); got != tc.host {
 			t.Errorf("hostOf(%q) = %q, want %q", tc.raw, got, tc.host)
+		}
+	}
+}
+
+// Story 489 (B-17): Upsert with a non-empty TMDB key runs the inline
+// validate-on-save probe; OutcomeAuthFailed rejects the save with
+// ErrInvalidExternalKey and does NOT persist.
+func TestUpsert_TMDB_ValidatesKeyAndRejects401(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	tester := &stubTester{outcome: infra.OutcomeAuthFailed, msg: "401 Invalid API key"}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	key := "garbage-key"
+	_, err := uc.Upsert(context.Background(), infra.ServiceTMDB, UpsertInput{
+		Enabled: true,
+		APIKey:  &key,
+	})
+	if !errors.Is(err, ErrInvalidExternalKey) {
+		t.Fatalf("expected ErrInvalidExternalKey, got %v", err)
+	}
+	if len(repo.upserts) != 0 {
+		t.Fatalf("expected zero persist calls on 401, got %d", len(repo.upserts))
+	}
+	if tester.calls != 1 {
+		t.Fatalf("expected tester called once, got %d", tester.calls)
+	}
+	// Cache stamped invalid_key for the list endpoint.
+	views, lerr := uc.List(context.Background())
+	if lerr != nil {
+		t.Fatalf("List: %v", lerr)
+	}
+	var tmdbView MaskedView
+	for _, v := range views {
+		if v.Service == infra.ServiceTMDB {
+			tmdbView = v
+		}
+	}
+	if tmdbView.LastValidationStatus != "invalid_key" {
+		t.Fatalf("expected LastValidationStatus=invalid_key, got %q", tmdbView.LastValidationStatus)
+	}
+	if tmdbView.LastValidationAt == nil {
+		t.Fatalf("expected LastValidationAt set")
+	}
+}
+
+// Story 489 (B-17): Upsert with APIKey=nil leaves the existing key
+// untouched and SKIPS the inline validate-on-save probe (the operator
+// is only adjusting other fields).
+func TestUpsert_TMDB_NoKeyChange_SkipsValidation(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "existing", APIKeyLast4: "ting",
+	}
+	tester := &stubTester{outcome: infra.OutcomeAuthFailed}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	_, err := uc.Upsert(context.Background(), infra.ServiceTMDB, UpsertInput{
+		Enabled: true,
+		APIKey:  nil, // omit — no validation
+	})
+	if err != nil {
+		t.Fatalf("expected nil err, got %v", err)
+	}
+	if tester.calls != 0 {
+		t.Fatalf("expected tester NOT called when api_key nil, got %d calls", tester.calls)
+	}
+	if len(repo.upserts) != 1 {
+		t.Fatalf("expected one persist call, got %d", len(repo.upserts))
+	}
+}
+
+// Story 489 (B-17): Upsert with APIKey="" is a clear-secret op — also
+// skips validation (nothing to probe).
+func TestUpsert_TMDB_EmptyKey_SkipsValidation(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{
+		Service: infra.ServiceTMDB, APIKey: "existing", APIKeyLast4: "ting",
+	}
+	tester := &stubTester{outcome: infra.OutcomeAuthFailed}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	empty := ""
+	_, err := uc.Upsert(context.Background(), infra.ServiceTMDB, UpsertInput{
+		Enabled: false,
+		APIKey:  &empty,
+	})
+	if err != nil {
+		t.Fatalf("expected nil err on clear, got %v", err)
+	}
+	if tester.calls != 0 {
+		t.Fatalf("expected tester NOT called on empty key, got %d calls", tester.calls)
+	}
+}
+
+// Story 489 (B-17): OMDb + TVDB do NOT trigger the inline validation
+// probe — the validation cache is TMDB-specific (B-17 scope).
+func TestUpsert_NonTMDB_SkipsValidation(t *testing.T) {
+	t.Parallel()
+	for _, svc := range []infra.Service{infra.ServiceOMDB, infra.ServiceTVDB} {
+		repo := newStubRepo()
+		tester := &stubTester{outcome: infra.OutcomeAuthFailed}
+		uc := NewUseCase(repo, nil, tester, nil, nil)
+		key := "some-key"
+		_, err := uc.Upsert(context.Background(), svc, UpsertInput{
+			Enabled: true,
+			APIKey:  &key,
+		})
+		if err != nil {
+			t.Fatalf("svc=%s expected nil err, got %v", svc, err)
+		}
+		if tester.calls != 0 {
+			t.Fatalf("svc=%s expected tester NOT called, got %d", svc, tester.calls)
+		}
+	}
+}
+
+// Story 489 (B-17): ReportAuthFailure (the tmdb.AuthFailureReporter
+// hook) stamps the validation cache and surfaces on the next List
+// poll. Mirrors the live 401 hot path.
+func TestReportAuthFailure_SurfacesInList(t *testing.T) {
+	t.Parallel()
+	uc := NewUseCase(newStubRepo(), nil, nil, nil, nil)
+	uc.ReportAuthFailure("tmdb", "401 Invalid API key")
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var tmdbView MaskedView
+	for _, v := range views {
+		if v.Service == infra.ServiceTMDB {
+			tmdbView = v
+		}
+	}
+	if tmdbView.LastValidationStatus != "invalid_key" {
+		t.Fatalf("expected LastValidationStatus=invalid_key, got %q", tmdbView.LastValidationStatus)
+	}
+	if tmdbView.LastValidationAt == nil {
+		t.Fatalf("expected LastValidationAt set")
+	}
+	if tmdbView.LastValidationMessage != "401 Invalid API key" {
+		t.Fatalf("unexpected LastValidationMessage: %q", tmdbView.LastValidationMessage)
+	}
+}
+
+// Story 489 (B-17): an unknown service slug in ReportAuthFailure is a
+// silent no-op (defensive — TMDB client hard-codes "tmdb" but a typo
+// elsewhere must not crash the use case).
+func TestReportAuthFailure_UnknownServiceNoOp(t *testing.T) {
+	t.Parallel()
+	uc := NewUseCase(newStubRepo(), nil, nil, nil, nil)
+	uc.ReportAuthFailure("imdb", "anything")
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, v := range views {
+		if v.LastValidationStatus != "" {
+			t.Fatalf("svc=%s expected empty validation status, got %q", v.Service, v.LastValidationStatus)
+		}
+	}
+}
+
+// Story 489 (B-17): a successful operator-driven Test clears the
+// invalid_key flag (UX symmetry — banner/badge disappear on next poll).
+func TestTest_OutcomeOK_ClearsInvalidKeyFlag(t *testing.T) {
+	t.Parallel()
+	repo := newStubRepo()
+	repo.row[infra.ServiceTMDB] = infra.Settings{Service: infra.ServiceTMDB, APIKey: "k"}
+	tester := &stubTester{outcome: infra.OutcomeOK, msg: "ok"}
+	uc := NewUseCase(repo, nil, tester, nil, nil)
+	// Seed with a prior invalid_key from a live 401.
+	uc.ReportAuthFailure("tmdb", "401 was here")
+	// Now operator clicks Test → ok.
+	if _, err := uc.Test(context.Background(), infra.ServiceTMDB); err != nil {
+		t.Fatalf("Test: %v", err)
+	}
+	views, err := uc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, v := range views {
+		if v.Service == infra.ServiceTMDB {
+			if v.LastValidationStatus != "valid" {
+				t.Fatalf("expected LastValidationStatus=valid, got %q", v.LastValidationStatus)
+			}
 		}
 	}
 }

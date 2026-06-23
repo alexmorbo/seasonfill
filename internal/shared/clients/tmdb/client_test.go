@@ -202,6 +202,101 @@ func TestClient_429NoHeader_ExpoFallback(t *testing.T) {
 	}
 }
 
+// Story 489 (B-17): doOnce must invoke AuthFailureReporter when the
+// upstream returns 401. The reporter is called exactly once per 401
+// response (no retry — 401 is "terminal 4xx"). Body snippet must
+// surface for operator-visible context.
+func TestClient_DoOnce_Reports401ToReporter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"status_code":7,"status_message":"Invalid API key"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	rep := &fakeAuthReporter{}
+	c, err := New(Config{
+		BaseURL:             srv.URL,
+		Token:               "tk",
+		Language:            "en-US",
+		HTTPClient:          &http.Client{Timeout: 5 * time.Second},
+		AuthFailureReporter: rep,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer c.Close()
+
+	_, err = c.GetTV(context.Background(), 1, "")
+	if err == nil {
+		t.Fatalf("expected APIError on 401, got nil")
+	}
+	if got := rep.Calls(); got != 1 {
+		t.Fatalf("expected reporter called once, got %d", got)
+	}
+	svc, body := rep.Last()
+	if svc != "tmdb" {
+		t.Fatalf("expected service=tmdb, got %q", svc)
+	}
+	if !strings.Contains(body, "Invalid API key") {
+		t.Fatalf("expected body to contain 'Invalid API key', got %q", body)
+	}
+}
+
+// Story 489 (B-17): 403 and 404 must NOT trigger the reporter — the
+// signal is auth-specific.
+func TestClient_DoOnce_DoesNotReportOn403Or404(t *testing.T) {
+	for _, code := range []int{http.StatusForbidden, http.StatusNotFound} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(code)
+		}))
+		rep := &fakeAuthReporter{}
+		c, err := New(Config{
+			BaseURL:             srv.URL,
+			Token:               "tk",
+			Language:            "en-US",
+			HTTPClient:          &http.Client{Timeout: 5 * time.Second},
+			AuthFailureReporter: rep,
+		})
+		if err != nil {
+			srv.Close()
+			t.Fatalf("New: %v", err)
+		}
+		_, _ = c.GetTV(context.Background(), 1, "")
+		c.Close()
+		srv.Close()
+		if got := rep.Calls(); got != 0 {
+			t.Fatalf("status %d must not invoke reporter, got %d calls", code, got)
+		}
+	}
+}
+
+type fakeAuthReporter struct {
+	mu          sync.Mutex
+	calls       int
+	lastService string
+	lastBody    string
+}
+
+func (f *fakeAuthReporter) ReportAuthFailure(service, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.lastService = service
+	f.lastBody = body
+}
+
+func (f *fakeAuthReporter) Calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func (f *fakeAuthReporter) Last() (string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastService, f.lastBody
+}
+
 func TestClient_NotFound_Terminal(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

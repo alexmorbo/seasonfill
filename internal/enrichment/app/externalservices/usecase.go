@@ -13,6 +13,12 @@ import (
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
+// ErrInvalidExternalKey is returned by Upsert when the inline
+// validate-on-save probe rejects the supplied API key. The REST layer
+// maps this to HTTP 422 with the `external_service_invalid_key` slug.
+// Story 489 (B-17).
+var ErrInvalidExternalKey = errors.New("externalservices: invalid api key")
+
 // UseCase orchestrates the four operator-facing flows: List (masked),
 // Upsert (PUT semantics), Test (real call), and the env-aware Read
 // helper that the reload subscriber consumes. envLookup is injected
@@ -25,14 +31,22 @@ import (
 // without a follow-up migration. Pod restart clears the cache; the
 // operator clicks Test again. Keyed by infra.Service; value is
 // testResult.
+//
+// Story 489 (B-17) — validationResults caches the live invalid-key
+// signal per service. Populated by ReportAuthFailure (called by the
+// TMDB client on a 401 from any enrichment request) and by
+// recordValidationOK (called after a successful inline validate-on-save
+// or a successful Test). Mirrors the testResults pattern; pod restart
+// clears the cache and the next 401 immediately re-populates it.
 type UseCase struct {
-	repo        Repository
-	envLookup   infra.EnvLookup
-	tester      Tester
-	publisher   Publisher
-	logger      *slog.Logger
-	now         func() time.Time
-	testResults sync.Map // map[infra.Service]testResult
+	repo              Repository
+	envLookup         infra.EnvLookup
+	tester            Tester
+	publisher         Publisher
+	logger            *slog.Logger
+	now               func() time.Time
+	testResults       sync.Map // map[infra.Service]testResult
+	validationResults sync.Map // map[infra.Service]validationResult — Story 489 (B-17)
 }
 
 // testResult is the per-pod-lifetime view of the last Test() outcome
@@ -41,6 +55,16 @@ type UseCase struct {
 type testResult struct {
 	At      time.Time
 	Outcome infra.Outcome
+	Message string
+}
+
+// validationResult is the runtime invalid-key signal for one service.
+// Status is "valid" or "invalid_key"; the empty string means "never
+// validated" (the caller renders an empty wire field).
+// Story 489 (B-17).
+type validationResult struct {
+	At      time.Time
+	Status  string
 	Message string
 }
 
@@ -81,6 +105,47 @@ type MaskedView struct {
 	LastTestAt       *time.Time
 	LastTestOutcome  infra.Outcome
 	LastTestMessage  string
+	// Story 489 (B-17): runtime validation status surfaced by the TMDB
+	// client's 401 hook + the inline validate-on-save probe. Empty
+	// Status = never validated (FE renders nothing). "valid" or
+	// "invalid_key" otherwise.
+	LastValidationAt      *time.Time
+	LastValidationStatus  string
+	LastValidationMessage string
+}
+
+// ReportAuthFailure implements tmdb.AuthFailureReporter. The TMDB
+// client calls this from doOnce when it sees a 401. Idempotent — every
+// 401 stamps now() + "invalid_key" + the truncated response body. The
+// /external-services List/Get endpoints surface the latest stamp via
+// the maskWithTestResult fold so the operator sees the failure on the
+// next poll.
+//
+// Story 489 (B-17). The reporter is on the request hot path — only a
+// sync.Map write and a single WarnContext log line. No DB, no IO.
+func (uc *UseCase) ReportAuthFailure(service string, body string) {
+	svc := infra.Service(service)
+	if !svc.Valid() {
+		return
+	}
+	uc.validationResults.Store(svc, validationResult{
+		At:      uc.now(),
+		Status:  "invalid_key",
+		Message: body,
+	})
+	uc.logger.WarnContext(context.Background(), "external_services.auth_failure_reported",
+		slog.String("service", service),
+	)
+}
+
+// recordValidationOK clears the invalid_key flag after a successful
+// validation probe (inline Upsert validate-on-save OR an explicit
+// operator-driven Test that returns OutcomeOK). Story 489 (B-17).
+func (uc *UseCase) recordValidationOK(svc infra.Service) {
+	uc.validationResults.Store(svc, validationResult{
+		At:     uc.now(),
+		Status: "valid",
+	})
 }
 
 // List returns the merged (env > DB) masked view for every service.
@@ -118,9 +183,9 @@ func (uc *UseCase) Get(ctx context.Context, svc infra.Service) (MaskedView, erro
 }
 
 // maskWithTestResult derives the wire MaskedView and folds in the
-// in-process Test() outcome cache. Used by List + Get; Upsert returns
-// a fresh masked view via the bare mask() helper because the test
-// result is unchanged by a config write.
+// in-process Test() outcome cache plus the Story 489 (B-17) validation
+// cache. Used by List, Get, AND Upsert (so the response after a save
+// includes the validation stamp the inline probe just produced).
 func (uc *UseCase) maskWithTestResult(svc infra.Service, merged infra.Settings) MaskedView {
 	view := mask(merged)
 	if cached, ok := uc.testResults.Load(svc); ok {
@@ -129,6 +194,15 @@ func (uc *UseCase) maskWithTestResult(svc infra.Service, merged infra.Settings) 
 			view.LastTestAt = &at
 			view.LastTestOutcome = tr.Outcome
 			view.LastTestMessage = tr.Message
+		}
+	}
+	// Story 489 (B-17): fold the live 401-hook / validate-on-save cache.
+	if cached, ok := uc.validationResults.Load(svc); ok {
+		if vr, ok := cached.(validationResult); ok {
+			at := vr.At
+			view.LastValidationAt = &at
+			view.LastValidationStatus = vr.Status
+			view.LastValidationMessage = vr.Message
 		}
 	}
 	return view
@@ -148,6 +222,15 @@ type UpsertInput struct {
 // Upsert merges input into the existing row (or a fresh zero row),
 // writes it, and republishes the snapshot. Returns the post-write
 // masked view.
+//
+// Story 489 (B-17) — when the operator sets a non-empty TMDB API key,
+// the use case synchronously probes TMDB via the injected Tester
+// BEFORE persisting. A 401 (OutcomeAuthFailed) surfaces as
+// ErrInvalidExternalKey; the row is NOT written, the validation cache
+// is stamped invalid_key so the next List/Get reflects it, and the
+// REST layer translates the sentinel to HTTP 422. OMDb/TVDB skip the
+// inline probe — their classifier semantics differ and the operator
+// pain B-17 names is TMDB-specific.
 func (uc *UseCase) Upsert(ctx context.Context, svc infra.Service, in UpsertInput) (MaskedView, error) {
 	if !svc.Valid() {
 		return MaskedView{}, infra.ErrInvalidService
@@ -172,6 +255,36 @@ func (uc *UseCase) Upsert(ctx context.Context, svc infra.Service, in UpsertInput
 	if in.ProxyPassword != nil {
 		next.ProxyPassword = *in.ProxyPassword
 	}
+
+	// Story 489 (B-17): validate-on-save for TMDB only. Probe the merged
+	// settings synchronously when the operator supplied a non-empty key;
+	// reject the save with ErrInvalidExternalKey on 401 so the REST
+	// layer can surface 422 + the FE keeps the form open with the bad
+	// value in the input.
+	if svc == infra.ServiceTMDB && in.APIKey != nil && *in.APIKey != "" && uc.tester != nil {
+		tctx, cancel := context.WithTimeout(ctx, testTimeout)
+		merged := infra.Merge(svc, next, uc.envLookup)
+		outcome, message, _ := uc.tester.Test(tctx, merged)
+		cancel()
+		if outcome == infra.OutcomeAuthFailed {
+			uc.validationResults.Store(svc, validationResult{
+				At:      uc.now(),
+				Status:  "invalid_key",
+				Message: message,
+			})
+			uc.logger.WarnContext(ctx, "external_services.upsert.rejected_invalid_key",
+				slog.String("service", string(svc)),
+				slog.String("message", message),
+			)
+			return MaskedView{}, ErrInvalidExternalKey
+		}
+		if outcome == infra.OutcomeOK {
+			// Probe succeeded — record a valid stamp before persisting
+			// so the response reflects the just-confirmed state.
+			uc.recordValidationOK(svc)
+		}
+	}
+
 	if err := uc.repo.Upsert(ctx, next); err != nil {
 		return MaskedView{}, err
 	}
@@ -184,7 +297,7 @@ func (uc *UseCase) Upsert(ctx context.Context, svc infra.Service, in UpsertInput
 		slog.String("proxy_scheme", schemeOf(next.ProxyURL)),
 	)
 	merged := infra.Merge(svc, next, uc.envLookup)
-	return mask(merged), nil
+	return uc.maskWithTestResult(svc, merged), nil
 }
 
 // TestResult is the wire shape /test returns to the UI.
@@ -238,6 +351,21 @@ func (uc *UseCase) Test(ctx context.Context, svc infra.Service) (TestResult, err
 		Outcome: outcome,
 		Message: message,
 	})
+	// Story 489 (B-17): an operator-driven Test that succeeds clears
+	// any prior invalid_key flag (UX symmetry — banner+badge disappear
+	// on next poll). An auth_failed Test mirrors the live 401 hook and
+	// stamps the cache so the operator-driven probe and the runtime
+	// hook converge on one signal.
+	switch outcome {
+	case infra.OutcomeOK:
+		uc.recordValidationOK(svc)
+	case infra.OutcomeAuthFailed:
+		uc.validationResults.Store(svc, validationResult{
+			At:      uc.now(),
+			Status:  "invalid_key",
+			Message: message,
+		})
+	}
 	if rowExists {
 		// Persistence uses the parent ctx; under D-5 this is a no-op
 		// returning nil — kept for port symmetry. If a future story
