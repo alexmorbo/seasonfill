@@ -10,6 +10,9 @@ export type PersonSyncInfo = components['schemas']['dto.SyncInfo'];
 
 export type LibrarySort = 'recent' | 'episodes' | 'title';
 export const LIBRARY_SORT_VALUES: readonly LibrarySort[] = ['recent', 'episodes', 'title'] as const;
+
+export type OtherSort = 'recent' | 'votes_desc' | 'title_asc';
+export const OTHER_SORT_VALUES: readonly OtherSort[] = ['recent', 'votes_desc', 'title_asc'] as const;
 export const PERSON_STUB_POLL_MS = 5_000;
 export const PERSON_STUB_SOURCE = 'tmdb_person';
 

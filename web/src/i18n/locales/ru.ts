@@ -2156,6 +2156,12 @@ export const ru: Translations = {
       episodes: 'По эпизодам',
       title: 'А–Я',
     },
+    otherSort: {
+      label: 'Сортировать',
+      recent: 'Свежие',
+      votes_desc: 'По популярности',
+      title_asc: 'А–Я',
+    },
     relTime: {
       justNow: 'только что',
       minutesAgo_one: '{{count}} минуту назад',

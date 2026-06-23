@@ -60,4 +60,71 @@ describe('<OtherCreditsGrid />', () => {
     ]} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('sort=votes_desc reorders rows by vote_count and renders the votes chip', async () => {
+    const rows = [
+      { tmdb_media_id: 1, title: 'A', media_type: 'tv', kind: 'cast', vote_count: 100, year: 2024 },
+      { tmdb_media_id: 2, title: 'B', media_type: 'tv', kind: 'cast', vote_count: 1000, year: 2023 },
+    ];
+    r(<OtherCreditsGrid credits={rows} />);
+    // Default order — A first (BE order preserved).
+    expect(screen.getAllByTestId('person-other-card')[0]).toHaveTextContent('A');
+    // Switch sort to votes_desc.
+    fireEvent.click(screen.getByTestId('person-other-sort-trigger'));
+    fireEvent.click(screen.getByTestId('person-other-sort-option-votes_desc'));
+    // B has higher vote_count; should now be first.
+    expect(screen.getAllByTestId('person-other-card')[0]).toHaveTextContent('B');
+    // Votes chip rendered with k-shortened value.
+    const chips = screen.getAllByTestId('person-other-votes-chip');
+    expect(chips[0]).toHaveTextContent('1.0k');
+  });
+
+  it('renders department pill only for kind="crew" with department set', () => {
+    const crew = [
+      { tmdb_media_id: 1, title: 'Show', media_type: 'tv', kind: 'crew',
+        department: 'Production', role_label: 'Producer' },
+    ];
+    const { unmount: u1 } = r(<OtherCreditsGrid credits={crew} />);
+    expect(screen.getByTestId('person-other-dept-pill')).toHaveTextContent('Production');
+    u1();
+
+    const cast = [
+      { tmdb_media_id: 2, title: 'Show', media_type: 'tv', kind: 'cast',
+        department: 'Acting', role_label: 'Lead' },
+    ];
+    const { unmount: u2 } = r(<OtherCreditsGrid credits={cast} />);
+    expect(screen.queryByTestId('person-other-dept-pill')).toBeNull();
+    u2();
+
+    const crewNullDept = [
+      { tmdb_media_id: 3, title: 'Show', media_type: 'tv', kind: 'crew',
+        role_label: 'Crew' },
+    ];
+    r(<OtherCreditsGrid credits={crewNullDept} />);
+    expect(screen.queryByTestId('person-other-dept-pill')).toBeNull();
+  });
+
+  it('renders original_title subtitle only when it differs from title', () => {
+    const differs = [
+      { tmdb_media_id: 1, title: 'Yojimbo', media_type: 'tv', kind: 'cast',
+        original_title: 'Yôjinbô' },
+    ];
+    const { unmount: u1 } = r(<OtherCreditsGrid credits={differs} />);
+    expect(screen.getByTestId('person-other-original-title')).toHaveTextContent('Yôjinbô');
+    u1();
+
+    const sameDifferentCase = [
+      { tmdb_media_id: 2, title: 'Yojimbo', media_type: 'tv', kind: 'cast',
+        original_title: 'yojimbo' },
+    ];
+    const { unmount: u2 } = r(<OtherCreditsGrid credits={sameDifferentCase} />);
+    expect(screen.queryByTestId('person-other-original-title')).toBeNull();
+    u2();
+
+    const missing = [
+      { tmdb_media_id: 3, title: 'X', media_type: 'tv', kind: 'cast' },
+    ];
+    r(<OtherCreditsGrid credits={missing} />);
+    expect(screen.queryByTestId('person-other-original-title')).toBeNull();
+  });
 });

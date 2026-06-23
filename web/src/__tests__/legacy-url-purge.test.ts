@@ -32,7 +32,13 @@ const ALLOWED_SUBSTRINGS = [
 // trimmed stale @Router annotations, and legacy-emit detection tests
 // that intentionally mention the strings in assertions).
 const ALLOWED_FILES = new Set<string>([
-  // schema.ts is generated; product-code coverage matters.
+  // schema.ts is generated; product-code coverage matters. Story N-1f
+  // dropped the 11 catalog/seriesdetail @Router orphans from the BE,
+  // but a single per-instance grabs/{id}/episode-files path remains
+  // (tracked for the dead-code sweep follow-up) and the global series
+  // DTOs still carry `@description` comments that mention the legacy
+  // per-instance URLs by name. Keep the allowlist entry until both
+  // are cleaned up by a future BE pass.
   'api/schema.ts',
   '__tests__/legacy-url-purge.test.ts',
   // Counters.ts intentionally references the old URL behind a

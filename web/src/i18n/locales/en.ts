@@ -2158,6 +2158,12 @@ export const en = {
       episodes: 'By episodes',
       title: 'A–Z',
     },
+    otherSort: {
+      label: 'Sort by',
+      recent: 'Recent',
+      votes_desc: 'By votes',
+      title_asc: 'A–Z',
+    },
     relTime: {
       justNow: 'just now',
       minutesAgo_one: '{{count}} minute ago',
