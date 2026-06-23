@@ -115,6 +115,19 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('overview-section')).toBeInTheDocument();
     expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument();
     expect(screen.getByTestId('rail-card')).toBeInTheDocument();
+    // B-36: awards block renders under cast (no longer inside RailCard).
+    const awardsBlock = screen.getByTestId('awards-block');
+    expect(awardsBlock).toBeInTheDocument();
+    expect(screen.getByTestId('awards-text')).toHaveTextContent(
+      '4 wins, 18 nominations',
+    );
+    expect(screen.queryByTestId('rail-row-awards')).toBeNull();
+    // DOM order — cast strip must come BEFORE the awards block.
+    const castStrip = screen.getByTestId('cast-strip');
+    expect(
+      castStrip.compareDocumentPosition(awardsBlock) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
     expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();
     expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument();

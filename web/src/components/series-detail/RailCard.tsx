@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { Trophy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   mediaUrl,
@@ -16,7 +15,10 @@ type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
 export interface RailCardProps {
   readonly status: StatusToken;
   readonly hero: SeriesHero | undefined;
-  readonly awards?: string | undefined;
+  // B-36: `awards` relocated to <AwardsBlock /> under the cast strip.
+  // `omdbDegraded` is retained as a no-op pass-through for future rail
+  // rows that may need degraded gating (RailCard call site still passes
+  // it; deletion would force a SeriesDetail.tsx edit per drop).
   readonly omdbDegraded?: boolean | undefined;
   readonly keywords?: readonly TaxonomyChip[] | undefined;
   readonly className?: string | undefined;
@@ -47,7 +49,7 @@ function RailRow({ label, value, accent, testId }: RailRowProps) {
 }
 
 export function RailCard({
-  status, hero, awards, omdbDegraded, keywords, className,
+  status, hero, omdbDegraded: _omdbDegraded, keywords, className,
 }: RailCardProps) {
   const { t } = useTranslation();
 
@@ -63,7 +65,7 @@ export function RailCard({
   const showCountries = countriesList.length > 0;
   const showPremiereDate = Boolean(hero?.premiere_date);
   const showOriginalLanguage = Boolean(hero?.original_language);
-  const showAwards = Boolean(awards) && !omdbDegraded;
+  // B-36: awards row removed — rendered by <AwardsBlock /> under cast.
   const showNetwork = Boolean(network?.name);
   const showKeywords = (keywords?.length ?? 0) > 0;
 
@@ -141,18 +143,7 @@ export function RailCard({
             testId="rail-row-original-language"
           />
         )}
-        {showAwards && (
-          <RailRow
-            label={t('seriesDetail.rail.awards')}
-            testId="rail-row-awards"
-            value={
-              <>
-                <Trophy className="w-3.5 h-3.5 text-warn" aria-hidden="true" />
-                <span>{awards}</span>
-              </>
-            }
-          />
-        )}
+        {/* B-36: awards row relocated to <AwardsBlock /> under cast. */}
       </div>
 
       {showKeywords && (

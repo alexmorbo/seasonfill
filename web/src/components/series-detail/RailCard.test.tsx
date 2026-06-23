@@ -17,7 +17,7 @@ describe('RailCard', () => {
     expect(row.querySelector('.text-accent')).toBeTruthy();
   });
 
-  it('renders network/studio/countries/awards rows when data present', () => {
+  it('renders network/studio/countries rows when data present', () => {
     const hero: SeriesHero = {
       title: 'X',
       networks: [{ id: 1, name: 'AppleTV+', logo_asset: 'h' }],
@@ -29,14 +29,15 @@ describe('RailCard', () => {
     render(withI18n(<RailCard
       status="ended"
       hero={hero}
-      awards="4 wins · 18 nominations"
     />));
     expect(screen.getByTestId('rail-row-network')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-studio')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-premiere-date')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-original-language')).toBeInTheDocument();
-    expect(screen.getByTestId('rail-row-awards')).toBeInTheDocument();
+    // B-36: awards relocated to <AwardsBlock /> — RailCard no longer
+    // renders the row regardless of input.
+    expect(screen.queryByTestId('rail-row-awards')).toBeNull();
   });
 
   it('hides the studio row when hero.studio is missing', () => {
@@ -103,14 +104,11 @@ describe('RailCard', () => {
     expect(screen.queryByTestId('rail-row-original-language')).toBeNull();
   });
 
-  it('hides the awards row when omdb is degraded', () => {
+  it('never renders awards row (B-36: relocated to <AwardsBlock />)', () => {
     const hero: SeriesHero = { title: 'X' };
-    render(withI18n(<RailCard
-      status="ended"
-      hero={hero}
-      awards="4 wins"
-      omdbDegraded
-    />));
+    // `awards` is no longer in RailCardProps — passing it would TS-fail.
+    // This guards the runtime invariant in case the type drifts.
+    render(withI18n(<RailCard status="ended" hero={hero} omdbDegraded />));
     expect(screen.queryByTestId('rail-row-awards')).toBeNull();
   });
 

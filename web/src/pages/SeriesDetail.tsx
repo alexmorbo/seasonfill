@@ -10,6 +10,7 @@ import { SeriesHero } from '@/components/series-detail/SeriesHero';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
 import { CastStrip } from '@/components/series-detail/CastStrip';
+import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
 import { RecentStrip } from '@/components/series-detail/RecentStrip';
 import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
@@ -175,13 +176,20 @@ export function SeriesDetail() {
                       {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
                     />
                   )}
+                  {/* B-36: awards relocated from right MetaSidebar to under
+                      cast. AwardsBlock self-hides when awards is empty / N/A
+                      or omdb is degraded — no outer guard needed here. */}
+                  <AwardsBlock
+                    awards={data.overview?.awards ?? undefined}
+                    omdbDegraded={omdbDegraded}
+                    {...(syncedAt ? { syncedAt } : {})}
+                  />
                 </>
               }
               right={
                 <RailCard
                   status={status}
                   hero={hero}
-                  {...(data.overview?.awards ? { awards: data.overview.awards } : {})}
                   omdbDegraded={omdbDegraded}
                   {...(data.overview?.keywords ? { keywords: data.overview.keywords } : {})}
                 />
