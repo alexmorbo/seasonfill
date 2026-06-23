@@ -280,7 +280,7 @@ func BuildEnrichment(
 		// SEASONFILL_TMDB_RPS still honoured by config.FromEnv as an
 		// alias) + the wiring logger so adaptive pause + resume INFO
 		// lines surface under the enrichment component prefix. 0 from
-		// config means "tmdb package picks its default (4.5 rps)".
+		// config means "tmdb package picks its default (50 rps)".
 		if os.Getenv("SEASONFILL_TMDB_API_RPS") == "" && os.Getenv("SEASONFILL_TMDB_RPS") != "" {
 			enrichmentLog.WarnContext(rootCtx, "config.deprecated_env",
 				slog.String("env", "SEASONFILL_TMDB_RPS"),

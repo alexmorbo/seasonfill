@@ -58,16 +58,17 @@ const DefaultBaseURL = "https://api.themoviedb.org/3"
 // stable when an operator's UI is in any language.
 const DefaultLanguage = "en-US"
 
-// defaultRPS is the per-host self-cap target per PRD §5.1.1 + backlog
-// B-2. TMDB removed its published rate limit in 2019; community
-// measurements put the practical per-IP ceiling at 40-50 sustained
-// rps before 429s appear. PRD §5.1.1 line 593 mandates 4.5 rps as a
-// conservative default that leaves ample headroom for Discovery /
-// search / image fetches without triggering upstream throttling
-// (B-2). The adaptive pause (do() → tokenBucket.PauseUntil) handles
-// any residual overshoot. Override via Config.RPS (env:
-// SEASONFILL_TMDB_API_RPS).
-const defaultRPS = 4.5
+// defaultRPS is the Story 313 default target — TMDB has no published
+// rate limit since 2019, community measurements put the practical
+// per-IP ceiling at 40-50 sustained rps before 429s appear. We pick
+// 50 as the "use 100% of what TMDB gives us" static cap; on 429 the
+// adaptive PauseUntil (do() → tokenBucket.PauseUntil →
+// applyPause) throttles all goroutines for the Retry-After window,
+// so overshoot is self-correcting. Clients SHOULD NOT lower the cap
+// further unless they have evidence of upstream tightening — the
+// pause path already handles transient throttling correctly.
+// Override via Config.RPS (env: SEASONFILL_TMDB_API_RPS).
+const defaultRPS = 50.0
 
 // rateLimitBurst is the bucket's capacity — how many calls can land
 // back-to-back without waiting. Matches the historical "burst == cap
@@ -136,7 +137,7 @@ type Client struct {
 // infrastructure/externalservices.HttpClientFor.
 //
 // Story 313 / backlog B-2:
-//   - RPS — float self-cap target. 0 → defaultRPS (4.5). Drives the
+//   - RPS — float self-cap target. 0 → defaultRPS (50). Drives the
 //     token-bucket refill interval (1s / RPS).
 //   - Logger — used for tmdb.rate_limit.pause / resume INFO lines.
 //     Nil-OK; falls back to slog.Default().
@@ -174,7 +175,7 @@ type Config struct {
 // is missing — both are required for any real call.
 //
 // Story 313 / backlog B-2:
-//   - cfg.RPS = 0 → defaultRPS (4.5). Negative is also clamped to default.
+//   - cfg.RPS = 0 → defaultRPS (50). Negative is also clamped to default.
 //   - cfg.Logger = nil → slog.Default() so pause/resume INFO lines
 //     still surface in production.
 func New(cfg Config) (*Client, error) {
