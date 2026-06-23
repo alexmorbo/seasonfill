@@ -3722,6 +3722,345 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List series-cache entries (global)
+         * @description Same shape as /api/v1/instances/{name}/series-cache; the
+         *     instance is taken from `?instance=` query rather than path.
+         *     Required query param: instance. Other filter/sort/cursor
+         *     params identical to the per-instance endpoint.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description Instance name */
+                    readonly instance: string;
+                    /** @description all|imported|missing */
+                    readonly state?: string;
+                    /** @description updated_desc|title_asc|air_date_desc */
+                    readonly sort?: string;
+                    /** @description Page size (≤200) */
+                    readonly limit?: number;
+                    /** @description Opaque keyset cursor */
+                    readonly cursor?: string;
+                    /** @description Substring (title / slug) */
+                    readonly q?: string;
+                    /** @description true|false (tri-state) */
+                    readonly monitored?: string;
+                    /** @description Pipe-separated network names */
+                    readonly networks?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesCacheList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/series/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Composite series detail document (global)
+         * @description Same shape as the per-instance /api/v1/instances/{name}/series/{id}
+         *     endpoint, but resolves the preferred instance automatically
+         *     from the canonical series.id. When the series is in zero
+         *     libraries (TMDB-only) the response carries `in_library_instances=[]`
+         *     and the per-instance branches (Library / Download / Seasons /
+         *     Cast) are empty — the Hero block is populated from the
+         *     canon row.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (default en-US) */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesDetailResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/series/{id}/regrab": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Re-enrich a series (global)
+         * @description Resolves the canonical series.id to the preferred Sonarr
+         *     instance (lexicographically-first instance that carries
+         *     this series), then enqueues series + cast + OMDb re-enrich
+         *     at PriorityHot — same semantics as the per-instance
+         *     /series/{id}/refresh endpoint.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description Accepted */
+                readonly 202: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesRefreshResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/series/networks": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Distinct networks for an instance's series-cache (global) */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description Instance name */
+                    readonly instance: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesCacheNetworksList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/settings/timezone": {
         readonly parameters: {
             readonly query?: never;
@@ -5566,6 +5905,18 @@ export type components = {
             readonly download?: components["schemas"]["dto.DownloadChip"];
             readonly external_links?: components["schemas"]["dto.ExternalLinks"];
             readonly hero?: components["schemas"]["dto.SeriesHero"];
+            /**
+             * @description InLibraryInstances is the sorted list of Sonarr instance names that
+             *     currently carry this series (canonical series.id resolution). Empty
+             *     slice `[]` when the series is in zero libraries (TMDB-only canon).
+             *     Always present on the wire — the FE branches "Add to Sonarr" vs
+             *     per-instance widgets on `length > 0`. Story 491 / N-1a.
+             * @example [
+             *       "homelab",
+             *       "beta"
+             *     ]
+             */
+            readonly in_library_instances?: readonly string[];
             /**
              * @description Instance is the Sonarr instance the request hit.
              *     Echoed for clients that need to disambiguate cross-instance

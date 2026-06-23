@@ -38,6 +38,9 @@ func (f *refreshFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.Instanc
 func (f *refreshFakeCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
+func (f *refreshFakeCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
+	return nil, nil
+}
 
 type refreshFakeSeries struct {
 	canon CanonView

@@ -39,6 +39,9 @@ func (f *cascadeFakeCache) FetchLastGrabInfo(_ context.Context, _ domain.Instanc
 func (f *cascadeFakeCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
+func (f *cascadeFakeCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
+	return nil, nil
+}
 
 type cascadeFakeEpisodes struct {
 	calls        atomic.Int32

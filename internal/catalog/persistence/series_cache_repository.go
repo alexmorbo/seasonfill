@@ -289,6 +289,38 @@ func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID dom
 	return out, nil
 }
 
+// GetInstancesBySeriesID returns the sorted, distinct instance names
+// that currently carry this canonical series.id (deleted_at IS NULL).
+// Empty result when no active cache row points at the series.
+//
+// Portable across SQLite + Postgres: DISTINCT + ORDER BY, no array_agg.
+// Sorting at the SQL edge means callers get a deterministic preferred-
+// instance pick without re-sorting application-side.
+//
+// Used by GlobalComposerUseCase + GlobalSeriesHandler.Regrab to resolve
+// the preferred instance for a canonical series.id (story 491 / N-1a).
+// The wider ListBySeriesID method above is the richer projection — this
+// method exists for callers that only need the name list.
+func (r *SeriesCacheRepository) GetInstancesBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]domain.InstanceName, error) {
+	if seriesID <= 0 {
+		return nil, fmt.Errorf("get instances by series_id: invalid id %d", seriesID)
+	}
+	var rows []domain.InstanceName
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Table("series_cache").
+		Where("series_id = ? AND deleted_at IS NULL", seriesID).
+		Distinct("instance_name").
+		Order("instance_name ASC").
+		Pluck("instance_name", &rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("get instances by series_id: %w", err)
+	}
+	if rows == nil {
+		rows = []domain.InstanceName{}
+	}
+	return rows, nil
+}
+
 func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	var rows []cacheRow
 	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).

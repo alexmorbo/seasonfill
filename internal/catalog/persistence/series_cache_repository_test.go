@@ -1328,3 +1328,88 @@ func TestSeriesCacheRepository_AiredEpisodeCount_DefaultZero(t *testing.T) {
 		})
 	}
 }
+
+// Story 491 / N-1a: GetInstancesBySeriesID returns the sorted, distinct
+// instance names that currently carry a canonical series.id. Verifies:
+//   - 2 instances → sorted ASC list
+//   - 1 instance → single-element list
+//   - 0 instances → empty slice (non-nil)
+//   - soft-deleted row is excluded
+//   - invalid id (≤0) → error
+func TestSeriesCacheRepository_GetInstancesBySeriesID(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Seed: two entries sharing the same TMDB id collapse to one
+			// canon series row (alpha + beta). gamma uses default
+			// sampleEntry external ids so it gets its own canon row.
+			sharedTVDB := domain.TVDBID(99001)
+			sharedTMDB := domain.TMDBID(99002)
+			sharedIMDB := domain.IMDBID("tt9000001")
+			alphaEntry := sampleEntry("alpha", 7)
+			alphaEntry.TVDBID = &sharedTVDB
+			alphaEntry.TMDBID = &sharedTMDB
+			alphaEntry.IMDBID = &sharedIMDB
+			betaEntry := sampleEntry("beta", 9)
+			betaEntry.TVDBID = &sharedTVDB
+			betaEntry.TMDBID = &sharedTMDB
+			betaEntry.IMDBID = &sharedIMDB
+			gammaEntry := sampleEntry("gamma", 11)
+
+			require.NoError(t, repo.Upsert(ctx, alphaEntry))
+			require.NoError(t, repo.Upsert(ctx, betaEntry))
+			require.NoError(t, repo.Upsert(ctx, gammaEntry))
+
+			// Resolve the shared canon series_id.
+			got, err := repo.Get(ctx, "alpha", 7)
+			require.NoError(t, err)
+			require.NotNil(t, got.SeriesID, "alpha must have canon series_id")
+			sharedID := *got.SeriesID
+
+			gammaGot, err := repo.Get(ctx, "gamma", 11)
+			require.NoError(t, err)
+			require.NotNil(t, gammaGot.SeriesID, "gamma must have canon series_id")
+			gammaID := *gammaGot.SeriesID
+
+			// Verify alpha+beta collapsed onto the same canon row.
+			betaGot, err := repo.Get(ctx, "beta", 9)
+			require.NoError(t, err)
+			require.NotNil(t, betaGot.SeriesID)
+			require.Equal(t, sharedID, *betaGot.SeriesID, "alpha+beta must share canon row via shared TMDB id")
+
+			// Case 1: 2 instances → sorted ["alpha", "beta"].
+			instances, err := repo.GetInstancesBySeriesID(ctx, sharedID)
+			require.NoError(t, err)
+			assert.Equal(t, []domain.InstanceName{"alpha", "beta"}, instances)
+
+			// Case 2: 1 instance → ["gamma"].
+			instances, err = repo.GetInstancesBySeriesID(ctx, gammaID)
+			require.NoError(t, err)
+			assert.Equal(t, []domain.InstanceName{"gamma"}, instances)
+
+			// Case 3: 0 instances (series_id with no cache rows).
+			instances, err = repo.GetInstancesBySeriesID(ctx, 999999)
+			require.NoError(t, err)
+			assert.Empty(t, instances)
+			assert.NotNil(t, instances, "must be empty slice, not nil")
+
+			// Case 4: soft-deleted row is excluded.
+			require.NoError(t, repo.SoftDelete(ctx, "alpha", 7))
+			instances, err = repo.GetInstancesBySeriesID(ctx, sharedID)
+			require.NoError(t, err)
+			assert.Equal(t, []domain.InstanceName{"beta"}, instances, "soft-deleted alpha must be filtered out")
+
+			// Case 5: invalid id → error.
+			_, err = repo.GetInstancesBySeriesID(ctx, 0)
+			assert.Error(t, err)
+
+			_, err = repo.GetInstancesBySeriesID(ctx, -1)
+			assert.Error(t, err)
+		})
+	}
+}

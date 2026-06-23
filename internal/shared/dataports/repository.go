@@ -508,6 +508,15 @@ type SeriesCacheRepository interface {
 		ctx context.Context,
 		instanceName domain.InstanceName,
 	) ([]string, error)
+
+	// GetInstancesBySeriesID returns the sorted, distinct, non-empty
+	// instance names that currently carry this canonical series.id
+	// (deleted_at IS NULL). Empty slice when no active cache row points
+	// at the series. Result is always alphabetically sorted ASC.
+	//
+	// Used by the global composer + regrab handler (story 491 / N-1a) to
+	// resolve the preferred instance for a canonical series.id.
+	GetInstancesBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]domain.InstanceName, error)
 }
 
 // MaxDistinctNetworks bounds the distinct-network result so a

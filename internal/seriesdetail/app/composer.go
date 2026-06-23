@@ -54,6 +54,12 @@ type Detail struct {
 	InProgress      *InProgressDetail // story 379 — composer pick
 	Degraded        []enrichment.Source
 	SyncedAt        time.Time
+	// InLibraryInstances — sorted list of instance names that carry this
+	// series. Populated by GlobalComposerUseCase post-Composer.Get; the
+	// per-instance Composer.Get path sets a single-element list (the
+	// instance the request hit) for wire-shape parity with the global
+	// endpoint. Story 491 / N-1a.
+	InLibraryInstances []domain.InstanceName
 }
 
 // NextEpisodeDetail — the composer's pick of the earliest future-dated
@@ -347,6 +353,11 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	// media_assets index. Misses leave the field nil — frontend renders a
 	// monogram fallback. Pure projection; never fails the request.
 	c.resolveAssets(ctx, d)
+
+	// Story 491 / N-1a — per-instance path always carries one library
+	// (itself). GlobalComposerUseCase overwrites this slice with the
+	// full sorted list when delegated to.
+	d.InLibraryInstances = []domain.InstanceName{instanceName}
 
 	c.d.Logger.InfoContext(ctx, "series_detail_composed",
 		slog.String("instance_name", string(instanceName)),

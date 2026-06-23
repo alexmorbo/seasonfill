@@ -939,6 +939,9 @@ func (s *stubSeriesCache) FetchLastGrabInfo(_ context.Context, _ shareddomain.In
 func (s *stubSeriesCache) ListDistinctNetworks(_ context.Context, _ shareddomain.InstanceName) ([]string, error) {
 	return nil, nil
 }
+func (s *stubSeriesCache) GetInstancesBySeriesID(_ context.Context, _ shareddomain.SeriesID) ([]shareddomain.InstanceName, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
 

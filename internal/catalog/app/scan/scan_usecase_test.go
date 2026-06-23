@@ -1468,6 +1468,9 @@ func (f *fakeSeriesCache) FetchLastGrabInfo(_ context.Context, _ domain.Instance
 func (f *fakeSeriesCache) ListDistinctNetworks(_ context.Context, _ domain.InstanceName) ([]string, error) {
 	return nil, nil
 }
+func (f *fakeSeriesCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
+	return nil, nil
+}
 
 var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
 

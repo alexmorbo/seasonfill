@@ -76,6 +76,12 @@ type SeriesDetailResponse struct {
 	// data. UI renders a stale affordance per source. Empty slice
 	// when every source is fresh.
 	Degraded []string `json:"degraded"`
+	// InLibraryInstances is the sorted list of Sonarr instance names that
+	// currently carry this series (canonical series.id resolution). Empty
+	// slice `[]` when the series is in zero libraries (TMDB-only canon).
+	// Always present on the wire — the FE branches "Add to Sonarr" vs
+	// per-instance widgets on `length > 0`. Story 491 / N-1a.
+	InLibraryInstances []string `json:"in_library_instances" example:"homelab,beta"`
 	// SyncedAt is the request timestamp (server-side now()); the
 	// frontend uses it for the "synced Xs ago" microcopy.
 	SyncedAt time.Time `json:"synced_at"`

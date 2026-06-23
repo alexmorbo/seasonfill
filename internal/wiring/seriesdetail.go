@@ -77,6 +77,10 @@ type SeriesDetailBundle struct {
 	PeopleHandler        *enrichrest.PeopleHandler
 	RefreshHandler       *enrichrest.SeriesRefreshHandler
 	PersonEnqueuerHolder *adapters.PersonEnqueuerHolder
+	// Story 491 / N-1a — global series surface.
+	GlobalComposerUC    *seriesdetail.GlobalComposerUseCase
+	TMDBFallbackUC      *seriesdetail.TMDBFallbackUseCase
+	GlobalSeriesHandler *seriesdetailrest.GlobalSeriesHandler
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -285,6 +289,34 @@ func BuildSeriesDetail(
 	}
 	seriesRefreshHandler := enrichrest.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
+	// Story 491 / N-1a — global series composer + handler. The
+	// TMDBFallback reads from the same canon series repo as the per-
+	// instance composer; the MediaResolver is shared (same pointer) so
+	// late-bind side effects apply identically.
+	tmdbFallbackUC, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:        sdSeriesRepo,
+		MediaResolver: mediaResolver,
+		Logger:        composerLog,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tmdb fallback use case: %w", err)
+	}
+	globalComposerUC, err := seriesdetail.NewGlobalComposerUseCase(seriesdetail.GlobalComposerDeps{
+		CacheLookup:  sdSeriesCacheRepo,
+		Composer:     composer,
+		TMDBFallback: tmdbFallbackUC,
+		Logger:       composerLog,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("global composer use case: %w", err)
+	}
+	globalSeriesHandler := seriesdetailrest.NewGlobalSeriesHandler(
+		globalComposerUC,
+		sdSeriesCacheRepo,
+		seriesRefreshUC,
+		log,
+	)
+
 	return &SeriesDetailBundle{
 		MediaResolver:        mediaResolver,
 		Composer:             composer,
@@ -297,5 +329,8 @@ func BuildSeriesDetail(
 		PeopleHandler:        peopleHandler,
 		RefreshHandler:       seriesRefreshHandler,
 		PersonEnqueuerHolder: peopleEnqueuerHolder,
+		GlobalComposerUC:     globalComposerUC,
+		TMDBFallbackUC:       tmdbFallbackUC,
+		GlobalSeriesHandler:  globalSeriesHandler,
 	}, nil
 }

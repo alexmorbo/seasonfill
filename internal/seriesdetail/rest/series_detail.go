@@ -79,23 +79,31 @@ func (h *SeriesDetailHandler) Get(c *gin.Context) {
 // toSeriesDetailResponse maps the composer's domain object onto
 // the locked-down DTO. No DB / network calls here — pure projection.
 func toSeriesDetailResponse(d *seriesdetail.Detail) dto.SeriesDetailResponse {
+	// Story 491 / N-1a — project InLibraryInstances to []string. Always
+	// non-nil (`[]string{}` when empty) so the FE can do truthy checks
+	// without null guards.
+	names := make([]string, 0, len(d.InLibraryInstances))
+	for _, in := range d.InLibraryInstances {
+		names = append(names, string(in))
+	}
 	resp := dto.SeriesDetailResponse{
-		Instance:        d.Instance,
-		SonarrSeriesID:  d.SonarrSeriesID,
-		SeriesID:        d.SeriesID,
-		Lang:            d.Lang,
-		Hero:            mapHero(d),
-		Library:         mapLibrary(d),
-		Download:        mapDownload(d),
-		Overview:        mapOverview(d),
-		Recent:          mapRecent(d.Recent),
-		Torrents:        dto.TorrentsHint{SyncPending: d.Torrents.SyncPending, Count: d.Torrents.Count, TotalSizeBytes: d.Torrents.TotalSizeBytes},
-		Seasons:         mapSeasons(d),
-		Cast:            mapCast(d.Cast),
-		Recommendations: mapRecommendations(d.Recommendations),
-		ExternalLinks:   mapExternalLinks(d.ExternalIDs, d.Canon),
-		Degraded:        sourceStringSlice(d.Degraded),
-		SyncedAt:        d.SyncedAt,
+		Instance:           d.Instance,
+		SonarrSeriesID:     d.SonarrSeriesID,
+		SeriesID:           d.SeriesID,
+		Lang:               d.Lang,
+		Hero:               mapHero(d),
+		Library:            mapLibrary(d),
+		Download:           mapDownload(d),
+		Overview:           mapOverview(d),
+		Recent:             mapRecent(d.Recent),
+		Torrents:           dto.TorrentsHint{SyncPending: d.Torrents.SyncPending, Count: d.Torrents.Count, TotalSizeBytes: d.Torrents.TotalSizeBytes},
+		Seasons:            mapSeasons(d),
+		Cast:               mapCast(d.Cast),
+		Recommendations:    mapRecommendations(d.Recommendations),
+		ExternalLinks:      mapExternalLinks(d.ExternalIDs, d.Canon),
+		Degraded:           sourceStringSlice(d.Degraded),
+		InLibraryInstances: names,
+		SyncedAt:           d.SyncedAt,
 	}
 	return resp
 }

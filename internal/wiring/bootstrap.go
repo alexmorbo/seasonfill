@@ -821,6 +821,7 @@ func BuildHTTPServer(
 		persistence.TimezoneHandler,
 		auth.MeHandler,
 		auth.AuthRuntime,
+		seriesDetailBundle.GlobalSeriesHandler,
 		log,
 	)
 }

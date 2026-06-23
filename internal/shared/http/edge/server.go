@@ -80,6 +80,7 @@ func NewServer(
 	timezoneHandler *adminrest.TimezoneHandler,
 	meHandler *adminrest.MeHandler,
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
+	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -113,6 +114,8 @@ func NewServer(
 		WithSeriesCache(seriesCacheRepo).
 		WithEpisodesCache(episodesCache).
 		WithMediaPending(mediaPending)
+	// Story 491 / N-1a — global catalog handler over the per-instance one.
+	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithMediaPending(mediaPending)
@@ -222,6 +225,17 @@ func NewServer(
 		// seriesCastHandler.
 		if peopleHandler != nil {
 			guarded.GET("/people/:tmdbId", peopleHandler.Get)
+		}
+		// Story 491 / N-1a — global series surface. Routes resolved by
+		// canonical series.id rather than per-instance Sonarr id.
+		// Register `/series/networks` BEFORE `/series/:id` for clarity
+		// (gin radix tree handles static-before-param anyway, but
+		// declaration order matches reader expectations).
+		guarded.GET("/series/networks", globalCatalogHandler.Networks)
+		guarded.GET("/series", globalCatalogHandler.List)
+		if globalSeriesHandler != nil {
+			guarded.GET("/series/:id", globalSeriesHandler.Get)
+			guarded.POST("/series/:id/regrab", globalSeriesHandler.Regrab)
 		}
 		// F-1 (Story 214): content-addressed media proxy. Serves the
 		// canonical TMDB image variants pre-warmed by the series

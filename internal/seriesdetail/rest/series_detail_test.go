@@ -264,6 +264,9 @@ func TestSeriesDetailHandler_Get_200(t *testing.T) {
 	require.Equal(t, "en-US", body.Lang)
 	require.Equal(t, "Breaking Bad", body.Hero.Title)
 	require.True(t, body.Torrents.SyncPending)
+	// Story 491 / N-1a — per-instance handler always emits a 1-element
+	// in_library_instances list (the instance from the URL path).
+	require.Equal(t, []string{"alpha"}, body.InLibraryInstances)
 }
 
 func TestSeriesDetailHandler_Get_400_BadID(t *testing.T) {

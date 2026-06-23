@@ -2290,6 +2290,20 @@ components:
           $ref: '#/components/schemas/dto.ExternalLinks'
         hero:
           $ref: '#/components/schemas/dto.SeriesHero'
+        in_library_instances:
+          description: |-
+            InLibraryInstances is the sorted list of Sonarr instance names that
+            currently carry this series (canonical series.id resolution). Empty
+            slice `[]` when the series is in zero libraries (TMDB-only canon).
+            Always present on the wire — the FE branches "Add to Sonarr" vs
+            per-instance widgets on `length > 0`. Story 491 / N-1a.
+          example:
+          - homelab
+          - beta
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         instance:
           description: |-
             Instance is the Sonarr instance the request hit.
@@ -5712,6 +5726,249 @@ paths:
       summary: Cancel a running scan
       tags:
       - scans
+  /series:
+    get:
+      description: |-
+        Same shape as /api/v1/instances/{name}/series-cache; the
+        instance is taken from `?instance=` query rather than path.
+        Required query param: instance. Other filter/sort/cursor
+        params identical to the per-instance endpoint.
+      parameters:
+      - description: Instance name
+        in: query
+        name: instance
+        required: true
+        schema:
+          type: string
+      - description: all|imported|missing
+        in: query
+        name: state
+        schema:
+          type: string
+      - description: updated_desc|title_asc|air_date_desc
+        in: query
+        name: sort
+        schema:
+          type: string
+      - description: Page size (≤200)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Opaque keyset cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      - description: Substring (title / slug)
+        in: query
+        name: q
+        schema:
+          type: string
+      - description: true|false (tri-state)
+        in: query
+        name: monitored
+        schema:
+          type: string
+      - description: Pipe-separated network names
+        in: query
+        name: networks
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCacheList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List series-cache entries (global)
+      tags:
+      - series
+  /series/{id}:
+    get:
+      description: |-
+        Same shape as the per-instance /api/v1/instances/{name}/series/{id}
+        endpoint, but resolves the preferred instance automatically
+        from the canonical series.id. When the series is in zero
+        libraries (TMDB-only) the response carries `in_library_instances=[]`
+        and the per-instance branches (Library / Download / Seasons /
+        Cast) are empty — the Hero block is populated from the
+        canon row.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (default en-US)
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesDetailResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Composite series detail document (global)
+      tags:
+      - series
+  /series/{id}/regrab:
+    post:
+      description: |-
+        Resolves the canonical series.id to the preferred Sonarr
+        instance (lexicographically-first instance that carries
+        this series), then enqueues series + cast + OMDb re-enrich
+        at PriorityHot — same semantics as the per-instance
+        /series/{id}/refresh endpoint.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesRefreshResponse'
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Re-enrich a series (global)
+      tags:
+      - series
+  /series/networks:
+    get:
+      parameters:
+      - description: Instance name
+        in: query
+        name: instance
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesCacheNetworksList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Distinct networks for an instance's series-cache (global)
+      tags:
+      - series
   /settings/timezone:
     get:
       responses:
