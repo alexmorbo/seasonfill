@@ -82,8 +82,27 @@ const RF_PAYLOAD = {
   items: [{ id: 9, path: '/tv', accessible: true, free_space: 100 }],
   refreshed_at: 'x', cache_status: 'hit', instance_name: 'main',
 };
+const LOOKUP_PAYLOAD = {
+  items: [
+    { season_number: 0, episode_count: 2, monitored: false },
+    { season_number: 1, episode_count: 11, monitored: true },
+    { season_number: 2, episode_count: 10, monitored: true },
+    { season_number: 3, episode_count: 10, monitored: true },
+  ],
+  title: 'Rick and Morty', year: 2013, overview: 'x', image_url: '',
+  tvdb_id: 275274, tmdb_id: 60625, instance_name: 'main',
+};
 
-function routeResponse(url: string, meOverride?: object): Response {
+type LookupOverride = {
+  status?: number;
+  payload?: unknown;
+};
+
+function routeResponse(
+  url: string,
+  meOverride?: object,
+  lookupOverride?: LookupOverride,
+): Response {
   if (url.endsWith('/api/v1/me')) {
     return new Response(JSON.stringify({ ...ME_PAYLOAD, ...meOverride }),
       { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -99,6 +118,18 @@ function routeResponse(url: string, meOverride?: object): Response {
   if (url.endsWith('/root-folders')) {
     return new Response(JSON.stringify(RF_PAYLOAD),
       { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (url.includes('/sonarr-lookup')) {
+    const status = lookupOverride?.status ?? 200;
+    const body = lookupOverride?.payload ?? LOOKUP_PAYLOAD;
+    return new Response(JSON.stringify(body),
+      { status, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (url.endsWith('/discovery/add-to-sonarr')) {
+    return new Response(JSON.stringify({
+      sonarr_series_id: 99, instance_name: 'main',
+      user_tag_label: 'sf-alex', user_tag_id: 1,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   return new Response('{}',
     { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -212,6 +243,83 @@ describe('<AddToSonarrModal />', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('add-to-sonarr-missing-tvdb'))
         .not.toBeInTheDocument();
+    });
+  });
+
+  // Story 524b / N-4 per-season picker — seasons section
+  it('renders per-season checkboxes with regular seasons checked by default', async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-season-1'))
+        .toBeInTheDocument();
+    });
+    const s1 = screen.getByTestId('add-to-sonarr-season-1')
+      .querySelector('[role="checkbox"]');
+    const s0 = screen.getByTestId('add-to-sonarr-season-0')
+      .querySelector('[role="checkbox"]');
+    expect(s1?.getAttribute('data-state')).toBe('checked');
+    expect(s0?.getAttribute('data-state')).toBe('unchecked');
+  });
+
+  it('"All" toggle clears then restores every season', async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-seasons-all'))
+        .toBeInTheDocument();
+    });
+    // Default: all regular seasons checked, specials not — so "All" is unchecked
+    const allBox = screen.getByTestId('add-to-sonarr-seasons-all')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    // Click once: should select every season (incl. specials)
+    fireEvent.click(allBox);
+    await waitFor(() => {
+      expect(allBox.getAttribute('data-state')).toBe('checked');
+    });
+    const s0 = screen.getByTestId('add-to-sonarr-season-0')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    expect(s0.getAttribute('data-state')).toBe('checked');
+    // Click again: clears all
+    fireEvent.click(allBox);
+    await waitFor(() => {
+      expect(s0.getAttribute('data-state')).toBe('unchecked');
+    });
+    const s1 = screen.getByTestId('add-to-sonarr-season-1')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    expect(s1.getAttribute('data-state')).toBe('unchecked');
+  });
+
+  it('hides seasons section when lookup returns 404', async () => {
+    fetchMock.mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return routeResponse(url, undefined, {
+        status: 404,
+        payload: { error: 'instance_not_found', message: 'no rows' },
+      });
+    });
+    renderModal();
+    // The QP/RF queries resolve first; give the lookup a chance.
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-form'))
+        .toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('add-to-sonarr-seasons'))
+        .not.toBeInTheDocument();
+    });
+  });
+
+  it('shows error message when lookup errors with non-404', async () => {
+    fetchMock.mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return routeResponse(url, undefined, {
+        status: 502,
+        payload: { error: 'sonarr_unreachable', message: 'upstream down' },
+      });
+    });
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-seasons-error'))
+        .toBeInTheDocument();
     });
   });
 });

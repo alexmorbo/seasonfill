@@ -91,6 +91,10 @@ export interface AddToSonarrRequest {
   readonly monitor_mode?: AddToSonarrMonitorMode;
   readonly monitored?: boolean;
   readonly search_on_add?: boolean;
+  // Story 524 / N-4 per-season picker: when omitted/empty the BE keeps
+  // the legacy monitor_mode semantics; when present, the BE writes
+  // per-season explicit monitored flags.
+  readonly monitored_seasons?: readonly number[];
 }
 
 export interface AddToSonarrResponse {
