@@ -2216,6 +2216,19 @@ export const en = {
       recommendations: { loading: 'Loading recommendations…' },
       imdb: { loading: 'IMDb loading…' },
       backdrop: { loading: 'Loading backdrop…' },
+      chip: {
+        count_one: '{{count}} source catching up',
+        count_few: '{{count}} sources catching up',
+        count_many: '{{count}} sources catching up',
+        count_other: '{{count}} sources catching up',
+        source: {
+          tmdb_series: 'TMDB series metadata',
+          tmdb_season: 'TMDB season metadata',
+          tmdb_person: 'TMDB cast metadata',
+          omdb: 'OMDb / IMDb ratings',
+          sonarr_queue: 'Sonarr queue',
+        },
+      },
     },
     errors: {
       invalidParams: 'Invalid series link',

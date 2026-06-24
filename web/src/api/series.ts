@@ -153,6 +153,38 @@ export function isHotDegraded(resp: SeriesDetailResponse | undefined): boolean {
   return degraded.some((s): boolean => HOT_SOURCES.has(s as DegradedSource));
 }
 
+// Story 531 — set of degraded tokens the FE knows how to surface.
+// Tokens outside this set are dropped from the aggregated list so a
+// stray BE label can't break the chip rendering.
+export const KNOWN_DEGRADED: ReadonlySet<DegradedSource> = new Set([
+  'tmdb_series',
+  'tmdb_season',
+  'tmdb_person',
+  'omdb',
+  'sonarr_queue',
+]);
+
+// Story 531 — aggregateDegraded merges N degraded[] inputs from
+// different per-section hooks (parent /series, /series/:id/overview,
+// /series/:id/recommendations…) into a single deduped + filtered
+// list. Used in <SeriesDetail> via useMemo to drive `<DegradedChip>`.
+//
+// Pure helper — no React hooks — so the call site can stay a single
+// useMemo and the helper is unit-testable in isolation.
+export function aggregateDegraded(
+  ...lists: readonly (readonly string[] | undefined)[]
+): readonly DegradedSource[] {
+  const acc = new Set<DegradedSource>();
+  for (const list of lists) {
+    if (!list) continue;
+    for (const src of list) {
+      const s = src as DegradedSource;
+      if (KNOWN_DEGRADED.has(s)) acc.add(s);
+    }
+  }
+  return Array.from(acc);
+}
+
 // Hero renders in "Sonarr-only" mode when the TMDB-derived fields
 // the composer would normally fill are absent. Used by SeriesHero
 // to decide whether to render the backdrop/tagline/genre row at all.

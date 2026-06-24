@@ -286,6 +286,49 @@ describe('B-20 degraded per-section', () => {
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel-loading')).toBeInTheDocument());
     expect(screen.getAllByTestId('recommendations-skeleton-tile')).toHaveLength(6);
   });
+
+  // Story 531 — aggregated degraded chip.
+  it('renders the aggregated degraded chip when a single source is degraded', async () => {
+    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    renderRoute('/series/122');
+    await waitFor(() =>
+      expect(screen.getByTestId('series-degraded-chip')).toBeInTheDocument(),
+    );
+    // baseDegraded has only `tmdb_series` in degraded — the chip should
+    // list it once. The mock answers every path with the same body
+    // (parent + overview + recommendations all carry the same list),
+    // so dedupe must collapse 3 occurrences to 1.
+    expect(
+      screen.getByTestId('series-degraded-chip').getAttribute('data-sources'),
+    ).toBe('tmdb_series');
+  });
+
+  it('dedupes overlapping degraded sources across parent + per-section hooks', async () => {
+    // Mock answers ALL paths with the same body — both /series and
+    // /series/:id/overview and /series/:id/recommendations get the
+    // same degraded list. Chip must list each source exactly once.
+    mockApi.mockResolvedValue({
+      ...baseDegraded,
+      degraded: ['tmdb_series', 'omdb'],
+    });
+    renderRoute('/series/122');
+    await waitFor(() =>
+      expect(screen.getByTestId('series-degraded-chip')).toBeInTheDocument(),
+    );
+    const chip = screen.getByTestId('series-degraded-chip');
+    expect(chip.getAttribute('data-sources')).toBe('tmdb_series,omdb');
+  });
+
+  it('hides the chip when no sources are degraded', async () => {
+    mockApi.mockResolvedValue(fullFixture); // degraded: []
+    renderRoute('/series/122');
+    await waitFor(() =>
+      expect(screen.getByTestId('series-hero')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('series-degraded-chip'),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe('URL migration (story 495 / N-1e)', () => {

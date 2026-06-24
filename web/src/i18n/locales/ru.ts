@@ -2214,6 +2214,19 @@ export const ru: Translations = {
       recommendations: { loading: 'Загружаем рекомендации…' },
       imdb: { loading: 'IMDb загружается…' },
       backdrop: { loading: 'Загружаем обложку…' },
+      chip: {
+        count_one: 'Подгружается {{count}} источник',
+        count_few: 'Подгружается {{count}} источника',
+        count_many: 'Подгружается {{count}} источников',
+        count_other: 'Подгружается {{count}} источников',
+        source: {
+          tmdb_series: 'Метаданные TMDB',
+          tmdb_season: 'Сезоны TMDB',
+          tmdb_person: 'Каст TMDB',
+          omdb: 'Рейтинги OMDb / IMDb',
+          sonarr_queue: 'Очередь Sonarr',
+        },
+      },
     },
     errors: {
       invalidParams: 'Неверная ссылка на сериал',

@@ -171,11 +171,19 @@ export function RecommendationsCarousel({
     limit,
     offset: 0,
     enabled: visible,
+    pollWhileDegraded: true,
   });
 
   const items = query.data?.items ?? [];
   const heading = 'recommendations-heading';
-  const isLoading = query.isLoading || (items.length === 0 && Boolean(tmdbSeriesLoading));
+  // Story 531 — derive loading from this hook's own degraded[] so the
+  // carousel surfaces skeletons even when the parent /series response
+  // doesn't carry tmdb_series in its degraded list (per-section split).
+  // The `tmdbSeriesLoading` prop is kept as a backward-compat fallback.
+  const tmdbDegradedLocal = (query.data?.degraded ?? []).includes('tmdb_series');
+  const isLoading =
+    query.isLoading ||
+    (items.length === 0 && (tmdbDegradedLocal || Boolean(tmdbSeriesLoading)));
 
   // Empty + not loading: return null (matches pre-530 behaviour).
   // Note: still attach the ref to a sentinel so we observe scroll-in.

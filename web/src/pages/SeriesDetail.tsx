@@ -5,9 +5,17 @@ import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
-import { useSeries, parseStatus, isSonarrOnly, isDegraded } from '@/api/series';
+import {
+  useSeries,
+  parseStatus,
+  isSonarrOnly,
+  aggregateDegraded,
+  type DegradedSource,
+} from '@/api/series';
 import { useSeriesOverview } from '@/api/seriesOverview';
+import { useSeriesRecommendations } from '@/api/seriesRecommendations';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
+import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
 import { CastStrip } from '@/components/series-detail/CastStrip';
@@ -52,16 +60,40 @@ export function SeriesDetail() {
   });
   const overviewData = overviewQ.data?.overview;
 
+  // Story 531 — observe recommendations degraded[] at the page level so
+  // the global chip aggregates it even when the carousel is below the
+  // fold. The visible-gated query inside <RecommendationsCarousel> still
+  // drives the actual carousel render; this shadow uses the same cache
+  // key (default limit/offset), so TanStack dedupes — no extra traffic.
+  const recsQ = useSeriesRecommendations({
+    seriesId,
+    enabled: typeof seriesId === 'number' && seriesId > 0,
+    pollWhileDegraded: true,
+  });
+
   const data = detail.data;
   const hero = data?.hero;
   const status = parseStatus(hero?.status);
   const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
-  // Story 495 / N-1e §C1: composer emits `tmdb_series`, not `'tmdb'`.
-  // The legacy call site was always returning `false` against live data.
-  const tmdbSeriesDegraded = isDegraded(data, 'tmdb_series');
-  const tmdbSeasonDegraded = isDegraded(data, 'tmdb_season');
-  const tmdbPersonDegraded = isDegraded(data, 'tmdb_person');
-  const omdbDegraded = isDegraded(data, 'omdb');
+  // Story 531 — aggregate degraded[] across the parent /series, the
+  // split /series/:id/overview and the shadow /series/:id/recommendations
+  // queries. Dedup'd + filtered to KNOWN_DEGRADED. Per-section booleans
+  // derive from this list so the IMDb hero slot, overview/cast/seasons
+  // skeletons and per-section loading copy all see the same view of
+  // "what's catching up" regardless of which hook surfaced it.
+  const aggregatedDegraded = useMemo<readonly DegradedSource[]>(
+    () =>
+      aggregateDegraded(
+        detail.data?.degraded,
+        overviewQ.data?.degraded,
+        recsQ.data?.degraded,
+      ),
+    [detail.data?.degraded, overviewQ.data?.degraded, recsQ.data?.degraded],
+  );
+  const tmdbSeriesDegraded = aggregatedDegraded.includes('tmdb_series');
+  const tmdbSeasonDegraded = aggregatedDegraded.includes('tmdb_season');
+  const tmdbPersonDegraded = aggregatedDegraded.includes('tmdb_person');
+  const omdbDegraded = aggregatedDegraded.includes('omdb');
   const tmdbStaleAt = tmdbSeriesDegraded ? data?.synced_at : undefined;
   const imdbStaleAt = omdbDegraded ? data?.synced_at : undefined;
   const syncedAt = data?.synced_at;
@@ -106,8 +138,11 @@ export function SeriesDetail() {
   // Seasons / Recommendations — same shape.
   const seasonsEmpty = (data?.seasons?.length ?? 0) === 0;
   const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
-  const recsEmpty = (data?.recommendations?.length ?? 0) === 0;
-  const recsLoading = recsEmpty && tmdbSeriesDegraded;
+  // Story 531 — recs loading flag is now derived inside the carousel
+  // from its own /recommendations query degraded[]; the page-level
+  // `recsEmpty`/`recsLoading` derived from parent `data.recommendations`
+  // are dropped (the parent's `recommendations` field is wire-only
+  // backward-compat after 530).
   // IMDb rating loading slot in hero (RatingDuo handles the render).
   const imdbLoading = omdbDegraded && !hero?.imdb_rating;
 
@@ -143,6 +178,12 @@ export function SeriesDetail() {
             {...(imdbLoading ? { imdbLoading: true } : {})}
             onScrollToTorrents={scrollToTorrents}
           />
+
+          {aggregatedDegraded.length > 0 && (
+            <div className="-mt-2 flex justify-end">
+              <DegradedChip sources={aggregatedDegraded} />
+            </div>
+          )}
 
           <section
             data-testid="overview-section"
@@ -225,7 +266,6 @@ export function SeriesDetail() {
           <RecommendationsCarousel
             seriesId={seriesId}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
-            {...(recsLoading ? { tmdbSeriesLoading: true } : {})}
           />
 
           <ExternalLinksFooter {...(data.external_links ? { links: data.external_links } : {})} />
