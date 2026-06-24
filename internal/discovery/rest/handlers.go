@@ -315,7 +315,7 @@ func (h *DiscoveryHandler) PickerGenres(c *gin.Context) {
 			"genres picker read failed")
 		return
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 // PickerNetworks serves GET /api/v1/discovery/networks.
@@ -334,7 +334,7 @@ func (h *DiscoveryHandler) PickerNetworks(c *gin.Context) {
 			"networks picker read failed")
 		return
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 // Search serves GET /api/v1/discovery/search?q=…&lang=… (story 508).
