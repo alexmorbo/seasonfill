@@ -55,6 +55,9 @@ type Server struct {
 	// Story 528 — retained so Shutdown can stop the throttle sweep
 	// goroutine. nil-safe (Close is idempotent).
 	onDemandEnricherHolder *adapters.OnDemandEnricherHolder
+	// Story 533 — retained so Shutdown can mark the freshener closed
+	// (subsequent EnsureFresh calls return Fresh=true cheaply).
+	seriesFreshenerHolder *adapters.SeriesFreshenerHolder
 }
 
 // New wires the server. The `armed` sentinel ensures bus.Close +
@@ -413,6 +416,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesDetailBundle.OnDemandEnricherHolder.Set(enrichBundle.Dispatcher)
 	}
 
+	// Story 533 — series worker into the freshener holder. EnsureFresh
+	// then runs SeriesWorker.Handle synchronously with a 3 s budget +
+	// singleflight per (seriesID, lang) so a cold/stale detail open
+	// completes data hydration in the SAME request rather than waiting
+	// on the async dispatcher path. Reuses the SAME *SeriesWorker
+	// pointer the dispatcher's series-worker goroutine consumes —
+	// idempotent + safe.
+	if enrichBundle != nil && enrichBundle.SeriesWorker != nil && seriesDetailBundle.SeriesFreshenerHolder != nil {
+		seriesDetailBundle.SeriesFreshenerHolder.Set(enrichBundle.SeriesWorker)
+	}
+
 	// Story 316 — enqueuer + on-demand fetcher onto the MediaResolver.
 	if enrichBundle != nil && seriesDetailMediaResolver != nil {
 		var mediaEnq media.Enqueuer
@@ -652,6 +666,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		watchdog:               watchdogBundle,
 		onReady:                opts.OnReady,
 		onDemandEnricherHolder: seriesDetailBundle.OnDemandEnricherHolder,
+		seriesFreshenerHolder:  seriesDetailBundle.SeriesFreshenerHolder,
 	}, nil
 }
 
@@ -702,6 +717,11 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	// Idempotent + nil-safe.
 	if s.onDemandEnricherHolder != nil {
 		s.onDemandEnricherHolder.Close()
+	}
+	// Story 533 — mark the freshener closed so any in-flight EnsureFresh
+	// short-circuits to Fresh=true. Idempotent + nil-safe.
+	if s.seriesFreshenerHolder != nil {
+		s.seriesFreshenerHolder.Close()
 	}
 
 	if cur := s.subSched.Current(); cur != nil {

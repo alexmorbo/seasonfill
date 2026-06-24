@@ -178,6 +178,11 @@ type EnrichmentBundle struct {
 	// BackfillSeries within ms when the boot pass scanned an empty
 	// series table.
 	ColdStartKicker *adapters.ColdStartKicker
+	// SeriesWorker (Story 533) — exposed so cmd/server/server.go's LATE
+	// BIND ZONE can wire it into SeriesFreshenerHolder for synchronous
+	// read-through TMDB refresh on cold/stale detail opens. Same
+	// dispatcher-bound instance the worker pool already consumes.
+	SeriesWorker *appenrich.SeriesWorker
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -747,6 +752,10 @@ func BuildEnrichment(
 		// 508 (B-9 Scope A): nil-OK; server.go wires it to scan.UseCase
 		// via WithPostScanCycle only when non-nil.
 		ColdStartKicker: coldStartKicker,
+		// 533: exposed so the SeriesDetail freshener holder can call
+		// Handle() synchronously for cold/stale detail opens. Same
+		// pointer the dispatcher's series-worker goroutine consumes.
+		SeriesWorker: worker,
 	}, nil
 }
 

@@ -400,6 +400,16 @@ func IncOnDemandEnrich(result string) {
 	).Inc()
 }
 
+// IncSeriesdetailFreshen bumps the per-result counter for the Story 533
+// read-through TMDB sync path. result ∈ {"fresh","refreshed","timeout",
+// "error","async_only","skipped"} — closed label set; callers passing
+// other values pollute cardinality.
+func IncSeriesdetailFreshen(result string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_seriesdetail_freshen_total{result="` + result + `"}`,
+	).Inc()
+}
+
 // SetTMDBRateLimitInPause flips the 0/1 in-pause gauge (Story 313).
 // Pause entry → SetTMDBRateLimitInPause(true); resume → false.
 // A nil-resume (e.g. process death mid-pause) leaves the gauge at 1

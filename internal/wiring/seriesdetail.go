@@ -83,6 +83,12 @@ type SeriesDetailBundle struct {
 	// the TMDBFallback path. Holder no-ops until server.go's LATE BIND
 	// ZONE wires the dispatcher (matches PersonEnqueuerHolder).
 	OnDemandEnricherHolder *adapters.OnDemandEnricherHolder
+	// Story 533 — late-binding read-through TMDB freshener. Holder's
+	// inner *appenrich.SeriesWorker is wired from cmd/server/server.go's
+	// LATE BIND ZONE after wireEnrichment returns. EnsureFresh runs
+	// synchronously (≤3s + singleflight); on timeout falls back to
+	// OnDemandEnricherHolder for the async path.
+	SeriesFreshenerHolder *adapters.SeriesFreshenerHolder
 	// Story 491 / N-1a — global series surface.
 	GlobalComposerUC    *seriesdetail.GlobalComposerUseCase
 	TMDBFallbackUC      *seriesdetail.TMDBFallbackUseCase
@@ -203,6 +209,32 @@ func BuildSeriesDetail(
 	sdPersonCreditsRepo := enrichpersistence.NewPersonCreditsRepository(db)
 	sdSeriesPeopleAdapter := adapters.NewSeriesPeopleFromPersonCredits(sdPersonCreditsRepo, sdSeriesRepo)
 
+	// Story 528 / 533 — late-binding enrichment holders. Built BEFORE the
+	// Composer so both the per-instance Composer.Deps + the TMDBFallback.Deps
+	// can receive the same shared instances. Inner *DispatcherImpl (528) /
+	// *SeriesWorker (533) are nil at boot — server.go's LATE BIND ZONE
+	// populates them after wireEnrichment returns. Each holder is nil-OK on
+	// EnsureFresh / EnqueueIfStale so cold-boot opens degrade gracefully.
+	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
+	seriesFreshenerProbe, err := adapters.NewSeriesFreshenerProbe(adapters.SeriesFreshenerProbeConfig{
+		Series:       sdSeriesRepo,
+		SeriesTexts:  sdSeriesTextsRepo,
+		SeasonsCount: sdSeasonsRepo,
+		PeopleCount:  adapters.NewSeriesPeopleCountAdapter(sdPersonCreditsRepo, sdSeriesRepo),
+		Logger:       composerLog,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seriesfreshener probe: %w", err)
+	}
+	seriesFreshenerHolder, err := adapters.NewSeriesFreshenerHolder(adapters.SeriesFreshenerConfig{
+		Probe:         seriesFreshenerProbe,
+		AsyncEnricher: onDemandEnricherHolder,
+		Logger:        composerLog,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seriesfreshener holder: %w", err)
+	}
+
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
@@ -241,6 +273,7 @@ func BuildSeriesDetail(
 		},
 		Logger:        composerLog,
 		MediaResolver: mediaResolver,
+		Freshener:     seriesFreshenerHolder, // Story 533 — read-through sync TMDB refresh
 	})
 	detailHandler := seriesdetailrest.NewSeriesDetailHandler(composer, log)
 	seasonHandler := seriesdetailrest.NewSeriesSeasonHandler(composer, log)
@@ -303,13 +336,6 @@ func BuildSeriesDetail(
 	}
 	seriesRefreshHandler := enrichrest.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
-	// Story 528 — on-demand enrichment holder for the TMDBFallback
-	// path. Holder owns a 30s in-memory throttle + 5min sweep goroutine
-	// (Close() drains the sweep on shutdown). server.go's LATE BIND
-	// ZONE calls Set(enrichBundle.Dispatcher) so the holder forwards
-	// PriorityHot enqueues once enrichment is up.
-	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
-
 	// Story 491 / N-1a — global series composer + handler. The
 	// TMDBFallback reads from the same canon series repo as the per-
 	// instance composer; the MediaResolver is shared (same pointer) so
@@ -326,6 +352,8 @@ func BuildSeriesDetail(
 		Keywords:          sdKeywordsRepo,
 		Recommendations:   sdRecommendationsRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
+		// Story 533 — read-through sync TMDB refresh.
+		Freshener: seriesFreshenerHolder,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb fallback use case: %w", err)
@@ -372,6 +400,7 @@ func BuildSeriesDetail(
 		RefreshHandler:               seriesRefreshHandler,
 		PersonEnqueuerHolder:         peopleEnqueuerHolder,
 		OnDemandEnricherHolder:       onDemandEnricherHolder,
+		SeriesFreshenerHolder:        seriesFreshenerHolder,
 		GlobalComposerUC:             globalComposerUC,
 		TMDBFallbackUC:               tmdbFallbackUC,
 		GlobalSeriesHandler:          globalSeriesHandler,

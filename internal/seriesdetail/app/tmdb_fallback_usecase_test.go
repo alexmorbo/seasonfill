@@ -365,3 +365,130 @@ func TestTMDBFallbackUseCase_GetRecommendations_NilRecsPortReturnsEmpty(t *testi
 	assert.Equal(t, 0, rec.TotalCount)
 	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
 }
+
+// ─── Story 533: read-through TMDB freshener ──────────────────────────
+
+// fakeFreshener records EnsureFresh calls + returns a canned result.
+type fakeFreshener struct {
+	mu     sync.Mutex
+	calls  []fakeFreshenCall
+	result seriesdetail.FreshenResult
+}
+
+type fakeFreshenCall struct {
+	seriesID domain.SeriesID
+	lang     string
+}
+
+func (f *fakeFreshener) EnsureFresh(_ context.Context, id domain.SeriesID, lang string) seriesdetail.FreshenResult {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fakeFreshenCall{seriesID: id, lang: lang})
+	return f.result
+}
+
+func (f *fakeFreshener) Calls() []fakeFreshenCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]fakeFreshenCall, len(f.calls))
+	copy(out, f.calls)
+	return out
+}
+
+func TestTMDBFallbackUseCase_Freshener_RefreshedFull_NoDegradedAppended(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &stubSeriesReader{canon: fullCanon},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "ru-RU")
+	require.NoError(t, err)
+	assert.Empty(t, d.Degraded, "refreshed + full hydration must have empty Degraded")
+	// EnsureFresh called once with the resolved lang.
+	calls := fr.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, domain.SeriesID(8378), calls[0].seriesID)
+	assert.Equal(t, "ru-RU", calls[0].lang)
+}
+
+func TestTMDBFallbackUseCase_Freshener_Degraded_AppendsTMDBSeries(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Degraded: true}}
+	// Full canon means the stub-branch will NOT add tmdb_series; the
+	// only source for the marker is the Story 533 timeout-fallback branch.
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &stubSeriesReader{canon: fullCanon},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Equal(t, []enrichment.Source{enrichment.SourceTMDBSeries}, d.Degraded,
+		"Degraded=true must surface tmdb_series even on full canon")
+}
+
+func TestTMDBFallbackUseCase_Freshener_Degraded_DedupesWithStubBranch(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Degraded: true}}
+	// Stub canon — the existing stub-branch adds tmdb_series; the Story
+	// 533 branch must NOT double-append.
+	stubCanon := series.Canon{ID: 8378, Hydration: series.HydrationStub}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &stubSeriesReader{canon: stubCanon},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Equal(t, []enrichment.Source{enrichment.SourceTMDBSeries}, d.Degraded)
+}
+
+func TestTMDBFallbackUseCase_Freshener_Nil_BehavesLikeStory532(t *testing.T) {
+	t.Parallel()
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &stubSeriesReader{canon: fullCanon},
+		Logger: discardLogger(),
+	})
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Empty(t, d.Degraded)
+}
+
+func TestTMDBFallbackUseCase_Freshener_GetOverview_Called(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &stubSeriesReader{canon: fullCanon},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	_, err := uc.GetOverview(context.Background(), 8378, "ru-RU")
+	require.NoError(t, err)
+	calls := fr.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "ru-RU", calls[0].lang)
+}
+
+func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{8378: fullCanon}},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	_, err := uc.GetRecommendations(context.Background(), 8378, 20, 0)
+	require.NoError(t, err)
+	calls := fr.Calls()
+	require.Len(t, calls, 1)
+	// Recommendations doesn't take lang — freshener probes with en-US.
+	assert.Equal(t, "en-US", calls[0].lang)
+}

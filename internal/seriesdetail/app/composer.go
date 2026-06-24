@@ -176,6 +176,10 @@ type Deps struct {
 	// media.NewNopResolver() when the media subsystem is disabled — every wire
 	// field falls back to nil and the frontend renders monograms.
 	MediaResolver *media.Resolver
+	// Freshener (Story 533) — synchronous read-through TMDB refresh on
+	// cold/stale per-instance detail open. nil-OK: when nil, Composer.Get
+	// reads whatever is currently in the DB (Story 532 behaviour).
+	Freshener SeriesFreshener
 }
 
 // Composer is the one application use case for the series detail
@@ -227,6 +231,16 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 		)
 	}
 	seriesID := *cache.SeriesID
+
+	// Story 533 — read-through sync TMDB refresh. Idempotent + nil-OK.
+	// Runs BEFORE the canon load + errgroup so a successful refresh's
+	// committed tx is visible to the parallel SeriesTexts / Seasons /
+	// People reads. Bounded ≤3s; on timeout/error the holder enqueues
+	// async + returns Degraded=true (we append "tmdb_series" below).
+	var freshen FreshenResult
+	if c.d.Freshener != nil {
+		freshen = c.d.Freshener.EnsureFresh(ctx, seriesID, lang)
+	}
 
 	// Step 2 — canon series row. Same 404 mapping.
 	canon, err := c.d.Series.Get(ctx, seriesID)
@@ -348,6 +362,10 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	// enrichment_errors per-source, then call enrichment.Degraded with
 	// the branch-failure flags from the tracker.
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
+	// Story 533 — refresh fell back to async; surface to FE so it polls.
+	if freshen.Degraded && !contains(d.Degraded, enrichment.SourceTMDBSeries) {
+		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+	}
 	d.SyncedAt = c.d.Now()
 
 	// Story 312: translate raw TMDB paths into sha256 hashes via the

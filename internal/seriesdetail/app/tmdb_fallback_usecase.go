@@ -47,6 +47,13 @@ type TMDBFallbackDeps struct {
 	Keywords          KeywordsPort
 	Recommendations   RecommendationsPort
 	SeriesCacheLookup SeriesCacheLookupPort
+
+	// Freshener (Story 533) — synchronous read-through TMDB refresh on
+	// cold/stale detail open. nil-OK: when nil, the UC behaves exactly
+	// like Story 532 (canon-only read, async enqueue via Enricher).
+	// When non-nil, EnsureFresh runs BEFORE the canon load so a stub or
+	// stale row gets lifted to full in the SAME request (3s budget).
+	Freshener SeriesFreshener
 }
 
 // TMDBFallbackUseCase returns canon-only views.
@@ -75,11 +82,16 @@ func NewTMDBFallbackUseCase(d TMDBFallbackDeps) (*TMDBFallbackUseCase, error) {
 // Returns the upstream error (e.g. ports.ErrNotFound wrapped) when no
 // canon row exists.
 func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.SeriesID, lang string) (*Detail, error) {
+	resolvedLang := resolveLang(lang)
+	var freshen FreshenResult
+	if u.d.Freshener != nil {
+		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
 	}
-	lang = resolveLang(lang)
+	lang = resolvedLang
 	d := &Detail{
 		SeriesID:           seriesID,
 		Lang:               lang,
@@ -112,6 +124,13 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 		d.Canon.PosterAsset = u.d.MediaResolver.ResolveSync(syncCtx, d.Canon.PosterAsset, "w342", "poster_w342")
 		d.Canon.BackdropAsset = u.d.MediaResolver.ResolveSync(syncCtx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
 	}
+	// Story 533 — append tmdb_series to degraded[] when the sync refresh
+	// fell back to async. The existing stub-branch already adds it; this
+	// branch covers the case where canon was non-stub but refresh hit the
+	// network and timed out (e.g. TTL-stale row + TMDB down).
+	if freshen.Degraded && !contains(d.Degraded, enrichment.SourceTMDBSeries) {
+		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+	}
 	u.d.Logger.InfoContext(ctx, "tmdb_fallback_composed",
 		slog.Int64("series_id", int64(seriesID)),
 		slog.String("hydration", string(canon.Hydration)),
@@ -124,11 +143,16 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 // upstream error (e.g. ports.ErrNotFound wrapped) when the canon row is
 // absent. Story 532.
 func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.SeriesID, lang string) (*Overview, error) {
+	resolvedLang := resolveLang(lang)
+	var freshen FreshenResult
+	if u.d.Freshener != nil {
+		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
 	}
-	lang = resolveLang(lang)
+	lang = resolvedLang
 	out := &Overview{
 		Instance:       "",
 		SonarrSeriesID: 0,
@@ -136,6 +160,7 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 		Lang:           lang,
 		Degraded:       []string{"tmdb_series"},
 	}
+	_ = freshen // Degraded already includes "tmdb_series" unconditionally — fallback semantic.
 	if u.d.SeriesTexts != nil {
 		if t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil {
 			if t.Overview != nil {
@@ -192,6 +217,14 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	if offset < 0 {
 		offset = 0
 	}
+	// Story 533 — read-through TMDB freshener. lang isn't a parameter on
+	// GetRecommendations (handler doesn't pass it), so the freshener probe
+	// runs with en-US semantics (no missing_lang trip — text rules don't
+	// apply to recommendation lists).
+	var freshen FreshenResult
+	if u.d.Freshener != nil {
+		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, "en-US")
+	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
@@ -203,6 +236,7 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		Items:          []RecommendationDetail{},
 		Degraded:       []string{"tmdb_series"},
 	}
+	_ = freshen // Degraded already includes "tmdb_series" unconditionally — fallback semantic.
 	if u.d.Recommendations == nil {
 		return out, nil
 	}

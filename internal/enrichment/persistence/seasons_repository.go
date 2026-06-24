@@ -56,6 +56,23 @@ func (r *SeasonsRepository) ListBySeries(ctx context.Context, seriesID domain.Se
 	return out, nil
 }
 
+// CountBySeries returns the row count in `seasons` for the given series_id.
+// Used by the Story 533 staleness probe to detect canon rows whose stub
+// hydration left the relations empty even when EnrichmentTMDBSyncedAt is
+// set (defensive — should be impossible on a clean post-tx state, but the
+// probe trusts no invariant). Single index lookup, cheap.
+func (r *SeasonsRepository) CountBySeries(ctx context.Context, seriesID domain.SeriesID) (int, error) {
+	var n int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.SeasonModel{}).
+		Where("series_id = ?", seriesID).
+		Count(&n).Error
+	if err != nil {
+		return 0, fmt.Errorf("count seasons: %w", err)
+	}
+	return int(n), nil
+}
+
 // Upsert inserts or updates by natural key (series_id, season_number).
 // Idempotent: re-running with the same payload mutates only updated_at.
 // Returns the assigned id (or the existing id on update).

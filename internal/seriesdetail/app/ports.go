@@ -236,3 +236,33 @@ type SonarrQueueLister interface {
 type OnDemandEnricher interface {
 	EnqueueIfStale(seriesID domain.SeriesID, hydration series.Hydration)
 }
+
+// SeriesFreshener guarantees a series row is fresh in DB before the
+// composer reads it (Story 533).
+//
+// Implementations MUST:
+//   - singleflight per (seriesID, lang) to coalesce concurrent
+//     first-time opens of the same series.
+//   - hard ≤3s timeout (configurable).
+//   - on timeout/error: enqueue async refresh (existing Story 528 path),
+//     return FreshenResult{Degraded: true} WITHOUT blocking past
+//     timeout.
+//   - on success: data is written to DB; caller may now re-read.
+//
+// EnsureFresh is idempotent and safe to call on EVERY detail handler
+// entry. Nil-OK at every call site — when the field is nil, the
+// composer just reads what's already in the DB.
+type SeriesFreshener interface {
+	EnsureFresh(ctx context.Context, seriesID domain.SeriesID, lang string) FreshenResult
+}
+
+// FreshenResult tells the caller what happened. Used for the
+// `degraded[]` projection on the response AND for the metric label.
+type FreshenResult struct {
+	// Refreshed: TMDB call ran AND the DB row was updated this call.
+	Refreshed bool
+	// Fresh: staleness check decided no refresh was needed.
+	Fresh bool
+	// Degraded: refresh timed out/errored; async fallback was enqueued.
+	Degraded bool
+}
