@@ -146,6 +146,29 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 	if freshen.Degraded && !contains(d.Degraded, enrichment.SourceTMDBSeries) {
 		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
 	}
+	// Story 533d — populate Detail.Text from series_texts so the DTO
+	// mapHero override picks up the localized title/tagline (same
+	// contract as Composer.Get branch "a"). nil-OK: when SeriesTexts is
+	// not wired (tests), the fallback path keeps canon.title as before.
+	// ErrNotFound is a soft miss (no row at all — cold series); any
+	// other port error logs + appends tmdb_series to Degraded.
+	if u.d.SeriesTexts != nil {
+		t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang)
+		switch {
+		case terr == nil:
+			tt := t
+			d.Text = &tt
+		case errors.Is(terr, ports.ErrNotFound):
+			// cold series — leave d.Text nil, mapHero falls back to canon
+		default:
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_series_texts_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", terr.Error()))
+			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
+				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+			}
+		}
+	}
 	// Story 533a — populate seasons + cast from local DB when wired.
 	// Failure is logged and degraded[] gains tmdb_series; never 5xx.
 	if u.d.SeasonsCastSource != nil {
@@ -176,6 +199,7 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 		slog.String("lang", lang),
 		slog.Int("season_count", len(d.Seasons)),
 		slog.Int("cast_count", len(d.Cast)),
+		slog.Bool("has_text", d.Text != nil),
 	)
 	return d, nil
 }

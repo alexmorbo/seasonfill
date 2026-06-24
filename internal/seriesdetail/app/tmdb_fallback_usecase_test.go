@@ -740,3 +740,109 @@ func TestTMDBFallbackUseCase_GetCanonical_StubHydration_DegradedNotDuplicated(t 
 	}
 	assert.Equal(t, 1, count, "stub-branch + cast-error both want tmdb_series; must dedupe")
 }
+
+// ─── Story 533d: localized hero resolves via series_texts ─────────────
+
+func TestTMDBFallbackUseCase_GetCanonical_LocalizedTitle(t *testing.T) {
+	t.Parallel()
+	title := "Менталист"
+	tagline := "Чтение между строк"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{
+				SeriesID: 8378,
+				Language: "ru-RU",
+				Title:    &title,
+				Tagline:  &tagline,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	require.NotNil(t, d.Text, "Detail.Text must be populated from series_texts")
+	require.NotNil(t, d.Text.Title)
+	assert.Equal(t, "Менталист", *d.Text.Title)
+	assert.Equal(t, "ru-RU", d.Text.Language)
+	require.NotNil(t, d.Text.Tagline)
+	assert.Equal(t, "Чтение между строк", *d.Text.Tagline)
+	assert.Empty(t, d.Degraded, "successful texts read MUST NOT mark tmdb_series")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_FallbackToEnUS(t *testing.T) {
+	t.Parallel()
+	// SeriesTexts.GetWithFallback returns en-US when ru-RU is missing.
+	// The fake returns whatever `out` says — we model "fallback hit en-US".
+	title := "The Mentalist"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{
+				SeriesID: 8378,
+				Language: "en-US",
+				Title:    &title,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	require.NotNil(t, d.Text)
+	assert.Equal(t, "en-US", d.Text.Language)
+	assert.Empty(t, d.Degraded)
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_NoTextRow_KeepsCanon(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		SeriesTexts: &fakeFallbackTexts{err: ports.ErrNotFound},
+		Logger:      discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	assert.Nil(t, d.Text, "ErrNotFound = no row, leave Text nil so mapHero uses canon.title")
+	assert.Empty(t, d.Degraded, "ErrNotFound is a soft miss, MUST NOT mark tmdb_series alone")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_TextsPortError_Degrades(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		SeriesTexts: &fakeFallbackTexts{err: errors.New("db down")},
+		Logger:      discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	assert.Nil(t, d.Text)
+	assert.Equal(t, []enrichment.Source{enrichment.SourceTMDBSeries}, d.Degraded)
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_NilSeriesTextsSafe(t *testing.T) {
+	t.Parallel()
+	// Regression-safety: existing fakes that omit SeriesTexts must still work.
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	assert.Nil(t, d.Text, "nil SeriesTexts port leaves Text nil — canon.title wins in DTO")
+	assert.Empty(t, d.Degraded)
+}
